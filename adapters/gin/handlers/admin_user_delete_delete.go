@@ -20,7 +20,7 @@ func HandleAdminUserDeleteDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.
 			return
 		}
 		if err := svc.AdminDeleteUser(c.Request.Context(), id); err != nil {
-			ginutil.ServerErr(c, "failed_to_delete")
+			ginutil.ServerErrWithLog(c, "failed_to_delete", err, "failed to delete user")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

@@ -20,7 +20,7 @@ func HandleAdminUserSessionsDELETE(svc *core.Service, rl ginutil.RateLimiter) gi
 			return
 		}
 		if err := svc.AdminRevokeUserSessions(c.Request.Context(), userID); err != nil {
-			ginutil.ServerErr(c, "revoke_failed")
+			ginutil.ServerErrWithLog(c, "revoke_failed", err, "failed to revoke user sessions")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

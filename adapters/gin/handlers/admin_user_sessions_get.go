@@ -17,7 +17,7 @@ func HandleAdminUserSessionsGET(svc *core.Service, rl ginutil.RateLimiter) gin.H
 		userID := c.Param("user_id")
 		sessions, err := svc.AdminListUserSessions(c.Request.Context(), userID)
 		if err != nil {
-			ginutil.ServerErr(c, "list_failed")
+			ginutil.ServerErrWithLog(c, "list_failed", err, "failed to list user sessions")
 			return
 		}
 		out := make([]gin.H, 0, len(sessions))

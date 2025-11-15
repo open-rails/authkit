@@ -25,7 +25,7 @@ func HandleAdminRolesRevokePOST(svc *core.Service, rl ginutil.RateLimiter) gin.H
 			return
 		}
 		if err := svc.RemoveRoleBySlug(c.Request.Context(), req.UserID, req.Role); err != nil {
-			ginutil.ServerErr(c, "revoke_failed")
+			ginutil.ServerErrWithLog(c, "revoke_failed", err, "failed to revoke role")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

@@ -22,7 +22,7 @@ func HandleUserSessionDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 			return
 		}
 		if err := svc.RevokeSessionByIDForUser(c.Request.Context(), uid.(string), sid); err != nil {
-			ginutil.ServerErr(c, "failed_to_revoke")
+			ginutil.ServerErrWithLog(c, "failed_to_revoke", err, "failed to revoke session")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

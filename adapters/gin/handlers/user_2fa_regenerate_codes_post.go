@@ -27,7 +27,7 @@ func HandleUser2FARegenerateCodesPOST(svc *core.Service, rl ginutil.RateLimiter)
 
 		backupCodes, err := svc.RegenerateBackupCodes(c.Request.Context(), uid)
 		if err != nil {
-			ginutil.ServerErr(c, "regenerate_codes_failed")
+			ginutil.ServerErrWithLog(c, "regenerate_codes_failed", err, "failed to regenerate backup codes")
 			return
 		}
 

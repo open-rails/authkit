@@ -23,7 +23,7 @@ func HandleAdminUsersUnbanPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Ha
 			return
 		}
 		if err := svc.SetActive(c.Request.Context(), req.UserID, true); err != nil {
-			ginutil.ServerErr(c, "failed_to_unban")
+			ginutil.ServerErrWithLog(c, "failed_to_unban", err, "failed to unban user")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

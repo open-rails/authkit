@@ -63,7 +63,7 @@ func HandleUser2FAVerifyPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 		// Code verified - issue tokens and create session
 		sid, rt, _, err := svc.IssueRefreshSession(c.Request.Context(), userID, c.Request.UserAgent(), nil)
 		if err != nil {
-			ginutil.ServerErr(c, "session_creation_failed")
+			ginutil.ServerErrWithLog(c, "session_creation_failed", err, "failed to create session during 2fa login")
 			return
 		}
 
@@ -81,7 +81,7 @@ func HandleUser2FAVerifyPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 
 		token, exp, err := svc.IssueAccessToken(c.Request.Context(), userID, emailForToken, map[string]any{"sid": sid})
 		if err != nil {
-			ginutil.ServerErr(c, "token_creation_failed")
+			ginutil.ServerErrWithLog(c, "token_creation_failed", err, "failed to issue access token during 2fa login")
 			return
 		}
 

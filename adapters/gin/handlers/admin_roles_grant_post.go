@@ -25,7 +25,7 @@ func HandleAdminRolesGrantPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Ha
 			return
 		}
 		if err := svc.AssignRoleBySlug(c.Request.Context(), req.UserID, req.Role); err != nil {
-			ginutil.ServerErr(c, "assign_failed")
+			ginutil.ServerErrWithLog(c, "assign_failed", err, "failed to grant role")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

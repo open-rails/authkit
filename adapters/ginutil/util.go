@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 )
 
 // RateLimiter is a minimal interface used by adapters.
@@ -76,6 +77,23 @@ func Forbidden(c *gin.Context, code string)    { SendErr(c, http.StatusForbidden
 func TooMany(c *gin.Context)                   { SendErr(c, http.StatusTooManyRequests, "rate_limited") }
 func ServerErr(c *gin.Context, code string)    { SendErr(c, http.StatusInternalServerError, code) }
 func NotFound(c *gin.Context, code string)     { SendErr(c, http.StatusNotFound, code) }
+
+// ServerErrWithLog logs the underlying error/context before responding with a generic server error.
+func ServerErrWithLog(c *gin.Context, code string, err error, message string) {
+	entry := log.WithContext(c.Request.Context()).WithFields(log.Fields{
+		"code":   code,
+		"path":   c.FullPath(),
+		"method": c.Request.Method,
+	})
+	if err != nil {
+		entry = entry.WithError(err)
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "authkit server error"
+	}
+	entry.Error(message)
+	ServerErr(c, code)
+}
 
 // RandB64 returns a URL-safe random string of length n bytes.
 func RandB64(n int) string {

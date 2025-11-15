@@ -23,7 +23,7 @@ func HandleUser2FADisablePOST(svc *core.Service, rl ginutil.RateLimiter) gin.Han
 
 		err := svc.Disable2FA(c.Request.Context(), uid)
 		if err != nil {
-			ginutil.ServerErr(c, "disable_2fa_failed")
+			ginutil.ServerErrWithLog(c, "disable_2fa_failed", err, "failed to disable 2fa")
 			return
 		}
 

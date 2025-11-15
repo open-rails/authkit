@@ -19,7 +19,7 @@ func HandleAdminUsersListGET(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 		}
 		users, err := svc.AdminListUsers(c.Request.Context(), page, size)
 		if err != nil {
-			ginutil.ServerErr(c, "failed_to_list_users")
+			ginutil.ServerErrWithLog(c, "failed_to_list_users", err, "failed to list users")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"data": users, "page": page, "page_size": size})

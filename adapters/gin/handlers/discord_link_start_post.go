@@ -49,7 +49,7 @@ func HandleDiscordLinkStartPOST(cfg OIDCConfig, svc *core.Service, rl ginutil.Ra
 		// Store state with LinkUserID
 		st := ginutil.RandB64(24)
 		if err := cfg.StateCache.Put(c.Request.Context(), st, oidckit.StateData{Provider: "discord", RedirectURI: redirectURI, LinkUserID: userID}); err != nil {
-			ginutil.ServerErr(c, "state_store_failed")
+			ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store discord state")
 			return
 		}
 

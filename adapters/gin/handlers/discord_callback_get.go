@@ -156,7 +156,7 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc *core.Service, rl ginutil.Rate
 				_ = svc.SetProviderUsername(c.Request.Context(), u.ID, issuer, du.ID, preferred)
 				created = true
 			} else {
-				ginutil.ServerErr(c, "user_creation_failed")
+				ginutil.ServerErrWithLog(c, "user_creation_failed", err, "failed to create user from discord oauth")
 				return
 			}
 		}
@@ -167,7 +167,7 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc *core.Service, rl ginutil.Rate
 		extra["sid"] = sid
 		accessToken, exp, err := svc.IssueAccessToken(c.Request.Context(), userID, email, extra)
 		if err != nil {
-			ginutil.ServerErr(c, "token_issue_failed")
+			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue token for discord oauth")
 			return
 		}
 		ua := c.Request.UserAgent()

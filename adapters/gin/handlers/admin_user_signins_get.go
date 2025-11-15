@@ -20,7 +20,7 @@ func HandleAdminUserSigninsGET(svc *core.Service, rl ginutil.RateLimiter) gin.Ha
 		}
 		items, err := svc.AdminGetUserSignins(c.Request.Context(), id, page, size)
 		if err != nil {
-			ginutil.ServerErr(c, "failed_to_list_signins")
+			ginutil.ServerErrWithLog(c, "failed_to_list_signins", err, "failed to list user signins")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"data": items, "page": page, "page_size": size})

@@ -23,7 +23,7 @@ func HandleAdminUsersBanPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 			return
 		}
 		if err := svc.SetActive(c.Request.Context(), req.UserID, false); err != nil {
-			ginutil.ServerErr(c, "failed_to_ban")
+			ginutil.ServerErrWithLog(c, "failed_to_ban", err, "failed to ban user")
 			return
 		}
 		_ = svc.RevokeAllSessions(c.Request.Context(), req.UserID, nil)

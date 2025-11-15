@@ -194,7 +194,7 @@ func HandlePasswordLoginPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 				// 2FA is enabled - send verification code and require 2FA
 				verificationID, err := svc.Require2FAForLogin(c.Request.Context(), finalUserID)
 				if err != nil {
-					ginutil.ServerErr(c, "2fa_send_failed")
+					ginutil.ServerErrWithLog(c, "2fa_send_failed", err, "failed to send 2fa verification")
 					return
 				}
 				// Return response indicating 2FA is required

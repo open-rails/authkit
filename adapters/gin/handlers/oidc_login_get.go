@@ -28,7 +28,7 @@ func HandleOIDCLoginGET(cfg OIDCConfig, svc *core.Service, rl ginutil.RateLimite
 		nonce := ginutil.RandB64(16) // Generate nonce for ALL providers (security best practice)
 		verifier, challenge, err := oidckit.GeneratePKCE()
 		if err != nil {
-			ginutil.ServerErr(c, "pkce_generation_failed")
+			ginutil.ServerErrWithLog(c, "pkce_generation_failed", err, "failed to generate pkce")
 			return
 		}
 		redirectURI := ginutil.BuildRedirectURI(c, provider)
@@ -67,7 +67,7 @@ func HandleOIDCLoginGET(cfg OIDCConfig, svc *core.Service, rl ginutil.RateLimite
 			}
 		}
 		if err := cfg.StateCache.Put(c.Request.Context(), state, oidckit.StateData{Provider: provider, Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, LinkUserID: linkUserID, UI: ui, PopupNonce: popupNonce, Origin: origin}); err != nil {
-			ginutil.ServerErr(c, "state_store_failed")
+			ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store oidc state")
 			return
 		}
 		c.Redirect(http.StatusFound, authURL)
