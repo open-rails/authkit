@@ -63,7 +63,7 @@ func HandleUser2FAEnablePOST(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 		// Enable 2FA and generate backup codes
 		backupCodes, err := svc.Enable2FA(c.Request.Context(), uid, method, req.PhoneNumber)
 		if err != nil {
-			ginutil.ServerErr(c, "enable_2fa_failed")
+			ginutil.ServerErrWithLog(c, "enable_2fa_failed", err, "failed to enable 2fa for user")
 			return
 		}
 

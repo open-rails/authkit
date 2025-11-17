@@ -16,7 +16,7 @@ func HandleEmailVerifyRequestPOST(svc *core.Service, rl ginutil.RateLimiter) gin
 	return func(c *gin.Context) {
 		// Email verification requires email sender
 		if !svc.HasEmailSender() {
-			ginutil.ServerErr(c, "email_verification_unavailable")
+			ginutil.ServerErrWithLog(c, "email_verification_unavailable", nil, "email sender not configured for verification requests")
 			return
 		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RLEmailVerifyRequest) {

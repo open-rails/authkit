@@ -18,7 +18,7 @@ func HandlePhonePasswordResetRequestPOST(svc *core.Service, rl ginutil.RateLimit
 	return func(c *gin.Context) {
 		// Phone password reset requires SMS sender
 		if !svc.HasSMSSender() {
-			ginutil.ServerErr(c, "sms_unavailable")
+			ginutil.ServerErrWithLog(c, "sms_unavailable", nil, "sms sender not configured for phone password reset")
 			return
 		}
 

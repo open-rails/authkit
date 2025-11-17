@@ -39,7 +39,7 @@ func HandlePasswordResetRequestPOST(svc *core.Service, rl ginutil.RateLimiter) g
 		if isPhone {
 			// Phone password reset
 			if !svc.HasSMSSender() {
-				ginutil.ServerErr(c, "sms_unavailable")
+				ginutil.ServerErrWithLog(c, "sms_unavailable", nil, "sms sender not configured for password reset")
 				return
 			}
 
@@ -54,7 +54,7 @@ func HandlePasswordResetRequestPOST(svc *core.Service, rl ginutil.RateLimiter) g
 		} else {
 			// Email password reset
 			if !svc.HasEmailSender() {
-				ginutil.ServerErr(c, "email_password_reset_unavailable")
+				ginutil.ServerErrWithLog(c, "email_password_reset_unavailable", nil, "email sender not configured for password reset")
 				return
 			}
 

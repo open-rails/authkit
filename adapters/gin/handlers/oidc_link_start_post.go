@@ -26,7 +26,7 @@ func HandleOIDCLinkStartPOST(cfg OIDCConfig, svc *core.Service, rl ginutil.RateL
 		nonce := ginutil.RandB64(16)
 		verifier, challenge, err := oidckit.GeneratePKCE()
 		if err != nil {
-			ginutil.ServerErr(c, "pkce_generation_failed")
+			ginutil.ServerErrWithLog(c, "pkce_generation_failed", err, "failed to generate pkce verifier for oidc link")
 			return
 		}
 		redirectURI := ginutil.BuildRedirectURI(c, provider)
@@ -36,7 +36,7 @@ func HandleOIDCLinkStartPOST(cfg OIDCConfig, svc *core.Service, rl ginutil.RateL
 			return
 		}
 		if err := cfg.StateCache.Put(c.Request.Context(), state, oidckit.StateData{Provider: provider, Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, LinkUserID: userID}); err != nil {
-			ginutil.ServerErr(c, "state_store_failed")
+			ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store oidc link state")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"auth_url": url, "state": state})

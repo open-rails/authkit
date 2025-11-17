@@ -21,7 +21,7 @@ func HandlePhoneRegisterResendPOST(svc *core.Service, rl ginutil.RateLimiter) gi
 	return func(c *gin.Context) {
 		// Phone resend requires SMS sender
 		if !svc.HasSMSSender() {
-			ginutil.ServerErr(c, "phone_unavailable")
+			ginutil.ServerErrWithLog(c, "phone_unavailable", nil, "sms sender not configured for phone registration resend")
 			return
 		}
 

@@ -28,7 +28,7 @@ func HandleUserUnlinkProviderDELETE(svc *core.Service, rl ginutil.RateLimiter) g
 			return
 		}
 		if err := svc.UnlinkProvider(c.Request.Context(), userID, provider); err != nil {
-			ginutil.ServerErr(c, "failed_to_unlink")
+			ginutil.ServerErrWithLog(c, "failed_to_unlink", err, "failed to unlink provider")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

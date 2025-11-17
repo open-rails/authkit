@@ -16,7 +16,7 @@ func HandleUserSessionsDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.Han
 		}
 		uid, _ := c.Get("auth.user_id")
 		if err := svc.RevokeAllSessions(c.Request.Context(), uid.(string), nil); err != nil {
-			ginutil.ServerErr(c, "failed_to_revoke_all")
+			ginutil.ServerErrWithLog(c, "failed_to_revoke_all", err, "failed to revoke all sessions")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

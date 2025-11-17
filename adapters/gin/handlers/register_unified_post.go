@@ -67,21 +67,21 @@ func HandleRegisterUnifiedPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Ha
 		// Hash password
 		phc, err := pwhash.HashArgon2id(pass)
 		if err != nil {
-			ginutil.ServerErr(c, "hash_failed")
+			ginutil.ServerErrWithLog(c, "hash_failed", err, "failed to hash password during registration")
 			return
 		}
 
 		if isPhone {
 			// Phone registration requires SMS sender
 			if !svc.HasSMSSender() {
-				ginutil.ServerErr(c, "phone_registration_unavailable")
+				ginutil.ServerErrWithLog(c, "phone_registration_unavailable", nil, "sms sender not configured for phone registration")
 				return
 			}
 
 			// Check if phone or username is taken
 			phoneTaken, usernameTaken, err := svc.CheckPhoneRegistrationConflict(c.Request.Context(), identifier, username)
 			if err != nil {
-				ginutil.ServerErr(c, "database_error")
+				ginutil.ServerErrWithLog(c, "database_error", err, "failed to check phone registration conflicts")
 				return
 			}
 			if phoneTaken {
@@ -96,7 +96,7 @@ func HandleRegisterUnifiedPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Ha
 			// Create pending phone registration and send SMS
 			_, err = svc.CreatePendingPhoneRegistration(c.Request.Context(), identifier, username, phc)
 			if err != nil {
-				ginutil.ServerErr(c, "registration_failed")
+				ginutil.ServerErrWithLog(c, "registration_failed", err, "failed to create pending phone registration")
 				return
 			}
 
@@ -110,14 +110,14 @@ func HandleRegisterUnifiedPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Ha
 
 		// Email registration
 		if !svc.HasEmailSender() {
-			ginutil.ServerErr(c, "email_registration_unavailable")
+			ginutil.ServerErrWithLog(c, "email_registration_unavailable", nil, "email sender not configured for email registration")
 			return
 		}
 
 		// Check if email or username is taken (in users OR pending_registrations)
 		emailTaken, usernameTaken, err := svc.CheckPendingRegistrationConflict(c.Request.Context(), identifier, username)
 		if err != nil {
-			ginutil.ServerErr(c, "database_error")
+			ginutil.ServerErrWithLog(c, "database_error", err, "failed to check pending registration conflicts")
 			return
 		}
 		if emailTaken {
@@ -132,7 +132,7 @@ func HandleRegisterUnifiedPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Ha
 		// Create pending registration (not a real user yet)
 		_, err = svc.CreatePendingRegistration(c.Request.Context(), identifier, username, phc, 0)
 		if err != nil {
-			ginutil.ServerErr(c, "registration_failed")
+			ginutil.ServerErrWithLog(c, "registration_failed", err, "failed to create pending email registration")
 			return
 		}
 

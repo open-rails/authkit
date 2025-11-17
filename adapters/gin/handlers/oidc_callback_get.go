@@ -119,7 +119,7 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc *core.Service, exchanger func(ctx
 					}
 					created = true
 				} else {
-					ginutil.ServerErr(c, "user_creation_failed")
+					ginutil.ServerErrWithLog(c, "user_creation_failed", err, "failed to create user from oidc callback")
 					return
 				}
 			}
@@ -129,7 +129,7 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc *core.Service, exchanger func(ctx
 		extra["sid"] = sid
 		token, exp, err := svc.IssueAccessToken(c.Request.Context(), userID, email, extra)
 		if err != nil {
-			ginutil.ServerErr(c, "token_issue_failed")
+			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue access token for oidc callback")
 			return
 		}
 		ua := c.Request.UserAgent()

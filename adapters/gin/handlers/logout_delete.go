@@ -30,7 +30,7 @@ func HandleLogoutDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFu
 			return
 		}
 		if err := svc.RevokeSessionByIDForUser(c.Request.Context(), userID, sid); err != nil {
-			ginutil.ServerErr(c, "failed_to_logout")
+			ginutil.ServerErrWithLog(c, "failed_to_logout", err, "failed to revoke session during logout")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

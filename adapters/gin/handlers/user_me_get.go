@@ -38,7 +38,7 @@ func HandleUserMeGET(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc 
 
 		adminUser, err := svc.AdminGetUser(c.Request.Context(), uid)
 		if err != nil || adminUser == nil {
-			ginutil.ServerErr(c, "user_lookup_failed")
+			ginutil.ServerErrWithLog(c, "user_lookup_failed", err, "failed to fetch user profile")
 			return
 		}
 
@@ -56,7 +56,7 @@ func HandleUserMeGET(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc 
 		}
 		// Username is required - if still empty, return error
 		if username == "" {
-			ginutil.ServerErr(c, "username_missing")
+			ginutil.ServerErrWithLog(c, "username_missing", nil, "username missing in database and claims")
 			return
 		}
 

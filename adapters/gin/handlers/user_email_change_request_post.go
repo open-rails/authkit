@@ -19,7 +19,7 @@ func HandleUserEmailChangeRequestPOST(svc *core.Service, rl ginutil.RateLimiter)
 	return func(c *gin.Context) {
 		// Email verification requires email sender
 		if !svc.HasEmailSender() {
-			ginutil.ServerErr(c, "email_verification_unavailable")
+			ginutil.ServerErrWithLog(c, "email_verification_unavailable", nil, "email sender not configured for email change request")
 			return
 		}
 

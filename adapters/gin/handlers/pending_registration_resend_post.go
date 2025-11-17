@@ -16,7 +16,7 @@ func HandlePendingRegistrationResendPOST(svc *core.Service, rl ginutil.RateLimit
 	return func(c *gin.Context) {
 		// Email verification requires email sender
 		if !svc.HasEmailSender() {
-			ginutil.ServerErr(c, "email_unavailable")
+			ginutil.ServerErrWithLog(c, "email_unavailable", nil, "email sender not configured for registration resend")
 			return
 		}
 
