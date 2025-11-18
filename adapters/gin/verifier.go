@@ -19,6 +19,7 @@ import (
 	core "github.com/PaulFidika/authkit/core"
 	"github.com/gin-gonic/gin"
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/sirupsen/logrus"
 )
 
 // Verifier validates JWTs against configured issuers and JWKS, without mounting any routes.
@@ -119,8 +120,10 @@ func (j *jwksCache) get(kid string, cli *http.Client) (*rsa.PublicKey, error) {
 	if pub != nil && time.Since(fetched) < j.cacheTTL {
 		return pub, nil
 	}
+
+	var err error
 	// fetch/refresh
-	if err := j.refresh(cli); err == nil {
+	if err = j.refresh(cli); err == nil {
 		j.mu.RLock()
 		pub = j.pubs[kid]
 		j.mu.RUnlock()
@@ -128,6 +131,7 @@ func (j *jwksCache) get(kid string, cli *http.Client) (*rsa.PublicKey, error) {
 			return pub, nil
 		}
 	}
+
 	// fallback to pinned if present and within max-stale
 	if j.pinned != nil && time.Since(fetched) < j.maxStale {
 		return j.pinned, nil
@@ -135,6 +139,8 @@ func (j *jwksCache) get(kid string, cli *http.Client) (*rsa.PublicKey, error) {
 	if j.pinned != nil && fetched.IsZero() {
 		return j.pinned, nil
 	}
+
+	logrus.WithError(err).WithField("issuer", j.url).Error("jwks_fetch_failed")
 	return nil, errors.New("key_not_found")
 }
 
