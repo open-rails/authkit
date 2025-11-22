@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/PaulFidika/authkit/adapters/ginutil"
@@ -42,10 +41,10 @@ func HandlePhoneVerifyConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"ok":      true,
-			"user_id": userID,
-			"message": "Account created successfully. You can now log in.",
-		})
+		// Issue tokens and return them
+		if err := IssueTokensForUser(c, svc, userID, "phone_verification"); err != nil {
+			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue tokens after phone verification")
+			return
+		}
 	}
 }

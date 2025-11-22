@@ -37,7 +37,7 @@ func HandleEmailVerifyConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin
 		if err == nil && userID != "" {
 			// Success - pending registration confirmed and user created
 			// Issue tokens and return them
-			if err := issueTokensForUser(c, svc, userID); err != nil {
+			if err := IssueTokensForUser(c, svc, userID, "email_verification"); err != nil {
 				ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue tokens after registration")
 				return
 			}
@@ -52,15 +52,15 @@ func HandleEmailVerifyConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin
 		}
 
 		// Issue tokens and return them
-		if err := issueTokensForUser(c, svc, userID); err != nil {
+		if err := IssueTokensForUser(c, svc, userID, "email_verification"); err != nil {
 			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue tokens after verification")
 			return
 		}
 	}
 }
 
-// issueTokensForUser issues access and refresh tokens for a user and returns them in the response.
-func issueTokensForUser(c *gin.Context, svc *core.Service, userID string) error {
+// IssueTokensForUser issues access and refresh tokens for a user and returns them in the response.
+func IssueTokensForUser(c *gin.Context, svc *core.Service, userID string, method string) error {
 	// Issue refresh session
 	ua := c.Request.UserAgent()
 	ip := net.ParseIP(c.ClientIP())
@@ -72,7 +72,7 @@ func issueTokensForUser(c *gin.Context, svc *core.Service, userID string) error 
 	// Log the login event
 	ipStr := c.ClientIP()
 	uaPtr, ipPtr := &ua, &ipStr
-	svc.LogLogin(c.Request.Context(), userID, "email_verification", sid, ipPtr, uaPtr)
+	svc.LogLogin(c.Request.Context(), userID, method, sid, ipPtr, uaPtr)
 
 	// Issue access token (email will be fetched internally by IssueAccessToken if empty)
 	claims := map[string]any{"sid": sid}
