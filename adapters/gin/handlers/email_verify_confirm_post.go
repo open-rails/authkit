@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PaulFidika/authkit/adapters/ginutil"
 	core "github.com/PaulFidika/authkit/core"
@@ -27,19 +29,64 @@ func HandleEmailVerifyConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin
 		// Normalize code to uppercase (codes are case-insensitive)
 		code := strings.ToUpper(strings.TrimSpace(req.Code))
 
+		var userID string
+		var err error
+
 		// Try pending registration first (new flow)
-		userID, err := svc.ConfirmPendingRegistration(c.Request.Context(), code)
+		userID, err = svc.ConfirmPendingRegistration(c.Request.Context(), code)
 		if err == nil && userID != "" {
 			// Success - pending registration confirmed and user created
-			c.JSON(http.StatusOK, gin.H{"ok": true, "user_id": userID, "message": "Account created successfully. You can now log in."})
+			// Issue tokens and return them
+			if err := issueTokensForUser(c, svc, userID); err != nil {
+				ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue tokens after registration")
+				return
+			}
 			return
 		}
 
 		// Fall back to existing email verification (for OAuth users or email changes)
-		if err := svc.ConfirmEmailVerification(c.Request.Context(), code); err != nil {
+		userID, err = svc.ConfirmEmailVerification(c.Request.Context(), code)
+		if err != nil {
 			ginutil.BadRequest(c, "invalid_or_expired_code")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+
+		// Issue tokens and return them
+		if err := issueTokensForUser(c, svc, userID); err != nil {
+			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue tokens after verification")
+			return
+		}
 	}
+}
+
+// issueTokensForUser issues access and refresh tokens for a user and returns them in the response.
+func issueTokensForUser(c *gin.Context, svc *core.Service, userID string) error {
+	// Issue refresh session
+	ua := c.Request.UserAgent()
+	ip := net.ParseIP(c.ClientIP())
+	sid, rt, _, err := svc.IssueRefreshSession(c.Request.Context(), userID, ua, ip)
+	if err != nil {
+		return err
+	}
+
+	// Log the login event
+	ipStr := c.ClientIP()
+	uaPtr, ipPtr := &ua, &ipStr
+	svc.LogLogin(c.Request.Context(), userID, "email_verification", sid, ipPtr, uaPtr)
+
+	// Issue access token (email will be fetched internally by IssueAccessToken if empty)
+	claims := map[string]any{"sid": sid}
+	accessToken, exp, err := svc.IssueAccessToken(c.Request.Context(), userID, "", claims)
+	if err != nil {
+		return err
+	}
+
+	// Return token response matching login endpoint format
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  accessToken,
+		"token_type":    "Bearer",
+		"expires_in":    int64(time.Until(exp).Seconds()),
+		"refresh_token": rt,
+	})
+	return nil
 }

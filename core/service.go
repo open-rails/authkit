@@ -501,25 +501,30 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 }
 
 // ConfirmEmailVerification verifies a token and marks email_verified = true.
-func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) error {
+// Returns the userID of the verified user.
+func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (userID string, err error) {
 	if s.pg == nil {
-		return jwt.ErrTokenUnverifiable
+		return "", jwt.ErrTokenUnverifiable
 	}
 	rec, err := s.useEmailVerifyToken(ctx, sha256Hex(token))
 	if err != nil {
-		return err
+		return "", err
 	}
 	// Ensure the token verifies the same email currently on the account.
 	// Backward-compat: if the stored email is NULL (old tokens), accept as account-level verify.
 	u, err := s.getUserByID(ctx, rec.UserID)
 	if err != nil || u == nil {
-		return errOrUnauthorized(err)
+		return "", errOrUnauthorized(err)
 	}
 	if rec.Email != nil && u.Email != nil && !strings.EqualFold(*u.Email, *rec.Email) {
 		// Email changed since request; treat token as consumed but invalid for current address
-		return jwt.ErrTokenInvalidClaims
+		return "", jwt.ErrTokenInvalidClaims
 	}
-	return s.setEmailVerified(ctx, rec.UserID, true)
+	err = s.setEmailVerified(ctx, rec.UserID, true)
+	if err != nil {
+		return "", err
+	}
+	return rec.UserID, nil
 }
 
 // --- Pending Registration (for email/password signups) ---
