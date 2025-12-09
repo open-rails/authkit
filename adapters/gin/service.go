@@ -118,6 +118,7 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	api.POST("/auth/email/verify/confirm", handlers.HandleEmailVerifyConfirmPOST(s.svc, rl))
 
 	// Phone-based password reset and verification
+	api.POST("/auth/phone/verify/request", handlers.HandlePhoneVerifyRequestPOST(s.svc, rl))
 	api.POST("/auth/phone/verify/confirm", handlers.HandlePhoneVerifyConfirmPOST(s.svc, rl))
 	api.POST("/auth/phone/password/reset/request", handlers.HandlePhonePasswordResetRequestPOST(s.svc, rl))
 	api.POST("/auth/phone/password/reset/confirm", handlers.HandlePhonePasswordResetConfirmPOST(s.svc, rl))
@@ -235,6 +236,7 @@ func defaultLimits() map[string]redisl.Limit {
 		ginutil.RLPasswordResetConfirm:       {Limit: 10, Window: 10 * time.Minute},
 		ginutil.RLEmailVerifyRequest:         {Limit: 6, Window: 10 * time.Minute},
 		ginutil.RLEmailVerifyConfirm:         {Limit: 10, Window: 10 * time.Minute},
+		ginutil.RLPhoneVerifyRequest:         {Limit: 3, Window: 10 * time.Minute}, // SMS is costly - 3/10min, ~6/hour
 		ginutil.RLAuthSessionsCurrent:        {Limit: 60, Window: 10 * time.Minute},
 		ginutil.RLAuthSessionsList:           {Limit: 120, Window: time.Minute},
 		ginutil.RLAuthSessionsRevoke:         {Limit: 60, Window: 10 * time.Minute},
@@ -276,6 +278,7 @@ func defaultMemoryLimits() map[string]memorylimiter.Limit {
 		ginutil.RLPasswordResetConfirm:       {Limit: 10, Window: 10 * time.Minute},
 		ginutil.RLEmailVerifyRequest:         {Limit: 6, Window: 10 * time.Minute},
 		ginutil.RLEmailVerifyConfirm:         {Limit: 10, Window: 10 * time.Minute},
+		ginutil.RLPhoneVerifyRequest:         {Limit: 3, Window: 10 * time.Minute}, // SMS is costly - 3/10min, ~6/hour
 		ginutil.RLAuthSessionsCurrent:        {Limit: 60, Window: 10 * time.Minute},
 		ginutil.RLAuthSessionsList:           {Limit: 120, Window: time.Minute},
 		ginutil.RLAuthSessionsRevoke:         {Limit: 60, Window: 10 * time.Minute},

@@ -134,7 +134,7 @@ func HandlePasswordLoginPOST(svc *core.Service, rl ginutil.RateLimiter) gin.Hand
 					// This shouldn't happen if registration properly checks for SMS sender
 				} else {
 					// Send verification SMS automatically when user tries to login with unverified phone
-					_ = svc.RequestPhoneVerification(c.Request.Context(), *fetchedUser.PhoneNumber, userID, 0)
+					_ = svc.SendPhoneVerificationToUser(c.Request.Context(), *fetchedUser.PhoneNumber, userID, 0)
 					ginutil.Unauthorized(c, "phone_not_verified")
 					return
 				}

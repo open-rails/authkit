@@ -831,8 +831,30 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*dbUser, er
 
 // --- Phone Verification (for existing users with unverified phones) ---
 
-// RequestPhoneVerification creates a verification code and sends it via SMS. Always returns nil for security.
-func (s *Service) RequestPhoneVerification(ctx context.Context, phone, userID string, ttl time.Duration) error {
+// RequestPhoneVerification looks up the user by phone number and sends a verification code.
+// This mirrors the RequestEmailVerification pattern - caller only needs to provide the phone number.
+// Always returns nil for security (prevents phone enumeration).
+func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
+	if s.pg == nil {
+		return nil
+	}
+	u, err := s.GetUserByPhone(ctx, phone)
+	if err != nil || u == nil {
+		return nil // Fail silently
+	}
+	if u.PhoneVerified {
+		return nil // Already verified
+	}
+	if u.PhoneNumber == nil {
+		return nil // No phone number set
+	}
+	return s.SendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
+}
+
+// SendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
+// Use RequestPhoneVerification if you only have a phone number and need to look up the user.
+// Always returns nil for security.
+func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
 	if s.pg == nil {
 		return nil
 	}

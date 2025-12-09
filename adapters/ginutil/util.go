@@ -36,6 +36,7 @@ const (
 	RLPasswordResetConfirm       = "auth_pwd_reset_confirm"
 	RLEmailVerifyRequest         = "auth_email_verify_request"
 	RLEmailVerifyConfirm         = "auth_email_verify_confirm"
+	RLPhoneVerifyRequest         = "auth_phone_verify_request"
 	RLUserMe                     = "auth_user_me"
 	RLUserUpdateUsername         = "auth_user_update_username"
 	RLUserUpdateEmail            = "auth_user_update_email"
