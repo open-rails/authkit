@@ -9,7 +9,7 @@ import (
 )
 
 // HandleUserEmailChangeResendPOST resends the verification code for a pending email change.
-func HandleUserEmailChangeResendPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserEmailChangeResendPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Email verification requires email sender
 		if !svc.HasEmailSender() {

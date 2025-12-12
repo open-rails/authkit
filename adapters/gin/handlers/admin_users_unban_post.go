@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminUsersUnbanPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAdminUsersUnbanPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type userIDReq struct {
 		UserID string `json:"user_id"`
 	}

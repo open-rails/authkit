@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAuthTokenPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAuthTokenPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAuthToken) {
 			ginutil.TooMany(c)

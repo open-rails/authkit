@@ -12,7 +12,7 @@ import (
 )
 
 // AuthRequired validates the Bearer ID token (JWT), enforces iss/aud/exp, and stores user info in context.
-func AuthRequired(svc *core.Service) gin.HandlerFunc {
+func AuthRequired(svc core.Verifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr := ginutil.BearerToken(c.GetHeader("Authorization"))
 		if tokenStr == "" {
@@ -31,7 +31,13 @@ func AuthRequired(svc *core.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "bad_issuer"})
 			return
 		}
-		if opts.ExpectedAudience != "" { // if empty, skip audience enforcement
+		switch {
+		case len(opts.ExpectedAudiences) > 0:
+			if !audContainsAny(claims["aud"], opts.ExpectedAudiences) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "bad_audience"})
+				return
+			}
+		case opts.ExpectedAudience != "":
 			if !audContains(claims["aud"], opts.ExpectedAudience) {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "bad_audience"})
 				return
@@ -119,7 +125,7 @@ func AuthRequired(svc *core.Service) gin.HandlerFunc {
 }
 
 // AuthOptional passes through when no token is present; validates if present.
-func AuthOptional(svc *core.Service) gin.HandlerFunc {
+func AuthOptional(svc core.Verifier) gin.HandlerFunc {
 	required := AuthRequired(svc)
 	return func(c *gin.Context) {
 		if ginutil.BearerToken(c.GetHeader("Authorization")) == "" {
@@ -131,7 +137,7 @@ func AuthOptional(svc *core.Service) gin.HandlerFunc {
 }
 
 // RoleRequired checks JWT roles claim for the given slug.
-func RoleRequired(svc *core.Service, role string) gin.HandlerFunc {
+func RoleRequired(svc core.Verifier, role string) gin.HandlerFunc {
 	required := AuthRequired(svc)
 
 	return func(c *gin.Context) {
@@ -158,7 +164,7 @@ func RoleRequired(svc *core.Service, role string) gin.HandlerFunc {
 }
 
 // EntitlementRequired checks the entitlements claim for the given value.
-func EntitlementRequired(svc *core.Service, entitlement string) gin.HandlerFunc {
+func EntitlementRequired(svc core.Verifier, entitlement string) gin.HandlerFunc {
 	required := AuthRequired(svc)
 	return func(c *gin.Context) {
 		required(c)

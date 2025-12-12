@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandlePhoneVerifyConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePhoneVerifyConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type verifyPhoneReq struct {
 		PhoneNumber string `json:"phone_number"`
 		Code        string `json:"code"`

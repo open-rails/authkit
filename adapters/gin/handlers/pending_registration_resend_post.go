@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandlePendingRegistrationResendPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePendingRegistrationResendPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type resendReq struct {
 		Email string `json:"email"`
 	}

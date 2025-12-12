@@ -198,7 +198,7 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 }
 
 // GetUserBySolanaAddress looks up a user by their Solana wallet address.
-func (s *Service) GetUserBySolanaAddress(ctx context.Context, address string) (*dbUser, error) {
+func (s *Service) GetUserBySolanaAddress(ctx context.Context, address string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}

@@ -12,7 +12,7 @@ import (
 // HandleUserPasswordPOST allows an authenticated user to set or change their password.
 // If the user already has a password, current_password is required and must verify.
 // Always enforces the shared password validator and revokes other sessions on success.
-func HandleUserPasswordPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserPasswordPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type reqBody struct {
 		CurrentPassword string `json:"current_password"`
 		NewPassword     string `json:"new_password"`

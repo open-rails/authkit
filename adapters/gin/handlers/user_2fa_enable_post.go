@@ -21,7 +21,7 @@ type enable2FAResponse struct {
 }
 
 // HandleUser2FAEnablePOST enables 2FA for the current user
-func HandleUser2FAEnablePOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUser2FAEnablePOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLUserPasswordChange) {
 			ginutil.TooMany(c)

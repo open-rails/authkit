@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandlePasswordResetRequestPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePasswordResetRequestPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type resetReq struct {
 		Identifier string `json:"identifier"` // Email or phone number (E.164 format)
 	}

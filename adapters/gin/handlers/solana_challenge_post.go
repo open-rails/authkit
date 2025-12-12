@@ -18,7 +18,7 @@ type SIWSConfig struct {
 
 // HandleSolanaChallengePost handles POST /auth/solana/challenge
 // Creates a new SIWS challenge for the given wallet address.
-func HandleSolanaChallengePost(cfg SIWSConfig, svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleSolanaChallengePost(cfg SIWSConfig, svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type challengeReq struct {
 		Address  string `json:"address" binding:"required"`
 		Username string `json:"username"` // Optional desired username for new accounts

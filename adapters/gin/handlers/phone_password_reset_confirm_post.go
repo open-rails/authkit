@@ -12,7 +12,7 @@ import (
 )
 
 // HandlePhonePasswordResetConfirmPOST handles POST /auth/phone/password/reset/confirm
-func HandlePhonePasswordResetConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePhonePasswordResetConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type confirmReq struct {
 		PhoneNumber string `json:"phone_number"`
 		Code        string `json:"code"`

@@ -15,25 +15,25 @@ import (
 // SignInInput contains the parameters for a SIWS challenge.
 // This is sent to the wallet to construct the sign-in message.
 type SignInInput struct {
-	Domain         string     `json:"domain"`
-	Address        string     `json:"address"`
-	Statement      *string    `json:"statement,omitempty"`
-	URI            *string    `json:"uri,omitempty"`
-	Version        *string    `json:"version,omitempty"`
-	ChainID        *string    `json:"chainId,omitempty"`
-	Nonce          string     `json:"nonce"`
-	IssuedAt       string     `json:"issuedAt"`
-	ExpirationTime *string    `json:"expirationTime,omitempty"`
-	NotBefore      *string    `json:"notBefore,omitempty"`
-	RequestID      *string    `json:"requestId,omitempty"`
-	Resources      []string   `json:"resources,omitempty"`
+	Domain         string   `json:"domain"`
+	Address        string   `json:"address"`
+	Statement      *string  `json:"statement,omitempty"`
+	URI            *string  `json:"uri,omitempty"`
+	Version        *string  `json:"version,omitempty"`
+	ChainID        *string  `json:"chainId,omitempty"`
+	Nonce          string   `json:"nonce"`
+	IssuedAt       string   `json:"issuedAt"`
+	ExpirationTime *string  `json:"expirationTime,omitempty"`
+	NotBefore      *string  `json:"notBefore,omitempty"`
+	RequestID      *string  `json:"requestId,omitempty"`
+	Resources      []string `json:"resources,omitempty"`
 }
 
 // SignInOutput contains the wallet's response after signing.
 type SignInOutput struct {
 	Account       AccountInfo `json:"account"`
-	Signature     []byte      `json:"signature"`      // 64-byte Ed25519 signature
-	SignedMessage []byte      `json:"signedMessage"`  // The message bytes that were signed
+	Signature     []byte      `json:"signature"`     // 64-byte Ed25519 signature
+	SignedMessage []byte      `json:"signedMessage"` // The message bytes that were signed
 }
 
 // AccountInfo contains the wallet account details.
@@ -44,10 +44,10 @@ type AccountInfo struct {
 
 // ChallengeData is stored server-side while awaiting signature verification.
 type ChallengeData struct {
-	Address   string    `json:"address"`
-	Username  string    `json:"username,omitempty"`
-	IssuedAt  time.Time `json:"issued_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	Address   string      `json:"address"`
+	Username  string      `json:"username,omitempty"`
+	IssuedAt  time.Time   `json:"issued_at"`
+	ExpiresAt time.Time   `json:"expires_at"`
 	Input     SignInInput `json:"input"` // Store full input for verification
 }
 

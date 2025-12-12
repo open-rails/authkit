@@ -15,7 +15,7 @@ var phoneVerifyRegex = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 
 // HandlePhoneVerifyRequestPOST handles POST /auth/phone/verify/request
 // Sends a verification code to an existing user's phone number.
-func HandlePhoneVerifyRequestPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePhoneVerifyRequestPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type verifyReq struct {
 		PhoneNumber string `json:"phone_number"`
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminUserSigninsGET(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAdminUserSigninsGET(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("user_id")
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))

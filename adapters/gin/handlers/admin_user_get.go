@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminUserGET(svc *core.Service) gin.HandlerFunc {
+func HandleAdminUserGET(svc core.Provider) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("user_id")
 		u, err := svc.AdminGetUser(c.Request.Context(), id)

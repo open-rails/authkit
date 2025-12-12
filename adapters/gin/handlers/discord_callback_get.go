@@ -31,7 +31,7 @@ type discordUser struct {
 }
 
 // HandleDiscordCallbackGET completes the Discord OAuth2 code flow and issues our tokens.
-func HandleDiscordCallbackGET(cfg OIDCConfig, svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCCallback) {
 			ginutil.TooMany(c)

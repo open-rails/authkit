@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleUserUsernamePATCH(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserUsernamePATCH(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLUserUpdateUsername) {
 			ginutil.TooMany(c)

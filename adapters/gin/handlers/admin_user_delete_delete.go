@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminUserDeleteDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAdminUserDeleteDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("user_id")
 		if id == "" {

@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminRolesGrantPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAdminRolesGrantPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type roleReq struct{ UserID, Role string }
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAdminRolesGrant) {

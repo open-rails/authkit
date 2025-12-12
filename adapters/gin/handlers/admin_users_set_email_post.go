@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminUsersSetEmailPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAdminUsersSetEmailPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type setEmailReq struct {
 		UserID string `json:"user_id"`
 		Email  string `json:"email"`

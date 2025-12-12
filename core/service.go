@@ -23,9 +23,14 @@ import (
 
 // Options configures issued tokens and identifiers.
 type Options struct {
-	Issuer               string
-	IssuedAudiences      []string // JWT audiences - tokens issued will contain ALL of these audiences
-	ExpectedAudience     string   // Expected audience for THIS service when validating tokens (single value)
+	Issuer          string
+	IssuedAudiences []string // JWT audiences - tokens issued will contain ALL of these audiences
+	// ExpectedAudiences enforces that verified access tokens contain at least one
+	// of these audiences. Prefer this over ExpectedAudience for new integrations.
+	ExpectedAudiences []string
+	// ExpectedAudience enforces a single required audience for verified access tokens.
+	// Deprecated: prefer ExpectedAudiences.
+	ExpectedAudience     string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 	SessionMaxPerUser    int
@@ -82,9 +87,13 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	if len(issuedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
 	}
-	expectedAudience := cfg.ExpectedAudience
-	if expectedAudience == "" {
-		return nil, fmt.Errorf("authkit: ExpectedAudience is required (e.g., \"myapp\")")
+	expectedAudience := strings.TrimSpace(cfg.ExpectedAudience)
+	expectedAudiences := cfg.ExpectedAudiences
+	if len(expectedAudiences) == 0 && expectedAudience != "" {
+		expectedAudiences = []string{expectedAudience}
+	}
+	if len(expectedAudiences) == 0 {
+		return nil, fmt.Errorf("authkit: ExpectedAudiences (or ExpectedAudience) is required (e.g., []string{\"myapp\"})")
 	}
 
 	maxSess := cfg.SessionMaxPerUser
@@ -99,7 +108,8 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	opts := Options{
 		Issuer:               cfg.Issuer,
 		IssuedAudiences:      issuedAudiences,
-		ExpectedAudience:     expectedAudience,
+		ExpectedAudiences:    expectedAudiences,
+		ExpectedAudience:     expectedAudiences[0],
 		AccessTokenDuration:  accessTTL,
 		RefreshTokenDuration: refTTL,
 		SessionMaxPerUser:    maxSess,
@@ -814,7 +824,7 @@ func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, use
 }
 
 // GetUserByPhone looks up a user by phone number.
-func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*dbUser, error) {
+func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -822,7 +832,7 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*dbUser, er
 		SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, deleted_at, biography, created_at, updated_at, last_login
 		FROM profiles.users WHERE phone_number = $1
 	`, phone)
-	var u dbUser
+	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
@@ -1062,7 +1072,7 @@ func sha256Hex(s string) string {
 
 // --- Direct Postgres helpers (profiles schema) ---
 
-type dbUser struct {
+type User struct {
 	ID              string
 	Email           *string // Nullable - phone-only users have NULL email
 	PhoneNumber     *string
@@ -1078,49 +1088,49 @@ type dbUser struct {
 	LastLogin       *time.Time
 }
 
-func (s *Service) getUserByEmail(ctx context.Context, email string) (*dbUser, error) {
+func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
 	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE lower(email)=lower($1)`, email)
-	var u dbUser
+	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-func (s *Service) getUserByUsername(ctx context.Context, username string) (*dbUser, error) {
+func (s *Service) getUserByUsername(ctx context.Context, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
 	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE username=$1`, username)
-	var u dbUser
+	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-func (s *Service) getUserByID(ctx context.Context, id string) (*dbUser, error) {
+func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
 	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE id=$1`, id)
-	var u dbUser
+	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-func (s *Service) createUser(ctx context.Context, email, username string) (*dbUser, error) {
+func (s *Service) createUser(ctx context.Context, email, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
 	// Convert empty email to NULL for database (allows multiple users without emails)
 	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (email, username) VALUES (NULLIF(lower($1), ''), $2) RETURNING id, email, username, email_verified, is_active`, email, username)
-	var u dbUser
+	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.IsActive); err != nil {
 		return nil, err
 	}
@@ -1597,9 +1607,17 @@ type AdminUser struct {
 	Entitlements    []string   `json:"entitlements"`
 }
 
-func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int) ([]AdminUser, error) {
+// AdminListUsersResult contains paginated user list with total count
+type AdminListUsersResult struct {
+	Users  []AdminUser `json:"users"`
+	Total  int64       `json:"total"`
+	Limit  int         `json:"limit"`
+	Offset int         `json:"offset"`
+}
+
+func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int) (*AdminListUsersResult, error) {
 	if s.pg == nil {
-		return nil, nil
+		return &AdminListUsersResult{Users: []AdminUser{}, Total: 0, Limit: pageSize, Offset: 0}, nil
 	}
 	if page <= 0 {
 		page = 1
@@ -1608,6 +1626,13 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int) ([]Adm
 		pageSize = 50
 	}
 	offset := (page - 1) * pageSize
+
+	// Get total count
+	var total int64
+	if err := s.pg.QueryRow(ctx, `SELECT COUNT(*) FROM profiles.users`).Scan(&total); err != nil {
+		return nil, err
+	}
+
 	rows, err := s.pg.Query(ctx, `SELECT id::text, email, username, email_verified, is_active, biography, created_at, updated_at, last_login FROM profiles.users ORDER BY created_at DESC OFFSET $1 LIMIT $2`, offset, pageSize)
 	if err != nil {
 		return nil, err
@@ -1623,7 +1648,10 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int) ([]Adm
 		a.Entitlements = s.ListEntitlements(ctx, a.ID)
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &AdminListUsersResult{Users: out, Total: total, Limit: pageSize, Offset: offset}, nil
 }
 
 func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, error) {
@@ -1656,13 +1684,13 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 func (s *Service) GetProviderLink(ctx context.Context, provider, subject string) (string, *string, error) {
 	return s.getProviderLink(ctx, provider, subject)
 }
-func (s *Service) GetUserByEmail(ctx context.Context, email string) (*dbUser, error) {
+func (s *Service) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	return s.getUserByEmail(ctx, email)
 }
-func (s *Service) GetUserByUsername(ctx context.Context, username string) (*dbUser, error) {
+func (s *Service) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	return s.getUserByUsername(ctx, username)
 }
-func (s *Service) CreateUser(ctx context.Context, email, username string) (*dbUser, error) {
+func (s *Service) CreateUser(ctx context.Context, email, username string) (*User, error) {
 	return s.createUser(ctx, email, username)
 }
 func (s *Service) LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error {

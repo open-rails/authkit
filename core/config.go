@@ -9,9 +9,14 @@ import (
 
 // Config mirrors the simplicity of go-pkgz/auth: provide issuer, durations, and keys.
 type Config struct {
-	Issuer               string
-	IssuedAudiences      []string // JWT audiences - tokens issued will contain ALL of these audiences
-	ExpectedAudience     string   // Expected audience for THIS service when validating tokens (single value)
+	Issuer          string
+	IssuedAudiences []string // JWT audiences - tokens issued will contain ALL of these audiences
+	// ExpectedAudiences enforces that verified access tokens contain at least one
+	// of these audiences. Prefer this over ExpectedAudience for new integrations.
+	ExpectedAudiences []string
+	// ExpectedAudience enforces a single required audience for verified access tokens.
+	// Deprecated: prefer ExpectedAudiences.
+	ExpectedAudience     string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 	// Session limits

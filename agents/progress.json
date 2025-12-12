@@ -11,6 +11,18 @@
         "[DONE] Update api-endpoints.md documentation"
       ],
       "completed": true
+    },
+    {
+      "name": "Enhance UserContext with convenience methods",
+      "description": "Both doujins and hentai0 wrap authkit's UserContext with their own logic to check roles/entitlements. This should be built into authkit's UserContext directly.\n\n## Problem\n\ndoujins has `internal/auth/user_context.go` with:\n```go\ntype UserContext struct {\n    User         *views.User  // Project-specific\n    IsAdmin      bool\n    IsLoggedIn   bool\n    Language     string\n    Roles        []string\n    Entitlements []string\n}\n```\n\nAnd `internal/middleware/user_context.go` computes these flags:\n```go\nuserCtx.IsAdmin = containsIgnoreCase(userCtx.Roles, \"admin\")\n```\n\nhentai0 uses authkit's UserContext directly but lacks these convenience methods.\n\n## Solution\n\nAdd convenience methods to authkit's `UserContext` in `adapters/gin/userctx.go`:\n\n```go\n// Already exists:\nfunc (uc UserContext) IsAdmin() bool { return hasString(uc.Roles, \"admin\") }\n\n// Add these:\nfunc (uc UserContext) IsLoggedIn() bool { return uc.UserID != \"\" }\nfunc (uc UserContext) HasRole(role string) bool { return hasString(uc.Roles, role) }\nfunc (uc UserContext) HasEntitlement(ent string) bool { return hasString(uc.Entitlements, ent) }\n```\n\n## Important: NO IsPremium() method\n\nDo NOT add `IsPremium()` method. This is overly specific and doesn't scale. Instead, callers should use the generic `HasEntitlement(\"premium\")`. Same logic applies to any future entitlement types - use the generic method, not dedicated boolean methods.\n\n## Migration\n\nAfter authkit changes:\n- doujins can simplify `internal/middleware/user_context.go` to just use `authgin.UserContext` methods\n- doujins can potentially remove `internal/auth/user_context.go` if the only additions were computed flags\n- hentai0 gains these methods automatically\n\n## Note\n\nLanguage middleware and response envelopes are NOT part of this issue - those belong in a separate shared library (e.g., `go-api-common`), not authkit.",
+      "tasks": [
+        "[x] Add IsLoggedIn() method to UserContext (check UserID != \"\")",
+        "[x] Add HasRole(role string) method to UserContext",
+        "[x] Add HasEntitlement(ent string) method to UserContext",
+        "[x] Add unit tests for new UserContext methods",
+        "[x] Downstream app wrapper removal tracked in app repos"
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

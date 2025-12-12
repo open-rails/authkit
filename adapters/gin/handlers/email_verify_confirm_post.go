@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleEmailVerifyConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleEmailVerifyConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type verifyConfirmReq struct {
 		Code string `json:"code"`
 	}
@@ -60,7 +60,7 @@ func HandleEmailVerifyConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin
 }
 
 // IssueTokensForUser issues access and refresh tokens for a user and returns them in the response.
-func IssueTokensForUser(c *gin.Context, svc *core.Service, userID string, method string) error {
+func IssueTokensForUser(c *gin.Context, svc core.Provider, userID string, method string) error {
 	// Issue refresh session
 	ua := c.Request.UserAgent()
 	ip := net.ParseIP(c.ClientIP())

@@ -12,7 +12,7 @@ import (
 )
 
 // HandleDiscordLinkStartPOST begins a Discord OAuth2 link flow for the current user.
-func HandleDiscordLinkStartPOST(cfg OIDCConfig, svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleDiscordLinkStartPOST(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCStart) {
 			ginutil.TooMany(c)

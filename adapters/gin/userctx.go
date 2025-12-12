@@ -134,7 +134,13 @@ func LookupDBUser(pg *pgxpool.Pool) gin.HandlerFunc {
 // in route registrations for clarity and single-responsibility.
 
 // Convenience helpers
+func (uc UserContext) IsLoggedIn() bool { return strings.TrimSpace(uc.UserID) != "" }
+
 func (uc UserContext) IsAdmin() bool { return hasString(uc.Roles, "admin") }
+
+func (uc UserContext) HasRole(role string) bool { return hasString(uc.Roles, role) }
+
+func (uc UserContext) HasEntitlement(ent string) bool { return hasString(uc.Entitlements, ent) }
 
 func hasString(arr []string, want string) bool {
 	for _, s := range arr {

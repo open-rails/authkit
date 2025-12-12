@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleEmailVerifyRequestPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleEmailVerifyRequestPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type verifyReq struct {
 		Email string `json:"email"`
 	}

@@ -17,7 +17,7 @@ var e164PhoneRegex = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 // HandleRegisterUnifiedPOST handles POST /auth/register
 // Accepts either email or phone number in the identifier field
 // Server disambiguates based on format
-func HandleRegisterUnifiedPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleRegisterUnifiedPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type registerReq struct {
 		Identifier string `json:"identifier"` // email or phone number
 		Username   string `json:"username"`

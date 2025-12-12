@@ -7,7 +7,7 @@ import (
 )
 
 // HandleJWKS serves the public JWKS document.
-func HandleJWKS(svc *core.Service) gin.HandlerFunc {
+func HandleJWKS(svc core.Verifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		jwks := svc.JWKS()
 		jwtkit.ServeJWKS(c.Writer, c.Request, jwks)

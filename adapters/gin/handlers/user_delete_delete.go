@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleUserDeleteDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserDeleteDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLUserDelete) {
 			ginutil.TooMany(c)

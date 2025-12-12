@@ -13,7 +13,7 @@ import (
 // Auth provides a unified middleware surface whether you mount full AuthKit routes (Service)
 // or use the JWKS Verifier only. It exposes Required/Optional and DB-backed Role/Entitlement gates.
 type Auth struct {
-	svc *core.Service
+	svc core.Verifier
 	ver *Verifier
 }
 

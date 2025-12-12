@@ -3,6 +3,7 @@ package authgin
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +18,24 @@ type Claims struct {
 	SessionID       string
 	Roles           []string
 	Entitlements    []string
+}
+
+func (c Claims) HasRole(role string) bool {
+	for _, r := range c.Roles {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c Claims) HasEntitlement(ent string) bool {
+	for _, e := range c.Entitlements {
+		if strings.EqualFold(e, ent) {
+			return true
+		}
+	}
+	return false
 }
 
 // unexported context key

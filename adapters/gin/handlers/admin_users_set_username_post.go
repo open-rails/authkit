@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminUsersSetUsernamePOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAdminUsersSetUsernamePOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type setUsernameReq struct {
 		UserID   string `json:"user_id"`
 		Username string `json:"username"`

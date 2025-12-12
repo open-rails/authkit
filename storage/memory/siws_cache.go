@@ -11,9 +11,9 @@ import (
 // SIWSCache stores pending SIWS challenges in memory.
 // This is only suitable for single-node deployments or local development.
 type SIWSCache struct {
-	mu    sync.RWMutex
-	data  map[string]siwsEntry
-	ttl   time.Duration
+	mu   sync.RWMutex
+	data map[string]siwsEntry
+	ttl  time.Duration
 }
 
 type siwsEntry struct {

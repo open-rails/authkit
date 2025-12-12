@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleUserSessionsGET(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserSessionsGET(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAuthSessionsList) {
 			ginutil.TooMany(c)

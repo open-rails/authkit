@@ -11,7 +11,7 @@ import (
 
 // HandleLogoutDELETE handles DELETE /auth/logout without importing parent package types.
 // It relies on standard context keys set by Auth middleware: "auth.user_id" and "authkit.claims".
-func HandleLogoutDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleLogoutDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAuthLogout) {
 			ginutil.TooMany(c)

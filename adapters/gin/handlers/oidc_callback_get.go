@@ -15,7 +15,7 @@ import (
 	"github.com/zitadel/oidc/v2/pkg/client/rp"
 )
 
-func HandleOIDCCallbackGET(cfg OIDCConfig, svc *core.Service, exchanger func(ctx context.Context, rpClient rp.RelyingParty, provider, code, verifier, nonce string) (oidckit.Claims, error), rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx context.Context, rpClient rp.RelyingParty, provider, code, verifier, nonce string) (oidckit.Claims, error), rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCCallback) {
 			ginutil.TooMany(c)

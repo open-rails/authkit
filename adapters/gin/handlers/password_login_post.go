@@ -12,7 +12,7 @@ import (
 )
 
 // HandlePasswordLoginPOST handles POST /auth/password/login
-func HandlePasswordLoginPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type loginReq struct {
 		Email    string `json:"email"`
 		Login    string `json:"login"` // email or username

@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleUserSessionDELETE(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserSessionDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAuthSessionsRevoke) {
 			ginutil.TooMany(c)

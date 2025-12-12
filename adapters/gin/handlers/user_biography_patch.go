@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleUserBiographyPATCH(svc *core.Service) gin.HandlerFunc {
+func HandleUserBiographyPATCH(svc core.Provider) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get("auth.user_id")
 		userID, _ := uid.(string)

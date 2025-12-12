@@ -13,7 +13,7 @@ import (
 
 // HandleSolanaLoginPost handles POST /auth/solana/login
 // Verifies a SIWS signature and authenticates the user.
-func HandleSolanaLoginPost(cfg SIWSConfig, svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleSolanaLoginPost(cfg SIWSConfig, svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	// Request types matching the SIWS output format
 	type accountReq struct {
 		Address   string `json:"address" binding:"required"`

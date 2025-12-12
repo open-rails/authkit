@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandlePasswordResetConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePasswordResetConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type resetConfirmReq struct {
 		Code        string `json:"code"`
 		NewPassword string `json:"new_password"`

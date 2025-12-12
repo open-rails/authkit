@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HandleAdminRolesRevokePOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleAdminRolesRevokePOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type roleReq struct{ UserID, Role string }
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAdminRolesRevoke) {

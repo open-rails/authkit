@@ -11,7 +11,7 @@ import (
 
 // HandleUserEmailChangeRequestPOST initiates an email change request.
 // Requires the user to be authenticated and provide their current password for security.
-func HandleUserEmailChangeRequestPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserEmailChangeRequestPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type reqBody struct {
 		NewEmail string `json:"new_email"`
 		Password string `json:"password"`

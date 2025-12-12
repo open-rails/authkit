@@ -11,7 +11,7 @@ import (
 )
 
 // HandleDiscordLoginGET starts the Discord OAuth2 authorization code flow (non-OIDC).
-func HandleDiscordLoginGET(cfg OIDCConfig, svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleDiscordLoginGET(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCStart) {
 			ginutil.TooMany(c)

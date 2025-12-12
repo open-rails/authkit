@@ -12,7 +12,7 @@ import (
 
 // HandleSolanaLinkPost handles POST /auth/solana/link
 // Links a Solana wallet to an existing authenticated user account.
-func HandleSolanaLinkPost(cfg SIWSConfig, svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleSolanaLinkPost(cfg SIWSConfig, svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	// Request types matching the SIWS output format
 	type accountReq struct {
 		Address   string `json:"address" binding:"required"`

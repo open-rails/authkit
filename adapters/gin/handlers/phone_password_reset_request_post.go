@@ -11,7 +11,7 @@ import (
 )
 
 // HandlePhonePasswordResetRequestPOST handles POST /auth/phone/password/reset/request
-func HandlePhonePasswordResetRequestPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePhonePasswordResetRequestPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type resetReq struct {
 		PhoneNumber string `json:"phone_number"`
 	}

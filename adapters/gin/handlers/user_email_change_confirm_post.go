@@ -10,7 +10,7 @@ import (
 )
 
 // HandleUserEmailChangeConfirmPOST confirms an email change using the verification code.
-func HandleUserEmailChangeConfirmPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserEmailChangeConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type reqBody struct {
 		Code string `json:"code"`
 	}

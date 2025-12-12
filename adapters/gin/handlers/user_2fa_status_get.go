@@ -15,7 +15,7 @@ type twoFactorStatusResponse struct {
 }
 
 // HandleUser2FAStatusGET returns the current user's 2FA settings
-func HandleUser2FAStatusGET(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUser2FAStatusGET(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLUserMe) {
 			ginutil.TooMany(c)

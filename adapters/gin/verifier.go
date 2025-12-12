@@ -234,8 +234,8 @@ func (v *Verifier) Verify(tokenStr string) (jwt.MapClaims, error) {
 	if ia == nil {
 		return nil, errors.New("bad_issuer")
 	}
-	expectedAud := acceptAudience(v.accept, iss)
-	if expectedAud != "" && !audContains(claims["aud"], expectedAud) {
+	expectedAud := acceptAudiences(v.accept, iss)
+	if len(expectedAud) > 0 && !audContainsAny(claims["aud"], expectedAud) {
 		return nil, errors.New("bad_audience")
 	}
 	return claims, nil
@@ -322,13 +322,19 @@ func audFrom(cl jwt.MapClaims) []string {
 	}
 	return nil
 }
-func acceptAudience(ac core.AcceptConfig, iss string) string {
+func acceptAudiences(ac core.AcceptConfig, iss string) []string {
 	for _, i := range ac.Issuers {
 		if i.Issuer == iss {
-			return i.Audience
+			if len(i.Audiences) > 0 {
+				return i.Audiences
+			}
+			if strings.TrimSpace(i.Audience) != "" {
+				return []string{strings.TrimSpace(i.Audience)}
+			}
+			return nil
 		}
 	}
-	return ""
+	return nil
 }
 func acceptedAud(want []string, got []string) []string {
 	if len(want) == 0 {

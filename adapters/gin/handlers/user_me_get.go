@@ -24,7 +24,7 @@ type userMeResponse struct {
 }
 
 // HandleUserMeGET returns the current user's profile information
-func HandleUserMeGET(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUserMeGET(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLUserMe) {
 			ginutil.TooMany(c)

@@ -11,7 +11,7 @@ import (
 )
 
 // HandlePhoneRegisterResendPOST handles POST /auth/register/resend-phone
-func HandlePhoneRegisterResendPOST(svc *core.Service, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandlePhoneRegisterResendPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type resendReq struct {
 		PhoneNumber string `json:"phone_number"`
 	}
