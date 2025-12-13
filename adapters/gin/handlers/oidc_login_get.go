@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/PaulFidika/authkit/adapters/ginutil"
@@ -56,22 +55,19 @@ func HandleOIDCLoginGET(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLimite
 				ginutil.Unauthorized(c, "invalid_token")
 				return
 			}
-		}
-		ui := c.Query("ui")
-		popupNonce := c.Query("popup_nonce")
-		// Capture origin from Referer for secure postMessage (before OAuth redirect overwrites it)
-		origin := "*"
-		if referer := c.Request.Referer(); referer != "" {
-			if u, err := url.Parse(referer); err == nil && u.Scheme != "" && u.Host != "" {
-				origin = u.Scheme + "://" + u.Host
 			}
+			ui := c.Query("ui")
+			if ui != "" && ui != "popup" {
+				ginutil.BadRequest(c, "invalid_ui")
+				return
+			}
+			popupNonce := c.Query("popup_nonce")
+			if err := cfg.StateCache.Put(c.Request.Context(), state, oidckit.StateData{Provider: provider, Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, LinkUserID: linkUserID, UI: ui, PopupNonce: popupNonce}); err != nil {
+				ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store oidc state")
+				return
+			}
+			c.Redirect(http.StatusFound, authURL)
 		}
-		if err := cfg.StateCache.Put(c.Request.Context(), state, oidckit.StateData{Provider: provider, Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, LinkUserID: linkUserID, UI: ui, PopupNonce: popupNonce, Origin: origin}); err != nil {
-			ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store oidc state")
-			return
-		}
-		c.Redirect(http.StatusFound, authURL)
-	}
 }
 
 // bearer token helper lives in ginutil.BearerToken

@@ -38,11 +38,18 @@ func HandleDiscordLoginGET(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLim
 			path = "/auth/oauth/discord/callback"
 		}
 		redirectURI := scheme + "://" + host + path
-		// Persist minimal state for callback validation
-		st := ginutil.RandB64(24)
-		ui := c.Query("ui")
-		popupNonce := c.Query("popup_nonce")
-		_ = cfg.StateCache.Put(c.Request.Context(), st, oidckit.StateData{Provider: provider, RedirectURI: redirectURI, UI: ui, PopupNonce: popupNonce})
+			// Persist minimal state for callback validation
+			st := ginutil.RandB64(24)
+			ui := c.Query("ui")
+			if ui != "" && ui != "popup" {
+				ginutil.BadRequest(c, "invalid_ui")
+				return
+			}
+			popupNonce := c.Query("popup_nonce")
+			if err := cfg.StateCache.Put(c.Request.Context(), st, oidckit.StateData{Provider: provider, RedirectURI: redirectURI, UI: ui, PopupNonce: popupNonce}); err != nil {
+				ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store oauth state")
+				return
+			}
 
 		// Build Discord authorize URL
 		// Docs: https://discord.com/developers/docs/topics/oauth2#authorization-code-grant

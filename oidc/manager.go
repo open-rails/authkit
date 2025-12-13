@@ -119,5 +119,4 @@ type StateData struct {
 	LinkUserID  string
 	UI          string // "popup" to trigger popup HTML callback; else redirect
 	PopupNonce  string // echoed in popup postMessage for opener validation
-	Origin      string // frontend origin for postMessage security
 }

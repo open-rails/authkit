@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -150,6 +151,19 @@ func BuildRedirectURI(c *gin.Context, provider string) string {
 		}
 	}
 	return scheme + "://" + host + p
+}
+
+// OriginFromBaseURL returns the origin (scheme://host) for an absolute base URL.
+// It returns ok=false if baseURL is empty, relative, or missing scheme/host.
+func OriginFromBaseURL(baseURL string) (origin string, ok bool) {
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u == nil {
+		return "", false
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	return u.Scheme + "://" + u.Host, true
 }
 
 // BearerToken extracts a Bearer token from an Authorization header value.

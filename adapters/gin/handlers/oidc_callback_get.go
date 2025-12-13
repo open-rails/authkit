@@ -138,34 +138,28 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx
 		svc.LogLogin(c.Request.Context(), userID, "oidc_login", sid, ipPtr, uaPtr)
 		if created {
 			svc.SendWelcome(c.Request.Context(), userID)
-		}
-		// Popup mode: return tiny HTML that postMessages tokens to opener
-		if sd.UI == "popup" {
-			payload := map[string]any{
-				"type":          "AUTHKIT_OIDC_RESULT",
-				"access_token":  token,
-				"refresh_token": rt,
-				"expires_in":    int64(time.Until(exp).Seconds()),
-				"provider":      provider,
-				"nonce":         sd.PopupNonce,
 			}
-			b, _ := json.Marshal(payload)
-
-			// Use the origin we captured during login initiation (before OAuth redirect)
-			targetOrigin := sd.Origin
-			if targetOrigin == "" {
-				targetOrigin = "*" // fallback for backward compatibility
+			// Popup mode: return tiny HTML that postMessages tokens to opener
+			if sd.UI == "popup" {
+				targetOrigin, ok := ginutil.OriginFromBaseURL(svc.Options().BaseURL)
+				if !ok {
+					ginutil.ServerErrWithLog(c, "invalid_base_url", nil, "BaseURL must be absolute (scheme://host) for popup auth flow")
+					return
+				}
+				payload := map[string]any{
+					"type":          "AUTHKIT_OIDC_RESULT",
+					"access_token":  token,
+					"refresh_token": rt,
+					"expires_in":    int64(time.Until(exp).Seconds()),
+					"provider":      provider,
+					"nonce":         sd.PopupNonce,
+				}
+				b, _ := json.Marshal(payload)
+				html := buildOIDCPopupHTML(b, targetOrigin)
+				c.Header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+				c.Data(http.StatusOK, "text/html; charset=utf-8", html)
+				return
 			}
-
-			html := "<!doctype html><html><body><script>\n" +
-				"try {\n" +
-				"  var data = " + string(b) + ";\n" +
-				"  if (window.opener) { window.opener.postMessage(data, '" + targetOrigin + "'); }\n" +
-				"} finally { window.close(); }\n" +
-				"</script></body></html>"
-			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
-			return
-		}
 		// If caller requests JSON explicitly, return JSON (useful for tests/tools)
 		if strings.EqualFold(c.Query("format"), "json") || strings.Contains(c.GetHeader("Accept"), "application/json") {
 			c.JSON(http.StatusOK, gin.H{"access_token": token, "token_type": "Bearer", "expires_in": int64(time.Until(exp).Seconds()), "refresh_token": rt, "user": gin.H{"id": userID, "email": email}})
@@ -182,4 +176,17 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx
 		target := strings.TrimRight(base, "/") + "/auth/callback" + frag
 		c.Redirect(http.StatusFound, target)
 	}
+}
+
+func buildOIDCPopupHTML(payloadJSON []byte, targetOrigin string) []byte {
+	// Always JSON-encode strings we interpolate into JS to avoid injection.
+	originJSON, _ := json.Marshal(targetOrigin)
+	html := "<!doctype html><html><body><script>\n" +
+		"try {\n" +
+		"  var data = " + string(payloadJSON) + ";\n" +
+		"  var targetOrigin = " + string(originJSON) + ";\n" +
+		"  if (window.opener) { window.opener.postMessage(data, targetOrigin); }\n" +
+		"} finally { window.close(); }\n" +
+		"</script></body></html>"
+	return []byte(html)
 }
