@@ -114,7 +114,7 @@ func HandleRegisterUnifiedPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Ha
 			return
 		}
 
-		// Check if email or username is taken (in users OR pending_registrations)
+		// Check if email or username is taken (in users or pending registration cache)
 		emailTaken, usernameTaken, err := svc.CheckPendingRegistrationConflict(c.Request.Context(), identifier, username)
 		if err != nil {
 			ginutil.ServerErrWithLog(c, "database_error", err, "failed to check pending registration conflicts")

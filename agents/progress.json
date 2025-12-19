@@ -1,6 +1,47 @@
 {
   "issues": [
     {
+      "name": "Move ephemeral auth state to Redis (codes, SIWS challenges, rate limits)",
+      "description": "Use Redis-compatible storage (Garnet) for ephemeral auth state (verification codes, reset tokens, SIWS challenges, and other short-lived entries) so we don't rely on Postgres TTL cleanup. This also makes SIWS safe in multi-instance deployments. In-memory caches remain as a fallback when Garnet is not configured, but they are not safe for distributed use. AuthKit should accept a Redis client interface from the host app (Garnet implements the same protocol).",
+      "tasks": [
+        "[x] Define a minimal Redis client interface (Get/Set/Del) and accept it via AuthKit options",
+        "[x] Add Garnet/Redis config in host apps; pass client into AuthKit (no internal dialer)",
+        "[x] Define key prefixes + TTLs for: email/phone verify codes, password resets, pending registrations, 2FA codes, SIWS challenges, rate limit buckets",
+        "[x] Replace Postgres writes for ephemeral tables with Redis writes (keep Postgres for durable user/session records)",
+        "[x] Update verification flows to read from Redis and delete on success",
+        "[x] Add store selection: memory|redis|postgres (configurable). Memory is dev-only; redis required for multi-instance prod; postgres is explicit opt-in adapter",
+        "[x] Enforce: in prod + multi-instance, require redis; otherwise fail fast with clear error",
+        "[x] Keep in-memory cache fallback for dev/single-instance",
+        "[x] Update migrations/docs: remove ephemeral tables or leave for backward compat; document required Redis for HA",
+        "[x] Add tests for Redis-backed flows (skip when Redis not configured)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Unify OAuth/OIDC routes under /auth/oauth/:provider",
+      "description": "Expose a single route pattern for all external identity providers (OIDC and OAuth) under /auth/oauth/:provider to simplify client integration while keeping provider-specific logic internally.",
+      "tasks": [
+        "[ ] Add new routes: GET /auth/oauth/:provider/login, GET /auth/oauth/:provider/callback, POST /auth/oauth/:provider/link/start",
+        "[ ] Wire OIDC providers (google/apple/etc) to the new /auth/oauth/:provider routes without changing internal validation flow",
+        "[ ] Wire Discord OAuth to the same /auth/oauth/:provider routes",
+        "[ ] Decide whether to keep /auth/oidc/* and /auth/oauth/discord/* as aliases or deprecate with docs",
+        "[ ] Update docs (api-endpoints.md) with new unified route pattern and provider list"
+      ],
+      "completed": false
+    },
+    {
+      "name": "Add phone number change flow (request/confirm/resend)",
+      "description": "Add a phone change flow for existing users mirroring the email change behavior. This should verify the new phone number via SMS code and update the user's phone only after confirmation.",
+      "tasks": [
+        "[ ] Add core service methods: RequestPhoneChange(userID, newPhone), ConfirmPhoneChange(userID, code), ResendPhoneChangeCode(userID)",
+        "[ ] Add persistence for pending phone change verification (reuse phone_verifications with a new purpose or add a dedicated table)",
+        "[ ] Add Gin handlers: POST /auth/user/phone/change/request, POST /auth/user/phone/change/confirm, POST /auth/user/phone/change/resend",
+        "[ ] Add rate limit keys for request/confirm/resend",
+        "[ ] Update docs (api-endpoints.md) with phone change routes and expected errors"
+      ],
+      "completed": false
+    },
+    {
       "name": "Add phone verification request endpoint",
       "description": "Add POST /auth/phone/verify/request endpoint for existing users to add/verify a phone number, mirroring the existing POST /auth/email/verify/request flow.",
       "tasks": [

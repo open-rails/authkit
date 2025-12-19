@@ -53,16 +53,20 @@ type EntitlementsProvider interface {
 
 // Service is the core auth service used by HTTP adapters.
 type Service struct {
-	opts         Options
-	keys         Keyset
-	email        EmailSender
-	sms          SMSSender
-	pg           *pgxpool.Pool
-	entitlements EntitlementsProvider
-	authlog      AuthEventLogger
+	opts           Options
+	keys           Keyset
+	email          EmailSender
+	sms            SMSSender
+	pg             *pgxpool.Pool
+	entitlements   EntitlementsProvider
+	authlog        AuthEventLogger
+	ephemeralStore EphemeralStore
+	ephemeralMode  EphemeralMode
 }
 
-func NewService(opts Options, keys Keyset) *Service { return &Service{opts: opts, keys: keys} }
+func NewService(opts Options, keys Keyset) *Service {
+	return &Service{opts: opts, keys: keys, ephemeralMode: EphemeralMemory}
+}
 
 // NewFromConfig creates a Service from high-level Config + Stores.
 // If Keys is nil, auto-discovers keys from environment variables, filesystem, or generates development keys.
@@ -542,29 +546,20 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
-	if s.pg == nil {
-		return "", fmt.Errorf("postgres not configured")
-	}
 	if ttl <= 0 {
 		ttl = 24 * time.Hour
 	}
 
-	// Delete any existing pending registration for this email or username (allow re-registration)
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.pending_registrations WHERE email = lower($1) OR username = $2`, email, username)
-
 	// Generate 6-character alphanumeric verification code (A-Z, 0-9)
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
-	exp := time.Now().Add(ttl)
 
-	// Insert pending registration
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.pending_registrations (email, username, password_hash, token_hash, expires_at)
-		VALUES (lower($1), $2, $3, $4, $5)
-	`, email, username, passwordHash, hash, exp)
-
-	if err != nil {
-		return "", err
+	if s.useEphemeralStore() {
+		if err := s.storePendingRegistration(ctx, email, username, passwordHash, hash, ttl); err != nil {
+			return "", err
+		}
+	} else {
+		return "", fmt.Errorf("ephemeral store not configured")
 	}
 
 	// Send verification email with code
@@ -580,21 +575,16 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 // ConfirmPendingRegistration verifies token and creates the actual user account.
 // This implements "first to verify wins" - whoever verifies first gets the username/email.
 func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) (userID string, err error) {
-	if s.pg == nil {
-		return "", jwt.ErrTokenUnverifiable
-	}
-
 	hash := sha256Hex(token)
 
-	// Look up pending registration
 	var email, username, passwordHash string
-	err = s.pg.QueryRow(ctx, `
-		SELECT email, username, password_hash
-		FROM profiles.pending_registrations
-		WHERE token_hash = $1 AND expires_at > NOW()
-	`, hash).Scan(&email, &username, &passwordHash)
-
-	if err != nil {
+	if s.useEphemeralStore() {
+		data, ok, err := s.loadPendingRegistration(ctx, hash)
+		if err != nil || !ok {
+			return "", jwt.ErrTokenUnverifiable
+		}
+		email, username, passwordHash = data.Email, data.Username, data.PasswordHash
+	} else {
 		return "", jwt.ErrTokenUnverifiable
 	}
 
@@ -613,7 +603,9 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 
 	if exists {
 		// Someone else got there first - delete this pending registration
-		_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.pending_registrations WHERE token_hash = $1`, hash)
+		if s.useEphemeralStore() {
+			s.deletePendingRegistration(ctx, hash, pendingRegistrationData{Email: email, Username: username})
+		}
 		return "", fmt.Errorf("email or username already taken")
 	}
 
@@ -640,43 +632,42 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 	}
 
 	// Delete pending registration (success)
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.pending_registrations WHERE token_hash = $1`, hash)
+	if s.useEphemeralStore() {
+		s.deletePendingRegistration(ctx, hash, pendingRegistrationData{Email: email, Username: username})
+	}
 
 	return uid, nil
 }
 
-// CheckPendingRegistrationConflict checks if email or username exists in users OR pending_registrations.
+// CheckPendingRegistrationConflict checks if email or username exists in users or pending registration cache.
 // Returns (emailTaken, usernameTaken, error)
 func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
-	if s.pg == nil {
-		return false, false, nil
-	}
-
 	var emailTaken, usernameTaken bool
-
-	// Check users table
-	err := s.pg.QueryRow(ctx, `
-		SELECT
-			EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1)),
-			EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
-	`, email, username).Scan(&emailTaken, &usernameTaken)
-
-	if err != nil {
-		return false, false, err
+	if s.pg != nil {
+		err := s.pg.QueryRow(ctx, `
+			SELECT
+				EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1)),
+				EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
+		`, email, username).Scan(&emailTaken, &usernameTaken)
+		if err != nil {
+			return false, false, err
+		}
 	}
 
 	if emailTaken || usernameTaken {
 		return emailTaken, usernameTaken, nil
 	}
 
-	// Check pending_registrations table (only non-expired)
-	err = s.pg.QueryRow(ctx, `
-		SELECT
-			EXISTS(SELECT 1 FROM profiles.pending_registrations WHERE email = lower($1) AND expires_at > NOW()),
-			EXISTS(SELECT 1 FROM profiles.pending_registrations WHERE username = $2 AND expires_at > NOW())
-	`, email, username).Scan(&emailTaken, &usernameTaken)
-
-	return emailTaken, usernameTaken, err
+	if s.useEphemeralStore() {
+		if v, ok, _ := s.ephemGetString(ctx, keyPendingRegEmail+normalizeEmail(email)); ok && v != "" {
+			emailTaken = true
+		}
+		if v, ok, _ := s.ephemGetString(ctx, keyPendingRegUser+username); ok && v != "" {
+			usernameTaken = true
+		}
+		return emailTaken, usernameTaken, nil
+	}
+	return emailTaken, usernameTaken, nil
 }
 
 // --- Phone Registration (for phone+password signups) ---
@@ -684,26 +675,15 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
-	if s.pg == nil {
-		return "", fmt.Errorf("postgres not configured")
-	}
-
-	// Delete any existing pending registration for this phone or username
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.pending_phone_registrations WHERE phone_number = $1 OR username = $2`, phone, username)
-
 	// Generate 6-character alphanumeric code (A-Z, 0-9)
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
-	exp := time.Now().Add(15 * time.Minute)
-
-	// Insert pending registration
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.pending_phone_registrations (phone_number, username, password_hash, code_hash, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, phone, username, passwordHash, hash, exp)
-
-	if err != nil {
-		return "", err
+	if s.useEphemeralStore() {
+		if err := s.storePendingPhoneRegistration(ctx, phone, username, passwordHash, hash, 15*time.Minute); err != nil {
+			return "", err
+		}
+	} else {
+		return "", fmt.Errorf("ephemeral store not configured")
 	}
 
 	// Send SMS
@@ -724,21 +704,20 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 // ConfirmPendingPhoneRegistration verifies code and creates the actual user account.
 // Implements "first to verify wins" - whoever verifies first gets the username/phone.
 func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
-	if s.pg == nil {
-		return "", jwt.ErrTokenUnverifiable
-	}
-
 	hash := sha256Hex(code)
 
-	// Look up pending registration
 	var username, passwordHash string
-	err = s.pg.QueryRow(ctx, `
-		SELECT username, password_hash
-		FROM profiles.pending_phone_registrations
-		WHERE phone_number = $1 AND code_hash = $2 AND expires_at > NOW()
-	`, phone, hash).Scan(&username, &passwordHash)
-
-	if err != nil {
+	if s.useEphemeralStore() {
+		tokenHash, ok, err := s.ephemGetString(ctx, keyPendingPhonePhone+phone)
+		if err != nil || !ok || tokenHash == "" || tokenHash != hash {
+			return "", jwt.ErrTokenUnverifiable
+		}
+		data, ok, err := s.loadPendingPhoneRegistration(ctx, tokenHash)
+		if err != nil || !ok {
+			return "", jwt.ErrTokenUnverifiable
+		}
+		username, passwordHash = data.Username, data.PasswordHash
+	} else {
 		return "", jwt.ErrTokenUnverifiable
 	}
 
@@ -757,7 +736,9 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 
 	if exists {
 		// Someone else got there first
-		_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.pending_phone_registrations WHERE phone_number = $1`, phone)
+		if s.useEphemeralStore() {
+			s.deletePendingPhoneRegistration(ctx, hash, pendingRegistrationData{Email: phone, Username: username})
+		}
 		return "", fmt.Errorf("phone or username already taken")
 	}
 
@@ -784,7 +765,9 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 	}
 
 	// Delete pending registration
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.pending_phone_registrations WHERE phone_number = $1`, phone)
+	if s.useEphemeralStore() {
+		s.deletePendingPhoneRegistration(ctx, hash, pendingRegistrationData{Email: phone, Username: username})
+	}
 
 	return uid, nil
 }
@@ -792,35 +775,33 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 // CheckPhoneRegistrationConflict checks if phone or username exists in users OR pending tables.
 // Returns (phoneTaken, usernameTaken, error)
 func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
-	if s.pg == nil {
-		return false, false, nil
-	}
-
 	var phoneTaken, usernameTaken bool
 
-	// Check users table
-	err := s.pg.QueryRow(ctx, `
-		SELECT
-			EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1),
-			EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
-	`, phone, username).Scan(&phoneTaken, &usernameTaken)
-
-	if err != nil {
-		return false, false, err
+	if s.pg != nil {
+		err := s.pg.QueryRow(ctx, `
+			SELECT
+				EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1),
+				EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
+		`, phone, username).Scan(&phoneTaken, &usernameTaken)
+		if err != nil {
+			return false, false, err
+		}
 	}
 
 	if phoneTaken || usernameTaken {
 		return phoneTaken, usernameTaken, nil
 	}
 
-	// Check pending_phone_registrations table
-	err = s.pg.QueryRow(ctx, `
-		SELECT
-			EXISTS(SELECT 1 FROM profiles.pending_phone_registrations WHERE phone_number = $1 AND expires_at > NOW()),
-			EXISTS(SELECT 1 FROM profiles.pending_phone_registrations WHERE username = $2 AND expires_at > NOW())
-	`, phone, username).Scan(&phoneTaken, &usernameTaken)
-
-	return phoneTaken, usernameTaken, err
+	if s.useEphemeralStore() {
+		if v, ok, _ := s.ephemGetString(ctx, keyPendingPhonePhone+phone); ok && v != "" {
+			phoneTaken = true
+		}
+		if v, ok, _ := s.ephemGetString(ctx, keyPendingPhoneUser+username); ok && v != "" {
+			usernameTaken = true
+		}
+		return phoneTaken, usernameTaken, nil
+	}
+	return phoneTaken, usernameTaken, nil
 }
 
 // GetUserByPhone looks up a user by phone number.
@@ -865,32 +846,19 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 // Use RequestPhoneVerification if you only have a phone number and need to look up the user.
 // Always returns nil for security.
 func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
-	if s.pg == nil {
-		return nil
-	}
 	if ttl <= 0 {
 		ttl = 15 * time.Minute
 	}
 
-	// Delete any existing phone verification codes for this phone number
-	_, _ = s.pg.Exec(ctx, `
-		DELETE FROM profiles.phone_verifications 
-		WHERE phone_number = $1 AND purpose = 'verify_phone'
-	`, phone)
-
 	// Generate 6-character alphanumeric code (A-Z, 0-9)
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
-	exp := time.Now().Add(ttl)
-
-	// Store verification code in phone_verifications table
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.phone_verifications (user_id, phone_number, code_hash, purpose, expires_at)
-		VALUES ($1, $2, $3, 'verify_phone', $4)
-	`, userID, phone, hash, exp)
-
-	if err != nil {
-		return nil // Fail silently
+	if s.useEphemeralStore() {
+		if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, hash, ttl); err != nil {
+			return nil
+		}
+	} else {
+		return nil
 	}
 
 	// Send SMS
@@ -910,25 +878,17 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 
 // ConfirmPhoneVerification verifies a token and marks phone_verified = true.
 func (s *Service) ConfirmPhoneVerification(ctx context.Context, phone, code string) error {
-	if s.pg == nil {
-		return jwt.ErrTokenUnverifiable
-	}
-
 	hash := sha256Hex(code)
 
-	// Look up and consume verification code (delete-on-use)
 	var userID string
-	err := s.pg.QueryRow(ctx, `
-		DELETE FROM profiles.phone_verifications
-		WHERE phone_number = $1
-		  AND code_hash = $2
-		  AND purpose = 'verify_phone'
-		  AND used_at IS NULL
-		  AND expires_at > NOW()
-		RETURNING user_id
-	`, phone, hash).Scan(&userID)
-
-	if err != nil {
+	var err error
+	if s.useEphemeralStore() {
+		uid, err := s.consumePhoneVerification(ctx, "verify_phone", phone, hash)
+		if err != nil {
+			return err
+		}
+		userID = uid
+	} else {
 		return jwt.ErrTokenUnverifiable
 	}
 
@@ -947,10 +907,6 @@ func (s *Service) ConfirmPhoneVerification(ctx context.Context, phone, code stri
 // RequestPhonePasswordReset creates a verification code and sends it via SMS.
 // Always returns nil to prevent user enumeration (202-like behavior).
 func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration) error {
-	if s.pg == nil {
-		return nil
-	}
-
 	// Look up user by phone
 	u, err := s.GetUserByPhone(ctx, phone)
 	if err != nil || u == nil {
@@ -961,25 +917,15 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		ttl = 15 * time.Minute // Shorter than old email tokens (15 min vs 1 hour)
 	}
 
-	// Delete any existing password reset codes for this phone number
-	_, _ = s.pg.Exec(ctx, `
-		DELETE FROM profiles.phone_verifications 
-		WHERE phone_number = $1 AND purpose = 'password_reset'
-	`, phone)
-
 	// Generate 6-character alphanumeric code (A-Z, 0-9)
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
-	exp := time.Now().Add(ttl)
-
-	// Store verification code in phone_verifications table
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.phone_verifications (user_id, phone_number, code_hash, purpose, expires_at)
-		VALUES ($1, $2, $3, 'password_reset', $4)
-	`, u.ID, phone, hash, exp)
-
-	if err != nil {
-		return nil // Fail silently
+	if s.useEphemeralStore() {
+		if err := s.storePhoneVerification(ctx, "password_reset", phone, u.ID, hash, ttl); err != nil {
+			return nil
+		}
+	} else {
+		return nil
 	}
 
 	// Send SMS
@@ -999,25 +945,16 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 
 // ConfirmPhonePasswordReset verifies the code and sets a new password.
 func (s *Service) ConfirmPhonePasswordReset(ctx context.Context, phone, code, newPassword string) (string, error) {
-	if s.pg == nil {
-		return "", jwt.ErrTokenUnverifiable
-	}
-
 	hash := sha256Hex(code)
 
-	// Look up and consume verification code (delete-on-use)
 	var userID string
-	err := s.pg.QueryRow(ctx, `
-		DELETE FROM profiles.phone_verifications
-		WHERE phone_number = $1
-		  AND code_hash = $2
-		  AND purpose = 'password_reset'
-		  AND used_at IS NULL
-		  AND expires_at > NOW()
-		RETURNING user_id
-	`, phone, hash).Scan(&userID)
-
-	if err != nil {
+	if s.useEphemeralStore() {
+		uid, err := s.consumePhoneVerification(ctx, "password_reset", phone, hash)
+		if err != nil {
+			return "", err
+		}
+		userID = uid
+	} else {
 		return "", jwt.ErrTokenUnverifiable
 	}
 
@@ -1254,8 +1191,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 		return fmt.Errorf("email already in use")
 	}
 
-	// Delete any existing pending email verifications for this user
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.email_verifications WHERE user_id=$1`, userID)
+	// Previous pending email verification is overwritten by storeEmailVerification.
 
 	// Generate 6-character alphanumeric code (A-Z, 0-9)
 	code := randAlphanumeric(6)
@@ -1339,10 +1275,6 @@ func (s *Service) ConfirmEmailChange(ctx context.Context, userID, code string) e
 
 // ResendEmailChangeCode resends the verification code for a pending email change.
 func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) error {
-	if s.pg == nil {
-		return fmt.Errorf("postgres not configured")
-	}
-
 	// Get current user
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
@@ -1352,16 +1284,14 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		return fmt.Errorf("user not found")
 	}
 
-	// Check if there's a pending email verification for this user
 	var pendingEmail string
-	err = s.pg.QueryRow(ctx, `
-		SELECT email FROM profiles.email_verifications 
-		WHERE user_id=$1 AND used_at IS NULL AND expires_at>now()
-		ORDER BY requested_at DESC
-		LIMIT 1
-	`, userID).Scan(&pendingEmail)
-
-	if err != nil {
+	if s.useEphemeralStore() {
+		rec, err := s.getEmailVerificationByUser(ctx, userID)
+		if err != nil || rec == nil || rec.Email == nil {
+			return fmt.Errorf("no pending email change found")
+		}
+		pendingEmail = *rec.Email
+	} else {
 		return fmt.Errorf("no pending email change found")
 	}
 
@@ -1370,8 +1300,7 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		return fmt.Errorf("no pending email change found")
 	}
 
-	// Delete the old verification and create a new one
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.email_verifications WHERE user_id=$1`, userID)
+	// Previous pending email verification is overwritten by storeEmailVerification.
 
 	// Generate new code
 	code := randAlphanumeric(6)
@@ -1401,10 +1330,6 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 
 // GetPendingEmailChange retrieves the pending email change for a user, if any.
 func (s *Service) GetPendingEmailChange(ctx context.Context, userID string) (string, error) {
-	if s.pg == nil {
-		return "", nil
-	}
-
 	// Get current user
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
@@ -1416,15 +1341,14 @@ func (s *Service) GetPendingEmailChange(ctx context.Context, userID string) (str
 
 	// Check if there's a pending email verification
 	var pendingEmail string
-	err = s.pg.QueryRow(ctx, `
-		SELECT email FROM profiles.email_verifications 
-		WHERE user_id=$1 AND used_at IS NULL AND expires_at>now()
-		ORDER BY requested_at DESC
-		LIMIT 1
-	`, userID).Scan(&pendingEmail)
-
-	if err != nil {
-		return "", nil // No pending change
+	if s.useEphemeralStore() {
+		rec, err := s.getEmailVerificationByUser(ctx, userID)
+		if err != nil || rec == nil || rec.Email == nil {
+			return "", nil
+		}
+		pendingEmail = *rec.Email
+	} else {
+		return "", nil
 	}
 
 	// Check if it's different from current email (it's a change request)
@@ -1471,48 +1395,45 @@ type emailVerifyToken struct {
 }
 
 func (s *Service) createEmailVerifyToken(ctx context.Context, userID, tokenHash string, email string, exp time.Time) error {
-	if s.pg == nil {
-		return nil
+	if !s.useEphemeralStore() {
+		return fmt.Errorf("ephemeral store not configured")
 	}
-	_, err := s.pg.Exec(ctx, `INSERT INTO profiles.email_verifications (user_id, token_hash, email, expires_at) VALUES ($1,$2,lower($3),$4)`, userID, tokenHash, email, exp)
-	return err
+	var em *string
+	if strings.TrimSpace(email) != "" {
+		v := normalizeEmail(email)
+		em = &v
+	}
+	ttl := time.Until(exp)
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	return s.storeEmailVerification(ctx, userID, tokenHash, em, ttl)
 }
 
 func (s *Service) useEmailVerifyToken(ctx context.Context, tokenHash string) (*emailVerifyToken, error) {
-	if s.pg == nil {
-		return nil, jwt.ErrTokenUnverifiable
+	if s.useEphemeralStore() {
+		return s.consumeEmailVerification(ctx, tokenHash)
 	}
-	var userID string
-	var email *string
-	// Delete-on-use to avoid table bloat; ensures single-consumption semantics
-	row := s.pg.QueryRow(ctx, `DELETE FROM profiles.email_verifications
-        WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now()
-        RETURNING user_id, email`, tokenHash)
-	if err := row.Scan(&userID, &email); err != nil {
-		return nil, err
-	}
-	return &emailVerifyToken{UserID: userID, Email: email}, nil
+	return nil, jwt.ErrTokenUnverifiable
 }
 
 func (s *Service) useResetToken(ctx context.Context, tokenHash string) (struct{ UserID string }, error) {
-	if s.pg == nil {
-		return struct{ UserID string }{}, nil
+	if s.useEphemeralStore() {
+		userID, err := s.consumePasswordReset(ctx, tokenHash)
+		return struct{ UserID string }{UserID: userID}, err
 	}
-	// Delete-on-use to avoid table bloat; ensures single-consumption semantics
-	row := s.pg.QueryRow(ctx, `DELETE FROM profiles.password_resets WHERE token_hash=$1 AND used_at IS NULL AND expires_at>NOW() RETURNING user_id`, tokenHash)
-	var out struct{ UserID string }
-	if err := row.Scan(&out.UserID); err != nil {
-		return out, err
-	}
-	return out, nil
+	return struct{ UserID string }{}, jwt.ErrTokenUnverifiable
 }
 
 func (s *Service) createResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
-	if s.pg == nil {
-		return nil
+	if s.useEphemeralStore() {
+		ttl := time.Until(expiresAt)
+		if ttl <= 0 {
+			ttl = time.Hour
+		}
+		return s.storePasswordReset(ctx, tokenHash, userID, ttl)
 	}
-	_, err := s.pg.Exec(ctx, `INSERT INTO profiles.password_resets (user_id, token_hash, expires_at) VALUES ($1,$2,$3)`, userID, tokenHash, expiresAt)
-	return err
+	return fmt.Errorf("ephemeral store not configured")
 }
 
 func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
@@ -1951,44 +1872,46 @@ type PendingRegistration struct {
 	Email        string
 	Username     string
 	PasswordHash string
-	ExpiresAt    time.Time
 }
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.
 func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
-	if s.pg == nil {
-		return nil, nil
+	if s.useEphemeralStore() {
+		token, ok, err := s.ephemGetString(ctx, keyPendingRegEmail+normalizeEmail(email))
+		if err != nil || !ok || token == "" {
+			return nil, err
+		}
+		data, ok, err := s.loadPendingRegistration(ctx, token)
+		if err != nil || !ok {
+			return nil, err
+		}
+		return &PendingRegistration{
+			Email:        data.Email,
+			Username:     data.Username,
+			PasswordHash: data.PasswordHash,
+		}, nil
 	}
-	row := s.pg.QueryRow(ctx, `
-		SELECT email, username, password_hash, expires_at
-		FROM profiles.pending_registrations
-		WHERE email = lower($1) AND expires_at > NOW()
-	`, email)
-
-	var pr PendingRegistration
-	if err := row.Scan(&pr.Email, &pr.Username, &pr.PasswordHash, &pr.ExpiresAt); err != nil {
-		return nil, err
-	}
-	return &pr, nil
+	return nil, nil
 }
 
 // GetPendingPhoneRegistrationByPhone looks up a pending phone registration by phone number.
 func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
-	if s.pg == nil {
-		return nil, nil
+	if s.useEphemeralStore() {
+		token, ok, err := s.ephemGetString(ctx, keyPendingPhonePhone+phone)
+		if err != nil || !ok || token == "" {
+			return nil, err
+		}
+		data, ok, err := s.loadPendingPhoneRegistration(ctx, token)
+		if err != nil || !ok {
+			return nil, err
+		}
+		return &PendingRegistration{
+			Email:        "",
+			Username:     data.Username,
+			PasswordHash: data.PasswordHash,
+		}, nil
 	}
-	row := s.pg.QueryRow(ctx, `
-        SELECT username, password_hash, expires_at
-        FROM profiles.pending_phone_registrations
-        WHERE phone_number = $1 AND expires_at > NOW()
-    `, phone)
-
-	var pr PendingRegistration
-	pr.Email = ""
-	if err := row.Scan(&pr.Username, &pr.PasswordHash, &pr.ExpiresAt); err != nil {
-		return nil, err
-	}
-	return &pr, nil
+	return nil, nil
 }
 
 // VerifyPendingPassword checks if the provided password matches the pending registration's hash.
@@ -2102,10 +2025,6 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 // Returns the destination (email/phone) where the code was sent.
 // This should be called after successful password verification.
 func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string, error) {
-	if s.pg == nil {
-		return "", fmt.Errorf("postgres not configured")
-	}
-
 	// Get user's 2FA settings
 	settings, err := s.Get2FASettings(ctx, userID)
 	if err != nil {
@@ -2139,17 +2058,13 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 		destination = *settings.PhoneNumber
 	}
 
-	// Delete any existing 2FA codes for this user
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.two_factor_verifications WHERE user_id = $1`, userID)
-
-	// Store verification code
 	exp := time.Now().Add(10 * time.Minute) // 10 minute expiration for 2FA codes
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.two_factor_verifications (user_id, code_hash, method, destination, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, userID, hash, settings.Method, destination, exp)
-	if err != nil {
-		return "", err
+	if s.useEphemeralStore() {
+		if err := s.storeTwoFactorCode(ctx, userID, hash, settings.Method, destination, time.Until(exp)); err != nil {
+			return "", err
+		}
+	} else {
+		return "", fmt.Errorf("ephemeral store not configured")
 	}
 
 	// Send the code
@@ -2188,32 +2103,12 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 // Verify2FACode verifies a 2FA code entered by the user during login.
 // Returns true if code is valid, false otherwise.
 func (s *Service) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
-	if s.pg == nil {
-		return false, fmt.Errorf("postgres not configured")
-	}
-
 	hash := sha256Hex(code)
 
-	// Check if code matches and is not expired
-	row := s.pg.QueryRow(ctx, `
-		SELECT id FROM profiles.two_factor_verifications
-		WHERE user_id = $1 AND code_hash = $2 AND expires_at > NOW() AND verified = false
-		LIMIT 1
-	`, userID, hash)
-
-	var id string
-	if err := row.Scan(&id); err != nil {
-		return false, nil // Code invalid or expired
+	if s.useEphemeralStore() {
+		return s.consumeTwoFactorCode(ctx, userID, hash)
 	}
-
-	// Mark as verified
-	_, _ = s.pg.Exec(ctx, `
-		UPDATE profiles.two_factor_verifications
-		SET verified = true, verified_at = NOW()
-		WHERE id = $1
-	`, id)
-
-	return true, nil
+	return false, fmt.Errorf("ephemeral store not configured")
 }
 
 // VerifyBackupCode verifies a 2FA backup code for account recovery.

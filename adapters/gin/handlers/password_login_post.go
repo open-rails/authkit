@@ -157,10 +157,10 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 			// Email flow: verify by email
 			token, exp, err = svc.PasswordLogin(c.Request.Context(), loginEmail, req.Password, nil)
 			if err != nil {
-				// If PasswordLogin failed, check if user is in pending_registrations (unverified)
+				// If PasswordLogin failed, check if user is in pending registration cache (unverified)
 				pendingUser, pendingErr := svc.GetPendingRegistrationByEmail(c.Request.Context(), loginEmail)
 				if pendingErr == nil && pendingUser != nil {
-					// User exists in pending_registrations - verify password
+					// User exists in pending registration cache - verify password
 					if svc.VerifyPendingPassword(c.Request.Context(), loginEmail, req.Password) {
 						// Password is correct but email not verified - resend verification email
 						// Resend by creating new pending registration with same credentials (generates new code)

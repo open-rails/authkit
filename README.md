@@ -5,9 +5,9 @@ Lightweight auth library for Go services.
 Scope (minimal)
 - Asymmetric JWT issuing (RS256) + JWKS endpoint (no persistence yet).
 - Password login and email-based password reset tokens.
-- OIDC RP (OAuth2/OIDC) with PKCE (Redis or in-memory for ephemeral state; no DB table).
+- OIDC RP (OAuth2/OIDC) with PKCE (Redis/Garnet or in-memory for ephemeral state; no DB table).
 - Solana wallet authentication (SIWS - Sign In With Solana).
-- Storage with Postgres/Redis.
+- Storage with Postgres + Redis/Garnet for ephemeral auth state.
 
 Packages
 - jwt: minimal key management, signer, JWKS helper.
@@ -40,7 +40,7 @@ Quick Start (Gin)
       smstwilio "github.com/PaulFidika/authkit/adapters/sms"
       // In dev, AuthKit logs codes to stdout if no email/SMS senders are configured
       "github.com/gin-gonic/gin"
-      // plus your postgres package; Redis is optional (for OIDC state)
+      // plus your postgres package; Redis/Garnet recommended for ephemeral auth state
       "os"
   )
 
@@ -307,6 +307,8 @@ Operation:
 - For local development, AuthKit auto-generates keys in `.runtime/authkit/` (disabled in production).
 
 Integration requirements (API server)
+- Ephemeral auth state (verification codes, resets, SIWS challenges) uses Redis/Garnet when provided; in dev it falls back to memory.
+- In production, a Redis-compatible store is required.
 - Rate limiting: if you provide Redis via `WithRedis`, AuthKit enables a default Redis-backed rate limiter automatically.
   - Keys: `auth:<bucket>:ip:<client-ip>`; errors fail-open (request allowed).
   - Buckets include: `auth_token`, `auth_logout`, `auth_sessions_current`, `auth_oidc_start`, `auth_oidc_callback`,
@@ -398,7 +400,7 @@ DELETE FROM profiles.password_resets WHERE expires_at <= now();
 DELETE FROM profiles.phone_verifications WHERE expires_at <= now();
 
 -- Remove expired pending registrations
-DELETE FROM profiles.pending_registrations WHERE expires_at <= now();
+-- Pending registrations now live in Redis/Garnet; no SQL cleanup needed.
 DELETE FROM profiles.pending_phone_registrations WHERE expires_at <= now();
 
 -- Remove expired 2FA verification codes

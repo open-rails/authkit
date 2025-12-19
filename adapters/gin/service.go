@@ -35,6 +35,8 @@ func NewService(cfg core.Config) (*Service, error) {
 		return nil, err
 	}
 	prov := cfg.Providers
+	// Default to in-memory ephemeral store for dev/single-instance use.
+	coreSvc = coreSvc.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)
 	s := &Service{svc: coreSvc, oidcProviders: prov}
 	return s, nil
 }
@@ -44,7 +46,13 @@ func (s *Service) WithEntitlements(p core.EntitlementsProvider) *Service {
 	s.svc = s.svc.WithEntitlements(p)
 	return s
 }
-func (s *Service) WithRedis(rd *redis.Client) *Service             { s.rd = rd; return s }
+func (s *Service) WithRedis(rd *redis.Client) *Service {
+	s.rd = rd
+	if rd != nil {
+		s.svc = s.svc.WithEphemeralStore(redisstore.NewKV(rd), core.EphemeralRedis)
+	}
+	return s
+}
 func (s *Service) WithRateLimiter(rl ginutil.RateLimiter) *Service { s.rl = rl; return s }
 func (s *Service) WithEmailSender(es core.EmailSender) *Service {
 	s.svc = s.svc.WithEmailSender(es)
@@ -59,6 +67,11 @@ func (s *Service) WithSMSSender(sender core.SMSSender) *Service {
 // WithAuthLogger wires a custom authentication event logger (e.g., ClickHouse sink).
 func (s *Service) WithAuthLogger(l core.AuthEventLogger) *Service {
 	s.svc = s.svc.WithAuthLogger(l)
+	return s
+}
+
+func (s *Service) WithEphemeralStore(store core.EphemeralStore, mode core.EphemeralMode) *Service {
+	s.svc = s.svc.WithEphemeralStore(store, mode)
 	return s
 }
 
@@ -103,6 +116,12 @@ func (s *Service) GinRegisterOIDC(root gin.IRouter) *Service {
 func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	rl := s.ensureLimiter()
 	auth := MiddlewareFromSVC(s)
+	if !core.IsDevEnvironment() {
+		mode := s.svc.EphemeralMode()
+		if mode != core.EphemeralRedis {
+			panic("authkit: redis-compatible ephemeral store is required in production")
+		}
+	}
 
 	api.POST("/auth/password/login", handlers.HandlePasswordLoginPOST(s.svc, rl))
 
