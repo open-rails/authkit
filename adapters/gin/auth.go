@@ -109,12 +109,9 @@ func (a *Auth) RequireEntitlement(ent string) gin.HandlerFunc {
 // RequireAdmin verifies JWT then checks admin role directly in Postgres.
 // Use when you want a strict, DB-backed admin gate without attaching full user context.
 func (a *Auth) RequireAdmin(pg *pgxpool.Pool) gin.HandlerFunc {
-	req := a.Required()
+	//	req := a.Required()
 	return func(c *gin.Context) {
-		req(c)
-		if c.IsAborted() {
-			return
-		}
+
 		uid := c.GetString("auth.user_id")
 		if uid == "" || pg == nil {
 			ginutil.Forbidden(c, "forbidden")
@@ -129,11 +126,17 @@ func (a *Auth) RequireAdmin(pg *pgxpool.Pool) gin.HandlerFunc {
                 AND r.deleted_at IS NULL
             )
         `, uid).Scan(&isAdmin)
+
 		if err == nil && isAdmin {
 			c.Next()
 			return
 		}
+
 		ginutil.Forbidden(c, "forbidden")
+		//req(c)
+		//if c.IsAborted() {
+		//	return
+		//}
 	}
 }
 
