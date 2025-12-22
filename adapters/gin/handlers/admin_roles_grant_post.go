@@ -9,7 +9,10 @@ import (
 )
 
 func HandleAdminRolesGrantPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
-	type roleReq struct{ UserID, Role string }
+	type roleReq struct {
+		UserID string `json:"user_id"`
+		Role   string `json:"role"`
+	}
 	return func(c *gin.Context) {
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAdminRolesGrant) {
 			ginutil.TooMany(c)
