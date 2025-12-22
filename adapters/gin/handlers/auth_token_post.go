@@ -8,6 +8,7 @@ import (
 	"github.com/PaulFidika/authkit/adapters/ginutil"
 	core "github.com/PaulFidika/authkit/core"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 func HandleAuthTokenPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
@@ -16,6 +17,7 @@ func HandleAuthTokenPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerF
 			ginutil.TooMany(c)
 			return
 		}
+
 		var body struct {
 			GrantType    string `json:"grant_type"`
 			RefreshToken string `json:"refresh_token"`
@@ -28,6 +30,7 @@ func HandleAuthTokenPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerF
 		ip := ginutil.ParseIP(c.ClientIP())
 		accessToken, exp, newRT, err := svc.ExchangeRefreshToken(c.Request.Context(), body.RefreshToken, ua, ip)
 		if err != nil {
+			logrus.WithError(err).Warn("Failed to exchange refresh token")
 			ginutil.Unauthorized(c, "invalid_refresh_token")
 			return
 		}

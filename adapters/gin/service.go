@@ -183,7 +183,7 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	api.POST("/auth/2fa/verify", handlers.HandleUser2FAVerifyPOST(s.svc, rl)) // No auth required - this is during login
 
 	// Admin routes
-	admin := api.Group("/auth/admin").Use(auth.RequireAdmin(s.svc.Postgres()))
+	admin := api.Group("/auth/admin").Use(auth.Required(), auth.RequireAdmin(s.svc.Postgres()))
 	admin.POST("/roles/grant", handlers.HandleAdminRolesGrantPOST(s.svc, rl))
 	admin.POST("/roles/revoke", handlers.HandleAdminRolesRevokePOST(s.svc, rl))
 	admin.GET("/users", handlers.HandleAdminUsersListGET(s.svc, rl))
