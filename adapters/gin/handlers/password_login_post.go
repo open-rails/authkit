@@ -198,11 +198,16 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 					return
 				}
 				// Return response indicating 2FA is required
+				// Obfuscate verification_id except last 5 characters
+				obfuscatedID := verificationID
+				if len(verificationID) > 5 {
+					obfuscatedID = strings.Repeat("*", len(verificationID)-5) + verificationID[len(verificationID)-5:]
+				}
 				c.JSON(http.StatusOK, gin.H{
 					"requires_2fa":    true,
 					"user_id":         finalUserID,
 					"method":          twoFASettings.Method,
-					"verification_id": verificationID,
+					"verification_id": obfuscatedID,
 				})
 				return
 			}
