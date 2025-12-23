@@ -178,7 +178,7 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	// Two-Factor Authentication routes
 	api.GET("/auth/user/2fa", auth.Required(), handlers.HandleUser2FAStatusGET(s.svc, rl))
 
-	api.POST("/auth/user/2fa/start-phone", auth.Required(), auth.RequireAdmin(s.svc.Postgres()), handlers.HandleUser2FAStartPhonePOST(s.svc, rl))
+	api.POST("/auth/user/2fa/start-phone", auth.Required(), handlers.HandleUser2FAStartPhonePOST(s.svc, rl))
 	api.POST("/auth/user/2fa/enable", auth.Required(), handlers.HandleUser2FAEnablePOST(s.svc, rl))
 	api.POST("/auth/user/2fa/disable", auth.Required(), handlers.HandleUser2FADisablePOST(s.svc, rl))
 	api.POST("/auth/user/2fa/regenerate-codes", auth.Required(), handlers.HandleUser2FARegenerateCodesPOST(s.svc, rl))
