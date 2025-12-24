@@ -174,29 +174,29 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		ip := c.ClientIP()
 		uaPtr, ipPtr := &ua, &ip
 		svc.LogLogin(c.Request.Context(), userID, "oauth_login:discord", sid, ipPtr, uaPtr)
-			if created {
-				svc.SendWelcome(c.Request.Context(), userID)
-			}
-			if sd.UI == "popup" {
-				targetOrigin, ok := ginutil.OriginFromBaseURL(svc.Options().BaseURL)
-				if !ok {
-					ginutil.ServerErrWithLog(c, "invalid_base_url", nil, "BaseURL must be absolute (scheme://host) for popup auth flow")
-					return
-				}
-				payload := map[string]any{
-					"type":          "AUTHKIT_OIDC_RESULT",
-					"access_token":  accessToken,
-					"refresh_token": rt,
-					"expires_in":    int64(time.Until(exp).Seconds()),
-					"provider":      "discord",
-					"nonce":         sd.PopupNonce,
-				}
-				b, _ := json.Marshal(payload)
-				html := buildOAuthPopupHTML(b, targetOrigin)
-				c.Header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-				c.Data(http.StatusOK, "text/html; charset=utf-8", html)
+		if created {
+			svc.SendWelcome(c.Request.Context(), userID)
+		}
+		if sd.UI == "popup" {
+			targetOrigin, ok := ginutil.OriginFromBaseURL(svc.Options().BaseURL)
+			if !ok {
+				ginutil.ServerErrWithLog(c, "invalid_base_url", nil, "BaseURL must be absolute (scheme://host) for popup auth flow")
 				return
 			}
+			payload := map[string]any{
+				"type":          "AUTHKIT_OIDC_RESULT",
+				"access_token":  accessToken,
+				"refresh_token": rt,
+				"expires_in":    int64(time.Until(exp).Seconds()),
+				"provider":      "discord",
+				"nonce":         sd.PopupNonce,
+			}
+			b, _ := json.Marshal(payload)
+			html := buildOAuthPopupHTML(b, targetOrigin)
+			c.Header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+			c.Data(http.StatusOK, "text/html; charset=utf-8", html)
+			return
+		}
 		if strings.EqualFold(c.Query("format"), "json") || strings.Contains(c.GetHeader("Accept"), "application/json") {
 			c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "token_type": "Bearer", "expires_in": int64(time.Until(exp).Seconds()), "refresh_token": rt, "user": gin.H{"id": userID, "email": email}})
 			return

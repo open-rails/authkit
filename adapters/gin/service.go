@@ -171,6 +171,11 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	api.POST("/auth/user/email/change/request", auth.Required(), handlers.HandleUserEmailChangeRequestPOST(s.svc, rl))
 	api.POST("/auth/user/email/change/confirm", auth.Required(), handlers.HandleUserEmailChangeConfirmPOST(s.svc, rl))
 	api.POST("/auth/user/email/change/resend", auth.Required(), handlers.HandleUserEmailChangeResendPOST(s.svc, rl))
+
+	// Phone number change endpoints
+	api.POST("/auth/user/phone/change/request", auth.Required(), handlers.HandleUserPhoneChangeRequestPOST(s.svc, rl))
+	api.POST("/auth/user/phone/change/confirm", auth.Required(), handlers.HandleUserPhoneChangeConfirmPOST(s.svc, rl))
+	api.POST("/auth/user/phone/change/resend", auth.Required(), handlers.HandleUserPhoneChangeResendPOST(s.svc, rl))
 	api.PATCH("/auth/user/biography", auth.Required(), handlers.HandleUserBiographyPATCH(s.svc))
 	api.DELETE("/auth/user", auth.Required(), handlers.HandleUserDeleteDELETE(s.svc, rl))
 	api.DELETE("/auth/user/providers/:provider", auth.Required(), handlers.HandleUserUnlinkProviderDELETE(s.svc, rl))
@@ -249,22 +254,26 @@ func defaultLimits() map[string]redisl.Limit {
 	return map[string]redisl.Limit{
 		"default": {Limit: 120, Window: time.Minute},
 		// 2FA-specific
-		ginutil.RL2FAStartPhone:              {Limit: 3, Window: 10 * time.Minute},  // 3 requests per 10 min (SMS is costly)
-		ginutil.RL2FAEnable:                  {Limit: 6, Window: time.Hour},         // 6 enable attempts per hour
-		ginutil.RL2FADisable:                 {Limit: 6, Window: time.Hour},         // 6 disable attempts per hour
-		ginutil.RL2FARegenerateCodes:         {Limit: 3, Window: time.Hour},         // 3 regenerations per hour
-		ginutil.RL2FAVerify:                  {Limit: 10, Window: 10 * time.Minute}, // 10 verifications per 10 min
-		ginutil.RLAuthToken:                  {Limit: 30, Window: time.Minute},
-		ginutil.RLAuthRegister:               {Limit: 10, Window: time.Hour},
-		ginutil.RLAuthRegisterResendEmail:    {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLAuthRegisterResendPhone:    {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLAuthLogout:                 {Limit: 60, Window: 10 * time.Minute},
-		ginutil.RLPasswordLogin:              {Limit: 20, Window: time.Hour},
-		ginutil.RLPasswordResetRequest:       {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLPasswordResetConfirm:       {Limit: 10, Window: 10 * time.Minute},
-		ginutil.RLEmailVerifyRequest:         {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLEmailVerifyConfirm:         {Limit: 10, Window: 10 * time.Minute},
-		ginutil.RLPhoneVerifyRequest:         {Limit: 3, Window: 10 * time.Minute}, // SMS is costly - 3/10min, ~6/hour
+		ginutil.RL2FAStartPhone:           {Limit: 3, Window: 10 * time.Minute},  // 3 requests per 10 min (SMS is costly)
+		ginutil.RL2FAEnable:               {Limit: 6, Window: time.Hour},         // 6 enable attempts per hour
+		ginutil.RL2FADisable:              {Limit: 6, Window: time.Hour},         // 6 disable attempts per hour
+		ginutil.RL2FARegenerateCodes:      {Limit: 3, Window: time.Hour},         // 3 regenerations per hour
+		ginutil.RL2FAVerify:               {Limit: 10, Window: 10 * time.Minute}, // 10 verifications per 10 min
+		ginutil.RLAuthToken:               {Limit: 30, Window: time.Minute},
+		ginutil.RLAuthRegister:            {Limit: 10, Window: time.Hour},
+		ginutil.RLAuthRegisterResendEmail: {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLAuthRegisterResendPhone: {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLAuthLogout:              {Limit: 60, Window: 10 * time.Minute},
+		ginutil.RLPasswordLogin:           {Limit: 20, Window: time.Hour},
+		ginutil.RLPasswordResetRequest:    {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLPasswordResetConfirm:    {Limit: 10, Window: 10 * time.Minute},
+		ginutil.RLEmailVerifyRequest:      {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLEmailVerifyConfirm:      {Limit: 10, Window: 10 * time.Minute},
+		ginutil.RLPhoneVerifyRequest:      {Limit: 3, Window: 10 * time.Minute}, // SMS is costly - 3/10min, ~6/hour
+		// Phone change endpoints
+		ginutil.RLUserPhoneChangeRequest:     {Limit: 3, Window: 10 * time.Minute},  // 3 requests per 10 min
+		ginutil.RLUserPhoneChangeConfirm:     {Limit: 10, Window: 10 * time.Minute}, // 10 confirmations per 10 min
+		ginutil.RLUserPhoneChangeResend:      {Limit: 3, Window: 10 * time.Minute},  // 3 resends per 10 min
 		ginutil.RLAuthSessionsCurrent:        {Limit: 60, Window: 10 * time.Minute},
 		ginutil.RLAuthSessionsList:           {Limit: 120, Window: time.Minute},
 		ginutil.RLAuthSessionsRevoke:         {Limit: 60, Window: 10 * time.Minute},
@@ -303,17 +312,21 @@ func defaultMemoryLimits() map[string]memorylimiter.Limit {
 		ginutil.RL2FARegenerateCodes: {Limit: 3, Window: time.Hour},         // 3 regenerations per hour
 		ginutil.RL2FAVerify:          {Limit: 10, Window: 10 * time.Minute}, // 10 verifications per 10 min
 
-		ginutil.RLAuthToken:                  {Limit: 30, Window: time.Minute},
-		ginutil.RLAuthRegister:               {Limit: 10, Window: time.Hour},
-		ginutil.RLAuthRegisterResendEmail:    {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLAuthRegisterResendPhone:    {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLAuthLogout:                 {Limit: 60, Window: 10 * time.Minute},
-		ginutil.RLPasswordLogin:              {Limit: 20, Window: time.Hour},
-		ginutil.RLPasswordResetRequest:       {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLPasswordResetConfirm:       {Limit: 10, Window: 10 * time.Minute},
-		ginutil.RLEmailVerifyRequest:         {Limit: 6, Window: 10 * time.Minute},
-		ginutil.RLEmailVerifyConfirm:         {Limit: 10, Window: 10 * time.Minute},
-		ginutil.RLPhoneVerifyRequest:         {Limit: 3, Window: 10 * time.Minute}, // SMS is costly - 3/10min, ~6/hour
+		ginutil.RLAuthToken:               {Limit: 30, Window: time.Minute},
+		ginutil.RLAuthRegister:            {Limit: 10, Window: time.Hour},
+		ginutil.RLAuthRegisterResendEmail: {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLAuthRegisterResendPhone: {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLAuthLogout:              {Limit: 60, Window: 10 * time.Minute},
+		ginutil.RLPasswordLogin:           {Limit: 20, Window: time.Hour},
+		ginutil.RLPasswordResetRequest:    {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLPasswordResetConfirm:    {Limit: 10, Window: 10 * time.Minute},
+		ginutil.RLEmailVerifyRequest:      {Limit: 6, Window: 10 * time.Minute},
+		ginutil.RLEmailVerifyConfirm:      {Limit: 10, Window: 10 * time.Minute},
+		ginutil.RLPhoneVerifyRequest:      {Limit: 3, Window: 10 * time.Minute}, // SMS is costly - 3/10min, ~6/hour
+		// Phone change endpoints
+		ginutil.RLUserPhoneChangeRequest:     {Limit: 3, Window: 10 * time.Minute},  // 3 requests per 10 min
+		ginutil.RLUserPhoneChangeConfirm:     {Limit: 10, Window: 10 * time.Minute}, // 10 confirmations per 10 min
+		ginutil.RLUserPhoneChangeResend:      {Limit: 3, Window: 10 * time.Minute},  // 3 resends per 10 min
 		ginutil.RLAuthSessionsCurrent:        {Limit: 60, Window: 10 * time.Minute},
 		ginutil.RLAuthSessionsList:           {Limit: 120, Window: time.Minute},
 		ginutil.RLAuthSessionsRevoke:         {Limit: 60, Window: 10 * time.Minute},

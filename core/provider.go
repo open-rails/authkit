@@ -33,6 +33,9 @@ type Provider interface {
 	SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error
 	VerifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error)
 	Verifier
+	RequestPhoneChange(ctx context.Context, userID, newPhone string) error
+	ConfirmPhoneChange(ctx context.Context, userID, code string) error
+	ResendPhoneChangeCode(ctx context.Context, userID string) error
 
 	// Token/session minting
 	IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (token string, expiresAt time.Time, err error)
