@@ -439,10 +439,14 @@ Frontend (React) quick guide
   - POST /auth/sessions/current with `{refresh_token}` → {session_id}.
 - Current user
   - GET /auth/user/me → {id, email, pending_email?, phone_number?, username, discord_username?, email_verified, phone_verified, has_password, roles, entitlements, biography}.
-- Email change
-  - POST /auth/user/email/change/request with `{email}` (Authorization) → sends verification code
-  - POST /auth/user/email/change/confirm with `{code}` (Authorization) → confirms email change
-  - POST /auth/user/email/change/resend (Authorization) → resends verification code
+  - Email change
+    - POST /auth/user/email/change/request with `{email}` (Authorization) → sends verification code
+    - POST /auth/user/email/change/confirm with `{code}` (Authorization) → confirms email change
+    - POST /auth/user/email/change/resend (Authorization) → resends verification code
+  - Phone number change
+    - POST /auth/user/phone/change/request with `{phone_number}` (Authorization) → sends verification code
+    - POST /auth/user/phone/change/confirm with `{code}` (Authorization) → confirms phone number change
+    - POST /auth/user/phone/change/resend (Authorization) → resends verification code
 - User profile updates
   - PATCH /auth/user/username with `{username}` (Authorization)
   - PATCH /auth/user/biography with `{biography}` (Authorization)

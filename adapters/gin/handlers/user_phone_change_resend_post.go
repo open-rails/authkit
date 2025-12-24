@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
+	"strings"
 
 	"github.com/PaulFidika/authkit/adapters/ginutil"
 	core "github.com/PaulFidika/authkit/core"
@@ -23,7 +25,17 @@ func HandleUserPhoneChangeResendPOST(svc core.Provider, rl ginutil.RateLimiter) 
 			return
 		}
 
-		if err := svc.ResendPhoneChangeCode(c.Request.Context(), userID); err != nil {
+		var body struct {
+			Phone string `json:"phone_number"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Phone) == "" {
+			ginutil.BadRequest(c, "invalid_request")
+			return
+		}
+		phone := strings.TrimSpace(body.Phone)
+
+		if err := svc.ResendPhoneChangeCode(c.Request.Context(), userID, phone); err != nil {
+			log.Println("Error resending phone change code:", err)
 			ginutil.BadRequest(c, "no_pending_phone_change")
 			return
 		}

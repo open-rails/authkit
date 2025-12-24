@@ -13,14 +13,14 @@ import (
 // Requires the user to be authenticated and provide their current password for security.
 func HandleUserPhoneChangeRequestPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	type reqBody struct {
-		NewPhone string `json:"new_phone"`
+		NewPhone string `json:"phone_number"`
 		Password string `json:"password"`
 	}
 	return func(c *gin.Context) {
-		if !svc.HasSMSSender() {
-			ginutil.ServerErrWithLog(c, "phone_verification_unavailable", nil, "SMS sender not configured for phone change request")
-			return
-		}
+		//	if !svc.HasSMSSender() {
+		//		ginutil.ServerErrWithLog(c, "phone_verification_unavailable", nil, "SMS sender not configured for phone change request")
+		//		return
+		//	}
 
 		if !ginutil.AllowNamed(c, rl, ginutil.RLUserPhoneChangeRequest) {
 			ginutil.TooMany(c)

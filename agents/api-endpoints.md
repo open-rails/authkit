@@ -77,6 +77,9 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | POST | `/auth/user/email/change/request` | AUTH | Request email change |
 | POST | `/auth/user/email/change/confirm` | AUTH | Confirm email change |
 | POST | `/auth/user/email/change/resend` | AUTH | Resend email change verification |
+| POST | `/auth/user/phone/change/request` | AUTH | Request phone number change |
+| POST | `/auth/user/phone/change/confirm` | AUTH | Confirm phone number change |
+| POST | `/auth/user/phone/change/resend` | AUTH | Resend phone number change verification |
 | DELETE | `/auth/user` | AUTH | Delete own account |
 | DELETE | `/auth/user/providers/:provider` | AUTH | Unlink OAuth provider |
 

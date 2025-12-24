@@ -273,7 +273,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 	// TTL for phone change is 24 hours (longer than regular verification)
 	ttl := 24 * time.Hour
 
-	// Store phone verification with purpose "change_phone"
+	// Store phone verification with purpose "change_phone" keyed by userID
 	if err := s.storePhoneVerification(ctx, "change_phone", trimmed, userID, hash, ttl); err != nil {
 		return err
 	}
@@ -297,18 +297,21 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 // ConfirmPhoneChange verifies the code and updates the user's phone number.
 // This is called when the user enters the verification code sent to their new phone.
-func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, code string) error {
+func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
 
-	// Find pending phone change for this user
-	rec, phone, err := s.usePhoneChangeToken(ctx, userID, sha256Hex(code))
-	if err != nil {
-		return err
-	}
-	if rec != userID {
-		return jwt.ErrTokenInvalidClaims
+	// Use consumePhoneVerification to validate and consume the code, keyed by userID
+	hash := sha256Hex(code)
+	if s.useEphemeralStore() {
+		pendingPhone, err := s.consumePhoneVerification(ctx, "change_phone", userID, hash)
+		if err != nil {
+			return jwt.ErrTokenUnverifiable
+		}
+		phone = pendingPhone
+	} else {
+		return jwt.ErrTokenUnverifiable
 	}
 
 	// Get current user
@@ -317,7 +320,7 @@ func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, code string) e
 		return errOrUnauthorized(err)
 	}
 
-	// Check if the phone in the token is different from current phone (it's a change)
+	// Check if the phone is different from current phone (it's a change)
 	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, phone) {
 		// Same phone - just verify it
 		return s.setPhoneVerified(ctx, userID, true)
@@ -333,7 +336,7 @@ func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, code string) e
 }
 
 // ResendPhoneChangeCode resends the verification code for a pending phone change.
-func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID string) error {
+func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone string) error {
 	// Get current user
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
@@ -343,19 +346,15 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID string) erro
 		return fmt.Errorf("user not found")
 	}
 
-	var pendingPhone string
-	if s.useEphemeralStore() {
-		rec, phone, err := s.getPendingPhoneChangeByUser(ctx, userID)
-		if err != nil || rec != userID || phone == "" {
-			return fmt.Errorf("no pending phone change found")
-		}
-		pendingPhone = phone
-	} else {
+	// Check if pending phone is different from current (it's a change request, not just verification)
+	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, phone) {
 		return fmt.Errorf("no pending phone change found")
 	}
 
-	// Check if pending phone is different from current (it's a change request, not just verification)
-	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, pendingPhone) {
+	// Check if pending phone change exists (by userID)
+	var data phoneVerificationData
+	ok, _ := s.ephemGetJSON(ctx, s.phoneVerificationKey("change_phone", phone), &data)
+	if !ok || data.UserID != userID {
 		return fmt.Errorf("no pending phone change found")
 	}
 
@@ -364,8 +363,8 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID string) erro
 	hash := sha256Hex(code)
 	ttl := 24 * time.Hour
 
-	// Store new phone verification
-	if err := s.storePhoneVerification(ctx, "change_phone", pendingPhone, userID, hash, ttl); err != nil {
+	// Store new phone verification (by userID)
+	if err := s.storePhoneVerification(ctx, "change_phone", userID, phone, hash, ttl); err != nil {
 		return err
 	}
 
@@ -376,9 +375,9 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID string) erro
 
 	// Send new code
 	if s.sms != nil {
-		_ = s.sms.SendVerificationCode(ctx, pendingPhone, code)
+		_ = s.sms.SendVerificationCode(ctx, phone, code)
 	} else {
-		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s", pendingPhone, username, code)
+		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s", phone, username, code)
 	}
 
 	return nil

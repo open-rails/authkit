@@ -11,10 +11,14 @@ import (
 
 // HandleUserPhoneChangeConfirmPOST confirms a phone number change using the verification code.
 func HandleUserPhoneChangeConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
-	type reqBody struct {
-		Code string `json:"code"`
-	}
+
 	return func(c *gin.Context) {
+
+		type reqBody struct {
+			Phone string `json:"phone_number"`
+			Code  string `json:"code"`
+		}
+
 		if !ginutil.AllowNamed(c, rl, ginutil.RLUserPhoneChangeConfirm) {
 			ginutil.TooMany(c)
 			return
@@ -28,14 +32,15 @@ func HandleUserPhoneChangeConfirmPOST(svc core.Provider, rl ginutil.RateLimiter)
 		}
 
 		var body reqBody
-		if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Code) == "" {
+		if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Code) == "" || strings.TrimSpace(body.Phone) == "" {
 			ginutil.BadRequest(c, "invalid_request")
 			return
 		}
 
 		code := strings.TrimSpace(body.Code)
+		phone := strings.TrimSpace(body.Phone)
 
-		if err := svc.ConfirmPhoneChange(c.Request.Context(), userID, code); err != nil {
+		if err := svc.ConfirmPhoneChange(c.Request.Context(), userID, phone, code); err != nil {
 			ginutil.BadRequest(c, "invalid_or_expired_code")
 			return
 		}

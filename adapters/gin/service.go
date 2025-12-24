@@ -176,6 +176,7 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	api.POST("/auth/user/phone/change/request", auth.Required(), handlers.HandleUserPhoneChangeRequestPOST(s.svc, rl))
 	api.POST("/auth/user/phone/change/confirm", auth.Required(), handlers.HandleUserPhoneChangeConfirmPOST(s.svc, rl))
 	api.POST("/auth/user/phone/change/resend", auth.Required(), handlers.HandleUserPhoneChangeResendPOST(s.svc, rl))
+
 	api.PATCH("/auth/user/biography", auth.Required(), handlers.HandleUserBiographyPATCH(s.svc))
 	api.DELETE("/auth/user", auth.Required(), handlers.HandleUserDeleteDELETE(s.svc, rl))
 	api.DELETE("/auth/user/providers/:provider", auth.Required(), handlers.HandleUserUnlinkProviderDELETE(s.svc, rl))
