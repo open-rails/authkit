@@ -274,7 +274,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 	ttl := 24 * time.Hour
 
 	// Store phone verification with purpose "change_phone" keyed by userID
-	if err := s.storePhoneVerification(ctx, "change_phone", userID, trimmed, hash, ttl); err != nil {
+	if err := s.storePhoneVerification(ctx, "change_phone", trimmed, userID, hash, ttl); err != nil {
 		return err
 	}
 
@@ -305,11 +305,10 @@ func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code st
 	// Use consumePhoneVerification to validate and consume the code, keyed by userID
 	hash := sha256Hex(code)
 	if s.useEphemeralStore() {
-		pendingPhone, err := s.consumePhoneVerification(ctx, "change_phone", userID, hash)
+		_, err := s.consumePhoneVerification(ctx, "change_phone", phone, hash)
 		if err != nil {
 			return jwt.ErrTokenUnverifiable
 		}
-		phone = pendingPhone
 	} else {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -364,7 +363,7 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	ttl := 24 * time.Hour
 
 	// Store new phone verification (by userID)
-	if err := s.storePhoneVerification(ctx, "change_phone", userID, phone, hash, ttl); err != nil {
+	if err := s.storePhoneVerification(ctx, "change_phone", phone, userID, hash, ttl); err != nil {
 		return err
 	}
 
