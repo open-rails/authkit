@@ -274,7 +274,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 	ttl := 24 * time.Hour
 
 	// Store phone verification with purpose "change_phone" keyed by userID
-	if err := s.storePhoneVerification(ctx, "change_phone", trimmed, userID, hash, ttl); err != nil {
+	if err := s.storePhoneVerification(ctx, "change_phone", userID, trimmed, hash, ttl); err != nil {
 		return err
 	}
 
