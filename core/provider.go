@@ -47,6 +47,7 @@ type Provider interface {
 	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error
 	RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error
+	SetUserActive(ctx context.Context, userID string, isActive bool) error
 
 	// Password + registration
 	PasswordLogin(ctx context.Context, email, pass string, extra map[string]any) (string, time.Time, error)

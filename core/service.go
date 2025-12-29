@@ -2435,3 +2435,12 @@ func isDevEnvironment(env string) bool {
 	// Everything else (dev, development, local, staging, empty, etc.) is considered dev
 	return true
 }
+
+// SetUserActive sets the is_active property for a user.
+func (s *Service) SetUserActive(ctx context.Context, userID string, isActive bool) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=$2, updated_at=NOW() WHERE id=$1`, userID, isActive)
+	return err
+}

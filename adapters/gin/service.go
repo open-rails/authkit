@@ -158,11 +158,13 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 
 	// Sessions + logout
 	api.POST("/auth/token", handlers.HandleAuthTokenPOST(s.svc, rl))
-	api.POST("/auth/sessions/current", handlers.HandleAuthSessionsCurrentPOST(s.svc, rl))
 	api.POST("/auth/user/password", auth.Required(), handlers.HandleUserPasswordPOST(s.svc, rl))
+
+	api.POST("/auth/sessions/current", handlers.HandleAuthSessionsCurrentPOST(s.svc, rl))
 	api.GET("/auth/user/sessions", auth.Required(), handlers.HandleUserSessionsGET(s.svc, rl))
 	api.DELETE("/auth/user/sessions/:id", auth.Required(), handlers.HandleUserSessionDELETE(s.svc, rl))
 	api.DELETE("/auth/user/sessions", auth.Required(), handlers.HandleUserSessionsDELETE(s.svc, rl))
+
 	api.DELETE("/auth/logout", auth.Required(), handlers.HandleLogoutDELETE(s.svc, rl))
 
 	// User routes
@@ -200,6 +202,8 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	admin.POST("/users/unban", handlers.HandleAdminUsersUnbanPOST(s.svc, rl))
 	admin.POST("/users/set-email", handlers.HandleAdminUsersSetEmailPOST(s.svc, rl))
 	admin.POST("/users/set-username", handlers.HandleAdminUsersSetUsernamePOST(s.svc, rl))
+	admin.POST("/users/toggle-active", handlers.HandleAdminUserToggleActivePOST(s.svc, rl))
+
 	admin.DELETE("/users/:user_id", handlers.HandleAdminUserDeleteDELETE(s.svc, rl))
 	admin.GET("/users/:user_id/signins", handlers.HandleAdminUserSigninsGET(s.svc, rl))
 
