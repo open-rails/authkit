@@ -1785,8 +1785,8 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 		args = append(args, "blogger")
 		argIdx++
 	case "10 random premium members":
-		// Use a subquery to select 10 random premium user IDs, then join back to users
-		from = "(SELECT u.* FROM profiles.users u JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL WHERE r.slug = $" + fmt.Sprint(argIdx) + " ORDER BY RANDOM() LIMIT 10) u"
+		// Use a subquery to select 10 random premium user IDs, then join back to users for full data
+		from = "profiles.users u JOIN (SELECT u.id FROM profiles.users u JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL WHERE r.slug = $" + fmt.Sprint(argIdx) + " ORDER BY RANDOM() LIMIT 10) sub ON u.id = sub.id"
 		args = append(args, "premium")
 		argIdx++
 		// No additional where clause needed
