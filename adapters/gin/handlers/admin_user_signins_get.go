@@ -9,11 +9,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// HandleAdminUserSigninsGET returns the last 30 signins for a user, or paginated if page/page_size provided
 func HandleAdminUserSigninsGET(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("user_id")
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "0"))
+		if size == 0 {
+			size = 30
+		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAdminUserSessionsList) {
 			ginutil.TooMany(c)
 			return

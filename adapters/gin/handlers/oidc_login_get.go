@@ -16,9 +16,13 @@ type OIDCConfig struct {
 	StateCache oidckit.StateCache
 }
 
-func HandleOIDCLoginGET(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleOIDCLoginGET(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLimiter, site string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if site != "" {
+			c.Set("site", site)
+		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCStart) {
+			c.Set("login_success", false)
 			ginutil.TooMany(c)
 			return
 		}
@@ -27,12 +31,14 @@ func HandleOIDCLoginGET(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLimite
 		nonce := ginutil.RandB64(16) // Generate nonce for ALL providers (security best practice)
 		verifier, challenge, err := oidckit.GeneratePKCE()
 		if err != nil {
+			c.Set("login_success", false)
 			ginutil.ServerErrWithLog(c, "pkce_generation_failed", err, "failed to generate pkce")
 			return
 		}
 		redirectURI := ginutil.BuildRedirectURI(c, provider)
 		authURL, err := cfg.Manager.Begin(c.Request.Context(), provider, state, nonce, challenge, redirectURI)
 		if err != nil {
+			c.Set("login_success", false)
 			ginutil.BadRequest(c, "oidc_begin_failed")
 			return
 		}
@@ -55,19 +61,21 @@ func HandleOIDCLoginGET(cfg OIDCConfig, svc core.Verifier, rl ginutil.RateLimite
 				ginutil.Unauthorized(c, "invalid_token")
 				return
 			}
-			}
-			ui := c.Query("ui")
-			if ui != "" && ui != "popup" {
-				ginutil.BadRequest(c, "invalid_ui")
-				return
-			}
-			popupNonce := c.Query("popup_nonce")
-			if err := cfg.StateCache.Put(c.Request.Context(), state, oidckit.StateData{Provider: provider, Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, LinkUserID: linkUserID, UI: ui, PopupNonce: popupNonce}); err != nil {
-				ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store oidc state")
-				return
-			}
-			c.Redirect(http.StatusFound, authURL)
 		}
+		ui := c.Query("ui")
+		if ui != "" && ui != "popup" {
+			ginutil.BadRequest(c, "invalid_ui")
+			return
+		}
+		popupNonce := c.Query("popup_nonce")
+		if err := cfg.StateCache.Put(c.Request.Context(), state, oidckit.StateData{Provider: provider, Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, LinkUserID: linkUserID, UI: ui, PopupNonce: popupNonce}); err != nil {
+			c.Set("login_success", false)
+			ginutil.ServerErrWithLog(c, "state_store_failed", err, "failed to store oidc state")
+			return
+		}
+		c.Set("login_success", true)
+		c.Redirect(http.StatusFound, authURL)
+	}
 }
 
 // bearer token helper lives in ginutil.BearerToken

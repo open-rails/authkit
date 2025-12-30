@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,25 +32,41 @@ type discordUser struct {
 }
 
 // HandleDiscordCallbackGET completes the Discord OAuth2 code flow and issues our tokens.
-func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.RateLimiter, site string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Track site name if present in context
+
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), "site", site))
+
+		logFailed := func(userID string) {
+			ua := c.Request.UserAgent()
+			ip := c.ClientIP()
+			uaPtr, ipPtr := &ua, &ip
+			ctx := c.Request.Context()
+			ctx = context.WithValue(ctx, "login_success", false)
+			svc.LogLogin(ctx, userID, "oauth_login:discord", "", ipPtr, uaPtr)
+		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCCallback) {
+			logFailed("")
 			ginutil.TooMany(c)
 			return
 		}
 		if qErr := c.Query("error"); qErr != "" {
+			logFailed("")
 			ginutil.BadRequest(c, qErr)
 			return
 		}
 		state := c.Query("state")
 		code := c.Query("code")
 		if state == "" || code == "" {
+			logFailed("")
 			ginutil.BadRequest(c, "invalid_request")
 			return
 		}
 		sd, ok, err := cfg.StateCache.Get(c.Request.Context(), state)
 		_ = cfg.StateCache.Del(c.Request.Context(), state)
 		if err != nil || !ok || sd.Provider != "discord" {
+			logFailed("")
 			ginutil.BadRequest(c, "invalid_state")
 			return
 		}
@@ -57,6 +74,7 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		// Exchange code for token
 		rp, ok := cfg.Manager.Provider("discord")
 		if !ok || strings.TrimSpace(rp.ClientID) == "" || strings.TrimSpace(rp.ClientSecret) == "" {
+			logFailed("")
 			ginutil.BadRequest(c, "unknown_provider")
 			return
 		}
@@ -70,17 +88,20 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			logFailed("")
 			ginutil.Unauthorized(c, "exchange_failed")
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
+			logFailed("")
 			ginutil.Unauthorized(c, "exchange_failed")
 			return
 		}
 		body, _ := io.ReadAll(resp.Body)
 		var tok discordTokenResp
 		if json.Unmarshal(body, &tok) != nil || strings.TrimSpace(tok.AccessToken) == "" {
+			logFailed("")
 			ginutil.Unauthorized(c, "exchange_failed")
 			return
 		}
@@ -90,17 +111,20 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		ureq.Header.Set("Authorization", tok.TokenType+" "+tok.AccessToken)
 		uresp, err := http.DefaultClient.Do(ureq)
 		if err != nil {
+			logFailed("")
 			ginutil.Unauthorized(c, "userinfo_failed")
 			return
 		}
 		defer uresp.Body.Close()
 		if uresp.StatusCode != 200 {
+			logFailed("")
 			ginutil.Unauthorized(c, "userinfo_failed")
 			return
 		}
 		ubody, _ := io.ReadAll(uresp.Body)
 		var du discordUser
 		if json.Unmarshal(ubody, &du) != nil || strings.TrimSpace(du.ID) == "" {
+			logFailed("")
 			ginutil.Unauthorized(c, "userinfo_failed")
 			return
 		}
@@ -123,6 +147,7 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		if sd.LinkUserID != "" {
 			// Prevent linking if this Discord account is already linked to another user
 			if uid0, _, err := svc.GetProviderLinkByIssuer(c.Request.Context(), issuer, du.ID); err == nil && uid0 != "" && uid0 != sd.LinkUserID {
+				logFailed(sd.LinkUserID)
 				ginutil.BadRequest(c, "provider_already_linked")
 				return
 			}
@@ -156,6 +181,7 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 				_ = svc.SetProviderUsername(c.Request.Context(), u.ID, issuer, du.ID, preferred)
 				created = true
 			} else {
+				logFailed("")
 				ginutil.ServerErrWithLog(c, "user_creation_failed", err, "failed to create user from discord oauth")
 				return
 			}
@@ -218,7 +244,7 @@ func buildOAuthPopupHTML(payloadJSON []byte, targetOrigin string) []byte {
 		"  var data = " + string(payloadJSON) + ";\n" +
 		"  var targetOrigin = " + string(originJSON) + ";\n" +
 		"  if (window.opener) { window.opener.postMessage(data, targetOrigin); }\n" +
-		"} finally { window.close(); }\n" +
+		"} finally {  window.close(); }\n" +
 		"</script></body></html>"
 	return []byte(html)
 }

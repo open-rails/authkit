@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -24,15 +25,29 @@ type verify2FAResponse struct {
 }
 
 // HandleUser2FAVerifyPOST verifies a 2FA code during login and issues tokens
-func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter, site string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Track site name if present in context
+
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), "site", site))
+
+		logAttempt := func(userID string, success bool, sid string) {
+			ua := c.Request.UserAgent()
+			ip := c.ClientIP()
+			uaPtr, ipPtr := &ua, &ip
+			ctx := c.Request.Context()
+			ctx = context.WithValue(ctx, "login_success", success)
+			svc.LogLogin(ctx, userID, "password_login_2fa", sid, ipPtr, uaPtr)
+		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RL2FAVerify) {
+			logAttempt("", false, "")
 			ginutil.TooMany(c)
 			return
 		}
 
 		var req verify2FARequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			logAttempt("", false, "")
 			ginutil.BadRequest(c, "invalid_request")
 			return
 		}
@@ -41,6 +56,7 @@ func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 		code := strings.TrimSpace(req.Code)
 
 		if userID == "" || code == "" {
+			logAttempt(userID, false, "")
 			ginutil.BadRequest(c, "missing_fields")
 			return
 		}
@@ -56,6 +72,7 @@ func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 		}
 
 		if err != nil || !valid {
+			logAttempt(userID, false, "")
 			ginutil.Unauthorized(c, "invalid_code")
 			return
 		}
@@ -63,14 +80,12 @@ func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 		// Code verified - issue tokens and create session
 		sid, rt, _, err := svc.IssueRefreshSession(c.Request.Context(), userID, c.Request.UserAgent(), nil)
 		if err != nil {
+			logAttempt(userID, false, "")
 			ginutil.ServerErrWithLog(c, "session_creation_failed", err, "failed to create session during 2fa login")
 			return
 		}
 
-		ua := c.Request.UserAgent()
-		ip := c.ClientIP()
-		uaPtr, ipPtr := &ua, &ip
-		svc.LogLogin(c.Request.Context(), userID, "password_login_2fa", sid, ipPtr, uaPtr)
+		logAttempt(userID, true, sid)
 
 		// Get user email for token
 		usr, _ := svc.AdminGetUser(c.Request.Context(), userID)

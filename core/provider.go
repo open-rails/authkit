@@ -47,11 +47,14 @@ type Provider interface {
 	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error
 	RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error
+	SetUserActive(ctx context.Context, userID string, isActive bool) error
 
 	// Password + registration
 	PasswordLogin(ctx context.Context, email, pass string, extra map[string]any) (string, time.Time, error)
 	PasswordLoginByUserID(ctx context.Context, userID, pass string, extra map[string]any) (string, time.Time, error)
 	ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error
+	// AdminSetPassword force-sets a user's password (admin only, no current password required)
+	AdminSetPassword(ctx context.Context, userID, new string) error
 	HasPassword(ctx context.Context, userID string) bool
 
 	HasEmailSender() bool
@@ -119,7 +122,7 @@ type Provider interface {
 	LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache, userID string, output siws.SignInOutput) error
 
 	// Admin operations
-	AdminListUsers(ctx context.Context, page, pageSize int) (*AdminListUsersResult, error)
+	AdminListUsers(ctx context.Context, page, pageSize int, filter, search string) (*AdminListUsersResult, error)
 	AdminGetUser(ctx context.Context, userID string) (*AdminUser, error)
 	AdminDeleteUser(ctx context.Context, userID string) error
 	AssignRoleBySlug(ctx context.Context, userID, slug string) error

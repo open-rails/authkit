@@ -23,11 +23,13 @@ func HandleAdminUsersListGET(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 	return func(c *gin.Context) {
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+		filter := c.DefaultQuery("filter", "All users")
+		search := c.DefaultQuery("search", "")
 		if !ginutil.AllowNamed(c, rl, ginutil.RLAdminUserSessionsList) {
 			ginutil.TooMany(c)
 			return
 		}
-		result, err := svc.AdminListUsers(c.Request.Context(), page, size)
+		result, err := svc.AdminListUsers(c.Request.Context(), page, size, filter, search)
 		if err != nil {
 			ginutil.ServerErrWithLog(c, "failed_to_list_users", err, "failed to list users")
 			return

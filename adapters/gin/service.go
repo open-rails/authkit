@@ -93,7 +93,8 @@ func (s *Service) GinRegisterJWKS(root gin.IRouter) *Service {
 }
 
 // GinRegisterOIDC mounts browser redirect flows. By default these go under "/auth/...".
-func (s *Service) GinRegisterOIDC(root gin.IRouter) *Service {
+// GinRegisterOIDC mounts browser redirect flows. Optionally specify a site name for tracking.
+func (s *Service) GinRegisterOIDC(root gin.IRouter, site ...string) *Service {
 	rl := s.ensureLimiter()
 	_ = rl // currently used inside handlers; keep initialized for rate limits
 	providers := s.oidcProviders
@@ -103,17 +104,22 @@ func (s *Service) GinRegisterOIDC(root gin.IRouter) *Service {
 	mgr := oidckit.NewManagerFromMinimal(providers)
 	state := s.stateCache()
 	oidcCfg := handlers.OIDCConfig{Manager: mgr, StateCache: state}
-	root.GET("/auth/oidc/:provider/login", handlers.HandleOIDCLoginGET(oidcCfg, s.svc, rl))
-	root.GET("/auth/oidc/:provider/callback", handlers.HandleOIDCCallbackGET(oidcCfg, s.svc, nil, rl))
+	var siteName string
+	if len(site) > 0 {
+		siteName = site[0]
+	}
+	root.GET("/auth/oidc/:provider/login", handlers.HandleOIDCLoginGET(oidcCfg, s.svc, rl, siteName))
+	root.GET("/auth/oidc/:provider/callback", handlers.HandleOIDCCallbackGET(oidcCfg, s.svc, nil, rl, siteName))
 	if _, ok := providers["discord"]; ok {
 		root.GET("/auth/oauth/discord/login", handlers.HandleDiscordLoginGET(oidcCfg, s.svc, rl))
-		root.GET("/auth/oauth/discord/callback", handlers.HandleDiscordCallbackGET(oidcCfg, s.svc, rl))
+		root.GET("/auth/oauth/discord/callback", handlers.HandleDiscordCallbackGET(oidcCfg, s.svc, rl, siteName))
 	}
 	return s
 }
 
 // GinRegisterAPI mounts JSON API endpoints under the given router/group (e.g., /api/v1).
-func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
+// GinRegisterAPI mounts JSON API endpoints. Optionally specify a site name for tracking.
+func (s *Service) GinRegisterAPI(api gin.IRouter, site ...string) *Service {
 	rl := s.ensureLimiter()
 	auth := MiddlewareFromSVC(s)
 	if !core.IsDevEnvironment() {
@@ -123,7 +129,12 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 		}
 	}
 
-	api.POST("/auth/password/login", handlers.HandlePasswordLoginPOST(s.svc, rl))
+	var siteName string
+	if len(site) > 0 {
+		siteName = site[0]
+	}
+
+	api.POST("/auth/password/login", handlers.HandlePasswordLoginPOST(s.svc, rl, siteName))
 
 	// Unified registration (accepts email or phone in identifier field)
 	api.POST("/auth/register", handlers.HandleRegisterUnifiedPOST(s.svc, rl))
@@ -158,11 +169,13 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 
 	// Sessions + logout
 	api.POST("/auth/token", handlers.HandleAuthTokenPOST(s.svc, rl))
-	api.POST("/auth/sessions/current", handlers.HandleAuthSessionsCurrentPOST(s.svc, rl))
 	api.POST("/auth/user/password", auth.Required(), handlers.HandleUserPasswordPOST(s.svc, rl))
+
+	api.POST("/auth/sessions/current", handlers.HandleAuthSessionsCurrentPOST(s.svc, rl))
 	api.GET("/auth/user/sessions", auth.Required(), handlers.HandleUserSessionsGET(s.svc, rl))
 	api.DELETE("/auth/user/sessions/:id", auth.Required(), handlers.HandleUserSessionDELETE(s.svc, rl))
 	api.DELETE("/auth/user/sessions", auth.Required(), handlers.HandleUserSessionsDELETE(s.svc, rl))
+
 	api.DELETE("/auth/logout", auth.Required(), handlers.HandleLogoutDELETE(s.svc, rl))
 
 	// User routes
@@ -188,7 +201,7 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	api.POST("/auth/user/2fa/enable", auth.Required(), handlers.HandleUser2FAEnablePOST(s.svc, rl))
 	api.POST("/auth/user/2fa/disable", auth.Required(), handlers.HandleUser2FADisablePOST(s.svc, rl))
 	api.POST("/auth/user/2fa/regenerate-codes", auth.Required(), handlers.HandleUser2FARegenerateCodesPOST(s.svc, rl))
-	api.POST("/auth/2fa/verify", handlers.HandleUser2FAVerifyPOST(s.svc, rl)) // No auth required - this is during login
+	api.POST("/auth/2fa/verify", handlers.HandleUser2FAVerifyPOST(s.svc, rl, siteName)) // No auth required - this is during login
 
 	// Admin routes
 	admin := api.Group("/auth/admin").Use(auth.Required(), auth.RequireAdmin(s.svc.Postgres()))
@@ -200,6 +213,10 @@ func (s *Service) GinRegisterAPI(api gin.IRouter) *Service {
 	admin.POST("/users/unban", handlers.HandleAdminUsersUnbanPOST(s.svc, rl))
 	admin.POST("/users/set-email", handlers.HandleAdminUsersSetEmailPOST(s.svc, rl))
 	admin.POST("/users/set-username", handlers.HandleAdminUsersSetUsernamePOST(s.svc, rl))
+	admin.POST("/users/set-password", handlers.HandleAdminUsersSetPasswordPOST(s.svc, rl))
+
+	admin.POST("/users/toggle-active", handlers.HandleAdminUserToggleActivePOST(s.svc, rl))
+
 	admin.DELETE("/users/:user_id", handlers.HandleAdminUserDeleteDELETE(s.svc, rl))
 	admin.GET("/users/:user_id/signins", handlers.HandleAdminUserSigninsGET(s.svc, rl))
 

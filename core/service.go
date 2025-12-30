@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log"
 	stdlog "log"
 	"os"
 	"sort"
@@ -137,6 +138,32 @@ func (s *Service) JWKS() jwtkit.JWKS {
 		ks.Keys = append(ks.Keys, jwtkit.RSAPublicToJWK(pub, kid, ""))
 	}
 	return ks
+}
+
+// AdminSetPassword force-sets a user's password
+// (admin only, no current password required)
+func (s *Service) AdminSetPassword(ctx context.Context, userID, new string) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("invalid_user")
+	}
+	if err := password.Validate(new); err != nil {
+		return err
+	}
+	phc, err := password.HashArgon2id(new)
+	if err != nil {
+		return err
+	}
+	if err := s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil); err != nil {
+		return err
+	}
+	// Revoke all sessions for security
+	if err := s.RevokeAllSessions(ctx, userID, nil); err != nil {
+		return err
+	}
+	return nil
 }
 
 // IssueAccessToken builds and signs an access token (JWT) for the given user.
@@ -1746,7 +1773,7 @@ type AdminListUsersResult struct {
 	Offset int         `json:"offset"`
 }
 
-func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int) (*AdminListUsersResult, error) {
+func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter, search string) (*AdminListUsersResult, error) {
 	if s.pg == nil {
 		return &AdminListUsersResult{Users: []AdminUser{}, Total: 0, Limit: pageSize, Offset: 0}, nil
 	}
@@ -1758,13 +1785,65 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int) (*Admi
 	}
 	offset := (page - 1) * pageSize
 
-	// Get total count
+	// Only support these filters:
+	// "All users", "Super administrators", "Taggers", "Bloggers"
+
+	where := []string{"1=1"}
+	args := []interface{}{}
+	argIdx := 1
+	from := "profiles.users u"
+	orderBy := "u.created_at DESC"
+	limitOverride := 0
+
+	switch filter {
+	case "super administrators":
+		from += " JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
+		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
+		args = append(args, "admin")
+		argIdx++
+	case "taggers":
+		from += " JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
+		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
+		args = append(args, "tagger")
+		argIdx++
+	case "bloggers":
+		from += " JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
+		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
+		args = append(args, "blogger")
+		argIdx++
+	case "10 random premium members":
+		// Use a subquery to select 10 random premium user IDs, then join back to users for full data
+		from = "profiles.users u JOIN (SELECT u.id FROM profiles.users u JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL WHERE r.slug = $" + fmt.Sprint(argIdx) + " ORDER BY RANDOM() LIMIT 10) sub ON u.id = sub.id"
+		args = append(args, "premium")
+		argIdx++
+		// No additional where clause needed
+		orderBy = "u.created_at DESC"
+		limitOverride = 0
+	}
+
+	// Search (username, email, phone)
+	if search != "" {
+		where = append(where, "(u.username ILIKE $"+fmt.Sprint(argIdx)+" OR u.email ILIKE $"+fmt.Sprint(argIdx)+" OR u.phone_number ILIKE $"+fmt.Sprint(argIdx)+")")
+		args = append(args, "%"+search+"%")
+		argIdx++
+	}
+
+	countQuery := "SELECT COUNT(DISTINCT u.id) FROM " + from + " WHERE " + strings.Join(where, " AND ")
 	var total int64
-	if err := s.pg.QueryRow(ctx, `SELECT COUNT(*) FROM profiles.users`).Scan(&total); err != nil {
+	if err := s.pg.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, err
 	}
 
-	rows, err := s.pg.Query(ctx, `SELECT id::text, email, username, email_verified, is_active, biography, created_at, updated_at, last_login FROM profiles.users ORDER BY created_at DESC OFFSET $1 LIMIT $2`, offset, pageSize)
+	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.discord_username, u.email_verified, u.phone_verified, u.is_active, u.biography, u.created_at, u.updated_at, u.last_login"
+	query := "SELECT DISTINCT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + orderBy
+	if limitOverride > 0 {
+		query += " LIMIT " + fmt.Sprint(limitOverride)
+	} else {
+		query += " OFFSET $" + fmt.Sprint(argIdx) + " LIMIT $" + fmt.Sprint(argIdx+1)
+		args = append(args, offset, pageSize)
+	}
+
+	rows, err := s.pg.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1772,7 +1851,7 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int) (*Admi
 	var out []AdminUser
 	for rows.Next() {
 		var a AdminUser
-		if err := rows.Scan(&a.ID, &a.Email, &a.Username, &a.EmailVerified, &a.IsActive, &a.Biography, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
+		if err := rows.Scan(&a.ID, &a.Email, &a.PhoneNumber, &a.Username, &a.DiscordUsername, &a.EmailVerified, &a.PhoneVerified, &a.IsActive, &a.Biography, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
 			return nil, err
 		}
 		a.Roles = s.listRoleSlugsByUser(ctx, a.ID)
@@ -1850,10 +1929,29 @@ func (s *Service) DeriveUsername(email string) string { return deriveUsername(em
 // LogLogin records a login event via the configured AuthEventLogger (best-effort).
 // method examples: "password_login", "oidc_login" (optionally suffixed with provider slug by the caller if desired).
 func (s *Service) LogLogin(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
-	if s.authlog == nil {
-		return
+	if s.pg != nil {
+		log.Println("Logging signin history for user:", userID)
+		site := ""
+		if ctxSite, ok := ctx.Value("site").(string); ok {
+			site = ctxSite
+		}
+		ipVal := ""
+		if ip != nil {
+			ipVal = *ip
+		}
+		// Determine login success from context if available
+		var success bool
+		if ctxSuccess, ok := ctx.Value("login_success").(bool); ok {
+			success = ctxSuccess
+		} else {
+			success = method == "password_login" || method == "oidc_login"
+		}
+		_, _ = s.pg.Exec(ctx, `INSERT INTO profiles.signin_history (user_id, date, ip, site, success) VALUES ($1, now(), $2, $3, $4)`, userID, ipVal, site, success)
 	}
-	_ = s.authlog.LogLogin(ctx, userID, s.opts.Issuer, method, sessionID, ip, ua)
+
+	if s.authlog != nil {
+		_ = s.authlog.LogLogin(ctx, userID, s.opts.Issuer, method, sessionID, ip, ua)
+	}
 }
 
 // Deprecated: LogSignin kept for compatibility. Use LogLogin with a session ID.
@@ -1886,12 +1984,31 @@ type SigninEntry struct {
 	IPAddr     *string
 	UserAgent  *string
 	Action     string
+	Site       *string
+	Success    bool
 }
 
 func (s *Service) AdminGetUserSignins(ctx context.Context, userID string, page, pageSize int) ([]SigninEntry, error) {
-	// Sign-in history moved to ClickHouse; this endpoint no longer sources from Postgres.
-	// Returning empty data keeps admin UI functional without Postgres signins.
-	return []SigninEntry{}, nil
+	if s.pg == nil {
+		return []SigninEntry{}, nil
+	}
+	rows, err := s.pg.Query(ctx, `SELECT date, ip, site, success FROM profiles.signin_history WHERE user_id=$1 ORDER BY date DESC LIMIT 30`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SigninEntry
+	for rows.Next() {
+		var e SigninEntry
+		var ip, site *string
+		if err := rows.Scan(&e.OccurredAt, &ip, &site, &e.Success); err != nil {
+			return nil, err
+		}
+		e.IPAddr = ip
+		e.Site = site
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // Provider link management
@@ -2434,4 +2551,13 @@ func isDevEnvironment(env string) bool {
 	}
 	// Everything else (dev, development, local, staging, empty, etc.) is considered dev
 	return true
+}
+
+// SetUserActive sets the is_active property for a user.
+func (s *Service) SetUserActive(ctx context.Context, userID string, isActive bool) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=$2, updated_at=NOW() WHERE id=$1`, userID, isActive)
+	return err
 }

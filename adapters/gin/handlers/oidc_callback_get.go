@@ -15,13 +15,29 @@ import (
 	"github.com/zitadel/oidc/v2/pkg/client/rp"
 )
 
-func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx context.Context, rpClient rp.RelyingParty, provider, code, verifier, nonce string) (oidckit.Claims, error), rl ginutil.RateLimiter) gin.HandlerFunc {
+func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx context.Context, rpClient rp.RelyingParty, provider, code, verifier, nonce string) (oidckit.Claims, error), rl ginutil.RateLimiter, site string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Track site name if present in context
+		if site != "" {
+			c.Set("site", site)
+		}
+		logFailed := func(userID string) {
+			ua := c.Request.UserAgent()
+			ip := c.ClientIP()
+			uaPtr, ipPtr := &ua, &ip
+			ctx := c.Request.Context()
+			ctx = context.WithValue(ctx, "login_success", false)
+			svc.LogLogin(ctx, userID, "oidc_login", "", ipPtr, uaPtr)
+		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCCallback) {
+			c.Set("login_success", false)
+			logFailed("")
 			ginutil.TooMany(c)
 			return
 		}
 		if qErr := c.Query("error"); qErr != "" {
+			c.Set("login_success", false)
+			logFailed("")
 			ginutil.BadRequest(c, qErr)
 			return
 		}
@@ -29,22 +45,30 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx
 		state := c.Query("state")
 		code := c.Query("code")
 		if state == "" || code == "" {
+			c.Set("login_success", false)
+			logFailed("")
 			ginutil.BadRequest(c, "invalid_request")
 			return
 		}
 		sd, ok, err := cfg.StateCache.Get(c.Request.Context(), state)
 		_ = cfg.StateCache.Del(c.Request.Context(), state)
 		if err != nil || !ok || sd.Provider != provider {
+			c.Set("login_success", false)
+			logFailed("")
 			ginutil.BadRequest(c, "invalid_state")
 			return
 		}
 		rpClient, err := cfg.Manager.GetRPWithRedirect(c.Request.Context(), provider, sd.RedirectURI)
 		if err != nil {
+			c.Set("login_success", false)
+			logFailed("")
 			ginutil.BadRequest(c, "unknown_provider")
 			return
 		}
 		issuer, ok := cfg.Manager.IssuerFor(provider)
 		if !ok {
+			c.Set("login_success", false)
+			logFailed("")
 			ginutil.BadRequest(c, "unknown_provider")
 			return
 		}
@@ -54,9 +78,13 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx
 		}
 		claims, err := ex(c.Request.Context(), rpClient, provider, code, sd.Verifier, sd.Nonce)
 		if err != nil {
+			c.Set("login_success", false)
+			logFailed("")
 			ginutil.Unauthorized(c, "oidc_exchange_failed")
 			return
 		}
+		// If we reach here, login is successful
+		c.Set("login_success", true)
 		var userID, email string
 		created := false
 		if claims.Email != nil {
