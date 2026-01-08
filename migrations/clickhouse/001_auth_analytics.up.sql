@@ -46,3 +46,14 @@ SELECT
     user_agent,
     occurred_at AS version
 FROM user_auth_refreshes;
+
+-- Materialized view: automatically populate user_last_seen_current from login events
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_user_last_seen_from_logins {{ON_CLUSTER}}
+TO user_last_seen_current AS
+SELECT
+    user_id,
+    occurred_at AS last_seen,
+    ip_addr,
+    user_agent,
+    occurred_at AS version
+FROM user_auth_logins;
