@@ -83,26 +83,9 @@ func BuildUserContext(c *gin.Context, pg *pgxpool.Pool) UserContext {
 		uc.Username = username
 		uc.Roles = roles
 
-		// Fetch entitlements from billing.entitlements if table exists
-		entitlements := []string{}
-		rows, err := pg.Query(c.Request.Context(), `
-			       SELECT entitlement
-			       FROM billing.entitlements
-			       WHERE user_id = $1 AND revoked_at IS NULL AND deleted_at IS NULL
-		       `, cl.UserID)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var ent string
-				if err := rows.Scan(&ent); err == nil {
-					entitlements = append(entitlements, ent)
-				}
-			}
-		} else if !strings.Contains(err.Error(), "does not exist") {
-			// Only log or handle errors that are not 'relation does not exist'
-			// Optionally: log the error here
-		}
-		uc.Entitlements = entitlements
+		// Entitlements come from JWT claims (populated when token was issued via EntitlementsProvider)
+		// For fresh entitlements, consumers should re-issue the token
+		uc.Entitlements = cl.Entitlements
 
 		if discordUname != nil && strings.TrimSpace(*discordUname) != "" {
 			uc.DiscordUsername = discordUname
