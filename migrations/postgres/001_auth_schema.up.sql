@@ -71,6 +71,81 @@ CREATE TABLE IF NOT EXISTS profiles.roles (
   deleted_at  timestamptz
 );
 
+-- Deterministic role IDs derived from slug.
+--
+-- This is part of the auth mechanism (stable identity), not app-specific role taxonomy.
+-- Role IDs are computed as UUIDv5(namespace, "role:" || slug).
+--
+-- NOTE: relies on pgcrypto (digest/sha1 + gen_random_uuid()) being available in the DB.
+CREATE OR REPLACE FUNCTION profiles.uuid_v5(p_namespace uuid, p_name text) RETURNS uuid
+ LANGUAGE plpgsql
+ IMMUTABLE
+ STRICT
+ AS $$
+DECLARE
+  h bytea;
+  b bytea;
+  hex text;
+BEGIN
+  h := digest(uuid_send(p_namespace) || convert_to(p_name, 'utf8'), 'sha1');
+  b := substring(h from 1 for 16);
+
+  -- Set UUID version (5) and variant (RFC 4122).
+  b := set_byte(b, 6, (get_byte(b, 6) & 15) | 80);   -- 0x50
+  b := set_byte(b, 8, (get_byte(b, 8) & 63) | 128);  -- 0x80
+
+  hex := encode(b, 'hex');
+  RETURN (
+    substring(hex from 1 for 8) || '-' ||
+    substring(hex from 9 for 4) || '-' ||
+    substring(hex from 13 for 4) || '-' ||
+    substring(hex from 17 for 4) || '-' ||
+    substring(hex from 21 for 12)
+  )::uuid;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION profiles.role_id(p_slug text) RETURNS uuid
+ LANGUAGE sql
+ IMMUTABLE
+ STRICT
+ AS $$
+  SELECT profiles.uuid_v5('ef5d0f45-83c6-5dbe-b15a-e017bc88ab5a'::uuid, 'role:' || p_slug);
+$$;
+
+CREATE OR REPLACE FUNCTION profiles.trg_roles_set_id_from_slug() RETURNS trigger
+ LANGUAGE plpgsql
+ AS $$
+BEGIN
+  NEW.id := profiles.role_id(NEW.slug);
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS roles_set_id_from_slug ON profiles.roles;
+CREATE TRIGGER roles_set_id_from_slug
+  BEFORE INSERT ON profiles.roles
+  FOR EACH ROW
+  EXECUTE FUNCTION profiles.trg_roles_set_id_from_slug();
+
+-- Treat role slugs as immutable identity.
+CREATE OR REPLACE FUNCTION profiles.trg_roles_slug_immutable() RETURNS trigger
+ LANGUAGE plpgsql
+ AS $$
+BEGIN
+  IF NEW.slug IS DISTINCT FROM OLD.slug THEN
+    RAISE EXCEPTION 'profiles.roles.slug is immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS roles_slug_immutable ON profiles.roles;
+CREATE TRIGGER roles_slug_immutable
+  BEFORE UPDATE OF slug ON profiles.roles
+  FOR EACH ROW
+  EXECUTE FUNCTION profiles.trg_roles_slug_immutable();
+
 CREATE TABLE IF NOT EXISTS profiles.user_roles (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,

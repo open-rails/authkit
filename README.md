@@ -270,6 +270,11 @@ Admin Gate (DB-backed)
   })
 ```
 
+Roles (global storage)
+- AuthKit stores roles in Postgres `profiles.roles` and memberships in `profiles.user_roles`.
+- AuthKit does not define app role taxonomy (what roles exist). The embedding application/platform should seed its role catalog.
+- Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
+
 Verification Codes:
 - All verification flows (email/phone registration, password reset, email verification) use **6-digit numeric codes** (000000-999999).
 - Codes expire in **15 minutes** for better security.
