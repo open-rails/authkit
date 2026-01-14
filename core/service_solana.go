@@ -120,6 +120,10 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		}
 	}
 
+	if err := s.ensureUserAccessByID(ctx, userID); err != nil {
+		return "", time.Time{}, "", "", false, err
+	}
+
 	// Issue tokens
 	if extra == nil {
 		extra = make(map[string]any)

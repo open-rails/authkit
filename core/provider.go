@@ -48,6 +48,8 @@ type Provider interface {
 	RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error
 	RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error
 	SetUserActive(ctx context.Context, userID string, isActive bool) error
+	BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error
+	UnbanUser(ctx context.Context, userID string) error
 
 	// Password + registration
 	PasswordLogin(ctx context.Context, email, pass string, extra map[string]any) (string, time.Time, error)

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -153,10 +154,24 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx
 			}
 		}
 		extra := map[string]any{"provider": provider}
-		sid, rt, _, _ := svc.IssueRefreshSession(c.Request.Context(), userID, c.Request.UserAgent(), nil)
+		sid, rt, _, err := svc.IssueRefreshSession(c.Request.Context(), userID, c.Request.UserAgent(), nil)
+		if err != nil {
+			logFailed(userID)
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
+			ginutil.ServerErrWithLog(c, "session_issue_failed", err, "failed to issue refresh session for oidc callback")
+			return
+		}
 		extra["sid"] = sid
 		token, exp, err := svc.IssueAccessToken(c.Request.Context(), userID, email, extra)
 		if err != nil {
+			logFailed(userID)
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
 			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue access token for oidc callback")
 			return
 		}

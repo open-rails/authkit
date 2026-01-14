@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -31,6 +32,10 @@ func HandleAuthTokenPOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerF
 		accessToken, exp, newRT, err := svc.ExchangeRefreshToken(c.Request.Context(), body.RefreshToken, ua, ip)
 		if err != nil {
 			logrus.WithError(err).Warn("Failed to exchange refresh token")
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
 			ginutil.Unauthorized(c, "invalid_refresh_token")
 			return
 		}

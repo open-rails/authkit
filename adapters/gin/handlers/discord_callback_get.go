@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -188,11 +189,24 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 
 		// Issue sessions + tokens
 		extra := map[string]any{"provider": "discord"}
-		sid, rt, _, _ := svc.IssueRefreshSession(c.Request.Context(), userID, c.Request.UserAgent(), nil)
+		sid, rt, _, err := svc.IssueRefreshSession(c.Request.Context(), userID, c.Request.UserAgent(), nil)
+		if err != nil {
+			logFailed(userID)
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
+			ginutil.ServerErrWithLog(c, "session_issue_failed", err, "failed to issue refresh session for discord oauth")
+			return
+		}
 		extra["sid"] = sid
 		accessToken, exp, err := svc.IssueAccessToken(c.Request.Context(), userID, email, extra)
 		if err != nil {
 			logFailed(userID)
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
 			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue token for discord oauth")
 			return
 		}
