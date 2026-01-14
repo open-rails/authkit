@@ -26,6 +26,9 @@ func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent str
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
 	}
+	if err := s.ensureUserAccessByID(ctx, userID); err != nil {
+		return "", "", nil, err
+	}
 	// Enforce session limit
 	if s.opts.SessionMaxPerUser > 0 {
 		if err = s.enforceSessionLimit(ctx, userID, s.opts.Issuer); err != nil {
@@ -82,6 +85,9 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 			return "", time.Time{}, "", errors.New("refresh token reuse detected")
 		}
 		return "", time.Time{}, "", errors.New("invalid refresh token")
+	}
+	if err := s.ensureUserAccessByID(ctx, uid); err != nil {
+		return "", time.Time{}, "", err
 	}
 
 	// Load email for ID token payload (best-effort)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -38,6 +39,10 @@ func HandleEmailVerifyConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin
 			// Success - pending registration confirmed and user created
 			// Issue tokens and return them
 			if err := IssueTokensForUser(c, svc, userID, "email_verification"); err != nil {
+				if errors.Is(err, core.ErrUserBanned) {
+					ginutil.Unauthorized(c, "user_banned")
+					return
+				}
 				ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue tokens after registration")
 				return
 			}
@@ -53,6 +58,10 @@ func HandleEmailVerifyConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) gin
 
 		// Issue tokens and return them
 		if err := IssueTokensForUser(c, svc, userID, "email_verification"); err != nil {
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
 			ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue tokens after verification")
 			return
 		}

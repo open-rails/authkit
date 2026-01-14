@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/PaulFidika/authkit/adapters/ginutil"
 	core "github.com/PaulFidika/authkit/core"
@@ -14,7 +15,7 @@ func HandleAdminUsersUnbanPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Ha
 	}
 	return func(c *gin.Context) {
 		var req userIDReq
-		if err := c.ShouldBindJSON(&req); err != nil || req.UserID == "" {
+		if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.UserID) == "" {
 			ginutil.BadRequest(c, "invalid_request")
 			return
 		}
@@ -22,7 +23,7 @@ func HandleAdminUsersUnbanPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Ha
 			ginutil.TooMany(c)
 			return
 		}
-		if err := svc.SetActive(c.Request.Context(), req.UserID, true); err != nil {
+		if err := svc.UnbanUser(c.Request.Context(), req.UserID); err != nil {
 			ginutil.ServerErrWithLog(c, "failed_to_unban", err, "failed to unban user")
 			return
 		}

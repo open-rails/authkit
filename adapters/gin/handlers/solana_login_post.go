@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"time"
 
@@ -89,6 +90,10 @@ func HandleSolanaLoginPost(cfg SIWSConfig, svc core.Provider, rl ginutil.RateLim
 			nil,
 		)
 		if err != nil {
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
 			// Distinguish between different error types
 			errMsg := err.Error()
 			switch {

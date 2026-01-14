@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -81,6 +82,10 @@ func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 		sid, rt, _, err := svc.IssueRefreshSession(c.Request.Context(), userID, c.Request.UserAgent(), nil)
 		if err != nil {
 			logAttempt(userID, false, "")
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
 			ginutil.ServerErrWithLog(c, "session_creation_failed", err, "failed to create session during 2fa login")
 			return
 		}
@@ -96,6 +101,10 @@ func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 
 		token, exp, err := svc.IssueAccessToken(c.Request.Context(), userID, emailForToken, map[string]any{"sid": sid})
 		if err != nil {
+			if errors.Is(err, core.ErrUserBanned) {
+				ginutil.Unauthorized(c, "user_banned")
+				return
+			}
 			ginutil.ServerErrWithLog(c, "token_creation_failed", err, "failed to issue access token during 2fa login")
 			return
 		}

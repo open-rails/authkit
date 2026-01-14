@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -194,6 +195,10 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 			token, exp, err = svc.PasswordLoginByUserID(c.Request.Context(), userID, req.Password, nil)
 			if err != nil {
 				logFailed(identifier)
+				if errors.Is(err, core.ErrUserBanned) {
+					ginutil.Unauthorized(c, "user_banned")
+					return
+				}
 				ginutil.Unauthorized(c, "invalid_credentials")
 				return
 			}
@@ -201,6 +206,11 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 			// Email flow: verify by email
 			token, exp, err = svc.PasswordLogin(c.Request.Context(), loginEmail, req.Password, nil)
 			if err != nil {
+				if errors.Is(err, core.ErrUserBanned) {
+					logFailed(loginEmail)
+					ginutil.Unauthorized(c, "user_banned")
+					return
+				}
 				// If PasswordLogin failed, check if user is in pending registration cache (unverified)
 				pendingUser, pendingErr := svc.GetPendingRegistrationByEmail(c.Request.Context(), loginEmail)
 				if pendingErr == nil && pendingUser != nil {
@@ -259,7 +269,16 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 			}
 
 			// No 2FA or 2FA not enabled - proceed with normal login
-			sid, rt, _, _ := svc.IssueRefreshSession(c.Request.Context(), finalUserID, c.Request.UserAgent(), nil)
+			sid, rt, _, err := svc.IssueRefreshSession(c.Request.Context(), finalUserID, c.Request.UserAgent(), nil)
+			if err != nil {
+				logFailed(identifier)
+				if errors.Is(err, core.ErrUserBanned) {
+					ginutil.Unauthorized(c, "user_banned")
+					return
+				}
+				ginutil.ServerErrWithLog(c, "session_creation_failed", err, "failed to create refresh session")
+				return
+			}
 			ua := c.Request.UserAgent()
 			ip := c.ClientIP()
 			uaPtr, ipPtr := &ua, &ip
@@ -277,8 +296,15 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 					emailForToken = *usr.Email
 				}
 			}
-			if t2, e2, e := svc.IssueAccessToken(c.Request.Context(), finalUserID, emailForToken, map[string]any{"sid": sid}); e == nil {
-				token, exp = t2, e2
+			token, exp, err = svc.IssueAccessToken(c.Request.Context(), finalUserID, emailForToken, map[string]any{"sid": sid})
+			if err != nil {
+				logFailed(identifier)
+				if errors.Is(err, core.ErrUserBanned) {
+					ginutil.Unauthorized(c, "user_banned")
+					return
+				}
+				ginutil.ServerErrWithLog(c, "token_issue_failed", err, "failed to issue access token")
+				return
 			}
 			c.JSON(http.StatusOK, gin.H{"access_token": token, "token_type": "Bearer", "expires_in": int64(time.Until(exp).Seconds()), "refresh_token": rt})
 			return
