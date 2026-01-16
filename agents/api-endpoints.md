@@ -140,4 +140,6 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | POST | `/auth/admin/users/set-email` | ADMIN | Set user email |
 | POST | `/auth/admin/users/set-username` | ADMIN | Set user username |
 | DELETE | `/auth/admin/users/:user_id` | ADMIN | Delete user |
+| POST | `/auth/admin/users/:user_id/restore` | ADMIN | Restore (undelete) user |
+| GET | `/auth/admin/users/deleted` | ADMIN | List deleted users |
 | GET | `/auth/admin/users/:user_id/signins` | ADMIN | Get user sign-in history |

@@ -1,26 +1,38 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
+	"github.com/PaulFidika/authkit/adapters/ginutil"
 	core "github.com/PaulFidika/authkit/core"
 	"github.com/gin-gonic/gin"
 )
 
 // HandleAdminUserRestorePOST restores a soft-deleted user (clears deleted_at and re-enables the account).
-func HandleAdminUserRestorePOST(svc core.Provider) gin.HandlerFunc {
+func HandleAdminUserRestorePOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := c.Param("user_id")
+		userID := strings.TrimSpace(c.Param("user_id"))
 		if userID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+			ginutil.BadRequest(c, "invalid_request")
+			return
+		}
+
+		if !ginutil.AllowNamed(c, rl, ginutil.RLAdminUserSessionsRevokeAll) {
+			ginutil.TooMany(c)
 			return
 		}
 
 		if err := svc.RestoreUser(c.Request.Context(), userID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_restore_user"})
+			if errors.Is(err, core.ErrUserNotFound) {
+				ginutil.NotFound(c, "not_found")
+				return
+			}
+			ginutil.ServerErrWithLog(c, "failed_to_restore_user", err, "failed to restore user")
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		c.JSON(http.StatusOK, gin.H{"ok": true, "user_id": userID})
 	}
 }

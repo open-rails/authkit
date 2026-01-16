@@ -54,6 +54,8 @@ type EntitlementsProvider interface {
 var (
 	// ErrUserBanned indicates the account is blocked from authenticating.
 	ErrUserBanned = errors.New("user_banned")
+	// ErrUserNotFound indicates a user does not exist (or is not visible).
+	ErrUserNotFound = errors.New("user_not_found")
 )
 
 // (storage layer collapsed into direct Postgres/Redis helpers)
@@ -1472,8 +1474,14 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=true, deleted_at=NULL, updated_at=now() WHERE id=$1`, id)
-	return err
+	tag, err := s.pg.Exec(ctx, `UPDATE profiles.users SET deleted_at=NULL, updated_at=now() WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 // HostDeleteUser performs deletion on behalf of the host application.

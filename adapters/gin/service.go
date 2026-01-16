@@ -217,10 +217,10 @@ func (s *Service) GinRegisterAPI(api gin.IRouter, site ...string) *Service {
 
 	admin.POST("/users/toggle-active", handlers.HandleAdminUserToggleActivePOST(s.svc, rl))
 
-	admin.DELETE("/users/:user_id", handlers.HandleAdminUserDeleteDELETE(s.svc, rl))
-	admin.POST("/users/:user_id/restore", handlers.HandleAdminUserRestorePOST(s.svc))
-	admin.GET("/users/deleted", handlers.HandleAdminDeletedUsersListGET(s.svc))
-	admin.GET("/users/:user_id/signins", handlers.HandleAdminUserSigninsGET(s.svc, rl))
+		admin.DELETE("/users/:user_id", handlers.HandleAdminUserDeleteDELETE(s.svc, rl))
+		admin.POST("/users/:user_id/restore", handlers.HandleAdminUserRestorePOST(s.svc, rl))
+		admin.GET("/users/deleted", handlers.HandleAdminDeletedUsersListGET(s.svc))
+		admin.GET("/users/:user_id/signins", handlers.HandleAdminUserSigninsGET(s.svc, rl))
 
 	// Solana SIWS authentication routes
 	siwsCfg := handlers.SIWSConfig{
