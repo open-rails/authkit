@@ -1405,14 +1405,6 @@ func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) erro
 	return err
 }
 
-func (s *Service) setBannedAt(ctx context.Context, id string, bannedAt *time.Time) error {
-	if s.pg == nil {
-		return nil
-	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=$2, updated_at=NOW() WHERE id=$1`, id, bannedAt)
-	return err
-}
-
 func (s *Service) clearUserBan(ctx context.Context, userID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -1869,20 +1861,6 @@ func (s *Service) UpdateEmail(ctx context.Context, id, email string) error {
 }
 func (s *Service) UpdateBiography(ctx context.Context, id string, bio *string) error {
 	return s.updateBiography(ctx, id, bio)
-}
-func (s *Service) BanUser(ctx context.Context, userID string) error {
-	if s.pg == nil {
-		return nil
-	}
-	now := time.Now()
-	if err := s.setBannedAt(ctx, userID, &now); err != nil {
-		return err
-	}
-	_ = s.RevokeAllSessions(ctx, userID, nil)
-	return nil
-}
-func (s *Service) UnbanUser(ctx context.Context, userID string) error {
-	return s.setBannedAt(ctx, userID, nil)
 }
 func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
 	if s.pg == nil {

@@ -95,8 +95,6 @@ type Provider interface {
 	UpdateUsername(ctx context.Context, id, username string) error
 	UpdateEmail(ctx context.Context, id, email string) error
 	UpdateBiography(ctx context.Context, id string, bio *string) error
-	BanUser(ctx context.Context, userID string) error
-	UnbanUser(ctx context.Context, userID string) error
 
 	// OIDC/provider links
 	GetProviderLink(ctx context.Context, provider, subject string) (string, *string, error)

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/PaulFidika/authkit/adapters/ginutil"
 	core "github.com/PaulFidika/authkit/core"
@@ -24,7 +25,12 @@ func HandleAdminUserToggleActivePOST(svc core.Provider, rl ginutil.RateLimiter) 
 		}
 
 		if *body.Banned {
-			if err := svc.BanUser(c.Request.Context(), body.UserID); err != nil {
+			bannedBy := strings.TrimSpace(c.GetString("auth.user_id"))
+			if bannedBy == "" {
+				ginutil.Unauthorized(c, "unauthorized")
+				return
+			}
+			if err := svc.BanUser(c.Request.Context(), body.UserID, nil, nil, bannedBy); err != nil {
 				ginutil.ServerErrWithLog(c, "failed_to_ban", err, "failed to ban user")
 				return
 			}
