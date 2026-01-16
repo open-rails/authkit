@@ -54,6 +54,8 @@ type EntitlementsProvider interface {
 var (
 	// ErrUserBanned indicates the account is blocked from authenticating.
 	ErrUserBanned = errors.New("user_banned")
+	// ErrUserNotFound indicates a user does not exist (or is not visible).
+	ErrUserNotFound = errors.New("user_not_found")
 )
 
 // (storage layer collapsed into direct Postgres/Redis helpers)

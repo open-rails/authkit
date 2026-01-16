@@ -129,17 +129,17 @@ type Provider interface {
 	HostDeleteUser(ctx context.Context, id string, soft bool) error
 	RestoreUser(ctx context.Context, userID string) error
 	AssignRoleBySlug(ctx context.Context, userID, slug string) error
-	RemoveRoleBySlug(ctx context.Context, userID, slug string) error
-	AdminListUserSessions(ctx context.Context, userID string) ([]Session, error)
-	AdminRevokeUserSessions(ctx context.Context, userID string) error
-	RevokeSessionByID(ctx context.Context, sessionID string) error
-	AdminGetUserSignins(ctx context.Context, userID string, page, pageSize int) ([]SigninEntry, error)
+		RemoveRoleBySlug(ctx context.Context, userID, slug string) error
+		AdminListUserSessions(ctx context.Context, userID string) ([]Session, error)
+		AdminRevokeUserSessions(ctx context.Context, userID string) error
+		RevokeSessionByID(ctx context.Context, sessionID string) error
+		AdminGetUserSignins(ctx context.Context, userID string, page, pageSize int) ([]SigninEntry, error)
 
-	// Link management
-	CountProviderLinks(ctx context.Context, userID string) int
-	UnlinkProvider(ctx context.Context, userID, provider string) error
+		// Link management
+		CountProviderLinks(ctx context.Context, userID string) int
+		UnlinkProvider(ctx context.Context, userID, provider string) error
 
-	// Observability hooks
-	LogLogin(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string)
-	SendWelcome(ctx context.Context, userID string)
-}
+		// Observability hooks
+		LogLogin(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string)
+		SendWelcome(ctx context.Context, userID string)
+	}

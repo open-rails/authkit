@@ -1,6 +1,18 @@
 {
   "issues": [
     {
+      "name": "Admin undelete user (restore soft-deleted users)",
+      "description": "AuthKit supports soft-deleting users via `deleted_at` (self-delete: `DELETE /auth/user`; admin delete: `DELETE /auth/admin/users/:user_id`) and then hard-deleting later via the purge worker. Add an admin-only restore endpoint so admins can restore a user before they are hard-deleted.\n\nSemantics:\n- Restore only clears `profiles.users.deleted_at` (and updates `updated_at`).\n- Do not change ban state (banned users remain banned after restore).\n- Do not recreate sessions; deleted users had sessions revoked, so they must log in again.\n- Idempotent: restoring an already-restored user is a no-op.\n\nEndpoint:\n- `POST /auth/admin/users/:user_id/restore` (ADMIN)\n- `GET /auth/admin/users/deleted` (ADMIN) for listing deleted users.",
+      "tasks": [
+        "[x] Core: Add restore method that clears deleted_at (no ban changes) and returns not-found when user is missing",
+        "[x] HTTP (gin): Add admin restore route and deleted-users list route under `/auth/admin`",
+        "[x] HTTP (gin): Ensure endpoint requires admin via existing RequireAdmin middleware",
+        "[x] Tests: Add minimal handler tests for restore (ok + not_found)",
+        "[x] Docs: Update `agents/api-endpoints.md` to include restore + deleted list"
+      ],
+      "completed": true
+    },
+    {
       "name": "Move ephemeral auth state to Redis (codes, SIWS challenges, rate limits)",
       "description": "Use Redis-compatible storage (Garnet) for ephemeral auth state (verification codes, reset tokens, SIWS challenges, and other short-lived entries) so we don't rely on Postgres TTL cleanup. This also makes SIWS safe in multi-instance deployments. In-memory caches remain as a fallback when Garnet is not configured, but they are not safe for distributed use. AuthKit should accept a Redis client interface from the host app (Garnet implements the same protocol).",
       "tasks": [
