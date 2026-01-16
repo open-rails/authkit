@@ -134,7 +134,6 @@ type Provider interface {
 	AdminRevokeUserSessions(ctx context.Context, userID string) error
 	RevokeSessionByID(ctx context.Context, sessionID string) error
 	AdminGetUserSignins(ctx context.Context, userID string, page, pageSize int) ([]SigninEntry, error)
-	SoftDeleteUser(ctx context.Context, id string) error
 
 	// Link management
 	CountProviderLinks(ctx context.Context, userID string) int
