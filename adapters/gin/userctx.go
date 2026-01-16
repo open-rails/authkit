@@ -71,7 +71,7 @@ func BuildUserContext(c *gin.Context, pg *pgxpool.Pool) UserContext {
                (SELECT slugs FROM roles),
                COALESCE(u.discord_username, (SELECT uname FROM discord)) AS discord_username
         FROM profiles.users u
-        WHERE u.id = $1
+        WHERE u.id = $1 AND u.deleted_at IS NULL AND u.banned_at IS NULL
     `, cl.UserID)
 
 	var email string

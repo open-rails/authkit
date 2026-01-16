@@ -19,7 +19,7 @@ func HandleAdminUserDeleteDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.
 			ginutil.TooMany(c)
 			return
 		}
-		if err := svc.AdminDeleteUser(c.Request.Context(), id); err != nil {
+		if err := svc.SoftDeleteUser(c.Request.Context(), id); err != nil {
 			ginutil.ServerErrWithLog(c, "failed_to_delete", err, "failed to delete user")
 			return
 		}

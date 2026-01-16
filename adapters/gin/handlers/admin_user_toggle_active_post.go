@@ -8,28 +8,37 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HandleAdminUserToggleActivePOST toggles the is_active property of a user record.
+// HandleAdminUserToggleActivePOST toggles user ban status.
+//
+// Note: This endpoint is kept for backward compatibility with older admin UIs.
+// The preferred routes are /auth/admin/users/ban and /auth/admin/users/unban.
 func HandleAdminUserToggleActivePOST(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
-			UserID   string `json:"user_id"`
-			IsActive *bool  `json:"is_active"`
+			UserID string `json:"user_id"`
+			Banned *bool  `json:"banned"`
 		}
-		if err := c.ShouldBindJSON(&body); err != nil || body.UserID == "" || body.IsActive == nil {
+		if err := c.ShouldBindJSON(&body); err != nil || body.UserID == "" || body.Banned == nil {
 			ginutil.BadRequest(c, "invalid_request")
 			return
 		}
 
-		err := svc.SetUserActive(c.Request.Context(), body.UserID, *body.IsActive)
-		if err != nil {
-			ginutil.ServerErrWithLog(c, "failed_to_toggle_active", err, "Failed to toggle is_active")
-			return
+		if *body.Banned {
+			if err := svc.BanUser(c.Request.Context(), body.UserID); err != nil {
+				ginutil.ServerErrWithLog(c, "failed_to_ban", err, "failed to ban user")
+				return
+			}
+		} else {
+			if err := svc.UnbanUser(c.Request.Context(), body.UserID); err != nil {
+				ginutil.ServerErrWithLog(c, "failed_to_unban", err, "failed to unban user")
+				return
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"ok":        true,
-			"user_id":   body.UserID,
-			"is_active": *body.IsActive,
+			"ok":      true,
+			"user_id": body.UserID,
+			"banned":  *body.Banned,
 		})
 	}
 }

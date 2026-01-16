@@ -16,7 +16,7 @@ func HandleUserDeleteDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.Handl
 		}
 		uid, _ := c.Get("auth.user_id")
 		userID, _ := uid.(string)
-		_ = svc.SetActive(c.Request.Context(), userID, false)
+		_ = svc.SoftDeleteUser(c.Request.Context(), userID)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }

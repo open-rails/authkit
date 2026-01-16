@@ -47,7 +47,7 @@ type Provider interface {
 	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error
 	RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error
-	SetUserActive(ctx context.Context, userID string, isActive bool) error
+	SoftDeleteUser(ctx context.Context, userID string) error
 	BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error
 	UnbanUser(ctx context.Context, userID string) error
 
@@ -94,8 +94,9 @@ type Provider interface {
 	SetEmailVerified(ctx context.Context, id string, v bool) error
 	UpdateUsername(ctx context.Context, id, username string) error
 	UpdateEmail(ctx context.Context, id, email string) error
-	SetActive(ctx context.Context, id string, active bool) error
 	UpdateBiography(ctx context.Context, id string, bio *string) error
+	BanUser(ctx context.Context, userID string) error
+	UnbanUser(ctx context.Context, userID string) error
 
 	// OIDC/provider links
 	GetProviderLink(ctx context.Context, provider, subject string) (string, *string, error)

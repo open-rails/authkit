@@ -1,6 +1,7 @@
 package authgin
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -105,6 +106,20 @@ func AuthRequired(svc core.Verifier) gin.HandlerFunc {
 		if userID != "" {
 			if du, err := svc.GetProviderUsername(c.Request.Context(), userID, "discord"); err == nil && du != "" {
 				c.Set("auth.discord_username", du)
+			}
+		}
+
+		// Optional live user gate (ban/deleted) when the verifier is service-backed.
+		if userID != "" {
+			type userGate interface {
+				IsUserAllowed(ctx context.Context, userID string) (bool, error)
+			}
+			if ug, ok := svc.(userGate); ok {
+				allowed, err := ug.IsUserAllowed(c.Request.Context(), userID)
+				if err != nil || !allowed {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user_disabled"})
+					return
+				}
 			}
 		}
 

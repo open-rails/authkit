@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS profiles.users (
   email_verified    boolean NOT NULL DEFAULT false,
   phone_number      text UNIQUE,
   phone_verified    boolean DEFAULT false,
-  is_active         boolean NOT NULL DEFAULT true,
+  banned_at         timestamptz,
   deleted_at        timestamptz,
   biography         text,
   created_at        timestamptz NOT NULL DEFAULT now(),

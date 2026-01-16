@@ -201,16 +201,21 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	var username *string
 	var emailVerified bool
 	if s.pg != nil {
-		if u, uErr := s.getUserByID(ctx, userID); uErr == nil && u != nil {
-			if err := s.ensureUserAccess(ctx, u); err != nil {
-				return "", time.Time{}, err
-			}
-			if u.Email != nil && *u.Email != "" {
-				email = *u.Email
-			}
-			username = u.Username
-			emailVerified = u.EmailVerified
+		u, uErr := s.getUserByID(ctx, userID)
+		if uErr != nil {
+			return "", time.Time{}, uErr
 		}
+		if u == nil {
+			return "", time.Time{}, jwt.ErrTokenInvalidClaims
+		}
+		if err := s.ensureUserAccess(ctx, u); err != nil {
+			return "", time.Time{}, err
+		}
+		if u.Email != nil && *u.Email != "" {
+			email = *u.Email
+		}
+		username = u.Username
+		emailVerified = u.EmailVerified
 	}
 	// Best-effort fetch of discord username (prefer profiles.users.discord_username; fallback to provider profile)
 	var discord string
@@ -427,9 +432,9 @@ func (s *Service) getUserByPhone(ctx context.Context, phone string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE phone_number=$1`, phone)
+	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE phone_number=$1`, phone)
 	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -1066,11 +1071,11 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, erro
 		return nil, nil
 	}
 	row := s.pg.QueryRow(ctx, `
-		SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, deleted_at, biography, created_at, updated_at, last_login
+		SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, deleted_at, biography, created_at, updated_at, last_login
 		FROM profiles.users WHERE phone_number = $1
 	`, phone)
 	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -1273,7 +1278,6 @@ type User struct {
 	DiscordUsername *string
 	EmailVerified   bool
 	PhoneVerified   bool
-	IsActive        bool
 	BannedAt        *time.Time
 	BannedUntil     *time.Time
 	BanReason       *string
@@ -1289,9 +1293,9 @@ func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE lower(email)=lower($1)`, email)
+	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE lower(email)=lower($1)`, email)
 	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -1301,9 +1305,9 @@ func (s *Service) getUserByUsername(ctx context.Context, username string) (*User
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE username=$1`, username)
+	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE username=$1`, username)
 	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -1313,9 +1317,9 @@ func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, is_active, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE id=$1`, id)
+	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE id=$1`, id)
 	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.IsActive, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -1325,10 +1329,13 @@ func (s *Service) ensureUserAccess(ctx context.Context, u *User) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
 	}
+	if u.DeletedAt != nil {
+		return ErrUserBanned
+	}
 	if err := s.autoUnbanIfExpired(ctx, u); err != nil {
 		return err
 	}
-	if isUserBanned(u) || !u.IsActive {
+	if isUserBanned(u) {
 		return ErrUserBanned
 	}
 	return nil
@@ -1354,7 +1361,6 @@ func (s *Service) autoUnbanIfExpired(ctx context.Context, u *User) error {
 		if err := s.clearUserBan(ctx, u.ID); err != nil {
 			return err
 		}
-		u.IsActive = true
 		u.BannedAt = nil
 		u.BannedUntil = nil
 		u.BanReason = nil
@@ -1375,9 +1381,9 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 		return nil, nil
 	}
 	// Convert empty email to NULL for database (allows multiple users without emails)
-	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (email, username) VALUES (NULLIF(lower($1), ''), $2) RETURNING id, email, username, email_verified, is_active`, email, username)
+	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (email, username) VALUES (NULLIF(lower($1), ''), $2) RETURNING id, email, username, email_verified, banned_at, deleted_at`, email, username)
 	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.IsActive); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.BannedAt, &u.DeletedAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -1399,11 +1405,11 @@ func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) erro
 	return err
 }
 
-func (s *Service) setActive(ctx context.Context, id string, active bool) error {
+func (s *Service) setBannedAt(ctx context.Context, id string, bannedAt *time.Time) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=$2, updated_at=NOW() WHERE id=$1`, id, active)
+	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=$2, updated_at=NOW() WHERE id=$1`, id, bannedAt)
 	return err
 }
 
@@ -1414,7 +1420,7 @@ func (s *Service) clearUserBan(ctx context.Context, userID string) error {
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=true, banned_at=NULL, banned_until=NULL, ban_reason=NULL, banned_by=NULL, updated_at=NOW() WHERE id=$1`, userID)
+	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=NULL, banned_until=NULL, ban_reason=NULL, banned_by=NULL, updated_at=NOW() WHERE id=$1`, userID)
 	return err
 }
 
@@ -1443,8 +1449,12 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 		t := until.UTC()
 		untilPtr = &t
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=false, banned_at=$2, banned_until=$3, ban_reason=$4, banned_by=$5, updated_at=NOW() WHERE id=$1`, userID, now, untilPtr, reasonPtr, bannedByPtr)
-	return err
+	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=$2, banned_until=$3, ban_reason=$4, banned_by=$5, updated_at=NOW() WHERE id=$1`, userID, now, untilPtr, reasonPtr, bannedByPtr)
+	if err != nil {
+		return err
+	}
+	_ = s.RevokeAllSessions(ctx, userID, nil)
+	return nil
 }
 
 // UnbanUser clears ban metadata and re-enables the account.
@@ -1452,7 +1462,7 @@ func (s *Service) UnbanUser(ctx context.Context, userID string) error {
 	return s.clearUserBan(ctx, userID)
 }
 
-// SoftDeleteUser marks the user inactive and sets deleted_at without dropping rows.
+// SoftDeleteUser marks the user deleted and sets deleted_at without dropping rows.
 // Also revokes all refresh sessions for this issuer.
 func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	if s.pg == nil {
@@ -1461,7 +1471,7 @@ func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	// Revoke sessions first
 	_ = s.RevokeAllSessions(ctx, id, nil)
 	// Soft-delete user
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=false, deleted_at=now(), updated_at=now() WHERE id=$1`, id)
+	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET deleted_at=now(), updated_at=now() WHERE id=$1`, id)
 	return err
 }
 
@@ -1857,11 +1867,38 @@ func (s *Service) UpdateUsername(ctx context.Context, id, username string) error
 func (s *Service) UpdateEmail(ctx context.Context, id, email string) error {
 	return s.updateEmail(ctx, id, email)
 }
-func (s *Service) SetActive(ctx context.Context, id string, active bool) error {
-	return s.setActive(ctx, id, active)
-}
 func (s *Service) UpdateBiography(ctx context.Context, id string, bio *string) error {
 	return s.updateBiography(ctx, id, bio)
+}
+func (s *Service) BanUser(ctx context.Context, userID string) error {
+	if s.pg == nil {
+		return nil
+	}
+	now := time.Now()
+	if err := s.setBannedAt(ctx, userID, &now); err != nil {
+		return err
+	}
+	_ = s.RevokeAllSessions(ctx, userID, nil)
+	return nil
+}
+func (s *Service) UnbanUser(ctx context.Context, userID string) error {
+	return s.setBannedAt(ctx, userID, nil)
+}
+func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
+	if s.pg == nil {
+		return true, nil
+	}
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil {
+		return false, err
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		if errors.Is(err, ErrUserBanned) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // Admin listing/get/delete
@@ -1873,11 +1910,11 @@ type AdminUser struct {
 	DiscordUsername *string    `json:"discord_username"`
 	EmailVerified   bool       `json:"email_verified"`
 	PhoneVerified   bool       `json:"phone_verified"`
-	IsActive        bool       `json:"is_active"`
 	BannedAt        *time.Time `json:"banned_at,omitempty"`
 	BannedUntil     *time.Time `json:"banned_until,omitempty"`
 	BanReason       *string    `json:"ban_reason,omitempty"`
 	BannedBy        *string    `json:"banned_by,omitempty"`
+	DeletedAt       *time.Time `json:"deleted_at"`
 	Biography       *string    `json:"biography"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
@@ -1955,7 +1992,7 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 		return nil, err
 	}
 
-	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.discord_username, u.email_verified, u.phone_verified, u.is_active, u.banned_at, u.banned_until, u.ban_reason, u.banned_by, u.biography, u.created_at, u.updated_at, u.last_login"
+	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.discord_username, u.email_verified, u.phone_verified, u.banned_at, u.banned_until, u.ban_reason, u.banned_by, u.deleted_at, u.biography, u.created_at, u.updated_at, u.last_login"
 	query := "SELECT DISTINCT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + orderBy
 	if limitOverride > 0 {
 		query += " LIMIT " + fmt.Sprint(limitOverride)
@@ -1972,7 +2009,7 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 	var out []AdminUser
 	for rows.Next() {
 		var a AdminUser
-		if err := rows.Scan(&a.ID, &a.Email, &a.PhoneNumber, &a.Username, &a.DiscordUsername, &a.EmailVerified, &a.PhoneVerified, &a.IsActive, &a.BannedAt, &a.BannedUntil, &a.BanReason, &a.BannedBy, &a.Biography, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
+		if err := rows.Scan(&a.ID, &a.Email, &a.PhoneNumber, &a.Username, &a.DiscordUsername, &a.EmailVerified, &a.PhoneVerified, &a.BannedAt, &a.BannedUntil, &a.BanReason, &a.BannedBy, &a.DeletedAt, &a.Biography, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
 			return nil, err
 		}
 		a.Roles = s.listRoleSlugsByUser(ctx, a.ID)
@@ -1992,8 +2029,8 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 	}
 	a := &AdminUser{
 		ID: u.ID, Email: u.Email, PhoneNumber: u.PhoneNumber, Username: u.Username, DiscordUsername: u.DiscordUsername,
-		EmailVerified: u.EmailVerified, PhoneVerified: u.PhoneVerified, IsActive: u.IsActive,
-		BannedAt: u.BannedAt, BannedUntil: u.BannedUntil, BanReason: u.BanReason, BannedBy: u.BannedBy,
+		EmailVerified: u.EmailVerified, PhoneVerified: u.PhoneVerified,
+		BannedAt: u.BannedAt, BannedUntil: u.BannedUntil, BanReason: u.BanReason, BannedBy: u.BannedBy, DeletedAt: u.DeletedAt,
 		Biography: u.Biography, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLogin: u.LastLogin,
 	}
 	a.Roles = s.listRoleSlugsByUser(ctx, id)
@@ -2675,11 +2712,4 @@ func isDevEnvironment(env string) bool {
 	return true
 }
 
-// SetUserActive sets the is_active property for a user.
-func (s *Service) SetUserActive(ctx context.Context, userID string, isActive bool) error {
-	if s.pg == nil {
-		return fmt.Errorf("postgres not configured")
-	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=$2, updated_at=NOW() WHERE id=$1`, userID, isActive)
-	return err
-}
+// (SetUserActive removed; use BanUser/UnbanUser or SoftDeleteUser.)

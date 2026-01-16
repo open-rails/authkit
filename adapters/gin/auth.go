@@ -124,6 +124,10 @@ func (a *Auth) RequireAdmin(pg *pgxpool.Pool) gin.HandlerFunc {
               JOIN profiles.roles r ON ur.role_id = r.id
               WHERE ur.user_id = $1 AND r.slug = 'admin'
                 AND r.deleted_at IS NULL
+                AND EXISTS (
+                  SELECT 1 FROM profiles.users u
+                  WHERE u.id = $1 AND u.deleted_at IS NULL AND u.banned_at IS NULL
+                )
             )
         `, uid).Scan(&isAdmin)
 

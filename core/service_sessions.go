@@ -94,6 +94,10 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	if s.pg != nil {
 		_ = s.pg.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1`, uid).Scan(&email)
 	}
+	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
+		_ = s.RevokeAllSessions(ctx, uid, nil)
+		return "", time.Time{}, "", errors.New("user_disabled")
+	}
 
 	// Rotate: set previous = current, current = new
 	newTok := randB64(32)

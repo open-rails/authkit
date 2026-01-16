@@ -1,6 +1,7 @@
 package authgin
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -80,6 +81,13 @@ func NewVerifier(accept core.AcceptConfig) *Verifier {
 		v.byIss[iss.Issuer] = jc
 	}
 	return v
+}
+
+func (v *Verifier) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
+	if v.svc == nil {
+		return true, nil
+	}
+	return v.svc.IsUserAllowed(ctx, userID)
 }
 
 // WithService attaches a core.Service as a RoleStore (DB-backed enrichment).
