@@ -29,7 +29,7 @@ func HandleAdminUsersListGET(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 			ginutil.TooMany(c)
 			return
 		}
-		result, err := svc.AdminListUsers(c.Request.Context(), page, size, filter, search)
+		result, err := svc.AdminListUsers(c.Request.Context(), page, size, filter, search, false)
 		if err != nil {
 			ginutil.ServerErrWithLog(c, "failed_to_list_users", err, "failed to list users")
 			return

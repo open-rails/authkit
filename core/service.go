@@ -1465,6 +1465,15 @@ func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	return err
 }
 
+// RestoreUser clears deleted_at and re-enables the account.
+func (s *Service) RestoreUser(ctx context.Context, id string) error {
+	if s.pg == nil {
+		return nil
+	}
+	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET is_active=true, deleted_at=NULL, updated_at=now() WHERE id=$1`, id)
+	return err
+}
+
 // HostDeleteUser performs deletion on behalf of the host application.
 // If soft is true, it performs a soft delete (see SoftDeleteUser). If false, it hard-deletes the user
 // and all dependent rows via ON DELETE CASCADE.
@@ -1894,7 +1903,7 @@ type AdminListUsersResult struct {
 	Offset int         `json:"offset"`
 }
 
-func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter, search string) (*AdminListUsersResult, error) {
+func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter, search string, onlyDeleted bool) (*AdminListUsersResult, error) {
 	if s.pg == nil {
 		return &AdminListUsersResult{Users: []AdminUser{}, Total: 0, Limit: pageSize, Offset: 0}, nil
 	}
@@ -1909,7 +1918,12 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 	// Only support these filters:
 	// "All users", "Super administrators", "Taggers", "Bloggers"
 
-	where := []string{"1=1"}
+	where := []string{}
+	if onlyDeleted {
+		where = append(where, "u.deleted_at IS NOT NULL")
+	} else {
+		where = append(where, "u.deleted_at IS NULL")
+	}
 	args := []interface{}{}
 	argIdx := 1
 	from := "profiles.users u"
