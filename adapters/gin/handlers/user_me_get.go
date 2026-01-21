@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PaulFidika/authkit/adapters/ginutil"
 	core "github.com/PaulFidika/authkit/core"
@@ -21,6 +22,7 @@ type userMeResponse struct {
 	Roles           []string `json:"roles"`
 	Entitlements    []string `json:"entitlements"`
 	Biography       *string  `json:"biography,omitempty"`
+	CreatedAt       *string  `json:"created_at,omitempty"`
 }
 
 // HandleUserMeGET returns the current user's profile information
@@ -62,6 +64,12 @@ func HandleUserMeGET(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc 
 
 		hasPassword := svc.HasPassword(c.Request.Context(), adminUser.ID)
 
+		var createdAt *string
+		if !adminUser.CreatedAt.IsZero() {
+			formatted := adminUser.CreatedAt.UTC().Format(time.RFC3339)
+			createdAt = &formatted
+		}
+
 		resp := userMeResponse{
 			ID:              adminUser.ID,
 			Email:           adminUser.Email,
@@ -74,6 +82,7 @@ func HandleUserMeGET(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFunc 
 			Roles:           adminUser.Roles,
 			Entitlements:    adminUser.Entitlements,
 			Biography:       adminUser.Biography,
+			CreatedAt:       createdAt,
 		}
 
 		c.JSON(http.StatusOK, resp)
