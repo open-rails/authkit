@@ -13,9 +13,10 @@ import (
 	core "github.com/PaulFidika/authkit/core"
 	oidckit "github.com/PaulFidika/authkit/oidc"
 	"github.com/gin-gonic/gin"
+	"github.com/zitadel/oidc/v2/pkg/client/rp"
 )
 
-func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx context.Context, rpClient *oidckit.RelyingParty, provider, code, verifier, nonce string) (oidckit.Claims, error), rl ginutil.RateLimiter, site string) gin.HandlerFunc {
+func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx context.Context, rpClient rp.RelyingParty, provider, code, verifier, nonce string) (oidckit.Claims, error), rl ginutil.RateLimiter, site string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Track site name if present in context
 		if site != "" {

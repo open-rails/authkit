@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+
+	"github.com/zitadel/oidc/v2/pkg/client/rp"
 )
 
 // RPClient holds issuer-based OIDC settings for a single IdP (internal RP wiring).
@@ -33,7 +35,6 @@ func (m *Manager) Provider(name string) (RPClient, bool) { pc, ok := m.providers
 // Begin returns an authorization URL for the given provider using PKCE and state/nonce you supply.
 // The caller should persist state+verifier (e.g., Redis) and redirect the user to the returned URL.
 func (m *Manager) Begin(ctx context.Context, provider, state, nonce, codeChallenge, redirectURI string) (string, error) {
-
 	pc, ok := m.providers[provider]
 	if !ok {
 		return "", errors.New("unknown provider")
@@ -44,23 +45,23 @@ func (m *Manager) Begin(ctx context.Context, provider, state, nonce, codeChallen
 	}
 
 	// Build auth URL. PKCE S256 + nonce where supported. Apple web flow may not accept PKCE.
-	opts := []AuthURLOpt{
-		WithURLParam("nonce", nonce),
+	opts := []rp.AuthURLOpt{
+		rp.AuthURLOpt(rp.WithURLParam("nonce", nonce)),
 	}
 	if provider != "apple" {
-		opts = append(opts, WithCodeChallenge(codeChallenge))
-		opts = append(opts, WithURLParam("code_challenge_method", "S256"))
+		opts = append(opts, rp.WithCodeChallenge(codeChallenge))
+		opts = append(opts, rp.AuthURLOpt(rp.WithURLParam("code_challenge_method", "S256")))
 	}
 	if len(pc.ExtraAuthParams) > 0 {
 		for k, v := range pc.ExtraAuthParams {
-			opts = append(opts, WithURLParam(k, v))
+			opts = append(opts, rp.AuthURLOpt(rp.WithURLParam(k, v)))
 		}
 	}
-	return AuthURL(state, rpClient, opts...), nil
+	return rp.AuthURL(state, rpClient, opts...), nil
 }
 
 // getOrCreateRP initializes a relying party from discovery on first use.
-func (m *Manager) rp(ctx context.Context, pc RPClient, redirectURI string) (*RelyingParty, error) {
+func (m *Manager) rp(ctx context.Context, pc RPClient, redirectURI string) (rp.RelyingParty, error) {
 	secret := pc.ClientSecret
 	if pc.ClientSecretProvider != nil {
 		if s, err := pc.ClientSecretProvider(ctx); err == nil {
@@ -69,11 +70,11 @@ func (m *Manager) rp(ctx context.Context, pc RPClient, redirectURI string) (*Rel
 			return nil, err
 		}
 	}
-	return NewRelyingPartyOIDC(ctx, pc.Issuer, pc.ClientID, secret, redirectURI, pc.Scopes)
+	return rp.NewRelyingPartyOIDC(pc.Issuer, pc.ClientID, secret, redirectURI, pc.Scopes)
 }
 
 // GetRP exposes the relying party for a configured provider.
-func (m *Manager) GetRPWithRedirect(ctx context.Context, provider, redirectURI string) (*RelyingParty, error) {
+func (m *Manager) GetRPWithRedirect(ctx context.Context, provider, redirectURI string) (rp.RelyingParty, error) {
 	pc, ok := m.providers[provider]
 	if !ok {
 		return nil, errors.New("unknown provider")

@@ -1,6 +1,6 @@
 package oidckit
 
-// NOTE: Implementation uses lightweight OIDC discovery and verification helpers.
+// NOTE: Implementation will use the zitadel/oidc RP helpers.
 // We keep the initial API surface minimal so apps can start wiring.
 
 // Provider identifies a configured OIDC provider.

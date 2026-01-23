@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/zitadel/oidc/v2/pkg/client/rp"
+	"github.com/zitadel/oidc/v2/pkg/oidc"
 	"golang.org/x/oauth2"
 )
 
 // DefaultExchanger exchanges an authorization code using PKCE and extracts minimal claims.
-func DefaultExchanger(ctx context.Context, rpClient *RelyingParty, provider, code, verifier, nonce string) (Claims, error) {
+func DefaultExchanger(ctx context.Context, rpClient rp.RelyingParty, provider, code, verifier, nonce string) (Claims, error) {
 	// The RP client's built-in verifier doesn't know about our per-request nonce.
 	// We need to: 1) Exchange code for tokens, 2) Manually verify ID token with custom verifier
 
@@ -31,18 +33,14 @@ func DefaultExchanger(ctx context.Context, rpClient *RelyingParty, provider, cod
 		return Claims{}, fmt.Errorf("no id_token in response")
 	}
 
-	keySet, err := rpClient.KeySet(ctx)
-	if err != nil {
-		return Claims{}, fmt.Errorf("jwks fetch failed for %s: %w", provider, err)
-	}
-	customVerifier := NewIDTokenVerifier(
-		rpClient.Issuer(),
-		rpClient.ClientID(),
-		keySet,
-		WithNonce(func(context.Context) string { return nonce }),
+	customVerifier := rp.NewIDTokenVerifier(
+		rpClient.IDTokenVerifier().Issuer(),
+		rpClient.IDTokenVerifier().ClientID(),
+		rpClient.IDTokenVerifier().KeySet(),
+		rp.WithNonce(func(context.Context) string { return nonce }),
 	)
 
-	idTokenClaims, err := VerifyIDToken(ctx, rawIDToken, customVerifier)
+	idTokenClaims, err := rp.VerifyIDToken[*oidc.IDTokenClaims](ctx, rawIDToken, customVerifier)
 	if err != nil {
 		return Claims{}, fmt.Errorf("id_token verification with nonce failed for %s: %w", provider, err)
 	}
@@ -55,13 +53,11 @@ func DefaultExchanger(ctx context.Context, rpClient *RelyingParty, provider, cod
 	// Extract common fields from claims map if present
 	var email string
 	var ev bool
-	if idt.Email != "" {
-		email = idt.Email
+	if idt.UserInfoEmail.Email != "" {
+		email = idt.UserInfoEmail.Email
+		ev = bool(idt.UserInfoEmail.EmailVerified)
 	}
-	if idt.EmailVerified != nil {
-		ev = *idt.EmailVerified
-	}
-	name := idt.Name
+	name := idt.UserInfoProfile.Name
 	// Try to capture preferred_username if present
 	var pu *string
 	if idt.PreferredUsername != "" {
