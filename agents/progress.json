@@ -2,6 +2,7 @@
   "issues": [
     {
       "name": "Admin undelete user (restore soft-deleted users)",
+      "id_number": 1,
       "description": "AuthKit supports soft-deleting users via `deleted_at` (self-delete: `DELETE /auth/user`; admin delete: `DELETE /auth/admin/users/:user_id`) and then hard-deleting later via the purge worker. Add an admin-only restore endpoint so admins can restore a user before they are hard-deleted.\n\nSemantics:\n- Restore only clears `profiles.users.deleted_at` (and updates `updated_at`).\n- Do not change ban state (banned users remain banned after restore).\n- Do not recreate sessions; deleted users had sessions revoked, so they must log in again.\n- Idempotent: restoring an already-restored user is a no-op.\n\nEndpoint:\n- `POST /auth/admin/users/:user_id/restore` (ADMIN)\n- `GET /auth/admin/users/deleted` (ADMIN) for listing deleted users.",
       "tasks": [
         "[x] Core: Add restore method that clears deleted_at (no ban changes) and returns not-found when user is missing",
@@ -14,6 +15,7 @@
     },
     {
       "name": "Move ephemeral auth state to Redis (codes, SIWS challenges, rate limits)",
+      "id_number": 2,
       "description": "Use Redis-compatible storage (Garnet) for ephemeral auth state (verification codes, reset tokens, SIWS challenges, and other short-lived entries) so we don't rely on Postgres TTL cleanup. This also makes SIWS safe in multi-instance deployments. In-memory caches remain as a fallback when Garnet is not configured, but they are not safe for distributed use. AuthKit should accept a Redis client interface from the host app (Garnet implements the same protocol).",
       "tasks": [
         "[x] Define a minimal Redis client interface (Get/Set/Del) and accept it via AuthKit options",
@@ -31,6 +33,7 @@
     },
     {
       "name": "Unify OAuth/OIDC routes under /auth/oauth/:provider",
+      "id_number": 3,
       "description": "Expose a single route pattern for all external identity providers (OIDC and OAuth) under /auth/oauth/:provider to simplify client integration while keeping provider-specific logic internally.",
       "tasks": [
         "[ ] Add new routes: GET /auth/oauth/:provider/login, GET /auth/oauth/:provider/callback, POST /auth/oauth/:provider/link/start",
@@ -43,6 +46,7 @@
     },
     {
       "name": "Add phone number change flow (request/confirm/resend)",
+      "id_number": 4,
       "description": "Add a phone change flow for existing users mirroring the email change behavior. This should verify the new phone number via SMS code and update the user's phone only after confirmation.",
       "tasks": [
         "[ ] Add core service methods: RequestPhoneChange(userID, newPhone), ConfirmPhoneChange(userID, code), ResendPhoneChangeCode(userID)",
@@ -55,6 +59,7 @@
     },
     {
       "name": "Add phone verification request endpoint",
+      "id_number": 5,
       "description": "Add POST /auth/phone/verify/request endpoint for existing users to add/verify a phone number, mirroring the existing POST /auth/email/verify/request flow.",
       "tasks": [
         "[DONE] Add RequestPhoneVerificationByPhone() method to core/service.go",
@@ -67,6 +72,7 @@
     },
     {
       "name": "Enhance UserContext with convenience methods",
+      "id_number": 6,
       "description": "Both doujins and hentai0 wrap authkit's UserContext with their own logic to check roles/entitlements. This should be built into authkit's UserContext directly.\n\n## Problem\n\ndoujins has `internal/auth/user_context.go` with:\n```go\ntype UserContext struct {\n    User         *views.User  // Project-specific\n    IsAdmin      bool\n    IsLoggedIn   bool\n    Language     string\n    Roles        []string\n    Entitlements []string\n}\n```\n\nAnd `internal/middleware/user_context.go` computes these flags:\n```go\nuserCtx.IsAdmin = containsIgnoreCase(userCtx.Roles, \"admin\")\n```\n\nhentai0 uses authkit's UserContext directly but lacks these convenience methods.\n\n## Solution\n\nAdd convenience methods to authkit's `UserContext` in `adapters/gin/userctx.go`:\n\n```go\n// Already exists:\nfunc (uc UserContext) IsAdmin() bool { return hasString(uc.Roles, \"admin\") }\n\n// Add these:\nfunc (uc UserContext) IsLoggedIn() bool { return uc.UserID != \"\" }\nfunc (uc UserContext) HasRole(role string) bool { return hasString(uc.Roles, role) }\nfunc (uc UserContext) HasEntitlement(ent string) bool { return hasString(uc.Entitlements, ent) }\n```\n\n## Important: NO IsPremium() method\n\nDo NOT add `IsPremium()` method. This is overly specific and doesn't scale. Instead, callers should use the generic `HasEntitlement(\"premium\")`. Same logic applies to any future entitlement types - use the generic method, not dedicated boolean methods.\n\n## Migration\n\nAfter authkit changes:\n- doujins can simplify `internal/middleware/user_context.go` to just use `authgin.UserContext` methods\n- doujins can potentially remove `internal/auth/user_context.go` if the only additions were computed flags\n- hentai0 gains these methods automatically\n\n## Note\n\nLanguage middleware and response envelopes are NOT part of this issue - those belong in a separate shared library (e.g., `go-api-common`), not authkit.",
       "tasks": [
         "[x] Add IsLoggedIn() method to UserContext (check UserID != \"\")",
@@ -79,6 +85,7 @@
     },
     {
       "name": "Remove is_active (use ban/delete only)",
+      "id_number": 7,
       "description": "Replace the `profiles.users.is_active` boolean with explicit ban/delete semantics.\n\n## Requirements\n\n- Only two access-blocking states exist:\n  - banned (reversible): `banned_at IS NOT NULL`\n  - deleted (soft delete): `deleted_at IS NOT NULL`\n- Admin delete and user self-delete both set `deleted_at` (soft delete) initially.\n- Login/token issuance must refuse banned/deleted users.\n- Deleted users remain soft-deleted for 30 days, then are hard-deleted.\n\n## Target semantics\n\n- Active user is implied: `deleted_at IS NULL AND banned_at IS NULL`.\n- Ban should revoke sessions immediately.\n- Soft delete should revoke sessions immediately.\n- Hard delete occurs after 30 days (purge job).",
       "tasks": [
         "SCHEMA/MIGRATIONS:",
@@ -128,6 +135,7 @@
     },
     {
       "name": "Standalone AuthKit dev issuer (Postgres) + mint JWTs for E2E",
+      "id_number": 8,
       "description": "Provide a standalone AuthKit **devserver/dummy app** that can be started locally (Docker/compose) using Postgres and can mint JWTs for end-to-end testing of downstream services (e.g. `~/doujins-billing`) as well as AuthKit itself.\n\n## Important constraint\n\nThe dev mint endpoint must live in the **dummy app**, not in the AuthKit library.\n- No changes are required to AuthKit core APIs to support minting.\n- The dummy app just *uses AuthKit as a library* and adds a dev-only route for minting tokens.\n\n## Why\n\nDownstream services that verify JWTs (like billing) need a local issuer that:\n- exposes JWKS at `/.well-known/jwks.json` (already supported by AuthKit gin adapter)\n- can mint short-lived JWTs on demand for API calls\n\nAuthKit already has `testing.TestIssuer` (httptest) for unit tests, but E2E across containers needs a real long-running HTTP service with a stable issuer URL.\n\n## Requirements\n\n- Use Postgres (no sqlite).\n- Safe-by-default: dev minting endpoints must be disabled in production.\n- Usable from docker-compose networks (stable hostname like `issuer:8080`).\n\n## Proposed Design\n\n### 1) Standalone devserver binary\n\nAdd `cmd/authkit-devserver` (or similar) that:\n- connects to Postgres via `DB_URL`/`DATABASE_URL`\n- runs AuthKit migrations (either on boot or via a `migrate` subcommand)\n- starts an HTTP server (gin) that mounts:\n  - AuthKit API routes (`/auth/*`) for normal flows (useful for AuthKit E2E)\n  - JWKS endpoint at `/.well-known/jwks.json` via `authgin.Service.GinRegisterJWKS`\n  - **dev-only** mint endpoint implemented in the devserver (below)\n\n### 2) Dev-only minting API (devserver-owned)\n\nAdd a dev-only endpoint guarded by `AUTHKIT_DEV_MODE=true` and a shared secret `AUTHKIT_DEV_MINT_SECRET`:\n- `POST /auth/dev/mint`\n  - input: `sub`, `aud`, optional `email`, optional `roles`, optional `scopes`, optional `expires_in_seconds`\n  - output: `{token, token_type: \"Bearer\", expires_at}`\n\nSecurity:\n- If `AUTHKIT_DEV_MODE!=true`, this route is not registered.\n- Require `Authorization: Bearer <AUTHKIT_DEV_MINT_SECRET>` (or an `X-DEV-SECRET` header).\n\n### 3) Issuer URL + signing key persistence\n\n- Issuer must be stable across restarts (e.g. `http://issuer:8080` inside compose).\n- Persist signing keys so previously minted tokens remain verifiable after restart.\n  - Option A: store key material in Postgres (recommended)\n  - Option B: store key material in a file mounted as a docker volume\n\n### 4) How this helps billing E2E\n\n- Billing config points to the issuer:\n  - `AUTH_ISSUERS='[\"http://issuer:8080\"]'`\n  - `AUTH_EXPECTED_AUDIENCE=billing-app`\n- Billing E2E scripts call `POST http://issuer:8080/auth/dev/mint`, then use the returned token to call billing APIs.\n\n## Tasks\n\n- [ ] Add `cmd/authkit-devserver` entrypoint (gin server + Postgres)\n- [ ] Add config/env parsing: DB URL, listen addr, dev-mode flags, mint secret\n- [ ] Add migrations execution path (on boot or subcommand)\n- [ ] Implement `/auth/dev/mint` in the devserver (dev-only) + shared-secret guard (no library changes)\n- [ ] Persist signing key material across restarts (DB table or volume-backed file)\n- [ ] Add docker-compose (or documented snippet) to run `postgres` + `authkit-devserver`\n- [ ] Add docs: how to run, how to mint tokens (curl), and example billing integration",
       "tasks": [
         "[x] Implement devserver dummy app (`authkit-devserver.go`, Postgres-backed)",
@@ -139,6 +147,7 @@
     },
     {
       "name": "E2E tests for authkit-devserver (JWKS + mint + core auth flows)",
+      "id_number": 9,
       "description": "Add docker-compose-backed E2E tests that exercise AuthKit as a real HTTP server (Postgres-backed), using the new devserver/mint endpoint.\n\n## Why\n\nUnit tests cover helpers and a small set of handlers, but we currently lack end-to-end coverage for:\n- database schema + migrations + boot\n- HTTP routing + middleware + JWT verification via JWKS\n- critical auth flows (password login, refresh, session revocation)\n\nThe devserver gives us a stable issuer and a convenient way to mint tokens for testing protected endpoints without wiring email/SMS providers.\n\n## Current test coverage (today)\n\n- Token verifier/JWKS via `testing.TestIssuer` (httptest): `testing/issuer_test.go`\n- A few Gin adapter tests (handlers + userctx): `adapters/gin/*_test.go`\n- Ephemeral store tests: `core/ephemeral_test.go`\n- SIWS tests: `siws/siws_test.go`\n\n## What we should test (high value)\n\nE2E (docker-compose):\n- Devserver boots, runs migrations, and serves HTTP\n- JWKS served and usable by external verifiers\n- `/auth/dev/mint` guarded correctly and produces valid, expiring JWTs\n- Password login and refresh/session lifecycle against Postgres\n- Banned/deleted users cannot authenticate (and are filtered by DB-backed user lookups)\n- Admin gating is DB-backed (create admin role + grant + confirm admin endpoints work)\n\n## Test structure\n\n- Add E2E tests behind a build tag (e.g. `//go:build e2e`) so they do not run in normal `go test ./...`.\n- The tests shell out to docker compose (`docker compose -f docker-compose.devserver.yaml ...`) with a unique `COMPOSE_PROJECT_NAME`.\n- The tests hit the devserver on `http://localhost:8080` and connect to Postgres on `localhost:5432`.\n\n## Tasks\n\n- [ ] Add `testing/devserver_e2e_test.go` behind `//go:build e2e`\n- [ ] Test: boot + health (`GET /healthz`)\n- [ ] Test: JWKS (`GET /.well-known/jwks.json` returns at least one RSA key)\n- [ ] Test: mint authz\n  - missing/invalid secret => 401\n  - valid secret => 200 + `{token, expires_at}`\n  - `AUTHKIT_DEV_MODE=false` => route not registered (404)\n- [ ] Test: minted token can call an AUTH endpoint when a matching user exists in Postgres\n  - seed `profiles.users` row with same UUID as `sub`\n  - call `GET /auth/user/me` with `Authorization: Bearer <token>` and expect 200\n- [ ] Test: admin gate is DB-backed\n  - seed `profiles.roles` with slug `admin`\n  - seed `profiles.user_roles` mapping for user\n  - call an admin endpoint and expect 200\n- [ ] Test: banned/deleted enforcement\n  - set `profiles.users.banned_at` and verify `GET /auth/user/me` fails (or user is not returned)\n  - set `profiles.users.deleted_at` similarly\n- [ ] Test: password login + refresh\n  - seed `profiles.user_passwords` hash\n  - `POST /auth/password/login` returns access token (and refresh session)\n  - `POST /auth/token` refresh works\n  - revoke session and ensure refresh fails\n- [ ] Docs: add a short section to `DEVSERVER.md` describing how to run E2E tests (`go test -tags=e2e ./testing -run Devserver`)\n",
       "tasks": [
         "[x] Add build-tagged docker-compose E2E test suite",
@@ -147,6 +156,37 @@
         "[x] Cover ban/delete enforcement + admin gate"
       ],
       "completed": true
+    },
+    {
+      "name": "Language-aware AuthKit (propagate request language to senders)",
+      "id_number": 11,
+      "description": "Make AuthKit language-aware for user-facing communications (email + SMS) by detecting request language and propagating it to the host-provided sender interfaces via `context.Context`.\n\nWhy:\n- Host apps (`~/doujins`, `~/hentai0`) render the email/SMS bodies, but need to know what language-site the user is on at the moment an auth message is sent (signup/login/reset).\n- Some auth flows run before a user profile exists (signup verification), so there is no reliable user_id to look up preferences. Request language is the best signal.\n\nDesign:\n- AuthKit should not depend on host-specific user context types.\n- Introduce an AuthKit-owned context key + helpers to store language in `ctx`.\n- Ensure all calls into EmailSender/SmsSender use the inbound request ctx (or a derived ctx that preserves values), not `context.Background()`.\n\nNotes:\n- This should apply to both API routes and any root/browser flows AuthKit registers.\n- The language source should be configurable but default to: query param `lang` > cookie > `Accept-Language` > default.\n",
+      "tasks": [
+        "=== SHARED LANGUAGE CONTRACT (ALIGN WITH DOUJINS + HENTAI0) ===",
+        "[ ] Define and document a single precedence order for request language: `?lang` query param > `/:lang/` path prefix > `lang` cookie > `Accept-Language` header > default",
+        "[ ] Add AuthKit `LanguageConfig` (supported + default + cookie/query knobs) passed by the host app; validate and reject/ignore unsupported codes",
+        "[ ] Default behavior when config not provided: accept only basic `^[a-z]{2}$` languages, default to `en`",
+        "",
+        "[ ] Add `lang` context helpers: `WithLanguage(ctx, lang)` and `LanguageFromContext(ctx)`",
+        "[ ] Add middleware/hook in the Gin adapter to detect language (per the shared contract) and attach it to ctx for every AuthKit request",
+        "[ ] Ensure AuthKit handlers/services propagate the inbound request ctx through to sender calls (no Background ctx)",
+        "[ ] Docs: sender implementations can read language from ctx and choose localized templates",
+        "[ ] Tests: language detection + ctx propagation into a fake sender for email + sms",
+        "[ ] Tests: ensure `LanguageConfig.Supported` is enforced for query/path/cookie/Accept-Language"
+      ],
+      "completed": false
+    },
+    {
+      "name": "Decouple request language from UserContext (context key)",
+      "id_number": 12,
+      "description": "Ensure AuthKit stores request language as request metadata under a dedicated `context.Context` key (AuthKit-owned), not embedded inside any user identity context struct.\n\nWhy:\n- Request language is not user identity.\n- Some flows do not have a user record yet (signup verification), but are still language-scoped.\n- Keeps AuthKit portable: host apps can read language from ctx in senders without coupling to host-specific `UserContext` layouts.\n\nNon-goals:\n- Making language selection configurable per-app (beyond supported/default validation).\n- Translating AuthKit error messages (this issue is about propagation to senders).\n\nRelationship to issue #11:\n- Issue #11 adds language detection + propagation to senders.\n- This issue enforces the storage pattern: language lives at a dedicated context key (not nested under user ctx).",
+      "tasks": [
+        "[ ] Add an AuthKit-owned context key for request language (can reuse the `lang` helpers from issue #11)",
+        "[ ] Ensure all sender invocations rely on `lang.LanguageFromContext(ctx)` (not user ctx structs) for language selection",
+        "[ ] Document the pattern for host apps: sender implementations should read request language from ctx and fall back to defaults",
+        "[ ] Add tests that assert language is present on ctx in both authenticated and unauthenticated auth flows"
+      ],
+      "completed": false
     }
   ],
   "completed_features": [
