@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -75,7 +76,6 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		// Exchange code for token
 		rp, ok := cfg.Manager.Provider("discord")
 		if !ok || strings.TrimSpace(rp.ClientID) == "" || strings.TrimSpace(rp.ClientSecret) == "" {
-
 			ginutil.BadRequest(c, "unknown_provider")
 			return
 		}
@@ -95,7 +95,8 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-
+			body, _ := io.ReadAll(resp.Body)
+			log.Println("Discord token exchange failed with status:", resp.StatusCode, "body:", string(body))
 			ginutil.Unauthorized(c, "exchange_failed")
 			return
 		}
@@ -258,7 +259,7 @@ func buildOAuthPopupHTML(payloadJSON []byte, targetOrigin string) []byte {
 		"  var data = " + string(payloadJSON) + ";\n" +
 		"  var targetOrigin = " + string(originJSON) + ";\n" +
 		"  if (window.opener) { window.opener.postMessage(data, targetOrigin); }\n" +
-		"} finally {  window.close(); }\n" +
+		"} finally {  /*window.close();*/ }\n" +
 		"</script></body></html>"
 	return []byte(html)
 }
