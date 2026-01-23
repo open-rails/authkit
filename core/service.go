@@ -769,7 +769,8 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 	if err := s.upsertPasswordHash(ctx, rt.UserID, phc, "argon2id", nil); err != nil {
 		return "", err
 	}
-	// Do not revoke existing sessions on reset per host policy.
+	// Revoke all sessions to invalidate any potentially compromised refresh tokens.
+	_ = s.RevokeAllSessions(ctx, rt.UserID, nil)
 	return rt.UserID, nil
 }
 
