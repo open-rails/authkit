@@ -65,7 +65,14 @@ func HandlePasswordResetRequestPOST(svc core.Provider, rl ginutil.RateLimiter) g
 				uaPtr, ipPtr := &ua, &ip
 				svc.LogLogin(c.Request.Context(), u.ID, "password_reset_request", "", ipPtr, uaPtr)
 			}
-			_ = svc.RequestPasswordReset(c.Request.Context(), identifier, 0)
+
+			err := svc.RequestPasswordReset(c.Request.Context(), identifier, 0)
+
+			if err != nil {
+				// Log error internally but do not reveal to user
+				ginutil.ServerErrWithLog(c, "password_reset_request_failed", err, "failed to request password reset")
+				return
+			}
 		}
 
 		c.JSON(http.StatusAccepted, gin.H{"ok": true, "message": "If this email or phone number is registered, password reset instructions will be sent."})
