@@ -143,7 +143,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 	}
 
 	// Log the login
-	s.LogLogin(ctx, userID, "solana_login", sid, nil, nil)
+	s.LogSessionCreated(ctx, userID, "solana_login", sid, nil, nil)
 
 	return accessToken, expiresAt, refreshToken, userID, created, nil
 }

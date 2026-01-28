@@ -21,7 +21,8 @@ func HandleUserSessionDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.Hand
 			ginutil.BadRequest(c, "missing_session_id")
 			return
 		}
-		if err := svc.RevokeSessionByIDForUser(c.Request.Context(), uid.(string), sid); err != nil {
+		ctx := core.WithSessionRevokeReason(c.Request.Context(), core.SessionRevokeReasonUserRevoke)
+		if err := svc.RevokeSessionByIDForUser(ctx, uid.(string), sid); err != nil {
 			ginutil.ServerErrWithLog(c, "failed_to_revoke", err, "failed to revoke session")
 			return
 		}

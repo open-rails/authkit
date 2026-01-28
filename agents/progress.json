@@ -187,6 +187,58 @@
         "[x] Add tests that assert language is present on ctx in both authenticated and unauthenticated auth flows"
       ],
       "completed": true
+    },
+    {
+      "name": "Auth analytics: log session lifecycle (not access-token mints)",
+      "id_number": 13,
+      "description": "Stop logging every access-token mint as an analytics/audit event. Instead, log session lifecycle + security-relevant transitions:\n\n- Session created (login / refresh session issuance) → useful for audit, device tracking, “new login” alerts.\n- Session revoked/deleted (logout, admin revoke, password change, “revoke all”, eviction by session limit) → critical for audit.\n\nNon-goals:\n- Per-access-token issuance telemetry.\n\nNotes:\n- Keep logging best-effort and non-blocking.\n- Ensure events are disambiguated across host apps (e.g., include `issuer` and/or `site` in the ClickHouse schema/sink if needed).",
+      "tasks": [
+        "[x] Remove/avoid logging access-token mints (e.g., refresh-exchange events) as primary analytics signals",
+        "[x] Add explicit session lifecycle events to the auth logger interface (created, revoked/deleted, revoke-all, eviction)",
+        "[x] Emit session-created events from all login/session issuance paths",
+        "[x] Emit session-revoked/deleted events from logout + admin revoke + password change + revoke-all + eviction paths",
+        "[x] Remove Postgres `profiles.signin_history` (stop writing to it, migrate/drop table, and update admin sign-in history endpoints to use ClickHouse if still needed)",
+        "[x] Replace ClickHouse auth tables with a single `user_auth_session_events` table (session lifecycle only, not access-token mints)",
+        "[x] ClickHouse schema: include `issuer`, `session_id` (`sid`), `event`, `method`, optional `reason`, plus `ip_addr`/`user_agent`",
+        "[x] Update ClickHouse sink to persist `issuer` + `session_id` + event fields (host app implementation; include `site` only if issuer is insufficient)",
+        "[x] Add a new ClickHouse migration that drops old auth tables/views and creates `user_auth_session_events` (no legacy compatibility, no data backfill)",
+        "[x] Drop `user_last_seen_current` and related materialized views; rely on queries over `user_auth_session_events` instead"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Plan: framework-agnostic selective billing http.Handler",
+      "id_number": 14,
+      "description": "Track work needed to expose doujins-billing HTTP routes as a single mountable `http.Handler` *with selective route groups* (user/admin/webhooks/health), while staying framework-agnostic for hosts.\n\n## Context\n\ncozy-art currently embeds doujins-billing and mounts it under `/billing`. Some host routers (notably Gin) have route-tree constraints around catch-all wildcards, so the integration surface should be a single handler mounted via `http.StripPrefix`/outer mux.\n\nWe also want optionality: some hosts should be able to mount only webhooks, only admin, etc., without exposing the full billing HTTP surface.\n\n## Goal\n\nIn doujins-billing, add a public handler builder such as:\n\n```go\ntype HTTPHandlerOptions struct {\n  IncludeUser bool\n  IncludeAdmin bool\n  IncludeWebhooks bool\n  IncludeHealth bool\n  // optionally: IncludeDebug (dev only)\n}\n\nfunc (e *embedded.Embedded) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler\n```\n\nDefaults should preserve existing standalone behavior, while giving embedded hosts fine-grained control.\n\n## Non-goals\n\n- Do not put billing route selection into authkit; authkit should remain focused on auth routes.\n- Do not reintroduce Gin-only embedding APIs as the primary integration surface.",
+      "tasks": [
+        "doujins-billing implementation:",
+        "[ ] Define exported options type (include flags) and document semantics",
+        "[ ] Build a single handler that registers only selected route groups",
+        "[ ] Keep `Handler()` as backwards-compatible shorthand (likely == all groups)",
+        "[ ] Ensure admin routes still enforce auth/admin checks internally",
+        "[ ] Add tests that assert excluded groups return 404 (and included groups are not 404)",
+        "[ ] Update embedded README with mounting examples for: full, webhooks-only, admin-only",
+        "\ncozy-art integration:",
+        "[ ] Switch cozy-art to mount billing handler built with the desired options",
+        "[ ] Verify no Gin wildcard route panics and that required billing endpoints still work",
+        "\nMigration/cleanup:",
+        "[ ] Deprecate/remove `pkg/routes` Gin RouterGroup registration helpers if they become redundant",
+        "[ ] Tag/release doujins-billing once host apps are updated"
+      ],
+      "completed": false
+    },
+    {
+      "name": "Security audit events: password reset requests (non-session)",
+      "id_number": 15,
+      "description": "Add a separate, non-session security audit event stream for flows like password reset requests.\n\nWhy:\n- Password reset requests are security-relevant, but are not session lifecycle events and should not be mixed into `user_auth_session_events`.\n- Host apps may want an audit trail for account recovery activity without logging per-access-token issuance.\n\nDesign:\n- Add a new ClickHouse table (e.g., `user_auth_security_events`) keyed by `(issuer, occurred_at, event, user_id?)`.\n- Add a dedicated logger interface/method (separate from session events) so session lifecycle logging remains focused.\n- Avoid logging raw identifiers (email/phone). Prefer `user_id` when known; otherwise log a hash + identifier type if absolutely needed.\n\nEvents (initial):\n- `password_reset_requested` (email/phone)\n\nNon-goals:\n- Changing session lifecycle logging.\n- Per-access-token mint telemetry.",
+      "tasks": [
+        "[ ] Define `SecurityEvent` types and a new logger interface (separate from session events)",
+        "[ ] Add ClickHouse migration to create `user_auth_security_events`",
+        "[ ] Emit `password_reset_requested` events from the password reset request handlers (email + phone) with issuer + ip/ua, and user_id only when resolvable",
+        "[ ] Decide on identifier logging policy (no raw email/phone; optional hash if needed) and document it",
+        "[ ] Update host apps' ClickHouse sink(s) to insert into `user_auth_security_events`"
+      ],
+      "completed": false
     }
   ],
   "completed_features": [

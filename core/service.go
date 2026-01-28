@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	stdlog "log"
 	"os"
 	"sort"
@@ -168,6 +167,7 @@ func (s *Service) AdminSetPassword(ctx context.Context, userID, new string) erro
 		return err
 	}
 	// Revoke all sessions for security
+	ctx = WithSessionRevokeReason(ctx, SessionRevokeReasonAdminSetPassword)
 	if err := s.RevokeAllSessions(ctx, userID, nil); err != nil {
 		return err
 	}
@@ -653,6 +653,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 	// Revoke all other sessions after a successful password change to ensure that
 	// any previously compromised refresh tokens are invalidated. The current
 	// session can be preserved via keepSessionID if provided.
+	ctx = WithSessionRevokeReason(ctx, SessionRevokeReasonPasswordChange)
 	if err := s.RevokeAllSessions(ctx, userID, keepSessionID); err != nil {
 		return err
 	}
@@ -1465,7 +1466,7 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 	if err != nil {
 		return err
 	}
-	_ = s.RevokeAllSessions(ctx, userID, nil)
+	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonBanned), userID, nil)
 	return nil
 }
 
@@ -1481,7 +1482,7 @@ func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 		return nil
 	}
 	// Revoke sessions first
-	_ = s.RevokeAllSessions(ctx, id, nil)
+	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonSoftDeleted), id, nil)
 	// Soft-delete user
 	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET deleted_at=now(), updated_at=now() WHERE id=$1`, id)
 	return err
@@ -2096,41 +2097,46 @@ func (s *Service) UpsertPasswordHash(ctx context.Context, userID, hash, algo str
 }
 func (s *Service) DeriveUsername(email string) string { return deriveUsername(email) }
 
-// Sign-in history
-// LogLogin records a login event via the configured AuthEventLogger (best-effort).
-// method examples: "password_login", "oidc_login" (optionally suffixed with provider slug by the caller if desired).
-func (s *Service) LogLogin(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
-	if s.pg != nil {
-		log.Println("Logging signin history for user:", userID)
-		site := ""
-		if ctxSite, ok := ctx.Value("site").(string); ok {
-			site = ctxSite
-		}
-		ipVal := ""
-		if ip != nil {
-			ipVal = *ip
-		}
-		// Determine login success from context if available
-		var success bool
-		if ctxSuccess, ok := ctx.Value("login_success").(bool); ok {
-			success = ctxSuccess
-		} else {
-			success = method == "password_login" || method == "oidc_login"
-		}
-		_, _ = s.pg.Exec(ctx, `INSERT INTO profiles.signin_history (user_id, date, ip, site, success) VALUES ($1, now(), $2, $3, $4)`, userID, ipVal, site, success)
-	}
-
-	if s.authlog != nil {
-		_ = s.authlog.LogLogin(ctx, userID, s.opts.Issuer, method, sessionID, ip, ua)
-	}
-}
-
-// Deprecated: LogSignin kept for compatibility. Use LogLogin with a session ID.
-func (s *Service) LogSignin(ctx context.Context, userID string, action string, ip *string, ua *string) {
+// LogSessionCreated records a session creation event via the configured AuthEventLogger (best-effort).
+func (s *Service) LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
 	if s.authlog == nil {
 		return
 	}
-	_ = s.authlog.LogLogin(ctx, userID, s.opts.Issuer, action, "", ip, ua)
+	m := strings.TrimSpace(method)
+	var mPtr *string
+	if m != "" {
+		mPtr = &m
+	}
+	e := AuthSessionEvent{
+		OccurredAt: time.Now().UTC(),
+		Issuer:     s.opts.Issuer,
+		UserID:     userID,
+		SessionID:  sessionID,
+		Event:      SessionEventCreated,
+		Method:     mPtr,
+		Reason:     nil,
+		IPAddr:     ip,
+		UserAgent:  ua,
+	}
+	_ = s.authlog.LogSessionEvent(ctx, e)
+}
+
+func (s *Service) logSessionRevoked(ctx context.Context, userID string, sessionID string, reason *string) {
+	if s.authlog == nil {
+		return
+	}
+	e := AuthSessionEvent{
+		OccurredAt: time.Now().UTC(),
+		Issuer:     s.opts.Issuer,
+		UserID:     userID,
+		SessionID:  sessionID,
+		Event:      SessionEventRevoked,
+		Method:     nil,
+		Reason:     reason,
+		IPAddr:     nil,
+		UserAgent:  nil,
+	}
+	_ = s.authlog.LogSessionEvent(ctx, e)
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.
@@ -2148,38 +2154,6 @@ func (s *Service) SendWelcome(ctx context.Context, userID string) {
 		username = *u.Username
 	}
 	_ = s.email.SendWelcome(ctx, *u.Email, username)
-}
-
-type SigninEntry struct {
-	OccurredAt time.Time
-	IPAddr     *string
-	UserAgent  *string
-	Action     string
-	Site       *string
-	Success    bool
-}
-
-func (s *Service) AdminGetUserSignins(ctx context.Context, userID string, page, pageSize int) ([]SigninEntry, error) {
-	if s.pg == nil {
-		return []SigninEntry{}, nil
-	}
-	rows, err := s.pg.Query(ctx, `SELECT date, ip, site, success FROM profiles.signin_history WHERE user_id=$1 ORDER BY date DESC LIMIT 30`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []SigninEntry
-	for rows.Next() {
-		var e SigninEntry
-		var ip, site *string
-		if err := rows.Scan(&e.OccurredAt, &ip, &site, &e.Success); err != nil {
-			return nil, err
-		}
-		e.IPAddr = ip
-		e.Site = site
-		out = append(out, e)
-	}
-	return out, nil
 }
 
 // Provider link management

@@ -42,38 +42,15 @@ func HandlePasswordResetRequestPOST(svc core.Provider, rl ginutil.RateLimiter) g
 				ginutil.ServerErrWithLog(c, "sms_unavailable", nil, "sms sender not configured for password reset")
 				return
 			}
-
-			// Best-effort: log with IP/UA if the phone exists
-			if u, err := svc.GetUserByPhone(c.Request.Context(), identifier); err == nil && u != nil {
-				ua := c.Request.UserAgent()
-				ip := c.ClientIP()
-				uaPtr, ipPtr := &ua, &ip
-				svc.LogLogin(c.Request.Context(), u.ID, "password_reset_request", "", ipPtr, uaPtr)
-			}
 			_ = svc.RequestPhonePasswordReset(c.Request.Context(), identifier, 0)
-		} else {
-			// Email password reset
-			if !svc.HasEmailSender() {
-				ginutil.ServerErrWithLog(c, "email_password_reset_unavailable", nil, "email sender not configured for password reset")
-				return
+			} else {
+				// Email password reset
+				if !svc.HasEmailSender() {
+					ginutil.ServerErrWithLog(c, "email_password_reset_unavailable", nil, "email sender not configured for password reset")
+					return
+				}
+				_ = svc.RequestPasswordReset(c.Request.Context(), identifier, 0)
 			}
-
-			// Best-effort: log with IP/UA if the email exists
-			if u, err := svc.GetUserByEmail(c.Request.Context(), identifier); err == nil && u != nil {
-				ua := c.Request.UserAgent()
-				ip := c.ClientIP()
-				uaPtr, ipPtr := &ua, &ip
-				svc.LogLogin(c.Request.Context(), u.ID, "password_reset_request", "", ipPtr, uaPtr)
-			}
-
-			err := svc.RequestPasswordReset(c.Request.Context(), identifier, 0)
-
-			if err != nil {
-				// Log error internally but do not reveal to user
-				ginutil.ServerErrWithLog(c, "password_reset_request_failed", err, "failed to request password reset")
-				return
-			}
-		}
 
 		c.JSON(http.StatusAccepted, gin.H{"ok": true, "message": "If this email or phone number is registered, password reset instructions will be sent."})
 	}

@@ -51,19 +51,6 @@ func HandleUserPasswordPOST(svc core.Provider, rl ginutil.RateLimiter) gin.Handl
 			ginutil.BadRequest(c, "password_change_failed")
 			return
 		}
-		// Audit: password set/change with IP/UA and sid
-		ua := c.Request.UserAgent()
-		ip := c.ClientIP()
-		uaPtr, ipPtr := &ua, &ip
-		method := "password_set"
-		if hadPwd {
-			method = "password_change"
-		}
-		sid := ""
-		if keep != nil {
-			sid = *keep
-		}
-		svc.LogLogin(c.Request.Context(), userID, method, sid, ipPtr, uaPtr)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }

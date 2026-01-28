@@ -32,35 +32,7 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), "site", site))
 
-		// Helper to log failed login attempts, resolving userID from identifier if not provided
-		logFailed := func(identifier string) {
-			userID := ""
-			if identifier != "" {
-				if strings.Contains(identifier, "@") {
-					usr, _ := svc.GetUserByEmail(c.Request.Context(), identifier)
-					if usr != nil {
-						userID = usr.ID
-					}
-				} else if strings.HasPrefix(identifier, "+") {
-					usr, _ := svc.GetUserByPhone(c.Request.Context(), identifier)
-					if usr != nil {
-						userID = usr.ID
-					}
-				} else {
-					usr, _ := svc.GetUserByUsername(c.Request.Context(), identifier)
-					if usr != nil {
-						userID = usr.ID
-					}
-				}
-			}
-
-			ua := c.Request.UserAgent()
-			ip := c.ClientIP()
-			uaPtr, ipPtr := &ua, &ip
-			ctx := c.Request.Context()
-			ctx = context.WithValue(ctx, "login_success", false)
-			svc.LogLogin(ctx, userID, "password_login", "", ipPtr, uaPtr)
-		}
+		logFailed := func(identifier string) { _ = identifier }
 		if !ginutil.AllowNamed(c, rl, ginutil.RLPasswordLogin) {
 
 			ginutil.TooMany(c)
@@ -288,9 +260,7 @@ func HandlePasswordLoginPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 			ua := c.Request.UserAgent()
 			ip := c.ClientIP()
 			uaPtr, ipPtr := &ua, &ip
-			ctx := c.Request.Context()
-			ctx = context.WithValue(ctx, "login_success", true)
-			svc.LogLogin(ctx, finalUserID, "password_login", sid, ipPtr, uaPtr)
+			svc.LogSessionCreated(c.Request.Context(), finalUserID, "password_login", sid, ipPtr, uaPtr)
 
 			emailForToken := ""
 			if fetchedUser != nil && fetchedUser.Email != nil {

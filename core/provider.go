@@ -136,13 +136,12 @@ type Provider interface {
 	AdminListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	AdminRevokeUserSessions(ctx context.Context, userID string) error
 	RevokeSessionByID(ctx context.Context, sessionID string) error
-	AdminGetUserSignins(ctx context.Context, userID string, page, pageSize int) ([]SigninEntry, error)
 
 	// Link management
 	CountProviderLinks(ctx context.Context, userID string) int
 	UnlinkProvider(ctx context.Context, userID, provider string) error
 
 	// Observability hooks
-	LogLogin(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string)
+	LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string)
 	SendWelcome(ctx context.Context, userID string)
 }

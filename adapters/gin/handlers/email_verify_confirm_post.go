@@ -81,7 +81,7 @@ func IssueTokensForUser(c *gin.Context, svc core.Provider, userID string, method
 	// Log the login event
 	ipStr := c.ClientIP()
 	uaPtr, ipPtr := &ua, &ipStr
-	svc.LogLogin(c.Request.Context(), userID, method, sid, ipPtr, uaPtr)
+	svc.LogSessionCreated(c.Request.Context(), userID, method, sid, ipPtr, uaPtr)
 
 	// Issue access token (email will be fetched internally by IssueAccessToken if empty)
 	claims := map[string]any{"sid": sid}

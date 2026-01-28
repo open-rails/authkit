@@ -31,8 +31,6 @@ func HandlePasswordResetConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) g
 		// Token is case-sensitive; do NOT normalize.
 		code := strings.TrimSpace(req.Code)
 		identifier := strings.TrimSpace(req.Identifier)
-
-		var userID string
 		var err error
 
 		// If identifier is provided, determine if it's phone or email
@@ -41,24 +39,18 @@ func HandlePasswordResetConfirmPOST(svc core.Provider, rl ginutil.RateLimiter) g
 			isPhone := phoneRegex.MatchString(identifier)
 
 			if isPhone {
-				userID, err = svc.ConfirmPhonePasswordReset(c.Request.Context(), identifier, code, req.NewPassword)
+				_, err = svc.ConfirmPhonePasswordReset(c.Request.Context(), identifier, code, req.NewPassword)
 			} else {
-				userID, err = svc.ConfirmPasswordReset(c.Request.Context(), code, req.NewPassword)
+				_, err = svc.ConfirmPasswordReset(c.Request.Context(), code, req.NewPassword)
 			}
 		} else {
-			userID, err = svc.ConfirmPasswordReset(c.Request.Context(), code, req.NewPassword)
+			_, err = svc.ConfirmPasswordReset(c.Request.Context(), code, req.NewPassword)
 		}
 
 		if err != nil {
 			ginutil.BadRequest(c, "invalid_or_expired_token")
 			return
 		}
-
-		// Audit with IP/UA at the edge
-		ua := c.Request.UserAgent()
-		ip := c.ClientIP()
-		uaPtr, ipPtr := &ua, &ip
-		svc.LogLogin(c.Request.Context(), userID, "password_reset_confirm", "", ipPtr, uaPtr)
 
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}

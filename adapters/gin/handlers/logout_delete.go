@@ -29,7 +29,8 @@ func HandleLogoutDELETE(svc core.Provider, rl ginutil.RateLimiter) gin.HandlerFu
 			ginutil.BadRequest(c, "missing_sid_claim")
 			return
 		}
-		if err := svc.RevokeSessionByIDForUser(c.Request.Context(), userID, sid); err != nil {
+		ctx := core.WithSessionRevokeReason(c.Request.Context(), core.SessionRevokeReasonLogout)
+		if err := svc.RevokeSessionByIDForUser(ctx, userID, sid); err != nil {
 			ginutil.ServerErrWithLog(c, "failed_to_logout", err, "failed to revoke session during logout")
 			return
 		}

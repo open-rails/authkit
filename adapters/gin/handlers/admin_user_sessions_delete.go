@@ -19,7 +19,8 @@ func HandleAdminUserSessionsDELETE(svc core.Provider, rl ginutil.RateLimiter) gi
 			ginutil.BadRequest(c, "missing_user_id")
 			return
 		}
-		if err := svc.AdminRevokeUserSessions(c.Request.Context(), userID); err != nil {
+		ctx := core.WithSessionRevokeReason(c.Request.Context(), core.SessionRevokeReasonAdminRevokeAll)
+		if err := svc.AdminRevokeUserSessions(ctx, userID); err != nil {
 			ginutil.ServerErrWithLog(c, "revoke_failed", err, "failed to revoke user sessions")
 			return
 		}

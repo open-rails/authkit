@@ -29,16 +29,11 @@ func HandlePasswordResetConfirmLinkPOST(svc core.Provider, rl ginutil.RateLimite
 			return
 		}
 
-		userID, err := svc.ConfirmPasswordReset(c.Request.Context(), strings.TrimSpace(req.Token), req.NewPassword)
+		_, err := svc.ConfirmPasswordReset(c.Request.Context(), strings.TrimSpace(req.Token), req.NewPassword)
 		if err != nil {
 			ginutil.BadRequest(c, "invalid_or_expired_token")
 			return
 		}
-
-		ua := c.Request.UserAgent()
-		ip := c.ClientIP()
-		uaPtr, ipPtr := &ua, &ip
-		svc.LogLogin(c.Request.Context(), userID, "password_reset_confirm", "", ipPtr, uaPtr)
 
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}

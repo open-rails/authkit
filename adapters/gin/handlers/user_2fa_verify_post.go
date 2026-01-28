@@ -34,12 +34,13 @@ func HandleUser2FAVerifyPOST(svc core.Provider, rl ginutil.RateLimiter, site str
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), "site", site))
 
 		logAttempt := func(userID string, success bool, sid string) {
+			if !success || strings.TrimSpace(sid) == "" {
+				return
+			}
 			ua := c.Request.UserAgent()
 			ip := c.ClientIP()
 			uaPtr, ipPtr := &ua, &ip
-			ctx := c.Request.Context()
-			ctx = context.WithValue(ctx, "login_success", success)
-			svc.LogLogin(ctx, userID, "password_login_2fa", sid, ipPtr, uaPtr)
+			svc.LogSessionCreated(c.Request.Context(), userID, "password_login_2fa", sid, ipPtr, uaPtr)
 		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RL2FAVerify) {
 			logAttempt("", false, "")

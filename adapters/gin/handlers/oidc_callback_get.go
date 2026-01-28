@@ -23,12 +23,7 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx
 			c.Set("site", site)
 		}
 		logFailed := func(userID string) {
-			ua := c.Request.UserAgent()
-			ip := c.ClientIP()
-			uaPtr, ipPtr := &ua, &ip
-			ctx := c.Request.Context()
-			ctx = context.WithValue(ctx, "login_success", false)
-			svc.LogLogin(ctx, userID, "oidc_login", "", ipPtr, uaPtr)
+			_ = userID
 		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCCallback) {
 			c.Set("login_success", false)
@@ -178,7 +173,7 @@ func HandleOIDCCallbackGET(cfg OIDCConfig, svc core.Provider, exchanger func(ctx
 		ua := c.Request.UserAgent()
 		ip := c.ClientIP()
 		uaPtr, ipPtr := &ua, &ip
-		svc.LogLogin(c.Request.Context(), userID, "oidc_login", sid, ipPtr, uaPtr)
+		svc.LogSessionCreated(c.Request.Context(), userID, "oidc_login", sid, ipPtr, uaPtr)
 		if created {
 			svc.SendWelcome(c.Request.Context(), userID)
 		}

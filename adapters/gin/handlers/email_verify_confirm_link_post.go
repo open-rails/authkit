@@ -28,16 +28,11 @@ func HandleEmailVerifyConfirmLinkPOST(svc core.Provider, rl ginutil.RateLimiter)
 			return
 		}
 
-		userID, err := svc.ConfirmEmailVerification(c.Request.Context(), strings.TrimSpace(req.Token))
+		_, err := svc.ConfirmEmailVerification(c.Request.Context(), strings.TrimSpace(req.Token))
 		if err != nil {
 			ginutil.BadRequest(c, "invalid_or_expired_token")
 			return
 		}
-
-		ua := c.Request.UserAgent()
-		ip := c.ClientIP()
-		uaPtr, ipPtr := &ua, &ip
-		svc.LogLogin(c.Request.Context(), userID, "email_verify_confirm_link", "", ipPtr, uaPtr)
 
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}

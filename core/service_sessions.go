@@ -7,6 +7,8 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Session represents a sanitized session view (no tokens).
@@ -95,7 +97,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		_ = s.pg.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1`, uid).Scan(&email)
 	}
 	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
-		_ = s.RevokeAllSessions(ctx, uid, nil)
+		_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil)
 		return "", time.Time{}, "", errors.New("user_disabled")
 	}
 
@@ -167,8 +169,21 @@ func (s *Service) RevokeSessionByID(ctx context.Context, sessionID string) error
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE id=$1 AND issuer=$2`, sessionID, s.opts.Issuer)
-	return err
+	reason := sessionRevokeReasonFromContext(ctx)
+	if reason == nil {
+		v := string(SessionRevokeReasonAdminRevoke)
+		reason = &v
+	}
+	var uid string
+	err := s.pg.QueryRow(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE id=$1 AND issuer=$2 AND revoked_at IS NULL RETURNING user_id::text`, sessionID, s.opts.Issuer).Scan(&uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.logSessionRevoked(ctx, uid, sessionID, reason)
+	return nil
 }
 
 // RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the user.
@@ -176,20 +191,67 @@ func (s *Service) RevokeSessionByIDForUser(ctx context.Context, userID, sessionI
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND issuer=$3`, sessionID, userID, s.opts.Issuer)
-	return err
+	reason := sessionRevokeReasonFromContext(ctx)
+	if reason == nil {
+		v := string(SessionRevokeReasonUserRevoke)
+		reason = &v
+	}
+	var sid string
+	err := s.pg.QueryRow(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND issuer=$3 AND revoked_at IS NULL RETURNING id::text`, sessionID, userID, s.opts.Issuer).Scan(&sid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.logSessionRevoked(ctx, userID, sid, reason)
+	return nil
 }
 
 func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
 	if s.pg == nil {
 		return nil
 	}
+	reason := sessionRevokeReasonFromContext(ctx)
+	if reason == nil {
+		v := string(SessionRevokeReasonUserRevokeAll)
+		reason = &v
+	}
 	if keepSessionID != nil && *keepSessionID != "" {
-		_, err := s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE user_id=$1 AND issuer=$2 AND id<>$3`, userID, s.opts.Issuer, *keepSessionID)
+		rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
+			WHERE user_id=$1 AND issuer=$2 AND id<>$3 AND revoked_at IS NULL
+			RETURNING id::text`, userID, s.opts.Issuer, *keepSessionID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var sid string
+			if err := rows.Scan(&sid); err != nil {
+				return err
+			}
+			s.logSessionRevoked(ctx, userID, sid, reason)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return nil
+	}
+	rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
+		WHERE user_id=$1 AND issuer=$2 AND revoked_at IS NULL
+		RETURNING id::text`, userID, s.opts.Issuer)
+	if err != nil {
 		return err
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE user_id=$1 AND issuer=$2`, userID, s.opts.Issuer)
-	return err
+	defer rows.Close()
+	for rows.Next() {
+		var sid string
+		if err := rows.Scan(&sid); err != nil {
+			return err
+		}
+		s.logSessionRevoked(ctx, userID, sid, reason)
+	}
+	return rows.Err()
 }
 
 // enforceSessionLimit enforces max active sessions per user using policy.
@@ -210,15 +272,28 @@ func (s *Service) enforceSessionLimit(ctx context.Context, userID, issuer string
 	// evict-oldest in a single statement
 	excess := count - s.opts.SessionMaxPerUser + 1
 	if excess > 0 {
-		_, err := s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
-            WHERE id IN (
-                SELECT id FROM profiles.refresh_sessions
-                WHERE user_id=$1 AND issuer=$2 AND revoked_at IS NULL
-                  AND (expires_at IS NULL OR expires_at>now())
-                ORDER BY last_used_at ASC
-                LIMIT $3
-            )`, userID, issuer, excess)
+		rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
+			WHERE id IN (
+				SELECT id FROM profiles.refresh_sessions
+				WHERE user_id=$1 AND issuer=$2 AND revoked_at IS NULL
+				  AND (expires_at IS NULL OR expires_at>now())
+				ORDER BY last_used_at ASC
+				LIMIT $3
+			)
+			RETURNING id::text`, userID, issuer, excess)
 		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		reason := string(SessionRevokeReasonEvicted)
+		for rows.Next() {
+			var sid string
+			if err := rows.Scan(&sid); err != nil {
+				return err
+			}
+			s.logSessionRevoked(ctx, userID, sid, &reason)
+		}
+		if err := rows.Err(); err != nil {
 			return err
 		}
 	}
@@ -229,8 +304,22 @@ func (s *Service) revokeFamily(ctx context.Context, familyID string) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE family_id=$1`, familyID)
-	return err
+	rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
+		WHERE family_id=$1 AND revoked_at IS NULL
+		RETURNING id::text, user_id::text`, familyID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	reason := string(SessionRevokeReasonRefreshReuseDetected)
+	for rows.Next() {
+		var sid, uid string
+		if err := rows.Scan(&sid, &uid); err != nil {
+			return err
+		}
+		s.logSessionRevoked(ctx, uid, sid, &reason)
+	}
+	return rows.Err()
 }
 
 func (s *Service) hashRefresh(token string) []byte {

@@ -41,12 +41,7 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), "site", site))
 
 		logFailed := func(userID string) {
-			ua := c.Request.UserAgent()
-			ip := c.ClientIP()
-			uaPtr, ipPtr := &ua, &ip
-			ctx := c.Request.Context()
-			ctx = context.WithValue(ctx, "login_success", false)
-			svc.LogLogin(ctx, userID, "oauth_login:discord", "", ipPtr, uaPtr)
+			_ = userID
 		}
 		if !ginutil.AllowNamed(c, rl, ginutil.RLOIDCCallback) {
 
@@ -214,7 +209,7 @@ func HandleDiscordCallbackGET(cfg OIDCConfig, svc core.Provider, rl ginutil.Rate
 		ua := c.Request.UserAgent()
 		ip := c.ClientIP()
 		uaPtr, ipPtr := &ua, &ip
-		svc.LogLogin(c.Request.Context(), userID, "oauth_login:discord", sid, ipPtr, uaPtr)
+		svc.LogSessionCreated(c.Request.Context(), userID, "oauth_login:discord", sid, ipPtr, uaPtr)
 		if created {
 			svc.SendWelcome(c.Request.Context(), userID)
 		}
