@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
+	authhttp "github.com/PaulFidika/authkit/adapters/http"
 	"github.com/PaulFidika/authkit/core"
 	jwtkit "github.com/PaulFidika/authkit/jwt"
 )
@@ -87,7 +87,7 @@ func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 		Skew:       60 * time.Second,
 	}
 
-	verifier := authgin.NewVerifier(accept)
+	verifier := authhttp.NewVerifier(accept)
 
 	// Verify the token
 	claims, err := verifier.Verify(token)
@@ -121,7 +121,7 @@ func TestTestIssuer_TokenWithRoles(t *testing.T) {
 		Algorithms: []string{"RS256"},
 	}
 
-	verifier := authgin.NewVerifier(accept)
+	verifier := authhttp.NewVerifier(accept)
 	claims, err := verifier.Verify(token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)
@@ -151,7 +151,7 @@ func TestTestIssuer_ExpiredToken(t *testing.T) {
 		Skew:       0, // No skew - strict expiry checking
 	}
 
-	verifier := authgin.NewVerifier(accept)
+	verifier := authhttp.NewVerifier(accept)
 	_, err := verifier.Verify(token)
 
 	// Token should fail verification due to expiry
@@ -177,7 +177,7 @@ func TestTestIssuer_CustomAudience(t *testing.T) {
 		Algorithms: []string{"RS256"},
 	}
 
-	verifier := authgin.NewVerifier(accept)
+	verifier := authhttp.NewVerifier(accept)
 	claims, err := verifier.Verify(token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)

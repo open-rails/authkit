@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
+	authhttp "github.com/PaulFidika/authkit/adapters/http"
 	"github.com/PaulFidika/authkit/core"
 	jwtkit "github.com/PaulFidika/authkit/jwt"
 	"github.com/PaulFidika/authkit/password"
@@ -297,7 +297,7 @@ func TestDevserverE2E(t *testing.T) {
 			Algorithms: []string{"RS256"},
 			Skew:       1 * time.Millisecond,
 		}
-		ver := authgin.NewVerifier(accept)
+		ver := authhttp.NewVerifier(accept)
 
 		claims, err := ver.Verify(token)
 		if err != nil {

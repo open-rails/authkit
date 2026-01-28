@@ -103,6 +103,7 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/auth/user/2fa` | AUTH | Get 2FA status |
+| POST | `/auth/user/2fa/start-phone` | AUTH | Start phone-based 2FA enrollment |
 | POST | `/auth/user/2fa/enable` | AUTH | Enable 2FA |
 | POST | `/auth/user/2fa/disable` | AUTH | Disable 2FA |
 | POST | `/auth/user/2fa/regenerate-codes` | AUTH | Regenerate backup codes |
@@ -141,7 +142,8 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | POST | `/auth/admin/users/unban` | ADMIN | Unban user |
 | POST | `/auth/admin/users/set-email` | ADMIN | Set user email |
 | POST | `/auth/admin/users/set-username` | ADMIN | Set user username |
+| POST | `/auth/admin/users/set-password` | ADMIN | Set user password |
+| POST | `/auth/admin/users/toggle-active` | ADMIN | Toggle user active status |
 | DELETE | `/auth/admin/users/:user_id` | ADMIN | Delete user |
 | POST | `/auth/admin/users/:user_id/restore` | ADMIN | Restore (undelete) user |
 | GET | `/auth/admin/users/deleted` | ADMIN | List deleted users |
-| GET | `/auth/admin/users/:user_id/signins` | ADMIN | Get user sign-in history |

@@ -2,6 +2,8 @@
 
 Lightweight auth library for Go services.
 
+Note: This repo ships only the `net/http` adapter (`adapters/http`). The old Gin adapter has been removed (breaking change); bump your module version/tag accordingly when releasing.
+
 Scope (minimal)
 - Asymmetric JWT issuing (RS256) + JWKS endpoint (no persistence yet).
 - Password login and email-based password reset tokens.
@@ -22,142 +24,41 @@ Migrations
 
 ---
 
-Quick Start (Gin)
-
-- Setup keys and service
+Quick Start (net/http)
 
 ```go
-  package main
+package main
 
-  import (
-      "crypto/rsa"
-      "time"
+import (
+  "net/http"
 
-      core "github.com/PaulFidika/authkit/core"
-      authgin "github.com/PaulFidika/authkit/adapters/gin"
-      oidckit "github.com/PaulFidika/authkit/oidc"
-      jwtkit "github.com/PaulFidika/authkit/jwt"
-      smstwilio "github.com/PaulFidika/authkit/adapters/sms"
-      // In dev, AuthKit logs codes to stdout if no email/SMS senders are configured
-      "github.com/gin-gonic/gin"
-      // plus your postgres package; Redis/Garnet recommended for ephemeral auth state
-      "os"
-  )
+  authhttp "github.com/PaulFidika/authkit/adapters/http"
+  core "github.com/PaulFidika/authkit/core"
+)
 
-  func main() {
-      // 1) Minimal config (like go-pkgz/auth)
-      signer, _ := jwtkit.NewRSASigner(2048, "kid-1")
-      // Load configuration from your app (config file, env vars, etc.)
-      authCfg := core.Config{
-          Keys:             jwtkit.StaticKeySource{Active: signer, Pubs: map[string]*rsa.PublicKey{"kid-1": signer.PublicKey()}},
-          AccessTokenDuration:  time.Hour,
-          RefreshTokenDuration: 14*24*time.Hour,
-          Issuer:           cfg.Auth.Issuer,           // e.g., "https://myapp.com"
-          IssuedAudiences:  cfg.Auth.IssuedAudiences,  // e.g., []string{"myapp", "spacex-app"}
-          ExpectedAudience: cfg.Auth.ExpectedAudience, // e.g., "myapp"
-          BaseURL:          cfg.Auth.BaseURL,          // Used to build reset/verify links in emails
-          // Identity providers by name (OIDC or OAuth2). Only client id/secret required.
-          // Apple can use a dynamic client_secret minted per request via ES256.
-          Providers:    map[string]oidckit.RPConfig{
-              "google":       {ClientID: cfg.OAuth.Google.ClientID, ClientSecret: cfg.OAuth.Google.ClientSecret},
-              // Discord uses OAuth2 (no OIDC discovery). Scopes typically: identify, email.
-              "discord":      {ClientID: cfg.OAuth.Discord.ClientID, ClientSecret: cfg.OAuth.Discord.ClientSecret, Scopes: []string{"identify","email"}},
-              "apple":        oidckit.AppleWithKey(cfg.OAuth.Apple.TeamID, cfg.OAuth.Apple.KeyID, []byte(cfg.OAuth.Apple.PrivateKeyP8), cfg.OAuth.Apple.ClientID, 5*time.Minute),
-          },
-      }
+func main() {
+  // Build core.Config from your app config.
+  cfg := core.Config{
+    Issuer:            "https://myapp.com",
+    IssuedAudiences:   []string{"myapp"},
+    ExpectedAudiences: []string{"myapp"},
+    BaseURL:           "https://myapp.com",
+    // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
+  }
 
-      // 2) Gin setup and route mounting
-      r := gin.Default()
+  svc, _ := authhttp.NewService(cfg)
+  // svc = svc.WithPostgres(pg).WithRedis(redis).WithEmailSender(email).WithSMSSender(sms)...
 
-      // pg: *pgxpool.Pool
-      // redisClient (optional): *redis.Client – used for OIDC state cache and rate limiting
+  mux := http.NewServeMux()
+  mux.Handle("/.well-known/jwks.json", svc.JWKSHandler())
 
-      // Optional: Implement your own email sender for email-based auth (codes + welcome emails)
-      // Must implement core.EmailSender interface with methods:
-      //   - SendPasswordResetCode(ctx, email, username, code) - AuthKit looks up user data
-      //   - SendEmailVerificationCode(ctx, email, username, code) - no user exists yet
-      //   - SendLoginCode(ctx, email, username, code) - 2FA login code, AuthKit looks up user data
-      //   - SendWelcome(ctx, email, username) - AuthKit looks up user data
-      //
-      // Note: AuthKit attaches the request language to ctx for every authkit route. Sender implementations can read it via:
-      //   lang.LanguageFromContext(ctx)  // (string, bool)
-      var emailSender core.EmailSender = ... // your custom implementation
+  // Browser flows (redirect/popup): /auth/oidc/* and /auth/oauth/discord/*
+  mux.Handle("/auth/", svc.OIDCHandler())
 
-      // Optional: Twilio Verify SMS sender for phone-based auth
-      // Load these from your app's config (not environment variables directly)
-      twilioSMS := smstwilio.New(
-          cfg.Twilio.AccountSID,
-          cfg.Twilio.AuthToken,
-          cfg.Twilio.VerifyServiceSID,
-          cfg.AppName, // App name shown in SMS (e.g., "MyApp Login")
-      )
+  // JSON API: mount under a prefix (example: /api/v1/auth/*).
+  mux.Handle("/api/v1/", http.StripPrefix("/api/v1", svc.APIHandler()))
 
-      svc := authgin.NewService(authCfg).
-          WithPostgres(pg).
-          WithRedis(redisClient).
-          WithEmailSender(emailSender).
-          WithSMSSender(twilioSMS).
-          WithSolanaDomain("myapp.com") // Optional: for SIWS sign-in messages
-
-      // Split registration: JWKS at root, browser flows at /auth, JSON API under /api/v1
-      api := r.Group("/api/v1")
-      svc.GinRegisterJWKS(r)
-      svc.GinRegisterOIDC(r)  // /auth/oidc/* and /auth/oauth/discord/*
-      svc.GinRegisterAPI(api)
-
-      // 3) Middleware: construct from Service
-      auth := authgin.MiddlewareFromSVC(svc)
-
-      // Decodes user claims from JWT and attaches them to the context
-      api.Use(auth.Optional())
-
-      // (1) Reads user info from JWT claims (no database lookup)
-      api.GET("/claims", func(c *gin.Context) {
-        if u, ok := authgin.CurrentUser(c); ok { c.JSON(200, u); return }
-        c.AbortWithStatus(401)
-      })
-
-      // (2) Extra middleware looks up user info from DB, which overwrites user JWT claims
-      api.GET("/my-info",
-        authgin.LookupDBUser(pg),
-        func(c *gin.Context) {
-          if u, ok := authgin.CurrentUser(c); ok { c.JSON(200, u); return }
-          c.AbortWithStatus(401)
-        },
-      )
-
-      // (3) Restrict based on role (admin and discord examples)
-      api.GET("/admin/dashboard", auth.RequireAdmin(pg), func(c *gin.Context) {
-        c.JSON(200, gin.H{"ok": true})
-      })
-
-      api.GET("/discord", auth.RequireRole("discord"), func(c *gin.Context) {
-        c.JSON(200, gin.H{"ok": true})
-      })
-
-      // (4) Require auth for a sub-group
-      protected := api.Group("/protected").Use(auth.Required())
-      protected.GET("/hello", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
-
-      // (5) Restrict based on entitlement
-      premium := api.Group("/premium").Use(auth.RequireEntitlement("premium"))
-      premium.GET("/area", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
-
-      // Fresh entitlement check (bypass JWT claim) using DB-backed user context
-      api.GET("/billing/status",
-        auth.Required(),
-        authgin.LookupDBUser(pg),
-        func(c *gin.Context) {
-          if u, ok := authgin.CurrentUser(c); ok {
-            c.JSON(200, gin.H{"entitlements": u.Entitlements})
-            return
-          }
-          c.AbortWithStatus(401)
-        },
-      )
-
-  // Run server
-  r.Run(":8080")
+  http.ListenAndServe(":8080", mux)
 }
 ```
 
@@ -225,7 +126,8 @@ func (p *BillingEntitlementsProvider) ListEntitlements(ctx context.Context, user
 }
 
 // Wire it up:
-svc := authgin.NewService(cfg).
+svc, _ := authhttp.NewService(cfg)
+svc = svc.
     WithPostgres(pg).
     WithEntitlements(&BillingEntitlementsProvider{pg: pg})
 ```
@@ -234,22 +136,11 @@ Entitlements are snapshotted into the JWT at token issuance time. For fresh enti
 
 ---
 
-Concepts: Service vs Middleware (concise)
+Concepts (concise)
 
-- Service (issuer + storage)
-  - When you want to issue and manage tokens and sessions: IssueAccessToken, IssueRefreshSession, ExchangeRefreshToken (rotation, reuse detection, session limits/eviction).
-  - When you need password/OIDC sign‑in and email flows: password login, reset, email verify, OIDC link/callback.
-  - When you need DB‑backed, always‑fresh roles/entitlements in middleware and handlers.
-  - When you host your own JWKS (`/.well-known/jwks.json`) for consumers to verify your tokens.
-  - Construct with `authgin.NewService(cfg)`, wire deps (`WithPostgres/WithRedis/WithEmailSender/WithSMSSender/WithEntitlements`), then register: `GinRegisterJWKS`, `GinRegisterOIDC`, `GinRegisterAPI`.
-
-- Middleware (verify and/or enrich on requests)
-  - Gate (auth): validates the access token on requests (Required/Optional/RequireRole/RequireEntitlement/RequireAdmin).
-    - Full issuer: `auth := authgin.MiddlewareFromSVC(svc)`.
-    - Verify‑only: `auth := authgin.MiddlewareFromConfig(accept)`.
-  - Enricher (user context): computes `UserContext` (roles, entitlements, email, language) and attaches it to Gin context.
-    - DB‑backed: `r.Use(authgin.LookupDBUser(pg))`.
-  - Compose the two in order so tokens are verified once, then enriched.
+- Service (issuer + storage): used by `authhttp.NewService(cfg)`; backs the built-in handlers (sessions, login, OIDC, etc).
+- Middleware: `adapters/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
+- Verify-only: use `authhttp.NewVerifier(accept)` to accept tokens from other issuers without issuing tokens yourself.
 
 ---
 
@@ -258,19 +149,20 @@ Notes
 - Apple: prefer `oidckit.AppleWithKey(...)` which mints a fresh ES256 client_secret JWT per request; no manual rotation needed.
 
 Admin Gate (DB-backed)
-- Use `auth.RequireAdmin(pg)` to strictly enforce admin access using the database.
-- It verifies the JWT, extracts `user_id`, and checks `profiles.user_roles` joined to `profiles.roles` for slug `admin`.
+
+- Use `authhttp.RequireAdmin(pg)` to strictly enforce admin access using the database.
 - Example:
 
 ```go
-  // Verify-only wiring
-  auth := authgin.MiddlewareFromConfig(accept)
-  r := gin.Default()
+ver := authhttp.NewVerifier(accept).WithService(coreSvc)
 
-  // Admin route guarded by DB check (no need to attach full user context)
-  r.GET("/admin/reports/monthly", auth.RequireAdmin(pg), func(c *gin.Context) {
-    c.JSON(200, gin.H{"ok": true})
-  })
+adminHandler := authhttp.Required(ver)(
+  authhttp.RequireAdmin(pg)(
+    http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+      w.WriteHeader(200)
+    }),
+  ),
+)
 ```
 
 Roles (global storage)
@@ -287,7 +179,7 @@ Verification Codes:
   - Email verification: `/auth/email/verify/confirm` with `{"code": "123456"}`
   - Phone registration: `/auth/phone/verify/confirm` with `{"phone_number": "+1...", "code": "789012"}`
   - Phone password reset: `/auth/phone/password/reset/confirm` with `{"phone_number": "+1...", "code": "456789", "new_password": "..."}`
-- Your API can live under a prefix (e.g., `/api/v1`); configure this when registering routes with `GinRegisterAPI(api)`.
+- Your API can live under a prefix (e.g., `/api/v1`); mount the JSON API using `http.StripPrefix("/api/v1", svc.APIHandler())`.
 
 Two-Factor Authentication (2FA):
 - Optional security feature for admin accounts to prevent account takeover if password is leaked.
@@ -317,13 +209,17 @@ Operation:
 Integration requirements (API server)
 - Ephemeral auth state (verification codes, resets, SIWS challenges) uses Redis/Garnet when provided; in dev it falls back to memory.
 - In production, a Redis-compatible store is required.
-- Rate limiting: if you provide Redis via `WithRedis`, AuthKit enables a default Redis-backed rate limiter automatically.
+- Rate limiting:
+  - Enabled by default (in-memory limiter) with per-bucket defaults from `authhttp.DefaultRateLimits()`.
   - Keys: `auth:<bucket>:ip:<client-ip>`; errors fail-open (request allowed).
-  - Buckets include: `auth_token`, `auth_logout`, `auth_sessions_current`, `auth_oidc_start`, `auth_oidc_callback`,
-    `auth_password_login`, `auth_pwd_reset_request`, `auth_pwd_reset_confirm`, `auth_user_*`, and `auth_admin_*`.
-  - These are set to sensible defaults and are not configurable.
+  - Client IP strategy is conservative by default: it uses `RemoteAddr` only when it's a public IP; if `RemoteAddr` is private (common behind proxies), rate limiting fails open to avoid accidentally rate-limiting the proxy as a single client.
+  - **Behind reverse proxies, you must explicitly configure trusted proxies** to safely use `X-Forwarded-For` / `CF-Connecting-IP`. AuthKit will not trust forwarded headers by default (clients can spoof them).
+  - For multi-instance production, prefer a Redis/Garnet-backed limiter and a trusted-proxy client IP function, e.g.:
+    - `svc.WithRateLimiter(redislimiter.New(redis, authhttp.ToRedisLimits(authhttp.DefaultRateLimits())))`
+    - `svc.WithClientIPFunc(authhttp.ClientIPFromForwardedHeaders(trustedProxyCIDRs))` where `trustedProxyCIDRs` are the CIDRs of your ingress/proxy layer (nginx, cloudflared, etc.).
+  - To explicitly opt out: `svc.DisableRateLimiter()`.
 - Storage: run the SQL migrations in `authkit/migrations/postgres` (includes `profiles.refresh_sessions`).
-- Keys/JWKS: host `/.well-known/jwks.json` from `authgin.RegisterGin` and rotate keys as needed.
+- Keys/JWKS: host `/.well-known/jwks.json` using `svc.JWKSHandler()` and rotate keys as needed.
 
 ---
 
@@ -567,11 +463,9 @@ AuthKit‑powered APIs (e.g., spacex), without mounting any auth routes.
   - Skew: allowed clock drift for exp/nbf (default ~60s).
   - Algorithms: allow‑list of JWS algs (defaults to RS256).
 - DB enrichment (recommended):
-  - Call `NewVerifier(...).WithService(svc)` to enrich requests from the database
-    after verification. This sets roles and canonical email from `profiles.*`
-    (not from JWT claims), matching the behavior of the standard middleware.
-  - For language/entitlements/provider usernames, also attach
-    `LookupDBUser(pg)`.
+  - Call `authhttp.NewVerifier(...).WithService(coreSvc)` to enable best-effort
+    DB enrichment hooks (roles + canonical email + provider usernames) when
+    the token lacks those claims.
 
 ---
 
@@ -582,9 +476,10 @@ SpaceX accepts access tokens from multiple issuers; both tesla.com and x.com.
 ```go
 
   import (
+    "encoding/json"
+    "net/http"
     core "github.com/PaulFidika/authkit/core"
-    authgin "github.com/PaulFidika/authkit/adapters/gin"
-    "github.com/gin-gonic/gin"
+    authhttp "github.com/PaulFidika/authkit/adapters/http"
     "time"
   )
 
@@ -597,41 +492,25 @@ SpaceX accepts access tokens from multiple issuers; both tesla.com and x.com.
       Skew: 60 * time.Second,
     }
 
-    // Minimal, verify-only middleware; add DB enrichment per-route with LookupDBUser(pg).
-    auth := authgin.MiddlewareFromConfig(accept)
+    ver := authhttp.NewVerifier(accept)
 
-    r := gin.Default()
-    r.Use(auth.Optional())
+    mux := http.NewServeMux()
 
     // (1) Claims-only: just check JWT (no DB). 401 if missing/invalid.
-    r.GET("/claims-only", func(c *gin.Context) {
-      if u, ok := authgin.CurrentUser(c); ok { c.JSON(200, u); return }
-      c.AbortWithStatus(401)
-    })
-
-    // (2) DB-enhanced: enrich from Postgres, then read claims/user info.
-    r.GET("/me-db",
-      auth.Required(),              // must be logged in
-      authgin.LookupDBUser(pg),     // overwrite/augment from DB in one query
-      func(c *gin.Context) {
-        if u, ok := authgin.CurrentUser(c); ok { c.JSON(200, u); return }
-        c.AbortWithStatus(401)
-      },
-    )
-
-    // (3) Require login (no DB): gate only.
-    r.GET("/auth-required",
-      auth.Required(),
-      func(c *gin.Context) {
-        if u, ok := authgin.CurrentUser(c); ok { c.JSON(200, gin.H{"user": u.UserID}); return }
-        c.AbortWithStatus(401)
-      },
-    )
+    mux.Handle("/claims-only", authhttp.Required(ver)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+      cl, ok := authhttp.ClaimsFromContext(r.Context())
+      if !ok {
+        w.WriteHeader(401)
+        return
+      }
+      _ = json.NewEncoder(w).Encode(map[string]any{"user_id": cl.UserID})
+    })))
 
     // (4) Admin-only: require login, then check admin role directly via DB.
-    r.GET("/admin/report",
-      auth.RequireAdmin(pg),
-      func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) },
-    )
+    mux.Handle("/admin/report", authhttp.Required(ver)(authhttp.RequireAdmin(pg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+      w.WriteHeader(200)
+    }))))
+
+    http.ListenAndServe(":8080", mux)
   }
 ```

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,11 +13,10 @@ import (
 	"strings"
 	"time"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
+	authhttp "github.com/PaulFidika/authkit/adapters/http"
 	"github.com/PaulFidika/authkit/core"
 	jwtkit "github.com/PaulFidika/authkit/jwt"
 	pgmigrations "github.com/PaulFidika/authkit/migrations/postgres"
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -99,7 +99,7 @@ func runServe(cfg *config) error {
 	issuedAudiences := parseCSVEnv("AUTHKIT_ISSUED_AUDIENCES", []string{"billing-app"})
 	expectedAudiences := parseCSVEnv("AUTHKIT_EXPECTED_AUDIENCES", issuedAudiences)
 
-	svc, err := authgin.NewService(core.Config{
+	svc, err := authhttp.NewService(core.Config{
 		Issuer:            cfg.Issuer,
 		IssuedAudiences:   issuedAudiences,
 		ExpectedAudiences: expectedAudiences,
@@ -110,26 +110,36 @@ func runServe(cfg *config) error {
 	}
 	svc.WithPostgres(pg)
 
-	r := gin.New()
-	r.Use(gin.Recovery())
+	apiH := svc.APIHandler()
+	oidcH := svc.OIDCHandler()
+	jwksH := svc.JWKSHandler()
 
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	})
-
 	// Public: consumers (e.g., billing) fetch keys here.
-	svc.GinRegisterJWKS(r)
-	// Optional but useful: expose authkit API routes for E2E testing authkit itself.
-	svc.GinRegisterAPI(r)
-
-	// Dev-only: mint arbitrary JWTs for downstream service E2E tests.
-	if cfg.DevMode {
-		r.POST("/auth/dev/mint", devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret))
-	}
+	mux.Handle("/.well-known/jwks.json", jwksH)
+	// Auth routes: dispatch browser flows vs JSON API.
+	mux.Handle("/auth/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Dev-only: mint arbitrary JWTs for downstream service E2E tests.
+		if cfg.DevMode && r.Method == http.MethodPost && r.URL.Path == "/auth/dev/mint" {
+			devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret).ServeHTTP(w, r)
+			return
+		}
+		// Browser flows are GET-only (/login and /callback). Link-start endpoints live in the JSON API.
+		if r.Method == http.MethodGet &&
+			(strings.HasPrefix(r.URL.Path, "/auth/oidc/") && (strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/callback")) ||
+				(strings.HasPrefix(r.URL.Path, "/auth/oauth/") && (strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/callback")))) {
+			oidcH.ServeHTTP(w, r)
+			return
+		}
+		apiH.ServeHTTP(w, r)
+	}))
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           r,
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return server.ListenAndServe()
@@ -201,24 +211,26 @@ type mintResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-func devMintHandler(issuer string, signer jwtkit.Signer, secret string) gin.HandlerFunc {
+func devMintHandler(issuer string, signer jwtkit.Signer, secret string) http.Handler {
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
-	return func(c *gin.Context) {
-		if !devSecretOK(c.GetHeader("Authorization"), c.GetHeader("X-DEV-SECRET"), secret) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !devSecretOK(r.Header.Get("Authorization"), r.Header.Get("X-DEV-SECRET"), secret) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
 		}
 
 		var req mintRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
 			return
 		}
 		req.Sub = strings.TrimSpace(req.Sub)
 		req.Aud = strings.TrimSpace(req.Aud)
 		req.Email = strings.TrimSpace(req.Email)
 		if req.Sub == "" || req.Aud == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "sub and aud are required"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "sub and aud are required"})
 			return
 		}
 
@@ -246,17 +258,23 @@ func devMintHandler(issuer string, signer jwtkit.Signer, secret string) gin.Hand
 			claims["entitlements"] = req.Entitlements
 		}
 
-		token, err := signer.Sign(c.Request.Context(), claims)
+		token, err := signer.Sign(r.Context(), claims)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sign token"})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to sign token"})
 			return
 		}
-		c.JSON(http.StatusOK, mintResponse{
+		writeJSON(w, http.StatusOK, mintResponse{
 			Token:     token,
 			TokenType: "Bearer",
 			ExpiresAt: expiresAt,
 		})
-	}
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func devSecretOK(authHeader, devHeader, secret string) bool {

@@ -209,23 +209,22 @@
     {
       "name": "Plan: framework-agnostic selective billing http.Handler",
       "id_number": 14,
-      "description": "Track work needed to expose doujins-billing HTTP routes as a single mountable `http.Handler` *with selective route groups* (user/admin/webhooks/health), while staying framework-agnostic for hosts.\n\n## Context\n\ncozy-art currently embeds doujins-billing and mounts it under `/billing`. Some host routers (notably Gin) have route-tree constraints around catch-all wildcards, so the integration surface should be a single handler mounted via `http.StripPrefix`/outer mux.\n\nWe also want optionality: some hosts should be able to mount only webhooks, only admin, etc., without exposing the full billing HTTP surface.\n\n## Goal\n\nIn doujins-billing, add a public handler builder such as:\n\n```go\ntype HTTPHandlerOptions struct {\n  IncludeUser bool\n  IncludeAdmin bool\n  IncludeWebhooks bool\n  IncludeHealth bool\n  // optionally: IncludeDebug (dev only)\n}\n\nfunc (e *embedded.Embedded) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler\n```\n\nDefaults should preserve existing standalone behavior, while giving embedded hosts fine-grained control.\n\n## Non-goals\n\n- Do not put billing route selection into authkit; authkit should remain focused on auth routes.\n- Do not reintroduce Gin-only embedding APIs as the primary integration surface.",
+      "description": "Track work needed to expose doujins-billing HTTP routes as a single mountable `http.Handler` *with selective route groups* (user/admin/webhooks/health), while staying framework-agnostic for hosts.\n\n## Context\n\ncozy-art currently embeds doujins-billing and mounts it under `/billing`. Some host routers (notably Gin) have route-tree constraints around catch-all wildcards, so the integration surface should be a single handler mounted via `http.StripPrefix`/outer mux.\n\nWe also want optionality: some hosts should be able to mount only webhooks, only admin, etc., without exposing the full billing HTTP surface.\n\n## Goal\n\nIn doujins-billing, add a public handler builder such as:\n\n```go\ntype HTTPHandlerOptions struct {\n  IncludeUser bool\n  IncludeAdmin bool\n  IncludeWebhooks bool\n  IncludeHealth bool\n  // optionally: IncludeDebug (dev only)\n}\n\nfunc (e *embedded.Embedded) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler\n```\n\nDefaults should preserve existing standalone behavior, while giving embedded hosts fine-grained control.\n\n## Non-goals\n\n- Do not put billing route selection into authkit; authkit should remain focused on auth routes.\n- Do not reintroduce Gin-only embedding APIs as the primary integration surface.\n\nStatus update (2026-01-27): implemented in doujins-billing + wired into cozy-art.",
       "tasks": [
         "doujins-billing implementation:",
-        "[ ] Define exported options type (include flags) and document semantics",
-        "[ ] Build a single handler that registers only selected route groups",
-        "[ ] Keep `Handler()` as backwards-compatible shorthand (likely == all groups)",
-        "[ ] Ensure admin routes still enforce auth/admin checks internally",
-        "[ ] Add tests that assert excluded groups return 404 (and included groups are not 404)",
-        "[ ] Update embedded README with mounting examples for: full, webhooks-only, admin-only",
+        "[x] Define exported options type (include flags) and document semantics",
+        "[x] Build a single handler that registers only selected route groups",
+        "[x] Keep `Handler()` as backwards-compatible shorthand (all groups)",
+        "[x] Ensure admin routes still enforce auth/admin checks internally",
+        "[x] Add tests that assert excluded groups return 404 (and included groups are not 404)",
+        "[x] Update embedded README with mounting examples",
         "\ncozy-art integration:",
-        "[ ] Switch cozy-art to mount billing handler built with the desired options",
-        "[ ] Verify no Gin wildcard route panics and that required billing endpoints still work",
+        "[x] Mount billing using the selective handler options",
+        "[x] Verify no Gin wildcard route panics",
         "\nMigration/cleanup:",
-        "[ ] Deprecate/remove `pkg/routes` Gin RouterGroup registration helpers if they become redundant",
-        "[ ] Tag/release doujins-billing once host apps are updated"
+        "[ ] Tag/release doujins-billing once satisfied"
       ],
-      "completed": false
+      "completed": true
     },
     {
       "name": "Security audit events: password reset requests (non-session)",
@@ -239,6 +238,77 @@
         "[ ] Update host apps' ClickHouse sink(s) to insert into `user_auth_security_events`"
       ],
       "completed": false
+    },
+    {
+      "name": "Framework-agnostic net/http adapter (adapters/http)",
+      "id_number": 16,
+      "description": "Add a first-class `net/http` transport for AuthKit so host apps can embed AuthKit without Gin.\n\n## Motivation\n\nToday AuthKit’s HTTP surface is implemented via the Gin adapter (`adapters/gin`). That works well for Gin apps, but it couples embedding to Gin’s router/middleware model. A native `net/http` adapter makes embedding framework-agnostic (stdlib mux, chi, echo via bridge, Lambda/APIGW, etc.) and reduces dependency friction for non-Gin hosts.\n\n## High-level approach (staged migration)\n\n1) Introduce `adapters/http` that implements the same routes using `net/http` handlers and std context.\n2) Keep `adapters/gin` supported initially. Optionally, later make Gin adapter a thin shim that delegates to the `net/http` adapter (Gin → ServeHTTP), once parity is proven.\n3) Migrate tests to validate the `net/http` adapter, and add parity tests to prevent behavior drift.\n\n## Scope\n\n- Provide handler registration/mounting for:\n  - JWKS: `GET /.well-known/jwks.json`\n  - Browser flows: `/auth/oidc/:provider/login`, `/auth/oidc/:provider/callback`, and discord oauth routes if configured\n  - JSON API: `/auth/*` endpoints (password login, register, sessions, user, admin, SIWS, etc.)\n- Preserve existing response shapes and status codes where feasible.\n\n## Non-goals\n\n- Do not change core business logic (`core/*`) beyond small helpers needed for transport neutrality.\n- Do not remove Gin adapter in the first iteration.\n- No API redesign; focus on transport parity.\n\n## Risks\n\n- Behavior drift (status codes, error payloads, headers) unless parity-tested.\n- Replacing Gin binding/validation and middleware chaining requires careful design.",
+      "tasks": [
+        "Design:",
+        "[x] Decide adapter public API: `authhttp.NewService(core.Config)` plus mountable handler methods (`JWKSHandler`, `APIHandler`, `OIDCHandler`)",
+        "[x] Decide mounting strategy: expose multiple mountable handlers (JWKS/API/OIDC) rather than a single all-in-one handler",
+        "[x] Define shared error envelope + helpers for consistent responses",
+        "\nImplementation (adapters/http):",
+        "[x] Add `adapters/http` package skeleton",
+        "[x] Implement JWKS handler (parity with gin handler)",
+        "[x] Implement auth middleware for Required/Optional using core verifier",
+        "[x] Implement request parsing + validation (stdlib + validator library or minimal custom)",
+        "[x] Implement JSON API endpoints (route-by-route parity)",
+        "[x] Implement OIDC/OAuth browser flows endpoints",
+        "[x] Implement SIWS endpoints",
+        "[x] Implement admin routes (RequireAdmin DB check)",
+        "\nTesting:",
+        "[x] Add route-parity tests (Gin vs net/http) for critical endpoints",
+        "[x] Add httptest coverage for net/http adapter",
+        "[x] Add golden tests for error shapes/status codes for high-traffic endpoints",
+        "\nMigration:",
+        "[x] Add docs showing embedding in stdlib mux + example Gin mount via `gin.WrapH`",
+        "[ ] (Optional) refactor gin adapter to call net/http adapter where practical"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Drop Gin adapter + ginutil (breaking): rely fully on net/http routing",
+      "id_number": 17,
+      "description": "AuthKit now has a full `net/http` adapter (`adapters/http`, package `authhttp`). We want to remove all Gin-specific logic and dependencies from this repo and rely exclusively on the new router/handler implementation.\n\nThis is a deliberate breaking change: downstream projects that import `github.com/PaulFidika/authkit/adapters/gin` or `adapters/ginutil` will need to migrate to `adapters/http`.\n\nNon-goals:\n- Backwards compatibility for Gin hosts.\n- Shim layers that keep Gin working.\n\nSuccess criteria:\n- No Gin dependency in AuthKit.\n- `go test ./...` passes.\n- README/docs show only `authhttp` mounting.",
+      "tasks": [
+        "[x] Inventory all Gin usages in-repo (packages, tests, docs) and decide the deletion scope (`adapters/gin`, `adapters/ginutil`, any local helpers).",
+        "[x] Remove Gin-specific packages (`adapters/gin`, `adapters/ginutil`) and any Gin-only helpers that are no longer used.",
+        "[x] Update/replace tests that import Gin (e.g. route-parity tests) so the suite does not depend on Gin at all.",
+        "[x] Update README/docs/examples to show only `authhttp` usage; remove `authgin.*` references.",
+        "[x] Remove Gin-related module deps from `go.mod`/`go.sum` (`github.com/gin-gonic/gin`, etc.) and run `go mod tidy`.",
+        "[x] Verify: `go test ./...` passes.",
+        "[x] Versioning: decide and apply a breaking-release strategy (e.g. bump major tag) for downstream migration clarity."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Rate limiting: sensible secure defaults (on by default)",
+      "id_number": 18,
+      "description": "AuthKit’s `authhttp` adapter has per-endpoint rate limit buckets, but rate limiting is currently effectively disabled unless a host app calls `svc.WithRateLimiter(...)`.\n\nThat is a security footgun (password login / token exchange / reset / OIDC start/callback are unthrottled by default).\n\nGoal:\n- Provide sensible, secure default rate limiting behavior out-of-the-box.\n\nNon-goals:\n- Perfect bot protection.\n- Persisting/migrating legacy limiter state.\n\nKey requirements:\n- Defaults must be safe in prod and not accidentally rate-limit a reverse proxy (need configurable client IP extraction / trusted proxy model).\n- Hosts must be able to override limits and to explicitly disable rate limiting (opt-out).\n- Behavior must fail-open on limiter backend errors (availability > throttle correctness).",
+      "tasks": [
+        "[x] Decide default limiter behavior: enable memorylimiter by default vs require explicit config in prod (and how to detect prod).",
+        "[x] Define the default per-bucket limits (reuse existing bucket names: `RLPasswordLogin`, `RLAuthToken`, `RLOIDCStart`, etc.).",
+        "[x] Add a first-class client IP strategy to `authhttp`:\n  - default: RemoteAddr\n  - optional: trusted proxy list / header-based extraction (X-Forwarded-For, CF-Connecting-IP) to avoid limiting the proxy itself.",
+        "[x] Implement: when no limiter is configured, install the default limiter (and defaults) automatically; add an explicit opt-out (e.g. `DisableRateLimiter()` or `WithRateLimiter(NoopLimiter)`).",
+        "[x] Docs: update README / adapter docs with guidance for multi-instance prod (Redis limiter) + proxy configuration.",
+        "[x] Tests: add minimal coverage that rate limiting is active by default (and that opt-out disables it).",
+        "[x] Verify: `go test ./...` passes."
+      ],
+      "completed": true
+    },
+    {
+      "name": "JWT verification: require `exp` for access tokens (verify-only AcceptConfig too)",
+      "id_number": 19,
+      "description": "Today `authhttp.Required(...)` always parses tokens with `jwt.ParseWithClaims` (which validates registered time claims if present), but in verify-only mode (multi-issuer `AcceptConfig`) our explicit expiry check is only applied when `exp` exists.\n\nThat means a signed token that omits `exp` could be accepted in verify-only mode as long as signature + issuer/audience match.\n\nGoal:\n- Require `exp` to be present on access tokens in all verification modes (service-issued and verify-only).\n\nNon-goals:\n- Requiring `nbf` or `iat` to exist.\n\nRequirements:\n- Continue to validate `nbf`/`iat` when present (via jwt library validation and/or explicit checks).\n- Apply a small skew allowance (existing behavior).\n- Produce stable error codes (e.g. `missing_exp`, `token_expired`).",
+      "tasks": [
+        "[x] Decide enforcement: require `exp` for access tokens (no opt-out).",
+        "[x] Update `authhttp.Required` to reject tokens missing `exp` in both service-issued and verify-only (`AcceptConfig`) modes.",
+        "[x] Ensure `nbf`/`iat` are still validated when present (but not required).",
+        "[x] Add tests covering: missing `exp` rejected; expired rejected; valid with `nbf` in future rejected; valid without `nbf`/`iat` accepted.",
+        "[x] Verify: `go test ./...` passes."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [
