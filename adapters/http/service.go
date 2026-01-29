@@ -23,6 +23,7 @@ type Service struct {
 	oidcProviders map[string]oidckit.RPConfig
 	solanaDomain  string // Domain for SIWS messages (optional, derived from request if empty)
 	langCfg       *LanguageConfig
+	authlogr      core.AuthEventLogReader
 }
 
 func (s *Service) allow(r *http.Request, bucket string) bool {
@@ -102,6 +103,10 @@ func (s *Service) WithLanguageConfig(cfg LanguageConfig) *Service {
 }
 func (s *Service) WithAuthLogger(l core.AuthEventLogger) *Service {
 	s.svc = s.svc.WithAuthLogger(l)
+	return s
+}
+func (s *Service) WithAuthLogReader(r core.AuthEventLogReader) *Service {
+	s.authlogr = r
 	return s
 }
 func (s *Service) WithEphemeralStore(store core.EphemeralStore, mode core.EphemeralMode) *Service {

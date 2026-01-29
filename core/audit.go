@@ -9,8 +9,11 @@ import (
 type SessionEventType string
 
 const (
-	SessionEventCreated SessionEventType = "session_created"
-	SessionEventRevoked SessionEventType = "session_revoked"
+	SessionEventCreated          SessionEventType = "session_created"
+	SessionEventRevoked          SessionEventType = "session_revoked"
+	SessionEventPasswordChange   SessionEventType = "password_changed"
+	SessionEventPasswordRecovery SessionEventType = "password_recovery"
+	SessionEventFailed           SessionEventType = "session_failed"
 )
 
 // SessionRevokeReason identifies why a session (or set of sessions) was revoked.
@@ -52,6 +55,14 @@ type AuthSessionEvent struct {
 
 // AuthEventLogger records authentication session lifecycle events to an external sink (e.g., ClickHouse).
 // Implementations should be non-blocking and best-effort.
+
 type AuthEventLogger interface {
 	LogSessionEvent(ctx context.Context, e AuthSessionEvent) error
+}
+
+// AuthEventLogReader allows listing session events filtered by event types and optional userID.
+type AuthEventLogReader interface {
+	// ListSessionEvents returns session events matching any of the given event types.
+	// If userID is empty, returns events for all users.
+	ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error)
 }

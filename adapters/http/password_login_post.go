@@ -61,6 +61,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					return
 				}
 			}
+			logLoginFailed(s, r, "", "invalid_credentials")
 			unauthorized(w, "invalid_credentials")
 			return
 		}
@@ -79,6 +80,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	default:
 		usr, e := s.svc.GetUserByUsername(r.Context(), identifier)
 		if e != nil || usr == nil {
+			logLoginFailed(s, r, "", "invalid_credentials")
 			unauthorized(w, "invalid_credentials")
 			return
 		}
@@ -100,6 +102,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		if s.svc.HasPassword(r.Context(), userID) {
 			if s.svc.HasEmailSender() {
 				_ = s.svc.RequestEmailVerification(r.Context(), *fetchedUser.Email, 0)
+				logLoginFailed(s, r, userID, "email_not_verified")
 				unauthorized(w, "email_not_verified")
 				return
 			}
@@ -110,6 +113,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		if s.svc.HasPassword(r.Context(), userID) {
 			if s.svc.HasSMSSender() {
 				_ = s.svc.SendPhoneVerificationToUser(r.Context(), *fetchedUser.PhoneNumber, userID, 0)
+				logLoginFailed(s, r, userID, "phone_not_verified")
 				unauthorized(w, "phone_not_verified")
 				return
 			}
@@ -125,9 +129,11 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		token, exp, err = s.svc.PasswordLoginByUserID(r.Context(), userID, req.Password, nil)
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
+				logLoginFailed(s, r, userID, "user_banned")
 				unauthorized(w, "user_banned")
 				return
 			}
+			logLoginFailed(s, r, userID, "invalid_credentials")
 			unauthorized(w, "invalid_credentials")
 			return
 		}
@@ -135,6 +141,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		token, exp, err = s.svc.PasswordLogin(r.Context(), loginEmail, req.Password, nil)
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
+				logLoginFailed(s, r, "", "user_banned")
 				unauthorized(w, "user_banned")
 				return
 			}
@@ -146,6 +153,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					return
 				}
 			}
+			logLoginFailed(s, r, "", "invalid_credentials")
 			unauthorized(w, "invalid_credentials")
 			return
 		}
@@ -191,6 +199,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), finalUserID, r.UserAgent(), nil)
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
+				logLoginFailed(s, r, finalUserID, "user_banned")
 				unauthorized(w, "user_banned")
 				return
 			}
@@ -214,6 +223,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		token, exp, err = s.svc.IssueAccessToken(r.Context(), finalUserID, emailForToken, map[string]any{"sid": sid})
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
+				logLoginFailed(s, r, finalUserID, "user_banned")
 				unauthorized(w, "user_banned")
 				return
 			}

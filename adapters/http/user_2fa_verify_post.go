@@ -40,6 +40,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !validChallenge {
+		logLoginFailed(s, r, userID, "invalid_challenge")
 		unauthorized(w, "invalid_challenge")
 		return
 	}
@@ -51,6 +52,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		valid, err = s.svc.Verify2FACode(r.Context(), userID, code)
 	}
 	if err != nil || !valid {
+		logLoginFailed(s, r, userID, "invalid_code")
 		unauthorized(w, "invalid_code")
 		return
 	}
@@ -59,6 +61,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, r.UserAgent(), nil)
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
+			logLoginFailed(s, r, userID, "user_banned")
 			unauthorized(w, "user_banned")
 			return
 		}

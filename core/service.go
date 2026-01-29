@@ -22,6 +22,11 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
+// strPtr returns a pointer to the given string.
+func strPtr(s string) *string {
+	return &s
+}
+
 // Options configures issued tokens and identifiers.
 type Options struct {
 	Issuer          string
@@ -657,6 +662,11 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 	if err := s.RevokeAllSessions(ctx, userID, keepSessionID); err != nil {
 		return err
 	}
+	sessionID := ""
+	if keepSessionID != nil {
+		sessionID = *keepSessionID
+	}
+	s.LogPasswordChanged(ctx, userID, sessionID, nil, nil)
 	return nil
 }
 
@@ -758,6 +768,8 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return err
 	}
 
+	s.LogPasswordRecovery(ctx, u.ID, "", nil, nil)
+
 	return nil
 }
 
@@ -779,6 +791,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 	}
 	// Revoke all sessions to invalidate any potentially compromised refresh tokens.
 	_ = s.RevokeAllSessions(ctx, rt.UserID, nil)
+
 	return rt.UserID, nil
 }
 
@@ -2135,6 +2148,65 @@ func (s *Service) logSessionRevoked(ctx context.Context, userID string, sessionI
 		Reason:     reason,
 		IPAddr:     nil,
 		UserAgent:  nil,
+	}
+	_ = s.authlog.LogSessionEvent(ctx, e)
+}
+
+// LogPasswordChanged records a password change event for a user (best-effort).
+func (s *Service) LogPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
+	if s.authlog == nil {
+		return
+	}
+	e := AuthSessionEvent{
+		OccurredAt: time.Now().UTC(),
+		Issuer:     s.opts.Issuer,
+		UserID:     userID,
+		SessionID:  sessionID,
+		Event:      SessionEventPasswordChange,
+		Method:     nil,
+		Reason:     nil,
+		IPAddr:     ip,
+		UserAgent:  ua,
+	}
+	_ = s.authlog.LogSessionEvent(ctx, e)
+}
+
+// LogPasswordRecovery records a password recovery event for a user (best-effort).
+
+func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
+	if s.authlog == nil {
+		return
+	}
+	e := AuthSessionEvent{
+		OccurredAt: time.Now().UTC(),
+		Issuer:     s.opts.Issuer,
+		UserID:     userID,
+		SessionID:  sessionID,
+		Event:      SessionEventPasswordRecovery,
+		Method:     nil,
+		Reason:     nil,
+		IPAddr:     ip,
+		UserAgent:  ua,
+	}
+	_ = s.authlog.LogSessionEvent(ctx, e)
+}
+
+// LogSessionFailed records a failed session event for a user (best-effort).
+
+func (s *Service) LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string) {
+	if s.authlog == nil {
+		return
+	}
+	e := AuthSessionEvent{
+		OccurredAt: time.Now().UTC(),
+		Issuer:     s.opts.Issuer,
+		UserID:     userID,
+		SessionID:  sessionID,
+		Event:      SessionEventFailed,
+		Method:     nil,
+		Reason:     reason,
+		IPAddr:     ip,
+		UserAgent:  ua,
 	}
 	_ = s.authlog.LogSessionEvent(ctx, e)
 }

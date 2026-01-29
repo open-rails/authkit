@@ -101,6 +101,7 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("DELETE /auth/admin/users/{user_id}", admin(http.HandlerFunc(s.handleAdminUserDeleteDELETE)))
 	mux.Handle("POST /auth/admin/users/{user_id}/restore", admin(http.HandlerFunc(s.handleAdminUserRestorePOST)))
 	mux.Handle("GET /auth/admin/users/deleted", admin(http.HandlerFunc(s.handleAdminDeletedUsersListGET)))
+	mux.Handle("GET /auth/admin/users/{user_id}/signins", admin(http.HandlerFunc(s.handleAdminUserSigninsGET)))
 
 	h := http.Handler(mux)
 	h = LanguageMiddleware(s.langCfg)(h)
