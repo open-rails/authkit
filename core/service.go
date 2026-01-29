@@ -768,7 +768,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return err
 	}
 
-	s.LogPasswordRecovery(ctx, u.ID, "", nil, nil)
+	s.LogPasswordRecovery(ctx, u.ID, "email", "", nil, nil)
 
 	return nil
 }
@@ -1257,6 +1257,8 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		return nil
 	}
 	_ = linkSender.SendPasswordResetLink(ctx, phone, token)
+
+	s.LogPasswordRecovery(ctx, u.ID, "sms", "", nil, nil)
 
 	return nil
 }
@@ -2173,7 +2175,7 @@ func (s *Service) LogPasswordChanged(ctx context.Context, userID string, session
 
 // LogPasswordRecovery records a password recovery event for a user (best-effort).
 
-func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
+func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
 	if s.authlog == nil {
 		return
 	}
@@ -2183,7 +2185,7 @@ func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, sessio
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      SessionEventPasswordRecovery,
-		Method:     nil,
+		Method:     &method,
 		Reason:     nil,
 		IPAddr:     ip,
 		UserAgent:  ua,
