@@ -247,19 +247,7 @@ func RequireAdmin(pg *pgxpool.Pool) func(http.Handler) http.Handler {
 				forbidden(w, "forbidden")
 				return
 			}
-			var isAdmin bool
-			err = pg.QueryRow(r.Context(), `
-            SELECT EXISTS (
-              SELECT 1 FROM profiles.user_roles ur
-              JOIN profiles.roles r ON ur.role_id = r.id
-              WHERE ur.user_id = $1 AND r.slug = 'admin'
-                AND r.deleted_at IS NULL
-                AND EXISTS (
-                  SELECT 1 FROM profiles.users u
-                  WHERE u.id = $1 AND u.deleted_at IS NULL AND u.banned_at IS NULL
-                )
-            )
-        `, cl.UserID).Scan(&isAdmin)
+			isAdmin, err := IsAdmin(r.Context(), pg, cl.UserID)
 			if err == nil && isAdmin {
 				next.ServeHTTP(w, r)
 				return
