@@ -234,7 +234,7 @@ func Optional(svc core.Verifier) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAdmin verifies JWT then checks admin role directly in Postgres.
+// RequireAdmin verifies admin role directly in Postgres.
 func RequireAdmin(pg *pgxpool.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
