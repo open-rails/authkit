@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"net/http"
+	"strings"
 
 	core "github.com/open-rails/authkit/core"
 )
@@ -48,6 +49,23 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("POST /auth/phone/password/reset/confirm", http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST))
 
 	required := Required(s.svc)
+	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
+		mux.Handle("POST /auth/token/org", required(http.HandlerFunc(s.handleAuthTokenOrgPOST)))
+		// Org management endpoints are only exposed in org_mode=multi.
+		mux.Handle("GET /auth/orgs", required(http.HandlerFunc(s.handleOrgsListGET)))
+		mux.Handle("POST /auth/orgs", required(http.HandlerFunc(s.handleOrgsCreatePOST)))
+		mux.Handle("GET /auth/orgs/{org}", required(http.HandlerFunc(s.handleOrgsGetGET)))
+		mux.Handle("POST /auth/orgs/{org}/rename", required(http.HandlerFunc(s.handleOrgsRenamePOST)))
+		mux.Handle("GET /auth/orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersGET)))
+		mux.Handle("POST /auth/orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersPOST)))
+		mux.Handle("DELETE /auth/orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersDELETE)))
+		mux.Handle("GET /auth/orgs/{org}/roles", required(http.HandlerFunc(s.handleOrgRolesGET)))
+		mux.Handle("POST /auth/orgs/{org}/roles", required(http.HandlerFunc(s.handleOrgRolesPOST)))
+		mux.Handle("DELETE /auth/orgs/{org}/roles", required(http.HandlerFunc(s.handleOrgRolesDELETE)))
+		mux.Handle("GET /auth/orgs/{org}/members/{user_id}/roles", required(http.HandlerFunc(s.handleOrgMemberRolesGET)))
+		mux.Handle("POST /auth/orgs/{org}/members/{user_id}/roles", required(http.HandlerFunc(s.handleOrgMemberRolesPOST)))
+		mux.Handle("DELETE /auth/orgs/{org}/members/{user_id}/roles", required(http.HandlerFunc(s.handleOrgMemberRolesDELETE)))
+	}
 	mux.Handle("DELETE /auth/logout", required(http.HandlerFunc(s.handleLogoutDELETE)))
 	mux.Handle("POST /auth/user/password", required(http.HandlerFunc(s.handleUserPasswordPOST)))
 	mux.Handle("GET /auth/user/sessions", required(http.HandlerFunc(s.handleUserSessionsGET)))

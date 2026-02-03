@@ -42,6 +42,10 @@ type Options struct {
 	SessionMaxPerUser    int
 	// Optional link building (paths are fixed: /reset and /verify)
 	BaseURL string
+
+	// OrgMode controls multi-organization behavior.
+	// Valid values: "single" or "multi".
+	OrgMode string
 }
 
 // Keyset holds the active signer and the public keys exposed via JWKS.
@@ -78,6 +82,9 @@ type Service struct {
 }
 
 func NewService(opts Options, keys Keyset) *Service {
+	if strings.TrimSpace(opts.OrgMode) == "" {
+		opts.OrgMode = "single"
+	}
 	return &Service{opts: opts, keys: keys, ephemeralMode: EphemeralMemory}
 }
 
@@ -122,6 +129,16 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		accessTTL = time.Hour
 	}
 	refTTL := cfg.RefreshTokenDuration // 0 or less => indefinite sessions
+
+	orgMode := strings.ToLower(strings.TrimSpace(cfg.OrgMode))
+	if orgMode == "" {
+		orgMode = "single"
+	}
+	switch orgMode {
+	case "single", "multi":
+	default:
+		return nil, fmt.Errorf("authkit: invalid OrgMode %q (want \"single\" or \"multi\")", cfg.OrgMode)
+	}
 	opts := Options{
 		Issuer:               cfg.Issuer,
 		IssuedAudiences:      issuedAudiences,
@@ -131,6 +148,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		RefreshTokenDuration: refTTL,
 		SessionMaxPerUser:    maxSess,
 		BaseURL:              cfg.BaseURL,
+		OrgMode:              orgMode,
 	}
 	return NewService(opts, ks), nil
 }
@@ -185,7 +203,7 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 
 // IssueAccessToken builds and signs an access token (JWT) for the given user.
 // Includes core registered claims plus:
-// - roles (snapshot)
+// - roles (snapshot, org_mode=single only)
 // - entitlements (snapshot)
 // - email, username, discord_username (if available)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
@@ -193,7 +211,7 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
 	expiresAt = base.ExpiresAt.Time
 	var roles []string
-	if s.pg != nil {
+	if s.pg != nil && strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
 		roles = s.listRoleSlugsByUser(ctx, userID)
 	}
 	var ents []string
@@ -241,14 +259,57 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 		"email_verified":   emailVerified,
 		"username":         username,
 		"discord_username": discord,
-		"roles":            roles,
 		"entitlements":     ents,
+	}
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
+		claims["roles"] = roles
 	}
 	for k, v := range extra {
 		claims[k] = v
 	}
 	tok, err := s.keys.Active.Sign(ctx, claims)
 	return tok, expiresAt, err
+}
+
+// IssueOrgAccessToken builds and signs an org-scoped access token (JWT) for the given user.
+// It is only valid in org_mode=multi, and only if the user is a member of the org.
+// The token includes:
+// - org (canonical slug)
+// - org_roles (snapshot for that org)
+func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
+	if !strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		return "", time.Time{}, fmt.Errorf("org_mode_not_multi")
+	}
+	if s.pg == nil {
+		return "", time.Time{}, fmt.Errorf("postgres not configured")
+	}
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	// Membership check + roles snapshot.
+	var member bool
+	if err := s.pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.org_members WHERE org_id=$1 AND user_id=$2 AND deleted_at IS NULL)`, org.ID, userID).Scan(&member); err != nil {
+		return "", time.Time{}, err
+	}
+	if !member {
+		return "", time.Time{}, ErrNotOrgMember
+	}
+	orgRoles, err := s.ReadMemberRoles(ctx, org.Slug, userID)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	claims := map[string]any{
+		"org":       org.Slug,
+		"org_roles": orgRoles,
+	}
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	for k, v := range claims {
+		extra[k] = v
+	}
+	return s.IssueAccessToken(ctx, userID, email, extra)
 }
 
 // --- Refresh tokens are implemented via server-side sessions in service_sessions.go ---
@@ -259,7 +320,35 @@ func newUUID() string { return strings.ReplaceAll(randB64(16), "-", "") }
 func (s *Service) Options() Options { return s.opts }
 
 // WithPostgres attaches a pgx pool to the service.
-func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service { s.pg = pool; return s }
+func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
+	s.pg = pool
+	if s.pg != nil && strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
+		// Safeguard: refuse multi->single downgrade when there is more than one org with more than one member.
+		// Best-effort: if org tables are missing (migrations not applied), allow single mode.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var present bool
+		_ = s.pg.QueryRow(ctx, `SELECT to_regclass('profiles.orgs') IS NOT NULL`).Scan(&present)
+		if present {
+			var cnt int
+			err := s.pg.QueryRow(ctx, `
+				SELECT count(*)
+				FROM profiles.orgs o
+				WHERE o.deleted_at IS NULL
+				  AND (
+				    SELECT count(*)
+				    FROM profiles.org_members m
+				    WHERE m.org_id=o.id AND m.deleted_at IS NULL
+				  ) > 1
+			`).Scan(&cnt)
+			if err == nil && cnt > 1 {
+				panic("authkit: org_mode single is not allowed when more than one org has more than one member")
+			}
+		}
+	}
+	return s
+}
 
 // Postgres returns the attached pgx pool (may be nil).
 func (s *Service) Postgres() *pgxpool.Pool { return s.pg }
@@ -1851,13 +1940,21 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 	for rows.Next() {
 		var slug string
 		if rows.Scan(&slug) == nil {
+			if strings.EqualFold(strings.TrimSpace(slug), "owner") {
+				continue
+			}
 			out = append(out, slug)
 		}
 	}
 	return out
 }
 
+var ErrReservedRoleSlug = errors.New("reserved_role_slug")
+
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
+	if strings.EqualFold(strings.TrimSpace(slug), "owner") {
+		return ErrReservedRoleSlug
+	}
 	if s.pg == nil {
 		return nil
 	}

@@ -87,6 +87,27 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 
 ---
 
+## Organizations (org_mode=multi only)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/auth/orgs` | AUTH | List orgs for current user (includes per-org roles) |
+| POST | `/auth/orgs` | AUTH | Create an org (creator is bootstrapped as `owner`) |
+| GET | `/auth/orgs/:org` | AUTH | Get org metadata (`:org` accepts slug or alias) |
+| POST | `/auth/orgs/:org/rename` | AUTH | Rename org slug (keeps old slug as alias) |
+| GET | `/auth/orgs/:org/members` | AUTH | List members (org owner) |
+| POST | `/auth/orgs/:org/members` | AUTH | Add member (org owner) |
+| DELETE | `/auth/orgs/:org/members` | AUTH | Remove member (org owner) |
+| GET | `/auth/orgs/:org/roles` | AUTH | List defined roles (org owner) |
+| POST | `/auth/orgs/:org/roles` | AUTH | Define role (org owner; `owner` is protected) |
+| DELETE | `/auth/orgs/:org/roles` | AUTH | Delete role (org owner; `owner` is protected) |
+| GET | `/auth/orgs/:org/members/:user_id/roles` | AUTH | Read member roles (org owner) |
+| POST | `/auth/orgs/:org/members/:user_id/roles` | AUTH | Assign role to member (org owner; only owner can grant `owner`) |
+| DELETE | `/auth/orgs/:org/members/:user_id/roles` | AUTH | Unassign role from member (org owner; cannot remove last owner) |
+| POST | `/auth/token/org` | AUTH | Mint org-scoped access token (`org` + `org_roles`) |
+
+---
+
 ## Sessions
 
 | Method | Path | Auth | Description |

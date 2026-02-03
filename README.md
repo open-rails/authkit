@@ -43,6 +43,7 @@ func main() {
     IssuedAudiences:   []string{"myapp"},
     ExpectedAudiences: []string{"myapp"},
     BaseURL:           "https://myapp.com",
+    // OrgMode: "single" (default) | "multi"
     // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
 
@@ -169,6 +170,17 @@ Roles (global storage)
 - AuthKit stores roles in Postgres `profiles.roles` and memberships in `profiles.user_roles`.
 - AuthKit does not define app role taxonomy (what roles exist). The embedding application/platform should seed its role catalog.
 - Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
+
+Organizations (org_mode)
+- AuthKit supports orgs + org-scoped RBAC when `OrgMode: "multi"`:
+  - Users can belong to 0, 1, or many orgs simultaneously.
+  - Org slug renames create aliases; handlers accept either current slug or alias on `:org`.
+  - Default access tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
+  - `GET /auth/user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
+  - `POST /auth/token/org` mints an org-scoped access token with `org` + `org_roles` (single org only), and is rejected when the user is not a member.
+  - Org management endpoints require the reserved `owner` role; `owner` is protected and cannot be deleted or removed as the last owner.
+- In `OrgMode: "single"` (default), AuthKit behaves like a single-tenant app:
+  - Access tokens include `roles` (string[]) and there are no org-related claims/fields.
 
 Verification Codes:
 - All verification flows (email/phone registration, password reset, email verification) use **6-digit numeric codes** (000000-999999).

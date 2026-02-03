@@ -7,19 +7,21 @@ import (
 )
 
 type userMeResponse struct {
-	ID              string   `json:"id"`
-	Email           *string  `json:"email"`
-	PhoneNumber     *string  `json:"phone_number"`
-	Username        string   `json:"username"`
-	DiscordUsername *string  `json:"discord_username,omitempty"`
-	EmailVerified   bool     `json:"email_verified"`
-	PhoneVerified   bool     `json:"phone_verified"`
-	HasPassword     bool     `json:"has_password"`
-	Roles           []string `json:"roles"`
-	Entitlements    []string `json:"entitlements"`
-	Biography       *string  `json:"biography,omitempty"`
-	CreatedAt       *string  `json:"created_at,omitempty"`
-	SolanaAddress   *string  `json:"solana_address,omitempty"`
+	ID              string               `json:"id"`
+	Email           *string              `json:"email"`
+	PhoneNumber     *string              `json:"phone_number"`
+	Username        string               `json:"username"`
+	DiscordUsername *string              `json:"discord_username,omitempty"`
+	EmailVerified   bool                 `json:"email_verified"`
+	PhoneVerified   bool                 `json:"phone_verified"`
+	HasPassword     bool                 `json:"has_password"`
+	Roles           *[]string            `json:"roles,omitempty"`
+	Orgs            *[]string            `json:"orgs,omitempty"`
+	OrgRoles        *map[string][]string `json:"org_roles,omitempty"`
+	Entitlements    []string             `json:"entitlements"`
+	Biography       *string              `json:"biography,omitempty"`
+	SolanaAddress   *string              `json:"solana_address,omitempty"`
+	CreatedAt       *string              `json:"created_at,omitempty"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +60,32 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		solanaAddressPtr = &solanaAddress
 	}
 
+	var rolesPtr *[]string
+	var orgsPtr *[]string
+	var orgRolesPtr *map[string][]string
+	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "single") {
+		roles := adminUser.Roles
+		if roles == nil {
+			roles = []string{}
+		}
+		rolesPtr = &roles
+	} else if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
+		// Multi-mode: return memberships + org-scoped roles from server-side DB.
+		mems, mErr := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), adminUser.ID)
+		if mErr != nil {
+			serverErr(w, "org_memberships_lookup_failed")
+			return
+		}
+		orgs := make([]string, 0, len(mems))
+		orgRoles := make(map[string][]string, len(mems))
+		for _, m := range mems {
+			orgs = append(orgs, m.Org)
+			orgRoles[m.Org] = m.Roles
+		}
+		orgsPtr = &orgs
+		orgRolesPtr = &orgRoles
+	}
+
 	var createdAt *string
 	if !adminUser.CreatedAt.IsZero() {
 		formatted := adminUser.CreatedAt.UTC().Format(time.RFC3339)
@@ -73,7 +101,9 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		EmailVerified:   adminUser.EmailVerified,
 		PhoneVerified:   adminUser.PhoneVerified,
 		HasPassword:     hasPassword,
-		Roles:           adminUser.Roles,
+		Roles:           rolesPtr,
+		Orgs:            orgsPtr,
+		OrgRoles:        orgRolesPtr,
 		Entitlements:    adminUser.Entitlements,
 		Biography:       adminUser.Biography,
 		CreatedAt:       createdAt,

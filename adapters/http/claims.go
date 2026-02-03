@@ -15,6 +15,8 @@ type Claims struct {
 	DiscordUsername string
 	SessionID       string
 	Roles           []string
+	Org             string
+	OrgRoles        []string
 	Entitlements    []string
 }
 

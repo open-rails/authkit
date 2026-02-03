@@ -38,6 +38,10 @@ func (s *Service) handleAdminRolesGrantPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.svc.AssignRoleBySlug(r.Context(), req.UserID, req.Role); err != nil {
+		if errors.Is(err, core.ErrReservedRoleSlug) {
+			badRequest(w, "reserved_role")
+			return
+		}
 		serverErr(w, "assign_failed")
 		return
 	}
