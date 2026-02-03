@@ -2176,8 +2176,8 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 }
 
 // Additional public helpers used by OIDC flow
-func (s *Service) GetProviderLink(ctx context.Context, provider, subject string) (string, *string, error) {
-	return s.getProviderLink(ctx, provider, subject)
+func (s *Service) GetProviderLink(ctx context.Context, providerSlug, subject string) (string, *string, error) {
+	return s.getProviderLinkBySlug(ctx, providerSlug, subject)
 }
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	return s.getUserByEmail(ctx, email)
@@ -2366,7 +2366,7 @@ func (s *Service) UnlinkProvider(ctx context.Context, userID, provider string) e
 
 // Issuer-based provider link helpers (preferred)
 func (s *Service) GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error) {
-	return s.getProviderLink(ctx, issuer, subject)
+	return s.getProviderLinkByIssuerInternal(ctx, issuer, subject)
 }
 func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
 	// Store provider slug for UI, enforce uniqueness on (issuer, subject) and (user_id, issuer)
@@ -2415,11 +2415,24 @@ func (s *Service) ListEntitlementsDetailed(ctx context.Context, userID string) [
 	return details
 }
 
-func (s *Service) getProviderLink(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {
+func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {
 	if s.pg == nil {
 		return "", nil, nil
 	}
 	row := s.pg.QueryRow(ctx, `SELECT user_id, email_at_provider FROM profiles.user_providers WHERE issuer=$1 AND subject=$2`, issuer, subject)
+	var uid string
+	var e *string
+	if err := row.Scan(&uid, &e); err != nil {
+		return "", nil, err
+	}
+	return uid, e, nil
+}
+
+func (s *Service) getProviderLinkBySlug(ctx context.Context, providerSlug, subject string) (userID string, email *string, err error) {
+	if s.pg == nil {
+		return "", nil, nil
+	}
+	row := s.pg.QueryRow(ctx, `SELECT user_id, email_at_provider FROM profiles.user_providers WHERE provider_slug=$1 AND subject=$2`, providerSlug, subject)
 	var uid string
 	var e *string
 	if err := row.Scan(&uid, &e); err != nil {

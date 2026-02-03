@@ -7,21 +7,23 @@ import (
 )
 
 type userMeResponse struct {
-	ID              string               `json:"id"`
-	Email           *string              `json:"email"`
-	PhoneNumber     *string              `json:"phone_number"`
-	Username        string               `json:"username"`
-	DiscordUsername *string              `json:"discord_username,omitempty"`
-	EmailVerified   bool                 `json:"email_verified"`
-	PhoneVerified   bool                 `json:"phone_verified"`
-	HasPassword     bool                 `json:"has_password"`
-	Roles           *[]string            `json:"roles,omitempty"`
-	Orgs            *[]string            `json:"orgs,omitempty"`
-	OrgRoles        *map[string][]string `json:"org_roles,omitempty"`
-	Entitlements    []string             `json:"entitlements"`
-	Biography       *string              `json:"biography,omitempty"`
-	SolanaAddress   *string              `json:"solana_address,omitempty"`
-	CreatedAt       *string              `json:"created_at,omitempty"`
+	ID               string               `json:"id"`
+	Email            *string              `json:"email"`
+	PhoneNumber      *string              `json:"phone_number"`
+	Username         string               `json:"username"`
+	DiscordUsername  *string              `json:"discord_username,omitempty"`
+	EmailVerified    bool                 `json:"email_verified"`
+	PhoneVerified    bool                 `json:"phone_verified"`
+	HasPassword      bool                 `json:"has_password"`
+	Roles            *[]string            `json:"roles,omitempty"`
+	Orgs             *[]string            `json:"orgs,omitempty"`
+	OrgRoles         *map[string][]string `json:"org_roles,omitempty"`
+	Entitlements     []string             `json:"entitlements"`
+	Biography        *string              `json:"biography,omitempty"`
+	SolanaAddress    *string              `json:"solana_address,omitempty"`
+	LinkedProviders  []string             `json:"linked_providers,omitempty"`
+	EnabledProviders []string             `json:"enabled_providers,omitempty"`
+	CreatedAt        *string              `json:"created_at,omitempty"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +61,33 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	if solanaAddress != "" {
 		solanaAddressPtr = &solanaAddress
 	}
+	// TODO - Move to service layer. This is currently the only place we need to know about linked providers, but if we add more endpoints that surface this info, it may make sense to return it from the service directly instead of doing a separate DB query here.
+	linkedProviders := []string{}
+	if pg := s.svc.Postgres(); pg != nil {
+		rows, err := pg.Query(r.Context(), `
+			SELECT provider_slug
+			FROM profiles.user_providers
+			WHERE user_id = $1 AND provider_slug IS NOT NULL
+		`, adminUser.ID)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var provider string
+				if err := rows.Scan(&provider); err == nil {
+					provider = strings.TrimSpace(provider)
+					if provider != "" {
+						linkedProviders = append(linkedProviders, provider)
+					}
+				}
+			}
+		}
+	}
+	enabledProviders := []string{}
+	if s.oidcProviders != nil {
+		for provider := range s.oidcProviders {
+			enabledProviders = append(enabledProviders, provider)
+		}
+	}
 
 	var rolesPtr *[]string
 	var orgsPtr *[]string
@@ -93,21 +122,23 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := userMeResponse{
-		ID:              adminUser.ID,
-		Email:           adminUser.Email,
-		PhoneNumber:     adminUser.PhoneNumber,
-		Username:        username,
-		DiscordUsername: adminUser.DiscordUsername,
-		EmailVerified:   adminUser.EmailVerified,
-		PhoneVerified:   adminUser.PhoneVerified,
-		HasPassword:     hasPassword,
-		Roles:           rolesPtr,
-		Orgs:            orgsPtr,
-		OrgRoles:        orgRolesPtr,
-		Entitlements:    adminUser.Entitlements,
-		Biography:       adminUser.Biography,
-		CreatedAt:       createdAt,
-		SolanaAddress:   solanaAddressPtr,
+		ID:               adminUser.ID,
+		Email:            adminUser.Email,
+		PhoneNumber:      adminUser.PhoneNumber,
+		Username:         username,
+		DiscordUsername:  adminUser.DiscordUsername,
+		EmailVerified:    adminUser.EmailVerified,
+		PhoneVerified:    adminUser.PhoneVerified,
+		HasPassword:      hasPassword,
+		Roles:            rolesPtr,
+		Orgs:             orgsPtr,
+		OrgRoles:         orgRolesPtr,
+		Entitlements:     adminUser.Entitlements,
+		Biography:        adminUser.Biography,
+		CreatedAt:        createdAt,
+		SolanaAddress:    solanaAddressPtr,
+		LinkedProviders:  linkedProviders,
+		EnabledProviders: enabledProviders,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

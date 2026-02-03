@@ -97,7 +97,7 @@ type Provider interface {
 	UpdateBiography(ctx context.Context, id string, bio *string) error
 
 	// OIDC/provider links
-	GetProviderLink(ctx context.Context, provider, subject string) (string, *string, error)
+	GetProviderLink(ctx context.Context, providerSlug, subject string) (string, *string, error)
 	GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error)
 	LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error
 	SetProviderUsername(ctx context.Context, userID, provider, subject, username string) error
