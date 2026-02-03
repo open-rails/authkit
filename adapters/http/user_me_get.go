@@ -19,6 +19,7 @@ type userMeResponse struct {
 	Entitlements    []string `json:"entitlements"`
 	Biography       *string  `json:"biography,omitempty"`
 	CreatedAt       *string  `json:"created_at,omitempty"`
+	SolanaAddress   *string  `json:"solana_address,omitempty"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +52,11 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hasPassword := s.svc.HasPassword(r.Context(), adminUser.ID)
+	solanaAddress, _ := s.svc.GetSolanaAddress(r.Context(), adminUser.ID)
+	var solanaAddressPtr *string
+	if solanaAddress != "" {
+		solanaAddressPtr = &solanaAddress
+	}
 
 	var createdAt *string
 	if !adminUser.CreatedAt.IsZero() {
@@ -71,6 +77,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		Entitlements:    adminUser.Entitlements,
 		Biography:       adminUser.Biography,
 		CreatedAt:       createdAt,
+		SolanaAddress:   solanaAddressPtr,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
