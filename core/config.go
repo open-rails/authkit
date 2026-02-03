@@ -25,6 +25,10 @@ type Config struct {
 	BaseURL string
 	// Paths for reset/verify are fixed to "/reset" and "/verify"; not configurable.
 
+	// OrgMode controls multi-organization behavior.
+	// Valid values: "single" (default) or "multi".
+	OrgMode string
+
 	// Keys can be nil - if nil, authkit auto-discovers keys with this priority:
 	// 1. Environment variables (ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, PUBLIC_KEYS)
 	// 2. Filesystem /vault/auth/keys.json (External Secrets Operator in K8s)

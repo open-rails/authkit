@@ -125,8 +125,9 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 			}
 
 			var userID, email, sid string
+			var org string
 			var emailVerified bool
-			var roles, ents []string
+			var roles, orgRoles, ents []string
 
 			if v, _ := claims["sub"].(string); v != "" {
 				userID = v
@@ -142,6 +143,9 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 			if v, _ := claims["sid"].(string); v != "" {
 				sid = v
 			}
+			if v, _ := claims["org"].(string); v != "" {
+				org = v
+			}
 
 			if rs, ok := claims["roles"].([]any); ok {
 				for _, v := range rs {
@@ -151,6 +155,15 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 				}
 			} else if rs, ok := claims["roles"].([]string); ok {
 				roles = append(roles, rs...)
+			}
+			if rs, ok := claims["org_roles"].([]any); ok {
+				for _, v := range rs {
+					if s, ok := v.(string); ok {
+						orgRoles = append(orgRoles, s)
+					}
+				}
+			} else if rs, ok := claims["org_roles"].([]string); ok {
+				orgRoles = append(orgRoles, rs...)
 			}
 			if es, ok := claims["entitlements"].([]any); ok {
 				for _, v := range es {
@@ -171,10 +184,13 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 
 			// Best-effort enrichment for verify-only mode (when a service is attached).
 			if userID != "" {
-				// Roles: if token has no roles, allow the verifier to supply canonical roles.
-				if len(roles) == 0 {
-					if rs := svc.ListRoleSlugsByUser(r.Context(), userID); len(rs) > 0 {
-						roles = rs
+				// Roles are only meaningful in org_mode=single.
+				if strings.EqualFold(strings.TrimSpace(svc.Options().OrgMode), "single") {
+					// Roles: if token has no roles, allow the verifier to supply canonical roles.
+					if len(roles) == 0 {
+						if rs := svc.ListRoleSlugsByUser(r.Context(), userID); len(rs) > 0 {
+							roles = rs
+						}
 					}
 				}
 				// Email: if token has no email claim, allow an attached service to supply canonical email.
@@ -212,6 +228,8 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 				DiscordUsername: discord,
 				SessionID:       sid,
 				Roles:           roles,
+				Org:             org,
+				OrgRoles:        orgRoles,
 				Entitlements:    ents,
 			}
 			r = r.WithContext(setClaims(r.Context(), cl))
