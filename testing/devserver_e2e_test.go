@@ -173,10 +173,13 @@ func TestDevserverE2E(t *testing.T) {
 	}
 	repoRoot := filepath.Dir(wd)
 
+	useAllInOne := strings.TrimSpace(os.Getenv("AUTHKIT_E2E_ALL_IN_ONE")) == "1"
+
 	composeFile := filepath.Join(repoRoot, "docker-compose.devserver.yaml")
 	overridePath := filepath.Join(t.TempDir(), "docker-compose.override.yaml")
 	project := fmt.Sprintf("authkit_e2e_%d", time.Now().UnixNano())
 	mintSecret := fmt.Sprintf("secret-%d", time.Now().UnixNano())
+	aud := "billing-app"
 
 	override := fmt.Sprintf(`services:
   postgres:
@@ -187,8 +190,36 @@ func TestDevserverE2E(t *testing.T) {
     environment:
       AUTHKIT_DEV_MINT_SECRET: %q
 `, mintSecret)
-	if err := os.WriteFile(overridePath, []byte(override), 0600); err != nil {
-		t.Fatalf("write override: %v", err)
+	if useAllInOne {
+		// Test the all-in-one image (embedded Postgres) via a local build.
+		// This avoids requiring any published image and ensures the Dockerfile remains functional.
+		composeFile = filepath.Join(t.TempDir(), "docker-compose.all-in-one.yaml")
+		override = fmt.Sprintf(`services:
+  issuer:
+    build:
+      context: %s
+      dockerfile: Dockerfile.devserver-all-in-one
+    ports:
+      - "8080"
+    environment:
+      ENV: dev
+      AUTHKIT_LISTEN_ADDR: ":8080"
+      AUTHKIT_ISSUER: "http://issuer:8080"
+      AUTHKIT_ISSUED_AUDIENCES: %q
+      AUTHKIT_EXPECTED_AUDIENCES: %q
+      AUTHKIT_DEV_MODE: "true"
+      AUTHKIT_DEV_MINT_SECRET: %q
+`, repoRoot, aud, aud, mintSecret)
+		if err := os.WriteFile(composeFile, []byte(override), 0600); err != nil {
+			t.Fatalf("write all-in-one compose: %v", err)
+		}
+		// We already wrote the full compose content; don't write an override file.
+		overridePath = ""
+	}
+	if overridePath != "" {
+		if err := os.WriteFile(overridePath, []byte(override), 0600); err != nil {
+			t.Fatalf("write override: %v", err)
+		}
 	}
 
 	c := composeCLI{
@@ -198,12 +229,25 @@ func TestDevserverE2E(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		_ = c.runMaybe("-f", composeFile, "-f", overridePath, "down", "-v", "--remove-orphans")
+		if overridePath != "" {
+			_ = c.runMaybe("-f", composeFile, "-f", overridePath, "down", "-v", "--remove-orphans")
+		} else {
+			_ = c.runMaybe("-f", composeFile, "down", "-v", "--remove-orphans")
+		}
 	})
 
-	c.run(t, "-f", composeFile, "-f", overridePath, "up", "-d", "--build", "--remove-orphans")
+	if overridePath != "" {
+		c.run(t, "-f", composeFile, "-f", overridePath, "up", "-d", "--build", "--remove-orphans")
+	} else {
+		c.run(t, "-f", composeFile, "up", "-d", "--build", "--remove-orphans")
+	}
 
-	rawPort := c.run(t, "-f", composeFile, "-f", overridePath, "port", "issuer", "8080")
+	var rawPort string
+	if overridePath != "" {
+		rawPort = c.run(t, "-f", composeFile, "-f", overridePath, "port", "issuer", "8080")
+	} else {
+		rawPort = c.run(t, "-f", composeFile, "port", "issuer", "8080")
+	}
 	port := parsePort(t, rawPort)
 	baseURL := "http://127.0.0.1:" + port
 
@@ -234,8 +278,6 @@ func TestDevserverE2E(t *testing.T) {
 	})
 
 	issuer := "http://issuer:8080"
-	aud := "billing-app"
-
 	t.Run("mint_guard", func(t *testing.T) {
 		resp, _ := httpJSON(t, http.MethodPost, baseURL+"/auth/dev/mint", nil, map[string]any{
 			"sub": "11111111-1111-1111-1111-111111111111",

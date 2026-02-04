@@ -337,6 +337,21 @@
         "[ ] (Deferred) Scopes\n    - Out of scope for now; revisit later if a gateway integration requires it"
       ],
       "completed": false
+    },
+    {
+      "name": "Standalone E2E AuthKit devserver image (AuthKit + embedded Postgres)",
+      "id_number": 22,
+      "description": "Downstream repos (e.g. OpenRails, Doujins) want an E2E sandbox issuer that does not require `../authkit` to be checked out locally.\n\nCreate a single pullable Docker image that runs:\n- a Postgres instance (embedded in the container)\n- the AuthKit devserver (`GET /.well-known/jwks.json` + `POST /auth/dev/mint` for E2E)\n\nThis image is explicitly for local/E2E testing only.\n\nGoals:\n- One container to start (no external Postgres service needed).\n- Stable issuer URL inside a compose network (e.g. `http://issuer:8080`).\n- Persist AuthKit runtime signing keys across restarts (existing `/.runtime/authkit` behavior).\n- Be easy to consume from other repos via `image: ghcr.io/.../authkit-devserver-all-in-one:<tag>`.\n\nNon-goals:\n- Production deployments.\n- HA/multi-instance behavior.\n- Replacing the normal 2-container compose pattern (Postgres + AuthKit) for local development.\n\nConstraints / tradeoffs:\n- This is a multi-process container (Postgres + HTTP server). It should use a minimal init/process supervisor and graceful shutdown semantics.\n- For zero-config E2E, dev minting is enabled by default with a default shared secret (override in your test environment).",
+      "tasks": [
+        "[x] Decide image contract\n    - Image name + tags (GHCR)\n    - Default ports (8080 exposed; Postgres is internal-only)\n    - Supported env vars (AUTHKIT_ISSUER, AUTHKIT_DEV_MODE, AUTHKIT_DEV_MINT_SECRET, AUTHKIT_ISSUED_AUDIENCES, AUTHKIT_EXPECTED_AUDIENCES)\n    - Embedded Postgres defaults (db name/user/password) + ability to override via env",
+        "[x] Add an all-in-one Dockerfile\n    - Build AuthKit devserver binary\n    - Include Postgres 17 as the base image\n    - Provide an entrypoint that starts Postgres + the devserver and handles shutdown",
+        "[x] Implement container bootstrap\n    - Initialize Postgres data dir on first run (Postgres entrypoint)\n    - Run required Postgres setup and AuthKit migrations (devserver migrates on start)\n    - Start AuthKit devserver after DB is ready\n    - Persist Postgres data via a volume mount",
+        "[x] Security + safety defaults\n    - Dev mint endpoint requires AUTHKIT_DEV_MODE=true AND AUTHKIT_DEV_MINT_SECRET\n    - Document that this image must never be exposed publicly\n    - Log clearly when dev minting is enabled\n\nNote: for zero-config E2E, the all-in-one image defaults to AUTHKIT_DEV_MODE=true and AUTHKIT_DEV_MINT_SECRET=change-me (override as needed).",
+        "[x] Documentation\n    - Add usage snippet for downstream compose (single service)\n    - Document how to mint tokens and where JWKS lives\n    - Document volumes (Postgres data + `/.runtime/authkit`) and what they do",
+        "[x] CI/publishing\n    - Add GitHub Actions workflow to build + push the image to GHCR on tags\n    - Publish multi-arch (linux/amd64, linux/arm64)\n    - Versioning strategy: match AuthKit git tags (v*)",
+        "[x] Update E2E examples/tests\n    - Add an example compose file that uses the published image (no `build: ../authkit`)\n    - Update `testing/devserver_e2e_test.go` to optionally validate the all-in-one Dockerfile via local build (AUTHKIT_E2E_ALL_IN_ONE=1)"
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

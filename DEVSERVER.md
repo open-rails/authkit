@@ -20,6 +20,26 @@ This starts:
 
 Generated dev signing keys are persisted via a docker volume mounted at `/.runtime/authkit`.
 
+## All-in-one image (embedded Postgres)
+
+For downstream E2E testing, it can be convenient to run **a single container** that bundles:
+- Postgres 17
+- AuthKit devserver
+
+This is published as an image (no `../authkit` checkout required) and is intended for local/E2E use only:
+- Docker Hub: `openrails/authkit-test-issuer` (tags: `latest`, `v*`)
+
+```bash
+docker compose -f docker-compose.devserver.all-in-one.yaml up
+```
+
+Notes:
+- The all-in-one image enables the dev mint endpoint by default with `AUTHKIT_DEV_MINT_SECRET=change-me` to stay zero-config for E2E.
+- Postgres is bound to `127.0.0.1` inside the container (not exposed to other containers).
+- Persisted volumes:
+  - Postgres data: `/var/lib/postgresql/data`
+  - Dev signing keys: `/.runtime/authkit` (JWKS stability across restarts)
+
 ## Environment variables
 
 Required:

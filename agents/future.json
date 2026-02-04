@@ -30,6 +30,22 @@
         "[ ] Docs: flows, security guidance, host frontend route expectations"
       ],
       "completed": false
+    },
+    {
+      "name": "AuthKit as a standalone service (first-class deployment target)",
+      "id_number": 14,
+      "description": "Today AuthKit is primarily used as a library embedded in host services (doujins/hentai0/openrails) and via a devserver used for E2E testing.\n\nDefine and implement a supported mode where AuthKit runs as its own standalone HTTP service that:\n- mints and verifies JWTs for multiple downstream services\n- serves JWKS at a stable URL\n- provides the full AuthKit API surface under `/auth/*`\n- can be deployed independently (Docker/Kubernetes) with clear configuration and operational guidance.\n\nGoals:\n- Stable, documented deployment contract (env/config) for AuthKit-as-a-service.\n- Downstream services can integrate by trusting issuers (JWKS fetch) + expected audiences.\n- Support multi-instance deployments safely (durable store + Redis for ephemeral/rate-limit where required).\n\nNon-goals:\n- Forcing downstream services to stop embedding AuthKit (embedding remains valid).\n- Becoming a full OAuth authorization server with third-party client registration UX (keep AuthKit's scope).\n\nKey design questions to answer:\n- Issuer and audience strategy (single issuer vs per-service issuers; how to partition).\n- Key management (rotation, persistence, JWKS caching headers).\n- Storage requirements (Postgres always; Redis optional vs required for HA).\n- Service-to-service auth and admin API exposure.",
+      "tasks": [
+        "[ ] Define the standalone service contract\n    - Public base URL + issuer URL (`AUTHKIT_ISSUER`)\n    - Audience model (per downstream service vs shared audiences)\n    - Required configuration for prod vs dev (DB_URL, Redis, proxy/trust headers, CORS, etc.)",
+        "[ ] Create a production-grade server entrypoint\n    - Dedicated `cmd/authkit-server` (or similar)\n    - Health endpoints (ready/live)\n    - Structured logging + request IDs\n    - Graceful shutdown",
+        "[ ] Key management & JWKS\n    - Decide persistence strategy for signing keys (Postgres vs filesystem vs KMS)\n    - Key rotation policy + backward-compatible JWKS publication\n    - Cache headers on `/.well-known/jwks.json`",
+        "[ ] Storage & HA posture\n    - Postgres required for durable state\n    - Decide when Redis is required (multi-instance) for ephemeral state and rate limiting\n    - Document store modes and safe defaults",
+        "[ ] Service-to-service integration guidance\n    - Document how downstream services should verify tokens (issuer list, aud, jwks url)\n    - Provide example configs for OpenRails/Doujins\n    - Add a minimal example client/verifier snippet",
+        "[ ] Docker/Kubernetes packaging\n    - A dedicated Dockerfile for the standalone server image\n    - Example `docker-compose.yaml` (Postgres + Redis + AuthKit)\n    - K8s manifests/Helm hints (optional)",
+        "[ ] Security hardening\n    - Ensure no dev-only endpoints ship enabled by default\n    - Trusted proxy configuration for IP extraction (X-Forwarded-For/CF-Connecting-IP)\n    - Default rate limits on sensitive endpoints",
+        "[ ] Documentation\n    - Update README with \"Standalone deployment\" section\n    - Add operational runbook (migrations, backups, key rotation, incident notes)\n    - Add an explicit compatibility note for embedded usage"
+      ],
+      "completed": false
     }
   ]
 }

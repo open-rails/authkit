@@ -1,0 +1,24 @@
+services:
+  # Single-container E2E issuer: AuthKit devserver + embedded Postgres.
+  #
+  # Note: this is intentionally a multi-process container and is meant for
+  # local/E2E testing only (not production).
+  issuer:
+    image: docker.io/openrails/authkit-test-issuer:latest
+    ports:
+      - "8080:8080"
+    environment:
+      # Optional overrides; defaults are already safe for local E2E.
+      AUTHKIT_ISSUER: "http://issuer:8080"
+      AUTHKIT_ISSUED_AUDIENCES: "billing-app"
+      AUTHKIT_EXPECTED_AUDIENCES: "billing-app"
+      # Dev minting is enabled by default with secret "change-me".
+      # Override if desired:
+      # AUTHKIT_DEV_MINT_SECRET: "change-me"
+    volumes:
+      - issuer_postgres_data:/var/lib/postgresql/data
+      - issuer_runtime_keys:/.runtime/authkit
+
+volumes:
+  issuer_postgres_data:
+  issuer_runtime_keys:
