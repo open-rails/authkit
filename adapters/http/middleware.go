@@ -156,14 +156,11 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 			} else if rs, ok := claims["roles"].([]string); ok {
 				roles = append(roles, rs...)
 			}
-			if rs, ok := claims["org_roles"].([]any); ok {
-				for _, v := range rs {
-					if s, ok := v.(string); ok {
-						orgRoles = append(orgRoles, s)
-					}
-				}
-			} else if rs, ok := claims["org_roles"].([]string); ok {
-				orgRoles = append(orgRoles, rs...)
+			// Org-scoped role claims:
+			// In org_mode=multi, if org is present interpret roles[] as org-scoped roles for that org.
+			if strings.EqualFold(strings.TrimSpace(svc.Options().OrgMode), "multi") && strings.TrimSpace(org) != "" && len(roles) > 0 {
+				orgRoles = roles
+				roles = nil
 			}
 			if es, ok := claims["entitlements"].([]any); ok {
 				for _, v := range es {

@@ -7,23 +7,27 @@ import (
 )
 
 type userMeResponse struct {
-	ID               string               `json:"id"`
-	Email            *string              `json:"email"`
-	PhoneNumber      *string              `json:"phone_number"`
-	Username         string               `json:"username"`
-	DiscordUsername  *string              `json:"discord_username,omitempty"`
-	EmailVerified    bool                 `json:"email_verified"`
-	PhoneVerified    bool                 `json:"phone_verified"`
-	HasPassword      bool                 `json:"has_password"`
-	Roles            *[]string            `json:"roles,omitempty"`
-	Orgs             *[]string            `json:"orgs,omitempty"`
-	OrgRoles         *map[string][]string `json:"org_roles,omitempty"`
-	Entitlements     []string             `json:"entitlements"`
-	Biography        *string              `json:"biography,omitempty"`
-	SolanaAddress    *string              `json:"solana_address,omitempty"`
-	LinkedProviders  []string             `json:"linked_providers,omitempty"`
-	EnabledProviders []string             `json:"enabled_providers,omitempty"`
-	CreatedAt        *string              `json:"created_at,omitempty"`
+	ID               string           `json:"id"`
+	Email            *string          `json:"email"`
+	PhoneNumber      *string          `json:"phone_number"`
+	Username         string           `json:"username"`
+	DiscordUsername  *string          `json:"discord_username,omitempty"`
+	SolanaAddress    *string          `json:"solana_address,omitempty"`
+	LinkedProviders  []string         `json:"linked_providers,omitempty"`
+	EnabledProviders []string         `json:"enabled_providers,omitempty"`
+	EmailVerified    bool             `json:"email_verified"`
+	PhoneVerified    bool             `json:"phone_verified"`
+	HasPassword      bool             `json:"has_password"`
+	Roles            *[]string        `json:"roles,omitempty"`
+	Orgs             *[]orgMembership `json:"orgs,omitempty"`
+	Entitlements     []string         `json:"entitlements"`
+	Biography        *string          `json:"biography,omitempty"`
+	CreatedAt        *string          `json:"created_at,omitempty"`
+}
+
+type orgMembership struct {
+	Org   string   `json:"org"`
+	Roles []string `json:"roles"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -90,8 +94,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rolesPtr *[]string
-	var orgsPtr *[]string
-	var orgRolesPtr *map[string][]string
+	var orgsPtr *[]orgMembership
 	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "single") {
 		roles := adminUser.Roles
 		if roles == nil {
@@ -105,14 +108,11 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 			serverErr(w, "org_memberships_lookup_failed")
 			return
 		}
-		orgs := make([]string, 0, len(mems))
-		orgRoles := make(map[string][]string, len(mems))
+		orgs := make([]orgMembership, 0, len(mems))
 		for _, m := range mems {
-			orgs = append(orgs, m.Org)
-			orgRoles[m.Org] = m.Roles
+			orgs = append(orgs, orgMembership{Org: m.Org, Roles: m.Roles})
 		}
 		orgsPtr = &orgs
-		orgRolesPtr = &orgRoles
 	}
 
 	var createdAt *string
@@ -127,18 +127,17 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		PhoneNumber:      adminUser.PhoneNumber,
 		Username:         username,
 		DiscordUsername:  adminUser.DiscordUsername,
+		SolanaAddress:    solanaAddressPtr,
+		LinkedProviders:  linkedProviders,
+		EnabledProviders: enabledProviders,
 		EmailVerified:    adminUser.EmailVerified,
 		PhoneVerified:    adminUser.PhoneVerified,
 		HasPassword:      hasPassword,
 		Roles:            rolesPtr,
 		Orgs:             orgsPtr,
-		OrgRoles:         orgRolesPtr,
 		Entitlements:     adminUser.Entitlements,
 		Biography:        adminUser.Biography,
 		CreatedAt:        createdAt,
-		SolanaAddress:    solanaAddressPtr,
-		LinkedProviders:  linkedProviders,
-		EnabledProviders: enabledProviders,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

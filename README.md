@@ -177,7 +177,9 @@ Organizations (org_mode)
   - Org slug renames create aliases; handlers accept either current slug or alias on `:org`.
   - Default access tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
   - `GET /auth/user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
-  - `POST /auth/token/org` mints an org-scoped access token with `org` + `org_roles` (single org only), and is rejected when the user is not a member.
+  - Org-scoped access tokens include `org` + `roles` (single org only), and are rejected when the user is not a member.
+    - Mint explicitly: `POST /auth/token/org`
+    - Or mint at login/refresh by providing `org` in the request body.
   - Org management endpoints require the reserved `owner` role; `owner` is protected and cannot be deleted or removed as the last owner.
 - In `OrgMode: "single"` (default), AuthKit behaves like a single-tenant app:
   - Access tokens include `roles` (string[]) and there are no org-related claims/fields.

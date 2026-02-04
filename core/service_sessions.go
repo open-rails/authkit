@@ -121,6 +121,73 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	return accessToken, exp, newTok, nil
 }
 
+// ExchangeRefreshTokenWithOrg rotates a refresh token and returns a new access token + refresh token.
+// If org is provided and org_mode=multi, it mints an org-scoped access token (org + roles for that org).
+func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken string, ua string, ip net.IP, org string) (idToken string, expiresAt time.Time, newRefresh string, err error) {
+	if s.pg == nil {
+		return "", time.Time{}, "", errors.New("postgres not configured")
+	}
+	if strings.TrimSpace(refreshToken) == "" {
+		return "", time.Time{}, "", errors.New("invalid refresh token")
+	}
+	h := s.hashRefresh(refreshToken)
+
+	// Try current hash
+	var sid, uid, email string
+	var fam string
+	sel := `SELECT id::text, user_id, family_id::text FROM profiles.refresh_sessions
+            WHERE current_token_hash=$1 AND issuer=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())`
+	row := s.pg.QueryRow(ctx, sel, h, s.opts.Issuer)
+	if err = row.Scan(&sid, &uid, &fam); err != nil {
+		// Maybe reuse of previous token -> revoke family
+		var sidPrev, uidPrev, famPrev string
+		selPrev := `SELECT id::text, user_id, family_id::text FROM profiles.refresh_sessions
+                    WHERE previous_token_hash=$1 AND issuer=$2 AND revoked_at IS NULL`
+		if e2 := s.pg.QueryRow(ctx, selPrev, h, s.opts.Issuer).Scan(&sidPrev, &uidPrev, &famPrev); e2 == nil {
+			_ = s.revokeFamily(ctx, famPrev)
+			return "", time.Time{}, "", errors.New("refresh token reuse detected")
+		}
+		return "", time.Time{}, "", errors.New("invalid refresh token")
+	}
+	if err := s.ensureUserAccessByID(ctx, uid); err != nil {
+		return "", time.Time{}, "", err
+	}
+
+	// Load email for token payload (best-effort)
+	if s.pg != nil {
+		_ = s.pg.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1`, uid).Scan(&email)
+	}
+	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
+		_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil)
+		return "", time.Time{}, "", errors.New("user_disabled")
+	}
+
+	// Rotate: set previous = current, current = new
+	newTok := randB64(32)
+	newHash := s.hashRefresh(newTok)
+	upd := `UPDATE profiles.refresh_sessions
+            SET previous_token_hash=current_token_hash, current_token_hash=$1, last_used_at=now(), user_agent=$2, ip_addr=$3
+            WHERE id=$4 AND revoked_at IS NULL`
+	if _, err = s.pg.Exec(ctx, upd, newHash, nullable(ua), ip, sid); err != nil {
+		return "", time.Time{}, "", err
+	}
+
+	claims := map[string]any{"sid": sid}
+	if strings.TrimSpace(org) != "" && strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		accessToken, exp, err := s.IssueOrgAccessToken(ctx, uid, email, org, claims)
+		if err != nil {
+			return "", time.Time{}, "", err
+		}
+		return accessToken, exp, newTok, nil
+	}
+
+	accessToken, exp, err := s.IssueAccessToken(ctx, uid, email, claims)
+	if err != nil {
+		return "", time.Time{}, "", err
+	}
+	return accessToken, exp, newTok, nil
+}
+
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.
 
 // ListUserSessions lists active sessions for a user and issuer.

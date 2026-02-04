@@ -275,7 +275,7 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 // It is only valid in org_mode=multi, and only if the user is a member of the org.
 // The token includes:
 // - org (canonical slug)
-// - org_roles (snapshot for that org)
+// - roles (snapshot for that org)
 func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	if !strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
 		return "", time.Time{}, fmt.Errorf("org_mode_not_multi")
@@ -289,7 +289,7 @@ func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlu
 	}
 	// Membership check + roles snapshot.
 	var member bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.org_members WHERE org_id=$1 AND user_id=$2 AND deleted_at IS NULL)`, org.ID, userID).Scan(&member); err != nil {
+	if err := s.pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.org_members WHERE org_id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL)`, org.ID, userID).Scan(&member); err != nil {
 		return "", time.Time{}, err
 	}
 	if !member {
@@ -300,8 +300,8 @@ func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlu
 		return "", time.Time{}, err
 	}
 	claims := map[string]any{
-		"org":       org.Slug,
-		"org_roles": orgRoles,
+		"org":   org.Slug,
+		"roles": orgRoles,
 	}
 	if extra == nil {
 		extra = map[string]any{}

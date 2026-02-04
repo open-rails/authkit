@@ -35,11 +35,11 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/auth/password/login` | PUBLIC | Password login |
+| POST | `/auth/password/login` | PUBLIC | Password login (org_mode=multi: optional `org` in body to mint org-scoped access token) |
 | POST | `/auth/register` | PUBLIC | Unified registration (email or phone) |
 | POST | `/auth/register/resend-email` | PUBLIC | Resend email verification |
 | POST | `/auth/register/resend-phone` | PUBLIC | Resend phone verification |
-| POST | `/auth/token` | PUBLIC | Refresh access token |
+| POST | `/auth/token` | PUBLIC | Refresh access token (org_mode=multi: optional `org` in body to mint org-scoped access token) |
 | POST | `/auth/sessions/current` | PUBLIC | Get current session info |
 
 ---
@@ -72,7 +72,7 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/auth/user/me` | AUTH | Get current user |
+| GET | `/auth/user/me` | AUTH | Get current user (org_mode=multi: includes `orgs` list with per-org roles) |
 | PATCH | `/auth/user/username` | AUTH | Change username |
 | PATCH | `/auth/user/biography` | AUTH | Update biography |
 | POST | `/auth/user/password` | AUTH | Change password |
@@ -104,7 +104,7 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | GET | `/auth/orgs/:org/members/:user_id/roles` | AUTH | Read member roles (org owner) |
 | POST | `/auth/orgs/:org/members/:user_id/roles` | AUTH | Assign role to member (org owner; only owner can grant `owner`) |
 | DELETE | `/auth/orgs/:org/members/:user_id/roles` | AUTH | Unassign role from member (org owner; cannot remove last owner) |
-| POST | `/auth/token/org` | AUTH | Mint org-scoped access token (`org` + `org_roles`) |
+| POST | `/auth/token/org` | AUTH | Mint org-scoped access token (`org` + `roles`) |
 
 ---
 
