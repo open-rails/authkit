@@ -173,13 +173,21 @@ Roles (global storage)
 
 Organizations (org_mode)
 - AuthKit supports orgs + org-scoped RBAC when `OrgMode: "multi"`:
+  - Shared owner namespace: user slugs and org slugs should be treated as one namespace (no collisions).
+  - Every user has a personal org (non-transferable ownership) keyed by `owner_user_id`.
   - Users can belong to 0, 1, or many orgs simultaneously.
   - Org slug renames create aliases; handlers accept either current slug or alias on `:org`.
+  - Username renames preserve old owner paths via user slug aliases; personal org slug aliases are also retained.
   - Default access tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
   - `GET /auth/user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
+  - `GET /auth/user/bootstrap` returns canonical personal org + org memberships in one call.
   - Org-scoped access tokens include `org` + `roles` (single org only), and are rejected when the user is not a member.
     - Mint explicitly: `POST /auth/token/org`
     - Or mint at login/refresh by providing `org` in the request body.
+  - Invitation workflow:
+    - Org owners create/list/revoke invites with `/auth/orgs/:org/invites`.
+    - Users list their invites via `GET /auth/org-invites`.
+    - Users accept/decline via `/auth/org-invites/:invite_id/accept|decline`.
   - Org management endpoints require the reserved `owner` role; `owner` is protected and cannot be deleted or removed as the last owner.
 - In `OrgMode: "single"` (default), AuthKit behaves like a single-tenant app:
   - Access tokens include `roles` (string[]) and there are no org-related claims/fields.

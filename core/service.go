@@ -16,6 +16,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	entpg "github.com/open-rails/authkit/entitlements"
 	jwtkit "github.com/open-rails/authkit/jwt"
@@ -1506,11 +1507,25 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if s.pg == nil {
 		return nil, nil
 	}
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		slug := ownerSlugFromUsername(username)
+		if slug == "" || validateOrgSlug(slug) != nil {
+			return nil, fmt.Errorf("invalid_username_for_owner_namespace")
+		}
+		if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
+			return nil, err
+		}
+	}
 	// Convert empty email to NULL for database (allows multiple users without emails)
 	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (email, username) VALUES (NULLIF(lower($1), ''), $2) RETURNING id, email, username, email_verified, banned_at, deleted_at`, email, username)
 	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.BannedAt, &u.DeletedAt); err != nil {
 		return nil, err
+	}
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		if err := s.ensurePersonalOrgForUser(ctx, u.ID, username); err != nil {
+			return nil, err
+		}
 	}
 	return &u, nil
 }
@@ -1616,8 +1631,96 @@ func (s *Service) updateUsername(ctx context.Context, id, username string) error
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET username=$2, updated_at=NOW() WHERE id=$1`, id, username)
-	return err
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var oldUsername string
+	if err := tx.QueryRow(ctx, `SELECT username::text FROM profiles.users WHERE id=$1::uuid`, id).Scan(&oldUsername); err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(oldUsername), strings.TrimSpace(username)) {
+		return nil
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE profiles.users SET username=$2, updated_at=NOW() WHERE id=$1`, id, username)
+	if err != nil {
+		return err
+	}
+	_, _ = tx.Exec(ctx, `
+		INSERT INTO profiles.user_slug_aliases (user_id, slug)
+		VALUES ($1::uuid, $2)
+		ON CONFLICT (user_id, slug) DO UPDATE SET deleted_at=NULL
+	`, id, oldUsername)
+
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		newSlug := ownerSlugFromUsername(username)
+		if newSlug == "" || validateOrgSlug(newSlug) != nil {
+			return fmt.Errorf("invalid_username_for_owner_namespace")
+		}
+		if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, ""); err != nil {
+			return err
+		}
+		var orgID, oldOrgSlug string
+		err := tx.QueryRow(ctx, `
+			SELECT id::text, slug
+			FROM profiles.orgs
+			WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
+		`, id).Scan(&orgID, &oldOrgSlug)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if strings.TrimSpace(orgID) == "" {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO profiles.orgs (slug, is_personal, owner_user_id)
+				VALUES ($1, true, $2::uuid)
+			`, newSlug, id); err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `
+				SELECT id::text
+				FROM profiles.orgs
+				WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
+			`, id).Scan(&orgID); err != nil {
+				return err
+			}
+		} else if !strings.EqualFold(oldOrgSlug, newSlug) {
+			_, _ = tx.Exec(ctx, `
+				INSERT INTO profiles.org_slug_aliases (org_id, slug)
+				VALUES ($1::uuid, $2)
+				ON CONFLICT (org_id, slug) DO UPDATE SET deleted_at=NULL
+			`, orgID, oldOrgSlug)
+			if _, err := tx.Exec(ctx, `UPDATE profiles.orgs SET slug=$1, updated_at=now() WHERE id=$2::uuid`, newSlug, orgID); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(orgID) != "" {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO profiles.org_roles (org_id, role)
+				VALUES ($1::uuid, 'owner'), ($1::uuid, 'member')
+				ON CONFLICT (org_id, role) DO NOTHING
+			`, orgID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO profiles.org_members (org_id, user_id)
+				VALUES ($1::uuid, $2::uuid)
+				ON CONFLICT (org_id, user_id) DO UPDATE SET deleted_at=NULL, updated_at=now()
+			`, orgID, id); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO profiles.org_member_roles (org_id, user_id, role)
+				VALUES ($1::uuid, $2::uuid, 'owner')
+				ON CONFLICT (org_id, user_id, role) DO NOTHING
+			`, orgID, id); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) updateEmail(ctx context.Context, id, email string) error {

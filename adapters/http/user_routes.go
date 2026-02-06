@@ -3,6 +3,8 @@ package authhttp
 import (
 	"net/http"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
@@ -29,6 +31,10 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
+		if err == core.ErrOwnerSlugTaken {
+			badRequest(w, "owner_slug_taken")
+			return
+		}
 		badRequest(w, "failed_to_update_username")
 		return
 	}

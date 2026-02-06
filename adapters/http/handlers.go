@@ -59,6 +59,12 @@ func (s *Service) APIHandler() http.Handler {
 		mux.Handle("GET /auth/orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersGET)))
 		mux.Handle("POST /auth/orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersPOST)))
 		mux.Handle("DELETE /auth/orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersDELETE)))
+		mux.Handle("GET /auth/orgs/{org}/invites", required(http.HandlerFunc(s.handleOrgInvitesGET)))
+		mux.Handle("POST /auth/orgs/{org}/invites", required(http.HandlerFunc(s.handleOrgInvitesPOST)))
+		mux.Handle("POST /auth/orgs/{org}/invites/{invite_id}/revoke", required(http.HandlerFunc(s.handleOrgInviteRevokePOST)))
+		mux.Handle("GET /auth/org-invites", required(http.HandlerFunc(s.handleUserInvitesGET)))
+		mux.Handle("POST /auth/org-invites/{invite_id}/accept", required(http.HandlerFunc(s.handleOrgInviteAcceptPOST)))
+		mux.Handle("POST /auth/org-invites/{invite_id}/decline", required(http.HandlerFunc(s.handleOrgInviteDeclinePOST)))
 		mux.Handle("GET /auth/orgs/{org}/roles", required(http.HandlerFunc(s.handleOrgRolesGET)))
 		mux.Handle("POST /auth/orgs/{org}/roles", required(http.HandlerFunc(s.handleOrgRolesPOST)))
 		mux.Handle("DELETE /auth/orgs/{org}/roles", required(http.HandlerFunc(s.handleOrgRolesDELETE)))
@@ -72,6 +78,7 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("DELETE /auth/user/sessions/{id}", required(http.HandlerFunc(s.handleUserSessionDELETE)))
 	mux.Handle("DELETE /auth/user/sessions", required(http.HandlerFunc(s.handleUserSessionsDELETE)))
 	mux.Handle("GET /auth/user/me", required(http.HandlerFunc(s.handleUserMeGET)))
+	mux.Handle("GET /auth/user/bootstrap", required(http.HandlerFunc(s.handleUserBootstrapGET)))
 
 	// User routes
 	mux.Handle("PATCH /auth/user/username", required(http.HandlerFunc(s.handleUserUsernamePATCH)))

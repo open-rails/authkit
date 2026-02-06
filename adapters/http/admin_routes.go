@@ -208,6 +208,10 @@ func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http
 		return
 	}
 	if err := s.svc.UpdateUsername(r.Context(), req.UserID, req.Username); err != nil {
+		if err == core.ErrOwnerSlugTaken {
+			badRequest(w, "owner_slug_taken")
+			return
+		}
 		badRequest(w, "failed_to_update_username")
 		return
 	}

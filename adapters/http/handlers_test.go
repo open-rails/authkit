@@ -92,3 +92,14 @@ func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"address_required"`)
 }
+
+func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/auth/user/bootstrap", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+}

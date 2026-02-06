@@ -44,6 +44,10 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 	}
 	org, err := s.svc.CreateOrg(r.Context(), body.Slug)
 	if err != nil {
+		if err == core.ErrOwnerSlugTaken {
+			badRequest(w, "owner_slug_taken")
+			return
+		}
 		badRequest(w, "org_create_failed")
 		return
 	}
@@ -120,6 +124,14 @@ func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.svc.RenameOrgSlug(r.Context(), org.ID, body.NewSlug); err != nil {
+		if err == core.ErrPersonalOrgLocked {
+			badRequest(w, "personal_org_locked")
+			return
+		}
+		if err == core.ErrOwnerSlugTaken {
+			badRequest(w, "owner_slug_taken")
+			return
+		}
 		badRequest(w, "org_rename_failed")
 		return
 	}

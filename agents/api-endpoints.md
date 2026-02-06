@@ -73,6 +73,7 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/auth/user/me` | AUTH | Get current user (org_mode=multi: includes `orgs` list with per-org roles) |
+| GET | `/auth/user/bootstrap` | AUTH | Get canonical personal org + org memberships/roles for bootstrap |
 | PATCH | `/auth/user/username` | AUTH | Change username |
 | PATCH | `/auth/user/biography` | AUTH | Update biography |
 | POST | `/auth/user/password` | AUTH | Change password |
@@ -98,6 +99,12 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | GET | `/auth/orgs/:org/members` | AUTH | List members (org owner) |
 | POST | `/auth/orgs/:org/members` | AUTH | Add member (org owner) |
 | DELETE | `/auth/orgs/:org/members` | AUTH | Remove member (org owner) |
+| GET | `/auth/orgs/:org/invites` | AUTH | List org invites (org owner) |
+| POST | `/auth/orgs/:org/invites` | AUTH | Create invite (org owner) |
+| POST | `/auth/orgs/:org/invites/:invite_id/revoke` | AUTH | Revoke pending invite (org owner) |
+| GET | `/auth/org-invites` | AUTH | List invites for current user |
+| POST | `/auth/org-invites/:invite_id/accept` | AUTH | Accept invite as current user |
+| POST | `/auth/org-invites/:invite_id/decline` | AUTH | Decline invite as current user |
 | GET | `/auth/orgs/:org/roles` | AUTH | List defined roles (org owner) |
 | POST | `/auth/orgs/:org/roles` | AUTH | Define role (org owner; `owner` is protected) |
 | DELETE | `/auth/orgs/:org/roles` | AUTH | Delete role (org owner; `owner` is protected) |

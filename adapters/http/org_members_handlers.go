@@ -109,6 +109,10 @@ func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.svc.RemoveMember(r.Context(), canonical, strings.TrimSpace(body.UserID)); err != nil {
+		if err == core.ErrPersonalOrgOwner {
+			badRequest(w, "cannot_remove_personal_org_owner")
+			return
+		}
 		if err == core.ErrLastOrgOwner {
 			badRequest(w, "cannot_remove_last_owner")
 			return

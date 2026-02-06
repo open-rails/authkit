@@ -14,12 +14,15 @@ var (
 	ErrInvalidOrgRole   = errors.New("invalid_org_role")
 	ErrProtectedOrgRole = errors.New("protected_org_role")
 	ErrLastOrgOwner     = errors.New("cannot_remove_last_owner")
+	ErrPersonalOrgOwner = errors.New("cannot_remove_personal_org_owner")
 )
 
 // Org is a minimal org record.
 type Org struct {
-	ID   string
-	Slug string
+	ID          string
+	Slug        string
+	IsPersonal  bool
+	OwnerUserID string
 }
 
 // OrgMembership is a user's membership with optional roles.
@@ -107,22 +110,28 @@ func (s *Service) ResolveOrgBySlug(ctx context.Context, slug string) (*Org, erro
 		return nil, err
 	}
 	var id, canonical string
+	var isPersonal bool
+	var ownerUserID string
 	// Prefer current slug.
-	err := s.pg.QueryRow(ctx, `SELECT id::text, slug FROM profiles.orgs WHERE slug=$1 AND deleted_at IS NULL`, slug).Scan(&id, &canonical)
+	err := s.pg.QueryRow(ctx, `
+		SELECT id::text, slug, is_personal, COALESCE(owner_user_id::text, '')
+		FROM profiles.orgs
+		WHERE slug=$1 AND deleted_at IS NULL
+	`, slug).Scan(&id, &canonical, &isPersonal, &ownerUserID)
 	if err == nil {
-		return &Org{ID: id, Slug: canonical}, nil
+		return &Org{ID: id, Slug: canonical, IsPersonal: isPersonal, OwnerUserID: ownerUserID}, nil
 	}
 	// Fallback to alias.
 	err = s.pg.QueryRow(ctx, `
-		SELECT o.id::text, o.slug
+		SELECT o.id::text, o.slug, o.is_personal, COALESCE(o.owner_user_id::text, '')
 		FROM profiles.org_slug_aliases a
 		JOIN profiles.orgs o ON o.id=a.org_id
 		WHERE a.slug=$1 AND a.deleted_at IS NULL AND o.deleted_at IS NULL
-	`, slug).Scan(&id, &canonical)
+	`, slug).Scan(&id, &canonical, &isPersonal, &ownerUserID)
 	if err != nil {
 		return nil, ErrOrgNotFound
 	}
-	return &Org{ID: id, Slug: canonical}, nil
+	return &Org{ID: id, Slug: canonical, IsPersonal: isPersonal, OwnerUserID: ownerUserID}, nil
 }
 
 func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
@@ -131,6 +140,9 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	}
 	slug = strings.TrimSpace(slug)
 	if err := validateOrgSlug(slug); err != nil {
+		return nil, err
+	}
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
 		return nil, err
 	}
 	var id, canonical string
@@ -168,11 +180,18 @@ func (s *Service) RenameOrgSlug(ctx context.Context, orgID, newSlug string) erro
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var oldSlug string
-	if err := tx.QueryRow(ctx, `SELECT slug FROM profiles.orgs WHERE id=$1::uuid AND deleted_at IS NULL`, orgID).Scan(&oldSlug); err != nil {
+	var isPersonal bool
+	if err := tx.QueryRow(ctx, `SELECT slug, is_personal FROM profiles.orgs WHERE id=$1::uuid AND deleted_at IS NULL`, orgID).Scan(&oldSlug, &isPersonal); err != nil {
 		return ErrOrgNotFound
+	}
+	if isPersonal {
+		return ErrPersonalOrgLocked
 	}
 	if strings.EqualFold(oldSlug, newSlug) {
 		return nil
+	}
+	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, "", orgID); err != nil {
+		return err
 	}
 	// Insert old slug as alias (idempotent-ish).
 	_, _ = tx.Exec(ctx, `
@@ -268,6 +287,9 @@ func (s *Service) RemoveMember(ctx context.Context, orgSlug, userID string) erro
 	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return err
+	}
+	if org.IsPersonal && strings.EqualFold(strings.TrimSpace(org.OwnerUserID), strings.TrimSpace(userID)) {
+		return ErrPersonalOrgOwner
 	}
 	// Prevent removing the last owner from the org.
 	var isOwner bool

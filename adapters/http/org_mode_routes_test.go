@@ -48,6 +48,25 @@ func TestAPIHandler_TokenOrg_RouteOnlyInMultiMode(t *testing.T) {
 	require.Contains(t, w2.Body.String(), `"error":"missing_token"`)
 }
 
+func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
+	// single: routes not registered
+	sSingle := &Service{svc: newTestCoreServiceWithOrgMode(t, "single")}
+	hSingle := sSingle.APIHandler()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/auth/org-invites", nil)
+	hSingle.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
+
+	// multi: route registered and requires auth
+	sMulti := &Service{svc: newTestCoreServiceWithOrgMode(t, "multi")}
+	hMulti := sMulti.APIHandler()
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest(http.MethodGet, "/auth/org-invites", nil)
+	hMulti.ServeHTTP(w2, r2)
+	require.Equal(t, http.StatusUnauthorized, w2.Code)
+	require.Contains(t, w2.Body.String(), `"error":"missing_token"`)
+}
+
 func TestAPIHandler_TokenOrg_InvalidRequest(t *testing.T) {
 	s := &Service{svc: newTestCoreServiceWithOrgMode(t, "multi")}
 	h := s.APIHandler()

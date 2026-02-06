@@ -352,6 +352,20 @@
         "[x] Update E2E examples/tests\n    - Add an example compose file that uses the published image (no `build: ../authkit`)\n    - Update `testing/devserver_e2e_test.go` to optionally validate the all-in-one Dockerfile via local build (AUTHKIT_E2E_ALL_IN_ONE=1)"
       ],
       "completed": true
+    },
+    {
+      "name": "Personal orgs + invitations + rename aliases + bootstrap endpoint",
+      "id_number": 23,
+      "description": "Align AuthKit org model with Cozy platform semantics while keeping org_mode=multi as the foundation.\n\nScope:\n- Add first-class personal-org metadata and non-transferable ownership rules.\n- Add a full invitation lifecycle (pending invite, accept/decline) rather than only direct member add/remove.\n- Add/confirm user-rename alias forwarding so personal-owner slugs behave like org slug aliases.\n- Add a single bootstrap endpoint returning canonical personal org + memberships for the current user.\n\nGoals:\n- Keep shared owner namespace semantics predictable across user/org slugs.\n- Reduce host-app glue code for org bootstrap and routing.\n- Preserve backwards compatibility for existing owner/repo refs after renames.\n\nNon-goals (v1):\n- Replacing existing org APIs; this extends them.\n- Building product-specific ACL semantics inside AuthKit.",
+      "tasks": [
+        "[x] Personal org metadata + ownership invariants\n    - Add first-class personal-org metadata (e.g. `is_personal`, `owner_user_id`) to org records\n    - Enforce invariant: personal-org ownership is non-transferable\n    - Guard dangerous operations for personal orgs (owner removal/transfer/delete semantics)",
+        "[x] Invitation lifecycle APIs\n    - Add invite entities with states (pending, accepted, declined, revoked, expired)\n    - Expose endpoints/workflows for create invite, accept, decline, revoke, list\n    - Keep direct add/remove APIs for admin flows, but treat invites as first-class UX path",
+        "[x] User rename alias forwarding (owner namespace stability)\n    - Add/confirm alias forwarding for user rename so old user slug resolves to canonical new slug\n    - Ensure personal-org owner slug behavior matches org alias semantics\n    - Verify old owner-based paths/refs remain resolvable after rename",
+        "[x] Bootstrap endpoint for personal org + memberships\n    - Add endpoint returning current user’s canonical personal org plus all org memberships/roles\n    - Include canonical slugs and alias-aware resolution details needed by host apps\n    - Ensure response is stable for UI/session bootstrap and org switchers",
+        "[x] Docs + migration notes\n    - Document personal-org invariants, invite state machine, and rename alias behavior\n    - Provide migration notes for hosts adopting the new endpoint and invitation APIs",
+        "[x] Tests\n    - Personal-org non-transferability and ownership guard tests\n    - Invitation state transition tests (pending->accepted/declined/revoked/expired)\n    - User rename alias-forwarding tests across owner-slug lookups\n    - Bootstrap endpoint contract tests"
+      ],
+      "completed": true
     }
   ],
   "completed_features": [
