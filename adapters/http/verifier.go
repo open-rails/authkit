@@ -127,9 +127,22 @@ func (v *Verifier) Verify(tokenStr string) (jwt.MapClaims, error) {
 	if skew == 0 {
 		skew = 60 * time.Second
 	}
-	if expUnix, ok := toUnix(claims["exp"]); ok {
-		if time.Unix(expUnix, 0).Before(time.Now().Add(-skew)) {
-			return nil, errors.New("token_expired")
+	now := time.Now()
+	expUnix, ok := toUnix(claims["exp"])
+	if !ok {
+		return nil, errors.New("missing_exp")
+	}
+	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
+		return nil, errors.New("token_expired")
+	}
+	if nbfUnix, ok := toUnix(claims["nbf"]); ok {
+		if time.Unix(nbfUnix, 0).After(now.Add(skew)) {
+			return nil, errors.New("token_not_yet_valid")
+		}
+	}
+	if iatUnix, ok := toUnix(claims["iat"]); ok {
+		if time.Unix(iatUnix, 0).After(now.Add(skew)) {
+			return nil, errors.New("token_not_yet_valid")
 		}
 	}
 
