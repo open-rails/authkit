@@ -1039,6 +1039,15 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 		return "", err
 	}
 
+	// In org_mode=multi every user must have a personal org in the owner namespace.
+	// ConfirmPendingRegistration creates the user directly (without going through createUser),
+	// so ensure we provision the personal org here too.
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
+			return "", err
+		}
+	}
+
 	// Delete pending registration (success)
 	if s.useEphemeralStore() {
 		s.deletePendingRegistration(ctx, hash, pendingRegistrationData{Email: email, Username: username})
@@ -1170,6 +1179,15 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 
 	if err != nil {
 		return "", err
+	}
+
+	// In org_mode=multi every user must have a personal org in the owner namespace.
+	// ConfirmPendingPhoneRegistration creates the user directly (without createUser),
+	// so ensure we provision the personal org here too.
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
+			return "", err
+		}
 	}
 
 	// Delete pending registration
