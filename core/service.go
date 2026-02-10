@@ -1541,11 +1541,11 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 		return nil, err
 	}
 
-	/*if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
 		if err := s.ensurePersonalOrgForUser(ctx, u.ID, username); err != nil {
 			return nil, err
 		}
-	}*/
+	}
 	return &u, nil
 }
 
