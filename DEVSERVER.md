@@ -51,7 +51,7 @@ Dev minting (optional, but required for billing E2E):
 - `AUTHKIT_DEV_MINT_SECRET=...`
 
 Registration behavior:
-- `AUTHKIT_SKIP_EMAIL_VERIFICATION=true` — when set, `/auth/register` creates users immediately (email_verified=true) without requiring confirmation.
+- `AUTHKIT_VERIFICATION_REQUIRED=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
 
 ## Mint a JWT
 

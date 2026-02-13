@@ -22,13 +22,13 @@ import (
 )
 
 type config struct {
-	ListenAddr            string
-	Issuer                string
-	DBURL                 string
-	DevMode               bool
-	DevMintSecret         string
-	VerificationRequired   bool
-	MigrateOnStart        bool
+	ListenAddr           string
+	Issuer               string
+	DBURL                string
+	DevMode              bool
+	DevMintSecret        string
+	VerificationRequired bool
+	MigrateOnStart       bool
 }
 
 func main() {
@@ -58,13 +58,13 @@ func main() {
 
 func loadConfig() (*config, error) {
 	c := &config{
-		ListenAddr:            envOr("AUTHKIT_LISTEN_ADDR", ":8080"),
-		Issuer:                strings.TrimRight(strings.TrimSpace(os.Getenv("AUTHKIT_ISSUER")), "/"),
-		DBURL:                 firstEnv("DB_URL", "DATABASE_URL"),
-		DevMode:               envBool("AUTHKIT_DEV_MODE", false),
-		DevMintSecret:         strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
-		VerificationRequired:   envBool("AUTHKIT_VERIFICATION_REQUIRED", true),
-		MigrateOnStart:        envBool("AUTHKIT_MIGRATE_ON_START", true),
+		ListenAddr:           envOr("AUTHKIT_LISTEN_ADDR", ":8080"),
+		Issuer:               strings.TrimRight(strings.TrimSpace(os.Getenv("AUTHKIT_ISSUER")), "/"),
+		DBURL:                firstEnv("DB_URL", "DATABASE_URL"),
+		DevMode:              envBool("AUTHKIT_DEV_MODE", false),
+		DevMintSecret:        strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
+		VerificationRequired: envBool("AUTHKIT_VERIFICATION_REQUIRED", true),
+		MigrateOnStart:       envBool("AUTHKIT_MIGRATE_ON_START", true),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("AUTHKIT_ISSUER is required (e.g. http://issuer:8080 or http://localhost:8080)")
@@ -102,11 +102,11 @@ func runServe(cfg *config) error {
 	expectedAudiences := parseCSVEnv("AUTHKIT_EXPECTED_AUDIENCES", issuedAudiences)
 
 	svc, err := authhttp.NewService(core.Config{
-		Issuer:                cfg.Issuer,
-		IssuedAudiences:       issuedAudiences,
-		ExpectedAudiences:     expectedAudiences,
-		Keys:                  keySource,
-		VerificationRequired:  cfg.VerificationRequired,
+		Issuer:               cfg.Issuer,
+		IssuedAudiences:      issuedAudiences,
+		ExpectedAudiences:    expectedAudiences,
+		Keys:                 keySource,
+		VerificationRequired: cfg.VerificationRequired,
 	})
 	if err != nil {
 		return err
