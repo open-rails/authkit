@@ -62,13 +62,37 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			if pending, perr := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), identifier); perr == nil && pending != nil {
 				if ok, verr := pwhash.VerifyArgon2id(pending.PasswordHash, req.Password); verr == nil && ok {
 					_, _ = s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, pending.Username, pending.PasswordHash)
-					unauthorized(w, "phone_not_verified")
-					return
+					if s.svc.Options().VerificationRequired {
+						unauthorized(w, "phone_not_verified")
+						return
+					}
+					usr, e = s.svc.GetUserByPhone(r.Context(), identifier)
+					if e != nil || usr == nil {
+						logLoginFailed(s, r, "", "invalid_credentials")
+						unauthorized(w, "invalid_credentials")
+						return
+					}
+					userID = usr.ID
 				}
 			}
-			logLoginFailed(s, r, "", "invalid_credentials")
-			unauthorized(w, "invalid_credentials")
-			return
+			if userID != "" && usr != nil {
+				fetchedUser = &userWithEmail{
+					ID:            usr.ID,
+					Email:         usr.Email,
+					PhoneNumber:   usr.PhoneNumber,
+					EmailVerified: usr.EmailVerified,
+					PhoneVerified: usr.PhoneVerified,
+					CreatedAt:     usr.CreatedAt,
+				}
+				if usr.Email != nil {
+					loginEmail = *usr.Email
+				}
+			}
+			if userID == "" {
+				logLoginFailed(s, r, "", "invalid_credentials")
+				unauthorized(w, "invalid_credentials")
+				return
+			}
 		}
 		fetchedUser = &userWithEmail{
 			ID:            usr.ID,
@@ -153,9 +177,22 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			pendingUser, pendingErr := s.svc.GetPendingRegistrationByEmail(r.Context(), loginEmail)
 			if pendingErr == nil && pendingUser != nil {
 				if s.svc.VerifyPendingPassword(r.Context(), loginEmail, req.Password) {
-					_, _ = s.svc.CreatePendingRegistration(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0)
-					unauthorized(w, "email_not_verified")
-					return
+					if _, err := s.svc.CreatePendingRegistration(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0); err != nil {
+						logLoginFailed(s, r, "", "invalid_credentials")
+						unauthorized(w, "invalid_credentials")
+						return
+					}
+					if !s.svc.Options().VerificationRequired {
+						token, exp, err = s.svc.PasswordLogin(r.Context(), loginEmail, req.Password, nil)
+						if err != nil {
+							logLoginFailed(s, r, "", "invalid_credentials")
+							unauthorized(w, "invalid_credentials")
+							return
+						}
+					} else {
+						unauthorized(w, "email_not_verified")
+						return
+					}
 				}
 			}
 			logLoginFailed(s, r, "", "invalid_credentials")
