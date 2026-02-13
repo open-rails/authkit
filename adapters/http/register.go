@@ -54,7 +54,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	if isPhone {
-		if !s.svc.HasSMSSender() {
+		if s.svc.Options().VerificationRequired && !s.svc.HasSMSSender() {
 			serverErr(w, "phone_registration_unavailable")
 			return
 		}
@@ -76,15 +76,19 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			serverErr(w, "registration_failed")
 			return
 		}
+		msg := "Registration pending. Please check your phone for a verification code."
+		if !s.svc.Options().VerificationRequired {
+			msg = "Registration successful. You can log in immediately."
+		}
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"ok":      true,
-			"message": "Registration pending. Please check your phone for a verification code.",
+			"message": msg,
 			"phone":   identifier,
 		})
 		return
 	}
 
-	if !s.svc.HasEmailSender() {
+	if s.svc.Options().VerificationRequired && !s.svc.HasEmailSender() {
 		serverErr(w, "email_registration_unavailable")
 		return
 	}
@@ -106,15 +110,20 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		serverErr(w, "registration_failed")
 		return
 	}
+
+	msg := "Registration pending. Please check your email to verify your account."
+	if !s.svc.Options().VerificationRequired {
+		msg = "Registration successful. You can log in immediately."
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"ok":      true,
-		"message": "Registration pending. Please check your email to verify your account.",
+		"message": msg,
 		"email":   identifier,
 	})
 }
 
 func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.svc.HasEmailSender() {
+	if s.svc.Options().VerificationRequired && !s.svc.HasEmailSender() {
 		serverErr(w, "email_unavailable")
 		return
 	}
@@ -141,7 +150,7 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 }
 
 func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.svc.HasSMSSender() {
+	if s.svc.Options().VerificationRequired && !s.svc.HasSMSSender() {
 		serverErr(w, "phone_unavailable")
 		return
 	}

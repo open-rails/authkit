@@ -43,6 +43,9 @@ type Options struct {
 	SessionMaxPerUser    int
 	// Optional link building (paths are fixed: /reset and /verify)
 	BaseURL string
+	// VerificationRequired controls whether email/phone registration requires
+	// confirmation before sign-in is allowed.
+	VerificationRequired bool
 
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" or "multi".
@@ -149,6 +152,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		RefreshTokenDuration: refTTL,
 		SessionMaxPerUser:    maxSess,
 		BaseURL:              cfg.BaseURL,
+		VerificationRequired: cfg.VerificationRequired,
 		OrgMode:              orgMode,
 	}
 	return NewService(opts, ks), nil
@@ -954,6 +958,14 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
+	if !s.opts.VerificationRequired {
+		_, err := s.createVerifiedRegistrationUser(ctx, email, username, passwordHash)
+		if err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+
 	if ttl <= 0 {
 		ttl = 24 * time.Hour
 	}
@@ -1008,7 +1020,6 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 	if err != nil {
 		return "", err
 	}
-
 	if exists {
 		// Someone else got there first - delete this pending registration
 		if s.useEphemeralStore() {
@@ -1017,23 +1028,7 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 		return "", fmt.Errorf("email or username already taken")
 	}
 
-	// Create the actual user (email_verified = true from the start)
-	var uid string
-	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.users (email, username, email_verified)
-		VALUES (lower($1), $2, true)
-		RETURNING id::text
-	`, email, username).Scan(&uid)
-
-	if err != nil {
-		return "", err
-	}
-
-	// Set password
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
-		VALUES ($1, $2, 'argon2id')
-	`, uid, passwordHash)
+	uid, err := s.createVerifiedRegistrationUser(ctx, email, username, passwordHash)
 
 	if err != nil {
 		return "", err
@@ -1092,6 +1087,14 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
+	if !s.opts.VerificationRequired {
+		_, err := s.createVerifiedPhoneRegistrationUser(ctx, phone, username, passwordHash)
+		if err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+
 	// Generate 6-character alphanumeric code (A-Z, 0-9)
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
@@ -1555,6 +1558,70 @@ func (s *Service) setEmailVerified(ctx context.Context, id string, v bool) error
 	}
 	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET email_verified=$2, updated_at=NOW() WHERE id=$1`, id, v)
 	return err
+}
+
+func (s *Service) createVerifiedRegistrationUser(ctx context.Context, email, username, passwordHash string) (string, error) {
+	if s.pg == nil {
+		return "", fmt.Errorf("postgres not configured")
+	}
+
+	u, err := s.createUser(ctx, email, username)
+	if err != nil {
+		return "", err
+	}
+	if u == nil {
+		return "", fmt.Errorf("failed to create user")
+	}
+
+	_, err = s.pg.Exec(ctx, `
+		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+		VALUES ($1, $2, 'argon2id')
+	`, u.ID, passwordHash)
+	if err != nil {
+		return "", err
+	}
+
+	if err := s.setEmailVerified(ctx, u.ID, true); err != nil {
+		return "", err
+	}
+
+	return u.ID, nil
+}
+
+func (s *Service) createVerifiedPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string) (string, error) {
+	if s.pg == nil {
+		return "", fmt.Errorf("postgres not configured")
+	}
+	if strings.TrimSpace(phone) == "" {
+		return "", fmt.Errorf("invalid phone")
+	}
+
+	u, err := s.createUser(ctx, "", username)
+	if err != nil {
+		return "", err
+	}
+	if u == nil {
+		return "", fmt.Errorf("failed to create user")
+	}
+
+	_, err = s.pg.Exec(ctx, `
+		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
+		VALUES ($1, $2, 'argon2id')
+	`, u.ID, passwordHash)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = s.pg.Exec(ctx, `
+		UPDATE profiles.users
+		SET phone_number=$2, phone_verified=$3, updated_at=NOW()
+		WHERE id=$1
+	`, u.ID, phone, true)
+	if err != nil {
+		return "", err
+	}
+
+	return u.ID, nil
 }
 
 func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) error {

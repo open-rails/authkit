@@ -25,6 +25,11 @@ type Config struct {
 	BaseURL string
 	// Paths for reset/verify are fixed to "/reset" and "/verify"; not configurable.
 
+	// VerificationRequired controls whether email/phone registration requires
+	// confirmation before the account is usable.
+	// Default is true (set to false to allow immediate sign-up).
+	VerificationRequired bool
+
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" (default) or "multi".
 	OrgMode string

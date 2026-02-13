@@ -43,6 +43,7 @@ func main() {
     IssuedAudiences:   []string{"myapp"},
     ExpectedAudiences: []string{"myapp"},
     BaseURL:           "https://myapp.com",
+    // VerificationRequired: true, // set false to create users immediately on /auth/register
     // OrgMode: "single" (default) | "multi"
     // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
@@ -260,6 +261,7 @@ Endpoints mounted automatically:
   - POST /auth/password/reset/confirm (code + optional identifier)
 - Registration (unified - accepts email or phone in identifier field):
   - POST /auth/register (server auto-detects email vs phone based on format)
+  - Set `VerificationRequired: false` to create users immediately on registration
   - POST /auth/register/resend-email
   - POST /auth/register/resend-phone
 - Email verification:
