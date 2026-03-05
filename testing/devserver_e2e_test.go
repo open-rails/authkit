@@ -376,6 +376,45 @@ func TestDevserverE2E(t *testing.T) {
 			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql)
 		return strings.TrimSpace(c.run(t, args...))
 	}
+	restartIssuer := func(t *testing.T) {
+		t.Helper()
+		args := []string{"-f", composeFile}
+		if strings.TrimSpace(overridePath) != "" {
+			args = append(args, "-f", overridePath)
+		}
+		args = append(args, "restart", "issuer")
+		c.run(t, args...)
+		waitForHTTP200(t, baseURL+"/healthz", 90*time.Second)
+	}
+
+	t.Run("seeded_reserved_slug_blocks_username_update_after_restart", func(t *testing.T) {
+		userID := "33333333-3333-3333-3333-333333333333"
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%q, %q, %q, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			userID, "reserved-check@example.com", "reservedcheck",
+		))
+		token := mint(t, userID, 300)
+
+		tryRename := func(t *testing.T) {
+			t.Helper()
+			resp, body := httpJSON(t, http.MethodPatch, baseURL+"/auth/user/username", map[string]string{
+				"Authorization": "Bearer " + token,
+			}, map[string]any{
+				"username": "superuser",
+			})
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("expected 400 for reserved slug username update, got %d: %s", resp.StatusCode, string(body))
+			}
+			bodyText := string(body)
+			if !strings.Contains(bodyText, `"error":"owner_slug_taken"`) && !strings.Contains(bodyText, `"error":"failed_to_update_username"`) {
+				t.Fatalf("expected owner_slug_taken or failed_to_update_username, got: %s", bodyText)
+			}
+		}
+
+		tryRename(t)
+		restartIssuer(t)
+		tryRename(t)
+	})
 
 	t.Run("minted_token_can_call_user_me", func(t *testing.T) {
 		userID := "11111111-1111-1111-1111-111111111111"

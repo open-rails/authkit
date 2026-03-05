@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -32,7 +31,6 @@ type TestIssuer struct {
 	server   *httptest.Server
 	signer   *jwtkit.RSASigner
 	audience string
-	mu       sync.Mutex
 }
 
 // NewTestIssuer creates a new test issuer with a JWKS endpoint.

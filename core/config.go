@@ -9,14 +9,9 @@ import (
 
 // Config mirrors the simplicity of go-pkgz/auth: provide issuer, durations, and keys.
 type Config struct {
-	Issuer          string
-	IssuedAudiences []string // JWT audiences - tokens issued will contain ALL of these audiences
-	// ExpectedAudiences enforces that verified access tokens contain at least one
-	// of these audiences. Prefer this over ExpectedAudience for new integrations.
-	ExpectedAudiences []string
-	// ExpectedAudience enforces a single required audience for verified access tokens.
-	// Deprecated: prefer ExpectedAudiences.
-	ExpectedAudience     string
+	Issuer               string
+	IssuedAudiences      []string // JWT audiences - tokens issued will contain ALL of these audiences
+	ExpectedAudiences    []string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 	// Session limits
@@ -29,9 +24,6 @@ type Config struct {
 	// confirmation before the account is usable.
 	// Default behavior in NewFromConfig is true when this is nil.
 	RequireVerifiedRegistrations *bool
-	// VerificationRequired is deprecated. Use RequireVerifiedRegistrations.
-	// Backward compatibility note: this legacy field only influences config when set to true.
-	VerificationRequired bool
 
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" (default) or "multi".

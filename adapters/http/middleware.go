@@ -88,17 +88,9 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 					unauthorized(w, "bad_issuer")
 					return
 				}
-				switch {
-				case len(opts.ExpectedAudiences) > 0:
-					if !audContainsAny(claims["aud"], opts.ExpectedAudiences) {
-						unauthorized(w, "bad_audience")
-						return
-					}
-				case opts.ExpectedAudience != "":
-					if !audContains(claims["aud"], opts.ExpectedAudience) {
-						unauthorized(w, "bad_audience")
-						return
-					}
+				if len(opts.ExpectedAudiences) > 0 && !audContainsAny(claims["aud"], opts.ExpectedAudiences) {
+					unauthorized(w, "bad_audience")
+					return
 				}
 				expUnix, ok := toUnix(claims["exp"])
 				if !ok {

@@ -161,7 +161,6 @@ Deprecations:
 
 | Deprecated | Canonical | Status |
 | --- | --- | --- |
-| `VerificationRequired` | `RequireVerifiedRegistrations` | Deprecated alias in `core.Config`/`core.Options` for one transition window. |
 | `AUTHKIT_VERIFICATION_REQUIRED`, `DEVSERVER_VERIFICATION_REQUIRED` | `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS` | Deprecated standalone devserver env aliases. |
 | `AUTHKIT_*` (standalone devserver env prefix) | `DEVSERVER_*` | Deprecated alias prefix; `DEVSERVER_*` wins when both are set. |
 
@@ -213,6 +212,12 @@ Organizations (org_mode)
   - Org management endpoints require the reserved `owner` role; `owner` is protected and cannot be deleted or removed as the last owner.
 - In `OrgMode: "single"` (default), AuthKit behaves like a single-tenant app:
   - Access tokens include `roles` (string[]) and there are no org-related claims/fields.
+
+Reserved slug policy
+- Reserved owner slugs are seeded by SQL migration as placeholder user + personal-org records with `metadata.reserved=true`.
+- Canonical list lives only in `migrations/postgres/010_seed_reserved_slugs.up.sql` (`admin`, `superuser`, `root`, `sudo`).
+- Public register/create/rename/org-create/org-rename paths do not use a hardcoded denylist; conflicts are enforced through normal owner-namespace uniqueness against seeded DB rows.
+- This is a hard-cut migration path; no legacy compatibility behavior is implemented for pre-existing conflicting reserved slugs.
 
 Verification Codes:
 - All verification flows (email/phone registration, password reset, email verification) use **6-digit numeric codes** (000000-999999).
@@ -328,6 +333,8 @@ Endpoints mounted automatically:
   - POST /auth/admin/users/set-username
   - DELETE /auth/admin/users/:user_id
   - GET /auth/admin/users/:user_id/signins
+  - POST /auth/admin/accounts/reserve
+  - POST /auth/admin/accounts/claim
 - Solana wallet authentication (SIWS):
   - POST /auth/solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
   - POST /auth/solana/login → {access_token, refresh_token, user}

@@ -27,23 +27,19 @@ func baseTestConfig(t *testing.T) Config {
 
 func TestRequireVerifiedRegistrationsResolution(t *testing.T) {
 	tests := []struct {
-		name   string
-		ptr    *bool
-		legacy bool
-		want   bool
+		name string
+		ptr  *bool
+		want bool
 	}{
-		{name: "default_true", ptr: nil, legacy: false, want: true},
-		{name: "canonical_false", ptr: Bool(false), legacy: false, want: false},
-		{name: "canonical_true", ptr: Bool(true), legacy: false, want: true},
-		{name: "legacy_true", ptr: nil, legacy: true, want: true},
-		{name: "canonical_precedence_over_legacy", ptr: Bool(false), legacy: true, want: false},
+		{name: "default_true", ptr: nil, want: true},
+		{name: "canonical_false", ptr: Bool(false), want: false},
+		{name: "canonical_true", ptr: Bool(true), want: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseTestConfig(t)
 			cfg.RequireVerifiedRegistrations = tt.ptr
-			cfg.VerificationRequired = tt.legacy
 
 			svc, err := NewFromConfig(cfg)
 			if err != nil {
@@ -53,9 +49,6 @@ func TestRequireVerifiedRegistrationsResolution(t *testing.T) {
 			opts := svc.Options()
 			if opts.RequireVerifiedRegistrations != tt.want {
 				t.Fatalf("RequireVerifiedRegistrations=%v, want %v", opts.RequireVerifiedRegistrations, tt.want)
-			}
-			if opts.VerificationRequired != tt.want {
-				t.Fatalf("VerificationRequired alias=%v, want %v", opts.VerificationRequired, tt.want)
 			}
 		})
 	}

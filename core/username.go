@@ -37,9 +37,6 @@ func (s *Service) GenerateAvailableUsername(ctx context.Context, base string) st
 }
 
 func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
-	if IsReservedUsername(username) {
-		return false
-	}
 	u, err := s.getUserByUsername(ctx, username)
 	return err == nil && u == nil
 }

@@ -59,21 +59,46 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	case strings.HasPrefix(identifier, "+"):
 		usr, e := s.svc.GetUserByPhone(r.Context(), identifier)
 		if e != nil || usr == nil {
+			hasPending := false
+			passwordMatches := false
+			var pendingUsername string
+			var pendingPasswordHash string
 			if pending, perr := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), identifier); perr == nil && pending != nil {
+				hasPending = true
+				pendingUsername = pending.Username
+				pendingPasswordHash = pending.PasswordHash
 				if ok, verr := pwhash.VerifyArgon2id(pending.PasswordHash, req.Password); verr == nil && ok {
-					_, _ = s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, pending.Username, pending.PasswordHash)
-					if s.svc.Options().RequireVerifiedRegistrations {
-						unauthorized(w, "phone_not_verified")
-						return
-					}
+					passwordMatches = true
+				}
+			}
+			recoveredUserID, recoveryErr, handled := recoverPendingPhoneLogin(
+				hasPending,
+				passwordMatches,
+				s.svc.Options().RequireVerifiedRegistrations,
+				func() error {
+					_, createErr := s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, pendingUsername, pendingPasswordHash)
+					return createErr
+				},
+				func() (string, error) {
 					usr, e = s.svc.GetUserByPhone(r.Context(), identifier)
 					if e != nil || usr == nil {
-						logLoginFailed(s, r, "", "invalid_credentials")
-						unauthorized(w, "invalid_credentials")
-						return
+						if e != nil {
+							return "", e
+						}
+						return "", errors.New("user_not_found")
 					}
-					userID = usr.ID
+					return usr.ID, nil
+				},
+			)
+			if handled {
+				if recoveryErr != "" {
+					if recoveryErr == "invalid_credentials" {
+						logLoginFailed(s, r, "", "invalid_credentials")
+					}
+					unauthorized(w, recoveryErr)
+					return
 				}
+				userID = recoveredUserID
 			}
 			if userID != "" && usr != nil {
 				fetchedUser = &userWithEmail{
@@ -175,29 +200,37 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				return
 			}
 			pendingUser, pendingErr := s.svc.GetPendingRegistrationByEmail(r.Context(), loginEmail)
-			if pendingErr == nil && pendingUser != nil {
-				if s.svc.VerifyPendingPassword(r.Context(), loginEmail, req.Password) {
-					if _, err := s.svc.CreatePendingRegistration(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0); err != nil {
-						logLoginFailed(s, r, "", "invalid_credentials")
-						unauthorized(w, "invalid_credentials")
-						return
-					}
-					if !s.svc.Options().RequireVerifiedRegistrations {
-						token, exp, err = s.svc.PasswordLogin(r.Context(), loginEmail, req.Password, nil)
-						if err != nil {
-							logLoginFailed(s, r, "", "invalid_credentials")
-							unauthorized(w, "invalid_credentials")
-							return
-						}
-					} else {
-						unauthorized(w, "email_not_verified")
-						return
-					}
-				}
+			hasPending := pendingErr == nil && pendingUser != nil
+			pendingPasswordMatches := false
+			if hasPending {
+				pendingPasswordMatches = s.svc.VerifyPendingPassword(r.Context(), loginEmail, req.Password)
 			}
-			logLoginFailed(s, r, "", "invalid_credentials")
-			unauthorized(w, "invalid_credentials")
-			return
+			recoveryToken, recoveryExp, recoveryErr, handled := recoverPendingEmailLogin(
+				hasPending,
+				pendingPasswordMatches,
+				s.svc.Options().RequireVerifiedRegistrations,
+				func() error {
+					_, createErr := s.svc.CreatePendingRegistration(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0)
+					return createErr
+				},
+				func() (string, time.Time, error) {
+					return s.svc.PasswordLogin(r.Context(), loginEmail, req.Password, nil)
+				},
+			)
+			if handled {
+				if recoveryErr != "" {
+					if recoveryErr == "invalid_credentials" {
+						logLoginFailed(s, r, "", "invalid_credentials")
+					}
+					unauthorized(w, recoveryErr)
+					return
+				}
+				token, exp = recoveryToken, recoveryExp
+			} else {
+				logLoginFailed(s, r, "", "invalid_credentials")
+				unauthorized(w, "invalid_credentials")
+				return
+			}
 		}
 	}
 
@@ -302,4 +335,50 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		"token_type":   "Bearer",
 		"expires_in":   int64(time.Until(exp).Seconds()),
 	})
+}
+
+func recoverPendingEmailLogin(
+	hasPending bool,
+	passwordMatches bool,
+	requireVerifiedRegistrations bool,
+	createPending func() error,
+	retryPasswordLogin func() (string, time.Time, error),
+) (token string, exp time.Time, responseErr string, handled bool) {
+	if !hasPending || !passwordMatches {
+		return "", time.Time{}, "", false
+	}
+	if err := createPending(); err != nil {
+		return "", time.Time{}, "invalid_credentials", true
+	}
+	if requireVerifiedRegistrations {
+		return "", time.Time{}, "email_not_verified", true
+	}
+	token, exp, err := retryPasswordLogin()
+	if err != nil {
+		return "", time.Time{}, "invalid_credentials", true
+	}
+	return token, exp, "", true
+}
+
+func recoverPendingPhoneLogin(
+	hasPending bool,
+	passwordMatches bool,
+	requireVerifiedRegistrations bool,
+	createPending func() error,
+	loadUserByPhone func() (string, error),
+) (userID string, responseErr string, handled bool) {
+	if !hasPending || !passwordMatches {
+		return "", "", false
+	}
+	if err := createPending(); err != nil {
+		return "", "invalid_credentials", true
+	}
+	if requireVerifiedRegistrations {
+		return "", "phone_not_verified", true
+	}
+	userID, err := loadUserByPhone()
+	if err != nil || strings.TrimSpace(userID) == "" {
+		return "", "invalid_credentials", true
+	}
+	return userID, "", true
 }

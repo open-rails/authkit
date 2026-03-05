@@ -386,6 +386,24 @@
         "[x] Add docs section: \"Configuration ownership\" with one table listing allowed library-side exception (`cfg.Keys == nil`) and all host-required inputs, plus a deprecation table (`VerificationRequired` -> `RequireVerifiedRegistrations`, legacy env aliases -> canonical env names)."
       ],
       "completed": true
+    },
+    {
+      "name": "DB-seeded reserved slugs (replace runtime hardcoded blocked-name checks)",
+      "id_number": 25,
+      "description": "Move reserved-name enforcement in AuthKit to a single data-driven path: reserve critical slugs in the database during migrations, then rely on normal uniqueness/existence + reserved metadata checks at runtime.\n\nGoal:\n- One enforcement layer for slug claimability.\n- No scattered runtime hardcoded blocked-name checks in public registration/rename flows.\n\nScope:\n- Applies to both user and org slugs.\n- Keep `reserve_account` / `claim_reserved_account` internal helpers.\n\nKey decision:\n- Seed reserved slugs via SQL migration (idempotent), not via ad-hoc startup code.\n\nInitial reserved slugs list (single canonical constant/source in repo):\n- `admin`, `superuser`, `root`, `sudo` (extendable in one place).",
+      "tasks": [
+        "[x] Add one canonical reserved-slug list in AuthKit source (single location) for migration generation + verification docs.",
+        "[x] Add SQL migration to seed reserved slugs as reserved user + reserved org records (metadata `reserved=true`) for each slug.",
+        "[x] Migration must be idempotent (`ON CONFLICT`/upsert semantics) and safe on re-run.",
+        "[x] Ensure seeded reserved accounts have no auth credentials/providers by default (no accidental login path).",
+        "[x] Remove runtime/public hardcoded blocked-name checks for reserved slugs from register/create/rename/org-create/org-rename paths.",
+        "[x] Keep runtime enforcement data-driven: slug already exists/reserved in DB => request rejected by normal uniqueness/resolution path.",
+        "[x] Add migration/boot invariant verification: required reserved slugs must exist (fail fast or explicit admin error if missing).",
+        "[x] Add tests:\n    - public registration/create/rename cannot take seeded reserved slugs\n    - behavior still blocks those slugs after app restart (DB-backed)\n    - no runtime hardcoded denylist path remains in request handlers",
+        "[x] Update docs (`README` + `agents/api-endpoints.md`) to describe reserved-slug policy and migration-seeded source of truth.",
+        "[x] Add rollout notes: if a reserved slug was previously user-created in an environment, define deterministic migration behavior (skip with warning vs manual remediation)."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

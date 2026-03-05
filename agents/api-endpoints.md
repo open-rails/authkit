@@ -42,6 +42,10 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | POST | `/auth/token` | PUBLIC | Refresh access token (org_mode=multi: optional `org` in body to mint org-scoped access token) |
 | POST | `/auth/sessions/current` | PUBLIC | Get current session info |
 
+Reserved slug policy:
+- Reserved owner slugs are seeded in DB migrations as reserved user + personal-org placeholders.
+- Public APIs do not use a hardcoded slug denylist; reserved slug claims are rejected by normal in-use/owner-namespace conflicts.
+
 ---
 
 ## Password Reset
@@ -175,3 +179,5 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 | DELETE | `/auth/admin/users/:user_id` | ADMIN | Delete user |
 | POST | `/auth/admin/users/:user_id/restore` | ADMIN | Restore (undelete) user |
 | GET | `/auth/admin/users/deleted` | ADMIN | List deleted users |
+| POST | `/auth/admin/accounts/reserve` | ADMIN | Internal/admin reserve account slug (`{slug}`) |
+| POST | `/auth/admin/accounts/claim` | ADMIN | Internal/admin claim reserved account (`{slug,password,email?,phone?}`) |

@@ -2,46 +2,42 @@ package core
 
 import (
 	"context"
-	"strings"
 	"testing"
 )
 
-func TestCreateUser_RejectsReservedUsername(t *testing.T) {
+func TestCreateUser_DoesNotHardcodeReservedSlugRejection(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(Options{}, Keyset{})
-	if _, err := svc.CreateUser(context.Background(), "", "superuser"); err == nil || err.Error() != "username_reserved" {
-		t.Fatalf("expected username_reserved, got %v", err)
+	if _, err := svc.CreateUser(context.Background(), "", "superuser"); err != nil {
+		t.Fatalf("expected no hardcoded reserved check, got %v", err)
 	}
 }
 
-func TestCreatePendingRegistration_RejectsReservedUsername(t *testing.T) {
+func TestCreatePendingRegistration_DoesNotReturnUsernameReserved(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(Options{}, Keyset{})
-	if _, err := svc.CreatePendingRegistration(context.Background(), "test@example.com", "sudo", "hash", 0); err == nil || err.Error() != "username_reserved" {
-		t.Fatalf("expected username_reserved, got %v", err)
+	if _, err := svc.CreatePendingRegistration(context.Background(), "test@example.com", "sudo", "hash", 0); err != nil && err.Error() == "username_reserved" {
+		t.Fatalf("expected DB-backed conflict behavior, got hardcoded username_reserved")
 	}
 }
 
-func TestCreatePendingPhoneRegistration_RejectsReservedUsername(t *testing.T) {
+func TestCreatePendingPhoneRegistration_DoesNotReturnUsernameReserved(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(Options{}, Keyset{})
-	if _, err := svc.CreatePendingPhoneRegistration(context.Background(), "+15551234567", "admin", "hash"); err == nil || err.Error() != "username_reserved" {
-		t.Fatalf("expected username_reserved, got %v", err)
+	if _, err := svc.CreatePendingPhoneRegistration(context.Background(), "+15551234567", "admin", "hash"); err != nil && err.Error() == "username_reserved" {
+		t.Fatalf("expected DB-backed conflict behavior, got hardcoded username_reserved")
 	}
 }
 
-func TestGenerateAvailableUsername_SkipsReservedBase(t *testing.T) {
+func TestGenerateAvailableUsername_CanReturnReservedBaseWithoutDBSeed(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(Options{}, Keyset{})
 	got := svc.GenerateAvailableUsername(context.Background(), "superuser")
-	if strings.EqualFold(got, "superuser") {
-		t.Fatalf("expected a non-reserved username, got %q", got)
-	}
-	if IsReservedUsername(got) {
-		t.Fatalf("expected non-reserved candidate, got %q", got)
+	if got != "superuser" {
+		t.Fatalf("expected base username when DB has no seeded rows, got %q", got)
 	}
 }

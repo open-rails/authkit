@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	core "github.com/open-rails/authkit/core"
 )
 
 func validateUsername(username string) error {
@@ -36,10 +34,6 @@ func validateUsername(username string) error {
 	validPattern := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 	if !validPattern.MatchString(username) {
 		return fmt.Errorf("username_invalid_characters")
-	}
-
-	if core.IsReservedUsername(username) {
-		return fmt.Errorf("username_reserved")
 	}
 
 	return nil

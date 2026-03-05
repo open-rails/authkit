@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandleAdminAccountsReservePOST_RejectsReservedSlug(t *testing.T) {
+func TestHandleAdminAccountsReservePOST_NoHardcodedReservedSlugBlock(t *testing.T) {
 	t.Parallel()
 
 	s := &Service{svc: newTestCoreService(t)}
@@ -18,11 +18,12 @@ func TestHandleAdminAccountsReservePOST_RejectsReservedSlug(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	s.handleAdminAccountsReservePOST(w, r)
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"username_reserved"`)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), `"error":"account_reserve_failed"`)
+	require.NotContains(t, w.Body.String(), `"error":"username_reserved"`)
 }
 
-func TestHandleAdminAccountsClaimPOST_RejectsReservedSlug(t *testing.T) {
+func TestHandleAdminAccountsClaimPOST_NoHardcodedReservedSlugBlock(t *testing.T) {
 	t.Parallel()
 
 	s := &Service{svc: newTestCoreService(t)}
@@ -32,5 +33,6 @@ func TestHandleAdminAccountsClaimPOST_RejectsReservedSlug(t *testing.T) {
 
 	s.handleAdminAccountsClaimPOST(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"username_reserved"`)
+	require.Contains(t, w.Body.String(), `"error":"account_claim_failed"`)
+	require.NotContains(t, w.Body.String(), `"error":"username_reserved"`)
 }

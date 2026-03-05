@@ -20,10 +20,6 @@ func (s *Service) handleAdminAccountsReservePOST(w http.ResponseWriter, r *http.
 		badRequest(w, "invalid_request")
 		return
 	}
-	if core.IsReservedUsername(req.Slug) {
-		badRequest(w, "username_reserved")
-		return
-	}
 	userID, orgID, reserved, err := s.svc.ReserveAccount(r.Context(), req.Slug, "", "", "")
 	if err != nil {
 		switch {
@@ -59,10 +55,6 @@ func (s *Service) handleAdminAccountsClaimPOST(w http.ResponseWriter, r *http.Re
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Slug) == "" || strings.TrimSpace(req.Password) == "" {
 		badRequest(w, "invalid_request")
-		return
-	}
-	if core.IsReservedUsername(req.Slug) {
-		badRequest(w, "username_reserved")
 		return
 	}
 	userID, orgID, err := s.svc.ClaimReservedAccount(r.Context(), req.Slug, req.Password, req.Email, req.Phone)

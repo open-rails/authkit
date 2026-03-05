@@ -22,21 +22,11 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// strPtr returns a pointer to the given string.
-func strPtr(s string) *string {
-	return &s
-}
-
 // Options configures issued tokens and identifiers.
 type Options struct {
-	Issuer          string
-	IssuedAudiences []string // JWT audiences - tokens issued will contain ALL of these audiences
-	// ExpectedAudiences enforces that verified access tokens contain at least one
-	// of these audiences. Prefer this over ExpectedAudience for new integrations.
-	ExpectedAudiences []string
-	// ExpectedAudience enforces a single required audience for verified access tokens.
-	// Deprecated: prefer ExpectedAudiences.
-	ExpectedAudience     string
+	Issuer               string
+	IssuedAudiences      []string // JWT audiences - tokens issued will contain ALL of these audiences
+	ExpectedAudiences    []string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 	SessionMaxPerUser    int
@@ -45,9 +35,6 @@ type Options struct {
 	// RequireVerifiedRegistrations controls whether email/phone registration requires
 	// confirmation before sign-in is allowed.
 	RequireVerifiedRegistrations bool
-	// VerificationRequired is deprecated. Use RequireVerifiedRegistrations.
-	// Kept as a mirrored alias for one transition window.
-	VerificationRequired bool
 
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" or "multi".
@@ -93,11 +80,6 @@ type Service struct {
 }
 
 func NewService(opts Options, keys Keyset) *Service {
-	if !opts.RequireVerifiedRegistrations && opts.VerificationRequired {
-		opts.RequireVerifiedRegistrations = true
-	}
-	// Keep deprecated alias mirrored for compatibility.
-	opts.VerificationRequired = opts.RequireVerifiedRegistrations
 	if strings.TrimSpace(opts.OrgMode) == "" {
 		opts.OrgMode = "single"
 	}
@@ -127,13 +109,9 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	if len(issuedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
 	}
-	expectedAudience := strings.TrimSpace(cfg.ExpectedAudience)
 	expectedAudiences := cfg.ExpectedAudiences
-	if len(expectedAudiences) == 0 && expectedAudience != "" {
-		expectedAudiences = []string{expectedAudience}
-	}
 	if len(expectedAudiences) == 0 {
-		return nil, fmt.Errorf("authkit: ExpectedAudiences (or ExpectedAudience) is required (e.g., []string{\"myapp\"})")
+		return nil, fmt.Errorf("authkit: ExpectedAudiences is required (e.g., []string{\"myapp\"})")
 	}
 
 	maxSess := cfg.SessionMaxPerUser
@@ -158,21 +136,16 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	requireVerifiedRegistrations := true
 	if cfg.RequireVerifiedRegistrations != nil {
 		requireVerifiedRegistrations = *cfg.RequireVerifiedRegistrations
-	} else if cfg.VerificationRequired {
-		// Deprecated alias path.
-		requireVerifiedRegistrations = true
 	}
 	opts := Options{
 		Issuer:                       cfg.Issuer,
 		IssuedAudiences:              issuedAudiences,
 		ExpectedAudiences:            expectedAudiences,
-		ExpectedAudience:             expectedAudiences[0],
 		AccessTokenDuration:          accessTTL,
 		RefreshTokenDuration:         refTTL,
 		SessionMaxPerUser:            maxSess,
 		BaseURL:                      cfg.BaseURL,
 		RequireVerifiedRegistrations: requireVerifiedRegistrations,
-		VerificationRequired:         requireVerifiedRegistrations,
 		OrgMode:                      orgMode,
 		Environment:                  strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:                strings.TrimSpace(cfg.SolanaNetwork),
@@ -341,14 +314,9 @@ func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlu
 
 // --- Refresh tokens are implemented via server-side sessions in service_sessions.go ---
 
-func newUUID() string { return strings.ReplaceAll(randB64(16), "-", "") }
-
 // Options exposes immutable configuration for callers that need to validate claims.
 func (s *Service) Options() Options {
-	out := s.opts
-	// Keep deprecated alias mirrored for compatibility.
-	out.VerificationRequired = out.RequireVerifiedRegistrations
-	return out
+	return s.opts
 }
 
 func (s *Service) isDevEnvironment() bool {
@@ -992,9 +960,6 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
-	if IsReservedUsername(username) {
-		return "", fmt.Errorf("username_reserved")
-	}
 	if !s.opts.RequireVerifiedRegistrations {
 		_, err := s.createVerifiedRegistrationUser(ctx, email, username, passwordHash)
 		if err != nil {
@@ -1124,9 +1089,6 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
-	if IsReservedUsername(username) {
-		return "", fmt.Errorf("username_reserved")
-	}
 	if !s.opts.RequireVerifiedRegistrations {
 		_, err := s.createVerifiedPhoneRegistrationUser(ctx, phone, username, passwordHash)
 		if err != nil {
@@ -1180,10 +1142,6 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 	} else {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	if IsReservedUsername(username) {
-		return "", fmt.Errorf("username_reserved")
-	}
-
 	// Check if phone or username is now taken
 	var exists bool
 	err = s.pg.QueryRow(ctx, `
@@ -1568,9 +1526,6 @@ func isUserBanned(u *User) bool {
 }
 
 func (s *Service) createUser(ctx context.Context, email, username string) (*User, error) {
-	if IsReservedUsername(username) {
-		return nil, fmt.Errorf("username_reserved")
-	}
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -1762,9 +1717,6 @@ func (s *Service) HostDeleteUser(ctx context.Context, id string, soft bool) erro
 func (s *Service) updateUsername(ctx context.Context, id, username string) error {
 	if s.pg == nil {
 		return nil
-	}
-	if IsReservedUsername(username) {
-		return fmt.Errorf("username_reserved")
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
