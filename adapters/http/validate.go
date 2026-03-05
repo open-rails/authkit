@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 func validateUsername(username string) error {
@@ -36,8 +38,7 @@ func validateUsername(username string) error {
 		return fmt.Errorf("username_invalid_characters")
 	}
 
-	lowerUsername := strings.ToLower(username)
-	if lowerUsername == "admin" || lowerUsername == "moderator" {
+	if core.IsReservedUsername(username) {
 		return fmt.Errorf("username_reserved")
 	}
 

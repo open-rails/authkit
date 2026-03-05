@@ -203,6 +203,10 @@ func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http
 		badRequest(w, "invalid_request")
 		return
 	}
+	if err := validateUsername(req.Username); err != nil {
+		badRequest(w, err.Error())
+		return
+	}
 	if !s.allow(r, RLAdminRolesGrant) {
 		tooMany(w)
 		return

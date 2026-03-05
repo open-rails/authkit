@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	stdlog "log"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -43,13 +42,21 @@ type Options struct {
 	SessionMaxPerUser    int
 	// Optional link building (paths are fixed: /reset and /verify)
 	BaseURL string
-	// VerificationRequired controls whether email/phone registration requires
+	// RequireVerifiedRegistrations controls whether email/phone registration requires
 	// confirmation before sign-in is allowed.
+	RequireVerifiedRegistrations bool
+	// VerificationRequired is deprecated. Use RequireVerifiedRegistrations.
+	// Kept as a mirrored alias for one transition window.
 	VerificationRequired bool
 
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" or "multi".
 	OrgMode string
+
+	// Environment is host-provided runtime mode used for dev/prod behavior checks.
+	Environment string
+	// SolanaNetwork is host-provided chain selector for SIWS flows.
+	SolanaNetwork string
 }
 
 // Keyset holds the active signer and the public keys exposed via JWKS.
@@ -86,6 +93,11 @@ type Service struct {
 }
 
 func NewService(opts Options, keys Keyset) *Service {
+	if !opts.RequireVerifiedRegistrations && opts.VerificationRequired {
+		opts.RequireVerifiedRegistrations = true
+	}
+	// Keep deprecated alias mirrored for compatibility.
+	opts.VerificationRequired = opts.RequireVerifiedRegistrations
 	if strings.TrimSpace(opts.OrgMode) == "" {
 		opts.OrgMode = "single"
 	}
@@ -143,17 +155,27 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	default:
 		return nil, fmt.Errorf("authkit: invalid OrgMode %q (want \"single\" or \"multi\")", cfg.OrgMode)
 	}
+	requireVerifiedRegistrations := true
+	if cfg.RequireVerifiedRegistrations != nil {
+		requireVerifiedRegistrations = *cfg.RequireVerifiedRegistrations
+	} else if cfg.VerificationRequired {
+		// Deprecated alias path.
+		requireVerifiedRegistrations = true
+	}
 	opts := Options{
-		Issuer:               cfg.Issuer,
-		IssuedAudiences:      issuedAudiences,
-		ExpectedAudiences:    expectedAudiences,
-		ExpectedAudience:     expectedAudiences[0],
-		AccessTokenDuration:  accessTTL,
-		RefreshTokenDuration: refTTL,
-		SessionMaxPerUser:    maxSess,
-		BaseURL:              cfg.BaseURL,
-		VerificationRequired: cfg.VerificationRequired,
-		OrgMode:              orgMode,
+		Issuer:                       cfg.Issuer,
+		IssuedAudiences:              issuedAudiences,
+		ExpectedAudiences:            expectedAudiences,
+		ExpectedAudience:             expectedAudiences[0],
+		AccessTokenDuration:          accessTTL,
+		RefreshTokenDuration:         refTTL,
+		SessionMaxPerUser:            maxSess,
+		BaseURL:                      cfg.BaseURL,
+		RequireVerifiedRegistrations: requireVerifiedRegistrations,
+		VerificationRequired:         requireVerifiedRegistrations,
+		OrgMode:                      orgMode,
+		Environment:                  strings.TrimSpace(cfg.Environment),
+		SolanaNetwork:                strings.TrimSpace(cfg.SolanaNetwork),
 	}
 	return NewService(opts, ks), nil
 }
@@ -322,7 +344,19 @@ func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlu
 func newUUID() string { return strings.ReplaceAll(randB64(16), "-", "") }
 
 // Options exposes immutable configuration for callers that need to validate claims.
-func (s *Service) Options() Options { return s.opts }
+func (s *Service) Options() Options {
+	out := s.opts
+	// Keep deprecated alias mirrored for compatibility.
+	out.VerificationRequired = out.RequireVerifiedRegistrations
+	return out
+}
+
+func (s *Service) isDevEnvironment() bool {
+	if s == nil {
+		return true
+	}
+	return isDevEnvironment(s.opts.Environment)
+}
 
 // WithPostgres attaches a pgx pool to the service.
 func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
@@ -573,7 +607,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 		return s.sms.SendVerificationCode(ctx, phone, code)
 	}
 	// In production, require SMS to be configured
-	if !isDevEnvironment(getEnvironment()) {
+	if !s.isDevEnvironment() {
 		return fmt.Errorf("SMS sender not configured")
 	}
 	// Dev mode: log code to stdout
@@ -847,7 +881,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 	}
 
 	if s.email == nil {
-		if !isDevEnvironment(getEnvironment()) {
+		if !s.isDevEnvironment() {
 			return fmt.Errorf("email password reset unavailable: email sender not configured")
 		}
 		stdlog.Printf("[authkit/dev-email] password reset email=%s username=%s token=%s", *u.Email, username, token)
@@ -958,7 +992,10 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
-	if !s.opts.VerificationRequired {
+	if IsReservedUsername(username) {
+		return "", fmt.Errorf("username_reserved")
+	}
+	if !s.opts.RequireVerifiedRegistrations {
 		_, err := s.createVerifiedRegistrationUser(ctx, email, username, passwordHash)
 		if err != nil {
 			return "", err
@@ -1087,7 +1124,10 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
-	if !s.opts.VerificationRequired {
+	if IsReservedUsername(username) {
+		return "", fmt.Errorf("username_reserved")
+	}
+	if !s.opts.RequireVerifiedRegistrations {
 		_, err := s.createVerifiedPhoneRegistrationUser(ctx, phone, username, passwordHash)
 		if err != nil {
 			return "", err
@@ -1111,7 +1151,7 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		_ = s.sms.SendVerificationCode(ctx, phone, code)
 	} else {
 		// In production, require SMS to be configured
-		if !isDevEnvironment(getEnvironment()) {
+		if !s.isDevEnvironment() {
 			return "", fmt.Errorf("SMS verification unavailable: Twilio not configured (phone registration requires SMS in production)")
 		}
 		// Dev mode: log code to stdout
@@ -1139,6 +1179,9 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 		username, passwordHash = data.Username, data.PasswordHash
 	} else {
 		return "", jwt.ErrTokenUnverifiable
+	}
+	if IsReservedUsername(username) {
+		return "", fmt.Errorf("username_reserved")
 	}
 
 	// Check if phone or username is now taken
@@ -1295,7 +1338,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 		_ = s.sms.SendVerificationCode(ctx, phone, code)
 	} else {
 		// In production, require SMS to be configured
-		if !isDevEnvironment(getEnvironment()) {
+		if !s.isDevEnvironment() {
 			return fmt.Errorf("SMS verification unavailable: Twilio not configured (phone verification requires SMS in production)")
 		}
 		// Dev mode: log code to stdout
@@ -1353,7 +1396,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 	}
 
 	if s.sms == nil {
-		if !isDevEnvironment(getEnvironment()) {
+		if !s.isDevEnvironment() {
 			return fmt.Errorf("SMS password reset unavailable: sms sender not configured")
 		}
 		stdlog.Printf("[authkit/dev-sms] password reset phone=%s token=%s", phone, token)
@@ -1362,7 +1405,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 
 	linkSender, ok := s.sms.(SMSSenderWithPasswordResetLink)
 	if !ok {
-		if !isDevEnvironment(getEnvironment()) {
+		if !s.isDevEnvironment() {
 			return fmt.Errorf("SMS password reset unavailable: sms sender does not implement password reset links")
 		}
 		stdlog.Printf("[authkit/dev-sms] password reset phone=%s token=%s (no SMS link sender configured)", phone, token)
@@ -1525,6 +1568,9 @@ func isUserBanned(u *User) bool {
 }
 
 func (s *Service) createUser(ctx context.Context, email, username string) (*User, error) {
+	if IsReservedUsername(username) {
+		return nil, fmt.Errorf("username_reserved")
+	}
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -1716,6 +1762,9 @@ func (s *Service) HostDeleteUser(ctx context.Context, id string, soft bool) erro
 func (s *Service) updateUsername(ctx context.Context, id, username string) error {
 	if s.pg == nil {
 		return nil
+	}
+	if IsReservedUsername(username) {
+		return fmt.Errorf("username_reserved")
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
@@ -2924,7 +2973,7 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 			_ = s.email.SendLoginCode(ctx, destination, username, code)
 		} else {
 			// In production, require email to be configured for email 2FA
-			if !isDevEnvironment(getEnvironment()) {
+			if !s.isDevEnvironment() {
 				return "", fmt.Errorf("Email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
 			}
 			// Dev mode: log code to stdout
@@ -2935,7 +2984,7 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 			_ = s.sms.SendLoginCode(ctx, destination, code)
 		} else {
 			// In production, require SMS to be configured for SMS 2FA
-			if !isDevEnvironment(getEnvironment()) {
+			if !s.isDevEnvironment() {
 				return "", fmt.Errorf("SMS 2FA unavailable: Twilio not configured (SMS 2FA requires Twilio in production)")
 			}
 			// Dev mode: log code to stdout
@@ -3083,18 +3132,6 @@ func randAlphanumericUppercase(n int) string {
 		b[i] = chars[randInt(len(chars))]
 	}
 	return string(b)
-}
-
-// getEnvironment reads the environment from ENV, APP_ENV, or ENVIRONMENT variables
-func getEnvironment() string {
-	env := os.Getenv("ENV")
-	if env == "" {
-		env = os.Getenv("APP_ENV")
-	}
-	if env == "" {
-		env = os.Getenv("ENVIRONMENT")
-	}
-	return env
 }
 
 // isDevEnvironment returns true unless the environment is explicitly set to prod/production

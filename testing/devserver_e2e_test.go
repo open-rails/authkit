@@ -188,7 +188,7 @@ func TestDevserverE2E(t *testing.T) {
     ports:
       - "8080"
     environment:
-      AUTHKIT_DEV_MINT_SECRET: %q
+      DEVSERVER_DEV_MINT_SECRET: %q
 `, mintSecret)
 	if useAllInOne {
 		// Test the all-in-one image (embedded Postgres) via a local build.
@@ -203,12 +203,12 @@ func TestDevserverE2E(t *testing.T) {
       - "8080"
     environment:
       ENV: dev
-      AUTHKIT_LISTEN_ADDR: ":8080"
-      AUTHKIT_ISSUER: "http://issuer:8080"
-      AUTHKIT_ISSUED_AUDIENCES: %q
-      AUTHKIT_EXPECTED_AUDIENCES: %q
-      AUTHKIT_DEV_MODE: "true"
-      AUTHKIT_DEV_MINT_SECRET: %q
+      DEVSERVER_LISTEN_ADDR: ":8080"
+      DEVSERVER_ISSUER: "http://issuer:8080"
+      DEVSERVER_ISSUED_AUDIENCES: %q
+      DEVSERVER_EXPECTED_AUDIENCES: %q
+      DEVSERVER_DEV_MODE: "true"
+      DEVSERVER_DEV_MINT_SECRET: %q
 `, repoRoot, aud, aud, mintSecret)
 		if err := os.WriteFile(composeFile, []byte(override), 0600); err != nil {
 			t.Fatalf("write all-in-one compose: %v", err)
@@ -358,8 +358,23 @@ func TestDevserverE2E(t *testing.T) {
 
 	execPSQL := func(t *testing.T, sql string) {
 		t.Helper()
-		c.run(t, "-f", composeFile, "-f", overridePath, "exec", "-T", "postgres",
+		args := []string{"-f", composeFile}
+		if strings.TrimSpace(overridePath) != "" {
+			args = append(args, "-f", overridePath)
+		}
+		args = append(args, "exec", "-T", "postgres",
 			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-c", sql)
+		c.run(t, args...)
+	}
+	queryPSQL := func(t *testing.T, sql string) string {
+		t.Helper()
+		args := []string{"-f", composeFile}
+		if strings.TrimSpace(overridePath) != "" {
+			args = append(args, "-f", overridePath)
+		}
+		args = append(args, "exec", "-T", "postgres",
+			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql)
+		return strings.TrimSpace(c.run(t, args...))
 	}
 
 	t.Run("minted_token_can_call_user_me", func(t *testing.T) {
@@ -486,6 +501,97 @@ func TestDevserverE2E(t *testing.T) {
 		})
 		if refreshResp2.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("expected 401 after logout, got %d: %s", refreshResp2.StatusCode, string(refreshBody2))
+		}
+	})
+
+	t.Run("reserved_account_reserve_claim_login_flow", func(t *testing.T) {
+		adminUserID := "11111111-1111-1111-1111-111111111111"
+		adminEmail := "admin@example.com"
+		adminUsername := "admin-user"
+		reservedSlug := "reserved-owner"
+		reservedPassword := "StrongPass123!"
+
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%q, %q, %q, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			adminUserID, adminEmail, adminUsername,
+		))
+		execPSQL(t, "INSERT INTO profiles.roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (%q, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
+			adminUserID,
+		))
+		adminToken := mint(t, adminUserID, 300)
+
+		reserveResp, reserveBody := httpJSON(t, http.MethodPost, baseURL+"/auth/admin/accounts/reserve", map[string]string{
+			"Authorization": "Bearer " + adminToken,
+		}, map[string]any{
+			"slug": reservedSlug,
+		})
+		if reserveResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected reserve 200, got %d: %s", reserveResp.StatusCode, string(reserveBody))
+		}
+
+		userReserved := queryPSQL(t, fmt.Sprintf(
+			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%q LIMIT 1;",
+			reservedSlug,
+		))
+		if userReserved != "t" {
+			t.Fatalf("expected user metadata.reserved=true, got %q", userReserved)
+		}
+		orgReserved := queryPSQL(t, fmt.Sprintf(
+			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.orgs WHERE slug=%q AND deleted_at IS NULL LIMIT 1;",
+			reservedSlug,
+		))
+		if orgReserved != "t" {
+			t.Fatalf("expected org metadata.reserved=true, got %q", orgReserved)
+		}
+		passwordRows := queryPSQL(t, fmt.Sprintf(
+			"SELECT COUNT(*) FROM profiles.user_passwords up JOIN profiles.users u ON u.id=up.user_id WHERE u.username=%q;",
+			reservedSlug,
+		))
+		if passwordRows != "0" {
+			t.Fatalf("expected no password rows for reserved placeholder, got %q", passwordRows)
+		}
+		providerRows := queryPSQL(t, fmt.Sprintf(
+			"SELECT COUNT(*) FROM profiles.user_providers p JOIN profiles.users u ON u.id=p.user_id WHERE u.username=%q;",
+			reservedSlug,
+		))
+		if providerRows != "0" {
+			t.Fatalf("expected no provider rows for reserved placeholder, got %q", providerRows)
+		}
+
+		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/auth/password/login", nil, map[string]any{
+			"username": reservedSlug,
+			"password": reservedPassword,
+		})
+		if loginResp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected login denied for unclaimed placeholder, got %d: %s", loginResp.StatusCode, string(loginBody))
+		}
+
+		claimResp, claimBody := httpJSON(t, http.MethodPost, baseURL+"/auth/admin/accounts/claim", map[string]string{
+			"Authorization": "Bearer " + adminToken,
+		}, map[string]any{
+			"slug":     reservedSlug,
+			"password": reservedPassword,
+			"email":    "reserved-owner@example.com",
+		})
+		if claimResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected claim 200, got %d: %s", claimResp.StatusCode, string(claimBody))
+		}
+		userReservedAfter := queryPSQL(t, fmt.Sprintf(
+			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%q LIMIT 1;",
+			reservedSlug,
+		))
+		if userReservedAfter != "f" {
+			t.Fatalf("expected user metadata.reserved=false after claim, got %q", userReservedAfter)
+		}
+
+		loginResp2, loginBody2 := httpJSON(t, http.MethodPost, baseURL+"/auth/password/login", nil, map[string]any{
+			"username": reservedSlug,
+			"password": reservedPassword,
+		})
+		if loginResp2.StatusCode != http.StatusOK {
+			t.Fatalf("expected claimed user login 200, got %d: %s", loginResp2.StatusCode, string(loginBody2))
 		}
 	})
 }

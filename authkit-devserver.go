@@ -22,13 +22,16 @@ import (
 )
 
 type config struct {
-	ListenAddr           string
-	Issuer               string
-	DBURL                string
-	DevMode              bool
-	DevMintSecret        string
-	VerificationRequired bool
-	MigrateOnStart       bool
+	ListenAddr                   string
+	Issuer                       string
+	DBURL                        string
+	DevMode                      bool
+	DevMintSecret                string
+	RequireVerifiedRegistrations bool
+	MigrateOnStart               bool
+	IssuedAudiences              []string
+	ExpectedAudiences            []string
+	Environment                  string
 }
 
 func main() {
@@ -57,23 +60,29 @@ func main() {
 }
 
 func loadConfig() (*config, error) {
+	issuedAudiences := parseCSVEnv("DEVSERVER_ISSUED_AUDIENCES", []string{"billing-app"}, "AUTHKIT_ISSUED_AUDIENCES")
+	expectedAudiences := parseCSVEnv("DEVSERVER_EXPECTED_AUDIENCES", issuedAudiences, "AUTHKIT_EXPECTED_AUDIENCES")
+
 	c := &config{
-		ListenAddr:           envOr("AUTHKIT_LISTEN_ADDR", ":8080"),
-		Issuer:               strings.TrimRight(strings.TrimSpace(os.Getenv("AUTHKIT_ISSUER")), "/"),
-		DBURL:                firstEnv("DB_URL", "DATABASE_URL"),
-		DevMode:              envBool("AUTHKIT_DEV_MODE", false),
-		DevMintSecret:        strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
-		VerificationRequired: envBool("AUTHKIT_VERIFICATION_REQUIRED", true),
-		MigrateOnStart:       envBool("AUTHKIT_MIGRATE_ON_START", true),
+		ListenAddr:                   envOr("DEVSERVER_LISTEN_ADDR", ":8080", "AUTHKIT_LISTEN_ADDR"),
+		Issuer:                       strings.TrimRight(envOr("DEVSERVER_ISSUER", "", "AUTHKIT_ISSUER"), "/"),
+		DBURL:                        firstEnv("DB_URL", "DATABASE_URL"),
+		DevMode:                      envBool("DEVSERVER_DEV_MODE", false, "AUTHKIT_DEV_MODE"),
+		DevMintSecret:                envOr("DEVSERVER_DEV_MINT_SECRET", "", "AUTHKIT_DEV_MINT_SECRET"),
+		RequireVerifiedRegistrations: envBool("DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS", true, "DEVSERVER_VERIFICATION_REQUIRED", "AUTHKIT_VERIFICATION_REQUIRED"),
+		MigrateOnStart:               envBool("DEVSERVER_MIGRATE_ON_START", true, "AUTHKIT_MIGRATE_ON_START"),
+		IssuedAudiences:              issuedAudiences,
+		ExpectedAudiences:            expectedAudiences,
+		Environment:                  envOr("DEVSERVER_ENVIRONMENT", "dev", "AUTHKIT_ENVIRONMENT"),
 	}
 	if c.Issuer == "" {
-		return nil, fmt.Errorf("AUTHKIT_ISSUER is required (e.g. http://issuer:8080 or http://localhost:8080)")
+		return nil, fmt.Errorf("DEVSERVER_ISSUER is required (legacy alias AUTHKIT_ISSUER still supported)")
 	}
 	if c.DBURL == "" {
 		return nil, fmt.Errorf("DB_URL (or DATABASE_URL) is required")
 	}
 	if c.DevMode && c.DevMintSecret == "" {
-		return nil, fmt.Errorf("AUTHKIT_DEV_MINT_SECRET is required when AUTHKIT_DEV_MODE=true")
+		return nil, fmt.Errorf("DEVSERVER_DEV_MINT_SECRET is required when DEVSERVER_DEV_MODE=true")
 	}
 	return c, nil
 }
@@ -98,15 +107,13 @@ func runServe(cfg *config) error {
 		return fmt.Errorf("load jwt keys: %w", err)
 	}
 
-	issuedAudiences := parseCSVEnv("AUTHKIT_ISSUED_AUDIENCES", []string{"billing-app"})
-	expectedAudiences := parseCSVEnv("AUTHKIT_EXPECTED_AUDIENCES", issuedAudiences)
-
 	svc, err := authhttp.NewService(core.Config{
-		Issuer:               cfg.Issuer,
-		IssuedAudiences:      issuedAudiences,
-		ExpectedAudiences:    expectedAudiences,
-		Keys:                 keySource,
-		VerificationRequired: cfg.VerificationRequired,
+		Issuer:                       cfg.Issuer,
+		IssuedAudiences:              cfg.IssuedAudiences,
+		ExpectedAudiences:            cfg.ExpectedAudiences,
+		Keys:                         keySource,
+		Environment:                  cfg.Environment,
+		RequireVerifiedRegistrations: core.Bool(cfg.RequireVerifiedRegistrations),
 	})
 	if err != nil {
 		return err
@@ -298,8 +305,12 @@ func devSecretOK(authHeader, devHeader, secret string) bool {
 	return strings.TrimSpace(authHeader[len(prefix):]) == secret
 }
 
-func parseCSVEnv(key string, fallback []string) []string {
-	raw := strings.TrimSpace(os.Getenv(key))
+func parseCSVEnv(canonicalKey string, fallback []string, aliases ...string) []string {
+	raw, ok := envValue(canonicalKey, aliases...)
+	if !ok {
+		return fallback
+	}
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return fallback
 	}
@@ -317,9 +328,9 @@ func parseCSVEnv(key string, fallback []string) []string {
 	return out
 }
 
-func envOr(key, fallback string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
+func envOr(canonicalKey, fallback string, aliases ...string) string {
+	if v, ok := envValue(canonicalKey, aliases...); ok {
+		return strings.TrimSpace(v)
 	}
 	return fallback
 }
@@ -333,16 +344,43 @@ func firstEnv(keys ...string) string {
 	return ""
 }
 
-func envBool(key string, fallback bool) bool {
-	raw := strings.TrimSpace(os.Getenv(key))
+func envBool(canonicalKey string, fallback bool, aliases ...string) bool {
+	raw, ok := envValue(canonicalKey, aliases...)
+	if !ok {
+		return fallback
+	}
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return fallback
 	}
 	b, err := strconv.ParseBool(raw)
 	if err != nil {
+		warnf("invalid boolean in %s=%q; using default %t", canonicalKey, raw, fallback)
 		return fallback
 	}
 	return b
+}
+
+func envValue(canonicalKey string, aliases ...string) (string, bool) {
+	if v := strings.TrimSpace(os.Getenv(canonicalKey)); v != "" {
+		for _, alias := range aliases {
+			if av := strings.TrimSpace(os.Getenv(alias)); av != "" {
+				warnf("%s is set but ignored because %s is also set", alias, canonicalKey)
+			}
+		}
+		return v, true
+	}
+	for _, alias := range aliases {
+		if v := strings.TrimSpace(os.Getenv(alias)); v != "" {
+			warnf("%s is deprecated; use %s", alias, canonicalKey)
+			return v, true
+		}
+	}
+	return "", false
+}
+
+func warnf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[authkit-devserver] "+format+"\n", args...)
 }
 
 func fatal(err error) {

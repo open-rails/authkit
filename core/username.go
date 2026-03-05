@@ -14,14 +14,14 @@ func (s *Service) GenerateAvailableUsername(ctx context.Context, base string) st
 	if base == "" {
 		base = "user"
 	}
-	// If available, return immediately
-	if u, _ := s.getUserByUsername(ctx, base); u == nil {
+	// If available, return immediately.
+	if s.usernameAvailable(ctx, base) {
 		return base
 	}
 	// Try numbered suffixes
 	for i := 1; i <= 999; i++ {
 		candidate := fmt.Sprintf("%s%d", base, i)
-		if u, _ := s.getUserByUsername(ctx, candidate); u == nil {
+		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
@@ -29,11 +29,19 @@ func (s *Service) GenerateAvailableUsername(ctx context.Context, base string) st
 	rand.Seed(time.Now().UnixNano())
 	for tries := 0; tries < 100; tries++ {
 		candidate := fmt.Sprintf("%s%04d", base, rand.Intn(10000))
-		if u, _ := s.getUserByUsername(ctx, candidate); u == nil {
+		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
 	return base + "_user"
+}
+
+func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
+	if IsReservedUsername(username) {
+		return false
+	}
+	u, err := s.getUserByUsername(ctx, username)
+	return err == nil && u == nil
 }
 
 // DeriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.

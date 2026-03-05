@@ -9,12 +9,12 @@ services:
       - "8080:8080"
     environment:
       # Optional overrides; defaults are already safe for local E2E.
-      AUTHKIT_ISSUER: "http://issuer:8080"
-      AUTHKIT_ISSUED_AUDIENCES: "billing-app"
-      AUTHKIT_EXPECTED_AUDIENCES: "billing-app"
+      DEVSERVER_ISSUER: "http://issuer:8080"
+      DEVSERVER_ISSUED_AUDIENCES: "billing-app"
+      DEVSERVER_EXPECTED_AUDIENCES: "billing-app"
       # Dev minting is enabled by default with secret "change-me".
       # Override if desired:
-      # AUTHKIT_DEV_MINT_SECRET: "change-me"
+      # DEVSERVER_DEV_MINT_SECRET: "change-me"
     volumes:
       - issuer_postgres_data:/var/lib/postgresql/data
       - issuer_runtime_keys:/.runtime/authkit

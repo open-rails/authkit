@@ -42,9 +42,9 @@ func (s *Service) EphemeralMode() EphemeralMode {
 	return s.ephemeralMode
 }
 
-// IsDevEnvironment reports whether the current ENV/APP_ENV/ENVIRONMENT is non-production.
-func IsDevEnvironment() bool {
-	return isDevEnvironment(getEnvironment())
+// IsDevEnvironment reports whether a host-provided environment string is non-production.
+func IsDevEnvironment(environment string) bool {
+	return isDevEnvironment(environment)
 }
 
 func (s *Service) useEphemeralStore() bool {

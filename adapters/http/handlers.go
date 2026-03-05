@@ -16,7 +16,7 @@ func (s *Service) APIHandler() http.Handler {
 	if s == nil || s.svc == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, "authkit_not_initialized") })
 	}
-	if !core.IsDevEnvironment() {
+	if !core.IsDevEnvironment(s.svc.Options().Environment) {
 		if s.svc.EphemeralMode() != core.EphemeralRedis {
 			panic("authkit: redis-compatible ephemeral store is required in production")
 		}
@@ -127,6 +127,8 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("POST /auth/admin/users/{user_id}/restore", admin(http.HandlerFunc(s.handleAdminUserRestorePOST)))
 	mux.Handle("GET /auth/admin/users/deleted", admin(http.HandlerFunc(s.handleAdminDeletedUsersListGET)))
 	mux.Handle("GET /auth/admin/users/{user_id}/signins", admin(http.HandlerFunc(s.handleAdminUserSigninsGET)))
+	mux.Handle("POST /auth/admin/accounts/reserve", admin(http.HandlerFunc(s.handleAdminAccountsReservePOST)))
+	mux.Handle("POST /auth/admin/accounts/claim", admin(http.HandlerFunc(s.handleAdminAccountsClaimPOST)))
 
 	h := http.Handler(mux)
 	h = LanguageMiddleware(s.langCfg)(h)

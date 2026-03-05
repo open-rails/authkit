@@ -25,14 +25,25 @@ type Config struct {
 	BaseURL string
 	// Paths for reset/verify are fixed to "/reset" and "/verify"; not configurable.
 
-	// VerificationRequired controls whether email/phone registration requires
+	// RequireVerifiedRegistrations controls whether email/phone registration requires
 	// confirmation before the account is usable.
-	// Default is true (set to false to allow immediate sign-up).
+	// Default behavior in NewFromConfig is true when this is nil.
+	RequireVerifiedRegistrations *bool
+	// VerificationRequired is deprecated. Use RequireVerifiedRegistrations.
+	// Backward compatibility note: this legacy field only influences config when set to true.
 	VerificationRequired bool
 
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" (default) or "multi".
 	OrgMode string
+
+	// Environment is a host-provided runtime mode string used for dev/prod behavior checks.
+	// Expected values include "prod"/"production" for production, anything else is treated as non-prod.
+	Environment string
+
+	// SolanaNetwork is a host-provided Solana chain selector ("mainnet", "testnet", "devnet").
+	// If empty, AuthKit derives a default from Environment.
+	SolanaNetwork string
 
 	// Keys can be nil - if nil, authkit auto-discovers keys with this priority:
 	// 1. Environment variables (ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, PUBLIC_KEYS)
@@ -44,3 +55,6 @@ type Config struct {
 	// Only client id/secret are required; standard scopes are derived from defaults.
 	Providers map[string]oidckit.RPConfig
 }
+
+// Bool returns a pointer to v for convenient Config field assignment.
+func Bool(v bool) *bool { return &v }

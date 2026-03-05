@@ -34,7 +34,7 @@ docker compose -f docker-compose.devserver.all-in-one.yaml up
 ```
 
 Notes:
-- The all-in-one image enables the dev mint endpoint by default with `AUTHKIT_DEV_MINT_SECRET=change-me` to stay zero-config for E2E.
+- The all-in-one image enables the dev mint endpoint by default with `DEVSERVER_DEV_MINT_SECRET=change-me` to stay zero-config for E2E.
 - Postgres is bound to `127.0.0.1` inside the container (not exposed to other containers).
 - Persisted volumes:
   - Postgres data: `/var/lib/postgresql/data`
@@ -44,14 +44,19 @@ Notes:
 
 Required:
 - `DB_URL` (or `DATABASE_URL`) — Postgres connection string
-- `AUTHKIT_ISSUER` — issuer URL embedded in tokens (e.g. `http://issuer:8080` in compose)
+- `DEVSERVER_ISSUER` — issuer URL embedded in tokens (e.g. `http://issuer:8080` in compose)
 
 Dev minting (optional, but required for billing E2E):
-- `AUTHKIT_DEV_MODE=true`
-- `AUTHKIT_DEV_MINT_SECRET=...`
+- `DEVSERVER_DEV_MODE=true`
+- `DEVSERVER_DEV_MINT_SECRET=...`
 
 Registration behavior:
-- `AUTHKIT_VERIFICATION_REQUIRED=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
+- `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
+
+Compatibility aliases (deprecated, one transition window):
+- `AUTHKIT_*` names are still accepted by the standalone devserver.
+- `AUTHKIT_VERIFICATION_REQUIRED` and `DEVSERVER_VERIFICATION_REQUIRED` map to `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS`.
+- If both canonical and alias vars are set, `DEVSERVER_*` wins.
 
 ## Mint a JWT
 

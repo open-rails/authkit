@@ -1,4 +1,4 @@
-FROM golang:1.24 AS build
+FROM golang:1.25.5 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -15,7 +15,7 @@ COPY --from=build /out/authkit-devserver /authkit-devserver
 # Key persistence (dev): mount a volume at `/.runtime/authkit` inside the container.
 # Note: the devserver writes signing keys to disk; running as root keeps this simple for local compose.
 USER 0
-ENV AUTHKIT_LISTEN_ADDR=:8080
+ENV DEVSERVER_LISTEN_ADDR=:8080
 EXPOSE 8080
 
 ENTRYPOINT ["/authkit-devserver"]

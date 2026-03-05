@@ -26,16 +26,16 @@ services:
       # Ensure we are not in production so authkit can auto-generate dev keys.
       ENV: dev
 
-      AUTHKIT_LISTEN_ADDR: ":8080"
-      AUTHKIT_ISSUER: "http://issuer:8080"
-      AUTHKIT_ISSUED_AUDIENCES: "billing-app"
-      AUTHKIT_EXPECTED_AUDIENCES: "billing-app"
+      DEVSERVER_LISTEN_ADDR: ":8080"
+      DEVSERVER_ISSUER: "http://issuer:8080"
+      DEVSERVER_ISSUED_AUDIENCES: "billing-app"
+      DEVSERVER_EXPECTED_AUDIENCES: "billing-app"
 
       DB_URL: "postgres://admin:admin_password@postgres:5432/authkit_db?sslmode=disable"
 
       # Dev-only minting endpoint:
-      AUTHKIT_DEV_MODE: "true"
-      AUTHKIT_DEV_MINT_SECRET: "change-me"
+      DEVSERVER_DEV_MODE: "true"
+      DEVSERVER_DEV_MINT_SECRET: "change-me"
     ports:
       - "8080:8080"
     volumes:
@@ -45,4 +45,3 @@ services:
 volumes:
   authkit_postgres_data:
   authkit_runtime_keys:
-

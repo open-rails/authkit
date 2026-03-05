@@ -43,7 +43,7 @@ func main() {
     IssuedAudiences:   []string{"myapp"},
     ExpectedAudiences: []string{"myapp"},
     BaseURL:           "https://myapp.com",
-    // VerificationRequired: true, // set false to create users immediately on /auth/register
+    // RequireVerifiedRegistrations: core.Bool(true), // set false to create users immediately on /auth/register
     // OrgMode: "single" (default) | "multi"
     // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
@@ -143,6 +143,27 @@ Concepts (concise)
 - Service (issuer + storage): used by `authhttp.NewService(cfg)`; backs the built-in handlers (sessions, login, OIDC, etc).
 - Middleware: `adapters/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
 - Verify-only: use `authhttp.NewVerifier(accept)` to accept tokens from other issuers without issuing tokens yourself.
+
+---
+
+Configuration ownership
+
+AuthKit library behavior is host-owned: the embedding app should pass runtime behavior via `core.Config`, not rely on library env/file reads.
+
+| Area | Ownership | Notes |
+| --- | --- | --- |
+| `Issuer`, `IssuedAudiences`, `ExpectedAudiences` | Host config | Required token contract inputs. |
+| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `OrgMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
+| `Keys` provided (`cfg.Keys != nil`) | Host config | Fully disables library key env/filesystem discovery. |
+| `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `/vault/auth/keys.json`, `.runtime/authkit/*`). |
+
+Deprecations:
+
+| Deprecated | Canonical | Status |
+| --- | --- | --- |
+| `VerificationRequired` | `RequireVerifiedRegistrations` | Deprecated alias in `core.Config`/`core.Options` for one transition window. |
+| `AUTHKIT_VERIFICATION_REQUIRED`, `DEVSERVER_VERIFICATION_REQUIRED` | `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS` | Deprecated standalone devserver env aliases. |
+| `AUTHKIT_*` (standalone devserver env prefix) | `DEVSERVER_*` | Deprecated alias prefix; `DEVSERVER_*` wins when both are set. |
 
 ---
 
@@ -261,7 +282,7 @@ Endpoints mounted automatically:
   - POST /auth/password/reset/confirm (code + optional identifier)
 - Registration (unified - accepts email or phone in identifier field):
   - POST /auth/register (server auto-detects email vs phone based on format)
-  - Set `VerificationRequired: false` to create users immediately on registration
+  - Set `RequireVerifiedRegistrations: core.Bool(false)` to create users immediately on registration
   - POST /auth/register/resend-email
   - POST /auth/register/resend-phone
 - Email verification:

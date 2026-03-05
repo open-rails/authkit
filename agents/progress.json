@@ -366,6 +366,26 @@
         "[x] Tests\n    - Personal-org non-transferability and ownership guard tests\n    - Invitation state transition tests (pending->accepted/declined/revoked/expired)\n    - User rename alias-forwarding tests across owner-slug lookups\n    - Bootstrap endpoint contract tests"
       ],
       "completed": true
+    },
+    {
+      "name": "Host-owned configuration only (no library-level env/config loading, except optional key auto-discovery)",
+      "id_number": 24,
+      "description": "Policy: AuthKit library behavior should be configured by the embedding host application via `core.Config` (and explicit method args), not by the library reading process env vars or external files on its own.\n\nAllowed exception:\n- Keep `cfg.Keys == nil` behavior so AuthKit can still auto-discover/generate keys when the host does not provide a key source.\n\nNaming standard for this work:\n- Use `RequireVerifiedRegistrations` as the canonical config name (default true).\n- Use `*_REQUIRE_VERIFIED_REGISTRATIONS` as the canonical env spelling in app/devserver layers.\n\nCurrent non-host configuration reads in library code (to remove or move behind host config, except the key exception):\n1) `core/service_solana.go`\n   - `SOLANA_NETWORK` via `os.Getenv` in `solanaChainID()`.\n2) `core/service.go`\n   - `getEnvironment()` reads `ENV`, `APP_ENV`, `ENVIRONMENT`.\n   - Used by `isDevEnvironment(...)` checks that affect runtime behavior.\n3) `core/ephemeral.go`\n   - `IsDevEnvironment()` depends on `getEnvironment()` (same env reads above).\n4) `jwt/keys.go` (allowed only under `cfg.Keys == nil` exception)\n   - Env: `ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`.\n   - Env for prod detection: `ENV`, `APP_ENV`, `ENVIRONMENT`.\n   - Filesystem: `/vault/auth/keys.json`.\n   - Dev runtime files: `.runtime/authkit/private.pem` + `.runtime/authkit/kid`.\n\nDevserver naming alignment:\n- Keep standalone devserver env loading (app-level), but migrate env prefix from `AUTHKIT_*` to `DEVSERVER_*` to clearly separate devserver app config from embedded library config.",
+      "tasks": [
+        "[x] Devserver env prefix migration (app-level, not library-level): adopt `DEVSERVER_*` names for standalone devserver runtime config (`DEVSERVER_ISSUER`, `DEVSERVER_LISTEN_ADDR`, `DEVSERVER_DEV_MODE`, `DEVSERVER_DEV_MINT_SECRET`, `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS`, `DEVSERVER_MIGRATE_ON_START`, `DEVSERVER_ISSUED_AUDIENCES`, `DEVSERVER_EXPECTED_AUDIENCES`).",
+        "[x] Backward compatibility: keep existing `AUTHKIT_*` env names as deprecated aliases for at least one release; define precedence (`DEVSERVER_*` wins when both are set) and log deprecation warnings.",
+        "[x] Update devserver docs/compose/examples/tests to prefer `DEVSERVER_*` names while still validating alias compatibility during transition.",
+        "[x] Canonical naming migration in library config: rename `VerificationRequired` to `RequireVerifiedRegistrations` (default true) in `core.Config`/`Options`, while keeping backward-compatible aliases for one transition window.",
+        "[x] Canonical env alias mapping for transition: support legacy `AUTHKIT_VERIFICATION_REQUIRED` and `DEVSERVER_VERIFICATION_REQUIRED` as deprecated aliases to `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS`.",
+        "[x] Add explicit host-provided runtime config fields for behaviors currently derived from env in library code (e.g., environment mode, Solana chain/network).",
+        "[x] Replace `SOLANA_NETWORK` env read in `core/service_solana.go` with config passed from host (`core.Config` -> `Options`).",
+        "[x] Replace `getEnvironment()` env reads (`ENV`/`APP_ENV`/`ENVIRONMENT`) in core with host-provided mode/flags; remove direct env dependency from library behavior.",
+        "[x] Keep key auto-discovery only when `cfg.Keys == nil`, but make this path explicitly documented as the sole env/filesystem exception.",
+        "[x] Ensure callers can fully disable env/filesystem key auto-discovery by always passing `cfg.Keys`.",
+        "[x] Add tests proving non-key library behavior is deterministic from `core.Config` alone (no env mutation needed).",
+        "[x] Add docs section: \"Configuration ownership\" with one table listing allowed library-side exception (`cfg.Keys == nil`) and all host-required inputs, plus a deprecation table (`VerificationRequired` -> `RequireVerifiedRegistrations`, legacy env aliases -> canonical env names)."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

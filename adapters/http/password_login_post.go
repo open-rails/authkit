@@ -62,7 +62,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			if pending, perr := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), identifier); perr == nil && pending != nil {
 				if ok, verr := pwhash.VerifyArgon2id(pending.PasswordHash, req.Password); verr == nil && ok {
 					_, _ = s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, pending.Username, pending.PasswordHash)
-					if s.svc.Options().VerificationRequired {
+					if s.svc.Options().RequireVerifiedRegistrations {
 						unauthorized(w, "phone_not_verified")
 						return
 					}
@@ -182,7 +182,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 						unauthorized(w, "invalid_credentials")
 						return
 					}
-					if !s.svc.Options().VerificationRequired {
+					if !s.svc.Options().RequireVerifiedRegistrations {
 						token, exp, err = s.svc.PasswordLogin(r.Context(), loginEmail, req.Password, nil)
 						if err != nil {
 							logLoginFailed(s, r, "", "invalid_credentials")
