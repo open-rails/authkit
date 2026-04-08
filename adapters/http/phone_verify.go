@@ -34,7 +34,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLEmailVerifyConfirm) {
+	if !s.allow(r, RLPhoneVerifyConfirm) {
 		tooMany(w)
 		return
 	}
@@ -56,13 +56,17 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	userID, err := s.svc.ConfirmPendingPhoneRegistration(r.Context(), phone, code)
-	if err != nil {
-		badRequest(w, "invalid_or_expired_code")
+	if err == nil && userID != "" {
+		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
+			serverErr(w, "token_issue_failed")
+			return
+		}
 		return
 	}
 
-	if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
-		serverErr(w, "token_issue_failed")
+	if err := s.svc.ConfirmPhoneVerification(r.Context(), phone, code); err != nil {
+		badRequest(w, "invalid_or_expired_code")
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

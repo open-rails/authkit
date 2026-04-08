@@ -39,7 +39,7 @@ func (s *Service) handleDiscordLoginGET(w http.ResponseWriter, r *http.Request) 
 	if strings.HasSuffix(path, "/login") {
 		path = strings.TrimSuffix(path, "/login") + "/callback"
 	} else {
-		path = "/auth/oauth/discord/callback"
+		path = "/oidc/discord/callback"
 	}
 	redirectURI := scheme + "://" + host + path
 
@@ -283,7 +283,7 @@ func (s *Service) handleDiscordCallbackGET(w http.ResponseWriter, r *http.Reques
 		base = "/"
 	}
 	frag := "#access_token=" + accessToken + "&refresh_token=" + rt + "&expires_in=" + fmt.Sprint(int64(time.Until(exp).Seconds())) + "&provider=discord&state=" + state
-	target := strings.TrimRight(base, "/") + "/auth/callback" + frag
+	target := strings.TrimRight(base, "/") + "/login/callback" + frag
 	http.Redirect(w, r, target, http.StatusFound)
 }
 

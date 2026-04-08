@@ -8,7 +8,7 @@ import (
 )
 
 func TestPendingRegistrationMemoryStore(t *testing.T) {
-	svc := NewService(Options{RequireVerifiedRegistrations: true}, Keyset{})
+	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
 	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
 
 	email := "test@example.com"

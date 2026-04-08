@@ -25,6 +25,7 @@ const (
 	RLEmailVerifyRequest   = "auth_email_verify_request"
 	RLEmailVerifyConfirm   = "auth_email_verify_confirm"
 	RLPhoneVerifyRequest   = "auth_phone_verify_request"
+	RLPhoneVerifyConfirm   = "auth_phone_verify_confirm"
 
 	RLOIDCStart    = "auth_oidc_start"
 	RLOIDCCallback = "auth_oidc_callback"

@@ -75,10 +75,20 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 	h := s.OIDCHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/auth/oidc/google/callback", nil)
+	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+}
+
+func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.OIDCHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/auth/oidc/google/callback", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {

@@ -39,6 +39,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid_request")
 		return
 	}
+	requiresVerification := s.svc.Options().RegistrationVerificationRequired()
 
 	type userWithEmail struct {
 		ID            string
@@ -74,7 +75,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			recoveredUserID, recoveryErr, handled := recoverPendingPhoneLogin(
 				hasPending,
 				passwordMatches,
-				s.svc.Options().RequireVerifiedRegistrations,
+				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
 					_, createErr := s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, pendingUsername, pendingPasswordHash)
 					return createErr
@@ -152,7 +153,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	if fetchedUser != nil && !fetchedUser.EmailVerified && fetchedUser.Email != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
+	if requiresVerification && fetchedUser != nil && !fetchedUser.EmailVerified && fetchedUser.Email != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		if s.svc.HasPassword(r.Context(), userID) {
 			if s.svc.HasEmailSender() {
 				_ = s.svc.RequestEmailVerification(r.Context(), *fetchedUser.Email, 0)
@@ -163,7 +164,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	if fetchedUser != nil && !fetchedUser.PhoneVerified && fetchedUser.PhoneNumber != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
+	if requiresVerification && fetchedUser != nil && !fetchedUser.PhoneVerified && fetchedUser.PhoneNumber != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		if s.svc.HasPassword(r.Context(), userID) {
 			if s.svc.HasSMSSender() {
 				_ = s.svc.SendPhoneVerificationToUser(r.Context(), *fetchedUser.PhoneNumber, userID, 0)
@@ -208,7 +209,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			recoveryToken, recoveryExp, recoveryErr, handled := recoverPendingEmailLogin(
 				hasPending,
 				pendingPasswordMatches,
-				s.svc.Options().RequireVerifiedRegistrations,
+				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
 					_, createErr := s.svc.CreatePendingRegistration(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0)
 					return createErr

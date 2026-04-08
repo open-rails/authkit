@@ -19,11 +19,15 @@ func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 		return
 	}
 
-	_, err := s.svc.ConfirmEmailVerification(r.Context(), strings.TrimSpace(req.Token))
-	if err != nil {
-		badRequest(w, "invalid_or_expired_token")
+	token := strings.TrimSpace(req.Token)
+	if userID, err := s.svc.ConfirmPendingRegistration(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
+		return
+	}
+	if userID, err := s.svc.ConfirmEmailVerification(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	badRequest(w, "invalid_or_expired_token")
 }

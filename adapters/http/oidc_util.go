@@ -38,13 +38,15 @@ func buildRedirectURI(r *http.Request, provider string) string {
 	case strings.HasSuffix(p, "/link/start"):
 		p = strings.TrimSuffix(p, "/link/start") + "/callback"
 	default:
-		if i := strings.Index(p, "/auth/oidc/"); i >= 0 {
+		if i := strings.Index(p, "/oidc/"); i >= 0 {
 			prefix := p[:i]
-			p = prefix + "/auth/oidc/" + provider + "/callback"
+			p = prefix + "/oidc/" + provider + "/callback"
 		} else {
-			p = "/auth/oidc/" + provider + "/callback"
+			p = "/oidc/" + provider + "/callback"
 		}
 	}
+	// Canonical browser callback namespace is /oidc/*.
+	p = strings.ReplaceAll(p, "/auth/oidc/", "/oidc/")
 	return scheme + "://" + host + p
 }
 

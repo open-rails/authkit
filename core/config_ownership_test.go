@@ -1,6 +1,9 @@
 package core
 
 import (
+	"bytes"
+	stdlog "log"
+	"strings"
 	"testing"
 
 	jwtkit "github.com/open-rails/authkit/jwt"
@@ -25,21 +28,21 @@ func baseTestConfig(t *testing.T) Config {
 	}
 }
 
-func TestRequireVerifiedRegistrationsResolution(t *testing.T) {
+func TestRegistrationVerificationResolution(t *testing.T) {
 	tests := []struct {
 		name string
-		ptr  *bool
-		want bool
+		val  RegistrationVerificationPolicy
+		want RegistrationVerificationPolicy
 	}{
-		{name: "default_true", ptr: nil, want: true},
-		{name: "canonical_false", ptr: Bool(false), want: false},
-		{name: "canonical_true", ptr: Bool(true), want: true},
+		{name: "default_none", val: "", want: RegistrationVerificationNone},
+		{name: "optional", val: RegistrationVerificationOptional, want: RegistrationVerificationOptional},
+		{name: "required", val: RegistrationVerificationRequired, want: RegistrationVerificationRequired},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseTestConfig(t)
-			cfg.RequireVerifiedRegistrations = tt.ptr
+			cfg.RegistrationVerification = tt.val
 
 			svc, err := NewFromConfig(cfg)
 			if err != nil {
@@ -47,8 +50,8 @@ func TestRequireVerifiedRegistrationsResolution(t *testing.T) {
 			}
 
 			opts := svc.Options()
-			if opts.RequireVerifiedRegistrations != tt.want {
-				t.Fatalf("RequireVerifiedRegistrations=%v, want %v", opts.RequireVerifiedRegistrations, tt.want)
+			if opts.RegistrationVerificationPolicy() != tt.want {
+				t.Fatalf("RegistrationVerification=%v, want %v", opts.RegistrationVerificationPolicy(), tt.want)
 			}
 		})
 	}
@@ -86,5 +89,62 @@ func TestRuntimeBehaviorIsDerivedFromConfigOnly(t *testing.T) {
 	}
 	if got := svcProd.solanaChainID(); got != "mainnet" {
 		t.Fatalf("solanaChainID=%q, want %q", got, "mainnet")
+	}
+}
+
+func TestBaseURLDefaultsToIssuerWhenIssuerIsURL(t *testing.T) {
+	cfg := baseTestConfig(t)
+	cfg.Issuer = "https://issuer.example"
+	cfg.BaseURL = ""
+
+	svc, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewFromConfig failed: %v", err)
+	}
+	if got := svc.Options().BaseURL; got != "https://issuer.example" {
+		t.Fatalf("BaseURL=%q, want %q", got, "https://issuer.example")
+	}
+}
+
+func TestIssuerNonURLWithoutBaseURLReturnsError(t *testing.T) {
+	cfg := baseTestConfig(t)
+	cfg.Issuer = "issuer-local"
+	cfg.BaseURL = ""
+
+	svc, err := NewFromConfig(cfg)
+	if err == nil {
+		_ = svc
+		t.Fatalf("expected error when issuer is not a URL and base_url is empty")
+	}
+	if !strings.Contains(err.Error(), "BaseURL is required when Issuer is not a well-formatted URL") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestIssuerNonURLWithBaseURLLogsWarningAndSucceeds(t *testing.T) {
+	cfg := baseTestConfig(t)
+	cfg.Issuer = "issuer-local"
+	cfg.BaseURL = "https://app.example"
+
+	var buf bytes.Buffer
+	oldWriter := stdlog.Writer()
+	oldFlags := stdlog.Flags()
+	stdlog.SetOutput(&buf)
+	stdlog.SetFlags(0)
+	t.Cleanup(func() {
+		stdlog.SetOutput(oldWriter)
+		stdlog.SetFlags(oldFlags)
+	})
+
+	svc, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewFromConfig failed: %v", err)
+	}
+	if svc.Options().BaseURL != "https://app.example" {
+		t.Fatalf("BaseURL=%q, want %q", svc.Options().BaseURL, "https://app.example")
+	}
+	logged := buf.String()
+	if !strings.Contains(logged, "Issuer is not a well-formatted URL") {
+		t.Fatalf("expected warning log, got: %q", logged)
 	}
 }

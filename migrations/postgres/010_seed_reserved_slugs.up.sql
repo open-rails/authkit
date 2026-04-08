@@ -12,7 +12,7 @@ DECLARE
   uid uuid;
   oid uuid;
 BEGIN
-  FOREACH reserved_slug IN ARRAY ARRAY['admin', 'moderator', 'superuser', 'root', 'sudo'] LOOP
+  FOREACH reserved_slug IN ARRAY ARRAY['admin', 'superuser', 'root', 'sudo'] LOOP
     INSERT INTO profiles.users (email, username, email_verified, phone_number, phone_verified, metadata)
     VALUES (NULL, reserved_slug, false, NULL, false, jsonb_build_object('reserved', to_jsonb(true)))
     RETURNING id INTO uid;

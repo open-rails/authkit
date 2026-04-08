@@ -24,10 +24,14 @@ All endpoints are under `/api/v1/auth` unless otherwise noted.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/auth/oidc/:provider/login` | PUBLIC | Start OIDC login (Google, Apple, etc.) |
-| GET | `/auth/oidc/:provider/callback` | PUBLIC | OIDC callback |
-| GET | `/auth/oauth/discord/login` | PUBLIC | Discord OAuth login |
-| GET | `/auth/oauth/discord/callback` | PUBLIC | Discord OAuth callback |
+| GET | `/oidc/:provider/login` | PUBLIC | Start browser login (Google, Apple, Discord, etc.) |
+| GET | `/oidc/:provider/callback` | PUBLIC | OIDC/OAuth callback |
+| GET | `/oidc/discord/login` | PUBLIC | Discord OAuth login (explicit route; also covered by `:provider`) |
+| GET | `/oidc/discord/callback` | PUBLIC | Discord OAuth callback (explicit route; also covered by `:provider`) |
+
+Notes:
+- Browser callback UI route in host apps should be `/login/callback` (not `/auth/callback`).
+- JSON Auth API remains under `/api/v1/auth/*`.
 
 ---
 
@@ -52,11 +56,11 @@ Reserved slug policy:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/auth/password/reset/request` | PUBLIC | Request password reset (email) |
-| POST | `/auth/password/reset/confirm` | PUBLIC | Confirm password reset (token from reset link; legacy field name is `code`) |
-| POST | `/auth/password/reset/confirm-link` | PUBLIC | Confirm password reset (expects `token`) |
+| POST | `/auth/password/reset/request` | PUBLIC | Request password reset (email or phone identifier accepted by handler) |
+| POST | `/auth/password/reset/confirm-link` | PUBLIC | Consume reset token and return one-time `reset_session` |
+| POST | `/auth/password/reset/confirm` | PUBLIC | Confirm password reset using `reset_session` + `new_password` |
 | POST | `/auth/phone/password/reset/request` | PUBLIC | Request password reset (phone) |
-| POST | `/auth/phone/password/reset/confirm` | PUBLIC | Confirm password reset (token from reset link; legacy) |
+| POST | `/auth/phone/password/reset/confirm` | PUBLIC | Confirm phone password reset using `reset_session` + `new_password` |
 
 ---
 
@@ -69,6 +73,7 @@ Reserved slug policy:
 | POST | `/auth/email/verify/confirm-link` | PUBLIC | Confirm email verification (expects `token`) |
 | POST | `/auth/phone/verify/request` | PUBLIC | Request phone verification (sends SMS) |
 | POST | `/auth/phone/verify/confirm` | PUBLIC | Confirm phone verification |
+| POST | `/auth/phone/verify/confirm-link` | PUBLIC | Confirm phone verification (expects `token`) |
 
 ---
 
@@ -148,7 +153,7 @@ Reserved slug policy:
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/auth/oidc/:provider/link/start` | AUTH | Start OIDC provider linking |
-| POST | `/auth/oauth/discord/link/start` | AUTH | Start Discord linking |
+| POST | `/auth/oidc/discord/link/start` | AUTH | Start Discord linking (explicit route) |
 
 ---
 
@@ -179,5 +184,6 @@ Reserved slug policy:
 | DELETE | `/auth/admin/users/:user_id` | ADMIN | Delete user |
 | POST | `/auth/admin/users/:user_id/restore` | ADMIN | Restore (undelete) user |
 | GET | `/auth/admin/users/deleted` | ADMIN | List deleted users |
+| GET | `/auth/admin/users/:user_id/signins` | ADMIN | List recent signin events for a user |
 | POST | `/auth/admin/accounts/reserve` | ADMIN | Internal/admin reserve account slug (`{slug}`) |
 | POST | `/auth/admin/accounts/claim` | ADMIN | Internal/admin claim reserved account (`{slug,password,email?,phone?}`) |

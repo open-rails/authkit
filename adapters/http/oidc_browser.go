@@ -258,7 +258,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		base = "/"
 	}
 	frag := "#access_token=" + token + "&refresh_token=" + rt + "&expires_in=" + fmt.Sprint(int64(time.Until(exp).Seconds())) + "&provider=" + provider + "&state=" + state
-	target := strings.TrimRight(base, "/") + "/auth/callback" + frag
+	target := strings.TrimRight(base, "/") + "/login/callback" + frag
 	http.Redirect(w, r, target, http.StatusFound)
 }
 

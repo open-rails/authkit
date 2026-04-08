@@ -43,21 +43,19 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 	}
 
 	var req struct {
-		PhoneNumber string `json:"phone_number"` // legacy; no longer required
-		Code        string `json:"code"`         // token from reset link (legacy field name)
-		NewPassword string `json:"new_password"`
+		ResetSession string `json:"reset_session"`
+		NewPassword  string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, "invalid_request")
 		return
 	}
 
-	phone := strings.TrimSpace(req.PhoneNumber)
-	code := strings.TrimSpace(req.Code)
+	resetSession := strings.TrimSpace(req.ResetSession)
 	newPass := req.NewPassword
 
-	if phone != "" && !reE164.MatchString(phone) {
-		badRequest(w, "invalid_phone_number")
+	if resetSession == "" {
+		badRequest(w, "invalid_request")
 		return
 	}
 	if err := pwhash.Validate(newPass); err != nil {
@@ -65,9 +63,9 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 		return
 	}
 
-	userID, err := s.svc.ConfirmPasswordReset(r.Context(), code, newPass)
+	userID, err := s.svc.ConfirmPasswordResetWithSession(r.Context(), resetSession, newPass)
 	if err != nil {
-		badRequest(w, "invalid_or_expired_token")
+		badRequest(w, "invalid_or_expired_reset_session")
 		return
 	}
 

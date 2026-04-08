@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	stdlog "log"
+	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -32,9 +34,9 @@ type Options struct {
 	SessionMaxPerUser    int
 	// Optional link building (paths are fixed: /reset and /verify)
 	BaseURL string
-	// RequireVerifiedRegistrations controls whether email/phone registration requires
-	// confirmation before sign-in is allowed.
-	RequireVerifiedRegistrations bool
+	// RegistrationVerification controls whether registration verification is disabled,
+	// non-blocking, or required.
+	RegistrationVerification RegistrationVerificationPolicy
 
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" or "multi".
@@ -77,6 +79,7 @@ type Service struct {
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
 	ephemeralMode  EphemeralMode
+	verifyWarnOnce sync.Once
 }
 
 func NewService(opts Options, keys Keyset) *Service {
@@ -101,10 +104,24 @@ func NewFromConfig(cfg Config) (*Service, error) {
 
 	ks := Keyset{Active: keySource.ActiveSigner(), PublicKeys: keySource.PublicKeys()}
 
-	// Require critical JWT configuration
-	if cfg.Issuer == "" {
+	// Require critical JWT configuration.
+	issuer := strings.TrimSpace(cfg.Issuer)
+	if issuer == "" {
 		return nil, fmt.Errorf("authkit: Issuer is required (e.g., \"https://myapp.com\")")
 	}
+	baseURL := strings.TrimSpace(cfg.BaseURL)
+	issuerIsURL := isWellFormattedURL(issuer)
+	if !issuerIsURL {
+		stdlog.Printf("authkit: warning: Issuer is not a well-formatted URL: %q", issuer)
+	}
+	if baseURL == "" {
+		if issuerIsURL {
+			baseURL = issuer
+		} else {
+			return nil, fmt.Errorf("authkit: BaseURL is required when Issuer is not a well-formatted URL (issuer=%q)", issuer)
+		}
+	}
+
 	issuedAudiences := cfg.IssuedAudiences
 	if len(issuedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
@@ -133,24 +150,68 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	default:
 		return nil, fmt.Errorf("authkit: invalid OrgMode %q (want \"single\" or \"multi\")", cfg.OrgMode)
 	}
-	requireVerifiedRegistrations := true
-	if cfg.RequireVerifiedRegistrations != nil {
-		requireVerifiedRegistrations = *cfg.RequireVerifiedRegistrations
+	registrationVerification, err := normalizeRegistrationVerification(cfg.RegistrationVerification)
+	if err != nil {
+		return nil, err
 	}
 	opts := Options{
-		Issuer:                       cfg.Issuer,
-		IssuedAudiences:              issuedAudiences,
-		ExpectedAudiences:            expectedAudiences,
-		AccessTokenDuration:          accessTTL,
-		RefreshTokenDuration:         refTTL,
-		SessionMaxPerUser:            maxSess,
-		BaseURL:                      cfg.BaseURL,
-		RequireVerifiedRegistrations: requireVerifiedRegistrations,
-		OrgMode:                      orgMode,
-		Environment:                  strings.TrimSpace(cfg.Environment),
-		SolanaNetwork:                strings.TrimSpace(cfg.SolanaNetwork),
+		Issuer:                   issuer,
+		IssuedAudiences:          issuedAudiences,
+		ExpectedAudiences:        expectedAudiences,
+		AccessTokenDuration:      accessTTL,
+		RefreshTokenDuration:     refTTL,
+		SessionMaxPerUser:        maxSess,
+		BaseURL:                  baseURL,
+		RegistrationVerification: registrationVerification,
+		OrgMode:                  orgMode,
+		Environment:              strings.TrimSpace(cfg.Environment),
+		SolanaNetwork:            strings.TrimSpace(cfg.SolanaNetwork),
 	}
 	return NewService(opts, ks), nil
+}
+
+func normalizeRegistrationVerification(v RegistrationVerificationPolicy) (RegistrationVerificationPolicy, error) {
+	value := RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(string(v))))
+	if value == "" {
+		return RegistrationVerificationNone, nil
+	}
+	switch value {
+	case RegistrationVerificationNone, RegistrationVerificationOptional, RegistrationVerificationRequired:
+		return value, nil
+	default:
+		return "", fmt.Errorf("authkit: invalid RegistrationVerification %q (want \"none\", \"optional\", or \"required\")", v)
+	}
+}
+
+func (o Options) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
+	v, err := normalizeRegistrationVerification(o.RegistrationVerification)
+	if err != nil {
+		return RegistrationVerificationNone
+	}
+	return v
+}
+
+func (o Options) RegistrationVerificationRequired() bool {
+	return o.RegistrationVerificationPolicy() == RegistrationVerificationRequired
+}
+
+func (o Options) RegistrationVerificationEnabled() bool {
+	return o.RegistrationVerificationPolicy() != RegistrationVerificationNone
+}
+
+func isWellFormattedURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if strings.TrimSpace(u.Scheme) == "" || strings.TrimSpace(u.Host) == "" {
+		return false
+	}
+	return true
 }
 
 // JWKS returns a JWKS built from configured public keys.
@@ -414,15 +475,17 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		return fmt.Errorf("phone already in use")
 	}
 
-	// Generate 6-digit numeric code
+	// Generate manual code + link token.
 	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
+	codeHash := sha256Hex(code)
+	linkToken := randB64(32)
+	linkHash := sha256Hex(linkToken)
 
-	// TTL for phone change is 24 hours (longer than regular verification)
-	ttl := 24 * time.Hour
-
-	// Store phone verification with purpose "change_phone" keyed by userID
-	if err := s.storePhoneVerification(ctx, "change_phone", trimmed, userID, hash, ttl); err != nil {
+	// Store phone verification with split TTLs.
+	if err := s.storePhoneVerificationTokens(ctx, "change_phone", trimmed, userID, map[string]time.Duration{
+		codeHash: 15 * time.Minute,
+		linkHash: time.Hour,
+	}); err != nil {
 		return err
 	}
 
@@ -436,11 +499,13 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		username = *u.Username
 	}
 
-	// Send verification code to new phone
+	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+
+	// Send verification message to new phone
 	if s.sms != nil {
-		_ = s.sms.SendVerificationCode(ctx, trimmed, code)
+		_ = s.sms.SendVerification(ctx, trimmed, msg)
 	} else {
-		stdlog.Printf("[authkit/dev-sms] phone change verify to=%s username=%s code=%s", trimmed, username, code)
+		stdlog.Printf("[authkit/dev-sms] phone change verify to=%s username=%s code=%s link_token=%s", trimmed, username, code, linkToken)
 	}
 
 	// Optionally: notify old phone (not implemented)
@@ -506,19 +571,22 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	}
 
 	// Check if pending phone change exists (by userID)
-	var data phoneVerificationData
-	ok, _ := s.ephemGetJSON(ctx, s.phoneVerificationKey("change_phone", phone), &data)
-	if !ok || data.UserID != userID {
+	data, err := s.getPhoneVerification(ctx, "change_phone", phone)
+	if err != nil || data == nil || data.UserID != userID {
 		return fmt.Errorf("no pending phone change found")
 	}
 
-	// Generate new code
+	// Generate new verification credentials.
 	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
-	ttl := 24 * time.Hour
+	codeHash := sha256Hex(code)
+	linkToken := randB64(32)
+	linkHash := sha256Hex(linkToken)
 
 	// Store new phone verification (by userID)
-	if err := s.storePhoneVerification(ctx, "change_phone", phone, userID, hash, ttl); err != nil {
+	if err := s.storePhoneVerificationTokens(ctx, "change_phone", phone, userID, map[string]time.Duration{
+		codeHash: 15 * time.Minute,
+		linkHash: time.Hour,
+	}); err != nil {
 		return err
 	}
 
@@ -527,11 +595,12 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 		username = *u.Username
 	}
 
-	// Send new code
+	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	// Send new credentials.
 	if s.sms != nil {
-		_ = s.sms.SendVerificationCode(ctx, phone, code)
+		_ = s.sms.SendVerification(ctx, phone, msg)
 	} else {
-		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s", phone, username, code)
+		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s link_token=%s", phone, username, code, linkToken)
 	}
 
 	return nil
@@ -572,7 +641,8 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 	}
 
 	if s.sms != nil {
-		return s.sms.SendVerificationCode(ctx, phone, code)
+		msg := VerificationMessage{Code: code}
+		return s.sms.SendVerification(ctx, phone, msg)
 	}
 	// In production, require SMS to be configured
 	if !s.isDevEnvironment() {
@@ -766,45 +836,33 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 	return nil
 }
 
-// EmailSender sends password reset emails.
+type VerificationMessage struct {
+	// Fixed-length numeric code for manual entry (optional).
+	Code string
+	// High-entropy token for one-click verification link flow (optional).
+	LinkToken string
+}
+
+func (m VerificationMessage) Validate() error {
+	if strings.TrimSpace(m.Code) == "" && strings.TrimSpace(m.LinkToken) == "" {
+		return fmt.Errorf("verification message must contain at least one of code or link token")
+	}
+	return nil
+}
+
+// EmailSender sends verification/login/reset emails.
 type EmailSender interface {
-	// SendPasswordResetCode sends a password reset code to the user's email with personalization.
-	// AuthKit looks up the user's current email and username before calling this.
-	SendPasswordResetCode(ctx context.Context, email, username, code string) error
-
-	// SendEmailVerificationCode sends an email verification code to the given email address and username.
-	// User doesn't exist yet, so email and username are provided directly for personalization.
-	SendEmailVerificationCode(ctx context.Context, email, username, code string) error
-
-	// SendLoginCode sends a two-factor authentication code to the user's email during login.
-	// AuthKit looks up the user's email and username before calling this.
+	SendVerification(ctx context.Context, email, username string, msg VerificationMessage) error
+	SendPasswordResetLink(ctx context.Context, email, username, token string) error
 	SendLoginCode(ctx context.Context, email, username, code string) error
-
-	// SendWelcome sends a welcome email to the user's email with personalization.
-	// AuthKit looks up the user's email and username before calling this.
 	SendWelcome(ctx context.Context, email, username string) error
 }
 
-// EmailSenderWithPasswordResetLink is an optional extension interface for URL-based password reset.
-//
-// AuthKit does NOT construct user-facing URLs (site base URL + route). Host apps own templates and
-// should embed the provided token into their chosen reset URL.
-type EmailSenderWithPasswordResetLink interface {
-	SendPasswordResetLink(ctx context.Context, email, username, token string) error
-}
-
-// SMSSender sends verification and 2FA codes via SMS.
+// SMSSender sends verification/login/reset SMS messages.
 type SMSSender interface {
-	SendVerificationCode(ctx context.Context, phone, code string) error
-	SendLoginCode(ctx context.Context, phone, code string) error
-}
-
-// SMSSenderWithPasswordResetLink is an optional extension interface for URL-based password reset via SMS.
-//
-// This is separate from Twilio Verify (OTP/codes). Password reset links should be delivered via a
-// messaging provider (e.g. Twilio Messaging/SMS API), not Verify.
-type SMSSenderWithPasswordResetLink interface {
+	SendVerification(ctx context.Context, phone string, msg VerificationMessage) error
 	SendPasswordResetLink(ctx context.Context, phone, token string) error
+	SendLoginCode(ctx context.Context, phone, code string) error
 }
 
 // WithEmailSender sets the email sender dependency.
@@ -819,6 +877,27 @@ func (s *Service) HasEmailSender() bool { return s.email != nil }
 // HasSMSSender returns true if an SMS sender is configured.
 func (s *Service) HasSMSSender() bool { return s.sms != nil }
 
+// ValidateVerificationConfiguration ensures registration verification policy
+// can be satisfied by currently configured delivery senders.
+func (s *Service) ValidateVerificationConfiguration() error {
+	if s == nil {
+		return nil
+	}
+	policy := s.opts.RegistrationVerificationPolicy()
+	hasVerificationSender := s.email != nil || s.sms != nil
+
+	if policy == RegistrationVerificationRequired && !hasVerificationSender {
+		return fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured", RegistrationVerificationRequired)
+	}
+
+	if !hasVerificationSender {
+		s.verifyWarnOnce.Do(func() {
+			stdlog.Printf("authkit: warning: no email or SMS sender configured; verification delivery is disabled")
+		})
+	}
+	return nil
+}
+
 // RequestPasswordReset creates a password reset token and dispatches a reset link via email.
 // Returns nil for unknown emails to prevent user enumeration (202-like behavior).
 func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration) error {
@@ -830,7 +909,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return nil
 	}
 	if ttl <= 0 {
-		ttl = 15 * time.Minute
+		ttl = time.Hour
 	}
 
 	token := randB64(32)
@@ -856,11 +935,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return nil
 	}
 
-	linkSender, ok := s.email.(EmailSenderWithPasswordResetLink)
-	if !ok {
-		return fmt.Errorf("email password reset unavailable: email sender does not implement password reset links")
-	}
-	if err := linkSender.SendPasswordResetLink(ctx, *u.Email, username, token); err != nil {
+	if err := s.email.SendPasswordResetLink(ctx, *u.Email, username, token); err != nil {
 		return err
 	}
 
@@ -869,8 +944,9 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 	return nil
 }
 
-// ConfirmPasswordReset verifies token and sets a new password.
-func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error) {
+// BeginPasswordReset validates and consumes a password reset token, then issues a
+// short-lived one-time reset session for browser handoff.
+func (s *Service) BeginPasswordReset(ctx context.Context, token string, sessionTTL time.Duration) (string, error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -878,18 +954,46 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 	if err != nil {
 		return "", err
 	}
+	if sessionTTL <= 0 {
+		sessionTTL = 15 * time.Minute
+	}
+	resetSession := randB64(32)
+	if err := s.storePasswordResetSession(ctx, sha256Hex(resetSession), rt.UserID, sessionTTL); err != nil {
+		return "", err
+	}
+	return resetSession, nil
+}
+
+// ConfirmPasswordResetWithSession consumes a reset session and sets the new password.
+func (s *Service) ConfirmPasswordResetWithSession(ctx context.Context, resetSession, newPassword string) (string, error) {
+	if s.pg == nil {
+		return "", jwt.ErrTokenUnverifiable
+	}
+	userID, err := s.consumePasswordResetSession(ctx, sha256Hex(resetSession))
+	if err != nil {
+		return "", err
+	}
 	phc, err := password.HashArgon2id(newPassword)
 	if err != nil {
 		return "", err
 	}
-	if err := s.upsertPasswordHash(ctx, rt.UserID, phc, "argon2id", nil); err != nil {
+	if err := s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil); err != nil {
 		return "", err
 	}
 	// Revoke all sessions to invalidate any potentially compromised refresh tokens.
-	_ = s.RevokeAllSessions(ctx, rt.UserID, nil)
-	s.LogPasswordChanged(ctx, rt.UserID, "", nil, nil)
+	_ = s.RevokeAllSessions(ctx, userID, nil)
+	s.LogPasswordChanged(ctx, userID, "", nil, nil)
 
-	return rt.UserID, nil
+	return userID, nil
+}
+
+// ConfirmPasswordReset verifies token and sets a new password.
+func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error) {
+	resetSession, err := s.BeginPasswordReset(ctx, token, 15*time.Minute)
+	if err != nil {
+		return "", err
+	}
+	return s.ConfirmPasswordResetWithSession(ctx, resetSession, newPassword)
 }
 
 // RequestEmailVerification creates a verification code and dispatches an email. Always returns 202-like behavior.
@@ -905,25 +1009,33 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 		return nil
 	}
 	if ttl <= 0 {
-		ttl = 15 * time.Minute // Shorter TTL for 6-digit codes (was 24 hours for long tokens)
+		ttl = 15 * time.Minute
 	}
 	if u.Email == nil {
 		return nil // Can't verify a NULL email
 	}
-	// Generate 6-character alphanumeric code (A-Z, 0-9)
 	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
-	if err := s.createEmailVerifyToken(ctx, u.ID, hash, *u.Email, time.Now().Add(ttl)); err != nil {
+	codeHash := sha256Hex(code)
+	linkToken := randB64(32)
+	linkTokenHash := sha256Hex(linkToken)
+	if err := s.storeEmailVerificationTokens(ctx, u.ID, u.Email, map[string]time.Duration{
+		codeHash:      ttl,
+		linkTokenHash: time.Hour,
+	}); err != nil {
 		return nil
 	}
 	username := ""
 	if u.Username != nil {
 		username = *u.Username
 	}
+	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	if err := msg.Validate(); err != nil {
+		return nil
+	}
 	if s.email != nil {
-		_ = s.email.SendEmailVerificationCode(ctx, *u.Email, username, code)
+		_ = s.email.SendVerification(ctx, *u.Email, username, msg)
 	} else {
-		stdlog.Printf("[authkit/dev-email] email verify to=%s username=%s code=%s", *u.Email, username, code)
+		stdlog.Printf("[authkit/dev-email] email verify to=%s username=%s code=%s link_token=%s", *u.Email, username, code, linkToken)
 	}
 	return nil
 }
@@ -960,38 +1072,72 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
-	if !s.opts.RequireVerifiedRegistrations {
-		_, err := s.createVerifiedRegistrationUser(ctx, email, username, passwordHash)
+	switch s.opts.RegistrationVerificationPolicy() {
+	case RegistrationVerificationNone:
+		_, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
 		if err != nil {
 			return "", err
 		}
 		return "", nil
-	}
-
-	if ttl <= 0 {
-		ttl = 24 * time.Hour
-	}
-
-	// Generate 6-character alphanumeric verification code (A-Z, 0-9)
-	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
-
-	if s.useEphemeralStore() {
-		if err := s.storePendingRegistration(ctx, email, username, passwordHash, hash, ttl); err != nil {
+	case RegistrationVerificationOptional:
+		verified := s.email == nil
+		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, verified)
+		if err != nil {
 			return "", err
 		}
-	} else {
-		return "", fmt.Errorf("ephemeral store not configured")
-	}
+		if verified {
+			return "", nil
+		}
+		if ttl <= 0 {
+			ttl = 15 * time.Minute
+		}
+		code := randAlphanumeric(6)
+		codeHash := sha256Hex(code)
+		linkToken := randB64(32)
+		linkHash := sha256Hex(linkToken)
+		normEmail := normalizeEmail(email)
+		if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
+			codeHash: ttl,
+			linkHash: time.Hour,
+		}); err != nil {
+			return "", err
+		}
+		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		if err := msg.Validate(); err == nil {
+			_ = s.email.SendVerification(ctx, normEmail, username, msg)
+		}
+		return code, nil
+	default:
+		if ttl <= 0 {
+			ttl = 15 * time.Minute
+		}
+		code := randAlphanumeric(6)
+		codeHash := sha256Hex(code)
+		linkToken := randB64(32)
+		linkHash := sha256Hex(linkToken)
 
-	// Send verification email with code
-	if s.email != nil {
-		_ = s.email.SendEmailVerificationCode(ctx, email, username, code)
-	} else {
-		stdlog.Printf("[authkit/dev-email] verify pending registration to=%s username=%s code=%s", email, username, code)
-	}
+		if s.useEphemeralStore() {
+			if err := s.storePendingRegistrationTokens(ctx, email, username, passwordHash, map[string]time.Duration{
+				codeHash: ttl,
+				linkHash: time.Hour,
+			}); err != nil {
+				return "", err
+			}
+		} else {
+			return "", fmt.Errorf("ephemeral store not configured")
+		}
 
-	return code, nil
+		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		if err := msg.Validate(); err == nil {
+			if s.email != nil {
+				_ = s.email.SendVerification(ctx, email, username, msg)
+			} else {
+				stdlog.Printf("[authkit/dev-email] verify pending registration to=%s username=%s code=%s link_token=%s", email, username, code, linkToken)
+			}
+		}
+
+		return code, nil
+	}
 }
 
 // ConfirmPendingRegistration verifies token and creates the actual user account.
@@ -1089,38 +1235,67 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
-	if !s.opts.RequireVerifiedRegistrations {
-		_, err := s.createVerifiedPhoneRegistrationUser(ctx, phone, username, passwordHash)
+	switch s.opts.RegistrationVerificationPolicy() {
+	case RegistrationVerificationNone:
+		_, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
 		if err != nil {
 			return "", err
 		}
 		return "", nil
-	}
-
-	// Generate 6-character alphanumeric code (A-Z, 0-9)
-	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
-	if s.useEphemeralStore() {
-		if err := s.storePendingPhoneRegistration(ctx, phone, username, passwordHash, hash, 15*time.Minute); err != nil {
+	case RegistrationVerificationOptional:
+		verified := s.sms == nil
+		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, verified)
+		if err != nil {
 			return "", err
 		}
-	} else {
-		return "", fmt.Errorf("ephemeral store not configured")
-	}
-
-	// Send SMS
-	if s.sms != nil {
-		_ = s.sms.SendVerificationCode(ctx, phone, code)
-	} else {
-		// In production, require SMS to be configured
-		if !s.isDevEnvironment() {
-			return "", fmt.Errorf("SMS verification unavailable: Twilio not configured (phone registration requires SMS in production)")
+		if verified {
+			return "", nil
 		}
-		// Dev mode: log code to stdout
-		stdlog.Printf("[authkit/dev-sms] verify pending phone registration phone=%s code=%s", phone, code)
-	}
+		code := randAlphanumeric(6)
+		codeHash := sha256Hex(code)
+		linkToken := randB64(32)
+		linkHash := sha256Hex(linkToken)
+		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
+			codeHash: 15 * time.Minute,
+			linkHash: time.Hour,
+		}); err != nil {
+			return "", err
+		}
+		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		if err := msg.Validate(); err == nil {
+			_ = s.sms.SendVerification(ctx, phone, msg)
+		}
+		return code, nil
+	default:
+		code := randAlphanumeric(6)
+		codeHash := sha256Hex(code)
+		linkToken := randB64(32)
+		linkHash := sha256Hex(linkToken)
+		if s.useEphemeralStore() {
+			if err := s.storePendingPhoneRegistrationTokens(ctx, phone, username, passwordHash, map[string]time.Duration{
+				codeHash: 15 * time.Minute,
+				linkHash: time.Hour,
+			}); err != nil {
+				return "", err
+			}
+		} else {
+			return "", fmt.Errorf("ephemeral store not configured")
+		}
 
-	return code, nil
+		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		if err := msg.Validate(); err == nil {
+			if s.sms != nil {
+				_ = s.sms.SendVerification(ctx, phone, msg)
+			} else {
+				if !s.isDevEnvironment() {
+					return "", fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone registration requires SMS in production)")
+				}
+				stdlog.Printf("[authkit/dev-sms] verify pending phone registration phone=%s code=%s link_token=%s", phone, code, linkToken)
+			}
+		}
+
+		return code, nil
+	}
 }
 
 // ConfirmPendingPhoneRegistration verifies code and creates the actual user account.
@@ -1128,17 +1303,21 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
 	hash := sha256Hex(code)
 
-	var username, passwordHash string
+	var username, passwordHash, pendingPhone string
 	if s.useEphemeralStore() {
-		tokenHash, ok, err := s.ephemGetString(ctx, keyPendingPhonePhone+phone)
-		if err != nil || !ok || tokenHash == "" || tokenHash != hash {
-			return "", jwt.ErrTokenUnverifiable
-		}
-		data, ok, err := s.loadPendingPhoneRegistration(ctx, tokenHash)
+		data, ok, err := s.loadPendingPhoneRegistration(ctx, hash)
 		if err != nil || !ok {
 			return "", jwt.ErrTokenUnverifiable
 		}
+		pendingPhone = strings.TrimSpace(data.Email)
+		if pendingPhone == "" {
+			return "", jwt.ErrTokenUnverifiable
+		}
+		if strings.TrimSpace(phone) != "" && !strings.EqualFold(strings.TrimSpace(phone), pendingPhone) {
+			return "", jwt.ErrTokenUnverifiable
+		}
 		username, passwordHash = data.Username, data.PasswordHash
+		phone = pendingPhone
 	} else {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -1163,35 +1342,9 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 		return "", fmt.Errorf("phone or username already taken")
 	}
 
-	// Create the actual user (phone_verified = true from the start, email = NULL)
-	var uid string
-	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.users (phone_number, username, phone_verified, email_verified)
-		VALUES ($1, $2, true, false)
-		RETURNING id::text
-	`, phone, username).Scan(&uid)
-
+	uid, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
 	if err != nil {
 		return "", err
-	}
-
-	// Set password
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
-		VALUES ($1, $2, 'argon2id')
-	`, uid, passwordHash)
-
-	if err != nil {
-		return "", err
-	}
-
-	// In org_mode=multi every user must have a personal org in the owner namespace.
-	// ConfirmPendingPhoneRegistration creates the user directly (without createUser),
-	// so ensure we provision the personal org here too.
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
-			return "", err
-		}
 	}
 
 	// Delete pending registration
@@ -1200,6 +1353,12 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 	}
 
 	return uid, nil
+}
+
+// ConfirmPendingPhoneRegistrationByToken verifies a pending phone registration
+// using either a manual code or a high-entropy link token.
+func (s *Service) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, token string) (string, error) {
+	return s.ConfirmPendingPhoneRegistration(ctx, "", token)
 }
 
 // CheckPhoneRegistrationConflict checks if phone or username exists in users OR pending tables.
@@ -1280,27 +1439,37 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 		ttl = 15 * time.Minute
 	}
 
-	// Generate 6-character alphanumeric code (A-Z, 0-9)
+	// Generate a numeric code for manual entry + a high-entropy link token.
 	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
+	codeHash := sha256Hex(code)
+	linkToken := randB64(32)
+	linkHash := sha256Hex(linkToken)
 	if s.useEphemeralStore() {
-		if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, hash, ttl); err != nil {
+		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
+			codeHash: ttl,
+			linkHash: time.Hour,
+		}); err != nil {
 			return nil
 		}
 	} else {
 		return nil
 	}
 
+	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	if err := msg.Validate(); err != nil {
+		return nil
+	}
+
 	// Send SMS
 	if s.sms != nil {
-		_ = s.sms.SendVerificationCode(ctx, phone, code)
+		_ = s.sms.SendVerification(ctx, phone, msg)
 	} else {
 		// In production, require SMS to be configured
 		if !s.isDevEnvironment() {
-			return fmt.Errorf("SMS verification unavailable: Twilio not configured (phone verification requires SMS in production)")
+			return fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone verification requires SMS in production)")
 		}
 		// Dev mode: log code to stdout
-		stdlog.Printf("[authkit/dev-sms] phone verify phone=%s code=%s", phone, code)
+		stdlog.Printf("[authkit/dev-sms] phone verify phone=%s code=%s link_token=%s", phone, code, linkToken)
 	}
 
 	return nil
@@ -1332,6 +1501,22 @@ func (s *Service) ConfirmPhoneVerification(ctx context.Context, phone, code stri
 	return err
 }
 
+// ConfirmPhoneVerificationByToken verifies phone ownership using a one-click token.
+func (s *Service) ConfirmPhoneVerificationByToken(ctx context.Context, token string) error {
+	hash := sha256Hex(token)
+	userID, phone, err := s.consumePhoneVerificationByToken(ctx, "verify_phone", hash)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.pg.Exec(ctx, `
+		UPDATE profiles.users
+		SET phone_verified = true
+		WHERE id = $1 AND phone_number = $2
+	`, userID, phone)
+	return err
+}
+
 // --- Phone Password Reset (for phone+password users) ---
 
 // RequestPhonePasswordReset creates a password reset token and sends a reset link via SMS.
@@ -1344,7 +1529,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 	}
 
 	if ttl <= 0 {
-		ttl = 15 * time.Minute
+		ttl = time.Hour
 	}
 
 	token := randB64(32)
@@ -1361,15 +1546,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		return nil
 	}
 
-	linkSender, ok := s.sms.(SMSSenderWithPasswordResetLink)
-	if !ok {
-		if !s.isDevEnvironment() {
-			return fmt.Errorf("SMS password reset unavailable: sms sender does not implement password reset links")
-		}
-		stdlog.Printf("[authkit/dev-sms] password reset phone=%s token=%s (no SMS link sender configured)", phone, token)
-		return nil
-	}
-	_ = linkSender.SendPasswordResetLink(ctx, phone, token)
+	_ = s.sms.SendPasswordResetLink(ctx, phone, token)
 
 	s.LogPasswordRecovery(ctx, u.ID, "sms", "", nil, nil)
 
@@ -1400,9 +1577,8 @@ func randInt(max int) int {
 	return n % max
 }
 
-// randAlphanumeric generates a random numeric code of length n (for Twilio Verify compatibility).
-// Changed from alphanumeric to numeric for better UX (easier to type, works with voice channel).
-// Security is equivalent when combined with Twilio Verify's rate limiting and fraud protection.
+// randAlphanumeric generates a random numeric code of length n.
+// It returns a string to preserve leading zeros.
 func randAlphanumeric(n int) string {
 	// Generate n-digit numeric code (e.g., 6 digits = 000000-999999)
 	code := ""
@@ -1562,6 +1738,10 @@ func (s *Service) setEmailVerified(ctx context.Context, id string, v bool) error
 }
 
 func (s *Service) createVerifiedRegistrationUser(ctx context.Context, email, username, passwordHash string) (string, error) {
+	return s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
+}
+
+func (s *Service) createEmailRegistrationUser(ctx context.Context, email, username, passwordHash string, emailVerified bool) (string, error) {
 	if s.pg == nil {
 		return "", fmt.Errorf("postgres not configured")
 	}
@@ -1582,7 +1762,7 @@ func (s *Service) createVerifiedRegistrationUser(ctx context.Context, email, use
 		return "", err
 	}
 
-	if err := s.setEmailVerified(ctx, u.ID, true); err != nil {
+	if err := s.setEmailVerified(ctx, u.ID, emailVerified); err != nil {
 		return "", err
 	}
 
@@ -1590,6 +1770,10 @@ func (s *Service) createVerifiedRegistrationUser(ctx context.Context, email, use
 }
 
 func (s *Service) createVerifiedPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string) (string, error) {
+	return s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
+}
+
+func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string, phoneVerified bool) (string, error) {
 	if s.pg == nil {
 		return "", fmt.Errorf("postgres not configured")
 	}
@@ -1617,7 +1801,7 @@ func (s *Service) createVerifiedPhoneRegistrationUser(ctx context.Context, phone
 		UPDATE profiles.users
 		SET phone_number=$2, phone_verified=$3, updated_at=NOW()
 		WHERE id=$1
-	`, u.ID, phone, true)
+	`, u.ID, phone, phoneVerified)
 	if err != nil {
 		return "", err
 	}
@@ -1872,18 +2056,18 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 		return fmt.Errorf("email already in use")
 	}
 
-	// Previous pending email verification is overwritten by storeEmailVerification.
-
-	// Generate 6-character alphanumeric code (A-Z, 0-9)
+	// Generate manual code + link token.
 	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
+	codeHash := sha256Hex(code)
+	linkToken := randB64(32)
+	linkHash := sha256Hex(linkToken)
 
-	// TTL for email change is 24 hours (longer than regular verification)
-	ttl := 24 * time.Hour
-	exp := time.Now().Add(ttl)
-
-	// Create verification token with the NEW email address
-	if err := s.createEmailVerifyToken(ctx, userID, hash, trimmed, exp); err != nil {
+	// Create verification tokens with split TTLs for the NEW email address.
+	normEmail := normalizeEmail(trimmed)
+	if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
+		codeHash: 15 * time.Minute,
+		linkHash: time.Hour,
+	}); err != nil {
 		return err
 	}
 
@@ -1892,16 +2076,17 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 		username = *u.Username
 	}
 
-	// Send verification code to NEW email
+	// Send verification message to NEW email
+	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	if s.email != nil {
-		_ = s.email.SendEmailVerificationCode(ctx, trimmed, username, code)
+		_ = s.email.SendVerification(ctx, trimmed, username, msg)
 	} else {
-		stdlog.Printf("[authkit/dev-email] email change verify to=%s username=%s code=%s", trimmed, username, code)
+		stdlog.Printf("[authkit/dev-email] email change verify to=%s username=%s code=%s link_token=%s", trimmed, username, code, linkToken)
 	}
 
 	// Send notification to OLD email about the change request
 	if u.Email != nil && s.email != nil {
-		// Note: SendEmailVerificationCode is not ideal for notifications, but it's what we have
+		// Host applications can implement dedicated change-notification messages if needed.
 		// In production, you'd want a dedicated SendEmailChangeNotification method
 		stdlog.Printf("[authkit/security] Email change requested for user %s from %s to %s", userID, *u.Email, trimmed)
 	}
@@ -1981,16 +2166,18 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		return fmt.Errorf("no pending email change found")
 	}
 
-	// Previous pending email verification is overwritten by storeEmailVerification.
-
-	// Generate new code
+	// Generate new verification credentials.
 	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
-	ttl := 24 * time.Hour
-	exp := time.Now().Add(ttl)
+	codeHash := sha256Hex(code)
+	linkToken := randB64(32)
+	linkHash := sha256Hex(linkToken)
 
-	// Create new verification token
-	if err := s.createEmailVerifyToken(ctx, userID, hash, pendingEmail, exp); err != nil {
+	// Create new verification tokens.
+	normPending := normalizeEmail(pendingEmail)
+	if err := s.storeEmailVerificationTokens(ctx, userID, &normPending, map[string]time.Duration{
+		codeHash: 15 * time.Minute,
+		linkHash: time.Hour,
+	}); err != nil {
 		return err
 	}
 
@@ -1999,11 +2186,12 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		username = *u.Username
 	}
 
-	// Send new code
+	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	// Send new credentials.
 	if s.email != nil {
-		_ = s.email.SendEmailVerificationCode(ctx, pendingEmail, username, code)
+		_ = s.email.SendVerification(ctx, pendingEmail, username, msg)
 	} else {
-		stdlog.Printf("[authkit/dev-email] email change resend to=%s username=%s code=%s", pendingEmail, username, code)
+		stdlog.Printf("[authkit/dev-email] email change resend to=%s username=%s code=%s link_token=%s", pendingEmail, username, code, linkToken)
 	}
 
 	return nil
@@ -2937,7 +3125,7 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 		} else {
 			// In production, require SMS to be configured for SMS 2FA
 			if !s.isDevEnvironment() {
-				return "", fmt.Errorf("SMS 2FA unavailable: Twilio not configured (SMS 2FA requires Twilio in production)")
+				return "", fmt.Errorf("SMS 2FA unavailable: SMS sender not configured (SMS 2FA requires delivery in production)")
 			}
 			// Dev mode: log code to stdout
 			stdlog.Printf("[authkit/dev-2fa] SMS 2FA code for %s: %s", destination, code)

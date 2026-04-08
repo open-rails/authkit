@@ -404,6 +404,26 @@
         "[x] Add rollout notes: if a reserved slug was previously user-created in an environment, define deterministic migration behavior (skip with warning vs manual remediation)."
       ],
       "completed": true
+    },
+    {
+      "name": "AuthKit provider-agnostic core + optional Twilio Email/Twilio Messaging adapters",
+      "id_number": 26,
+      "issue_number": 240,
+      "description": "Implement provider-agnostic verification delivery interfaces, enum-based registration verification policy, one-click token link flows, password-reset session handoff, and optional Twilio Messaging/Twilio Email adapters. Hard-cut old config/api paths.",
+      "tasks": [
+        "[x] Replace registration verification boolean config with enum policy none|optional|required and enforce semantics in registration flows.",
+        "[x] Enforce startup validation: required policy must have at least one sender; none/optional allow startup and log warning when no sender exists.",
+        "[x] Replace old verification sender contracts with unified provider-neutral verification message carrying optional code and/or link token with validation.",
+        "[x] Implement one-click verification token confirm flows for email + phone while preserving manual numeric code confirmation flows.",
+        "[x] Enforce TTL policy: manual verification code 15m, verification link token 1h, password reset token 1h.",
+        "[x] Add password-reset browser handoff: validate reset token into short-lived one-time reset session, then confirm password with reset session.",
+        "[x] Invalidate prior sessions after successful password reset/password change.",
+        "[x] Add optional transport-only Twilio Messaging adapter (Messaging Service SID) and optional Twilio Email adapter.",
+        "[x] Remove provider-specific references from core behavior and keep providers isolated to adapter packages.",
+        "[x] Add/refresh tests for verification message validation, policy validation, code+link token persistence, and reset-session one-time consumption.",
+        "[x] Update docs to reflect provider-agnostic senders, code+link verification model, and optional Twilio adapters."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

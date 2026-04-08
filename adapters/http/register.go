@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	core "github.com/open-rails/authkit/core"
 	pwhash "github.com/open-rails/authkit/password"
 )
 
@@ -53,8 +54,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	policy := s.svc.Options().RegistrationVerificationPolicy()
+	requiresVerification := policy == core.RegistrationVerificationRequired
+	optionalVerification := policy == core.RegistrationVerificationOptional
+
 	if isPhone {
-		if s.svc.Options().RequireVerifiedRegistrations && !s.svc.HasSMSSender() {
+		if requiresVerification && !s.svc.HasSMSSender() {
 			serverErr(w, "phone_registration_unavailable")
 			return
 		}
@@ -76,10 +81,14 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			serverErr(w, "registration_failed")
 			return
 		}
-		msg := "Registration pending. Please check your phone for a verification code."
-		if !s.svc.Options().RequireVerifiedRegistrations {
-			msg = "Registration successful. You can log in immediately."
+
+		msg := "Registration successful. You can log in immediately."
+		if requiresVerification {
+			msg = "Registration pending. Please check your phone for a verification code or link."
+		} else if optionalVerification && s.svc.HasSMSSender() {
+			msg = "Registration successful. We sent a phone verification code and link; verification is optional."
 		}
+
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"ok":      true,
 			"message": msg,
@@ -88,7 +97,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if s.svc.Options().RequireVerifiedRegistrations && !s.svc.HasEmailSender() {
+	if requiresVerification && !s.svc.HasEmailSender() {
 		serverErr(w, "email_registration_unavailable")
 		return
 	}
@@ -111,10 +120,13 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	msg := "Registration pending. Please check your email to verify your account."
-	if !s.svc.Options().RequireVerifiedRegistrations {
-		msg = "Registration successful. You can log in immediately."
+	msg := "Registration successful. You can log in immediately."
+	if requiresVerification {
+		msg = "Registration pending. Please check your email for a verification code or link."
+	} else if optionalVerification && s.svc.HasEmailSender() {
+		msg = "Registration successful. We sent an email verification code and link; verification is optional."
 	}
+
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"ok":      true,
 		"message": msg,
@@ -123,7 +135,11 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *http.Request) {
-	if s.svc.Options().RequireVerifiedRegistrations && !s.svc.HasEmailSender() {
+	if !s.svc.Options().RegistrationVerificationEnabled() {
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		return
+	}
+	if !s.svc.HasEmailSender() {
 		serverErr(w, "email_unavailable")
 		return
 	}
@@ -146,11 +162,15 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 		_, _ = s.svc.CreatePendingRegistration(r.Context(), email, pendingUser.Username, pendingUser.PasswordHash, 0)
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If a pending registration exists, a new code has been sent."})
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If a pending registration exists, new verification credentials have been sent."})
 }
 
 func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.Request) {
-	if s.svc.Options().RequireVerifiedRegistrations && !s.svc.HasSMSSender() {
+	if !s.svc.Options().RegistrationVerificationEnabled() {
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		return
+	}
+	if !s.svc.HasSMSSender() {
 		serverErr(w, "phone_unavailable")
 		return
 	}
@@ -177,5 +197,5 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		_, _ = s.svc.CreatePendingPhoneRegistration(r.Context(), phone, pending.Username, pending.PasswordHash)
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If a pending registration exists, a new code has been sent."})
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If a pending registration exists, new verification credentials have been sent."})
 }

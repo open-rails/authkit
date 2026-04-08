@@ -22,16 +22,16 @@ import (
 )
 
 type config struct {
-	ListenAddr                   string
-	Issuer                       string
-	DBURL                        string
-	DevMode                      bool
-	DevMintSecret                string
-	RequireVerifiedRegistrations bool
-	MigrateOnStart               bool
-	IssuedAudiences              []string
-	ExpectedAudiences            []string
-	Environment                  string
+	ListenAddr               string
+	Issuer                   string
+	DBURL                    string
+	DevMode                  bool
+	DevMintSecret            string
+	RegistrationVerification core.RegistrationVerificationPolicy
+	MigrateOnStart           bool
+	IssuedAudiences          []string
+	ExpectedAudiences        []string
+	Environment              string
 }
 
 func main() {
@@ -60,29 +60,34 @@ func main() {
 }
 
 func loadConfig() (*config, error) {
-	issuedAudiences := parseCSVEnv("DEVSERVER_ISSUED_AUDIENCES", []string{"billing-app"}, "AUTHKIT_ISSUED_AUDIENCES")
-	expectedAudiences := parseCSVEnv("DEVSERVER_EXPECTED_AUDIENCES", issuedAudiences, "AUTHKIT_EXPECTED_AUDIENCES")
+	issuedAudiences := parseCSVEnv("DEVSERVER_ISSUED_AUDIENCES", []string{"billing-app"})
+	expectedAudiences := parseCSVEnv("DEVSERVER_EXPECTED_AUDIENCES", issuedAudiences)
 
 	c := &config{
-		ListenAddr:                   envOr("DEVSERVER_LISTEN_ADDR", ":8080", "AUTHKIT_LISTEN_ADDR"),
-		Issuer:                       strings.TrimRight(envOr("DEVSERVER_ISSUER", "", "AUTHKIT_ISSUER"), "/"),
-		DBURL:                        firstEnv("DB_URL", "DATABASE_URL"),
-		DevMode:                      envBool("DEVSERVER_DEV_MODE", false, "AUTHKIT_DEV_MODE"),
-		DevMintSecret:                envOr("DEVSERVER_DEV_MINT_SECRET", "", "AUTHKIT_DEV_MINT_SECRET"),
-		RequireVerifiedRegistrations: envBool("DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS", true, "DEVSERVER_VERIFICATION_REQUIRED", "AUTHKIT_VERIFICATION_REQUIRED"),
-		MigrateOnStart:               envBool("DEVSERVER_MIGRATE_ON_START", true, "AUTHKIT_MIGRATE_ON_START"),
-		IssuedAudiences:              issuedAudiences,
-		ExpectedAudiences:            expectedAudiences,
-		Environment:                  envOr("DEVSERVER_ENVIRONMENT", "dev", "AUTHKIT_ENVIRONMENT"),
+		ListenAddr:               envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
+		Issuer:                   strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
+		DBURL:                    firstEnv("DB_URL", "DATABASE_URL"),
+		DevMode:                  envBool("DEVSERVER_DEV_MODE", false),
+		DevMintSecret:            envOr("DEVSERVER_DEV_MINT_SECRET", ""),
+		MigrateOnStart:           envBool("DEVSERVER_MIGRATE_ON_START", true),
+		IssuedAudiences:          issuedAudiences,
+		ExpectedAudiences:        expectedAudiences,
+		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
+		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
 	}
 	if c.Issuer == "" {
-		return nil, fmt.Errorf("DEVSERVER_ISSUER is required (legacy alias AUTHKIT_ISSUER still supported)")
+		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")
 	}
 	if c.DBURL == "" {
 		return nil, fmt.Errorf("DB_URL (or DATABASE_URL) is required")
 	}
 	if c.DevMode && c.DevMintSecret == "" {
 		return nil, fmt.Errorf("DEVSERVER_DEV_MINT_SECRET is required when DEVSERVER_DEV_MODE=true")
+	}
+	switch c.RegistrationVerification {
+	case core.RegistrationVerificationNone, core.RegistrationVerificationOptional, core.RegistrationVerificationRequired:
+	default:
+		return nil, fmt.Errorf("DEVSERVER_REGISTRATION_VERIFICATION must be one of: none, optional, required")
 	}
 	return c, nil
 }
@@ -108,12 +113,12 @@ func runServe(cfg *config) error {
 	}
 
 	svc, err := authhttp.NewService(core.Config{
-		Issuer:                       cfg.Issuer,
-		IssuedAudiences:              cfg.IssuedAudiences,
-		ExpectedAudiences:            cfg.ExpectedAudiences,
-		Keys:                         keySource,
-		Environment:                  cfg.Environment,
-		RequireVerifiedRegistrations: core.Bool(cfg.RequireVerifiedRegistrations),
+		Issuer:                   cfg.Issuer,
+		IssuedAudiences:          cfg.IssuedAudiences,
+		ExpectedAudiences:        cfg.ExpectedAudiences,
+		Keys:                     keySource,
+		Environment:              cfg.Environment,
+		RegistrationVerification: cfg.RegistrationVerification,
 	})
 	if err != nil {
 		return err

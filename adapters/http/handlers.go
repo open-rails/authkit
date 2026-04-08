@@ -16,6 +16,9 @@ func (s *Service) APIHandler() http.Handler {
 	if s == nil || s.svc == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, "authkit_not_initialized") })
 	}
+	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
+		panic(err)
+	}
 	if !core.IsDevEnvironment(s.svc.Options().Environment) {
 		if s.svc.EphemeralMode() != core.EphemeralRedis {
 			panic("authkit: redis-compatible ephemeral store is required in production")
@@ -45,6 +48,7 @@ func (s *Service) APIHandler() http.Handler {
 	// Phone-based password reset and verification
 	mux.Handle("POST /auth/phone/verify/request", http.HandlerFunc(s.handlePhoneVerifyRequestPOST))
 	mux.Handle("POST /auth/phone/verify/confirm", http.HandlerFunc(s.handlePhoneVerifyConfirmPOST))
+	mux.Handle("POST /auth/phone/verify/confirm-link", http.HandlerFunc(s.handlePhoneVerifyConfirmLinkPOST))
 	mux.Handle("POST /auth/phone/password/reset/request", http.HandlerFunc(s.handlePhonePasswordResetRequestPOST))
 	mux.Handle("POST /auth/phone/password/reset/confirm", http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST))
 
@@ -84,7 +88,7 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("PATCH /auth/user/username", required(http.HandlerFunc(s.handleUserUsernamePATCH)))
 	mux.Handle("POST /auth/oidc/{provider}/link/start", required(http.HandlerFunc(s.handleOIDCLinkStartPOST)))
 	if _, ok := s.oidcProviders["discord"]; ok {
-		mux.Handle("POST /auth/oauth/discord/link/start", required(http.HandlerFunc(s.handleDiscordLinkStartPOST)))
+		mux.Handle("POST /auth/oidc/discord/link/start", required(http.HandlerFunc(s.handleDiscordLinkStartPOST)))
 	}
 	mux.Handle("POST /auth/user/email/change/request", required(http.HandlerFunc(s.handleUserEmailChangeRequestPOST)))
 	mux.Handle("POST /auth/user/email/change/confirm", required(http.HandlerFunc(s.handleUserEmailChangeConfirmPOST)))

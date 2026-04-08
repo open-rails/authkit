@@ -35,8 +35,9 @@ func (s *Service) handleDiscordLinkStartPOST(w http.ResponseWriter, r *http.Requ
 	if strings.HasSuffix(path, "/link/start") {
 		path = strings.TrimSuffix(path, "/link/start") + "/callback"
 	} else {
-		path = "/auth/oauth/discord/callback"
+		path = "/oidc/discord/callback"
 	}
+	path = strings.ReplaceAll(path, "/auth/oidc/", "/oidc/")
 	redirectURI := scheme + "://" + host + path
 
 	st := randB64(24)

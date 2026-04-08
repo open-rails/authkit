@@ -44,6 +44,7 @@ func DefaultRateLimits() map[string]Limit {
 		RLEmailVerifyRequest:   {Limit: 6, Window: 10 * time.Minute},
 		RLEmailVerifyConfirm:   {Limit: 10, Window: 10 * time.Minute},
 		RLPhoneVerifyRequest:   {Limit: 3, Window: 10 * time.Minute},
+		RLPhoneVerifyConfirm:   {Limit: 10, Window: 10 * time.Minute},
 
 		// User changes
 		RLUserPasswordChange:     {Limit: 6, Window: time.Hour},

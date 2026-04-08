@@ -17,13 +17,14 @@ type Config struct {
 	// Session limits
 	SessionMaxPerUser int // 0 = unlimited, default 3 if unset by service; eviction is always evict-oldest
 	// Optional: if set, used for building absolute URLs (e.g., password reset/verify links).
+	// If empty and Issuer is a well-formed URL, NewFromConfig defaults BaseURL to Issuer.
 	BaseURL string
 	// Paths for reset/verify are fixed to "/reset" and "/verify"; not configurable.
 
-	// RequireVerifiedRegistrations controls whether email/phone registration requires
-	// confirmation before the account is usable.
-	// Default behavior in NewFromConfig is true when this is nil.
-	RequireVerifiedRegistrations *bool
+	// RegistrationVerification controls registration verification behavior.
+	// Valid values: "none", "optional", "required".
+	// Empty defaults to "none".
+	RegistrationVerification RegistrationVerificationPolicy
 
 	// OrgMode controls multi-organization behavior.
 	// Valid values: "single" (default) or "multi".
@@ -48,5 +49,10 @@ type Config struct {
 	Providers map[string]oidckit.RPConfig
 }
 
-// Bool returns a pointer to v for convenient Config field assignment.
-func Bool(v bool) *bool { return &v }
+type RegistrationVerificationPolicy string
+
+const (
+	RegistrationVerificationNone     RegistrationVerificationPolicy = "none"
+	RegistrationVerificationOptional RegistrationVerificationPolicy = "optional"
+	RegistrationVerificationRequired RegistrationVerificationPolicy = "required"
+)
