@@ -38,10 +38,18 @@ func TestJWKSHandler(t *testing.T) {
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]any
+	var body struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Kid string `json:"kid"`
+			Alg string `json:"alg"`
+		} `json:"keys"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	_, ok := body["keys"]
-	require.True(t, ok)
+	require.NotEmpty(t, body.Keys)
+	require.Equal(t, "RSA", body.Keys[0].Kty)
+	require.NotEmpty(t, body.Keys[0].Kid)
+	require.Equal(t, "RS256", body.Keys[0].Alg)
 }
 
 func TestAPIHandler_Token_InvalidRequest(t *testing.T) {

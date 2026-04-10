@@ -216,9 +216,15 @@ func isWellFormattedURL(raw string) bool {
 
 // JWKS returns a JWKS built from configured public keys.
 func (s *Service) JWKS() jwtkit.JWKS {
-	// Build a deterministic, sorted JWKS and omit alg to avoid incorrect
-	// per-key algorithm when multiple algorithms are in rotation.
+	// Build a deterministic, sorted JWKS. For current RSA keysets, include alg
+	// to make verifier policy and key intent explicit.
 	ks := jwtkit.JWKS{Keys: make([]jwtkit.JWK, 0, len(s.keys.PublicKeys))}
+	activeKID := ""
+	activeAlg := ""
+	if s.keys.Active != nil {
+		activeKID = strings.TrimSpace(s.keys.Active.KID())
+		activeAlg = strings.TrimSpace(s.keys.Active.Algorithm())
+	}
 	kids := make([]string, 0, len(s.keys.PublicKeys))
 	for kid := range s.keys.PublicKeys {
 		kids = append(kids, kid)
@@ -226,7 +232,13 @@ func (s *Service) JWKS() jwtkit.JWKS {
 	sort.Strings(kids)
 	for _, kid := range kids {
 		pub := s.keys.PublicKeys[kid]
-		ks.Keys = append(ks.Keys, jwtkit.RSAPublicToJWK(pub, kid, ""))
+		alg := activeAlg
+		if strings.TrimSpace(kid) != activeKID || strings.TrimSpace(alg) == "" {
+			// Current JWKS keys are RSA public keys (RS256 signers), including
+			// rotated verification keys that may not be the active signer.
+			alg = "RS256"
+		}
+		ks.Keys = append(ks.Keys, jwtkit.RSAPublicToJWK(pub, kid, alg))
 	}
 	return ks
 }
