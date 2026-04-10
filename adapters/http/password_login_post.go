@@ -57,6 +57,19 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	switch {
 	case strings.Contains(identifier, "@"):
 		loginEmail = identifier
+		// Fetch user by email so verification checks below can inspect email_verified.
+		usr, e := s.svc.GetUserByEmail(r.Context(), loginEmail)
+		if e == nil && usr != nil {
+			fetchedUser = &userWithEmail{
+				ID:            usr.ID,
+				Email:         usr.Email,
+				PhoneNumber:   usr.PhoneNumber,
+				EmailVerified: usr.EmailVerified,
+				PhoneVerified: usr.PhoneVerified,
+				CreatedAt:     usr.CreatedAt,
+			}
+			userID = usr.ID
+		}
 	case strings.HasPrefix(identifier, "+"):
 		usr, e := s.svc.GetUserByPhone(r.Context(), identifier)
 		if e != nil || usr == nil {
