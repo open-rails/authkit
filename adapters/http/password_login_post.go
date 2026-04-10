@@ -166,20 +166,27 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	if requiresVerification && fetchedUser != nil && !fetchedUser.EmailVerified && fetchedUser.Email != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		if s.svc.HasPassword(r.Context(), userID) {
-			if s.svc.HasEmailSender() {
+	// Verify password BEFORE sending any OTP to prevent unauthenticated users
+	// from triggering OTP sends (spam/cost abuse) or enumerating accounts.
+	if requiresVerification && fetchedUser != nil && userID != "" {
+		needsEmailVerify := !fetchedUser.EmailVerified && fetchedUser.Email != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+		needsPhoneVerify := !fetchedUser.PhoneVerified && fetchedUser.PhoneNumber != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
+		if needsEmailVerify || needsPhoneVerify {
+			if !s.svc.VerifyUserPassword(r.Context(), userID, req.Password) {
+				logLoginFailed(s, r, userID, "invalid_credentials")
+				unauthorized(w, "invalid_credentials")
+				return
+			}
+
+			if needsEmailVerify && s.svc.HasEmailSender() {
 				_ = s.svc.RequestEmailVerification(r.Context(), *fetchedUser.Email, 0)
 				logLoginFailed(s, r, userID, "email_not_verified")
 				unauthorized(w, "email_not_verified")
 				return
 			}
-		}
-	}
 
-	if requiresVerification && fetchedUser != nil && !fetchedUser.PhoneVerified && fetchedUser.PhoneNumber != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		if s.svc.HasPassword(r.Context(), userID) {
-			if s.svc.HasSMSSender() {
+			if needsPhoneVerify && s.svc.HasSMSSender() {
 				_ = s.svc.SendPhoneVerificationToUser(r.Context(), *fetchedUser.PhoneNumber, userID, 0)
 				logLoginFailed(s, r, userID, "phone_not_verified")
 				unauthorized(w, "phone_not_verified")

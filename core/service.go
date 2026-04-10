@@ -774,6 +774,38 @@ func errOrUnauthorized(err error) error {
 	return jwt.ErrTokenInvalidClaims
 }
 
+// VerifyUserPassword checks a user's password without issuing tokens or updating last-login.
+// Returns true if the password is correct, false otherwise.
+func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) bool {
+	if s.pg == nil || strings.TrimSpace(userID) == "" {
+		return false
+	}
+	hash, algo, _, err := s.getPasswordHash(ctx, userID)
+	if err != nil {
+		return false
+	}
+	switch algo {
+	case "argon2id":
+		ok, err := password.VerifyArgon2id(hash, pass)
+		return err == nil && ok
+	case "bcrypt", "":
+		if !password.IsBcryptHash(hash) && algo == "" {
+			return false
+		}
+		ok, err := password.VerifyBcrypt(hash, pass)
+		if err == nil && ok {
+			// Rehash to Argon2id opportunistically
+			if phc, hErr := password.HashArgon2id(pass); hErr == nil {
+				_ = s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil)
+			}
+			return true
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 // ChangePassword sets or changes a user's password.
 // If the user already has a password, current must verify; otherwise current is ignored.
 // Always Argon2id-hashes the new password and upserts it, then revokes all
