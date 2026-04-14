@@ -121,3 +121,97 @@ func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
 }
+
+func TestAPIHandler_PublicOwnerNamespaceLookup_DoesNotRequireAuth(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/auth/owners/%20", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+}
+
+func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/auth/orgs/state?slug=google", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/auth/admin/accounts/state?slug=google", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestAPIHandler_AdminAccountsReserveRoute_Removed(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/reserve", strings.NewReader(`{"slug":"google"}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestAPIHandler_AdminUsersToggleActiveRoute_Removed(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/auth/admin/users/toggle-active", strings.NewReader(`{"user_id":"u","banned":true}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestAPIHandler_AdminOrgParkRoute_RequiresAuth(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/auth/admin/org/park", strings.NewReader(`{"slug":"google"}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+}
+
+func TestAPIHandler_AdminOrgClaimRoute_RequiresAuth(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/auth/admin/org/claim", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+}
+
+func TestAPIHandler_AdminAccountsOrgLegacyRoutes_Removed(t *testing.T) {
+	s := &Service{svc: newTestCoreService(t)}
+	h := s.APIHandler()
+
+	w1 := httptest.NewRecorder()
+	r1 := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/park", strings.NewReader(`{"slug":"google"}`))
+	r1.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w1, r1)
+	require.Equal(t, http.StatusNotFound, w1.Code)
+
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/claim-org", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
+	r2.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w2, r2)
+	require.Equal(t, http.StatusNotFound, w2.Code)
+}

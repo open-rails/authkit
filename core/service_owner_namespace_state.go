@@ -15,8 +15,6 @@ const (
 	OwnerNamespaceStateRestrictedName OwnerNamespaceState = "restricted_name"
 	OwnerNamespaceStateParkedOrg      OwnerNamespaceState = "parked_org"
 	OwnerNamespaceStateRegistered     OwnerNamespaceState = "registered_org"
-	// Deprecated alias kept for source compatibility with in-flight callsites.
-	OwnerNamespaceStateReservedName OwnerNamespaceState = OwnerNamespaceStateRestrictedName
 )
 
 var (
@@ -32,9 +30,6 @@ func normalizeOwnerNamespaceState(state OwnerNamespaceState) OwnerNamespaceState
 	s := strings.ToLower(strings.TrimSpace(string(state)))
 	switch OwnerNamespaceState(s) {
 	case OwnerNamespaceStateRestrictedName:
-		return OwnerNamespaceStateRestrictedName
-	case OwnerNamespaceState("reserved_name"):
-		// Backward-compatible read path for legacy state labels.
 		return OwnerNamespaceStateRestrictedName
 	case OwnerNamespaceStateParkedOrg:
 		return OwnerNamespaceStateParkedOrg

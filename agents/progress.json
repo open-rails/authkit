@@ -424,6 +424,28 @@
         "[x] Update docs to reflect provider-agnostic senders, code+link verification model, and optional Twilio adapters."
       ],
       "completed": true
+    },
+    {
+      "name": "Legacy/dead surface cleanup (hard-cuts + compatibility removals)",
+      "id_number": 27,
+      "description": "AuthKit still has several legacy/dead surfaces that should be removed to simplify the API and reduce maintenance risk. This issue tracks immediate hard-cuts plus staged compatibility removals that require short downstream migration windows.",
+      "tasks": [
+        "Immediate hard-cuts (low-risk removals):",
+        "[x] Remove `/auth/admin/users/toggle-active` route + handler and keep only explicit `/ban` + `/unban` semantics.",
+        "[x] Remove legacy reserved-placeholder claim path in core (`ClaimReservedAccount`, `ErrReservedAccountProtected`) now that org ownership transitions are handled via owner-namespace states (`restricted_name`/`parked_org`/`registered_org`).",
+        "[x] Remove unused legacy wrapper `ConfirmPhonePasswordReset` and associated contract surface (HTTP already uses reset-session confirmation).",
+        "[x] Remove unused `IsOrgReservedBySlug` helper if no first-party callers remain.",
+        "[x] Remove or shrink unused `core.Provider` interface surface if it has no first-party callers (or replace with minimal interfaces at call sites).",
+        "Compatibility removals (after migration window):",
+        "[x] Remove deprecated owner-namespace alias constant + parser fallback for `reserved_name`; keep only `restricted_name`.",
+        "[x] Remove deprecated verify-only `IssuerAccept.Audience` fallback; require `IssuerAccept.Audiences`.",
+        "[x] Remove devserver `AUTHKIT_*` environment-variable alias support and keep canonical `DEVSERVER_*` keys only.",
+        "Validation + rollout:",
+        "[x] Add/refresh hard-cut route tests for removed legacy endpoints (expected 404).",
+        "[x] Update downstream repos/docs before each compatibility removal (notably any consumers still using `IssuerAccept.Audience`).",
+        "[x] Verify with `go test ./...` in authkit plus targeted downstream auth proxy/verifier tests before marking complete."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

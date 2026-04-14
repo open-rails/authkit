@@ -9,67 +9,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandleAdminAccountsReservePOST_NoHardcodedReservedSlugBlock(t *testing.T) {
+func TestHandleOwnerNamespaceInfoGET_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
 	s := &Service{svc: newTestCoreService(t)}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/reserve", strings.NewReader(`{"slug":"superuser"}`))
-	r.Header.Set("Content-Type", "application/json")
+	r := httptest.NewRequest(http.MethodGet, "/auth/owners/", nil)
 
-	s.handleAdminAccountsReservePOST(w, r)
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"account_reserve_failed"`)
-	require.NotContains(t, w.Body.String(), `"error":"username_reserved"`)
-}
-
-func TestHandleAdminAccountsStateGET_InvalidRequest(t *testing.T) {
-	t.Parallel()
-
-	s := &Service{svc: newTestCoreService(t)}
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/auth/admin/accounts/state", nil)
-
-	s.handleAdminAccountsStateGET(w, r)
+	s.handleOwnerNamespaceInfoGET(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
 }
 
-func TestHandleAdminAccountsParkPOST_InvalidRequest(t *testing.T) {
+func TestHandleAdminOrgParkPOST_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
 	s := &Service{svc: newTestCoreService(t)}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/park", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/auth/admin/org/park", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
 
-	s.handleAdminAccountsParkPOST(w, r)
+	s.handleAdminOrgParkPOST(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
 }
 
-func TestHandleAdminAccountsClaimOrgPOST_InvalidRequest(t *testing.T) {
+func TestHandleAdminOrgClaimPOST_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
 	s := &Service{svc: newTestCoreService(t)}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/claim-org", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/auth/admin/org/claim", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
 
-	s.handleAdminAccountsClaimOrgPOST(w, r)
+	s.handleAdminOrgClaimPOST(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
 }
 
-func TestHandleAdminAccountsClaimOrgPOST_RequiresOwnerUserID(t *testing.T) {
+func TestHandleAdminOrgClaimPOST_RequiresOwnerUserID(t *testing.T) {
 	t.Parallel()
 
 	s := &Service{svc: newTestCoreService(t)}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/claim-org", strings.NewReader(`{"slug":"google"}`))
+	r := httptest.NewRequest(http.MethodPost, "/auth/admin/org/claim", strings.NewReader(`{"slug":"google"}`))
 	r.Header.Set("Content-Type", "application/json")
 
-	s.handleAdminAccountsClaimOrgPOST(w, r)
+	s.handleAdminOrgClaimPOST(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
 }

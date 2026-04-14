@@ -242,40 +242,6 @@ func (s *Service) handleAdminUsersSetPasswordPOST(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Service) handleAdminUserToggleActivePOST(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		UserID string `json:"user_id"`
-		Banned *bool  `json:"banned"`
-	}
-	if err := decodeJSON(r, &body); err != nil || body.UserID == "" || body.Banned == nil {
-		badRequest(w, "invalid_request")
-		return
-	}
-
-	if *body.Banned {
-		claims, ok := ClaimsFromContext(r.Context())
-		if !ok || strings.TrimSpace(claims.UserID) == "" {
-			unauthorized(w, "unauthorized")
-			return
-		}
-		if err := s.svc.BanUser(r.Context(), body.UserID, nil, nil, claims.UserID); err != nil {
-			serverErr(w, "failed_to_ban")
-			return
-		}
-	} else {
-		if err := s.svc.UnbanUser(r.Context(), body.UserID); err != nil {
-			serverErr(w, "failed_to_unban")
-			return
-		}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"user_id": body.UserID,
-		"banned":  *body.Banned,
-	})
-}
-
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	if id == "" {

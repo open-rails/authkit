@@ -113,12 +113,7 @@ func (v *Verifier) Verify(tokenStr string) (jwt.MapClaims, error) {
 		return nil, errors.New("bad_issuer")
 	}
 
-	var audiences []string
-	if len(match.Audiences) > 0 {
-		audiences = match.Audiences
-	} else if match.Audience != "" {
-		audiences = []string{match.Audience}
-	}
+	audiences := match.Audiences
 	if len(audiences) > 0 && !audContainsAny(claims["aud"], audiences) {
 		return nil, errors.New("bad_audience")
 	}

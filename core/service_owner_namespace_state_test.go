@@ -8,7 +8,6 @@ func TestNormalizeOwnerNamespaceState(t *testing.T) {
 		want OwnerNamespaceState
 	}{
 		{in: OwnerNamespaceState(" RESTRICTED_NAME "), want: OwnerNamespaceStateRestrictedName},
-		{in: OwnerNamespaceState(" RESERVED_NAME "), want: OwnerNamespaceStateRestrictedName},
 		{in: OwnerNamespaceState("parked_org"), want: OwnerNamespaceStateParkedOrg},
 		{in: OwnerNamespaceState("registered_org"), want: OwnerNamespaceStateRegistered},
 		{in: OwnerNamespaceState("unknown"), want: ""},

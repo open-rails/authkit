@@ -36,6 +36,8 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("POST /auth/register", http.HandlerFunc(s.handleRegisterUnifiedPOST))
 	mux.Handle("POST /auth/register/resend-email", http.HandlerFunc(s.handlePendingRegistrationResendPOST))
 	mux.Handle("POST /auth/register/resend-phone", http.HandlerFunc(s.handlePhoneRegisterResendPOST))
+	// Public owner slug lookup (org/user) with namespace state + canonical public metadata.
+	mux.Handle("GET /auth/owners/{slug}", http.HandlerFunc(s.handleOwnerNamespaceInfoGET))
 
 	// Email-based password reset and verification
 	mux.Handle("POST /auth/password/reset/request", http.HandlerFunc(s.handlePasswordResetRequestPOST))
@@ -126,17 +128,18 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("POST /auth/admin/users/set-email", admin(http.HandlerFunc(s.handleAdminUsersSetEmailPOST)))
 	mux.Handle("POST /auth/admin/users/set-username", admin(http.HandlerFunc(s.handleAdminUsersSetUsernamePOST)))
 	mux.Handle("POST /auth/admin/users/set-password", admin(http.HandlerFunc(s.handleAdminUsersSetPasswordPOST)))
-	mux.Handle("POST /auth/admin/users/toggle-active", admin(http.HandlerFunc(s.handleAdminUserToggleActivePOST)))
+	// Hard-cut legacy endpoint naming.
+	mux.Handle("POST /auth/admin/users/toggle-active", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		notFound(w, "not_found")
+	}))
 	mux.Handle("DELETE /auth/admin/users/{user_id}", admin(http.HandlerFunc(s.handleAdminUserDeleteDELETE)))
 	mux.Handle("POST /auth/admin/users/{user_id}/restore", admin(http.HandlerFunc(s.handleAdminUserRestorePOST)))
 	mux.Handle("GET /auth/admin/users/deleted", admin(http.HandlerFunc(s.handleAdminDeletedUsersListGET)))
 	mux.Handle("GET /auth/admin/users/{user_id}/signins", admin(http.HandlerFunc(s.handleAdminUserSigninsGET)))
-	mux.Handle("POST /auth/admin/accounts/reserve", admin(http.HandlerFunc(s.handleAdminAccountsReservePOST)))
 	mux.Handle("POST /auth/admin/accounts/restrict", admin(http.HandlerFunc(s.handleAdminAccountsRestrictPOST)))
 	mux.Handle("POST /auth/admin/accounts/unrestrict", admin(http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST)))
-	mux.Handle("GET /auth/admin/accounts/state", admin(http.HandlerFunc(s.handleAdminAccountsStateGET)))
-	mux.Handle("POST /auth/admin/accounts/park", admin(http.HandlerFunc(s.handleAdminAccountsParkPOST)))
-	mux.Handle("POST /auth/admin/accounts/claim-org", admin(http.HandlerFunc(s.handleAdminAccountsClaimOrgPOST)))
+	mux.Handle("POST /auth/admin/org/park", admin(http.HandlerFunc(s.handleAdminOrgParkPOST)))
+	mux.Handle("POST /auth/admin/org/claim", admin(http.HandlerFunc(s.handleAdminOrgClaimPOST)))
 
 	h := http.Handler(mux)
 	h = LanguageMiddleware(s.langCfg)(h)

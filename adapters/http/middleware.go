@@ -46,12 +46,7 @@ func Required(svc core.Verifier) func(http.Handler) http.Handler {
 					unauthorized(w, "bad_issuer")
 					return
 				}
-				var audiences []string
-				if len(match.Audiences) > 0 {
-					audiences = match.Audiences
-				} else if match.Audience != "" {
-					audiences = []string{match.Audience}
-				}
+				audiences := match.Audiences
 				if len(audiences) > 0 && !audContainsAny(claims["aud"], audiences) {
 					unauthorized(w, "bad_audience")
 					return
