@@ -132,7 +132,11 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("GET /auth/admin/users/deleted", admin(http.HandlerFunc(s.handleAdminDeletedUsersListGET)))
 	mux.Handle("GET /auth/admin/users/{user_id}/signins", admin(http.HandlerFunc(s.handleAdminUserSigninsGET)))
 	mux.Handle("POST /auth/admin/accounts/reserve", admin(http.HandlerFunc(s.handleAdminAccountsReservePOST)))
-	mux.Handle("POST /auth/admin/accounts/claim", admin(http.HandlerFunc(s.handleAdminAccountsClaimPOST)))
+	mux.Handle("POST /auth/admin/accounts/restrict", admin(http.HandlerFunc(s.handleAdminAccountsRestrictPOST)))
+	mux.Handle("POST /auth/admin/accounts/unrestrict", admin(http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST)))
+	mux.Handle("GET /auth/admin/accounts/state", admin(http.HandlerFunc(s.handleAdminAccountsStateGET)))
+	mux.Handle("POST /auth/admin/accounts/park", admin(http.HandlerFunc(s.handleAdminAccountsParkPOST)))
+	mux.Handle("POST /auth/admin/accounts/claim-org", admin(http.HandlerFunc(s.handleAdminAccountsClaimOrgPOST)))
 
 	h := http.Handler(mux)
 	h = LanguageMiddleware(s.langCfg)(h)

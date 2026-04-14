@@ -1701,6 +1701,9 @@ func (s *Service) ensureUserAccess(ctx context.Context, u *User) error {
 	if u.DeletedAt != nil {
 		return ErrUserBanned
 	}
+	if reserved, err := s.IsUserReserved(ctx, strings.TrimSpace(u.ID)); err == nil && reserved {
+		return ErrUserBanned
+	}
 	if err := s.autoUnbanIfExpired(ctx, u); err != nil {
 		return err
 	}

@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrReservedAccountNotFound = errors.New("reserved_account_not_found")
-	ErrReservedAccountClaimed  = errors.New("reserved_account_claimed")
+	ErrReservedAccountNotFound  = errors.New("reserved_account_not_found")
+	ErrReservedAccountClaimed   = errors.New("reserved_account_claimed")
+	ErrReservedAccountProtected = errors.New("reserved_account_protected")
 )
 
 func normalizeReservedSlug(slug string) string {
@@ -196,25 +197,11 @@ func (s *Service) PatchOrgMetadata(ctx context.Context, orgID string, patch map[
 }
 
 func (s *Service) IsOrgReserved(ctx context.Context, orgID string) (bool, error) {
-	if err := s.requirePG(); err != nil {
+	state, err := s.GetOrgNamespaceState(ctx, orgID)
+	if err != nil {
 		return false, err
 	}
-	if strings.TrimSpace(orgID) == "" {
-		return false, fmt.Errorf("invalid_org")
-	}
-	var reserved bool
-	query := `
-		SELECT ` + s.reservedUserFlagExpr() + `
-		FROM profiles.orgs
-		WHERE id=$1::uuid AND deleted_at IS NULL
-	`
-	if err := s.pg.QueryRow(ctx, query, orgID).Scan(&reserved); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, ErrOrgNotFound
-		}
-		return false, err
-	}
-	return reserved, nil
+	return state == OwnerNamespaceStateParkedOrg, nil
 }
 
 func (s *Service) IsOrgReservedBySlug(ctx context.Context, slug string) (string, bool, error) {
@@ -229,12 +216,9 @@ func (s *Service) IsOrgReservedBySlug(ctx context.Context, slug string) (string,
 	return strings.TrimSpace(org.ID), reserved, nil
 }
 
-// ReserveAccount creates (or reuses) a placeholder owner account and marks both
-// user/org metadata with reserved=true. It is internal/admin-only flow.
-func (s *Service) ReserveAccount(ctx context.Context, slug, sourceKind, sourceRef, actor string) (userID, orgID string, reserved bool, err error) {
-	_ = sourceKind
-	_ = sourceRef
-	_ = actor
+// ReserveAccount reserves a namespace slug without requiring a same-slug login user.
+// For legacy placeholder rows, it still enforces non-loginable reserved invariants.
+func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgID string, reserved bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", "", false, err
 	}
@@ -248,6 +232,29 @@ func (s *Service) ReserveAccount(ctx context.Context, slug, sourceKind, sourceRe
 		return "", "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		existingOrgID       string
+		existingOrgReserved bool
+	)
+	if err := tx.QueryRow(ctx, `
+		SELECT id::text,
+		       CASE
+		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
+		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
+		         ELSE false
+		       END
+		FROM profiles.orgs
+		WHERE slug=$1
+		  AND deleted_at IS NULL
+	`, slug).Scan(&existingOrgID, &existingOrgReserved); err == nil {
+		orgID = strings.TrimSpace(existingOrgID)
+		if !existingOrgReserved {
+			return "", "", false, ErrReservedAccountClaimed
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", false, err
+	}
 
 	var (
 		existingUserID   string
@@ -271,91 +278,62 @@ func (s *Service) ReserveAccount(ctx context.Context, slug, sourceKind, sourceRe
 			return "", "", false, ErrReservedAccountClaimed
 		}
 	case errors.Is(err, pgx.ErrNoRows):
+	default:
+		return "", "", false, err
+	}
+
+	if strings.TrimSpace(userID) != "" && strings.TrimSpace(orgID) == "" {
+		var existingOrgSlug string
+		switch err := tx.QueryRow(ctx, `
+			SELECT id::text,
+			       slug,
+			       CASE
+			         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
+			         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
+			         ELSE false
+			       END
+			FROM profiles.orgs
+			WHERE owner_user_id=$1::uuid
+			  AND is_personal=true
+			  AND deleted_at IS NULL
+		`, userID).Scan(&existingOrgID, &existingOrgSlug, &existingOrgReserved); {
+		case err == nil:
+			orgID = strings.TrimSpace(existingOrgID)
+			if !existingOrgReserved {
+				return "", "", false, ErrReservedAccountClaimed
+			}
+		case errors.Is(err, pgx.ErrNoRows):
+		default:
+			return "", "", false, err
+		}
+	}
+
+	if strings.TrimSpace(userID) == "" && strings.TrimSpace(orgID) == "" {
 		if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
 			return "", "", false, err
 		}
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO profiles.users (email, username, metadata)
-			VALUES (NULL, $1, jsonb_build_object('reserved', to_jsonb(true)))
-			RETURNING id::text
-		`, slug).Scan(&userID); err != nil {
-			return "", "", false, err
-		}
-	default:
+	}
+
+	if err := s.upsertOwnerReservedNameTx(ctx, tx, slug); err != nil {
 		return "", "", false, err
 	}
 
-	var (
-		existingOrgID       string
-		existingOrgSlug     string
-		existingOrgReserved bool
-	)
-	orgReservedQuery := `
-		SELECT id::text,
-		       slug,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-		       END
-		FROM profiles.orgs
-		WHERE owner_user_id=$1::uuid
-		  AND is_personal=true
-		  AND deleted_at IS NULL
-	`
-	switch err := tx.QueryRow(ctx, orgReservedQuery, userID).Scan(&existingOrgID, &existingOrgSlug, &existingOrgReserved); {
-	case err == nil:
-		orgID = strings.TrimSpace(existingOrgID)
-		if !existingOrgReserved {
-			return "", "", false, ErrReservedAccountClaimed
-		}
-	case errors.Is(err, pgx.ErrNoRows):
-		if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
+	if strings.TrimSpace(userID) != "" {
+		if err := s.setUserReservedTx(ctx, tx, userID, true); err != nil {
 			return "", "", false, err
 		}
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO profiles.orgs (slug, is_personal, owner_user_id, metadata)
-			VALUES ($1, true, $2::uuid, jsonb_build_object('reserved', to_jsonb(true)))
-			ON CONFLICT (owner_user_id) WHERE is_personal=true AND deleted_at IS NULL
-			DO UPDATE SET slug=EXCLUDED.slug, updated_at=now()
-			RETURNING id::text
-		`, slug, userID).Scan(&orgID); err != nil {
+		if err := s.enforceReservedPlaceholderCredentialInvariantTx(ctx, tx, userID); err != nil {
 			return "", "", false, err
 		}
-	default:
-		return "", "", false, err
 	}
 
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.org_roles (org_id, role)
-		VALUES ($1::uuid, 'owner'), ($1::uuid, 'member')
-		ON CONFLICT (org_id, role) DO NOTHING
-	`, orgID); err != nil {
-		return "", "", false, err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.org_members (org_id, user_id)
-		VALUES ($1::uuid, $2::uuid)
-		ON CONFLICT (org_id, user_id) DO UPDATE SET deleted_at=NULL, updated_at=now()
-	`, orgID, userID); err != nil {
-		return "", "", false, err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.org_member_roles (org_id, user_id, role)
-		VALUES ($1::uuid, $2::uuid, 'owner')
-		ON CONFLICT (org_id, user_id, role) DO NOTHING
-	`, orgID, userID); err != nil {
-		return "", "", false, err
-	}
-
-	if err := s.setUserReservedTx(ctx, tx, userID, true); err != nil {
-		return "", "", false, err
-	}
-	if err := s.enforceReservedPlaceholderCredentialInvariantTx(ctx, tx, userID); err != nil {
-		return "", "", false, err
-	}
-	if err := s.setOrgReservedTx(ctx, tx, orgID, true); err != nil {
-		return "", "", false, err
+	if strings.TrimSpace(orgID) != "" {
+		if err := s.setOrgReservedTx(ctx, tx, orgID, true); err != nil {
+			return "", "", false, err
+		}
+		if err := s.setOrgNamespaceStateTx(ctx, tx, orgID, OwnerNamespaceStateParkedOrg); err != nil {
+			return "", "", false, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -367,10 +345,13 @@ func (s *Service) ReserveAccount(ctx context.Context, slug, sourceKind, sourceRe
 // ClaimReservedAccount activates a reserved placeholder account by setting a password,
 // optional contact fields, and flipping reserved=false on both user/org metadata.
 func (s *Service) ClaimReservedAccount(ctx context.Context, slug, newPassword string, email, phone *string) (userID, orgID string, err error) {
+	slug = normalizeReservedSlug(slug)
+	if slug == "root" {
+		return "", "", ErrReservedAccountProtected
+	}
 	if err := s.requirePG(); err != nil {
 		return "", "", err
 	}
-	slug = normalizeReservedSlug(slug)
 	if err := validateOrgSlug(slug); err != nil {
 		return "", "", err
 	}
@@ -470,6 +451,12 @@ func (s *Service) ClaimReservedAccount(ctx context.Context, slug, newPassword st
 		return "", "", err
 	}
 	if err := s.setOrgReservedTx(ctx, tx, orgID, false); err != nil {
+		return "", "", err
+	}
+	if err := s.setOrgNamespaceStateTx(ctx, tx, orgID, OwnerNamespaceStateRegistered); err != nil {
+		return "", "", err
+	}
+	if err := s.deleteOwnerReservedNameTx(ctx, tx, slug); err != nil {
 		return "", "", err
 	}
 

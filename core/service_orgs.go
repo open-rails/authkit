@@ -147,8 +147,8 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	}
 	var id, canonical string
 	err := s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.orgs (slug)
-		VALUES ($1)
+		INSERT INTO profiles.orgs (slug, metadata)
+		VALUES ($1, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 		RETURNING id::text, slug
 	`, slug).Scan(&id, &canonical)
 	if err != nil {

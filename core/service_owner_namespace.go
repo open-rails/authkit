@@ -56,6 +56,18 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 	if err := s.pg.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
+			FROM profiles.owner_reserved_names r
+			WHERE lower(r.slug)=lower($1)
+		)
+	`, slug).Scan(&exists); err != nil {
+		return false, err
+	}
+	if exists {
+		return false, nil
+	}
+	if err := s.pg.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
 			FROM profiles.users u
 			WHERE lower(u.username::text)=lower($1)
 			  AND u.deleted_at IS NULL
@@ -243,8 +255,8 @@ func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username
 
 	var orgID string
 	err := s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.orgs (slug, is_personal, owner_user_id)
-		VALUES ($1, true, $2::uuid)
+		INSERT INTO profiles.orgs (slug, is_personal, owner_user_id, metadata)
+		VALUES ($1, true, $2::uuid, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 		ON CONFLICT (owner_user_id) WHERE is_personal=true AND deleted_at IS NULL
 		DO UPDATE SET slug=EXCLUDED.slug, updated_at=now()
 		RETURNING id::text
