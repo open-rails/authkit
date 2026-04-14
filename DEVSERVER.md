@@ -53,11 +53,6 @@ Dev minting (optional, but required for billing E2E):
 Registration behavior:
 - `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
 
-Compatibility aliases (deprecated, one transition window):
-- `AUTHKIT_*` names are still accepted by the standalone devserver.
-- `AUTHKIT_VERIFICATION_REQUIRED` and `DEVSERVER_VERIFICATION_REQUIRED` map to `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS`.
-- If both canonical and alias vars are set, `DEVSERVER_*` wins.
-
 ## Mint a JWT
 
 ```bash

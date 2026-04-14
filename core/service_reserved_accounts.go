@@ -8,13 +8,11 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	pwhash "github.com/open-rails/authkit/password"
 )
 
 var (
-	ErrReservedAccountNotFound  = errors.New("reserved_account_not_found")
-	ErrReservedAccountClaimed   = errors.New("reserved_account_claimed")
-	ErrReservedAccountProtected = errors.New("reserved_account_protected")
+	ErrReservedAccountNotFound = errors.New("reserved_account_not_found")
+	ErrReservedAccountClaimed  = errors.New("reserved_account_claimed")
 )
 
 func normalizeReservedSlug(slug string) string {
@@ -204,18 +202,6 @@ func (s *Service) IsOrgReserved(ctx context.Context, orgID string) (bool, error)
 	return state == OwnerNamespaceStateParkedOrg, nil
 }
 
-func (s *Service) IsOrgReservedBySlug(ctx context.Context, slug string) (string, bool, error) {
-	org, err := s.ResolveOrgBySlug(ctx, normalizeReservedSlug(slug))
-	if err != nil {
-		return "", false, err
-	}
-	reserved, err := s.IsOrgReserved(ctx, org.ID)
-	if err != nil {
-		return "", false, err
-	}
-	return strings.TrimSpace(org.ID), reserved, nil
-}
-
 // ReserveAccount reserves a namespace slug without requiring a same-slug login user.
 // For legacy placeholder rows, it still enforces non-loginable reserved invariants.
 func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgID string, reserved bool, err error) {
@@ -340,128 +326,4 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 		return "", "", false, err
 	}
 	return strings.TrimSpace(userID), strings.TrimSpace(orgID), true, nil
-}
-
-// ClaimReservedAccount activates a reserved placeholder account by setting a password,
-// optional contact fields, and flipping reserved=false on both user/org metadata.
-func (s *Service) ClaimReservedAccount(ctx context.Context, slug, newPassword string, email, phone *string) (userID, orgID string, err error) {
-	slug = normalizeReservedSlug(slug)
-	if slug == "root" {
-		return "", "", ErrReservedAccountProtected
-	}
-	if err := s.requirePG(); err != nil {
-		return "", "", err
-	}
-	if err := validateOrgSlug(slug); err != nil {
-		return "", "", err
-	}
-	newPassword = strings.TrimSpace(newPassword)
-	if err := pwhash.Validate(newPassword); err != nil {
-		return "", "", err
-	}
-
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var userReserved bool
-	if err := tx.QueryRow(ctx, `
-		SELECT id::text,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-		       END
-		FROM profiles.users
-		WHERE lower(username::text)=lower($1)
-		  AND deleted_at IS NULL
-	`, slug).Scan(&userID, &userReserved); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", "", ErrReservedAccountNotFound
-		}
-		return "", "", err
-	}
-	if !userReserved {
-		return "", "", ErrReservedAccountClaimed
-	}
-
-	var orgReserved bool
-	if err := tx.QueryRow(ctx, `
-		SELECT id::text,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-		       END
-		FROM profiles.orgs
-		WHERE owner_user_id=$1::uuid
-		  AND is_personal=true
-		  AND deleted_at IS NULL
-	`, userID).Scan(&orgID, &orgReserved); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", "", ErrReservedAccountNotFound
-		}
-		return "", "", err
-	}
-	if !orgReserved {
-		return "", "", ErrReservedAccountClaimed
-	}
-
-	phc, err := pwhash.HashArgon2id(newPassword)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
-		VALUES ($1::uuid, $2, 'argon2id')
-		ON CONFLICT (user_id)
-		DO UPDATE SET password_hash=EXCLUDED.password_hash, hash_algo='argon2id', password_updated_at=now()
-	`, userID, phc); err != nil {
-		return "", "", err
-	}
-
-	if email != nil {
-		trimmed := strings.TrimSpace(*email)
-		if _, err := tx.Exec(ctx, `
-			UPDATE profiles.users
-			SET email=NULLIF(lower($2), ''),
-				email_verified=false,
-				updated_at=now()
-			WHERE id=$1::uuid
-		`, userID, trimmed); err != nil {
-			return "", "", err
-		}
-	}
-	if phone != nil {
-		trimmed := strings.TrimSpace(*phone)
-		if _, err := tx.Exec(ctx, `
-			UPDATE profiles.users
-			SET phone_number=NULLIF($2, ''),
-				phone_verified=false,
-				updated_at=now()
-			WHERE id=$1::uuid
-		`, userID, trimmed); err != nil {
-			return "", "", err
-		}
-	}
-
-	if err := s.setUserReservedTx(ctx, tx, userID, false); err != nil {
-		return "", "", err
-	}
-	if err := s.setOrgReservedTx(ctx, tx, orgID, false); err != nil {
-		return "", "", err
-	}
-	if err := s.setOrgNamespaceStateTx(ctx, tx, orgID, OwnerNamespaceStateRegistered); err != nil {
-		return "", "", err
-	}
-	if err := s.deleteOwnerReservedNameTx(ctx, tx, slug); err != nil {
-		return "", "", err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return "", "", err
-	}
-	return strings.TrimSpace(userID), strings.TrimSpace(orgID), nil
 }

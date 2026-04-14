@@ -79,8 +79,8 @@ func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 	accept := core.AcceptConfig{
 		Issuers: []core.IssuerAccept{
 			{
-				Issuer:   issuer.URL(),
-				Audience: issuer.Audience(),
+				Issuer:    issuer.URL(),
+				Audiences: []string{issuer.Audience()},
 			},
 		},
 		Algorithms: []string{"RS256"},
@@ -116,7 +116,7 @@ func TestTestIssuer_TokenWithRoles(t *testing.T) {
 
 	accept := core.AcceptConfig{
 		Issuers: []core.IssuerAccept{
-			{Issuer: issuer.URL(), Audience: issuer.Audience()},
+			{Issuer: issuer.URL(), Audiences: []string{issuer.Audience()}},
 		},
 		Algorithms: []string{"RS256"},
 	}
@@ -145,7 +145,7 @@ func TestTestIssuer_ExpiredToken(t *testing.T) {
 
 	accept := core.AcceptConfig{
 		Issuers: []core.IssuerAccept{
-			{Issuer: issuer.URL(), Audience: issuer.Audience()},
+			{Issuer: issuer.URL(), Audiences: []string{issuer.Audience()}},
 		},
 		Algorithms: []string{"RS256"},
 		Skew:       0, // No skew - strict expiry checking
@@ -172,7 +172,7 @@ func TestTestIssuer_CustomAudience(t *testing.T) {
 
 	accept := core.AcceptConfig{
 		Issuers: []core.IssuerAccept{
-			{Issuer: issuer.URL(), Audience: "billing-service"},
+			{Issuer: issuer.URL(), Audiences: []string{"billing-service"}},
 		},
 		Algorithms: []string{"RS256"},
 	}

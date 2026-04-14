@@ -15,8 +15,6 @@ const (
 	OwnerNamespaceStateRestrictedName OwnerNamespaceState = "restricted_name"
 	OwnerNamespaceStateParkedOrg      OwnerNamespaceState = "parked_org"
 	OwnerNamespaceStateRegistered     OwnerNamespaceState = "registered_org"
-	// Deprecated alias kept for source compatibility with in-flight callsites.
-	OwnerNamespaceStateReservedName OwnerNamespaceState = OwnerNamespaceStateRestrictedName
 )
 
 var (
@@ -32,9 +30,6 @@ func normalizeOwnerNamespaceState(state OwnerNamespaceState) OwnerNamespaceState
 	s := strings.ToLower(strings.TrimSpace(string(state)))
 	switch OwnerNamespaceState(s) {
 	case OwnerNamespaceStateRestrictedName:
-		return OwnerNamespaceStateRestrictedName
-	case OwnerNamespaceState("reserved_name"):
-		// Backward-compatible read path for legacy state labels.
 		return OwnerNamespaceStateRestrictedName
 	case OwnerNamespaceStateParkedOrg:
 		return OwnerNamespaceStateParkedOrg
@@ -654,6 +649,134 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 	default:
 		return "", false, ErrInvalidOwnerNamespaceTransition
 	}
+}
+
+// ParkUserNamespace ensures a slug is represented as a parked user namespace.
+//
+// Behavior:
+//   - If no same-slug user exists, creates a placeholder user (and personal org), then parks it.
+//   - If a same-slug non-personal org exists, returns ErrInvalidOwnerNamespaceTransition.
+//   - Requires the slug to be valid and available for user ownership semantics.
+func (s *Service) ParkUserNamespace(ctx context.Context, slug string) (userID, orgID string, created bool, err error) {
+	if err := s.requirePG(); err != nil {
+		return "", "", false, err
+	}
+	slug = normalizeReservedSlug(slug)
+	if err := validateOrgSlug(slug); err != nil {
+		return "", "", false, err
+	}
+
+	if org, err := s.ResolveOrgBySlug(ctx, slug); err == nil && org != nil {
+		if !org.IsPersonal {
+			return "", "", false, ErrInvalidOwnerNamespaceTransition
+		}
+	} else if err != nil && !errors.Is(err, ErrOrgNotFound) {
+		return "", "", false, err
+	}
+
+	switch id, _, err := s.ResolveUserBySlug(ctx, slug); {
+	case err == nil:
+		userID = strings.TrimSpace(id)
+	case errors.Is(err, ErrUserNotFound):
+		state, stateErr := s.GetOwnerNamespaceStateBySlug(ctx, slug)
+		if stateErr == nil && state == OwnerNamespaceStateRestrictedName {
+			if _, _, unrestrictErr := s.UnrestrictOwnerNamespaceSlugs(ctx, []string{slug}); unrestrictErr != nil {
+				return "", "", false, unrestrictErr
+			}
+		} else if stateErr != nil && !errors.Is(stateErr, ErrOwnerNamespaceNotFound) {
+			return "", "", false, stateErr
+		}
+
+		u, createErr := s.CreateUser(ctx, "", slug)
+		if createErr != nil {
+			return "", "", false, createErr
+		}
+		if u == nil || strings.TrimSpace(u.ID) == "" {
+			return "", "", false, ErrUserNotFound
+		}
+		userID = strings.TrimSpace(u.ID)
+		created = true
+	default:
+		return "", "", false, err
+	}
+
+	reservedUserID, reservedOrgID, _, reserveErr := s.ReserveAccount(ctx, slug)
+	if reserveErr != nil {
+		return "", "", false, reserveErr
+	}
+	if strings.TrimSpace(userID) == "" {
+		userID = strings.TrimSpace(reservedUserID)
+	}
+	orgID = strings.TrimSpace(reservedOrgID)
+	return strings.TrimSpace(userID), strings.TrimSpace(orgID), created, nil
+}
+
+// ClaimUserNamespace ensures a slug resolves to a non-reserved user namespace.
+//
+// Behavior:
+//   - If no same-slug user exists, creates one (and a personal org) and marks it claimed.
+//   - Clears user reserved metadata and any restricted-name marker for the slug.
+//   - Forces the user's personal org namespace state to registered_org when present.
+//   - If a same-slug non-personal org exists, returns ErrInvalidOwnerNamespaceTransition.
+func (s *Service) ClaimUserNamespace(ctx context.Context, slug string) (userID, orgID string, created bool, err error) {
+	if err := s.requirePG(); err != nil {
+		return "", "", false, err
+	}
+	slug = normalizeReservedSlug(slug)
+	if err := validateOrgSlug(slug); err != nil {
+		return "", "", false, err
+	}
+
+	if org, err := s.ResolveOrgBySlug(ctx, slug); err == nil && org != nil {
+		if !org.IsPersonal {
+			return "", "", false, ErrInvalidOwnerNamespaceTransition
+		}
+	} else if err != nil && !errors.Is(err, ErrOrgNotFound) {
+		return "", "", false, err
+	}
+
+	switch id, _, err := s.ResolveUserBySlug(ctx, slug); {
+	case err == nil:
+		userID = strings.TrimSpace(id)
+	case errors.Is(err, ErrUserNotFound):
+		state, stateErr := s.GetOwnerNamespaceStateBySlug(ctx, slug)
+		if stateErr == nil && state == OwnerNamespaceStateRestrictedName {
+			if _, _, unrestrictErr := s.UnrestrictOwnerNamespaceSlugs(ctx, []string{slug}); unrestrictErr != nil {
+				return "", "", false, unrestrictErr
+			}
+		} else if stateErr != nil && !errors.Is(stateErr, ErrOwnerNamespaceNotFound) {
+			return "", "", false, stateErr
+		}
+
+		u, createErr := s.CreateUser(ctx, "", slug)
+		if createErr != nil {
+			return "", "", false, createErr
+		}
+		if u == nil || strings.TrimSpace(u.ID) == "" {
+			return "", "", false, ErrUserNotFound
+		}
+		userID = strings.TrimSpace(u.ID)
+		created = true
+	default:
+		return "", "", false, err
+	}
+
+	if err := s.PatchUserMetadata(ctx, userID, map[string]any{"reserved": false}); err != nil {
+		return "", "", false, err
+	}
+	if _, _, err := s.UnrestrictOwnerNamespaceSlugs(ctx, []string{slug}); err != nil {
+		return "", "", false, err
+	}
+	if personalOrg, err := s.GetPersonalOrgForUser(ctx, userID); err == nil && personalOrg != nil && strings.TrimSpace(personalOrg.ID) != "" {
+		if err := s.SetOrgNamespaceState(ctx, strings.TrimSpace(personalOrg.ID), OwnerNamespaceStateRegistered); err != nil {
+			return "", "", false, err
+		}
+		orgID = strings.TrimSpace(personalOrg.ID)
+	} else if err != nil && !errors.Is(err, ErrPersonalOrgNotFound) {
+		return "", "", false, err
+	}
+
+	return strings.TrimSpace(userID), strings.TrimSpace(orgID), created, nil
 }
 
 func (s *Service) countActiveOrgOwners(ctx context.Context, orgID string) (int, error) {

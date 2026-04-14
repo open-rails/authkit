@@ -180,10 +180,12 @@ Reserved slug policy:
 | POST | `/auth/admin/users/set-email` | ADMIN | Set user email |
 | POST | `/auth/admin/users/set-username` | ADMIN | Set user username |
 | POST | `/auth/admin/users/set-password` | ADMIN | Set user password |
-| POST | `/auth/admin/users/toggle-active` | ADMIN | Toggle user active status |
 | DELETE | `/auth/admin/users/:user_id` | ADMIN | Delete user |
 | POST | `/auth/admin/users/:user_id/restore` | ADMIN | Restore (undelete) user |
 | GET | `/auth/admin/users/deleted` | ADMIN | List deleted users |
 | GET | `/auth/admin/users/:user_id/signins` | ADMIN | List recent signin events for a user |
-| POST | `/auth/admin/accounts/reserve` | ADMIN | Internal/admin reserve account slug (`{slug}`) |
-| POST | `/auth/admin/accounts/claim` | ADMIN | Internal/admin claim reserved account (`{slug,password,email?,phone?}`) |
+| POST | `/auth/admin/accounts/restrict` | ADMIN | Restrict owner namespace slugs (`{slugs:[...]}`) |
+| POST | `/auth/admin/accounts/unrestrict` | ADMIN | Remove owner namespace restrictions (`{slugs:[...]}`) |
+| POST | `/auth/admin/account/park` | ADMIN | Park account namespace (`{kind:"org"|"user",slug}`) |
+| POST | `/auth/admin/account/claim` | ADMIN | Claim account namespace (`{kind:"org"|"user",slug,...}`; `owner_user_id` required when `kind="org"`) |
+| GET | `/auth/owners/:slug` | PUBLIC | Fetch public owner metadata for a slug (org/user info + namespace state) |

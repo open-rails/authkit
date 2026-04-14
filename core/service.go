@@ -1597,13 +1597,6 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 	return nil
 }
 
-// ConfirmPhonePasswordReset verifies the code and sets a new password.
-func (s *Service) ConfirmPhonePasswordReset(ctx context.Context, phone, code, newPassword string) (string, error) {
-	_ = phone
-	// Backward-compatible wrapper: password reset is token-based; confirm via the unified token path.
-	return s.ConfirmPasswordReset(ctx, code, newPassword)
-}
-
 // helpers
 func randB64(n int) string {
 	b := make([]byte, n)

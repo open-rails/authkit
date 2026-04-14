@@ -164,13 +164,6 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 | `Keys` provided (`cfg.Keys != nil`) | Host config | Fully disables library key env/filesystem discovery. |
 | `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `/vault/auth/keys.json`, `.runtime/authkit/*`). |
 
-Deprecations:
-
-| Deprecated | Canonical | Status |
-| --- | --- | --- |
-| `AUTHKIT_VERIFICATION_REQUIRED`, `DEVSERVER_VERIFICATION_REQUIRED` | `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS` | Deprecated standalone devserver env aliases. |
-| `AUTHKIT_*` (standalone devserver env prefix) | `DEVSERVER_*` | Deprecated alias prefix; `DEVSERVER_*` wins when both are set. |
-
 ---
 
 Notes
@@ -225,6 +218,10 @@ Reserved slug policy
   - `restricted_name`: slug is blocked in `profiles.owner_reserved_names` and not publicly registrable.
   - `parked_org`: org exists and is platform-held (`metadata.namespace_state=parked_org`, `metadata.reserved=true`).
   - `registered_org`: normal org lifecycle (`metadata.namespace_state=registered_org`).
+- Public lookup endpoint: `GET /auth/owners/{slug}` returns canonical public metadata for the slug:
+  - `state`: `restricted_name`, `parked_org`, `registered_org`, `registered_user`, or `unregistered`
+  - `entity_kind`: `none`, `org`, `user`, or `org_and_user`
+  - optional `org` and/or `user` payloads when records exist.
 - Migration `012_owner_namespace_states.up.sql` introduces the reserved-name table, backfills legacy reserved rows, and converts legacy reserved personal placeholder orgs to non-personal parked orgs.
 - Public register/create/rename/org-create/org-rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
 - Reserved users are non-loginable (reserved placeholder credentials/providers are cleared by migration and reserve flows).
@@ -351,10 +348,10 @@ Endpoints mounted automatically:
 - Admin owner-namespace lifecycle (admin only):
   - POST /auth/admin/accounts/restrict (batch add slugs to restricted-name list)
   - POST /auth/admin/accounts/unrestrict (batch remove slugs from restricted-name list)
-  - POST /auth/admin/accounts/reserve (legacy single-slug reserve flow)
-  - GET /auth/admin/accounts/state
-  - POST /auth/admin/accounts/park
-  - POST /auth/admin/accounts/claim-org (requires `owner_user_id`; claims parked orgs, creates+claims missing orgs, and rejects already-claimed orgs)
+  - POST /auth/admin/account/park (`{kind:"org"|"user",slug}`)
+  - POST /auth/admin/account/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
+- Public owner-namespace lookup:
+  - GET /auth/owners/:slug
 - Solana wallet authentication (SIWS):
   - POST /auth/solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
   - POST /auth/solana/login → {access_token, refresh_token, user}
@@ -558,8 +555,8 @@ SpaceX accepts access tokens from multiple issuers; both tesla.com and x.com.
   func main() {
     accept := core.AcceptConfig{
       Issuers: []core.IssuerAccept{
-        { Issuer: "https://tesla.com", Audience: "spacex-app" },
-        { Issuer: "https://x.com", Audience: "spacex-app" },
+        { Issuer: "https://tesla.com", Audiences: []string{"spacex-app"} },
+        { Issuer: "https://x.com", Audiences: []string{"spacex-app"} },
       },
       Skew: 60 * time.Second,
     }

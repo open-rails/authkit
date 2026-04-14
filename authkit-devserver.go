@@ -310,8 +310,8 @@ func devSecretOK(authHeader, devHeader, secret string) bool {
 	return strings.TrimSpace(authHeader[len(prefix):]) == secret
 }
 
-func parseCSVEnv(canonicalKey string, fallback []string, aliases ...string) []string {
-	raw, ok := envValue(canonicalKey, aliases...)
+func parseCSVEnv(canonicalKey string, fallback []string) []string {
+	raw, ok := envValue(canonicalKey)
 	if !ok {
 		return fallback
 	}
@@ -333,8 +333,8 @@ func parseCSVEnv(canonicalKey string, fallback []string, aliases ...string) []st
 	return out
 }
 
-func envOr(canonicalKey, fallback string, aliases ...string) string {
-	if v, ok := envValue(canonicalKey, aliases...); ok {
+func envOr(canonicalKey, fallback string) string {
+	if v, ok := envValue(canonicalKey); ok {
 		return strings.TrimSpace(v)
 	}
 	return fallback
@@ -349,8 +349,8 @@ func firstEnv(keys ...string) string {
 	return ""
 }
 
-func envBool(canonicalKey string, fallback bool, aliases ...string) bool {
-	raw, ok := envValue(canonicalKey, aliases...)
+func envBool(canonicalKey string, fallback bool) bool {
+	raw, ok := envValue(canonicalKey)
 	if !ok {
 		return fallback
 	}
@@ -366,20 +366,9 @@ func envBool(canonicalKey string, fallback bool, aliases ...string) bool {
 	return b
 }
 
-func envValue(canonicalKey string, aliases ...string) (string, bool) {
+func envValue(canonicalKey string) (string, bool) {
 	if v := strings.TrimSpace(os.Getenv(canonicalKey)); v != "" {
-		for _, alias := range aliases {
-			if av := strings.TrimSpace(os.Getenv(alias)); av != "" {
-				warnf("%s is set but ignored because %s is also set", alias, canonicalKey)
-			}
-		}
 		return v, true
-	}
-	for _, alias := range aliases {
-		if v := strings.TrimSpace(os.Getenv(alias)); v != "" {
-			warnf("%s is deprecated; use %s", alias, canonicalKey)
-			return v, true
-		}
 	}
 	return "", false
 }
