@@ -7,7 +7,6 @@ import (
 	"time"
 
 	authhttp "github.com/open-rails/authkit/adapters/http"
-	"github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
@@ -72,38 +71,29 @@ func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 	issuer := NewTestIssuer()
 	defer issuer.Close()
 
-	// Create a token
 	token := issuer.CreateToken("user-123", "test@example.com")
 
-	// Create a verifier configured to accept tokens from our test issuer
-	accept := core.AcceptConfig{
-		Issuers: []core.IssuerAccept{
-			{
-				Issuer:    issuer.URL(),
-				Audiences: []string{issuer.Audience()},
-			},
-		},
-		Algorithms: []string{"RS256"},
-		Skew:       60 * time.Second,
-	}
+	verifier := authhttp.NewVerifier(
+		authhttp.WithAlgorithms("RS256"),
+		authhttp.WithSkew(60*time.Second),
+	)
+	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
+		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+	})
 
-	verifier := authhttp.NewVerifier(accept)
-
-	// Verify the token
 	claims, err := verifier.Verify(token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)
 	}
 
-	// Check claims
-	if sub, _ := claims["sub"].(string); sub != "user-123" {
-		t.Errorf("expected sub=user-123, got %s", sub)
+	if claims.UserID != "user-123" {
+		t.Errorf("expected UserID=user-123, got %s", claims.UserID)
 	}
-	if email, _ := claims["email"].(string); email != "test@example.com" {
-		t.Errorf("expected email=test@example.com, got %s", email)
+	if claims.Email != "test@example.com" {
+		t.Errorf("expected Email=test@example.com, got %s", claims.Email)
 	}
-	if iss, _ := claims["iss"].(string); iss != issuer.URL() {
-		t.Errorf("expected iss=%s, got %s", issuer.URL(), iss)
+	if claims.Issuer != issuer.URL() {
+		t.Errorf("expected Issuer=%s, got %s", issuer.URL(), claims.Issuer)
 	}
 }
 
@@ -114,25 +104,18 @@ func TestTestIssuer_TokenWithRoles(t *testing.T) {
 	roles := []string{"admin", "moderator"}
 	token := issuer.CreateTokenWithRoles("user-123", "test@example.com", roles)
 
-	accept := core.AcceptConfig{
-		Issuers: []core.IssuerAccept{
-			{Issuer: issuer.URL(), Audiences: []string{issuer.Audience()}},
-		},
-		Algorithms: []string{"RS256"},
-	}
+	verifier := authhttp.NewVerifier(authhttp.WithAlgorithms("RS256"))
+	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
+		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+	})
 
-	verifier := authhttp.NewVerifier(accept)
 	claims, err := verifier.Verify(token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)
 	}
 
-	claimRoles, ok := claims["roles"].([]any)
-	if !ok {
-		t.Fatal("expected roles claim to be present")
-	}
-	if len(claimRoles) != 2 {
-		t.Errorf("expected 2 roles, got %d", len(claimRoles))
+	if len(claims.Roles) != 2 {
+		t.Errorf("expected 2 roles, got %d", len(claims.Roles))
 	}
 }
 
@@ -140,21 +123,17 @@ func TestTestIssuer_ExpiredToken(t *testing.T) {
 	issuer := NewTestIssuer()
 	defer issuer.Close()
 
-	// Create an expired token
 	token := issuer.CreateExpiredToken("user-123", "test@example.com")
 
-	accept := core.AcceptConfig{
-		Issuers: []core.IssuerAccept{
-			{Issuer: issuer.URL(), Audiences: []string{issuer.Audience()}},
-		},
-		Algorithms: []string{"RS256"},
-		Skew:       0, // No skew - strict expiry checking
-	}
+	verifier := authhttp.NewVerifier(
+		authhttp.WithAlgorithms("RS256"),
+		authhttp.WithSkew(0),
+	)
+	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
+		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+	})
 
-	verifier := authhttp.NewVerifier(accept)
 	_, err := verifier.Verify(token)
-
-	// Token should fail verification due to expiry
 	if err == nil {
 		t.Error("expected expired token to fail verification")
 	}
@@ -170,20 +149,19 @@ func TestTestIssuer_CustomAudience(t *testing.T) {
 
 	token := issuer.CreateToken("user-123", "test@example.com")
 
-	accept := core.AcceptConfig{
-		Issuers: []core.IssuerAccept{
-			{Issuer: issuer.URL(), Audiences: []string{"billing-service"}},
-		},
-		Algorithms: []string{"RS256"},
-	}
+	verifier := authhttp.NewVerifier(authhttp.WithAlgorithms("RS256"))
+	_ = verifier.AddIssuer(issuer.URL(), []string{"billing-service"}, authhttp.IssuerOptions{
+		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+	})
 
-	verifier := authhttp.NewVerifier(accept)
 	claims, err := verifier.Verify(token)
 	if err != nil {
 		t.Fatalf("token verification failed: %v", err)
 	}
 
-	if aud, _ := claims["aud"].(string); aud != "billing-service" {
-		t.Errorf("expected aud=billing-service, got %s", aud)
+	// aud is extracted into Claims but not as a field — verified via the issuer audience check.
+	// Just confirm the token verified successfully with the right issuer.
+	if claims.Issuer != issuer.URL() {
+		t.Errorf("expected Issuer=%s, got %s", issuer.URL(), claims.Issuer)
 	}
 }

@@ -8,12 +8,14 @@ import (
 )
 
 // JWKSHandler returns a handler for GET /.well-known/jwks.json.
-func (s *Service) JWKSHandler() http.Handler { return JWKSHandler(s.svc) }
+func (s *Service) JWKSHandler() http.Handler {
+	return JWKSHandler(s.svc.JWKS())
+}
 
 // APIHandler returns a handler that serves the JSON API routes under /auth/*.
 // It is intended to be mounted under the host's mux/router at any prefix.
 func (s *Service) APIHandler() http.Handler {
-	if s == nil || s.svc == nil {
+	if s == nil || s.svc == nil || s.verifier == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, "authkit_not_initialized") })
 	}
 	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
@@ -54,7 +56,7 @@ func (s *Service) APIHandler() http.Handler {
 	mux.Handle("POST /auth/phone/password/reset/request", http.HandlerFunc(s.handlePhonePasswordResetRequestPOST))
 	mux.Handle("POST /auth/phone/password/reset/confirm", http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST))
 
-	required := Required(s.svc)
+	required := Required(s.verifier)
 	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
 		mux.Handle("POST /auth/token/org", required(http.HandlerFunc(s.handleAuthTokenOrgPOST)))
 		// Org management endpoints are only exposed in org_mode=multi.

@@ -392,6 +392,11 @@ func (s *Service) Options() Options {
 	return s.opts
 }
 
+// PublicKeysByKID returns the public keys indexed by key ID.
+func (s *Service) PublicKeysByKID() map[string]*rsa.PublicKey {
+	return s.keys.PublicKeys
+}
+
 func (s *Service) isDevEnvironment() bool {
 	if s == nil {
 		return true

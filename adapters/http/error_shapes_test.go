@@ -11,7 +11,7 @@ import (
 )
 
 func TestErrorShape_TokenInvalidRequest(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -25,7 +25,7 @@ func TestErrorShape_TokenInvalidRequest(t *testing.T) {
 }
 
 func TestErrorShape_PasswordLoginInvalidRequest(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -38,7 +38,7 @@ func TestErrorShape_PasswordLoginInvalidRequest(t *testing.T) {
 }
 
 func TestErrorShape_RegisterInvalidRequest(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestErrorShape_RegisterInvalidRequest(t *testing.T) {
 }
 
 func TestErrorShape_LogoutMissingSidClaim(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})

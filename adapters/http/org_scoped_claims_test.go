@@ -1,31 +1,28 @@
 package authhttp
 
 import (
+	"crypto/rsa"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
-	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
 func TestRequired_OrgScopedRoles_UsesRolesWhenOrgPresent(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
-	pub := signer.PublicKey()
 
-	v := testVerifier{
-		opts: core.Options{
-			Issuer:            "https://example.com",
-			ExpectedAudiences: []string{"test-app"},
-			OrgMode:           "multi",
+	v := NewVerifier(WithOrgMode("multi"))
+	err = v.AddIssuer("https://example.com", []string{"test-app"}, IssuerOptions{
+		RawKeys: map[string]*rsa.PublicKey{
+			signer.KID(): signer.PublicKey(),
 		},
-		keyfun: func(token *jwt.Token) (any, error) { return pub, nil },
-	}
+	})
+	require.NoError(t, err)
 
 	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, ok := ClaimsFromContext(r.Context())

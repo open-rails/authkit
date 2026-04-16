@@ -12,7 +12,7 @@ import (
 func TestHandleOwnerNamespaceInfoGET_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/auth/owners/", nil)
 
@@ -24,7 +24,7 @@ func TestHandleOwnerNamespaceInfoGET_InvalidRequest(t *testing.T) {
 func TestHandleAdminAccountParkPOST_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/account/park", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
@@ -37,7 +37,7 @@ func TestHandleAdminAccountParkPOST_InvalidRequest(t *testing.T) {
 func TestHandleAdminAccountClaimPOST_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/account/claim", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
@@ -50,7 +50,7 @@ func TestHandleAdminAccountClaimPOST_InvalidRequest(t *testing.T) {
 func TestHandleAdminAccountClaimPOST_RequiresOwnerUserIDForOrgKind(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/account/claim", strings.NewReader(`{"kind":"org","slug":"google"}`))
 	r.Header.Set("Content-Type", "application/json")
@@ -63,7 +63,7 @@ func TestHandleAdminAccountClaimPOST_RequiresOwnerUserIDForOrgKind(t *testing.T)
 func TestHandleAdminAccountParkPOST_RejectsUnknownKind(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/account/park", strings.NewReader(`{"kind":"team","slug":"google"}`))
 	r.Header.Set("Content-Type", "application/json")
@@ -76,7 +76,7 @@ func TestHandleAdminAccountParkPOST_RejectsUnknownKind(t *testing.T) {
 func TestHandleAdminAccountsRestrictPOST_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/restrict", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
@@ -89,7 +89,7 @@ func TestHandleAdminAccountsRestrictPOST_InvalidRequest(t *testing.T) {
 func TestHandleAdminAccountsRestrictPOST_RequiresNonEmptySlugs(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/restrict", strings.NewReader(`{"slugs":[]}`))
 	r.Header.Set("Content-Type", "application/json")
@@ -102,7 +102,7 @@ func TestHandleAdminAccountsRestrictPOST_RequiresNonEmptySlugs(t *testing.T) {
 func TestHandleAdminAccountsUnrestrictPOST_InvalidRequest(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/unrestrict", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
@@ -115,7 +115,7 @@ func TestHandleAdminAccountsUnrestrictPOST_InvalidRequest(t *testing.T) {
 func TestHandleAdminAccountsUnrestrictPOST_RequiresNonEmptySlugs(t *testing.T) {
 	t.Parallel()
 
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/unrestrict", strings.NewReader(`{"slugs":[]}`))
 	r.Header.Set("Content-Type", "application/json")

@@ -17,6 +17,7 @@ import (
 // Service wraps core.Service with net/http mounting helpers.
 type Service struct {
 	svc           *core.Service
+	verifier      *Verifier
 	rd            *redis.Client
 	rl            RateLimiter
 	clientIP      ClientIPFunc
@@ -58,8 +59,20 @@ func NewService(cfg core.Config) (*Service, error) {
 	}
 	// Default to in-memory ephemeral store for dev/single-instance use.
 	coreSvc = coreSvc.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)
+
+	opts := coreSvc.Options()
+	ver := NewVerifier(
+		WithSkew(5*time.Second),
+		WithOrgMode(opts.OrgMode),
+	)
+	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
+		RawKeys: coreSvc.PublicKeysByKID(),
+	})
+	ver.WithService(coreSvc)
+
 	s := &Service{
 		svc:           coreSvc,
+		verifier:      ver,
 		oidcProviders: cfg.Providers,
 		rl:            memorylimiter.New(ToMemoryLimits(DefaultRateLimits())),
 		clientIP:      DefaultClientIP(),
@@ -122,6 +135,7 @@ func (s *Service) WithSolanaDomain(domain string) *Service {
 }
 
 func (s *Service) Core() *core.Service { return s.svc }
+func (s *Service) Verifier() *Verifier { return s.verifier }
 
 func (s *Service) stateCache() oidckit.StateCache {
 	if s.rd != nil {

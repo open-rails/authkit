@@ -29,9 +29,21 @@ func newTestCoreServiceWithOrgMode(t *testing.T, mode string) *core.Service {
 	return core.NewService(opts, ks)
 }
 
+func newTestServiceWithOrgMode(t *testing.T, mode string) *Service {
+	t.Helper()
+	coreSvc := newTestCoreServiceWithOrgMode(t, mode)
+	opts := coreSvc.Options()
+	ver := NewVerifier(WithSkew(5*time.Second), WithOrgMode(mode))
+	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
+		RawKeys: coreSvc.PublicKeysByKID(),
+	})
+	ver.WithService(coreSvc)
+	return &Service{svc: coreSvc, verifier: ver}
+}
+
 func TestAPIHandler_TokenOrg_RouteOnlyInMultiMode(t *testing.T) {
 	// single: route not registered
-	sSingle := &Service{svc: newTestCoreServiceWithOrgMode(t, "single")}
+	sSingle := newTestServiceWithOrgMode(t, "single")
 	hSingle := sSingle.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/token/org", bytes.NewReader([]byte(`{"org":"acme"}`)))
@@ -39,7 +51,7 @@ func TestAPIHandler_TokenOrg_RouteOnlyInMultiMode(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 
 	// multi: route registered and requires auth
-	sMulti := &Service{svc: newTestCoreServiceWithOrgMode(t, "multi")}
+	sMulti := newTestServiceWithOrgMode(t, "multi")
 	hMulti := sMulti.APIHandler()
 	w2 := httptest.NewRecorder()
 	r2 := httptest.NewRequest(http.MethodPost, "/auth/token/org", bytes.NewReader([]byte(`{"org":"acme"}`)))
@@ -50,7 +62,7 @@ func TestAPIHandler_TokenOrg_RouteOnlyInMultiMode(t *testing.T) {
 
 func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 	// single: routes not registered
-	sSingle := &Service{svc: newTestCoreServiceWithOrgMode(t, "single")}
+	sSingle := newTestServiceWithOrgMode(t, "single")
 	hSingle := sSingle.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/auth/org-invites", nil)
@@ -58,7 +70,7 @@ func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 
 	// multi: route registered and requires auth
-	sMulti := &Service{svc: newTestCoreServiceWithOrgMode(t, "multi")}
+	sMulti := newTestServiceWithOrgMode(t, "multi")
 	hMulti := sMulti.APIHandler()
 	w2 := httptest.NewRecorder()
 	r2 := httptest.NewRequest(http.MethodGet, "/auth/org-invites", nil)
@@ -68,7 +80,7 @@ func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 }
 
 func TestAPIHandler_TokenOrg_InvalidRequest(t *testing.T) {
-	s := &Service{svc: newTestCoreServiceWithOrgMode(t, "multi")}
+	s := newTestServiceWithOrgMode(t, "multi")
 	h := s.APIHandler()
 
 	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})

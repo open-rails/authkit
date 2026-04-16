@@ -149,7 +149,7 @@ Concepts (concise)
 
 - Service (issuer + storage): used by `authhttp.NewService(cfg)`; backs the built-in handlers (sessions, login, OIDC, etc).
 - Middleware: `adapters/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
-- Verify-only: use `authhttp.NewVerifier(accept)` to accept tokens from other issuers without issuing tokens yourself.
+- Verify-only: use `authhttp.NewVerifier()` + `verifier.AddIssuer(...)` to accept tokens from other issuers without issuing tokens yourself.
 
 ---
 
@@ -176,7 +176,11 @@ Admin Gate (DB-backed)
 - Example:
 
 ```go
-ver := authhttp.NewVerifier(accept).WithService(coreSvc)
+ver := authhttp.NewVerifier()
+ver.AddIssuer("https://my-issuer.com", []string{"my-app"}, authhttp.IssuerOptions{
+  JWKSURL: "https://my-issuer.com/.well-known/jwks.json",
+})
+ver.WithService(coreSvc)
 
 adminHandler := authhttp.Required(ver)(
   authhttp.RequireAdmin(pg)(
@@ -527,12 +531,11 @@ const linkWallet = async (accessToken: string) => {
 Use the verifier when a service needs to accept access tokens issued by one or more
 AuthKit‑powered APIs (e.g., spacex), without mounting any auth routes.
 
-- AcceptConfig:
-  - Issuers: list of issuers you accept; each may specify allowed audiences and an optional JWKS URL (defaults to `/.well-known/jwks.json`).
-  - Skew: allowed clock drift for exp/nbf (default ~60s).
-  - Algorithms: allow‑list of JWS algs (defaults to RS256).
+- Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`, `WithOrgMode`.
+- Add issuers via `verifier.AddIssuer(issuerID, audiences, opts)` — each may specify a JWKS URL (defaults to `/.well-known/jwks.json`), pre-provided PEM keys, or raw `*rsa.PublicKey` maps.
+- Default skew: 60s. Default algorithms: RS256.
 - DB enrichment (recommended):
-  - Call `authhttp.NewVerifier(...).WithService(coreSvc)` to enable best-effort
+  - Call `verifier.WithService(coreSvc)` to enable best-effort
     DB enrichment hooks (roles + canonical email + provider usernames) when
     the token lacks those claims.
 
@@ -547,21 +550,14 @@ SpaceX accepts access tokens from multiple issuers; both tesla.com and x.com.
   import (
     "encoding/json"
     "net/http"
-    core "github.com/open-rails/authkit/core"
     authhttp "github.com/open-rails/authkit/adapters/http"
     "time"
   )
 
   func main() {
-    accept := core.AcceptConfig{
-      Issuers: []core.IssuerAccept{
-        { Issuer: "https://tesla.com", Audiences: []string{"spacex-app"} },
-        { Issuer: "https://x.com", Audiences: []string{"spacex-app"} },
-      },
-      Skew: 60 * time.Second,
-    }
-
-    ver := authhttp.NewVerifier(accept)
+    ver := authhttp.NewVerifier(authhttp.WithSkew(60 * time.Second))
+    ver.AddIssuer("https://tesla.com", []string{"spacex-app"}, authhttp.IssuerOptions{})
+    ver.AddIssuer("https://x.com", []string{"spacex-app"}, authhttp.IssuerOptions{})
 
     mux := http.NewServeMux()
 

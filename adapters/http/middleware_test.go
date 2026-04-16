@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"context"
+	"crypto/rsa"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -9,31 +10,10 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/stretchr/testify/require"
 )
-
-type testVerifier struct {
-	opts   core.Options
-	keyfun func(token *jwt.Token) (any, error)
-	accept *core.AcceptConfig
-}
-
-func (v testVerifier) JWKS() jwtkit.JWKS                                    { return jwtkit.JWKS{} }
-func (v testVerifier) Keyfunc() func(token *jwt.Token) (any, error)         { return v.keyfun }
-func (v testVerifier) Options() core.Options                                { return v.opts }
-func (v testVerifier) ListRoleSlugsByUser(context.Context, string) []string { return nil }
-func (v testVerifier) GetProviderUsername(context.Context, string, string) (string, error) {
-	return "", nil
-}
-func (v testVerifier) AcceptConfig() core.AcceptConfig {
-	if v.accept == nil {
-		return core.AcceptConfig{}
-	}
-	return *v.accept
-}
 
 func signToken(t *testing.T, signer jwtkit.Signer, claims map[string]any) string {
 	t.Helper()
@@ -42,18 +22,23 @@ func signToken(t *testing.T, signer jwtkit.Signer, claims map[string]any) string
 	return tok
 }
 
+func newTestVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string, audiences []string, opts ...VerifierOption) *Verifier {
+	t.Helper()
+	v := NewVerifier(opts...)
+	err := v.AddIssuer(issuer, audiences, IssuerOptions{
+		RawKeys: map[string]*rsa.PublicKey{
+			signer.KID(): signer.PublicKey(),
+		},
+	})
+	require.NoError(t, err)
+	return v
+}
+
 func TestRequired_RequiresExp_ServiceIssued(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
-	pub := signer.PublicKey()
 
-	v := testVerifier{
-		opts: core.Options{
-			Issuer:            "https://example.com",
-			ExpectedAudiences: []string{"test-app"},
-		},
-		keyfun: func(token *jwt.Token) (any, error) { return pub, nil },
-	}
+	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"})
 
 	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -78,15 +63,9 @@ func TestRequired_RequiresExp_ServiceIssued(t *testing.T) {
 func TestRequired_RejectsExpired_ServiceIssued(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
-	pub := signer.PublicKey()
 
-	v := testVerifier{
-		opts: core.Options{
-			Issuer:            "https://example.com",
-			ExpectedAudiences: []string{"test-app"},
-		},
-		keyfun: func(token *jwt.Token) (any, error) { return pub, nil },
-	}
+	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"},
+		WithSkew(time.Second))
 
 	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -111,15 +90,8 @@ func TestRequired_RejectsExpired_ServiceIssued(t *testing.T) {
 func TestRequired_RejectsNbfInFuture_WhenPresent(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
-	pub := signer.PublicKey()
 
-	v := testVerifier{
-		opts: core.Options{
-			Issuer:            "https://example.com",
-			ExpectedAudiences: []string{"test-app"},
-		},
-		keyfun: func(token *jwt.Token) (any, error) { return pub, nil },
-	}
+	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"})
 
 	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -139,21 +111,14 @@ func TestRequired_RejectsNbfInFuture_WhenPresent(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	protected.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.JSONEq(t, `{"error":"invalid_token"}`, w.Body.String())
+	require.JSONEq(t, `{"error":"token_not_yet_valid"}`, w.Body.String())
 }
 
 func TestRequired_RejectsIatInFuture_WhenPresent(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
-	pub := signer.PublicKey()
 
-	v := testVerifier{
-		opts: core.Options{
-			Issuer:            "https://example.com",
-			ExpectedAudiences: []string{"test-app"},
-		},
-		keyfun: func(token *jwt.Token) (any, error) { return pub, nil },
-	}
+	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"})
 
 	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -172,24 +137,15 @@ func TestRequired_RejectsIatInFuture_WhenPresent(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	protected.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.JSONEq(t, `{"error":"invalid_token"}`, w.Body.String())
+	require.JSONEq(t, `{"error":"token_not_yet_valid"}`, w.Body.String())
 }
 
-func TestRequired_RequiresExp_VerifyOnlyAcceptConfig(t *testing.T) {
+func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
-	pub := signer.PublicKey()
 
-	accept := core.AcceptConfig{
-		Issuers: []core.IssuerAccept{
-			{Issuer: "https://example.com", Audiences: []string{"test-app"}},
-		},
-		Skew: 60 * time.Second,
-	}
-	v := testVerifier{
-		keyfun: func(token *jwt.Token) (any, error) { return pub, nil },
-		accept: &accept,
-	}
+	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"},
+		WithSkew(60*time.Second))
 
 	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

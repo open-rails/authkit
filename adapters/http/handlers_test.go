@@ -29,9 +29,21 @@ func newTestCoreService(t *testing.T) *core.Service {
 	return core.NewService(opts, ks)
 }
 
+func newTestService(t *testing.T) *Service {
+	t.Helper()
+	coreSvc := newTestCoreService(t)
+	opts := coreSvc.Options()
+	ver := NewVerifier(WithSkew(5 * time.Second))
+	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
+		RawKeys: coreSvc.PublicKeysByKID(),
+	})
+	ver.WithService(coreSvc)
+	return &Service{svc: coreSvc, verifier: ver}
+}
+
 func TestJWKSHandler(t *testing.T) {
 	svc := newTestCoreService(t)
-	h := JWKSHandler(svc)
+	h := JWKSHandler(svc.JWKS())
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil)
@@ -53,7 +65,7 @@ func TestJWKSHandler(t *testing.T) {
 }
 
 func TestAPIHandler_Token_InvalidRequest(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -64,7 +76,7 @@ func TestAPIHandler_Token_InvalidRequest(t *testing.T) {
 }
 
 func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
@@ -79,7 +91,7 @@ func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 }
 
 func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.OIDCHandler()
 
 	w := httptest.NewRecorder()
@@ -90,7 +102,7 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 }
 
 func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.OIDCHandler()
 
 	w := httptest.NewRecorder()
@@ -100,7 +112,7 @@ func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
 }
 
 func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -112,7 +124,7 @@ func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
 }
 
 func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -123,7 +135,7 @@ func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
 }
 
 func TestAPIHandler_PublicOwnerNamespaceLookup_DoesNotRequireAuth(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -134,7 +146,7 @@ func TestAPIHandler_PublicOwnerNamespaceLookup_DoesNotRequireAuth(t *testing.T) 
 }
 
 func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -144,7 +156,7 @@ func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {
 }
 
 func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -154,7 +166,7 @@ func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {
 }
 
 func TestAPIHandler_AdminAccountsReserveRoute_Removed(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -165,7 +177,7 @@ func TestAPIHandler_AdminAccountsReserveRoute_Removed(t *testing.T) {
 }
 
 func TestAPIHandler_AdminUsersToggleActiveRoute_Removed(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -176,7 +188,7 @@ func TestAPIHandler_AdminUsersToggleActiveRoute_Removed(t *testing.T) {
 }
 
 func TestAPIHandler_AdminAccountParkRoute_RequiresAuth(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -188,7 +200,7 @@ func TestAPIHandler_AdminAccountParkRoute_RequiresAuth(t *testing.T) {
 }
 
 func TestAPIHandler_AdminAccountClaimRoute_RequiresAuth(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -200,7 +212,7 @@ func TestAPIHandler_AdminAccountClaimRoute_RequiresAuth(t *testing.T) {
 }
 
 func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w1 := httptest.NewRecorder()
@@ -217,7 +229,7 @@ func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {
 }
 
 func TestAPIHandler_AdminAccountsOrgLegacyRoutes_Removed(t *testing.T) {
-	s := &Service{svc: newTestCoreService(t)}
+	s := newTestService(t)
 	h := s.APIHandler()
 
 	w1 := httptest.NewRecorder()

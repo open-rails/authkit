@@ -18,6 +18,9 @@ type Claims struct {
 	Org             string
 	OrgRoles        []string
 	Entitlements    []string
+	Issuer          string
+	UserTier        string
+	JTI             string
 }
 
 func (c Claims) HasRole(role string) bool {

@@ -446,6 +446,90 @@
         "[x] Verify with `go test ./...` in authkit plus targeted downstream auth proxy/verifier tests before marking complete."
       ],
       "completed": true
+    },
+    {
+      "name": "Verifier API cleanup: kill core.Verifier, functional options, Verify returns Claims",
+      "id_number": 28,
+      "description": "Simplify the Verifier public API. Kill the core.Verifier interface entirely — middleware takes *authhttp.Verifier directly. Remove core.AcceptConfig/IssuerAccept (callers shouldn't import core for verify-only mode). Change NewVerifier to functional options. Make Verify return typed Claims instead of jwt.MapClaims. Make middleware call Verify instead of re-implementing 90 lines of duplicated validation logic.\n\nFor issuing-mode (authhttp.Service), the Service constructs an internal *Verifier from its core.Service's key material + config, so all verification goes through one path.\n\nBreaking change — no deprecation shims.\n\nDownstream impact: tensorhub changes 1 line (NewVerifier(core.AcceptConfig{}) -> NewVerifier()). doujins and hentai0 change middleware wiring from authhttp.Required(svc.Core()) to authhttp.Required(svc.Verifier()) — typically 1-3 lines each.",
+      "tasks": [
+        "=== STEP 1: NewVerifier functional options + flatten Verifier internals ===",
+        "[x] Change NewVerifier(accept core.AcceptConfig) to NewVerifier(opts ...VerifierOption) *Verifier",
+        "[x] Add VerifierOption type and constructors: WithSkew(time.Duration), WithAlgorithms([]string), WithHTTPClient(*http.Client), WithOrgMode(string)",
+        "[x] Replace Verifier.accept (core.AcceptConfig) with flat fields: skew time.Duration, algorithms []string, orgMode string",
+        "[x] Default skew to 60s, default algorithms to [\"RS256\"] (same as today)",
+
+        "",
+        "=== STEP 2: Fold core.IssuerAccept into private issuerEntry, merge useful fields into IssuerOptions ===",
+        "[x] Add CacheTTL, MaxStale, PinnedRSAPEM fields to authhttp.IssuerOptions (moved from core.IssuerAccept)",
+        "[x] Add RawKeys map[string]*rsa.PublicKey field to IssuerOptions — allows injecting key material directly without PEM round-tripping (used by authhttp.Service to inject core.Service's keys)",
+        "[x] Create private issuerEntry struct: issuer, audiences, jwksURL, cacheTTL, maxStale, pinnedRSAPEM (all fields that were on core.IssuerAccept)",
+        "[x] Replace Verifier.accept.Issuers ([]core.IssuerAccept) with Verifier.issuers []issuerEntry",
+        "[x] Update AddIssuer to build issuerEntry from IssuerOptions + handle RawKeys (seed pubByKID directly from the map, no PEM parsing)",
+        "[x] Update RemoveIssuer, matchIssuer, publicKeyFor, refreshIssuerKeys to use issuerEntry",
+        "[x] Remove AcceptConfig() method from Verifier",
+
+        "",
+        "=== STEP 3: Verify returns Claims instead of jwt.MapClaims ===",
+        "[x] Change Verify(tokenStr string) (jwt.MapClaims, error) to Verify(tokenStr string) (Claims, error)",
+        "[x] Move the MapClaims-to-Claims extraction into Verify: sub, email, email_verified, username, discord_username, sid, org, roles/org_roles (org_mode-aware using v.orgMode), entitlements, iss, user_tier/plan, jti",
+        "[x] Claims struct stays in authhttp package (no core dependency needed since core.Verifier is gone)",
+
+        "",
+        "=== STEP 4: Middleware takes *Verifier, calls Verify ===",
+        "[x] Change Required(svc core.Verifier) to Required(v *Verifier)",
+        "[x] Change Optional(svc core.Verifier) to Optional(v *Verifier)",
+        "[x] Rewrite Required: bearerToken() -> v.Verify(token) -> enrichment (roles, email, discord from v.enrich if set; user gate via v.enrich.IsUserAllowed if set) -> setClaims(ctx) -> next",
+        "[x] Remove the two-branch verification logic (~90 lines of duplicated issuer/audience/expiry checking)",
+        "[x] Ensure error codes remain stable: missing_token, invalid_token, bad_issuer, bad_audience, missing_exp, token_expired, token_not_yet_valid, user_disabled",
+
+        "",
+        "=== STEP 5: authhttp.Service creates a Verifier internally (issuing-mode integration) ===",
+        "[x] Add core.Service.PublicKeysByKID() map[string]*rsa.PublicKey method (exposes keys.PublicKeys for Verifier injection)",
+        "[x] In authhttp.NewService: create a *Verifier using NewVerifier(WithSkew(5*time.Second), WithOrgMode(opts.OrgMode), WithAlgorithms(\"RS256\"))",
+        "[x] Call verifier.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{RawKeys: coreSvc.PublicKeysByKID()})",
+        "[x] Call verifier.WithService(coreSvc) for enrichment hooks",
+        "[x] Store verifier on authhttp.Service struct; expose via Verifier() method for downstream middleware wiring",
+        "[x] Update handlers.go: required := Required(s.verifier) instead of Required(s.svc)",
+        "[x] Update s.JWKSHandler() to use s.svc.JWKS() directly (no core.Verifier needed)",
+        "[x] Change standalone JWKSHandler(svc core.Verifier) to JWKSHandler(jwks jwtkit.JWKS)",
+
+        "",
+        "=== STEP 6: Remove dead Verifier methods that only existed to satisfy core.Verifier ===",
+        "[x] Remove Verifier.JWKS() (returned empty JWKS{} — only existed to satisfy interface)",
+        "[x] Remove Verifier.Options() (returned empty Options{} — only existed to satisfy interface)",
+        "[x] Remove Verifier.Keyfunc() public method (keyForToken stays internal)",
+        "[x] Remove Verifier.ListRoleSlugsByUser (enrichment now handled inside middleware via v.enrich directly)",
+        "[x] Remove Verifier.GetProviderUsername (same reason)",
+        "[x] Remove Verifier.GetEmailByUserID (same reason)",
+
+        "",
+        "=== STEP 7: Delete core.Verifier interface + core.AcceptConfig + core.IssuerAccept ===",
+        "[x] Delete core.Verifier interface from core/provider.go",
+        "[x] Delete core/accept.go (AcceptConfig + IssuerAccept)",
+        "[x] Remove any remaining references/imports of core.Verifier across the codebase",
+
+        "",
+        "=== STEP 8: RequireAdmin — confirm no changes needed ===",
+        "[x] RequireAdmin(pg *pgxpool.Pool) does not use core.Verifier — confirmed no changes needed",
+        "[x] JWKSHandler in handlers_test.go: updated to pass JWKS directly via core.Service.JWKS()",
+
+        "",
+        "=== STEP 9: Update all callers + tests ===",
+        "[x] testing/issuer_test.go: NewVerifier(core.AcceptConfig{...}) -> NewVerifier(WithSkew(...), WithAlgorithms(...)) + AddIssuer(...). Verify return: claims.UserID instead of claims[\"sub\"]",
+        "[x] testing/devserver_e2e_test.go: same — functional options + AddIssuer + typed Claims fields",
+        "[x] adapters/http/middleware_test.go: testVerifier mock removed — tests use real *Verifier with AddIssuer + RawKeys",
+        "[x] adapters/http/org_scoped_claims_test.go: updated to use real *Verifier with WithOrgMode",
+        "[x] adapters/http/handlers_test.go: added newTestService() helper, TestJWKSHandler passes JWKS directly",
+        "[x] adapters/http/error_shapes_test.go, admin_reserved_accounts_test.go, org_mode_routes_test.go: updated to use newTestService()/newTestServiceWithOrgMode()",
+        "[x] README.md: updated examples to use NewVerifier() + AddIssuer pattern, removed core.AcceptConfig/IssuerAccept references",
+
+        "",
+        "=== STEP 10: Verify + test ===",
+        "[x] go test ./... passes",
+        "[x] go vet ./... passes",
+        "[ ] Manually verify downstream build: go build ~/cozy/tensorhub after the 1-line change (NewVerifier(core.AcceptConfig{}) -> NewVerifier()). doujins and hentai0 change middleware wiring from authhttp.Required(svc.Core()) to authhttp.Required(svc.Verifier())."
+      ],
+      "completed": false
     }
   ],
   "completed_features": [

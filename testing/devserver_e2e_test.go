@@ -18,7 +18,6 @@ import (
 	"time"
 
 	authhttp "github.com/open-rails/authkit/adapters/http"
-	"github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/open-rails/authkit/password"
 )
@@ -328,25 +327,20 @@ func TestDevserverE2E(t *testing.T) {
 	t.Run("mint_verifier_and_expiry", func(t *testing.T) {
 		token := mint(t, "11111111-1111-1111-1111-111111111111", 1)
 
-		accept := core.AcceptConfig{
-			Issuers: []core.IssuerAccept{
-				{
-					Issuer:    issuer,
-					Audiences: []string{aud},
-					JWKSURL:   baseURL + "/.well-known/jwks.json",
-				},
-			},
-			Algorithms: []string{"RS256"},
-			Skew:       1 * time.Millisecond,
-		}
-		ver := authhttp.NewVerifier(accept)
+		ver := authhttp.NewVerifier(
+			authhttp.WithAlgorithms("RS256"),
+			authhttp.WithSkew(1*time.Millisecond),
+		)
+		_ = ver.AddIssuer(issuer, []string{aud}, authhttp.IssuerOptions{
+			JWKSURL: baseURL + "/.well-known/jwks.json",
+		})
 
 		claims, err := ver.Verify(token)
 		if err != nil {
 			t.Fatalf("verify token: %v", err)
 		}
-		if got := fmt.Sprint(claims["sub"]); got != "11111111-1111-1111-1111-111111111111" {
-			t.Fatalf("bad sub: %q", got)
+		if claims.UserID != "11111111-1111-1111-1111-111111111111" {
+			t.Fatalf("bad sub: %q", claims.UserID)
 		}
 
 		time.Sleep(2 * time.Second)
