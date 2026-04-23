@@ -25,7 +25,7 @@ func TestGetOwnerNamespaceStateBySlugChecksReservedNamesBeforeOrgResolve(t *test
 	}
 }
 
-func TestPromoteReservedNameToParkedOrgCreatesOrgWithoutUserPlaceholder(t *testing.T) {
+func TestParkOrgNamespaceCreatesOrgWithoutUserPlaceholder(t *testing.T) {
 	src, err := os.ReadFile("service_owner_namespace_state.go")
 	if err != nil {
 		t.Fatalf("read service_owner_namespace_state.go: %v", err)

@@ -235,7 +235,12 @@ func (s *Service) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string)
 	return state, nil
 }
 
-func (s *Service) PromoteReservedNameToParkedOrg(ctx context.Context, slug string) (orgID string, created bool, err error) {
+// ParkOrgNamespace parks `slug` as a parked_org. Works whether or not the slug
+// is currently in owner_reserved_names — any caller-supplied slug is parkable,
+// even bootstrap-reserved names like 'root' or 'admin'. If a reserved-name row
+// exists it's deleted as part of the transaction. Internal-library API only —
+// not exposed publicly.
+func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (orgID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", false, err
 	}
@@ -248,14 +253,6 @@ func (s *Service) PromoteReservedNameToParkedOrg(ctx context.Context, slug strin
 		return "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	hasReserved, err := s.ownerReservedNameExistsTx(ctx, tx, slug)
-	if err != nil {
-		return "", false, err
-	}
-	if !hasReserved {
-		return "", false, ErrReservedAccountNotFound
-	}
 
 	var existingID string
 	var isPersonal bool
@@ -290,9 +287,11 @@ func (s *Service) PromoteReservedNameToParkedOrg(ctx context.Context, slug strin
 	if conflict {
 		return "", false, ErrOwnerSlugTaken
 	}
+	// Explicit ::text cast on $2 — pgx can't infer the type when the parameter
+	// is only used inside jsonb_build_object.
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO profiles.orgs (slug, metadata)
-		VALUES ($1, jsonb_build_object('namespace_state', $2, 'reserved', to_jsonb(true)))
+		VALUES ($1, jsonb_build_object('namespace_state', $2::text, 'reserved', to_jsonb(true)))
 		RETURNING id::text
 	`, slug, string(OwnerNamespaceStateParkedOrg)).Scan(&orgID); err != nil {
 		return "", false, err
@@ -354,7 +353,7 @@ func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, own
 	}
 	switch state {
 	case OwnerNamespaceStateRestrictedName:
-		orgID, created, err = s.PromoteReservedNameToParkedOrg(ctx, slug)
+		orgID, created, err = s.ParkOrgNamespace(ctx, slug)
 		if err != nil {
 			return "", false, err
 		}
@@ -628,7 +627,7 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 			return "", false, resolveErr
 		}
 
-		parkedID, parkedCreated, parkErr := s.PromoteReservedNameToParkedOrg(ctx, slug)
+		parkedID, parkedCreated, parkErr := s.ParkOrgNamespace(ctx, slug)
 		if parkErr != nil {
 			return "", false, parkErr
 		}

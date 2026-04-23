@@ -145,11 +145,9 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 	}
 	switch normalizeAdminAccountKind(req.Kind) {
 	case adminAccountKindOrg:
-		orgID, created, err := s.svc.PromoteReservedNameToParkedOrg(r.Context(), req.Slug)
+		orgID, created, err := s.svc.ParkOrgNamespace(r.Context(), req.Slug)
 		if err != nil {
 			switch {
-			case errors.Is(err, core.ErrReservedAccountNotFound):
-				notFound(w, "reserved_account_not_found")
 			case errors.Is(err, core.ErrOwnerSlugTaken):
 				sendErr(w, http.StatusConflict, "owner_slug_taken")
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
