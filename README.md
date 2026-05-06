@@ -84,7 +84,39 @@ Optional Twilio providers
 - Optional convenience providers are available:
   - `github.com/open-rails/authkit/providers/email/twilio` for Twilio Email API (SendGrid endpoint).
   - `github.com/open-rails/authkit/providers/sms/twilio` for Twilio Messaging API.
-- The SMS provider requires `AccountSID`, `AuthToken`, and `MessagingServiceSID`. There is no `From` number fallback path.
+- AuthKit never reads provider environment variables directly. Host apps load their own config, build the sender, then pass it with `WithEmailSender` / `WithSMSSender`.
+- The SMS provider requires `AccountSID`, `AuthToken`, and `MessagingServiceSID`. It uses Twilio Messaging (`Messages.json`) only; there is no Verify service path and no `From` number fallback path.
+- The email provider requires a SendGrid/Twilio Email API key and a verified from address. Hosts can provide link builders or full message builders for branded/localized copy.
+
+```go
+emailSender, err := emailtwilio.New(emailtwilio.Config{
+    APIKey:    cfg.TwilioEmailAPIKey,
+    FromEmail: cfg.TwilioEmailFromAddress,
+    FromName:  cfg.TwilioEmailFromName,
+    AppName:   "Example",
+    VerificationLinkURL: func(token string) string {
+        return cfg.SiteBaseURL + "/verify-registration?token=" + url.QueryEscape(token)
+    },
+    ResetLinkURL: func(token string) string {
+        return cfg.SiteBaseURL + "/reset-password?token=" + url.QueryEscape(token)
+    },
+})
+if err != nil {
+    return err
+}
+svc = svc.WithEmailSender(emailSender)
+
+smsSender, err := smstwilio.New(smstwilio.Config{
+    AccountSID:          cfg.TwilioAccountSID,
+    AuthToken:           cfg.TwilioAuthToken,
+    MessagingServiceSID: cfg.TwilioMessagingServiceSID,
+    AppName:             "Example",
+})
+if err != nil {
+    return err
+}
+svc = svc.WithSMSSender(smsSender)
+```
 
 ---
 

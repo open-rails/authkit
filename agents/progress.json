@@ -653,6 +653,46 @@
         "[x] Update cozy-art frontend to consume `next_action` instead of inferring verification from messages or failed login."
       ],
       "completed": true
+    },
+    {
+      "name": "Production-grade Twilio/SendGrid provider adapters + remove doujins-email dependency",
+      "id_number": 35,
+      "description": "Replace AuthKit's basic Twilio provider adapters with production-grade generic adapters based on the proven `~/doujins` app-level senders, while keeping AuthKit core provider-agnostic and keeping app-specific templates/copy in host apps. The shared adapters must not depend on `github.com/doujins-org/doujins-email`; that package is considered obsolete and should be removed from downstream live code as part of this work.\n\nTarget model:\n- AuthKit core continues to expose only `core.EmailSender` and `core.SMSSender` interfaces.\n- Provider implementations live under `providers/email/twilio` and `providers/sms/twilio` as optional convenience imports.\n- SMS uses Twilio Messaging API only (`/2010-04-01/Accounts/{sid}/Messages.json`) with `MessagingServiceSid`; do not use Twilio Verify.\n- Email uses Twilio Email API / SendGrid Mail Send (`/v3/mail/send`) directly; do not depend on `doujins-email`.\n- Host apps can still provide custom senders when they need branded templates, localization, analytics categories, or specialized logging.\n\nReference behavior:\n- Mirror the important transport behavior from `~/doujins/internal/server/auth_sms_sender.go` and `~/doujins/internal/server/auth_email_sender.go`.\n- Keep AuthKit adapters generic: configurable app label, from identity, optional link builders, optional message/body builders, injectable HTTP client, and deterministic validation/errors.",
+      "tasks": [
+        "=== AUTHKIT ADAPTER DESIGN ===",
+        "[x] Audit current `providers/email/twilio` and `providers/sms/twilio` APIs against `~/doujins` senders and write the final generic config structs.",
+        "[x] Define constructor/config validation semantics: trim all inputs, fail fast on partial configs, require `MessagingServiceSID` for SMS, require API key + from email for email.",
+        "[x] Keep adapter package names stable (`providers/email/twilio`, `providers/sms/twilio`) but update docs to describe them as production convenience adapters, not core requirements.",
+        "",
+        "=== SMS: TWILIO MESSAGING ONLY ===",
+        "[x] Replace/verify SMS adapter transport uses Twilio Messaging API only: `POST /2010-04-01/Accounts/{account_sid}/Messages.json` with HTTP Basic Auth.",
+        "[x] Require `MessagingServiceSid` in the request body; do not support Twilio Verify service SID and do not support `From` number fallback unless a separate explicit adapter is added later.",
+        "[x] Build verification SMS the same way as `doujins`: include generated code when present and include generated verification link when a link token/link builder is present.",
+        "[x] Build login-code and password-reset SMS bodies generically with configurable app label and reset/verification link builder hooks.",
+        "[x] Add tests asserting the adapter posts to `/Messages.json`, includes `MessagingServiceSid`, includes code/link bodies, uses Basic Auth, and never calls `verify.twilio.com`.",
+        "",
+        "=== EMAIL: SENDGRID / TWILIO EMAIL API DIRECTLY ===",
+        "[x] Replace/verify email adapter uses SendGrid Mail Send directly, with no dependency on `doujins-email`.",
+        "[x] Support text + HTML bodies for verification, login code, welcome, and password reset; default bodies should be generic but host apps can override body builders.",
+        "[x] Support verification/reset link builder hooks so hosts can produce user-facing URLs instead of exposing raw tokens.",
+        "[x] Preserve optional SendGrid metadata that is generally useful (categories/custom args) without hardcoding any `doujins`, `hentai0`, or `cozy-art` copy.",
+        "[x] Add tests for validation, payload shape, text/html content, link builder behavior, categories/custom args, HTTP status handling, and request auth header.",
+        "",
+        "=== DOCS AND COMPATIBILITY ===",
+        "[x] Update AuthKit README/provider docs with minimal examples for Twilio Messaging SMS and Twilio Email API/SendGrid email.",
+        "[x] Remove or rewrite any AuthKit docs/plans that describe Twilio Verify as the default SMS verification path.",
+        "[x] Clearly document that AuthKit never reads provider env vars directly; host apps load config and pass constructed senders via `WithEmailSender` / `WithSMSSender`.",
+        "[x] Run `go test ./...` in AuthKit.",
+        "",
+        "=== DOWNSTREAM CLEANUP ===",
+        "[x] `~/doujins`: confirm no live `doujins-email` import/module dependency exists; keep using local sender or migrate to the improved AuthKit adapters only if the generic hooks cover current behavior.",
+        "[x] `~/hentai0`: remove `github.com/doujins-org/doujins-email` from `go.mod`/`go.sum` and replace `internal/infra/email_sender.go` with direct SendGrid/Twilio Email API code or the improved AuthKit email adapter.",
+        "[x] `~/hentai0`: replace Twilio Verify SMS usage with Twilio Messaging API behavior matching `doujins` and the AuthKit SMS adapter; remove `verify_service_sid` config/env/docs.",
+        "[x] `~/cozy/cozy-art`: consider replacing the local SendGrid sender with the improved AuthKit email adapter if it covers required verification/reset behavior; otherwise keep a local sender with no `doujins-email` dependency.",
+        "[x] Search all active local repos with `rg -n \"doujins-email|github.com/doujins-org/doujins-email\" /home/fidika` and remove every live code, config, module, and doc reference.",
+        "[x] Decide whether archived tracker files (`agents/completed.json`, old TODO archives) should be rewritten to remove historical `doujins-email` mentions; no historical archive rewrite was needed because the only remaining active mention is this tracking issue."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

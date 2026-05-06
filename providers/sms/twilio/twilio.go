@@ -12,6 +12,33 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
+const messagesURLFormat = "https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json"
+
+// VerificationBuilder renders a verification SMS body.
+type VerificationBuilder func(ctx context.Context, phone string, msg core.VerificationMessage, verificationURL string) string
+
+// PasswordResetBuilder renders a password reset SMS body.
+type PasswordResetBuilder func(ctx context.Context, phone, token, resetURL string) string
+
+// LoginCodeBuilder renders a login code SMS body.
+type LoginCodeBuilder func(ctx context.Context, phone, code string) string
+
+// Config configures the Twilio Messaging API SMS adapter.
+type Config struct {
+	AccountSID          string
+	AuthToken           string
+	MessagingServiceSID string
+	AppName             string
+	Client              *http.Client
+
+	VerificationLinkURL func(token string) string
+	ResetLinkURL        func(token string) string
+
+	VerificationBuilder  VerificationBuilder
+	PasswordResetBuilder PasswordResetBuilder
+	LoginCodeBuilder     LoginCodeBuilder
+}
+
 // Sender sends SMS messages via Twilio Messaging API.
 type Sender struct {
 	AccountSID          string
@@ -22,16 +49,38 @@ type Sender struct {
 
 	VerificationLinkURL func(token string) string
 	ResetLinkURL        func(token string) string
+
+	VerificationBuilder  VerificationBuilder
+	PasswordResetBuilder PasswordResetBuilder
+	LoginCodeBuilder     LoginCodeBuilder
 }
 
-// New creates a Twilio Messaging sender.
-func New(accountSID, authToken, messagingServiceSID, appName string) *Sender {
-	return &Sender{
-		AccountSID:          strings.TrimSpace(accountSID),
-		AuthToken:           strings.TrimSpace(authToken),
-		MessagingServiceSID: strings.TrimSpace(messagingServiceSID),
-		AppName:             strings.TrimSpace(appName),
+// New creates a validated Twilio Messaging sender.
+func New(cfg Config) (*Sender, error) {
+	accountSID := strings.TrimSpace(cfg.AccountSID)
+	authToken := strings.TrimSpace(cfg.AuthToken)
+	messagingServiceSID := strings.TrimSpace(cfg.MessagingServiceSID)
+	if accountSID == "" {
+		return nil, fmt.Errorf("twilio account SID is required")
 	}
+	if authToken == "" {
+		return nil, fmt.Errorf("twilio auth token is required")
+	}
+	if messagingServiceSID == "" {
+		return nil, fmt.Errorf("twilio messaging service SID is required")
+	}
+	return &Sender{
+		AccountSID:           accountSID,
+		AuthToken:            authToken,
+		MessagingServiceSID:  messagingServiceSID,
+		AppName:              strings.TrimSpace(cfg.AppName),
+		Client:               cfg.Client,
+		VerificationLinkURL:  cfg.VerificationLinkURL,
+		ResetLinkURL:         cfg.ResetLinkURL,
+		VerificationBuilder:  cfg.VerificationBuilder,
+		PasswordResetBuilder: cfg.PasswordResetBuilder,
+		LoginCodeBuilder:     cfg.LoginCodeBuilder,
+	}, nil
 }
 
 func (s *Sender) httpClient() *http.Client {
@@ -45,50 +94,60 @@ func (s *Sender) SendVerification(ctx context.Context, phone string, msg core.Ve
 	if err := msg.Validate(); err != nil {
 		return err
 	}
-	app := s.AppName
-	if app == "" {
-		app = "Auth"
-	}
-
-	parts := make([]string, 0, 2)
-	if strings.TrimSpace(msg.Code) != "" {
-		parts = append(parts, fmt.Sprintf("%s verification code: %s", app, strings.TrimSpace(msg.Code)))
-	}
+	link := ""
 	if strings.TrimSpace(msg.LinkToken) != "" {
-		linkOrToken := strings.TrimSpace(msg.LinkToken)
+		link = strings.TrimSpace(msg.LinkToken)
 		if s.VerificationLinkURL != nil {
-			if built := strings.TrimSpace(s.VerificationLinkURL(linkOrToken)); built != "" {
-				linkOrToken = built
+			if built := strings.TrimSpace(s.VerificationLinkURL(link)); built != "" {
+				link = built
 			}
 		}
-		parts = append(parts, "Verify: "+linkOrToken)
+	}
+	if s.VerificationBuilder != nil {
+		return s.sendMessage(ctx, phone, s.VerificationBuilder(ctx, phone, msg, link))
 	}
 
-	return s.sendMessage(ctx, phone, strings.Join(parts, "\n"))
+	return s.sendMessage(ctx, phone, defaultVerificationBody(s.appLabel(), msg, link))
 }
 
 func (s *Sender) SendPasswordResetLink(ctx context.Context, phone, token string) error {
-	app := s.AppName
-	if app == "" {
-		app = "Auth"
-	}
 	linkOrToken := strings.TrimSpace(token)
 	if s.ResetLinkURL != nil {
 		if built := strings.TrimSpace(s.ResetLinkURL(linkOrToken)); built != "" {
 			linkOrToken = built
 		}
 	}
-	body := fmt.Sprintf("%s password reset: %s", app, linkOrToken)
+	if s.PasswordResetBuilder != nil {
+		return s.sendMessage(ctx, phone, s.PasswordResetBuilder(ctx, phone, token, linkOrToken))
+	}
+	body := fmt.Sprintf("%s password reset: %s", s.appLabel(), linkOrToken)
 	return s.sendMessage(ctx, phone, body)
 }
 
 func (s *Sender) SendLoginCode(ctx context.Context, phone, code string) error {
-	app := s.AppName
-	if app == "" {
-		app = "Auth"
+	if s.LoginCodeBuilder != nil {
+		return s.sendMessage(ctx, phone, s.LoginCodeBuilder(ctx, phone, code))
 	}
-	body := fmt.Sprintf("%s login code: %s", app, strings.TrimSpace(code))
+	body := fmt.Sprintf("%s login code: %s", s.appLabel(), strings.TrimSpace(code))
 	return s.sendMessage(ctx, phone, body)
+}
+
+func (s *Sender) appLabel() string {
+	if strings.TrimSpace(s.AppName) != "" {
+		return strings.TrimSpace(s.AppName)
+	}
+	return "Auth"
+}
+
+func defaultVerificationBody(app string, msg core.VerificationMessage, link string) string {
+	parts := make([]string, 0, 2)
+	if strings.TrimSpace(msg.Code) != "" {
+		parts = append(parts, fmt.Sprintf("%s verification code: %s", app, strings.TrimSpace(msg.Code)))
+	}
+	if strings.TrimSpace(link) != "" {
+		parts = append(parts, "Verify: "+strings.TrimSpace(link))
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (s *Sender) sendMessage(ctx context.Context, to, body string) error {
@@ -108,11 +167,11 @@ func (s *Sender) sendMessage(ctx context.Context, to, body string) error {
 		return fmt.Errorf("message body is required")
 	}
 
-	apiURL := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", s.AccountSID)
+	apiURL := fmt.Sprintf(messagesURLFormat, strings.TrimSpace(s.AccountSID))
 	formData := url.Values{}
 	formData.Set("To", strings.TrimSpace(to))
 	formData.Set("Body", strings.TrimSpace(body))
-	formData.Set("MessagingServiceSid", s.MessagingServiceSID)
+	formData.Set("MessagingServiceSid", strings.TrimSpace(s.MessagingServiceSID))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(formData.Encode()))
 	if err != nil {

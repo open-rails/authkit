@@ -3,12 +3,12 @@
     {
       "name": "Magic links for verification + password reset (standard policy; excludes magic-login)",
       "id_number": 10,
-      "description": "Implemented standard policy (not configurable in AuthKit):\n- Email:\n  - verification: code + link (apps can embed the code in a URL)\n  - password reset: link-only (high-entropy token; no reset codes)\n- SMS:\n  - verification: code-only (Twilio Verify)\n  - password reset: link-only (Twilio Messaging/SMS API; not Verify)\n\nAuthKit notes:\n- AuthKit does not know site base URLs or frontend routes. Host apps construct user-facing links in their templates.\n- Password reset tokens are high entropy, single-use, short TTL, stored server-side as hashes (ephemeral store).\n- Added confirm-link endpoints that accept a `token` field, plus backward-compatible behavior where legacy `code` fields carry the token.\n\nOut of scope: magic-link login (passwordless login links). Track separately.",
+      "description": "Implemented standard policy (not configurable in AuthKit):\n- Email:\n  - verification: code + link (apps can embed the code in a URL)\n  - password reset: link-only (high-entropy token; no reset codes)\n- SMS:\n  - verification: code and/or link sent through the host-provided SMS sender\n  - password reset: link-only through the host-provided SMS sender\n\nAuthKit notes:\n- AuthKit does not know site base URLs or frontend routes. Host apps construct user-facing links in their templates.\n- Password reset tokens are high entropy, single-use, short TTL, stored server-side as hashes (ephemeral store).\n- Added confirm-link endpoints that accept a `token` field, plus backward-compatible behavior where legacy `code` fields carry the token.\n- The optional Twilio SMS provider uses Twilio Messaging API, not Twilio Verify.\n\nOut of scope: magic-link login (passwordless login links). Track separately.",
       "tasks": [
         "[x] Switch password reset to link-only tokens (randB64(32) + hashed storage; no 6-digit reset codes)",
         "[x] Add `core.EmailSenderWithPasswordResetLink` and require it for email password reset delivery",
         "[x] Add `core.SMSSenderWithPasswordResetLink` and use it for SMS password reset delivery (Twilio Messaging/SMS API)",
-        "[x] Keep verification codes for email/SMS verification (Twilio Verify for SMS); apps can include a URL that embeds the verification code",
+        "[x] Keep verification codes for email/SMS verification; apps can include a URL that embeds the verification token",
         "[x] Update existing reset confirm handlers to treat the value as a case-sensitive token (no uppercasing; no 6-char assumptions)",
         "[x] Add POST `/email/password/reset/confirm-link` (expects `token`) and POST `/email/verify/confirm-link` (expects `token`)",
         "[x] Update `agents/api-endpoints.md` to document confirm-link endpoints and token-based reset confirm",

@@ -12,6 +12,49 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
+const sendGridMailSendURL = "https://api.sendgrid.com/v3/mail/send"
+
+// Message is the rendered email payload sent by Sender.
+type Message struct {
+	Subject    string
+	TextBody   string
+	HTMLBody   string
+	Categories []string
+	CustomArgs map[string]string
+}
+
+// VerificationBuilder renders a verification email.
+type VerificationBuilder func(ctx context.Context, email, username string, msg core.VerificationMessage, verificationURL string) Message
+
+// PasswordResetBuilder renders a password reset email.
+type PasswordResetBuilder func(ctx context.Context, email, username, token, resetURL string) Message
+
+// LoginCodeBuilder renders a login code email.
+type LoginCodeBuilder func(ctx context.Context, email, username, code string) Message
+
+// WelcomeBuilder renders a welcome email.
+type WelcomeBuilder func(ctx context.Context, email, username string) Message
+
+// Config configures the Twilio Email API / SendGrid Mail Send adapter.
+type Config struct {
+	APIKey    string
+	FromEmail string
+	FromName  string
+	AppName   string
+	Client    *http.Client
+
+	VerificationLinkURL func(token string) string
+	ResetLinkURL        func(token string) string
+
+	Categories []string
+	CustomArgs map[string]string
+
+	VerificationBuilder  VerificationBuilder
+	PasswordResetBuilder PasswordResetBuilder
+	LoginCodeBuilder     LoginCodeBuilder
+	WelcomeBuilder       WelcomeBuilder
+}
+
 // Sender sends emails through Twilio Email API (SendGrid endpoint).
 type Sender struct {
 	APIKey    string
@@ -22,15 +65,41 @@ type Sender struct {
 
 	VerificationLinkURL func(token string) string
 	ResetLinkURL        func(token string) string
+
+	Categories []string
+	CustomArgs map[string]string
+
+	VerificationBuilder  VerificationBuilder
+	PasswordResetBuilder PasswordResetBuilder
+	LoginCodeBuilder     LoginCodeBuilder
+	WelcomeBuilder       WelcomeBuilder
 }
 
-func New(apiKey, fromEmail, fromName, appName string) *Sender {
-	return &Sender{
-		APIKey:    strings.TrimSpace(apiKey),
-		FromEmail: strings.TrimSpace(fromEmail),
-		FromName:  strings.TrimSpace(fromName),
-		AppName:   strings.TrimSpace(appName),
+// New creates a validated Sender.
+func New(cfg Config) (*Sender, error) {
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	fromEmail := strings.TrimSpace(cfg.FromEmail)
+	if apiKey == "" {
+		return nil, fmt.Errorf("twilio email API key is required")
 	}
+	if fromEmail == "" {
+		return nil, fmt.Errorf("from email is required")
+	}
+	return &Sender{
+		APIKey:               apiKey,
+		FromEmail:            fromEmail,
+		FromName:             strings.TrimSpace(cfg.FromName),
+		AppName:              strings.TrimSpace(cfg.AppName),
+		Client:               cfg.Client,
+		VerificationLinkURL:  cfg.VerificationLinkURL,
+		ResetLinkURL:         cfg.ResetLinkURL,
+		Categories:           compactStrings(cfg.Categories),
+		CustomArgs:           compactStringMap(cfg.CustomArgs),
+		VerificationBuilder:  cfg.VerificationBuilder,
+		PasswordResetBuilder: cfg.PasswordResetBuilder,
+		LoginCodeBuilder:     cfg.LoginCodeBuilder,
+		WelcomeBuilder:       cfg.WelcomeBuilder,
+	}, nil
 }
 
 func (s *Sender) httpClient() *http.Client {
@@ -44,69 +113,79 @@ func (s *Sender) SendVerification(ctx context.Context, email, username string, m
 	if err := msg.Validate(); err != nil {
 		return err
 	}
-	app := s.appLabel()
-	subject := fmt.Sprintf("Verify your %s account", app)
+	link := ""
+	if strings.TrimSpace(msg.LinkToken) != "" {
+		link = strings.TrimSpace(msg.LinkToken)
+		if s.VerificationLinkURL != nil {
+			if built := strings.TrimSpace(s.VerificationLinkURL(link)); built != "" {
+				link = built
+			}
+		}
+	}
+	if s.VerificationBuilder != nil {
+		return s.sendEmail(ctx, email, s.VerificationBuilder(ctx, email, username, msg, link))
+	}
+	return s.sendEmail(ctx, email, defaultVerificationMessage(s.appLabel(), msg, link))
+}
 
+func defaultVerificationMessage(app string, msg core.VerificationMessage, link string) Message {
+	subject := fmt.Sprintf("Verify your %s account", app)
 	lines := []string{"Use the following verification details:"}
 	if strings.TrimSpace(msg.Code) != "" {
 		lines = append(lines, "Code: "+strings.TrimSpace(msg.Code))
 	}
-	if strings.TrimSpace(msg.LinkToken) != "" {
-		linkOrToken := strings.TrimSpace(msg.LinkToken)
-		if s.VerificationLinkURL != nil {
-			if built := strings.TrimSpace(s.VerificationLinkURL(linkOrToken)); built != "" {
-				linkOrToken = built
-			}
-		}
-		lines = append(lines, "Verify link: "+linkOrToken)
+	if strings.TrimSpace(link) != "" {
+		lines = append(lines, "Verify link: "+strings.TrimSpace(link))
 	}
-	text := strings.Join(lines, "\n")
 	html := "<p>Use the following verification details:</p><ul>"
 	if strings.TrimSpace(msg.Code) != "" {
 		html += "<li><strong>Code:</strong> " + escapeHTML(strings.TrimSpace(msg.Code)) + "</li>"
 	}
-	if strings.TrimSpace(msg.LinkToken) != "" {
-		linkOrToken := strings.TrimSpace(msg.LinkToken)
-		if s.VerificationLinkURL != nil {
-			if built := strings.TrimSpace(s.VerificationLinkURL(linkOrToken)); built != "" {
-				linkOrToken = built
-			}
-		}
-		html += "<li><strong>Verify link:</strong> " + escapeHTML(linkOrToken) + "</li>"
+	if strings.TrimSpace(link) != "" {
+		html += "<li><strong>Verify link:</strong> " + escapeHTML(strings.TrimSpace(link)) + "</li>"
 	}
 	html += "</ul>"
-	return s.sendEmail(ctx, email, subject, text, html)
+	return Message{Subject: subject, TextBody: strings.Join(lines, "\n"), HTMLBody: html, Categories: []string{"auth", "email-verification"}}
 }
 
 func (s *Sender) SendPasswordResetLink(ctx context.Context, email, username, token string) error {
 	app := s.appLabel()
-	subject := fmt.Sprintf("Reset your %s password", app)
 	linkOrToken := strings.TrimSpace(token)
 	if s.ResetLinkURL != nil {
 		if built := strings.TrimSpace(s.ResetLinkURL(linkOrToken)); built != "" {
 			linkOrToken = built
 		}
 	}
+	if s.PasswordResetBuilder != nil {
+		return s.sendEmail(ctx, email, s.PasswordResetBuilder(ctx, email, username, token, linkOrToken))
+	}
+	subject := fmt.Sprintf("Reset your %s password", app)
 	text := fmt.Sprintf("Use this link to reset your password:\n%s", linkOrToken)
 	html := fmt.Sprintf("<p>Use this link to reset your password:</p><p>%s</p>", escapeHTML(linkOrToken))
-	return s.sendEmail(ctx, email, subject, text, html)
+	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "password-reset"}})
 }
 
 func (s *Sender) SendLoginCode(ctx context.Context, email, username, code string) error {
+	if s.LoginCodeBuilder != nil {
+		return s.sendEmail(ctx, email, s.LoginCodeBuilder(ctx, email, username, code))
+	}
 	app := s.appLabel()
 	subject := fmt.Sprintf("Your %s login code", app)
 	trimmedCode := strings.TrimSpace(code)
 	text := fmt.Sprintf("Login code: %s", trimmedCode)
 	html := fmt.Sprintf("<p><strong>Login code:</strong> %s</p>", escapeHTML(trimmedCode))
-	return s.sendEmail(ctx, email, subject, text, html)
+	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "2fa-login"}})
 }
 
 func (s *Sender) SendWelcome(ctx context.Context, email, username string) error {
+	if s.WelcomeBuilder != nil {
+		return s.sendEmail(ctx, email, s.WelcomeBuilder(ctx, email, username))
+	}
 	app := s.appLabel()
 	subject := fmt.Sprintf("Welcome to %s", app)
 	text := fmt.Sprintf("Welcome to %s.", app)
 	html := fmt.Sprintf("<p>Welcome to %s.</p>", escapeHTML(app))
-	return s.sendEmail(ctx, email, subject, text, html)
+	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "welcome"}})
 }
 
 func (s *Sender) appLabel() string {
@@ -116,7 +195,7 @@ func (s *Sender) appLabel() string {
 	return "Auth"
 }
 
-func (s *Sender) sendEmail(ctx context.Context, to, subject, textBody, htmlBody string) error {
+func (s *Sender) sendEmail(ctx context.Context, to string, msg Message) error {
 	if s == nil {
 		return fmt.Errorf("email sender is nil")
 	}
@@ -129,20 +208,36 @@ func (s *Sender) sendEmail(ctx context.Context, to, subject, textBody, htmlBody 
 	if strings.TrimSpace(to) == "" {
 		return fmt.Errorf("recipient email is required")
 	}
+	if strings.TrimSpace(msg.Subject) == "" {
+		return fmt.Errorf("email subject is required")
+	}
+	if strings.TrimSpace(msg.TextBody) == "" && strings.TrimSpace(msg.HTMLBody) == "" {
+		return fmt.Errorf("email body is required")
+	}
 
 	payload := map[string]any{
 		"personalizations": []map[string]any{{
 			"to":      []map[string]string{{"email": strings.TrimSpace(to)}},
-			"subject": subject,
+			"subject": strings.TrimSpace(msg.Subject),
 		}},
 		"from": map[string]string{
 			"email": strings.TrimSpace(s.FromEmail),
 			"name":  strings.TrimSpace(s.FromName),
 		},
-		"content": []map[string]string{
-			{"type": "text/plain", "value": textBody},
-			{"type": "text/html", "value": htmlBody},
-		},
+	}
+	content := make([]map[string]string, 0, 2)
+	if strings.TrimSpace(msg.TextBody) != "" {
+		content = append(content, map[string]string{"type": "text/plain", "value": msg.TextBody})
+	}
+	if strings.TrimSpace(msg.HTMLBody) != "" {
+		content = append(content, map[string]string{"type": "text/html", "value": msg.HTMLBody})
+	}
+	payload["content"] = content
+	if categories := mergeStrings(s.Categories, msg.Categories); len(categories) > 0 {
+		payload["categories"] = categories
+	}
+	if customArgs := mergeStringMaps(s.CustomArgs, msg.CustomArgs); len(customArgs) > 0 {
+		payload["custom_args"] = customArgs
 	}
 
 	body, err := json.Marshal(payload)
@@ -150,7 +245,7 @@ func (s *Sender) sendEmail(ctx context.Context, to, subject, textBody, htmlBody 
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.sendgrid.com/v3/mail/send", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sendGridMailSendURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -167,6 +262,52 @@ func (s *Sender) sendEmail(ctx context.Context, to, subject, textBody, htmlBody 
 		return nil
 	}
 	return fmt.Errorf("twilio email API error: status %d", resp.StatusCode)
+}
+
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func mergeStrings(a, b []string) []string {
+	return compactStrings(append(append([]string{}, a...), b...))
+}
+
+func compactStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k != "" && v != "" {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func mergeStringMaps(a, b map[string]string) map[string]string {
+	out := compactStringMap(a)
+	if out == nil {
+		out = map[string]string{}
+	}
+	for k, v := range compactStringMap(b) {
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func escapeHTML(v string) string {
