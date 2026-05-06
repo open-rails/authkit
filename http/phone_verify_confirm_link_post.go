@@ -21,11 +21,17 @@ func (s *Service) handlePhoneVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 
 	token := strings.TrimSpace(req.Token)
 	if userID, err := s.svc.ConfirmPendingPhoneRegistrationByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
+		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
+			serverErr(w, "token_issue_failed")
+			return
+		}
 		return
 	}
-	if err := s.svc.ConfirmPhoneVerificationByToken(r.Context(), token); err == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	if userID, err := s.svc.ConfirmPhoneVerificationByTokenUserID(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
+		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
+			serverErr(w, "token_issue_failed")
+			return
+		}
 		return
 	}
 

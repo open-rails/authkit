@@ -339,6 +339,9 @@ Endpoints mounted automatically by `APIHandler()` are shown relative to the host
   - POST /email/password/reset/confirm ({reset_session, new_password})
 - Registration (unified - accepts email or phone in identifier field):
   - POST /register (server auto-detects email vs phone based on format)
+    - Success response includes `{ok, username, email, phone_number, discord_username, next_action}`
+    - `next_action` is one of `none`, `verify_email`, or `verify_phone`
+    - When `next_action` is `none`, the response also includes `{access_token, refresh_token, token_type, expires_in}`
   - Set `RegistrationVerification: none|optional|required` in `core.Config`
   - POST /register/resend-email
   - POST /register/resend-phone
@@ -439,8 +442,11 @@ Frontend (React) quick guide
   - Add Authorization: Bearer <access_token> to protected API calls. On 401, call POST /token with refresh_token, then retry.
 - Registration (unified)
   - POST /register with `{identifier, username, password}` where identifier is email or phone
+  - On success, branch on `next_action`: `none`, `verify_email`, or `verify_phone`
+  - If `next_action` is `none`, store the returned access/refresh tokens immediately; do not replay the password
   - Email registration: check email for 6-char code → POST /email/verify/confirm with `{code}`
   - Phone registration: check SMS for 6-char code → POST /phone/verify/confirm with `{phone_number, code}`
+  - Successful email/phone code or link confirmation returns access/refresh tokens
   - Resend codes: POST /register/resend-email or POST /register/resend-phone
 - Password Login
   - POST /password/login with `{login, password}` where login can be email/phone/username → {id_token, refresh_token}

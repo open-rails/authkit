@@ -40,7 +40,7 @@ Notes:
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/password/login` | PUBLIC | Password login (org_mode=multi: optional `org` in body to mint org-scoped access token) |
-| POST | `/register` | PUBLIC | Unified registration (email or phone) |
+| POST | `/register` | PUBLIC | Unified registration (email or phone); success returns `next_action`: `none`, `verify_email`, or `verify_phone`; `none` includes access/refresh tokens |
 | POST | `/register/resend-email` | PUBLIC | Resend email verification |
 | POST | `/register/resend-phone` | PUBLIC | Resend phone verification |
 | POST | `/token` | PUBLIC | Refresh access token (org_mode=multi: optional `org` in body to mint org-scoped access token) |

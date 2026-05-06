@@ -10,6 +10,13 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
+type authTokensResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int64  `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+}
+
 func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.svc.HasEmailSender() {
 		serverErr(w, "email_verification_unavailable")
@@ -75,11 +82,21 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, userID string, method string) error {
+	tokens, err := s.createTokensForUser(r, userID, method)
+	if err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, tokens)
+	return nil
+}
+
+func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authTokensResponse, error) {
 	ua := r.UserAgent()
 	ip := net.ParseIP(clientIP(r))
 	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, ua, ip)
 	if err != nil {
-		return err
+		return authTokensResponse{}, err
 	}
 
 	ipStr := clientIP(r)
@@ -88,14 +105,13 @@ func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, use
 
 	accessToken, exp, err := s.svc.IssueAccessToken(r.Context(), userID, "", map[string]any{"sid": sid})
 	if err != nil {
-		return err
+		return authTokensResponse{}, err
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  accessToken,
-		"token_type":    "Bearer",
-		"expires_in":    int64(time.Until(exp).Seconds()),
-		"refresh_token": rt,
-	})
-	return nil
+	return authTokensResponse{
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int64(time.Until(exp).Seconds()),
+		RefreshToken: rt,
+	}, nil
 }

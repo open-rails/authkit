@@ -1,12 +1,52 @@
 package authhttp
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	core "github.com/open-rails/authkit/core"
 	pwhash "github.com/open-rails/authkit/password"
 )
+
+type registrationNextAction string
+
+const (
+	registrationNextActionNone        registrationNextAction = "none"
+	registrationNextActionVerifyEmail registrationNextAction = "verify_email"
+	registrationNextActionVerifyPhone registrationNextAction = "verify_phone"
+)
+
+type registrationResponse struct {
+	OK              bool                   `json:"ok"`
+	Username        string                 `json:"username"`
+	Email           *string                `json:"email"`
+	PhoneNumber     *string                `json:"phone_number"`
+	DiscordUsername *string                `json:"discord_username"`
+	NextAction      registrationNextAction `json:"next_action"`
+	AccessToken     string                 `json:"access_token,omitempty"`
+	TokenType       string                 `json:"token_type,omitempty"`
+	ExpiresIn       int64                  `json:"expires_in,omitempty"`
+	RefreshToken    string                 `json:"refresh_token,omitempty"`
+}
+
+func newRegistrationResponse(username string, email, phone *string, nextAction registrationNextAction, tokens *authTokensResponse) registrationResponse {
+	resp := registrationResponse{
+		OK:              true,
+		Username:        username,
+		Email:           email,
+		PhoneNumber:     phone,
+		DiscordUsername: nil,
+		NextAction:      nextAction,
+	}
+	if tokens != nil {
+		resp.AccessToken = tokens.AccessToken
+		resp.TokenType = tokens.TokenType
+		resp.ExpiresIn = tokens.ExpiresIn
+		resp.RefreshToken = tokens.RefreshToken
+	}
+	return resp
+}
 
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.allow(r, RLAuthRegister) {
@@ -56,7 +96,6 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 
 	policy := s.svc.Options().RegistrationVerificationPolicy()
 	requiresVerification := policy == core.RegistrationVerificationRequired
-	optionalVerification := policy == core.RegistrationVerificationOptional
 
 	if isPhone {
 		if requiresVerification && !s.svc.HasSMSSender() {
@@ -82,18 +121,29 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		msg := "Registration successful. You can log in immediately."
+		nextAction := registrationNextActionNone
+		var tokens *authTokensResponse
 		if requiresVerification {
-			msg = "Registration pending. Please check your phone for a verification code or link."
-		} else if optionalVerification && s.svc.HasSMSSender() {
-			msg = "Registration successful. We sent a phone verification code and link; verification is optional."
+			nextAction = registrationNextActionVerifyPhone
+		} else {
+			u, err := s.svc.GetUserByPhone(r.Context(), identifier)
+			if err != nil || u == nil {
+				serverErr(w, "registration_failed")
+				return
+			}
+			tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
+			if err != nil {
+				if errors.Is(err, core.ErrUserBanned) {
+					unauthorized(w, "user_banned")
+					return
+				}
+				serverErr(w, "token_issue_failed")
+				return
+			}
+			tokens = &tokenSet
 		}
 
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"ok":      true,
-			"message": msg,
-			"phone":   identifier,
-		})
+		writeJSON(w, http.StatusAccepted, newRegistrationResponse(username, nil, &identifier, nextAction, tokens))
 		return
 	}
 
@@ -120,18 +170,29 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	msg := "Registration successful. You can log in immediately."
+	nextAction := registrationNextActionNone
+	var tokens *authTokensResponse
 	if requiresVerification {
-		msg = "Registration pending. Please check your email for a verification code or link."
-	} else if optionalVerification && s.svc.HasEmailSender() {
-		msg = "Registration successful. We sent an email verification code and link; verification is optional."
+		nextAction = registrationNextActionVerifyEmail
+	} else {
+		u, err := s.svc.GetUserByEmail(r.Context(), identifier)
+		if err != nil || u == nil {
+			serverErr(w, "registration_failed")
+			return
+		}
+		tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
+		if err != nil {
+			if errors.Is(err, core.ErrUserBanned) {
+				unauthorized(w, "user_banned")
+				return
+			}
+			serverErr(w, "token_issue_failed")
+			return
+		}
+		tokens = &tokenSet
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"ok":      true,
-		"message": msg,
-		"email":   identifier,
-	})
+	writeJSON(w, http.StatusAccepted, newRegistrationResponse(username, &identifier, nil, nextAction, tokens))
 }
 
 func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *http.Request) {

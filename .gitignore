@@ -2,3 +2,5 @@
 .env
 .runtime
 
+authkit
+*.exe

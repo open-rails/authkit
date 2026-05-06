@@ -64,9 +64,13 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := s.svc.ConfirmPhoneVerification(r.Context(), phone, code); err != nil {
+	userID, err = s.svc.ConfirmPhoneVerificationUserID(r.Context(), phone, code)
+	if err != nil {
 		badRequest(w, "invalid_or_expired_code")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
+		serverErr(w, "token_issue_failed")
+		return
+	}
 }

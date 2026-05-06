@@ -1563,6 +1563,12 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 
 // ConfirmPhoneVerification verifies a token and marks phone_verified = true.
 func (s *Service) ConfirmPhoneVerification(ctx context.Context, phone, code string) error {
+	_, err := s.ConfirmPhoneVerificationUserID(ctx, phone, code)
+	return err
+}
+
+// ConfirmPhoneVerificationUserID verifies a token, marks phone_verified = true, and returns the user ID.
+func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, code string) (string, error) {
 	hash := sha256Hex(code)
 
 	var userID string
@@ -1570,11 +1576,11 @@ func (s *Service) ConfirmPhoneVerification(ctx context.Context, phone, code stri
 	if s.useEphemeralStore() {
 		uid, err := s.consumePhoneVerification(ctx, "verify_phone", phone, hash)
 		if err != nil {
-			return err
+			return "", err
 		}
 		userID = uid
 	} else {
-		return jwt.ErrTokenUnverifiable
+		return "", jwt.ErrTokenUnverifiable
 	}
 
 	// Mark phone as verified
@@ -1584,15 +1590,24 @@ func (s *Service) ConfirmPhoneVerification(ctx context.Context, phone, code stri
 		WHERE id = $1 AND phone_number = $2
 	`, userID, phone)
 
-	return err
+	if err != nil {
+		return "", err
+	}
+	return userID, nil
 }
 
 // ConfirmPhoneVerificationByToken verifies phone ownership using a one-click token.
 func (s *Service) ConfirmPhoneVerificationByToken(ctx context.Context, token string) error {
+	_, err := s.ConfirmPhoneVerificationByTokenUserID(ctx, token)
+	return err
+}
+
+// ConfirmPhoneVerificationByTokenUserID verifies phone ownership using a one-click token and returns the user ID.
+func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, token string) (string, error) {
 	hash := sha256Hex(token)
 	userID, phone, err := s.consumePhoneVerificationByToken(ctx, "verify_phone", hash)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	_, err = s.pg.Exec(ctx, `
@@ -1600,7 +1615,10 @@ func (s *Service) ConfirmPhoneVerificationByToken(ctx context.Context, token str
 		SET phone_verified = true
 		WHERE id = $1 AND phone_number = $2
 	`, userID, phone)
-	return err
+	if err != nil {
+		return "", err
+	}
+	return userID, nil
 }
 
 // --- Phone Password Reset (for phone+password users) ---

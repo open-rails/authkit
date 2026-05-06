@@ -638,6 +638,21 @@
         "[x] Update other local AuthKit consumers found by search (`cozy-art`, `tensorhub`, `gen-orchestrator`, and `openrails`) to use `github.com/open-rails/authkit/http`."
       ],
       "completed": true
+    },
+    {
+      "name": "Structured registration next_action response",
+      "id_number": 34,
+      "description": "Replace human registration success messages with a machine-readable `next_action` enum so host frontends can decide whether to continue immediately or show first-contact verification UI. Keep the response focused on state: `ok`, submitted identifiers, and `next_action` (`none`, `verify_email`, `verify_phone`). Human-facing copy belongs in host applications, not AuthKit API responses.",
+      "tasks": [
+        "[x] Design registration success contract: include `username`, nullable `email`/`phone_number`/`discord_username`, and `next_action`.",
+        "[x] Add a small typed response builder in `http/register.go` so email and phone registration paths share the same shape.",
+        "[x] Remove `message` from `/register` success responses.",
+        "[x] Return `next_action=verify_email` when email registration requires verification, `verify_phone` when phone registration requires verification, and `none` otherwise.",
+        "[x] Return access/refresh tokens directly when `next_action=none`, and from successful email/phone verification code or link confirmation.",
+        "[x] Update AuthKit HTTP tests/docs for the structured response.",
+        "[x] Update cozy-art frontend to consume `next_action` instead of inferring verification from messages or failed login."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [
