@@ -1,4 +1,4 @@
-package emailtwilio
+package twilio
 
 import (
 	"bytes"

@@ -1,4 +1,4 @@
-package smstwilio
+package twilio
 
 import (
 	"context"

@@ -240,16 +240,16 @@
       "completed": false
     },
     {
-      "name": "Framework-agnostic net/http adapter (adapters/http)",
+      "name": "Framework-agnostic net/http adapter (http)",
       "id_number": 16,
-      "description": "Add a first-class `net/http` transport for AuthKit so host apps can embed AuthKit without Gin.\n\n## Motivation\n\nToday AuthKit’s HTTP surface is implemented via the Gin adapter (`adapters/gin`). That works well for Gin apps, but it couples embedding to Gin’s router/middleware model. A native `net/http` adapter makes embedding framework-agnostic (stdlib mux, chi, echo via bridge, Lambda/APIGW, etc.) and reduces dependency friction for non-Gin hosts.\n\n## High-level approach (staged migration)\n\n1) Introduce `adapters/http` that implements the same routes using `net/http` handlers and std context.\n2) Keep `adapters/gin` supported initially. Optionally, later make Gin adapter a thin shim that delegates to the `net/http` adapter (Gin → ServeHTTP), once parity is proven.\n3) Migrate tests to validate the `net/http` adapter, and add parity tests to prevent behavior drift.\n\n## Scope\n\n- Provide handler registration/mounting for:\n  - JWKS: `GET /.well-known/jwks.json`\n  - Browser flows: `/auth/oidc/:provider/login`, `/auth/oidc/:provider/callback`, and discord oauth routes if configured\n  - JSON API: `/auth/*` endpoints (password login, register, sessions, user, admin, SIWS, etc.)\n- Preserve existing response shapes and status codes where feasible.\n\n## Non-goals\n\n- Do not change core business logic (`core/*`) beyond small helpers needed for transport neutrality.\n- Do not remove Gin adapter in the first iteration.\n- No API redesign; focus on transport parity.\n\n## Risks\n\n- Behavior drift (status codes, error payloads, headers) unless parity-tested.\n- Replacing Gin binding/validation and middleware chaining requires careful design.",
+      "description": "Add a first-class `net/http` transport for AuthKit so host apps can embed AuthKit without Gin.\n\n## Motivation\n\nToday AuthKit’s HTTP surface is implemented via the Gin adapter (`adapters/gin`). That works well for Gin apps, but it couples embedding to Gin’s router/middleware model. A native `net/http` adapter makes embedding framework-agnostic (stdlib mux, chi, echo via bridge, Lambda/APIGW, etc.) and reduces dependency friction for non-Gin hosts.\n\n## High-level approach (staged migration)\n\n1) Introduce `http` that implements the same routes using `net/http` handlers and std context.\n2) Keep `adapters/gin` supported initially. Optionally, later make Gin adapter a thin shim that delegates to the `net/http` adapter (Gin → ServeHTTP), once parity is proven.\n3) Migrate tests to validate the `net/http` adapter, and add parity tests to prevent behavior drift.\n\n## Scope\n\n- Provide handler registration/mounting for:\n  - JWKS: `GET /.well-known/jwks.json`\n  - Browser flows: `/auth/oidc/:provider/login`, `/auth/oidc/:provider/callback`, and discord oauth routes if configured\n  - JSON API: `/auth/*` endpoints (password login, register, sessions, user, admin, SIWS, etc.)\n- Preserve existing response shapes and status codes where feasible.\n\n## Non-goals\n\n- Do not change core business logic (`core/*`) beyond small helpers needed for transport neutrality.\n- Do not remove Gin adapter in the first iteration.\n- No API redesign; focus on transport parity.\n\n## Risks\n\n- Behavior drift (status codes, error payloads, headers) unless parity-tested.\n- Replacing Gin binding/validation and middleware chaining requires careful design.",
       "tasks": [
         "Design:",
         "[x] Decide adapter public API: `authhttp.NewService(core.Config)` plus mountable handler methods (`JWKSHandler`, `APIHandler`, `OIDCHandler`)",
         "[x] Decide mounting strategy: expose multiple mountable handlers (JWKS/API/OIDC) rather than a single all-in-one handler",
         "[x] Define shared error envelope + helpers for consistent responses",
-        "\nImplementation (adapters/http):",
-        "[x] Add `adapters/http` package skeleton",
+        "\nImplementation (http):",
+        "[x] Add `http` package skeleton",
         "[x] Implement JWKS handler (parity with gin handler)",
         "[x] Implement auth middleware for Required/Optional using core verifier",
         "[x] Implement request parsing + validation (stdlib + validator library or minimal custom)",
@@ -270,7 +270,7 @@
     {
       "name": "Drop Gin adapter + ginutil (breaking): rely fully on net/http routing",
       "id_number": 17,
-      "description": "AuthKit now has a full `net/http` adapter (`adapters/http`, package `authhttp`). We want to remove all Gin-specific logic and dependencies from this repo and rely exclusively on the new router/handler implementation.\n\nThis is a deliberate breaking change: downstream projects that import `github.com/open-rails/authkit/adapters/gin` or `adapters/ginutil` will need to migrate to `adapters/http`.\n\nNon-goals:\n- Backwards compatibility for Gin hosts.\n- Shim layers that keep Gin working.\n\nSuccess criteria:\n- No Gin dependency in AuthKit.\n- `go test ./...` passes.\n- README/docs show only `authhttp` mounting.",
+      "description": "AuthKit now has a full `net/http` adapter (`http`, package `authhttp`). We want to remove all Gin-specific logic and dependencies from this repo and rely exclusively on the new router/handler implementation.\n\nThis is a deliberate breaking change: downstream projects that import `github.com/open-rails/authkit/adapters/gin` or `adapters/ginutil` will need to migrate to `http`.\n\nNon-goals:\n- Backwards compatibility for Gin hosts.\n- Shim layers that keep Gin working.\n\nSuccess criteria:\n- No Gin dependency in AuthKit.\n- `go test ./...` passes.\n- README/docs show only `authhttp` mounting.",
       "tasks": [
         "[x] Inventory all Gin usages in-repo (packages, tests, docs) and decide the deletion scope (`adapters/gin`, `adapters/ginutil`, any local helpers).",
         "[x] Remove Gin-specific packages (`adapters/gin`, `adapters/ginutil`) and any Gin-only helpers that are no longer used.",
@@ -517,10 +517,10 @@
         "=== STEP 9: Update all callers + tests ===",
         "[x] testing/issuer_test.go: NewVerifier(core.AcceptConfig{...}) -> NewVerifier(WithSkew(...), WithAlgorithms(...)) + AddIssuer(...). Verify return: claims.UserID instead of claims[\"sub\"]",
         "[x] testing/devserver_e2e_test.go: same — functional options + AddIssuer + typed Claims fields",
-        "[x] adapters/http/middleware_test.go: testVerifier mock removed — tests use real *Verifier with AddIssuer + RawKeys",
-        "[x] adapters/http/org_scoped_claims_test.go: updated to use real *Verifier with WithOrgMode",
-        "[x] adapters/http/handlers_test.go: added newTestService() helper, TestJWKSHandler passes JWKS directly",
-        "[x] adapters/http/error_shapes_test.go, admin_reserved_accounts_test.go, org_mode_routes_test.go: updated to use newTestService()/newTestServiceWithOrgMode()",
+        "[x] http/middleware_test.go: testVerifier mock removed — tests use real *Verifier with AddIssuer + RawKeys",
+        "[x] http/org_scoped_claims_test.go: updated to use real *Verifier with WithOrgMode",
+        "[x] http/handlers_test.go: added newTestService() helper, TestJWKSHandler passes JWKS directly",
+        "[x] http/error_shapes_test.go, admin_reserved_accounts_test.go, org_mode_routes_test.go: updated to use newTestService()/newTestServiceWithOrgMode()",
         "[x] README.md: updated examples to use NewVerifier() + AddIssuer pattern, removed core.AcceptConfig/IssuerAccept references",
 
         "",
@@ -544,7 +544,7 @@
         "[x] Document downstream target mounts: doujins and hentai0 mount AuthKit JSON API at `/api/v1`, producing public routes such as `/api/v1/admin/users`, `/api/v1/user/me`, `/api/v1/token`, and no `/api/v1/auth/*` identity routes.",
         "",
         "=== IMPLEMENTATION ===",
-        "[x] Remove the baked-in `/auth` prefix from `adapters/http/APIHandler()` route registrations while preserving handlers, payloads, response shapes, auth requirements, and rate-limit buckets.",
+        "[x] Remove the baked-in `/auth` prefix from `http/APIHandler()` route registrations while preserving handlers, payloads, response shapes, auth requirements, and rate-limit buckets.",
         "[x] Update route tests to call prefix-neutral paths directly against `APIHandler()`.",
         "[x] Decide and implement compatibility policy for old `/auth/*` internal paths: hard cut vs temporary aliases. If aliases are kept, add explicit sunset tests/docs.",
         "[x] Add canonical admin target-user session revocation route: `POST /admin/users/{user_id}/sessions/revoke`.",
@@ -579,7 +579,7 @@
         "",
         "=== IMPLEMENTATION ===",
         "[x] Update `core.Config` / service options to carry the configured frontend callback path.",
-        "[x] Update `adapters/http/oidc_browser.go` to build the final full-page redirect from `{BaseURL}{FrontendCallbackPath}` instead of hardcoded `/login/callback`.",
+        "[x] Update `http/oidc_browser.go` to build the final full-page redirect from `{BaseURL}{FrontendCallbackPath}` instead of hardcoded `/login/callback`.",
         "[x] Ensure popup OIDC (`ui=popup`) behavior is unchanged and does not use the frontend callback path.",
         "[x] Add tests for default callback path, custom callback path, invalid callback path validation, fragment token handoff, and unchanged popup behavior.",
         "",
@@ -589,7 +589,7 @@
         "[x] Document downstream work required in doujins/hentai0: mount `OIDCHandler()` outside `/api/v1` and configure/serve the frontend callback path.",
         "",
         "=== VALIDATION ===",
-        "[x] Run `go test ./adapters/http`.",
+        "[x] Run `go test ./http`.",
         "[x] Run `go test ./...`.",
         "[x] Verify downstream route-contract tests after doujins/hentai0 migration patches exist."
       ],
@@ -607,6 +607,35 @@
         "[x] Add E2E coverage that soft-deleted users still hold current usernames, while hard-deleted users release names through cascade.",
         "[x] Fix username create/rename paths to enforce shared owner-namespace availability outside multi-org mode too.",
         "[x] Verify with `go test ./core`, `go test ./...`, and targeted all-in-one devserver E2E."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Rich owner namespace lookup status",
+      "id_number": 32,
+      "description": "Make `GET /owners/{slug}` useful for both canonical owner routing and availability/preflight UI by returning one authoritative owner-namespace view. The response should distinguish live registered owners, parked namespaces, restricted names, historical rename redirects, soft-deleted owners that still hold a slug, recent rename holds, and truly unregistered/claimable names.",
+      "tasks": [
+        "[x] Design response contract with `requested_slug`, canonical `slug`/`canonical_slug`, `status`, `claimable`, `renamed`, optional `hold_until`, and existing `exists`/`entity_kind`/`user`/`org` payloads.",
+        "[x] Add core lookup that uses the same sources as routing and availability: users, orgs, reserved names, user rename history, org rename history, soft-delete state, and rename reuse hold.",
+        "[x] Return distinct statuses: `registered_user`, `registered_org`, `parked_user`, `parked_org`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, and `unregistered`.",
+        "[x] Wire `GET /owners/{slug}` to the richer core lookup while preserving existing top-level `slug`, `exists`, `entity_kind`, `user`, and `org` fields.",
+        "[x] Extend rename E2E coverage to assert renamed, soft-deleted, recent-hold, expired-hold, and claimability response states.",
+        "[x] Verify with `go test ./core ./http`, `go test ./...`, and targeted all-in-one devserver E2E."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Move HTTP transport and provider implementations out of adapters",
+      "id_number": 33,
+      "description": "Make the package layout idiomatic for host applications: AuthKit's embeddable HTTP surface should live at the top-level `http` package, while concrete third-party sender implementations should live under `providers/<channel>/<provider>`. The old `adapters/` tree should disappear instead of carrying compatibility aliases.",
+      "tasks": [
+        "[x] Move `adapters/http` to top-level `http` with `git mv` and preserve the package name/import alias `authhttp`.",
+        "[x] Move Twilio email sender implementation to `providers/email/twilio` with `git mv`.",
+        "[x] Move Twilio SMS sender implementation to `providers/sms/twilio` with `git mv`.",
+        "[x] Remove the empty `adapters/` directory tree.",
+        "[x] Update AuthKit imports, source-path contract tests, README examples, and package docs to use `github.com/open-rails/authkit/http` and `providers/*/twilio`.",
+        "[x] Update doujins and hentai0 imports so host applications embed AuthKit through `github.com/open-rails/authkit/http`.",
+        "[x] Update other local AuthKit consumers found by search (`cozy-art`, `tensorhub`, `gen-orchestrator`, and `openrails`) to use `github.com/open-rails/authkit/http`."
       ],
       "completed": true
     }

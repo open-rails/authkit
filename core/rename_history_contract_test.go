@@ -129,14 +129,14 @@ func TestCurrentSlugColumnsRemainUnique(t *testing.T) {
 }
 
 func TestOrgGetHandlerRedirectsHistoricalSlugButOwnerLookupReturnsJSON(t *testing.T) {
-	orgsHandler := readSource(t, "../adapters/http/orgs_handlers.go")
+	orgsHandler := readSource(t, "../http/orgs_handlers.go")
 	if !strings.Contains(orgsHandler, "w.WriteHeader(http.StatusMovedPermanently)") {
 		t.Fatalf("GET /orgs/{org} should redirect historical slugs to canonical org path")
 	}
 	if !strings.Contains(orgsHandler, "strings.Replace(r.URL.Path, orgSlug, canonical, 1)") {
 		t.Fatalf("GET /orgs/{org} should build a canonical redirect path")
 	}
-	ownersHandler := readSource(t, "../adapters/http/admin_reserved_accounts.go")
+	ownersHandler := readSource(t, "../http/admin_reserved_accounts.go")
 	start := strings.Index(ownersHandler, "func (s *Service) handleOwnerNamespaceInfoGET")
 	end := strings.Index(ownersHandler, "func normalizeAdminAccountKind")
 	if start < 0 || end < 0 || end <= start {
@@ -146,17 +146,17 @@ func TestOrgGetHandlerRedirectsHistoricalSlugButOwnerLookupReturnsJSON(t *testin
 	if strings.Contains(ownersHandler, "StatusMovedPermanently") || strings.Contains(ownersHandler, "http.Redirect") {
 		t.Fatalf("GET /owners/{slug} should return canonical JSON, not HTTP redirects")
 	}
-	if !strings.Contains(ownersHandler, "Username: strings.TrimSpace(username)") {
+	if !strings.Contains(ownersHandler, "LookupOwnerNamespace") {
+		t.Fatalf("GET /owners/{slug} should use the canonical owner namespace lookup")
+	}
+	if !strings.Contains(ownersHandler, "Slug:          strings.TrimSpace(lookup.CanonicalSlug)") {
+		t.Fatalf("GET /owners/{slug} should return the canonical slug in the top-level slug field")
+	}
+	if !strings.Contains(ownersHandler, "Username: strings.TrimSpace(lookup.User.Username)") {
 		t.Fatalf("GET /owners/{slug} should include canonical username in JSON")
 	}
-	if !strings.Contains(ownersHandler, "resp.Slug = strings.TrimSpace(username)") {
-		t.Fatalf("GET /owners/{slug} should return the canonical current username in the top-level slug field")
-	}
-	if !strings.Contains(ownersHandler, "Slug:        strings.TrimSpace(org.Slug)") {
+	if !strings.Contains(ownersHandler, "Slug:        strings.TrimSpace(lookup.Org.Slug)") {
 		t.Fatalf("GET /owners/{slug} should include canonical org slug in JSON")
-	}
-	if !strings.Contains(ownersHandler, "resp.Slug = strings.TrimSpace(org.Slug)") {
-		t.Fatalf("GET /owners/{slug} should return the canonical current org slug in the top-level slug field")
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	authhttp "github.com/open-rails/authkit/adapters/http"
+	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 

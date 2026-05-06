@@ -9,7 +9,7 @@ refresh uses `POST /token` with the refresh token. It is not a cookie-session
 library: it does not currently provide opaque `session_id` browser cookies,
 HttpOnly token-cookie callbacks, or CSRF/session middleware for that model.
 
-Note: This repo ships only the `net/http` adapter (`adapters/http`). The old Gin adapter has been removed (breaking change); bump your module version/tag accordingly when releasing.
+Note: This repo ships the HTTP transport as the top-level `http` package (`github.com/open-rails/authkit/http`). The old Gin adapter has been removed (breaking change); bump your module version/tag accordingly when releasing.
 
 Scope (minimal)
 - Asymmetric JWT issuing (RS256) + JWKS endpoint (no persistence yet).
@@ -39,7 +39,7 @@ package main
 import (
   "net/http"
 
-  authhttp "github.com/open-rails/authkit/adapters/http"
+  authhttp "github.com/open-rails/authkit/http"
   core "github.com/open-rails/authkit/core"
 )
 
@@ -79,12 +79,12 @@ func main() {
 }
 ```
 
-Optional Twilio adapters
+Optional Twilio providers
 - Core is provider-agnostic and only depends on `core.EmailSender` / `core.SMSSender`.
-- Optional convenience adapters are available:
-  - `github.com/open-rails/authkit/adapters/email` (`emailtwilio`) for Twilio Email API (SendGrid endpoint).
-  - `github.com/open-rails/authkit/adapters/sms` (`smstwilio`) for Twilio Messaging API.
-- The SMS adapter requires `AccountSID`, `AuthToken`, and `MessagingServiceSID`. There is no `From` number fallback path.
+- Optional convenience providers are available:
+  - `github.com/open-rails/authkit/providers/email/twilio` for Twilio Email API (SendGrid endpoint).
+  - `github.com/open-rails/authkit/providers/sms/twilio` for Twilio Messaging API.
+- The SMS provider requires `AccountSID`, `AuthToken`, and `MessagingServiceSID`. There is no `From` number fallback path.
 
 ---
 
@@ -163,7 +163,7 @@ Entitlements are snapshotted into the JWT at token issuance time. For fresh enti
 Concepts (concise)
 
 - Service (issuer + storage): used by `authhttp.NewService(cfg)`; backs the built-in handlers (sessions, login, OIDC, etc).
-- Middleware: `adapters/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
+- Middleware: `github.com/open-rails/authkit/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
 - Verify-only: use `authhttp.NewVerifier()` + `verifier.AddIssuer(...)` to accept tokens from other issuers without issuing tokens yourself.
 
 ---
@@ -258,7 +258,12 @@ Reserved slug policy
   - `parked_org`: org exists and is platform-held (`metadata.namespace_state=parked_org`, `metadata.reserved=true`).
   - `registered_org`: normal org lifecycle (`metadata.namespace_state=registered_org`).
 - Public lookup endpoint: `GET /owners/{slug}` returns canonical public metadata for the slug:
-  - `state`: `restricted_name`, `parked_org`, `registered_org`, `registered_user`, or `unregistered`
+  - `requested_slug`: normalized slug from the request.
+  - `slug` / `canonical_slug`: current canonical slug when the request resolves to a live or held owner; otherwise the requested slug.
+  - `status` / `state`: `registered_user`, `registered_org`, `parked_user`, `parked_org`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, or `unregistered`.
+  - `claimable`: whether the slug can currently be claimed by a new user/org.
+  - `renamed`: whether this lookup resolved through rename history.
+  - `hold_until`: present for active rename reuse holds.
   - `entity_kind`: `none`, `org`, `user`, or `org_and_user`
   - optional `org` and/or `user` payloads when records exist.
 - Migration `012_owner_namespace_states.up.sql` introduces the reserved-name table, backfills legacy reserved rows, and converts legacy reserved personal placeholder orgs to non-personal parked orgs.
@@ -393,7 +398,7 @@ Endpoints mounted automatically by `APIHandler()` are shown relative to the host
   - POST /admin/account/park (`{kind:"org"|"user",slug}`)
   - POST /admin/account/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
 - Public owner-namespace lookup:
-  - GET /owners/:slug
+  - GET /owners/:slug → canonical owner metadata + `status`/`claimable`
 - Solana wallet authentication (SIWS):
   - POST /solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
   - POST /solana/login → {access_token, refresh_token, user}
@@ -589,7 +594,7 @@ SpaceX accepts access tokens from multiple issuers; both tesla.com and x.com.
   import (
     "encoding/json"
     "net/http"
-    authhttp "github.com/open-rails/authkit/adapters/http"
+    authhttp "github.com/open-rails/authkit/http"
     "time"
   )
 

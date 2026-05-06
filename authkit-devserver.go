@@ -15,8 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	authhttp "github.com/open-rails/authkit/adapters/http"
 	"github.com/open-rails/authkit/core"
+	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
 )

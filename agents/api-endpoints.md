@@ -188,4 +188,6 @@ Reserved slug policy:
 | POST | `/admin/accounts/unrestrict` | ADMIN | Remove owner namespace restrictions (`{slugs:[...]}`) |
 | POST | `/admin/account/park` | ADMIN | Park account namespace (`{kind:"org"|"user",slug}`) |
 | POST | `/admin/account/claim` | ADMIN | Claim account namespace (`{kind:"org"|"user",slug,...}`; `owner_user_id` required when `kind="org"`) |
-| GET | `/owners/:slug` | PUBLIC | Fetch public owner metadata for a slug (org/user info + namespace state) |
+| GET | `/owners/:slug` | PUBLIC | Fetch public owner metadata and availability status (`requested_slug`, canonical `slug`, `status`, `claimable`, `renamed`, optional `hold_until`, plus org/user info) |
+
+Owner lookup statuses: `registered_user`, `registered_org`, `parked_user`, `parked_org`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, `unregistered`.

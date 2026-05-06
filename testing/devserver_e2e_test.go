@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	authhttp "github.com/open-rails/authkit/adapters/http"
+	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/open-rails/authkit/password"
 )
@@ -571,6 +571,31 @@ func TestDevserverE2E(t *testing.T) {
 			}
 			return body
 		}
+		type ownerLookupOut struct {
+			Slug          string `json:"slug"`
+			RequestedSlug string `json:"requested_slug"`
+			CanonicalSlug string `json:"canonical_slug"`
+			Status        string `json:"status"`
+			Claimable     bool   `json:"claimable"`
+			EntityKind    string `json:"entity_kind"`
+			Renamed       bool   `json:"renamed"`
+			User          *struct {
+				ID       string `json:"id"`
+				Username string `json:"username"`
+			} `json:"user"`
+		}
+		lookupOwner := func(t *testing.T, slug string) ownerLookupOut {
+			t.Helper()
+			ownersResp, ownersBody := httpJSON(t, http.MethodGet, baseURL+"/api/v1/owners/"+slug, nil, nil)
+			if ownersResp.StatusCode != http.StatusOK {
+				t.Fatalf("owners lookup for %q got %d: %s", slug, ownersResp.StatusCode, string(ownersBody))
+			}
+			var out ownerLookupOut
+			if err := json.Unmarshal(ownersBody, &out); err != nil {
+				t.Fatalf("decode owners response: %v", err)
+			}
+			return out
+		}
 
 		renameUser(t, ownerToken, b, http.StatusOK)
 		execPSQL(t, fmt.Sprintf(
@@ -591,23 +616,17 @@ func TestDevserverE2E(t *testing.T) {
 			t.Fatalf("expected A->B and B->C audit rows, got %q", chain)
 		}
 
-		ownersResp, ownersBody := httpJSON(t, http.MethodGet, baseURL+"/api/v1/owners/"+a, nil, nil)
-		if ownersResp.StatusCode != http.StatusOK {
-			t.Fatalf("owners lookup for historical username got %d: %s", ownersResp.StatusCode, string(ownersBody))
-		}
-		var ownersOut struct {
-			Slug       string `json:"slug"`
-			EntityKind string `json:"entity_kind"`
-			User       *struct {
-				ID       string `json:"id"`
-				Username string `json:"username"`
-			} `json:"user"`
-		}
-		if err := json.Unmarshal(ownersBody, &ownersOut); err != nil {
-			t.Fatalf("decode owners response: %v", err)
-		}
-		if ownersOut.Slug != cSlug || ownersOut.User == nil || ownersOut.User.ID != ownerID || ownersOut.User.Username != cSlug {
-			t.Fatalf("historical username %q should resolve by owner id to current username %q, got: %s", a, cSlug, string(ownersBody))
+		ownersOut := lookupOwner(t, a)
+		if ownersOut.Slug != cSlug ||
+			ownersOut.RequestedSlug != a ||
+			ownersOut.CanonicalSlug != cSlug ||
+			ownersOut.Status != "renamed_user" ||
+			ownersOut.Claimable ||
+			!ownersOut.Renamed ||
+			ownersOut.User == nil ||
+			ownersOut.User.ID != ownerID ||
+			ownersOut.User.Username != cSlug {
+			t.Fatalf("historical username %q should resolve by owner id to current username %q with rename status, got: %+v", a, cSlug, ownersOut)
 		}
 
 		body := renameUser(t, claimantToken, a, http.StatusBadRequest)
@@ -616,6 +635,14 @@ func TestDevserverE2E(t *testing.T) {
 		}
 
 		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET deleted_at=now() WHERE id=%s;", sqlString(ownerID)))
+		deletedCurrent := lookupOwner(t, cSlug)
+		if deletedCurrent.Status != "held_by_deleted_user" || deletedCurrent.Claimable || deletedCurrent.User != nil {
+			t.Fatalf("soft-deleted current username should be held but not resolve as a live user, got: %+v", deletedCurrent)
+		}
+		recentDeletedRename := lookupOwner(t, a)
+		if recentDeletedRename.Status != "held_by_recent_user_rename" || recentDeletedRename.Claimable || recentDeletedRename.User != nil {
+			t.Fatalf("recent historical username for a soft-deleted user should remain held, got: %+v", recentDeletedRename)
+		}
 		body = renameUser(t, claimantToken, cSlug, http.StatusBadRequest)
 		if !strings.Contains(string(body), `"error":"owner_slug_taken"`) && !strings.Contains(string(body), `"error":"failed_to_update_username"`) {
 			t.Fatalf("expected soft-deleted current username to remain held, got: %s", string(body))
@@ -625,6 +652,10 @@ func TestDevserverE2E(t *testing.T) {
 			"UPDATE profiles.user_renames SET renamed_at=now() - interval '100 days' WHERE user_id=%s AND from_slug=%s;",
 			sqlString(ownerID), sqlString(a),
 		))
+		expiredDeletedRename := lookupOwner(t, a)
+		if expiredDeletedRename.Status != "unregistered" || !expiredDeletedRename.Claimable || expiredDeletedRename.User != nil {
+			t.Fatalf("expired historical username for a soft-deleted user should be claimable, got: %+v", expiredDeletedRename)
+		}
 		renameUser(t, claimantToken, a, http.StatusOK)
 
 		execPSQL(t, fmt.Sprintf(
