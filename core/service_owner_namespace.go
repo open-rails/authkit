@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/open-rails/authkit/identity"
 )
 
 var (
@@ -49,15 +52,17 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
+	slug = strings.ToLower(strings.TrimSpace(slug))
 	if err := validateOrgSlug(slug); err != nil {
 		return false, err
 	}
+	reuseCutoff := time.Now().UTC().Add(-renameReuseHold)
 	var exists bool
 	if err := s.pg.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
 			FROM profiles.owner_reserved_names r
-			WHERE lower(r.slug)=lower($1)
+			WHERE r.slug=$1
 		)
 	`, slug).Scan(&exists); err != nil {
 		return false, err
@@ -69,8 +74,7 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 		SELECT EXISTS (
 			SELECT 1
 			FROM profiles.users u
-			WHERE lower(u.username::text)=lower($1)
-			  AND u.deleted_at IS NULL
+			WHERE u.username=$1
 			  AND ($2::text = '' OR u.id::text <> $2::text)
 		)
 	`, slug, strings.TrimSpace(excludeUserID)).Scan(&exists); err != nil {
@@ -79,15 +83,22 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 	if exists {
 		return false, nil
 	}
+	// Squat protection from recent rename history. A historical `from_slug`
+	// blocks reuse by anyone except the row that owned it until
+	// renameReuseHold expires. Same-row reclaim is allowed via the exclude
+	// parameters. Joins to owner rows without filtering soft deletes: soft
+	// deletion keeps the namespace held, while hard deletion removes/cascades
+	// the owner row and allows eventual reuse.
 	if err := s.pg.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
-			FROM profiles.user_slug_aliases a
-			WHERE lower(a.slug::text)=lower($1)
-			  AND a.deleted_at IS NULL
-			  AND ($2::text = '' OR a.user_id::text <> $2::text)
+			FROM profiles.user_renames r
+			JOIN profiles.users u ON u.id=r.user_id
+			WHERE r.from_slug=$1
+			  AND r.renamed_at >= $3
+			  AND ($2::text = '' OR r.user_id::text <> $2::text)
 		)
-	`, slug, strings.TrimSpace(excludeUserID)).Scan(&exists); err != nil {
+	`, slug, strings.TrimSpace(excludeUserID), reuseCutoff).Scan(&exists); err != nil {
 		return false, err
 	}
 	if exists {
@@ -98,7 +109,6 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 			SELECT 1
 			FROM profiles.orgs o
 			WHERE o.slug=$1
-			  AND o.deleted_at IS NULL
 			  AND ($2::text = '' OR o.id::text <> $2::text)
 		)
 	`, slug, strings.TrimSpace(excludeOrgID)).Scan(&exists); err != nil {
@@ -110,12 +120,13 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 	if err := s.pg.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
-			FROM profiles.org_slug_aliases a
-			WHERE a.slug=$1
-			  AND a.deleted_at IS NULL
-			  AND ($2::text = '' OR a.org_id::text <> $2::text)
+			FROM profiles.org_renames r
+			JOIN profiles.orgs o ON o.id=r.org_id
+			WHERE r.from_slug=$1
+			  AND r.renamed_at >= $3
+			  AND ($2::text = '' OR r.org_id::text <> $2::text)
 		)
-	`, slug, strings.TrimSpace(excludeOrgID)).Scan(&exists); err != nil {
+	`, slug, strings.TrimSpace(excludeOrgID), reuseCutoff).Scan(&exists); err != nil {
 		return false, err
 	}
 	return !exists, nil
@@ -150,6 +161,9 @@ func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Or
 	return &out, nil
 }
 
+// ListUserSlugAliases returns every historical username this user has
+// held (excluding the current one). Source: `user_renames.from_slug`
+// (issue #58). Distinct values; order by usage timeline.
 func (s *Service) ListUserSlugAliases(ctx context.Context, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -158,10 +172,10 @@ func (s *Service) ListUserSlugAliases(ctx context.Context, userID string) ([]str
 		return nil, fmt.Errorf("invalid_user")
 	}
 	rows, err := s.pg.Query(ctx, `
-		SELECT slug::text
-		FROM profiles.user_slug_aliases
-		WHERE user_id=$1::uuid AND deleted_at IS NULL
-		ORDER BY slug::text ASC
+		SELECT DISTINCT from_slug
+		FROM profiles.user_renames
+		WHERE user_id=$1::uuid
+		ORDER BY from_slug ASC
 	`, userID)
 	if err != nil {
 		return nil, err
@@ -186,26 +200,33 @@ func (s *Service) ResolveUserBySlug(ctx context.Context, slug string) (userID st
 	if slug == "" {
 		return "", "", fmt.Errorf("invalid_slug")
 	}
+	slug = strings.ToLower(slug)
 	if err := s.pg.QueryRow(ctx, `
 		SELECT id::text, username::text
 		FROM profiles.users
-		WHERE lower(username::text)=lower($1) AND deleted_at IS NULL
+		WHERE username=$1 AND deleted_at IS NULL
 	`, slug).Scan(&userID, &username); err == nil {
 		return userID, username, nil
 	}
+	// Fallback to renames table (issue #58). Most-recent rename wins
+	// when a slug has been used by multiple users at different times
+	// (only possible after hard-delete + reuse).
 	if err := s.pg.QueryRow(ctx, `
 		SELECT u.id::text, u.username::text
-		FROM profiles.user_slug_aliases a
-		JOIN profiles.users u ON u.id=a.user_id
-		WHERE lower(a.slug::text)=lower($1)
-		  AND a.deleted_at IS NULL
-		  AND u.deleted_at IS NULL
+		FROM profiles.user_renames r
+		JOIN profiles.users u ON u.id=r.user_id AND u.deleted_at IS NULL
+		WHERE r.from_slug=$1
+		ORDER BY r.renamed_at DESC
+		LIMIT 1
 	`, slug).Scan(&userID, &username); err != nil {
 		return "", "", ErrUserNotFound
 	}
 	return userID, username, nil
 }
 
+// ListOrgAliases returns every historical slug this org has held
+// (excluding the current one). Source: `org_renames.from_slug` (issue
+// #58). Distinct values.
 func (s *Service) ListOrgAliases(ctx context.Context, orgID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -214,10 +235,10 @@ func (s *Service) ListOrgAliases(ctx context.Context, orgID string) ([]string, e
 		return nil, fmt.Errorf("invalid_org")
 	}
 	rows, err := s.pg.Query(ctx, `
-		SELECT slug
-		FROM profiles.org_slug_aliases
-		WHERE org_id=$1::uuid AND deleted_at IS NULL
-		ORDER BY slug ASC
+		SELECT DISTINCT from_slug
+		FROM profiles.org_renames
+		WHERE org_id=$1::uuid
+		ORDER BY from_slug ASC
 	`, orgID)
 	if err != nil {
 		return nil, err
@@ -253,14 +274,18 @@ func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username
 		return err
 	}
 
+	// Deterministic id from slug (see identity/uuid.go). The ON CONFLICT
+	// clause already preserves the existing id on the personal-org rename
+	// path — nothing in the UPDATE branch touches id.
+	derivedID := identity.OrgIDFromSlug(slug).String()
 	var orgID string
 	err := s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.orgs (slug, is_personal, owner_user_id, metadata)
-		VALUES ($1, true, $2::uuid, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
+		INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id, metadata)
+		VALUES ($1::uuid, $2, true, $3::uuid, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 		ON CONFLICT (owner_user_id) WHERE is_personal=true AND deleted_at IS NULL
 		DO UPDATE SET slug=EXCLUDED.slug, updated_at=now()
 		RETURNING id::text
-	`, slug, userID).Scan(&orgID)
+	`, derivedID, slug, userID).Scan(&orgID)
 	if err != nil {
 		return err
 	}

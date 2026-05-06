@@ -10,7 +10,7 @@
         "[x] Add `core.SMSSenderWithPasswordResetLink` and use it for SMS password reset delivery (Twilio Messaging/SMS API)",
         "[x] Keep verification codes for email/SMS verification (Twilio Verify for SMS); apps can include a URL that embeds the verification code",
         "[x] Update existing reset confirm handlers to treat the value as a case-sensitive token (no uppercasing; no 6-char assumptions)",
-        "[x] Add POST `/auth/password/reset/confirm-link` (expects `token`) and POST `/auth/email/verify/confirm-link` (expects `token`)",
+        "[x] Add POST `/email/password/reset/confirm-link` (expects `token`) and POST `/email/verify/confirm-link` (expects `token`)",
         "[x] Update `agents/api-endpoints.md` to document confirm-link endpoints and token-based reset confirm",
         "[x] Run `go test ./...`"
       ],

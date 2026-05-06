@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"net/http"
+	"strings"
 
 	oidckit "github.com/open-rails/authkit/oidc"
 )
@@ -15,6 +16,11 @@ func (s *Service) oidcManager() *oidckit.Manager {
 }
 
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
+	provider := r.PathValue("provider")
+	if strings.EqualFold(strings.TrimSpace(provider), "discord") {
+		s.handleDiscordLinkStartPOST(w, r)
+		return
+	}
 	if !s.allow(r, RLOIDCStart) {
 		tooMany(w)
 		return
@@ -24,8 +30,6 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 		unauthorized(w, "unauthorized")
 		return
 	}
-	provider := r.PathValue("provider")
-
 	state := randB64(32)
 	nonce := randB64(16)
 	verifier, challenge, err := oidckit.GeneratePKCE()

@@ -37,7 +37,6 @@ func (s *Service) handleDiscordLinkStartPOST(w http.ResponseWriter, r *http.Requ
 	} else {
 		path = "/oidc/discord/callback"
 	}
-	path = strings.ReplaceAll(path, "/auth/oidc/", "/oidc/")
 	redirectURI := scheme + "://" + host + path
 
 	st := randB64(24)

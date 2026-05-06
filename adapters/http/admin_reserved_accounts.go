@@ -84,6 +84,7 @@ func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Req
 				OwnerUserID: strings.TrimSpace(org.OwnerUserID),
 				State:       string(orgState),
 			}
+			resp.Slug = strings.TrimSpace(org.Slug)
 			resp.State = string(orgState)
 		}
 	}
@@ -96,6 +97,7 @@ func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Req
 				ID:       strings.TrimSpace(userID),
 				Username: strings.TrimSpace(username),
 			}
+			resp.Slug = strings.TrimSpace(username)
 		case errors.Is(resolveErr, core.ErrUserNotFound):
 		default:
 			serverErr(w, "owner_namespace_info_failed")

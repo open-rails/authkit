@@ -181,7 +181,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 
 	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{}`))
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = "203.0.113.10:1234"
 		h.ServeHTTP(w, r)
@@ -190,7 +190,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 
 	{
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{}`))
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = "203.0.113.10:1234"
 		h.ServeHTTP(w, r)
@@ -203,7 +203,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	h = svc.APIHandler()
 	for i := 0; i < 50; i++ {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{}`))
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = "203.0.113.10:1234"
 		h.ServeHTTP(w, r)
@@ -216,7 +216,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	h = svc.APIHandler()
 	for i := 0; i < 50; i++ {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{}`))
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = "10.0.0.10:1234"
 		r.Header.Set("X-Forwarded-For", "203.0.113.99")
@@ -230,7 +230,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{}`))
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = "10.0.0.10:1234"
 		r.Header.Set("X-Forwarded-For", "203.0.113.99")
@@ -238,7 +238,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code)
 	}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "10.0.0.10:1234"
 	r.Header.Set("X-Forwarded-For", "203.0.113.99")

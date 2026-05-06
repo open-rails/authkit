@@ -135,21 +135,22 @@ func runServe(cfg *config) error {
 	})
 	// Public: consumers (e.g., billing) fetch keys here.
 	mux.Handle("/.well-known/jwks.json", jwksH)
-	// Auth routes: dispatch browser flows vs JSON API.
-	mux.Handle("/auth/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Auth routes: the devserver mirrors the recommended host mount at /api/v1.
+	apiPrefix := "/api/v1"
+	mux.Handle(apiPrefix+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Dev-only: mint arbitrary JWTs for downstream service E2E tests.
-		if cfg.DevMode && r.Method == http.MethodPost && r.URL.Path == "/auth/dev/mint" {
+		if cfg.DevMode && r.Method == http.MethodPost && r.URL.Path == apiPrefix+"/dev/mint" {
 			devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret).ServeHTTP(w, r)
 			return
 		}
 		// Browser flows are GET-only (/login and /callback). Link-start endpoints live in the JSON API.
 		if r.Method == http.MethodGet &&
-			(strings.HasPrefix(r.URL.Path, "/auth/oidc/") && (strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/callback")) ||
-				(strings.HasPrefix(r.URL.Path, "/auth/oauth/") && (strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/callback")))) {
-			oidcH.ServeHTTP(w, r)
+			strings.HasPrefix(r.URL.Path, apiPrefix+"/oidc/") &&
+			(strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/callback")) {
+			http.StripPrefix(apiPrefix, oidcH).ServeHTTP(w, r)
 			return
 		}
-		apiH.ServeHTTP(w, r)
+		http.StripPrefix(apiPrefix, apiH).ServeHTTP(w, r)
 	}))
 
 	server := &http.Server{

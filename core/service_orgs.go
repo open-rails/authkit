@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/identity"
 )
 
 var (
@@ -15,6 +19,11 @@ var (
 	ErrProtectedOrgRole = errors.New("protected_org_role")
 	ErrLastOrgOwner     = errors.New("cannot_remove_last_owner")
 	ErrPersonalOrgOwner = errors.New("cannot_remove_personal_org_owner")
+	// ErrRenameRateLimited is returned when a rename attempt happens
+	// within renameCooldown of the previous rename for the same row.
+	// Admin override paths (RenameOrgSlugForce / RenameUsernameForce)
+	// bypass the check.
+	ErrRenameRateLimited = errors.New("rename_rate_limited")
 )
 
 // Org is a minimal org record.
@@ -106,6 +115,7 @@ func (s *Service) ResolveOrgBySlug(ctx context.Context, slug string) (*Org, erro
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
+	slug = strings.ToLower(strings.TrimSpace(slug))
 	if err := validateOrgSlug(slug); err != nil {
 		return nil, err
 	}
@@ -121,12 +131,19 @@ func (s *Service) ResolveOrgBySlug(ctx context.Context, slug string) (*Org, erro
 	if err == nil {
 		return &Org{ID: id, Slug: canonical, IsPersonal: isPersonal, OwnerUserID: ownerUserID}, nil
 	}
-	// Fallback to alias.
+	// Fallback to renames table (issue #58). The org_renames row's
+	// `org_id` always points at the live owner — every rename row of
+	// the same org carries the same UUID — so any historical slug
+	// resolves to the org currently holding it. Take the most recent
+	// row to handle the rare case where two different orgs have used
+	// this slug at different times (e.g. after hard-delete + reuse).
 	err = s.pg.QueryRow(ctx, `
 		SELECT o.id::text, o.slug, o.is_personal, COALESCE(o.owner_user_id::text, '')
-		FROM profiles.org_slug_aliases a
-		JOIN profiles.orgs o ON o.id=a.org_id
-		WHERE a.slug=$1 AND a.deleted_at IS NULL AND o.deleted_at IS NULL
+		FROM profiles.org_renames r
+		JOIN profiles.orgs o ON o.id=r.org_id AND o.deleted_at IS NULL
+		WHERE r.from_slug=$1
+		ORDER BY r.renamed_at DESC
+		LIMIT 1
 	`, slug).Scan(&id, &canonical, &isPersonal, &ownerUserID)
 	if err != nil {
 		return nil, ErrOrgNotFound
@@ -138,19 +155,23 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	slug = strings.TrimSpace(slug)
+	slug = strings.ToLower(strings.TrimSpace(slug))
 	if err := validateOrgSlug(slug); err != nil {
 		return nil, err
 	}
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
 		return nil, err
 	}
+	// Deterministic id from slug — see identity/uuid.go for the rationale.
+	// Slug renames leave this id unchanged; profiles.org_renames handles
+	// backwards lookup and old-slug reuse blocking.
+	derivedID := identity.OrgIDFromSlug(slug).String()
 	var id, canonical string
 	err := s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.orgs (slug, metadata)
-		VALUES ($1, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
+		INSERT INTO profiles.orgs (id, slug, metadata)
+		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 		RETURNING id::text, slug
-	`, slug).Scan(&id, &canonical)
+	`, derivedID, slug).Scan(&id, &canonical)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +186,26 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	return &Org{ID: id, Slug: canonical}, nil
 }
 
-func (s *Service) RenameOrgSlug(ctx context.Context, orgID, newSlug string) error {
+// RenameOrgSlug renames a non-personal org. Subject to the 72h
+// `renameCooldown`. Personal orgs are renamed implicitly by the user-
+// rename flow (see service.go) and reject this entrypoint with
+// `ErrPersonalOrgLocked`.
+//
+// `actorUserID` is recorded on the rename audit row. Pass empty string
+// when the caller doesn't have an authenticated user (e.g. internal
+// admin tooling without an actor); the column is nullable.
+func (s *Service) RenameOrgSlug(ctx context.Context, orgID, newSlug, actorUserID string) error {
+	return s.renameOrgSlugImpl(ctx, orgID, newSlug, actorUserID, false)
+}
+
+// RenameOrgSlugForce is the admin-override variant that skips the 72h
+// cooldown check. Otherwise identical to RenameOrgSlug. Caller is
+// responsible for gating this behind admin scope upstream.
+func (s *Service) RenameOrgSlugForce(ctx context.Context, orgID, newSlug, actorUserID string) error {
+	return s.renameOrgSlugImpl(ctx, orgID, newSlug, actorUserID, true)
+}
+
+func (s *Service) renameOrgSlugImpl(ctx context.Context, orgID, newSlug, actorUserID string, bypassCooldown bool) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -190,15 +230,45 @@ func (s *Service) RenameOrgSlug(ctx context.Context, orgID, newSlug string) erro
 	if strings.EqualFold(oldSlug, newSlug) {
 		return nil
 	}
+
+	// Cooldown check (issue #58). Walks the (org_id, renamed_at DESC)
+	// index to grab the most recent rename for this org and rejects if
+	// it's within the renameCooldown window.
+	if !bypassCooldown {
+		var lastRenamedAt *time.Time
+		if err := tx.QueryRow(ctx, `
+			SELECT renamed_at
+			FROM   profiles.org_renames
+			WHERE  org_id = $1::uuid
+			ORDER  BY renamed_at DESC
+			LIMIT  1
+		`, orgID).Scan(&lastRenamedAt); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if lastRenamedAt != nil && time.Since(*lastRenamedAt) < renameCooldown {
+			return ErrRenameRateLimited
+		}
+	}
+
 	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, "", orgID); err != nil {
 		return err
 	}
-	// Insert old slug as alias (idempotent-ish).
-	_, _ = tx.Exec(ctx, `
-		INSERT INTO profiles.org_slug_aliases (org_id, slug)
-		VALUES ($1::uuid, $2)
-		ON CONFLICT (org_id, slug) DO UPDATE SET deleted_at=NULL
-	`, orgID, oldSlug)
+
+	// Audit row in org_renames. Source of truth for both forwarding
+	// (from_slug → current owner) and reverse history (org_id → all
+	// historical slugs in order).
+	var actor any
+	if strings.TrimSpace(actorUserID) != "" {
+		actor = actorUserID
+	} else {
+		actor = nil
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO profiles.org_renames (org_id, from_slug, to_slug, renamed_by)
+		VALUES ($1::uuid, $2, $3, NULLIF($4::text,'')::uuid)
+	`, orgID, strings.ToLower(strings.TrimSpace(oldSlug)), strings.ToLower(strings.TrimSpace(newSlug)), actor); err != nil {
+		return err
+	}
 
 	if _, err := tx.Exec(ctx, `UPDATE profiles.orgs SET slug=$1, updated_at=now() WHERE id=$2::uuid AND deleted_at IS NULL`, newSlug, orgID); err != nil {
 		return err

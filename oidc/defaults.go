@@ -59,7 +59,9 @@ func NewManagerFromMinimal(min map[string]RPConfig) *Manager {
 			if len(m.Scopes) > 0 {
 				base.Scopes = mergeScopes(base.Scopes, m.Scopes)
 			}
-			base.Scopes = ensureOpenID(base.Scopes)
+			if name != "discord" {
+				base.Scopes = ensureOpenID(base.Scopes)
+			}
 			cfgs[name] = base
 		}
 	}

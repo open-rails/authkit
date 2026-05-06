@@ -173,6 +173,7 @@ func TestDevserverE2E(t *testing.T) {
 	repoRoot := filepath.Dir(wd)
 
 	useAllInOne := strings.TrimSpace(os.Getenv("AUTHKIT_E2E_ALL_IN_ONE")) == "1"
+	dbService := "postgres"
 
 	composeFile := filepath.Join(repoRoot, "docker-compose.devserver.yaml")
 	overridePath := filepath.Join(t.TempDir(), "docker-compose.override.yaml")
@@ -192,6 +193,7 @@ func TestDevserverE2E(t *testing.T) {
 	if useAllInOne {
 		// Test the all-in-one image (embedded Postgres) via a local build.
 		// This avoids requiring any published image and ensures the Dockerfile remains functional.
+		dbService = "issuer"
 		composeFile = filepath.Join(t.TempDir(), "docker-compose.all-in-one.yaml")
 		override = fmt.Sprintf(`services:
   issuer:
@@ -278,7 +280,7 @@ func TestDevserverE2E(t *testing.T) {
 
 	issuer := "http://issuer:8080"
 	t.Run("mint_guard", func(t *testing.T) {
-		resp, _ := httpJSON(t, http.MethodPost, baseURL+"/auth/dev/mint", nil, map[string]any{
+		resp, _ := httpJSON(t, http.MethodPost, baseURL+"/api/v1/dev/mint", nil, map[string]any{
 			"sub": "11111111-1111-1111-1111-111111111111",
 			"aud": aud,
 		})
@@ -286,7 +288,7 @@ func TestDevserverE2E(t *testing.T) {
 			t.Fatalf("expected 401, got %d", resp.StatusCode)
 		}
 
-		resp, _ = httpJSON(t, http.MethodPost, baseURL+"/auth/dev/mint", map[string]string{
+		resp, _ = httpJSON(t, http.MethodPost, baseURL+"/api/v1/dev/mint", map[string]string{
 			"Authorization": "Bearer wrong",
 		}, map[string]any{
 			"sub": "11111111-1111-1111-1111-111111111111",
@@ -306,7 +308,7 @@ func TestDevserverE2E(t *testing.T) {
 		if expiresInSeconds > 0 {
 			body["expires_in_seconds"] = expiresInSeconds
 		}
-		resp, raw := httpJSON(t, http.MethodPost, baseURL+"/auth/dev/mint", map[string]string{
+		resp, raw := httpJSON(t, http.MethodPost, baseURL+"/api/v1/dev/mint", map[string]string{
 			"Authorization": "Bearer " + mintSecret,
 		}, body)
 		if resp.StatusCode != http.StatusOK {
@@ -356,7 +358,7 @@ func TestDevserverE2E(t *testing.T) {
 		if strings.TrimSpace(overridePath) != "" {
 			args = append(args, "-f", overridePath)
 		}
-		args = append(args, "exec", "-T", "postgres",
+		args = append(args, "exec", "-T", dbService,
 			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-c", sql)
 		c.run(t, args...)
 	}
@@ -366,9 +368,12 @@ func TestDevserverE2E(t *testing.T) {
 		if strings.TrimSpace(overridePath) != "" {
 			args = append(args, "-f", overridePath)
 		}
-		args = append(args, "exec", "-T", "postgres",
+		args = append(args, "exec", "-T", dbService,
 			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql)
 		return strings.TrimSpace(c.run(t, args...))
+	}
+	sqlString := func(s string) string {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 	}
 	restartIssuer := func(t *testing.T) {
 		t.Helper()
@@ -384,14 +389,14 @@ func TestDevserverE2E(t *testing.T) {
 	t.Run("seeded_reserved_slug_blocks_username_update_after_restart", func(t *testing.T) {
 		userID := "33333333-3333-3333-3333-333333333333"
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%q, %q, %q, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
-			userID, "reserved-check@example.com", "reservedcheck",
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			sqlString(userID), sqlString("reserved-check@example.com"), sqlString("reservedcheck"),
 		))
 		token := mint(t, userID, 300)
 
 		tryRename := func(t *testing.T) {
 			t.Helper()
-			resp, body := httpJSON(t, http.MethodPatch, baseURL+"/auth/user/username", map[string]string{
+			resp, body := httpJSON(t, http.MethodPatch, baseURL+"/api/v1/user/username", map[string]string{
 				"Authorization": "Bearer " + token,
 			}, map[string]any{
 				"username": "superuser",
@@ -413,12 +418,12 @@ func TestDevserverE2E(t *testing.T) {
 	t.Run("minted_token_can_call_user_me", func(t *testing.T) {
 		userID := "11111111-1111-1111-1111-111111111111"
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%q, %q, %q, true, '2024-01-01', '2024-01-01');",
-			userID, "test@example.com", "testuser",
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01');",
+			sqlString(userID), sqlString("test@example.com"), sqlString("testuser"),
 		))
 
 		token := mint(t, userID, 300)
-		resp, body := httpJSON(t, http.MethodGet, baseURL+"/auth/user/me", map[string]string{
+		resp, body := httpJSON(t, http.MethodGet, baseURL+"/api/v1/user/me", map[string]string{
 			"Authorization": "Bearer " + token,
 		}, nil)
 		if resp.StatusCode != http.StatusOK {
@@ -430,12 +435,12 @@ func TestDevserverE2E(t *testing.T) {
 		userID := "11111111-1111-1111-1111-111111111111"
 		execPSQL(t, "INSERT INTO profiles.roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (%q, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
-			userID,
+			"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
+			sqlString(userID),
 		))
 
 		token := mint(t, userID, 300)
-		resp, body := httpJSON(t, http.MethodGet, baseURL+"/auth/admin/users", map[string]string{
+		resp, body := httpJSON(t, http.MethodGet, baseURL+"/api/v1/admin/users", map[string]string{
 			"Authorization": "Bearer " + token,
 		}, nil)
 		if resp.StatusCode != http.StatusOK {
@@ -447,16 +452,16 @@ func TestDevserverE2E(t *testing.T) {
 		userID := "11111111-1111-1111-1111-111111111111"
 		token := mint(t, userID, 300)
 
-		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET banned_at=now() WHERE id=%q;", userID))
-		resp, _ := httpJSON(t, http.MethodGet, baseURL+"/auth/user/me", map[string]string{
+		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET banned_at=now() WHERE id=%s;", sqlString(userID)))
+		resp, _ := httpJSON(t, http.MethodGet, baseURL+"/api/v1/user/me", map[string]string{
 			"Authorization": "Bearer " + token,
 		}, nil)
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("expected 401 for banned user, got %d", resp.StatusCode)
 		}
 
-		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET banned_at=NULL, deleted_at=now() WHERE id=%q;", userID))
-		resp, _ = httpJSON(t, http.MethodGet, baseURL+"/auth/user/me", map[string]string{
+		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET banned_at=NULL, deleted_at=now() WHERE id=%s;", sqlString(userID)))
+		resp, _ = httpJSON(t, http.MethodGet, baseURL+"/api/v1/user/me", map[string]string{
 			"Authorization": "Bearer " + token,
 		}, nil)
 		if resp.StatusCode != http.StatusUnauthorized {
@@ -476,15 +481,15 @@ func TestDevserverE2E(t *testing.T) {
 		}
 
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%q, %q, %q, true, '2024-01-01', '2024-01-01');",
-			userID, email, username,
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01');",
+			sqlString(userID), sqlString(email), sqlString(username),
 		))
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo) VALUES (%q, %q, 'argon2id');",
-			userID, hash,
+			"INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo) VALUES (%s, %s, 'argon2id');",
+			sqlString(userID), sqlString(hash),
 		))
 
-		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/auth/password/login", nil, map[string]any{
+		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
 			"email":    email,
 			"password": pass,
 		})
@@ -503,7 +508,7 @@ func TestDevserverE2E(t *testing.T) {
 			t.Fatalf("expected access_token + refresh_token")
 		}
 
-		refreshResp, refreshBody := httpJSON(t, http.MethodPost, baseURL+"/auth/token", nil, map[string]any{
+		refreshResp, refreshBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/token", nil, map[string]any{
 			"grant_type":    "refresh_token",
 			"refresh_token": loginOut.RefreshToken,
 		})
@@ -521,20 +526,113 @@ func TestDevserverE2E(t *testing.T) {
 			t.Fatalf("expected access_token + refresh_token")
 		}
 
-		logoutResp, logoutBody := httpJSON(t, http.MethodDelete, baseURL+"/auth/logout", map[string]string{
+		logoutResp, logoutBody := httpJSON(t, http.MethodDelete, baseURL+"/api/v1/logout", map[string]string{
 			"Authorization": "Bearer " + loginOut.AccessToken,
 		}, nil)
 		if logoutResp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", logoutResp.StatusCode, string(logoutBody))
 		}
 
-		refreshResp2, refreshBody2 := httpJSON(t, http.MethodPost, baseURL+"/auth/token", nil, map[string]any{
+		refreshResp2, refreshBody2 := httpJSON(t, http.MethodPost, baseURL+"/api/v1/token", nil, map[string]any{
 			"grant_type":    "refresh_token",
 			"refresh_token": refreshOut.RefreshToken,
 		})
 		if refreshResp2.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("expected 401 after logout, got %d: %s", refreshResp2.StatusCode, string(refreshBody2))
 		}
+	})
+
+	t.Run("rename_chain_resolution_and_reuse_edge_cases", func(t *testing.T) {
+		ownerID := "44444444-4444-4444-4444-444444444444"
+		claimantID := "55555555-5555-5555-5555-555555555555"
+		a := "renamea"
+		b := "renameb"
+		cSlug := "renamec"
+		claimant := "renameclaimant"
+
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			sqlString(ownerID), sqlString("rename-owner@example.com"), sqlString(a),
+		))
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			sqlString(claimantID), sqlString("rename-claimant@example.com"), sqlString(claimant),
+		))
+		ownerToken := mint(t, ownerID, 300)
+		claimantToken := mint(t, claimantID, 300)
+
+		renameUser := func(t *testing.T, token, username string, want int) []byte {
+			t.Helper()
+			resp, body := httpJSON(t, http.MethodPatch, baseURL+"/api/v1/user/username", map[string]string{
+				"Authorization": "Bearer " + token,
+			}, map[string]any{"username": username})
+			if resp.StatusCode != want {
+				t.Fatalf("rename to %q: got %d want %d: %s", username, resp.StatusCode, want, string(body))
+			}
+			return body
+		}
+
+		renameUser(t, ownerToken, b, http.StatusOK)
+		execPSQL(t, fmt.Sprintf(
+			"UPDATE profiles.user_renames SET renamed_at='2024-01-01' WHERE user_id=%s AND from_slug=%s;",
+			sqlString(ownerID), sqlString(a),
+		))
+		renameUser(t, ownerToken, cSlug, http.StatusOK)
+		execPSQL(t, fmt.Sprintf(
+			"UPDATE profiles.user_renames SET renamed_at=now() WHERE user_id=%s AND from_slug=%s;",
+			sqlString(ownerID), sqlString(a),
+		))
+
+		chain := queryPSQL(t, fmt.Sprintf(
+			"SELECT string_agg(from_slug || '>' || to_slug, ',' ORDER BY renamed_at ASC) FROM profiles.user_renames WHERE user_id=%s;",
+			sqlString(ownerID),
+		))
+		if !strings.Contains(chain, "renamea>renameb") || !strings.Contains(chain, "renameb>renamec") {
+			t.Fatalf("expected A->B and B->C audit rows, got %q", chain)
+		}
+
+		ownersResp, ownersBody := httpJSON(t, http.MethodGet, baseURL+"/api/v1/owners/"+a, nil, nil)
+		if ownersResp.StatusCode != http.StatusOK {
+			t.Fatalf("owners lookup for historical username got %d: %s", ownersResp.StatusCode, string(ownersBody))
+		}
+		var ownersOut struct {
+			Slug       string `json:"slug"`
+			EntityKind string `json:"entity_kind"`
+			User       *struct {
+				ID       string `json:"id"`
+				Username string `json:"username"`
+			} `json:"user"`
+		}
+		if err := json.Unmarshal(ownersBody, &ownersOut); err != nil {
+			t.Fatalf("decode owners response: %v", err)
+		}
+		if ownersOut.Slug != cSlug || ownersOut.User == nil || ownersOut.User.ID != ownerID || ownersOut.User.Username != cSlug {
+			t.Fatalf("historical username %q should resolve by owner id to current username %q, got: %s", a, cSlug, string(ownersBody))
+		}
+
+		body := renameUser(t, claimantToken, a, http.StatusBadRequest)
+		if !strings.Contains(string(body), `"error":"owner_slug_taken"`) && !strings.Contains(string(body), `"error":"failed_to_update_username"`) {
+			t.Fatalf("expected recent historical username hold to reject claimant, got: %s", string(body))
+		}
+
+		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET deleted_at=now() WHERE id=%s;", sqlString(ownerID)))
+		body = renameUser(t, claimantToken, cSlug, http.StatusBadRequest)
+		if !strings.Contains(string(body), `"error":"owner_slug_taken"`) && !strings.Contains(string(body), `"error":"failed_to_update_username"`) {
+			t.Fatalf("expected soft-deleted current username to remain held, got: %s", string(body))
+		}
+
+		execPSQL(t, fmt.Sprintf(
+			"UPDATE profiles.user_renames SET renamed_at=now() - interval '100 days' WHERE user_id=%s AND from_slug=%s;",
+			sqlString(ownerID), sqlString(a),
+		))
+		renameUser(t, claimantToken, a, http.StatusOK)
+
+		execPSQL(t, fmt.Sprintf(
+			"UPDATE profiles.user_renames SET renamed_at=now() - interval '100 days' WHERE user_id=%s;",
+			sqlString(claimantID),
+		))
+		execPSQL(t, fmt.Sprintf("DELETE FROM profiles.users WHERE id=%s;", sqlString(ownerID)))
+		renameUser(t, claimantToken, cSlug, http.StatusOK)
 	})
 
 	t.Run("reserved_account_reserve_claim_login_flow", func(t *testing.T) {
@@ -545,17 +643,17 @@ func TestDevserverE2E(t *testing.T) {
 		reservedPassword := "StrongPass123!"
 
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%q, %q, %q, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
-			adminUserID, adminEmail, adminUsername,
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			sqlString(adminUserID), sqlString(adminEmail), sqlString(adminUsername),
 		))
 		execPSQL(t, "INSERT INTO profiles.roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (%q, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
-			adminUserID,
+			"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
+			sqlString(adminUserID),
 		))
 		adminToken := mint(t, adminUserID, 300)
 
-		reserveResp, reserveBody := httpJSON(t, http.MethodPost, baseURL+"/auth/admin/accounts/reserve", map[string]string{
+		reserveResp, reserveBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/reserve", map[string]string{
 			"Authorization": "Bearer " + adminToken,
 		}, map[string]any{
 			"slug": reservedSlug,
@@ -565,35 +663,35 @@ func TestDevserverE2E(t *testing.T) {
 		}
 
 		userReserved := queryPSQL(t, fmt.Sprintf(
-			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%q LIMIT 1;",
-			reservedSlug,
+			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%s LIMIT 1;",
+			sqlString(reservedSlug),
 		))
 		if userReserved != "t" {
 			t.Fatalf("expected user metadata.reserved=true, got %q", userReserved)
 		}
 		orgReserved := queryPSQL(t, fmt.Sprintf(
-			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.orgs WHERE slug=%q AND deleted_at IS NULL LIMIT 1;",
-			reservedSlug,
+			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.orgs WHERE slug=%s AND deleted_at IS NULL LIMIT 1;",
+			sqlString(reservedSlug),
 		))
 		if orgReserved != "t" {
 			t.Fatalf("expected org metadata.reserved=true, got %q", orgReserved)
 		}
 		passwordRows := queryPSQL(t, fmt.Sprintf(
-			"SELECT COUNT(*) FROM profiles.user_passwords up JOIN profiles.users u ON u.id=up.user_id WHERE u.username=%q;",
-			reservedSlug,
+			"SELECT COUNT(*) FROM profiles.user_passwords up JOIN profiles.users u ON u.id=up.user_id WHERE u.username=%s;",
+			sqlString(reservedSlug),
 		))
 		if passwordRows != "0" {
 			t.Fatalf("expected no password rows for reserved placeholder, got %q", passwordRows)
 		}
 		providerRows := queryPSQL(t, fmt.Sprintf(
-			"SELECT COUNT(*) FROM profiles.user_providers p JOIN profiles.users u ON u.id=p.user_id WHERE u.username=%q;",
-			reservedSlug,
+			"SELECT COUNT(*) FROM profiles.user_providers p JOIN profiles.users u ON u.id=p.user_id WHERE u.username=%s;",
+			sqlString(reservedSlug),
 		))
 		if providerRows != "0" {
 			t.Fatalf("expected no provider rows for reserved placeholder, got %q", providerRows)
 		}
 
-		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/auth/password/login", nil, map[string]any{
+		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
 			"username": reservedSlug,
 			"password": reservedPassword,
 		})
@@ -601,7 +699,7 @@ func TestDevserverE2E(t *testing.T) {
 			t.Fatalf("expected login denied for unclaimed placeholder, got %d: %s", loginResp.StatusCode, string(loginBody))
 		}
 
-		claimResp, claimBody := httpJSON(t, http.MethodPost, baseURL+"/auth/admin/accounts/claim", map[string]string{
+		claimResp, claimBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/claim", map[string]string{
 			"Authorization": "Bearer " + adminToken,
 		}, map[string]any{
 			"slug":     reservedSlug,
@@ -612,14 +710,14 @@ func TestDevserverE2E(t *testing.T) {
 			t.Fatalf("expected claim 200, got %d: %s", claimResp.StatusCode, string(claimBody))
 		}
 		userReservedAfter := queryPSQL(t, fmt.Sprintf(
-			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%q LIMIT 1;",
-			reservedSlug,
+			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%s LIMIT 1;",
+			sqlString(reservedSlug),
 		))
 		if userReservedAfter != "f" {
 			t.Fatalf("expected user metadata.reserved=false after claim, got %q", userReservedAfter)
 		}
 
-		loginResp2, loginBody2 := httpJSON(t, http.MethodPost, baseURL+"/auth/password/login", nil, map[string]any{
+		loginResp2, loginBody2 := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
 			"username": reservedSlug,
 			"password": reservedPassword,
 		})

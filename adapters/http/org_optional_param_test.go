@@ -23,7 +23,7 @@ func TestPasswordLogin_OrgParamRejectedInSingleMode(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{"login":"x","password":"y","org":"acme"}`))
+	r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"login":"x","password":"y","org":"acme"}`))
 	r.Header.Set("Content-Type", "application/json")
 	svc.APIHandler().ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
@@ -42,7 +42,7 @@ func TestAuthToken_OrgParamRejectedInSingleMode(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/token", strings.NewReader(`{"grant_type":"refresh_token","refresh_token":"x","org":"acme"}`))
+	r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(`{"grant_type":"refresh_token","refresh_token":"x","org":"acme"}`))
 	r.Header.Set("Content-Type", "application/json")
 	svc.APIHandler().ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)

@@ -310,3 +310,23 @@ func (s *Service) handleAdminDeletedUsersListGET(w http.ResponseWriter, r *http.
 		HasMore: hasMore,
 	})
 }
+
+func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
+	userID := strings.TrimSpace(r.PathValue("user_id"))
+	if userID == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if !s.allow(r, RLAdminUserSessionsRevokeAll) {
+		tooMany(w)
+		return
+	}
+	if err := s.svc.AdminRevokeUserSessions(
+		core.WithSessionRevokeReason(r.Context(), core.SessionRevokeReasonAdminRevokeAll),
+		userID,
+	); err != nil {
+		serverErr(w, "failed_to_revoke_sessions")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}

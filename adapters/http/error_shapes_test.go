@@ -15,7 +15,7 @@ func TestErrorShape_TokenInvalidRequest(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/token", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 
@@ -29,7 +29,7 @@ func TestErrorShape_PasswordLoginInvalidRequest(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/password/login", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 
@@ -42,7 +42,7 @@ func TestErrorShape_RegisterInvalidRequest(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 
@@ -58,7 +58,7 @@ func TestErrorShape_LogoutMissingSidClaim(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodDelete, "/auth/logout", nil)
+	r := httptest.NewRequest(http.MethodDelete, "/logout", nil)
 	r.Header.Set("Authorization", "Bearer "+tok)
 	h.ServeHTTP(w, r)
 

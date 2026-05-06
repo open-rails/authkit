@@ -11,45 +11,34 @@ import (
 
 var reE164 = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 
-func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.allow(r, RLPasswordResetRequest) {
 		tooMany(w)
 		return
 	}
 
 	var req struct {
-		Identifier string `json:"identifier"`
+		Email string `json:"email"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}
 
-	identifier := strings.TrimSpace(req.Identifier)
-	if identifier == "" {
+	email := strings.TrimSpace(req.Email)
+	if email == "" {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}
-
-	isPhone := reE164.MatchString(identifier)
-	if isPhone {
-		if !s.svc.HasSMSSender() {
-			serverErr(w, "sms_unavailable")
-			return
-		}
-		_ = s.svc.RequestPhonePasswordReset(r.Context(), identifier, 0)
-	} else {
-		if !s.svc.HasEmailSender() {
-			serverErr(w, "email_password_reset_unavailable")
-			return
-		}
-		_ = s.svc.RequestPasswordReset(r.Context(), identifier, 0)
+	if !s.svc.HasEmailSender() {
+		serverErr(w, "email_password_reset_unavailable")
+		return
 	}
-
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If this email or phone number is registered, password reset instructions will be sent."})
+	_ = s.svc.RequestPasswordReset(r.Context(), email, 0)
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If this email is registered, password reset instructions will be sent."})
 }
 
-func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.allow(r, RLPasswordResetConfirm) {
 		tooMany(w)
 		return
@@ -73,7 +62,7 @@ func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Service) handlePasswordResetConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleEmailPasswordResetConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.allow(r, RLPasswordResetConfirm) {
 		tooMany(w)
 		return

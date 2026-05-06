@@ -45,8 +45,6 @@ func buildRedirectURI(r *http.Request, provider string) string {
 			p = "/oidc/" + provider + "/callback"
 		}
 	}
-	// Canonical browser callback namespace is /oidc/*.
-	p = strings.ReplaceAll(p, "/auth/oidc/", "/oidc/")
 	return scheme + "://" + host + p
 }
 

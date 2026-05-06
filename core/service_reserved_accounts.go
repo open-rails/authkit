@@ -252,9 +252,9 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
 		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
 		         ELSE false
-		       END
+	       END
 		FROM profiles.users
-		WHERE lower(username::text)=lower($1)
+		WHERE username=$1
 		  AND deleted_at IS NULL
 	`
 	switch err := tx.QueryRow(ctx, userReservedQuery, slug).Scan(&existingUserID, &existingReserved); {

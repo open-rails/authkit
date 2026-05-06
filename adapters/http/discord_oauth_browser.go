@@ -283,7 +283,7 @@ func (s *Service) handleDiscordCallbackGET(w http.ResponseWriter, r *http.Reques
 		base = "/"
 	}
 	frag := "#access_token=" + accessToken + "&refresh_token=" + rt + "&expires_in=" + fmt.Sprint(int64(time.Until(exp).Seconds())) + "&provider=discord&state=" + state
-	target := strings.TrimRight(base, "/") + "/login/callback" + frag
+	target := buildFrontendCallbackURL(base, s.svc.Options().FrontendCallbackPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
 }
 

@@ -19,6 +19,9 @@ type Config struct {
 	// Optional: if set, used for building absolute URLs (e.g., password reset/verify links).
 	// If empty and Issuer is a well-formed URL, NewFromConfig defaults BaseURL to Issuer.
 	BaseURL string
+	// FrontendCallbackPath is the host-owned frontend route that receives full-page
+	// OIDC login results. Empty defaults to "/login/callback".
+	FrontendCallbackPath string
 	// Paths for reset/verify are fixed to "/reset" and "/verify"; not configurable.
 
 	// RegistrationVerification controls registration verification behavior.

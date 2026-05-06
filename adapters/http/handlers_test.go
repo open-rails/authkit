@@ -12,6 +12,7 @@ import (
 
 	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
+	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,7 +70,7 @@ func TestAPIHandler_Token_InvalidRequest(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/token", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(`{}`))
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
@@ -83,7 +84,7 @@ func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodDelete, "/auth/logout", nil)
+	r := httptest.NewRequest(http.MethodDelete, "/logout", nil)
 	r.Header.Set("Authorization", "Bearer "+tok)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
@@ -111,12 +112,150 @@ func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestOIDCHandler_DiscordUsesGenericProviderRoute(t *testing.T) {
+	s := newTestService(t)
+	s.oidcProviders = map[string]oidckit.RPConfig{
+		"discord": {ClientID: "discord-client"},
+	}
+	h := s.OIDCHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/discord/login", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusFound, w.Code)
+	require.Contains(t, w.Header().Get("Location"), "https://discord.com/api/oauth2/authorize")
+	require.NotContains(t, w.Header().Get("Location"), "openid")
+}
+
+func TestBuildFrontendCallbackURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		baseURL      string
+		callbackPath string
+		fragment     string
+		want         string
+	}{
+		{name: "default", baseURL: "https://app.example", callbackPath: "", fragment: "#access_token=a", want: "https://app.example/login/callback#access_token=a"},
+		{name: "trims base slash", baseURL: "https://app.example/", callbackPath: "/login/complete", fragment: "#access_token=a", want: "https://app.example/login/complete#access_token=a"},
+		{name: "preserves query", baseURL: "https://app.example", callbackPath: "/login/complete?mode=oidc", fragment: "#access_token=a", want: "https://app.example/login/complete?mode=oidc#access_token=a"},
+		{name: "relative fallback", baseURL: "", callbackPath: "/login/complete", fragment: "#access_token=a", want: "/login/complete#access_token=a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildFrontendCallbackURL(tt.baseURL, tt.callbackPath, tt.fragment)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
+	s := newTestService(t)
+	h := s.APIHandler()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		want   int
+	}{
+		{name: "token", method: http.MethodPost, path: "/token", body: `{}`, want: http.StatusBadRequest},
+		{name: "current session lookup", method: http.MethodPost, path: "/sessions/current", body: `{}`, want: http.StatusBadRequest},
+		{name: "password login", method: http.MethodPost, path: "/password/login", body: `{}`, want: http.StatusBadRequest},
+		{name: "email password reset request", method: http.MethodPost, path: "/email/password/reset/request", body: `{}`, want: http.StatusAccepted},
+		{name: "email password reset confirm link", method: http.MethodPost, path: "/email/password/reset/confirm-link", body: `{}`, want: http.StatusBadRequest},
+		{name: "email password reset confirm", method: http.MethodPost, path: "/email/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
+		{name: "phone password reset request", method: http.MethodPost, path: "/phone/password/reset/request", body: `{}`, want: http.StatusInternalServerError},
+		{name: "phone password reset confirm", method: http.MethodPost, path: "/phone/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
+		{name: "user me", method: http.MethodGet, path: "/user/me", want: http.StatusUnauthorized},
+		{name: "user sessions list", method: http.MethodGet, path: "/user/sessions", want: http.StatusUnauthorized},
+		{name: "user session delete", method: http.MethodDelete, path: "/user/sessions/session-id", want: http.StatusUnauthorized},
+		{name: "user sessions revoke all", method: http.MethodDelete, path: "/user/sessions", want: http.StatusUnauthorized},
+		{name: "logout", method: http.MethodDelete, path: "/logout", want: http.StatusUnauthorized},
+		{name: "provider link start", method: http.MethodPost, path: "/oidc/google/link/start", want: http.StatusUnauthorized},
+		{name: "2fa status", method: http.MethodGet, path: "/user/2fa", want: http.StatusUnauthorized},
+		{name: "2fa verify", method: http.MethodPost, path: "/2fa/verify", body: `{}`, want: http.StatusBadRequest},
+		{name: "solana challenge", method: http.MethodPost, path: "/solana/challenge", body: `{}`, want: http.StatusBadRequest},
+		{name: "solana link", method: http.MethodPost, path: "/solana/link", body: `{}`, want: http.StatusUnauthorized},
+		{name: "admin users list", method: http.MethodGet, path: "/admin/users", want: http.StatusUnauthorized},
+		{name: "admin user get", method: http.MethodGet, path: "/admin/users/user-id", want: http.StatusUnauthorized},
+		{name: "admin user delete", method: http.MethodDelete, path: "/admin/users/user-id", want: http.StatusUnauthorized},
+		{name: "admin user restore", method: http.MethodPost, path: "/admin/users/user-id/restore", want: http.StatusUnauthorized},
+		{name: "admin user signins", method: http.MethodGet, path: "/admin/users/user-id/signins", want: http.StatusUnauthorized},
+		{name: "admin user session revoke", method: http.MethodPost, path: "/admin/users/user-id/sessions/revoke", want: http.StatusUnauthorized},
+		{name: "admin ban", method: http.MethodPost, path: "/admin/users/ban", body: `{}`, want: http.StatusUnauthorized},
+		{name: "admin unban", method: http.MethodPost, path: "/admin/users/unban", body: `{}`, want: http.StatusUnauthorized},
+		{name: "admin role grant", method: http.MethodPost, path: "/admin/roles/grant", body: `{}`, want: http.StatusUnauthorized},
+		{name: "admin role revoke", method: http.MethodPost, path: "/admin/roles/revoke", body: `{}`, want: http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body *strings.Reader
+			if tt.body != "" {
+				body = strings.NewReader(tt.body)
+			} else {
+				body = strings.NewReader("")
+			}
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(tt.method, tt.path, body)
+			r.Header.Set("Content-Type", "application/json")
+			h.ServeHTTP(w, r)
+			require.Equal(t, tt.want, w.Code, w.Body.String())
+		})
+	}
+}
+
+func TestAPIHandler_GenericPasswordResetRoutesRemoved(t *testing.T) {
+	s := newTestService(t)
+	h := s.APIHandler()
+
+	for _, path := range []string{
+		"/password/reset/request",
+		"/password/reset/confirm-link",
+		"/password/reset/confirm",
+	} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+			h.ServeHTTP(w, r)
+			require.Equal(t, http.StatusNotFound, w.Code)
+		})
+	}
+}
+
+func TestAPIHandler_LegacyAuthPrefixNotMounted(t *testing.T) {
+	s := newTestService(t)
+	h := s.APIHandler()
+
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/auth/token"},
+		{method: http.MethodGet, path: "/auth/user/me"},
+		{method: http.MethodGet, path: "/auth/admin/users"},
+		{method: http.MethodPost, path: "/auth/admin/users/user-id/sessions/revoke"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			r.Header.Set("Content-Type", "application/json")
+			h.ServeHTTP(w, r)
+			require.Equal(t, http.StatusNotFound, w.Code)
+		})
+	}
+}
+
 func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/solana/challenge", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/solana/challenge", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
@@ -128,7 +267,7 @@ func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/auth/user/bootstrap", nil)
+	r := httptest.NewRequest(http.MethodGet, "/user/bootstrap", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
@@ -139,7 +278,7 @@ func TestAPIHandler_PublicOwnerNamespaceLookup_DoesNotRequireAuth(t *testing.T) 
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/auth/owners/%20", nil)
+	r := httptest.NewRequest(http.MethodGet, "/owners/%20", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
@@ -150,7 +289,7 @@ func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/auth/orgs/state?slug=google", nil)
+	r := httptest.NewRequest(http.MethodGet, "/orgs/state?slug=google", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -160,7 +299,7 @@ func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/auth/admin/accounts/state?slug=google", nil)
+	r := httptest.NewRequest(http.MethodGet, "/admin/accounts/state?slug=google", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -170,7 +309,7 @@ func TestAPIHandler_AdminAccountsReserveRoute_Removed(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/reserve", strings.NewReader(`{"slug":"google"}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/accounts/reserve", strings.NewReader(`{"slug":"google"}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
@@ -181,7 +320,7 @@ func TestAPIHandler_AdminUsersToggleActiveRoute_Removed(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/users/toggle-active", strings.NewReader(`{"user_id":"u","banned":true}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/users/toggle-active", strings.NewReader(`{"user_id":"u","banned":true}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
@@ -192,7 +331,7 @@ func TestAPIHandler_AdminAccountParkRoute_RequiresAuth(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/account/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/account/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
@@ -204,7 +343,7 @@ func TestAPIHandler_AdminAccountClaimRoute_RequiresAuth(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/auth/admin/account/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/account/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
@@ -216,13 +355,13 @@ func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {
 	h := s.APIHandler()
 
 	w1 := httptest.NewRecorder()
-	r1 := httptest.NewRequest(http.MethodPost, "/auth/admin/org/park", strings.NewReader(`{"slug":"google"}`))
+	r1 := httptest.NewRequest(http.MethodPost, "/admin/org/park", strings.NewReader(`{"slug":"google"}`))
 	r1.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w1, r1)
 	require.Equal(t, http.StatusNotFound, w1.Code)
 
 	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodPost, "/auth/admin/org/claim", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
+	r2 := httptest.NewRequest(http.MethodPost, "/admin/org/claim", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
 	r2.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w2, r2)
 	require.Equal(t, http.StatusNotFound, w2.Code)
@@ -233,13 +372,13 @@ func TestAPIHandler_AdminAccountsOrgLegacyRoutes_Removed(t *testing.T) {
 	h := s.APIHandler()
 
 	w1 := httptest.NewRecorder()
-	r1 := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/park", strings.NewReader(`{"slug":"google"}`))
+	r1 := httptest.NewRequest(http.MethodPost, "/admin/accounts/park", strings.NewReader(`{"slug":"google"}`))
 	r1.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w1, r1)
 	require.Equal(t, http.StatusNotFound, w1.Code)
 
 	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodPost, "/auth/admin/accounts/claim-org", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
+	r2 := httptest.NewRequest(http.MethodPost, "/admin/accounts/claim-org", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
 	r2.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w2, r2)
 	require.Equal(t, http.StatusNotFound, w2.Code)

@@ -84,6 +84,20 @@ func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 		forbidden(w, "not_org_member")
 		return
 	}
+	// Issue #58: emit a 301 redirect when the request used a historical
+	// slug. requireOrgMember already resolved through `org_renames`
+	// (which ResolveOrgBySlug consults on alias miss), so `canonical`
+	// here is the live `orgs.slug`. If the inbound differs, the caller
+	// dropped in a renamed-away name and gets pointed at the new path.
+	if !strings.EqualFold(orgSlug, canonical) {
+		newPath := strings.Replace(r.URL.Path, orgSlug, canonical, 1)
+		if r.URL.RawQuery != "" {
+			newPath += "?" + r.URL.RawQuery
+		}
+		w.Header().Set("Location", newPath)
+		w.WriteHeader(http.StatusMovedPermanently)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"org": canonical})
 }
 
@@ -123,13 +137,20 @@ func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, "org_lookup_failed")
 		return
 	}
-	if err := s.svc.RenameOrgSlug(r.Context(), org.ID, body.NewSlug); err != nil {
+	if err := s.svc.RenameOrgSlug(r.Context(), org.ID, body.NewSlug, claims.UserID); err != nil {
 		if err == core.ErrPersonalOrgLocked {
 			badRequest(w, "personal_org_locked")
 			return
 		}
 		if err == core.ErrOwnerSlugTaken {
 			badRequest(w, "owner_slug_taken")
+			return
+		}
+		if err == core.ErrRenameRateLimited {
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{
+				"error":   "rename_rate_limited",
+				"message": "rename cooldown not met (72 hours between renames)",
+			})
 			return
 		}
 		badRequest(w, "org_rename_failed")

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/identity"
 )
 
 type OwnerNamespaceState string
@@ -55,10 +58,11 @@ func (s *Service) ownerReservedNameExistsTx(ctx context.Context, tx pgx.Tx, slug
 	if tx == nil {
 		return false, fmt.Errorf("tx required")
 	}
+	slug = normalizeReservedSlug(slug)
 	var exists bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM profiles.owner_reserved_names WHERE lower(slug)=lower($1)
+			SELECT 1 FROM profiles.owner_reserved_names WHERE slug=$1
 		)
 	`, slug).Scan(&exists); err != nil {
 		return false, err
@@ -70,6 +74,7 @@ func (s *Service) upsertOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug
 	if tx == nil {
 		return fmt.Errorf("tx required")
 	}
+	slug = normalizeReservedSlug(slug)
 	_, err := tx.Exec(ctx, `
 		INSERT INTO profiles.owner_reserved_names (slug)
 		VALUES ($1)
@@ -82,7 +87,8 @@ func (s *Service) deleteOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug
 	if tx == nil {
 		return fmt.Errorf("tx required")
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE lower(slug)=lower($1)`, slug)
+	slug = normalizeReservedSlug(slug)
+	_, err := tx.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug=$1`, slug)
 	return err
 }
 
@@ -90,15 +96,29 @@ func (s *Service) ownerSlugConflictExistsTx(ctx context.Context, tx pgx.Tx, slug
 	if tx == nil {
 		return false, fmt.Errorf("tx required")
 	}
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	reuseCutoff := time.Now().UTC().Add(-renameReuseHold)
 	var exists bool
+	// Recent rename history blocks reuse without a separate hold table. Joins
+	// to owner rows without filtering soft deletes: soft deletion keeps the
+	// namespace held, while hard deletion removes/cascades the owner row and
+	// allows eventual reuse.
 	if err := tx.QueryRow(ctx, `
 		SELECT (
-			EXISTS(SELECT 1 FROM profiles.users u WHERE lower(u.username::text)=lower($1) AND u.deleted_at IS NULL)
-			OR EXISTS(SELECT 1 FROM profiles.user_slug_aliases a WHERE lower(a.slug::text)=lower($1) AND a.deleted_at IS NULL)
-			OR EXISTS(SELECT 1 FROM profiles.orgs o WHERE o.slug=$1 AND o.deleted_at IS NULL)
-			OR EXISTS(SELECT 1 FROM profiles.org_slug_aliases a WHERE a.slug=$1 AND a.deleted_at IS NULL)
+			EXISTS(SELECT 1 FROM profiles.users u WHERE u.username=$1)
+			OR EXISTS(
+				SELECT 1 FROM profiles.user_renames r
+				JOIN profiles.users u ON u.id=r.user_id
+				WHERE r.from_slug=$1 AND r.renamed_at >= $2
+			)
+			OR EXISTS(SELECT 1 FROM profiles.orgs o WHERE o.slug=$1)
+			OR EXISTS(
+				SELECT 1 FROM profiles.org_renames r
+				JOIN profiles.orgs o ON o.id=r.org_id
+				WHERE r.from_slug=$1 AND r.renamed_at >= $2
+			)
 		)
-	`, slug).Scan(&exists); err != nil {
+	`, slug, reuseCutoff).Scan(&exists); err != nil {
 		return false, err
 	}
 	return exists, nil
@@ -214,7 +234,7 @@ func (s *Service) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string)
 	}
 	var exists bool
 	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM profiles.owner_reserved_names WHERE lower(slug)=lower($1))
+		SELECT EXISTS(SELECT 1 FROM profiles.owner_reserved_names WHERE slug=$1)
 	`, slug).Scan(&exists); err != nil {
 		return "", err
 	}
@@ -289,11 +309,16 @@ func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (orgID stri
 	}
 	// Explicit ::text cast on $2 — pgx can't infer the type when the parameter
 	// is only used inside jsonb_build_object.
+	// Deterministic id (see identity/uuid.go). Parked orgs share the same
+	// uuid5 namespace as registered orgs — when a parked slug is later
+	// claimed (or auto-promotes via reserved_name resolution), the org row
+	// already has the canonical id.
+	derivedID := identity.OrgIDFromSlug(slug).String()
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO profiles.orgs (slug, metadata)
-		VALUES ($1, jsonb_build_object('namespace_state', $2::text, 'reserved', to_jsonb(true)))
+		INSERT INTO profiles.orgs (id, slug, metadata)
+		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', $3::text, 'reserved', to_jsonb(true)))
 		RETURNING id::text
-	`, slug, string(OwnerNamespaceStateParkedOrg)).Scan(&orgID); err != nil {
+	`, derivedID, slug, string(OwnerNamespaceStateParkedOrg)).Scan(&orgID); err != nil {
 		return "", false, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -444,7 +469,7 @@ func (s *Service) claimParkedOrgToRegistered(ctx context.Context, org *Org, owne
 	if err := s.SetOrgNamespaceState(ctx, org.ID, OwnerNamespaceStateRegistered); err != nil {
 		return "", err
 	}
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE lower(slug)=lower($1)`, org.Slug)
+	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug=$1`, normalizeReservedSlug(org.Slug))
 	return strings.TrimSpace(org.ID), nil
 }
 
@@ -537,7 +562,7 @@ func (s *Service) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []str
 	unrestricted = make([]string, 0, len(slugs))
 	notRestricted = make([]string, 0)
 	for _, slug := range slugs {
-		tag, err := tx.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE lower(slug)=lower($1)`, slug)
+		tag, err := tx.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug=$1`, slug)
 		if err != nil {
 			return nil, nil, err
 		}

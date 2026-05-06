@@ -16,9 +16,10 @@ func TestOwnerSlugAvailabilityChecksSharedUserOrgNamespace(t *testing.T) {
 	required := []string{
 		"FROM profiles.owner_reserved_names r",
 		"FROM profiles.users u",
-		"FROM profiles.user_slug_aliases a",
+		// Issue #58: rename history lives in *_renames now (not *_slug_aliases).
+		"FROM profiles.user_renames r",
 		"FROM profiles.orgs o",
-		"FROM profiles.org_slug_aliases a",
+		"FROM profiles.org_renames r",
 	}
 	for _, marker := range required {
 		if !strings.Contains(code, marker) {

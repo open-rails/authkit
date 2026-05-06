@@ -106,6 +106,59 @@ func TestBaseURLDefaultsToIssuerWhenIssuerIsURL(t *testing.T) {
 	}
 }
 
+func TestFrontendCallbackPathDefaultsAndNormalizes(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "default", path: "", want: "/login/callback"},
+		{name: "custom path", path: "/auth/complete", want: "/auth/complete"},
+		{name: "custom path with query", path: "/auth/complete?mode=oidc", want: "/auth/complete?mode=oidc"},
+		{name: "trims whitespace", path: " /login/return ", want: "/login/return"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseTestConfig(t)
+			cfg.FrontendCallbackPath = tt.path
+
+			svc, err := NewFromConfig(cfg)
+			if err != nil {
+				t.Fatalf("NewFromConfig failed: %v", err)
+			}
+			if got := svc.Options().FrontendCallbackPath; got != tt.want {
+				t.Fatalf("FrontendCallbackPath=%q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFrontendCallbackPathRejectsUnsafeValues(t *testing.T) {
+	tests := []string{
+		"login/callback",
+		"https://evil.example/login/callback",
+		"//evil.example/login/callback",
+		"/login/callback#done",
+	}
+
+	for _, path := range tests {
+		t.Run(path, func(t *testing.T) {
+			cfg := baseTestConfig(t)
+			cfg.FrontendCallbackPath = path
+
+			svc, err := NewFromConfig(cfg)
+			if err == nil {
+				_ = svc
+				t.Fatalf("expected FrontendCallbackPath error")
+			}
+			if !strings.Contains(err.Error(), "FrontendCallbackPath") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestIssuerNonURLWithoutBaseURLReturnsError(t *testing.T) {
 	cfg := baseTestConfig(t)
 	cfg.Issuer = "issuer-local"

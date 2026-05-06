@@ -14,12 +14,16 @@ import (
 )
 
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
+	provider := r.PathValue("provider")
+	if strings.EqualFold(strings.TrimSpace(provider), "discord") {
+		s.handleDiscordLoginGET(w, r)
+		return
+	}
 	if !s.allow(r, RLOIDCStart) {
 		tooMany(w)
 		return
 	}
 
-	provider := r.PathValue("provider")
 	state := randB64(32)
 	nonce := randB64(16)
 	verifier, challenge, err := oidckit.GeneratePKCE()
@@ -79,6 +83,11 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) {
+	provider := r.PathValue("provider")
+	if strings.EqualFold(strings.TrimSpace(provider), "discord") {
+		s.handleDiscordCallbackGET(w, r)
+		return
+	}
 	if !s.allow(r, RLOIDCCallback) {
 		tooMany(w)
 		return
@@ -89,7 +98,6 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	provider := r.PathValue("provider")
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
@@ -258,8 +266,20 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		base = "/"
 	}
 	frag := "#access_token=" + token + "&refresh_token=" + rt + "&expires_in=" + fmt.Sprint(int64(time.Until(exp).Seconds())) + "&provider=" + provider + "&state=" + state
-	target := strings.TrimRight(base, "/") + "/login/callback" + frag
+	target := buildFrontendCallbackURL(base, s.svc.Options().FrontendCallbackPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {
+	base := baseURL
+	if base == "" {
+		base = "/"
+	}
+	path := callbackPath
+	if path == "" {
+		path = "/login/callback"
+	}
+	return strings.TrimRight(base, "/") + path + fragment
 }
 
 func buildPopupHTML(payloadJSON []byte, targetOrigin string) []byte {

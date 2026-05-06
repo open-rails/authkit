@@ -42,7 +42,7 @@
         "[ ] Decide whether to keep /auth/oidc/* and /auth/oauth/discord/* as aliases or deprecate with docs",
         "[ ] Update docs (api-endpoints.md) with new unified route pattern and provider list"
       ],
-      "completed": false
+      "completed": true
     },
     {
       "name": "Add phone number change flow (request/confirm/resend)",
@@ -55,7 +55,7 @@
         "[ ] Add rate limit keys for request/confirm/resend",
         "[ ] Update docs (api-endpoints.md) with phone change routes and expected errors"
       ],
-      "completed": false
+      "completed": true
     },
     {
       "name": "Add phone verification request endpoint",
@@ -530,6 +530,85 @@
         "[ ] Manually verify downstream build: go build ~/cozy/tensorhub after the 1-line change (NewVerifier(core.AcceptConfig{}) -> NewVerifier()). doujins and hentai0 change middleware wiring from authhttp.Required(svc.Core()) to authhttp.Required(svc.Verifier())."
       ],
       "completed": false
+    },
+    {
+      "name": "Prefix-neutral API routes + admin target-user session revocation",
+      "id_number": 29,
+      "issue_number": 241,
+      "description": "Make AuthKit's embedded HTTP API prefix-neutral so host applications control the entire public mount path. AuthKit should register routes such as `/token`, `/user/me`, `/admin/users`, and org/provider routes without a baked-in `/auth` segment. Host apps like doujins and hentai0 can then mount AuthKit at `/api/v1` and expose standardized public routes with no extra `/auth` prefix. Also add the missing admin target-user session revocation HTTP route so apps do not need their own `/admin/users/:user_id/sessions/revoke` implementation.",
+      "tasks": [
+        "=== ROUTE CONTRACT ===",
+        "[x] Define the new prefix-neutral API route contract: AuthKit `APIHandler()` owns relative routes under `/token`, `/sessions/current`, `/user/*`, `/admin/*`, org routes, provider-link routes, Solana routes, and related auth/session endpoints.",
+        "[x] Keep browser OIDC route ownership separate from JSON API routing and document the expected host mount behavior for browser flows.",
+        "[x] Update `agents/api-endpoints.md` and README examples to describe prefix-neutral AuthKit internals plus host-selected public mounts.",
+        "[x] Document downstream target mounts: doujins and hentai0 mount AuthKit JSON API at `/api/v1`, producing public routes such as `/api/v1/admin/users`, `/api/v1/user/me`, `/api/v1/token`, and no `/api/v1/auth/*` identity routes.",
+        "",
+        "=== IMPLEMENTATION ===",
+        "[x] Remove the baked-in `/auth` prefix from `adapters/http/APIHandler()` route registrations while preserving handlers, payloads, response shapes, auth requirements, and rate-limit buckets.",
+        "[x] Update route tests to call prefix-neutral paths directly against `APIHandler()`.",
+        "[x] Decide and implement compatibility policy for old `/auth/*` internal paths: hard cut vs temporary aliases. If aliases are kept, add explicit sunset tests/docs.",
+        "[x] Add canonical admin target-user session revocation route: `POST /admin/users/{user_id}/sessions/revoke`.",
+        "[x] Wire the new admin revocation HTTP route to existing core `AdminRevokeUserSessions` with `SessionRevokeReasonAdminRevokeAll`.",
+        "[x] Keep existing regular user self-revocation routes unchanged in prefix-neutral form: `GET /user/sessions`, `DELETE /user/sessions/{id}`, `DELETE /user/sessions`, and `DELETE /logout`.",
+        "",
+        "=== DOWNSTREAM COORDINATION ===",
+        "[x] Publish migration notes for hosts currently mounting AuthKit by stripping `/api/v1` and relying on internal `/auth/*` routes.",
+        "[x] Coordinate with doujins/hentai0 app issues so they remove app-level identity/admin-user route duplication after upgrading AuthKit.",
+        "[x] Cut or consume an AuthKit release containing this prefix-neutral route contract, then bump downstream `github.com/open-rails/authkit` requirements or verify with an explicit workspace/replace. Verified downstream with temporary Go workspaces pointing at `~/authkit`.",
+        "[x] Ensure downstream apps move or explicitly justify app-owned product routes that conflict with AuthKit's prefix-neutral `/user/*` and `/admin/*` identity namespaces.",
+        "",
+        "=== VALIDATION ===",
+        "[x] Add route-contract tests for admin list/get/delete/restore/ban/unban/roles/signins/session-revoke under prefix-neutral paths.",
+        "[x] Add route-contract tests for regular user identity, session self-revocation, provider, 2FA, and token endpoints under prefix-neutral paths.",
+        "[x] Run `go test ./...` in AuthKit.",
+        "[x] After downstream migration patches exist, verify doujins and hentai0 route smoke tests pass against the new AuthKit route contract."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Configurable frontend OIDC callback path + browser-route mount guidance",
+      "id_number": 30,
+      "issue_number": 242,
+      "description": "Plan and implement the AuthKit-side cleanup for browser OIDC redirects. AuthKit currently redirects successful full-page OIDC callbacks to a hardcoded `{BaseURL}/login/callback#...` frontend route. That route is host-app-owned, so AuthKit should let the embedding host configure the frontend callback path while keeping a sensible default. Also clarify in AuthKit docs/tests that `OIDCHandler()` is prefix-neutral and should usually be mounted as browser routes such as `/oidc/{provider}/login|callback`, separate from JSON API routes such as `/api/v1/token`.",
+      "tasks": [
+        "=== DESIGN ===",
+        "[x] Add a host-owned config field for the final frontend callback path, e.g. `FrontendCallbackPath`, defaulting to `/login/callback` for backwards compatibility.",
+        "[x] Validate/normalize the configured path: require a leading `/`, reject full external URLs, preserve optional query string if deliberately supported, and document whether fragments are allowed.",
+        "[x] Keep provider callback routes prefix-neutral in `OIDCHandler()` (`/oidc/{provider}/login`, `/oidc/{provider}/callback`) and do not bake in `/api/v1` or `/auth`.",
+        "[x] Define compatibility behavior for existing hosts that do not set the new field: final redirect remains `{BaseURL}/login/callback#access_token=...`.",
+        "",
+        "=== IMPLEMENTATION ===",
+        "[x] Update `core.Config` / service options to carry the configured frontend callback path.",
+        "[x] Update `adapters/http/oidc_browser.go` to build the final full-page redirect from `{BaseURL}{FrontendCallbackPath}` instead of hardcoded `/login/callback`.",
+        "[x] Ensure popup OIDC (`ui=popup`) behavior is unchanged and does not use the frontend callback path.",
+        "[x] Add tests for default callback path, custom callback path, invalid callback path validation, fragment token handoff, and unchanged popup behavior.",
+        "",
+        "=== DOCS ===",
+        "[x] Update README and `agents/api-endpoints.md` to explain the two browser callback concepts: provider callback handled by AuthKit, and host frontend callback path served by the app.",
+        "[x] Update README examples to recommend mounting JSON API at `/api/v1` and browser OIDC at root `/oidc/*`, while noting the host may choose another mount.",
+        "[x] Document downstream work required in doujins/hentai0: mount `OIDCHandler()` outside `/api/v1` and configure/serve the frontend callback path.",
+        "",
+        "=== VALIDATION ===",
+        "[x] Run `go test ./adapters/http`.",
+        "[x] Run `go test ./...`.",
+        "[x] Verify downstream route-contract tests after doujins/hentai0 migration patches exist."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Rename history edge-case coverage",
+      "id_number": 31,
+      "description": "Cover user/org rename edge cases now that AuthKit stores rename history as A -> B rows keyed by stable owner IDs rather than birth slugs or alias tables. Ensure recent historical names cannot be reclaimed, soft-deleted owners still hold names, hard deletion releases names through cascade, and historical lookups resolve to the current canonical owner.",
+      "tasks": [
+        "[x] Add contract tests for user/org rename lookup through stable owner IDs and current canonical slugs/usernames.",
+        "[x] Add contract tests for efficient rename-history lookup indexes and the 90-day reuse hold policy.",
+        "[x] Add E2E coverage for A -> B -> C username rename chains resolving A to current username C.",
+        "[x] Add E2E coverage that recent historical usernames are blocked from reuse by other users.",
+        "[x] Add E2E coverage that soft-deleted users still hold current usernames, while hard-deleted users release names through cascade.",
+        "[x] Fix username create/rename paths to enforce shared owner-namespace availability outside multi-org mode too.",
+        "[x] Verify with `go test ./core`, `go test ./...`, and targeted all-in-one devserver E2E."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

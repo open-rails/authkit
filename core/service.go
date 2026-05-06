@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	entpg "github.com/open-rails/authkit/entitlements"
+	"github.com/open-rails/authkit/identity"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/open-rails/authkit/password"
 )
@@ -34,6 +35,8 @@ type Options struct {
 	SessionMaxPerUser    int
 	// Optional link building (paths are fixed: /reset and /verify)
 	BaseURL string
+	// FrontendCallbackPath is the host-owned frontend route that receives full-page OIDC login results.
+	FrontendCallbackPath string
 	// RegistrationVerification controls whether registration verification is disabled,
 	// non-blocking, or required.
 	RegistrationVerification RegistrationVerificationPolicy
@@ -66,6 +69,8 @@ var (
 	ErrUserNotFound = errors.New("user_not_found")
 )
 
+const defaultFrontendCallbackPath = "/login/callback"
+
 // (storage layer collapsed into direct Postgres/Redis helpers)
 
 // Service is the core auth service used by HTTP adapters.
@@ -85,6 +90,9 @@ type Service struct {
 func NewService(opts Options, keys Keyset) *Service {
 	if strings.TrimSpace(opts.OrgMode) == "" {
 		opts.OrgMode = "single"
+	}
+	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
+		opts.FrontendCallbackPath = defaultFrontendCallbackPath
 	}
 	return &Service{opts: opts, keys: keys, ephemeralMode: EphemeralMemory}
 }
@@ -120,6 +128,10 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		} else {
 			return nil, fmt.Errorf("authkit: BaseURL is required when Issuer is not a well-formatted URL (issuer=%q)", issuer)
 		}
+	}
+	frontendCallbackPath, err := normalizeFrontendCallbackPath(cfg.FrontendCallbackPath)
+	if err != nil {
+		return nil, err
 	}
 
 	issuedAudiences := cfg.IssuedAudiences
@@ -162,6 +174,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		RefreshTokenDuration:     refTTL,
 		SessionMaxPerUser:        maxSess,
 		BaseURL:                  baseURL,
+		FrontendCallbackPath:     frontendCallbackPath,
 		RegistrationVerification: registrationVerification,
 		OrgMode:                  orgMode,
 		Environment:              strings.TrimSpace(cfg.Environment),
@@ -181,6 +194,30 @@ func normalizeRegistrationVerification(v RegistrationVerificationPolicy) (Regist
 	default:
 		return "", fmt.Errorf("authkit: invalid RegistrationVerification %q (want \"none\", \"optional\", or \"required\")", v)
 	}
+}
+
+func normalizeFrontendCallbackPath(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return defaultFrontendCallbackPath, nil
+	}
+	if strings.Contains(value, "#") {
+		return "", fmt.Errorf("authkit: FrontendCallbackPath must not contain a fragment")
+	}
+	u, err := url.Parse(value)
+	if err != nil {
+		return "", fmt.Errorf("authkit: invalid FrontendCallbackPath %q: %w", raw, err)
+	}
+	if u.IsAbs() || u.Host != "" || strings.HasPrefix(value, "//") {
+		return "", fmt.Errorf("authkit: FrontendCallbackPath must be a relative absolute-path, got %q", raw)
+	}
+	if u.Path == "" || !strings.HasPrefix(u.Path, "/") {
+		return "", fmt.Errorf("authkit: FrontendCallbackPath must start with '/', got %q", raw)
+	}
+	if u.Fragment != "" {
+		return "", fmt.Errorf("authkit: FrontendCallbackPath must not contain a fragment")
+	}
+	return u.RequestURI(), nil
 }
 
 func (o Options) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
@@ -1750,17 +1787,19 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if s.pg == nil {
 		return nil, nil
 	}
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		slug := ownerSlugFromUsername(username)
-		if slug == "" || validateOrgSlug(slug) != nil {
-			return nil, fmt.Errorf("invalid_username_for_owner_namespace")
-		}
-		if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
-			return nil, err
-		}
+	slug := ownerSlugFromUsername(username)
+	if slug == "" || validateOrgSlug(slug) != nil {
+		return nil, fmt.Errorf("invalid_username_for_owner_namespace")
 	}
-	// Convert empty email to NULL for database (allows multiple users without emails)
-	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (email, username) VALUES (NULLIF(lower($1), ''), $2) RETURNING id, email, username, email_verified, banned_at, deleted_at`, email, username)
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
+		return nil, err
+	}
+	// Convert empty email to NULL for database (allows multiple users without emails).
+	// Deterministic id from username — see identity/uuid.go. The id stays
+	// pinned across username renames; profiles.user_renames handles
+	// backwards lookup and old-username reuse blocking.
+	derivedID := identity.UserIDFromUsername(username).String()
+	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (id, email, username) VALUES ($1::uuid, NULLIF(lower($2), ''), $3) RETURNING id, email, username, email_verified, banned_at, deleted_at`, derivedID, email, username)
 	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.BannedAt, &u.DeletedAt); err != nil {
 		return nil, err
@@ -1944,9 +1983,21 @@ func (s *Service) HostDeleteUser(ctx context.Context, id string, soft bool) erro
 }
 
 func (s *Service) updateUsername(ctx context.Context, id, username string) error {
+	return s.updateUsernameImpl(ctx, id, username, false)
+}
+
+// UpdateUsernameForce is the admin override that skips the 72h cooldown
+// check. Otherwise identical to UpdateUsername. Caller is responsible
+// for gating this behind admin scope upstream.
+func (s *Service) UpdateUsernameForce(ctx context.Context, id, username string) error {
+	return s.updateUsernameImpl(ctx, id, username, true)
+}
+
+func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, bypassCooldown bool) error {
 	if s.pg == nil {
 		return nil
 	}
+	newUsername := strings.TrimSpace(username)
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -1957,28 +2008,50 @@ func (s *Service) updateUsername(ctx context.Context, id, username string) error
 	if err := tx.QueryRow(ctx, `SELECT username::text FROM profiles.users WHERE id=$1::uuid`, id).Scan(&oldUsername); err != nil {
 		return err
 	}
-	if strings.EqualFold(strings.TrimSpace(oldUsername), strings.TrimSpace(username)) {
+	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
 		return nil
 	}
+	newSlug := ownerSlugFromUsername(newUsername)
+	if newSlug == "" || validateOrgSlug(newSlug) != nil {
+		return fmt.Errorf("invalid_username_for_owner_namespace")
+	}
+	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, ""); err != nil {
+		return err
+	}
 
-	_, err = tx.Exec(ctx, `UPDATE profiles.users SET username=$2, updated_at=NOW() WHERE id=$1`, id, username)
+	// Cooldown check (issue #58). The cooldown applies to the user's
+	// rename intent only — the personal-org rename below is a
+	// by-product, not separately rate-limited. Walks the
+	// `(user_id, renamed_at DESC)` index to grab the most recent rename.
+	if !bypassCooldown {
+		var lastRenamedAt *time.Time
+		if err := tx.QueryRow(ctx, `
+			SELECT renamed_at
+			FROM   profiles.user_renames
+			WHERE  user_id = $1::uuid
+			ORDER  BY renamed_at DESC
+			LIMIT  1
+		`, id).Scan(&lastRenamedAt); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if lastRenamedAt != nil && time.Since(*lastRenamedAt) < renameCooldown {
+			return ErrRenameRateLimited
+		}
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE profiles.users SET username=$2, updated_at=NOW() WHERE id=$1`, id, newUsername)
 	if err != nil {
 		return err
 	}
-	_, _ = tx.Exec(ctx, `
-		INSERT INTO profiles.user_slug_aliases (user_id, slug)
-		VALUES ($1::uuid, $2)
-		ON CONFLICT (user_id, slug) DO UPDATE SET deleted_at=NULL
-	`, id, oldUsername)
+	// Audit row for the user rename. `renamed_by` = id (self-rename).
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO profiles.user_renames (user_id, from_slug, to_slug, renamed_by)
+		VALUES ($1::uuid, $2, $3, $1::uuid)
+	`, id, strings.ToLower(strings.TrimSpace(oldUsername)), strings.ToLower(newUsername)); err != nil {
+		return err
+	}
 
 	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		newSlug := ownerSlugFromUsername(username)
-		if newSlug == "" || validateOrgSlug(newSlug) != nil {
-			return fmt.Errorf("invalid_username_for_owner_namespace")
-		}
-		if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, ""); err != nil {
-			return err
-		}
 		var orgID, oldOrgSlug string
 		err := tx.QueryRow(ctx, `
 			SELECT id::text, slug
@@ -1989,10 +2062,13 @@ func (s *Service) updateUsername(ctx context.Context, id, username string) error
 			return err
 		}
 		if strings.TrimSpace(orgID) == "" {
+			// Deterministic id from the new slug (the personal org is being
+			// freshly created here because the prior lookup found none).
+			derivedOrgID := identity.OrgIDFromSlug(newSlug).String()
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.orgs (slug, is_personal, owner_user_id)
-				VALUES ($1, true, $2::uuid)
-			`, newSlug, id); err != nil {
+				INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id)
+				VALUES ($1::uuid, $2, true, $3::uuid)
+			`, derivedOrgID, newSlug, id); err != nil {
 				return err
 			}
 			if err := tx.QueryRow(ctx, `
@@ -2003,11 +2079,16 @@ func (s *Service) updateUsername(ctx context.Context, id, username string) error
 				return err
 			}
 		} else if !strings.EqualFold(oldOrgSlug, newSlug) {
-			_, _ = tx.Exec(ctx, `
-				INSERT INTO profiles.org_slug_aliases (org_id, slug)
-				VALUES ($1::uuid, $2)
-				ON CONFLICT (org_id, slug) DO UPDATE SET deleted_at=NULL
-			`, orgID, oldOrgSlug)
+			// Personal-org rename rides the user-rename intent — write
+			// the org_renames audit row in the same tx. Cooldown was
+			// already checked against user_renames above; we don't
+			// re-gate here.
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO profiles.org_renames (org_id, from_slug, to_slug, renamed_by)
+				VALUES ($1::uuid, $2, $3, $4::uuid)
+			`, orgID, strings.ToLower(strings.TrimSpace(oldOrgSlug)), strings.ToLower(strings.TrimSpace(newSlug)), id); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `UPDATE profiles.orgs SET slug=$1, updated_at=now() WHERE id=$2::uuid`, newSlug, orgID); err != nil {
 				return err
 			}

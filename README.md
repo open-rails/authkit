@@ -2,6 +2,13 @@
 
 Lightweight auth library for Go services.
 
+AuthKit is based on a browser-managed bearer-token model: login/OIDC/Solana
+flows issue an `access_token` and `refresh_token`, frontend JavaScript stores
+them, protected API calls use `Authorization: Bearer <access_token>`, and
+refresh uses `POST /token` with the refresh token. It is not a cookie-session
+library: it does not currently provide opaque `session_id` browser cookies,
+HttpOnly token-cookie callbacks, or CSRF/session middleware for that model.
+
 Note: This repo ships only the `net/http` adapter (`adapters/http`). The old Gin adapter has been removed (breaking change); bump your module version/tag accordingly when releasing.
 
 Scope (minimal)
@@ -43,6 +50,7 @@ func main() {
     IssuedAudiences:   []string{"myapp"},
     ExpectedAudiences: []string{"myapp"},
     BaseURL:           "https://myapp.com",
+    FrontendCallbackPath: "/login/callback",
     // RegistrationVerification: core.RegistrationVerificationRequired, // none|optional|required
     // OrgMode: "single" (default) | "multi"
     // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
@@ -54,11 +62,18 @@ func main() {
   mux := http.NewServeMux()
   mux.Handle("/.well-known/jwks.json", svc.JWKSHandler())
 
-  // Browser flows (redirect/popup): /oidc/*
-  mux.Handle("/oidc/", svc.OIDCHandler())
+  apiPrefix := "/api/v1"
+  apiH := http.StripPrefix(apiPrefix, svc.APIHandler())
 
-  // JSON API: mount under a prefix (example: /api/v1/auth/*).
-  mux.Handle("/api/v1/", http.StripPrefix("/api/v1", svc.APIHandler()))
+  // AuthKit handlers are prefix-neutral. Mount JSON API routes at your app's
+  // API prefix; this exposes /api/v1/token, /api/v1/user/me, and /api/v1/admin/users.
+  mux.Handle(apiPrefix+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    apiH.ServeHTTP(w, r)
+  }))
+
+  // Browser OIDC routes are not JSON API routes. Mount them wherever the app
+  // wants browser redirects; the recommended public routes are /oidc/*.
+  mux.Handle("/oidc/", svc.OIDCHandler())
 
   http.ListenAndServe(":8080", mux)
 }
@@ -170,6 +185,26 @@ Notes
 - No extra app code needed for OIDC state or user linking — handled internally with Redis (if provided) or a built-in in-memory cache, plus the default resolver.
 - Apple: prefer `oidckit.AppleWithKey(...)` which mints a fresh ES256 client_secret JWT per request; no manual rotation needed.
 
+Token/session model
+- AuthKit assumes a browser-managed bearer-token model, not cookie sessions.
+- Login, OIDC, Solana, registration confirmation, and refresh flows issue an
+  `access_token` plus a `refresh_token`.
+- Browser JavaScript stores those tokens and sends protected API requests with
+  `Authorization: Bearer <access_token>`.
+- Refresh is also JavaScript-managed: the browser calls `POST /token` with the
+  refresh token and stores the returned token pair.
+- Full-page OIDC callbacks redirect to `{BaseURL}{FrontendCallbackPath}` with
+  tokens in the URL fragment (`#access_token=...&refresh_token=...`) so the host
+  backend serves the frontend route but does not receive the tokens. The default
+  frontend callback path is `/login/callback`; configured paths must be
+  app-relative, may include a query string, and must not include a fragment.
+- AuthKit stores refresh-session records server-side for refresh-token lifecycle
+  and revocation, but it does not provide an opaque `session_id` browser-cookie
+  mode or HttpOnly cookie token mode.
+- Apps that want cookie/session authentication need a separate integration mode:
+  cookie parsing in middleware, CSRF protection, cookie-setting callback
+  behavior, and different frontend refresh/logout assumptions.
+
 Admin Gate (DB-backed)
 
 - Use `authhttp.RequireAdmin(pg)` to strictly enforce admin access using the database.
@@ -204,15 +239,15 @@ Organizations (org_mode)
   - Org slug renames create aliases; handlers accept either current slug or alias on `:org`.
   - Username renames preserve old owner paths via user slug aliases; personal org slug aliases are also retained.
   - Default access tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
-  - `GET /auth/user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
-  - `GET /auth/user/bootstrap` returns canonical personal org + org memberships in one call.
+  - `GET /user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
+  - `GET /user/bootstrap` returns canonical personal org + org memberships in one call.
   - Org-scoped access tokens include `org` + `roles` (single org only), and are rejected when the user is not a member.
-    - Mint explicitly: `POST /auth/token/org`
+    - Mint explicitly: `POST /token/org`
     - Or mint at login/refresh by providing `org` in the request body.
   - Invitation workflow:
-    - Org owners create/list/revoke invites with `/auth/orgs/:org/invites`.
-    - Users list their invites via `GET /auth/org-invites`.
-    - Users accept/decline via `/auth/org-invites/:invite_id/accept|decline`.
+    - Org owners create/list/revoke invites with `/orgs/:org/invites`.
+    - Users list their invites via `GET /org-invites`.
+    - Users accept/decline via `/org-invites/:invite_id/accept|decline`.
   - Org management endpoints require the reserved `owner` role; `owner` is protected and cannot be deleted or removed as the last owner.
 - In `OrgMode: "single"` (default), AuthKit behaves like a single-tenant app:
   - Access tokens include `roles` (string[]) and there are no org-related claims/fields.
@@ -222,7 +257,7 @@ Reserved slug policy
   - `restricted_name`: slug is blocked in `profiles.owner_reserved_names` and not publicly registrable.
   - `parked_org`: org exists and is platform-held (`metadata.namespace_state=parked_org`, `metadata.reserved=true`).
   - `registered_org`: normal org lifecycle (`metadata.namespace_state=registered_org`).
-- Public lookup endpoint: `GET /auth/owners/{slug}` returns canonical public metadata for the slug:
+- Public lookup endpoint: `GET /owners/{slug}` returns canonical public metadata for the slug:
   - `state`: `restricted_name`, `parked_org`, `registered_org`, `registered_user`, or `unregistered`
   - `entity_kind`: `none`, `org`, `user`, or `org_and_user`
   - optional `org` and/or `user` payloads when records exist.
@@ -236,13 +271,13 @@ Verification delivery and expiry
 - Password reset link tokens expire in 1 hour.
 - Sender integrations receive `core.VerificationMessage{Code, LinkToken}` and must send only provided fields; at least one must be present.
 - Code-based and link-based flows are both supported:
-  - Email verify code: `POST /auth/email/verify/confirm` with `{"code":"123456"}`
-  - Email verify link token: `POST /auth/email/verify/confirm-link` with `{"token":"..."}`
-  - Phone verify code: `POST /auth/phone/verify/confirm` with `{"phone_number":"+1...","code":"123456"}`
-  - Phone verify link token: `POST /auth/phone/verify/confirm-link` with `{"token":"..."}`
-  - Password reset link handoff: `POST /auth/password/reset/confirm-link` with `{"token":"..."}` returns `{"ok":true,"reset_session":"..."}`
-  - Password reset confirm: `POST /auth/password/reset/confirm` with `{"reset_session":"...","new_password":"..."}`
-- Your API can live under a prefix (e.g., `/api/v1`); mount the JSON API using `http.StripPrefix("/api/v1", svc.APIHandler())`.
+  - Email verify code: `POST /email/verify/confirm` with `{"code":"123456"}`
+  - Email verify link token: `POST /email/verify/confirm-link` with `{"token":"..."}`
+  - Phone verify code: `POST /phone/verify/confirm` with `{"phone_number":"+1...","code":"123456"}`
+  - Phone verify link token: `POST /phone/verify/confirm-link` with `{"token":"..."}`
+  - Email password reset link handoff: `POST /email/password/reset/confirm-link` with `{"token":"..."}` returns `{"ok":true,"reset_session":"..."}`
+  - Email password reset confirm: `POST /email/password/reset/confirm` with `{"reset_session":"...","new_password":"..."}`
+- AuthKit API routes are prefix-neutral. Your API can live under a prefix (recommended: `/api/v1`); do not add an extra `/auth` segment when embedding AuthKit.
 
 Two-Factor Authentication (2FA):
 - Optional security feature for admin accounts to prevent account takeover if password is leaked.
@@ -250,17 +285,17 @@ Two-Factor Authentication (2FA):
 - When enabled, login requires both password AND a 6-digit code sent via email/SMS.
 - Each user gets **10 backup codes** (8-character alphanumeric) for account recovery in case they lose access to their 2FA method.
 - **Login flow with 2FA**:
-  1. POST `/auth/password/login` with email/password
+  1. POST `/password/login` with email/password
   2. If 2FA enabled: response has `{"requires_2fa": true, "user_id": "...", "method": "email|sms", "verification_id": "..."}`
   3. User receives 6-digit code via email or SMS
-  4. POST `/auth/2fa/verify` with `{"user_id": "...", "code": "123456"}` (or `{"user_id": "...", "code": "ABC123XY", "backup_code": true}` for backup codes)
+  4. POST `/2fa/verify` with `{"user_id": "...", "code": "123456"}` (or `{"user_id": "...", "code": "ABC123XY", "backup_code": true}` for backup codes)
   5. Response contains access_token and refresh_token as usual
 - **Setup flow**:
-  1. GET `/auth/user/2fa` to check current status
-  2. POST `/auth/user/2fa/enable` with `{"method": "email"}` or `{"method": "sms", "phone_number": "+1..."}`
+  1. GET `/user/2fa` to check current status
+  2. POST `/user/2fa/enable` with `{"method": "email"}` or `{"method": "sms", "phone_number": "+1..."}`
   3. Response includes `backup_codes` array - **show these to user ONCE and tell them to save them**
-  4. User can regenerate codes with POST `/auth/user/2fa/regenerate-codes` (invalidates old codes)
-  5. User can disable with POST `/auth/user/2fa/disable`
+  4. User can regenerate codes with POST `/user/2fa/regenerate-codes` (invalidates old codes)
+  5. User can disable with POST `/user/2fa/disable`
 - Backup codes are single-use and removed after verification.
 - 2FA codes expire in **15 minutes**.
 
@@ -286,80 +321,83 @@ Integration requirements (API server)
 
 ---
 
-Endpoints mounted automatically:
+Endpoints mounted automatically by `APIHandler()` are shown relative to the host-selected API mount prefix. With the recommended `/api/v1` mount, `GET /user/me` is served at `GET /api/v1/user/me`. Browser OIDC routes are served by `OIDCHandler()` and are usually mounted outside API versioning at `/oidc/*`.
 - GET /.well-known/jwks.json
 - OIDC:
   - GET /oidc/:provider/login
   - GET /oidc/:provider/callback
-  - POST /auth/oidc/:provider/link/start (requires auth) → {auth_url}
-  - POST /auth/oidc/discord/link/start (if Discord provider configured, requires auth)
+  - POST /oidc/:provider/link/start (APIHandler, requires auth) → {auth_url}
 - Password:
-  - POST /auth/password/login (accepts email, phone, or username in identifier field)
-  - POST /auth/password/reset/request (accepts email or phone in identifier field)
-  - POST /auth/password/reset/confirm-link ({token} -> {reset_session})
-  - POST /auth/password/reset/confirm ({reset_session, new_password})
+  - POST /password/login (accepts email, phone, or username in identifier field)
+  - POST /email/password/reset/request
+  - POST /email/password/reset/confirm-link ({token} -> {reset_session})
+  - POST /email/password/reset/confirm ({reset_session, new_password})
 - Registration (unified - accepts email or phone in identifier field):
-  - POST /auth/register (server auto-detects email vs phone based on format)
+  - POST /register (server auto-detects email vs phone based on format)
   - Set `RegistrationVerification: none|optional|required` in `core.Config`
-  - POST /auth/register/resend-email
-  - POST /auth/register/resend-phone
+  - POST /register/resend-email
+  - POST /register/resend-phone
 - Email verification:
-  - POST /auth/email/verify/request
-  - POST /auth/email/verify/confirm
-  - POST /auth/email/verify/confirm-link
+  - POST /email/verify/request
+  - POST /email/verify/confirm
+  - POST /email/verify/confirm-link
 - Phone verification and password reset:
-  - POST /auth/phone/verify/request
-  - POST /auth/phone/verify/confirm
-  - POST /auth/phone/verify/confirm-link
-  - POST /auth/phone/password/reset/request
-  - POST /auth/phone/password/reset/confirm ({reset_session, new_password})
+  - POST /phone/verify/request
+  - POST /phone/verify/confirm
+  - POST /phone/verify/confirm-link
+  - POST /phone/password/reset/request
+  - POST /phone/password/reset/confirm ({reset_session, new_password})
 - Sessions:
-  - POST /auth/token { grant_type: "refresh_token", refresh_token }
-  - POST /auth/sessions/current { refresh_token } → { session_id }
-  - GET /auth/user/sessions (requires auth)
-  - DELETE /auth/user/sessions/:id (requires auth)
-  - DELETE /auth/user/sessions (requires auth)
-  - DELETE /auth/logout (requires auth; revokes the current session via sid claim)
+  - POST /token { grant_type: "refresh_token", refresh_token }
+  - POST /sessions/current { refresh_token } → { session_id }
+  - GET /user/sessions (requires auth)
+  - DELETE /user/sessions/:id (requires auth)
+  - DELETE /user/sessions (requires auth)
+  - DELETE /logout (requires auth; revokes the current session via sid claim)
 - User profile:
-  - GET /auth/user/me (requires auth)
-  - PATCH /auth/user/username (requires auth)
-  - POST /auth/user/email/change/request (requires auth)
-  - POST /auth/user/email/change/confirm (requires auth)
-  - POST /auth/user/email/change/resend (requires auth)
-  - PATCH /auth/user/biography (requires auth)
-  - POST /auth/user/password (requires auth)
-  - DELETE /auth/user (requires auth)
-  - DELETE /auth/user/providers/:provider (requires auth)
+  - GET /user/me (requires auth)
+  - PATCH /user/username (requires auth)
+  - POST /user/email/change/request (requires auth)
+  - POST /user/email/change/confirm (requires auth)
+  - POST /user/email/change/resend (requires auth)
+  - PATCH /user/biography (requires auth)
+  - POST /user/password (requires auth)
+  - DELETE /user (requires auth)
+  - DELETE /user/providers/:provider (requires auth)
 - Two-Factor Authentication (2FA):
-  - GET /auth/user/2fa (requires auth) → {enabled, method, phone_number}
-  - POST /auth/user/2fa/start-phone (requires auth) → starts phone 2FA setup, sends code to phone
-  - POST /auth/user/2fa/enable (requires auth) →  → {enabled, method, backup_codes}
-  - POST /auth/user/2fa/disable (requires auth)
-  - POST /auth/user/2fa/regenerate-codes (requires auth) → {backup_codes}
-  - POST /auth/2fa/verify (during login) → {access_token, refresh_token}
+  - GET /user/2fa (requires auth) → {enabled, method, phone_number}
+  - POST /user/2fa/start-phone (requires auth) → starts phone 2FA setup, sends code to phone
+  - POST /user/2fa/enable (requires auth) →  → {enabled, method, backup_codes}
+  - POST /user/2fa/disable (requires auth)
+  - POST /user/2fa/regenerate-codes (requires auth) → {backup_codes}
+  - POST /2fa/verify (during login) → {access_token, refresh_token}
 - Admin roles (admin only):
-  - POST /auth/admin/roles/grant
-  - POST /auth/admin/roles/revoke
+  - POST /admin/roles/grant
+  - POST /admin/roles/revoke
 - Admin users (admin only):
-  - GET /auth/admin/users
-  - GET /auth/admin/users/:user_id
-  - POST /auth/admin/users/ban
-  - POST /auth/admin/users/unban
-  - POST /auth/admin/users/set-email
-  - POST /auth/admin/users/set-username
-  - DELETE /auth/admin/users/:user_id
-  - GET /auth/admin/users/:user_id/signins
+  - GET /admin/users
+  - GET /admin/users/:user_id
+  - POST /admin/users/ban
+  - POST /admin/users/unban
+  - POST /admin/users/set-email
+  - POST /admin/users/set-username
+  - POST /admin/users/set-password
+  - DELETE /admin/users/:user_id
+  - POST /admin/users/:user_id/restore
+  - GET /admin/users/deleted
+  - GET /admin/users/:user_id/signins
+  - POST /admin/users/:user_id/sessions/revoke
 - Admin owner-namespace lifecycle (admin only):
-  - POST /auth/admin/accounts/restrict (batch add slugs to restricted-name list)
-  - POST /auth/admin/accounts/unrestrict (batch remove slugs from restricted-name list)
-  - POST /auth/admin/account/park (`{kind:"org"|"user",slug}`)
-  - POST /auth/admin/account/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
+  - POST /admin/accounts/restrict (batch add slugs to restricted-name list)
+  - POST /admin/accounts/unrestrict (batch remove slugs from restricted-name list)
+  - POST /admin/account/park (`{kind:"org"|"user",slug}`)
+  - POST /admin/account/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
 - Public owner-namespace lookup:
-  - GET /auth/owners/:slug
+  - GET /owners/:slug
 - Solana wallet authentication (SIWS):
-  - POST /auth/solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
-  - POST /auth/solana/login → {access_token, refresh_token, user}
-  - POST /auth/solana/link (requires auth) → {success, solana_address}
+  - POST /solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
+  - POST /solana/login → {access_token, refresh_token, user}
+  - POST /solana/link (requires auth) → {success, solana_address}
 
 ---
 
@@ -390,48 +428,49 @@ Run these from your scheduler (cron, pg_cron, or your job system).
 ---
 
 Frontend (React) quick guide
+- Paths below are relative to the AuthKit API mount. In doujins/hentai0-style hosts mounted at `/api/v1`, call `/api/v1/token`, `/api/v1/user/me`, `/api/v1/admin/users`, etc.
 - Tokens
   - Store access_token in memory and refresh_token in IndexedDB/secure storage.
-  - Add Authorization: Bearer <access_token> to protected API calls. On 401, call POST /auth/token with refresh_token, then retry.
+  - Add Authorization: Bearer <access_token> to protected API calls. On 401, call POST /token with refresh_token, then retry.
 - Registration (unified)
-  - POST /auth/register with `{identifier, username, password}` where identifier is email or phone
-  - Email registration: check email for 6-char code → POST /auth/email/verify/confirm with `{code}`
-  - Phone registration: check SMS for 6-char code → POST /auth/phone/verify/confirm with `{phone_number, code}`
-  - Resend codes: POST /auth/register/resend-email or POST /auth/register/resend-phone
+  - POST /register with `{identifier, username, password}` where identifier is email or phone
+  - Email registration: check email for 6-char code → POST /email/verify/confirm with `{code}`
+  - Phone registration: check SMS for 6-char code → POST /phone/verify/confirm with `{phone_number, code}`
+  - Resend codes: POST /register/resend-email or POST /register/resend-phone
 - Password Login
-  - POST /auth/password/login with `{login, password}` where login can be email/phone/username → {id_token, refresh_token}
-- Password Reset (Unified - supports both email and phone)
-  - POST /auth/password/reset/request with `{identifier}` → check email/SMS for code
-  - POST /auth/password/reset/confirm with `{code, new_password, identifier?}` → {ok: true}
-    - `identifier` is optional for email resets, required for phone resets
-  - Legacy phone endpoints still available: `/auth/phone/password/reset/*`
+  - POST /password/login with `{login, password}` where login can be email/phone/username → {id_token, refresh_token}
+- Password Reset
+  - POST /email/password/reset/request with `{email}` → check email for reset instructions
+  - POST /email/password/reset/confirm-link with `{token}` → {reset_session}
+  - POST /email/password/reset/confirm with `{reset_session, new_password}` → {ok: true}
+  - POST /phone/password/reset/request with `{phone_number}` → check SMS for reset instructions
+  - POST /phone/password/reset/confirm with `{reset_session, new_password}` → {ok: true}
 - OIDC
   - Start: window.location = `/oidc/${provider}/login`.
-  - Link: POST /auth/oidc/:provider/link/start (with Authorization) → {auth_url}; then window.location = auth_url.
-  - Discord: Use `/oidc/discord/login` and `/auth/oidc/discord/link/start`.
+  - Link: POST `/api/v1/oidc/:provider/link/start` (with Authorization) → {auth_url}; then window.location = auth_url.
 - Unlink
-  - DELETE /auth/user/providers/:provider (Authorization). Guard prevents unlinking the last login method.
+  - DELETE /user/providers/:provider (Authorization). Guard prevents unlinking the last login method.
 - Sessions
-  - DELETE /auth/logout (current), DELETE /auth/user/sessions (all), DELETE /auth/user/sessions/:id (single), GET /auth/user/sessions (list).
-  - POST /auth/sessions/current with `{refresh_token}` → {session_id}.
+  - DELETE /logout (current), DELETE /user/sessions (all), DELETE /user/sessions/:id (single), GET /user/sessions (list).
+  - POST /sessions/current with `{refresh_token}` → {session_id}.
 - Current user
-  - GET /auth/user/me → {id, email, pending_email?, phone_number?, username, discord_username?, email_verified, phone_verified, has_password, roles, entitlements, biography}.
+  - GET /user/me → {id, email, pending_email?, phone_number?, username, discord_username?, email_verified, phone_verified, has_password, roles, entitlements, biography}.
   - Email change
-    - POST /auth/user/email/change/request with `{email}` (Authorization) → sends verification code
-    - POST /auth/user/email/change/confirm with `{code}` (Authorization) → confirms email change
-    - POST /auth/user/email/change/resend (Authorization) → resends verification code
+    - POST /user/email/change/request with `{email}` (Authorization) → sends verification code
+    - POST /user/email/change/confirm with `{code}` (Authorization) → confirms email change
+    - POST /user/email/change/resend (Authorization) → resends verification code
   - Phone number change
-    - POST /auth/user/phone/change/request with `{phone_number}` (Authorization) → sends verification code
-    - POST /auth/user/phone/change/confirm with `{code}` (Authorization) → confirms phone number change
-    - POST /auth/user/phone/change/resend (Authorization) → resends verification code
+    - POST /user/phone/change/request with `{phone_number}` (Authorization) → sends verification code
+    - POST /user/phone/change/confirm with `{code}` (Authorization) → confirms phone number change
+    - POST /user/phone/change/resend (Authorization) → resends verification code
 - User profile updates
-  - PATCH /auth/user/username with `{username}` (Authorization)
-  - PATCH /auth/user/biography with `{biography}` (Authorization)
-  - POST /auth/user/password with `{old_password, new_password}` (Authorization)
-  - DELETE /auth/user (Authorization) → deletes account
+  - PATCH /user/username with `{username}` (Authorization)
+  - PATCH /user/biography with `{biography}` (Authorization)
+  - POST /user/password with `{old_password, new_password}` (Authorization)
+  - DELETE /user (Authorization) → deletes account
 - Solana Wallet (SIWS)
-  - Login/Register: POST /auth/solana/challenge → wallet.signIn(input) → POST /auth/solana/login
-  - Link wallet: POST /auth/solana/challenge → wallet.signIn(input) → POST /auth/solana/link (with Authorization)
+  - Login/Register: POST /solana/challenge → wallet.signIn(input) → POST /solana/login
+  - Link wallet: POST /solana/challenge → wallet.signIn(input) → POST /solana/link (with Authorization)
 
 ---
 
@@ -447,7 +486,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 
 // 1. Request challenge from backend
 const requestChallenge = async (address: string, username?: string) => {
-  const response = await fetch('/api/v1/auth/solana/challenge', {
+  const response = await fetch('/api/v1/solana/challenge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ address, username }), // username optional for new accounts
@@ -467,7 +506,7 @@ const signIn = async () => {
   const output = await signIn(input);
 
   // 3. Verify signature and get tokens
-  const response = await fetch('/api/v1/auth/solana/login', {
+  const response = await fetch('/api/v1/solana/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -498,7 +537,7 @@ const linkWallet = async (accessToken: string) => {
   const output = await signIn(input);
 
   // Link (requires auth)
-  const response = await fetch('/api/v1/auth/solana/link', {
+  const response = await fetch('/api/v1/solana/link', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -520,7 +559,7 @@ const linkWallet = async (accessToken: string) => {
 **Notes:**
 - Challenges expire in 15 minutes
 - Username is optional - if not provided, a username is derived from the wallet address (e.g., `u_7xKX`)
-- Users can change their username later via `PATCH /auth/user/username`
+- Users can change their username later via `PATCH /user/username`
 - Wallet address is stored as a provider link (like Google/Discord) in `profiles.user_providers`
 - One wallet per user, one user per wallet
 
