@@ -118,6 +118,60 @@ if err != nil {
 svc = svc.WithSMSSender(smsSender)
 ```
 
+External identity providers
+- Built-in providers (`google`, `apple`, `discord`, `github`) can still be enabled with `core.Config.Providers` by passing client IDs/secrets.
+- For custom providers, prefer `core.Config.ProviderDescriptors`. OIDC providers are usually pure configuration because identity claims are standardized. OAuth2 providers are pure configuration when their userinfo JSON can be mapped with dot paths.
+- Apple uses the same descriptor model, but its client secret is a signed JWT. Use `ClientSecret.Strategy: "apple_jwt"` with Apple team/key/private-key fields.
+
+```go
+cfg.ProviderDescriptors = map[string]authprovider.Provider{
+    "example-oidc": {
+        Name:     "example-oidc",
+        Kind:     authprovider.KindOIDC,
+        Issuer:   "https://issuer.example",
+        ClientID: cfg.ExampleClientID,
+        ClientSecret: authprovider.ClientSecret{Env: "EXAMPLE_CLIENT_SECRET"},
+        Scopes:   []string{"openid", "email", "profile"},
+        PKCE:     true,
+    },
+    "example-oauth": {
+        Name:         "example-oauth",
+        Kind:         authprovider.KindOAuth2,
+        Issuer:       "https://oauth.example",
+        ClientID:     cfg.OAuthClientID,
+        ClientSecret: authprovider.ClientSecret{Value: cfg.OAuthClientSecret},
+        AuthorizeURL: "https://oauth.example/authorize",
+        TokenURL:     "https://oauth.example/token",
+        UserInfoURL:  "https://oauth.example/me",
+        Scopes:       []string{"profile", "email"},
+        PKCE:         true,
+        UserMapping: authprovider.UserMapping{
+            Subject:           authprovider.FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
+            Email:             authprovider.FieldMapping{Path: "email", Transforms: []string{"trim"}},
+            EmailVerified:     authprovider.FieldMapping{Path: "email_verified"},
+            PreferredUsername: authprovider.FieldMapping{Path: "username"},
+            DisplayName:       authprovider.FieldMapping{Path: "name"},
+        },
+    },
+    "apple": {
+        Name:     "apple",
+        Kind:     authprovider.KindOIDC,
+        Issuer:   "https://appleid.apple.com",
+        ClientID: "com.example.web",
+        Scopes:   []string{"openid", "email", "name"},
+        ExtraAuthParams: map[string]string{"response_mode": "form_post"},
+        ClientSecret: authprovider.ClientSecret{
+            Strategy: "apple_jwt",
+            AppleJWT: &authprovider.AppleJWTSecret{
+                TeamID:        cfg.AppleTeamID,
+                KeyID:         cfg.AppleKeyID,
+                PrivateKeyEnv: "APPLE_PRIVATE_KEY_PEM",
+            },
+        },
+    },
+}
+```
+
 ---
 
 Entitlements Provider (Optional)
@@ -215,7 +269,7 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 
 Notes
 - No extra app code needed for OIDC state or user linking — handled internally with Redis (if provided) or a built-in in-memory cache, plus the default resolver.
-- Apple: prefer `oidckit.AppleWithKey(...)` which mints a fresh ES256 client_secret JWT per request; no manual rotation needed.
+- Apple: prefer a provider descriptor with `ClientSecret.Strategy: "apple_jwt"` for config-first setup. `oidckit.AppleWithKey(...)` remains available for code-owned wiring.
 
 Token/session model
 - AuthKit assumes a browser-managed bearer-token model, not cookie sessions.

@@ -17,9 +17,9 @@ func DefaultExchanger(ctx context.Context, rpClient rp.RelyingParty, provider, c
 	// Step 1: Exchange authorization code for tokens using OAuth2 directly (no ID token verification)
 	oauthConfig := rpClient.OAuthConfig()
 
-	// Add PKCE verifier to the token exchange
+	// Add PKCE verifier to the token exchange when the start step used PKCE.
 	var opts []oauth2.AuthCodeOption
-	if provider != "apple" {
+	if verifier != "" {
 		opts = append(opts, oauth2.SetAuthURLParam("code_verifier", verifier))
 	}
 

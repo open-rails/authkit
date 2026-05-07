@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/authprovider"
 	core "github.com/open-rails/authkit/core"
 	oidckit "github.com/open-rails/authkit/oidc"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
@@ -22,6 +23,8 @@ type Service struct {
 	rl            RateLimiter
 	clientIP      ClientIPFunc
 	oidcProviders map[string]oidckit.RPConfig
+	providers     map[string]authprovider.Provider
+	memStateCache oidckit.StateCache
 	solanaDomain  string // Domain for SIWS messages (optional, derived from request if empty)
 	langCfg       *LanguageConfig
 	authlogr      core.AuthEventLogReader
@@ -74,6 +77,8 @@ func NewService(cfg core.Config) (*Service, error) {
 		svc:           coreSvc,
 		verifier:      ver,
 		oidcProviders: cfg.Providers,
+		providers:     cfg.ProviderDescriptors,
+		memStateCache: memorystore.NewStateCache(15 * time.Minute),
 		rl:            memorylimiter.New(ToMemoryLimits(DefaultRateLimits())),
 		clientIP:      DefaultClientIP(),
 	}
@@ -141,5 +146,8 @@ func (s *Service) stateCache() oidckit.StateCache {
 	if s.rd != nil {
 		return redisstore.NewStateCache(s.rd, "auth:oidc:state:", 0)
 	}
-	return memorystore.NewStateCache(15 * time.Minute)
+	if s.memStateCache == nil {
+		s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
+	}
+	return s.memStateCache
 }

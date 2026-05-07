@@ -457,7 +457,6 @@
         "[x] Add VerifierOption type and constructors: WithSkew(time.Duration), WithAlgorithms([]string), WithHTTPClient(*http.Client), WithOrgMode(string)",
         "[x] Replace Verifier.accept (core.AcceptConfig) with flat fields: skew time.Duration, algorithms []string, orgMode string",
         "[x] Default skew to 60s, default algorithms to [\"RS256\"] (same as today)",
-
         "",
         "=== STEP 2: Fold core.IssuerAccept into private issuerEntry, merge useful fields into IssuerOptions ===",
         "[x] Add CacheTTL, MaxStale, PinnedRSAPEM fields to authhttp.IssuerOptions (moved from core.IssuerAccept)",
@@ -467,13 +466,11 @@
         "[x] Update AddIssuer to build issuerEntry from IssuerOptions + handle RawKeys (seed pubByKID directly from the map, no PEM parsing)",
         "[x] Update RemoveIssuer, matchIssuer, publicKeyFor, refreshIssuerKeys to use issuerEntry",
         "[x] Remove AcceptConfig() method from Verifier",
-
         "",
         "=== STEP 3: Verify returns Claims instead of jwt.MapClaims ===",
         "[x] Change Verify(tokenStr string) (jwt.MapClaims, error) to Verify(tokenStr string) (Claims, error)",
         "[x] Move the MapClaims-to-Claims extraction into Verify: sub, email, email_verified, username, discord_username, sid, org, roles/org_roles (org_mode-aware using v.orgMode), entitlements, iss, user_tier/plan, jti",
         "[x] Claims struct stays in authhttp package (no core dependency needed since core.Verifier is gone)",
-
         "",
         "=== STEP 4: Middleware takes *Verifier, calls Verify ===",
         "[x] Change Required(svc core.Verifier) to Required(v *Verifier)",
@@ -481,7 +478,6 @@
         "[x] Rewrite Required: bearerToken() -> v.Verify(token) -> enrichment (roles, email, discord from v.enrich if set; user gate via v.enrich.IsUserAllowed if set) -> setClaims(ctx) -> next",
         "[x] Remove the two-branch verification logic (~90 lines of duplicated issuer/audience/expiry checking)",
         "[x] Ensure error codes remain stable: missing_token, invalid_token, bad_issuer, bad_audience, missing_exp, token_expired, token_not_yet_valid, user_disabled",
-
         "",
         "=== STEP 5: authhttp.Service creates a Verifier internally (issuing-mode integration) ===",
         "[x] Add core.Service.PublicKeysByKID() map[string]*rsa.PublicKey method (exposes keys.PublicKeys for Verifier injection)",
@@ -492,7 +488,6 @@
         "[x] Update handlers.go: required := Required(s.verifier) instead of Required(s.svc)",
         "[x] Update s.JWKSHandler() to use s.svc.JWKS() directly (no core.Verifier needed)",
         "[x] Change standalone JWKSHandler(svc core.Verifier) to JWKSHandler(jwks jwtkit.JWKS)",
-
         "",
         "=== STEP 6: Remove dead Verifier methods that only existed to satisfy core.Verifier ===",
         "[x] Remove Verifier.JWKS() (returned empty JWKS{} — only existed to satisfy interface)",
@@ -501,18 +496,15 @@
         "[x] Remove Verifier.ListRoleSlugsByUser (enrichment now handled inside middleware via v.enrich directly)",
         "[x] Remove Verifier.GetProviderUsername (same reason)",
         "[x] Remove Verifier.GetEmailByUserID (same reason)",
-
         "",
         "=== STEP 7: Delete core.Verifier interface + core.AcceptConfig + core.IssuerAccept ===",
         "[x] Delete core.Verifier interface from core/provider.go",
         "[x] Delete core/accept.go (AcceptConfig + IssuerAccept)",
         "[x] Remove any remaining references/imports of core.Verifier across the codebase",
-
         "",
         "=== STEP 8: RequireAdmin — confirm no changes needed ===",
         "[x] RequireAdmin(pg *pgxpool.Pool) does not use core.Verifier — confirmed no changes needed",
         "[x] JWKSHandler in handlers_test.go: updated to pass JWKS directly via core.Service.JWKS()",
-
         "",
         "=== STEP 9: Update all callers + tests ===",
         "[x] testing/issuer_test.go: NewVerifier(core.AcceptConfig{...}) -> NewVerifier(WithSkew(...), WithAlgorithms(...)) + AddIssuer(...). Verify return: claims.UserID instead of claims[\"sub\"]",
@@ -522,7 +514,6 @@
         "[x] http/handlers_test.go: added newTestService() helper, TestJWKSHandler passes JWKS directly",
         "[x] http/error_shapes_test.go, admin_reserved_accounts_test.go, org_mode_routes_test.go: updated to use newTestService()/newTestServiceWithOrgMode()",
         "[x] README.md: updated examples to use NewVerifier() + AddIssuer pattern, removed core.AcceptConfig/IssuerAccept references",
-
         "",
         "=== STEP 10: Verify + test ===",
         "[x] go test ./... passes",
@@ -691,6 +682,28 @@
         "[x] `~/cozy/cozy-art`: consider replacing the local SendGrid sender with the improved AuthKit email adapter if it covers required verification/reset behavior; otherwise keep a local sender with no `doujins-email` dependency.",
         "[x] Search all active local repos with `rg -n \"doujins-email|github.com/doujins-org/doujins-email\" /home/fidika` and remove every live code, config, module, and doc reference.",
         "[x] Decide whether archived tracker files (`agents/completed.json`, old TODO archives) should be rewritten to remove historical `doujins-email` mentions; no historical archive rewrite was needed because the only remaining active mention is this tracking issue."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Config-first pluggable OAuth2/OIDC providers",
+      "id_number": 36,
+      "description": "Move external identity provider support toward a provider descriptor model where OAuth2 and OIDC providers are registered from configuration first, with code hooks only for genuinely non-declarative behavior.\n\nGoal:\n- Adding a normal OIDC provider should be pure configuration: name, kind=oidc, issuer, scopes, optional extra auth params, and standard claim mapping.\n- Adding a simple OAuth2 provider should be pure configuration: name, kind=oauth2, issuer, authorize/token/userinfo URLs, scopes, PKCE flag, and JSON path mappings from provider userinfo to AuthKit's normalized identity shape.\n- Provider-specific code should be reserved for special cases such as Apple's dynamic client secret JWT or OAuth2 providers that require secondary API calls or nontrivial transforms.\n\nTarget descriptor concepts:\n- Common fields: name, kind, issuer, client_id, client_secret, scopes, pkce, extra_auth_params.\n- OIDC fields: discovery/issuer config and optional claim mapping, defaulting to standard OIDC claims (`sub`, `email`, `email_verified`, `preferred_username`, `name`).\n- OAuth2 fields: authorize_url, token_url, userinfo_url, user_mapping with JSON paths for subject/email/email_verified/preferred_username/display_name.\n- Optional fallback lookups: e.g. GitHub primary verified email from `/user/emails` using declarative array selection.\n- Secret strategies: literal/env secrets for normal providers; `client_secret.strategy=apple_jwt` with team_id/key_id/private_key/ttl for Apple.\n\nArchitectural constraint:\n- The browser login/link/reauth/session flow must remain shared. Provider descriptors only define how to start provider auth and normalize provider identity into `{issuer, subject, email, email_verified, preferred_username, display_name}`.",
+      "tasks": [
+        "[x] Define a neutral provider descriptor type covering both `kind=oidc` and `kind=oauth2` providers.",
+        "[x] Define declarative identity mapping: JSON/claim dot paths, static booleans, optional transforms such as string conversion/trim/lowercase.",
+        "[x] Define declarative fallback lookup support for simple secondary API calls, including array selection by equality filters (needed for GitHub verified primary email).",
+        "[x] Define `client_secret` sources: literal value, env var, and named strategy.",
+        "[x] Implement `client_secret.strategy=apple_jwt` using the existing Apple ES256 JWT secret provider.",
+        "[x] Convert built-in OIDC providers (Google, Apple) into descriptors; keep Apple-specific behavior isolated in the secret strategy.",
+        "[x] Convert built-in OAuth2 providers (Discord, GitHub) into descriptors; keep GitHub's email fallback declarative if the mapping model supports it cleanly.",
+        "[x] Teach the OIDC manager to build provider config from descriptors instead of provider-specific switch/table code.",
+        "[x] Teach the OAuth2 browser flow to build authorize/token/userinfo behavior from descriptors and the shared mapper.",
+        "[x] Keep an internal hook escape hatch for providers that cannot be represented declaratively, but make pure config the default path.",
+        "[x] Add tests showing a new simple OIDC provider can be added using only descriptor data.",
+        "[x] Add tests showing a new simple OAuth2 provider can be added using only descriptor data.",
+        "[x] Add regression tests for Google, Apple, Discord, and GitHub descriptors.",
+        "[x] Document descriptor examples for Google, Apple, Discord, GitHub, and a custom provider."
       ],
       "completed": true
     }

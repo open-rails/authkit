@@ -36,6 +36,7 @@ func (s *Service) APIHandler() http.Handler {
 	// Registration + login
 	mux.Handle("POST /password/login", http.HandlerFunc(s.handlePasswordLoginPOST))
 	mux.Handle("POST /register", http.HandlerFunc(s.handleRegisterUnifiedPOST))
+	mux.Handle("GET /register/availability", http.HandlerFunc(s.handleRegisterAvailabilityGET))
 	mux.Handle("POST /register/resend-email", http.HandlerFunc(s.handlePendingRegistrationResendPOST))
 	mux.Handle("POST /register/resend-phone", http.HandlerFunc(s.handlePhoneRegisterResendPOST))
 	// Public owner slug lookup (org/user) with namespace state + canonical public metadata.

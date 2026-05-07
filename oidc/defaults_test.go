@@ -1,19 +1,34 @@
 package oidckit
 
-import "testing"
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"testing"
+	"time"
 
-func TestNewManagerFromMinimalDoesNotForceOpenIDForDiscord(t *testing.T) {
-	m := NewManagerFromMinimal(map[string]RPConfig{
-		"discord": {ClientID: "discord-client"},
-	})
-	rp, ok := m.Provider("discord")
-	if !ok {
-		t.Fatalf("expected discord provider")
-	}
-	for _, scope := range rp.Scopes {
-		if scope == "openid" {
-			t.Fatalf("discord is OAuth2, not OIDC; scopes must not force openid: %v", rp.Scopes)
-		}
+	"github.com/open-rails/authkit/authprovider"
+)
+
+func TestNewManagerFromMinimalDoesNotForceOpenIDForOAuth2Providers(t *testing.T) {
+	for _, provider := range []string{"discord", "github"} {
+		t.Run(provider, func(t *testing.T) {
+			m := NewManagerFromMinimal(map[string]RPConfig{
+				provider: {ClientID: provider + "-client"},
+			})
+			rp, ok := m.Provider(provider)
+			if !ok {
+				t.Fatalf("expected %s provider", provider)
+			}
+			for _, scope := range rp.Scopes {
+				if scope == "openid" {
+					t.Fatalf("%s is OAuth2, not OIDC; scopes must not force openid: %v", provider, rp.Scopes)
+				}
+			}
+		})
 	}
 }
 
@@ -31,4 +46,98 @@ func TestNewManagerFromMinimalKeepsOpenIDForOIDCProviders(t *testing.T) {
 		}
 	}
 	t.Fatalf("google is OIDC; scopes must include openid: %v", rp.Scopes)
+}
+
+func TestNewManagerFromProvidersAcceptsCustomOIDCDescriptor(t *testing.T) {
+	m := NewManagerFromProviders(map[string]authprovider.Provider{
+		"example": {
+			Name:         "example",
+			Kind:         authprovider.KindOIDC,
+			Issuer:       "https://issuer.example",
+			ClientID:     "example-client",
+			ClientSecret: authprovider.ClientSecret{Value: "example-secret"},
+			Scopes:       []string{"email"},
+			PKCE:         true,
+		},
+	})
+	rp, ok := m.Provider("example")
+	if !ok {
+		t.Fatalf("expected example provider")
+	}
+	if rp.Issuer != "https://issuer.example" || rp.ClientID != "example-client" || rp.ClientSecret != "example-secret" {
+		t.Fatalf("unexpected rp config: %+v", rp)
+	}
+	if !rp.PKCE {
+		t.Fatalf("expected custom OIDC provider to keep PKCE flag")
+	}
+	for _, scope := range rp.Scopes {
+		if scope == "openid" {
+			return
+		}
+	}
+	t.Fatalf("custom OIDC provider must include openid: %v", rp.Scopes)
+}
+
+func TestNewManagerFromProvidersAcceptsCustomOAuth2Descriptor(t *testing.T) {
+	m := NewManagerFromProviders(map[string]authprovider.Provider{
+		"example-oauth": {
+			Name:         "example-oauth",
+			Kind:         authprovider.KindOAuth2,
+			Issuer:       "https://oauth.example",
+			ClientID:     "oauth-client",
+			ClientSecret: authprovider.ClientSecret{Value: "oauth-secret"},
+			Scopes:       []string{"profile"},
+		},
+	})
+	rp, ok := m.Provider("example-oauth")
+	if !ok {
+		t.Fatalf("expected example oauth provider")
+	}
+	for _, scope := range rp.Scopes {
+		if scope == "openid" {
+			t.Fatalf("custom OAuth2 provider must not force openid: %v", rp.Scopes)
+		}
+	}
+}
+
+func TestAppleJWTClientSecretStrategyBuildsSecretProvider(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+
+	rp, err := RPClientFromProvider(authprovider.Provider{
+		Name:     "apple",
+		Kind:     authprovider.KindOIDC,
+		Issuer:   "https://appleid.apple.com",
+		ClientID: "com.example.web",
+		ClientSecret: authprovider.ClientSecret{
+			Strategy: "apple_jwt",
+			AppleJWT: &authprovider.AppleJWTSecret{
+				TeamID:        "TEAMID1234",
+				KeyID:         "KEYID1234",
+				PrivateKeyPEM: pemBytes,
+				TTL:           time.Minute,
+			},
+		},
+		Scopes: []string{"openid", "email"},
+	})
+	if err != nil {
+		t.Fatalf("RPClientFromProvider returned error: %v", err)
+	}
+	if rp.ClientSecretProvider == nil {
+		t.Fatalf("expected apple_jwt strategy to build a secret provider")
+	}
+	secret, err := rp.ClientSecretProvider(context.Background())
+	if err != nil {
+		t.Fatalf("secret provider returned error: %v", err)
+	}
+	if secret == "" {
+		t.Fatalf("expected signed apple client secret")
+	}
 }

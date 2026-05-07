@@ -22,11 +22,12 @@ func DefaultRateLimits() map[string]Limit {
 		"default": {Limit: 120, Window: time.Minute},
 
 		// Registration + login + token exchange
-		RLAuthToken:               {Limit: 30, Window: time.Minute},
-		RLAuthRegister:            {Limit: 10, Window: time.Hour},
-		RLAuthRegisterResendEmail: {Limit: 6, Window: 10 * time.Minute},
-		RLAuthRegisterResendPhone: {Limit: 6, Window: 10 * time.Minute},
-		RLPasswordLogin:           {Limit: 20, Window: time.Hour},
+		RLAuthToken:                {Limit: 30, Window: time.Minute},
+		RLAuthRegister:             {Limit: 10, Window: time.Hour},
+		RLAuthRegisterAvailability: {Limit: 120, Window: time.Minute},
+		RLAuthRegisterResendEmail:  {Limit: 6, Window: 10 * time.Minute},
+		RLAuthRegisterResendPhone:  {Limit: 6, Window: 10 * time.Minute},
+		RLPasswordLogin:            {Limit: 20, Window: time.Hour},
 
 		// Logout + sessions
 		RLAuthLogout:          {Limit: 60, Window: 10 * time.Minute},
