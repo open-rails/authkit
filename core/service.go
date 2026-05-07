@@ -922,6 +922,35 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 	return nil
 }
 
+func (s *Service) SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error {
+	if s.pg == nil {
+		return jwt.ErrTokenUnverifiable
+	}
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("invalid_user")
+	}
+	if err := password.Validate(new); err != nil {
+		return err
+	}
+	phc, err := password.HashArgon2id(new)
+	if err != nil {
+		return err
+	}
+	if err := s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil); err != nil {
+		return err
+	}
+	ctx = WithSessionRevokeReason(ctx, SessionRevokeReasonPasswordChange)
+	if err := s.RevokeAllSessions(ctx, userID, keepSessionID); err != nil {
+		return err
+	}
+	sessionID := ""
+	if keepSessionID != nil {
+		sessionID = *keepSessionID
+	}
+	s.LogPasswordChanged(ctx, userID, sessionID, nil, nil)
+	return nil
+}
+
 type VerificationMessage struct {
 	// Fixed-length numeric code for manual entry (optional).
 	Code string
@@ -2274,6 +2303,11 @@ func (s *Service) ConfirmEmailChange(ctx context.Context, userID, code string) e
 	}
 
 	// Different email - this is an email change request
+	existing, _ := s.getUserByEmail(ctx, *rec.Email)
+	if existing != nil && existing.ID != userID {
+		return fmt.Errorf("email already in use")
+	}
+
 	// Update the email and mark as verified
 	_, err = s.pg.Exec(ctx, `UPDATE profiles.users SET email=lower($2), email_verified=true, updated_at=NOW() WHERE id=$1`, userID, *rec.Email)
 	if err != nil {

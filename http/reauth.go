@@ -1,0 +1,234 @@
+package authhttp
+
+import (
+	"errors"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	core "github.com/open-rails/authkit/core"
+	oidckit "github.com/open-rails/authkit/oidc"
+)
+
+func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
+		unauthorized(w, "not_authenticated")
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.Password == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if !s.svc.VerifyUserPassword(r.Context(), claims.UserID, body.Password) {
+		unauthorized(w, "invalid_password")
+		return
+	}
+	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
+		serverErr(w, "reauth_failed")
+		return
+	}
+	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"fresh_auth": sessionFreshnessResponse(freshness),
+	})
+}
+
+func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Request) {
+	provider := strings.TrimSpace(r.PathValue("provider"))
+	if strings.EqualFold(provider, "discord") {
+		badRequest(w, "unsupported_reauth_provider")
+		return
+	}
+	if !s.allow(r, RLOIDCStart) {
+		tooMany(w)
+		return
+	}
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
+		unauthorized(w, "not_authenticated")
+		return
+	}
+
+	var body struct {
+		ReturnTo string `json:"return_to"`
+	}
+	_ = decodeJSON(r, &body)
+
+	manager := s.oidcManager()
+	issuer, ok := manager.IssuerFor(provider)
+	if !ok || strings.TrimSpace(issuer) == "" {
+		badRequest(w, "unknown_provider")
+		return
+	}
+	if !s.userHasLinkedIssuerProvider(r, claims.UserID, issuer, provider) {
+		badRequest(w, "provider_not_linked")
+		return
+	}
+
+	state := randB64(32)
+	nonce := randB64(16)
+	verifier, challenge, err := oidckit.GeneratePKCE()
+	if err != nil {
+		serverErr(w, "pkce_generation_failed")
+		return
+	}
+	redirectURI := buildRedirectURI(r, provider)
+	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
+	if err != nil {
+		badRequest(w, "oidc_begin_failed")
+		return
+	}
+	if err := s.stateCache().Put(r.Context(), state, oidckit.StateData{
+		Provider:        provider,
+		Verifier:        verifier,
+		Nonce:           nonce,
+		RedirectURI:     redirectURI,
+		ReauthUserID:    claims.UserID,
+		ReauthSessionID: claims.SessionID,
+		ReauthReturnTo:  sanitizeReauthReturnTo(body.ReturnTo),
+	}); err != nil {
+		serverErr(w, "state_store_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"auth_url": authURL, "state": state})
+}
+
+func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, provider string) bool {
+	pg := s.svc.Postgres()
+	if pg == nil {
+		return false
+	}
+	var exists bool
+	err := pg.QueryRow(r.Context(), `
+		SELECT EXISTS (
+			SELECT 1
+			FROM profiles.user_providers
+			WHERE user_id = $1::uuid
+			  AND issuer = $2
+			  AND provider_slug = $3
+		)
+	`, strings.TrimSpace(userID), strings.TrimSpace(issuer), strings.TrimSpace(provider)).Scan(&exists)
+	return err == nil && exists
+}
+
+func (s *Service) completeOIDCReauth(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, provider, issuer, subject string) bool {
+	if strings.TrimSpace(sd.ReauthUserID) == "" {
+		return false
+	}
+	userID, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, subject)
+	if err != nil || userID != sd.ReauthUserID {
+		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+		return true
+	}
+	if err := s.svc.MarkSessionAuthenticated(r.Context(), sd.ReauthUserID, sd.ReauthSessionID); err != nil {
+		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+		return true
+	}
+	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
+		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.ReauthUserID, sd.ReauthSessionID, time.Now())
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "fresh_auth": sessionFreshnessResponse(freshness), "provider": provider})
+		return true
+	}
+	redirectReauthResult(w, r, sd.ReauthReturnTo, "success")
+	return true
+}
+
+func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims Claims, password string) bool {
+	if _, err := s.svc.RequireFreshSession(r.Context(), claims.UserID, claims.SessionID, time.Now()); err == nil {
+		return true
+	} else if !errors.Is(err, core.ErrReauthenticationRequired) {
+		unauthorized(w, "not_authenticated")
+		return false
+	}
+	if password != "" {
+		if !s.svc.VerifyUserPassword(r.Context(), claims.UserID, password) {
+			unauthorized(w, "invalid_password")
+			return false
+		}
+		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
+			serverErr(w, "reauth_failed")
+			return false
+		}
+		return true
+	}
+	s.reauthRequired(w, r, claims)
+	return false
+}
+
+func (s *Service) reauthRequired(w http.ResponseWriter, r *http.Request, claims Claims) {
+	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+	writeJSON(w, http.StatusForbidden, map[string]any{
+		"error":          "reauth_required",
+		"reauth_methods": s.reauthMethods(r, claims.UserID),
+		"fresh_auth":     sessionFreshnessResponse(freshness),
+	})
+}
+
+func (s *Service) reauthMethods(r *http.Request, userID string) []string {
+	methods := []string{}
+	if s.svc.HasPassword(r.Context(), userID) {
+		methods = append(methods, "password")
+	}
+	pg := s.svc.Postgres()
+	if pg == nil {
+		return methods
+	}
+	rows, err := pg.Query(r.Context(), `
+		SELECT DISTINCT provider_slug
+		FROM profiles.user_providers
+		WHERE user_id = $1::uuid
+		  AND provider_slug IS NOT NULL
+		ORDER BY provider_slug
+	`, strings.TrimSpace(userID))
+	if err != nil {
+		return methods
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var provider string
+		if err := rows.Scan(&provider); err != nil || strings.EqualFold(strings.TrimSpace(provider), "discord") {
+			continue
+		}
+		if _, ok := s.oidcManager().IssuerFor(provider); ok {
+			methods = append(methods, provider)
+		}
+	}
+	return methods
+}
+
+func sessionFreshnessResponse(f core.SessionFreshness) map[string]any {
+	out := map[string]any{
+		"reauth_required_for_sensitive_actions": f.ReauthRequiredForSensitiveOps,
+		"time_until_reauth_required":            int64((f.TimeUntilReauthRequired + time.Second - time.Nanosecond) / time.Second),
+	}
+	if !f.LastAuthenticatedAt.IsZero() {
+		out["last_authenticated_at"] = f.LastAuthenticatedAt.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+func sanitizeReauthReturnTo(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") {
+		return "/"
+	}
+	return value
+}
+
+func redirectReauthResult(w http.ResponseWriter, r *http.Request, returnTo, status string) {
+	target := sanitizeReauthReturnTo(returnTo)
+	u, err := url.Parse(target)
+	if err != nil || u == nil {
+		u = &url.URL{Path: "/"}
+	}
+	q := u.Query()
+	q.Set("reauth", status)
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}

@@ -117,6 +117,11 @@ type StateData struct {
 	Nonce       string
 	RedirectURI string
 	LinkUserID  string
-	UI          string // "popup" to trigger popup HTML callback; else redirect
-	PopupNonce  string // echoed in popup postMessage for opener validation
+	// Reauth* fields identify a step-up reauthentication flow for an existing
+	// session. Login/link flows leave these empty.
+	ReauthUserID    string
+	ReauthSessionID string
+	ReauthReturnTo  string
+	UI              string // "popup" to trigger popup HTML callback; else redirect
+	PopupNonce      string // echoed in popup postMessage for opener validation
 }

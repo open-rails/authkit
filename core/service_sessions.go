@@ -8,19 +8,31 @@ import (
 	"strings"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 )
 
 // Session represents a sanitized session view (no tokens).
 type Session struct {
-	ID         string
-	FamilyID   string
-	CreatedAt  time.Time
-	LastUsedAt time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
-	UserAgent  *string
-	IPAddr     *string
+	ID                  string
+	FamilyID            string
+	CreatedAt           time.Time
+	LastAuthenticatedAt *time.Time
+	LastUsedAt          time.Time
+	ExpiresAt           *time.Time
+	RevokedAt           *time.Time
+	UserAgent           *string
+	IPAddr              *string
+}
+
+const SensitiveActionFreshAuthWindow = 30 * time.Minute
+
+var ErrReauthenticationRequired = errors.New("reauth_required")
+
+type SessionFreshness struct {
+	LastAuthenticatedAt           time.Time
+	TimeUntilReauthRequired       time.Duration
+	ReauthRequiredForSensitiveOps bool
 }
 
 // IssueRefreshSession creates a session row and returns a new refresh token string.
@@ -52,8 +64,8 @@ func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent str
 		ipstr = &v
 	}
 	// Insert row
-	q := `INSERT INTO profiles.refresh_sessions (user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr)
-          VALUES ($1,$2,$3,$4,$5,$6)
+	q := `INSERT INTO profiles.refresh_sessions (user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,now())
           RETURNING id::text, family_id::text`
 	if err = s.pg.QueryRow(ctx, q, userID, s.opts.Issuer, hash, expPtr, nullable(userAgent), ipstr).Scan(&sid, &fam); err != nil {
 		return "", "", nil, err
@@ -195,7 +207,7 @@ func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	if s.pg == nil {
 		return nil, nil
 	}
-	q := `SELECT id::text, family_id::text, created_at, last_used_at, expires_at, revoked_at,
+	q := `SELECT id::text, family_id::text, created_at, last_authenticated_at, last_used_at, expires_at, revoked_at,
                  user_agent, COALESCE(NULLIF(host(ip_addr)::text,''), NULL)
           FROM profiles.refresh_sessions
           WHERE user_id=$1 AND issuer=$2 AND (revoked_at IS NULL)`
@@ -208,14 +220,91 @@ func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	for rows.Next() {
 		var sID, fam string
 		var created, lastUsed time.Time
+		var lastAuth *time.Time
 		var expires, revoked *time.Time
 		var ua, ip *string
-		if err := rows.Scan(&sID, &fam, &created, &lastUsed, &expires, &revoked, &ua, &ip); err != nil {
+		if err := rows.Scan(&sID, &fam, &created, &lastAuth, &lastUsed, &expires, &revoked, &ua, &ip); err != nil {
 			return nil, err
 		}
-		out = append(out, Session{ID: sID, FamilyID: fam, CreatedAt: created, LastUsedAt: lastUsed, ExpiresAt: expires, RevokedAt: revoked, UserAgent: ua, IPAddr: ip})
+		out = append(out, Session{ID: sID, FamilyID: fam, CreatedAt: created, LastAuthenticatedAt: lastAuth, LastUsedAt: lastUsed, ExpiresAt: expires, RevokedAt: revoked, UserAgent: ua, IPAddr: ip})
 	}
 	return out, rows.Err()
+}
+
+func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
+	if s.pg == nil {
+		return SessionFreshness{}, errors.New("postgres not configured")
+	}
+	userID = strings.TrimSpace(userID)
+	sessionID = strings.TrimSpace(sessionID)
+	if userID == "" || sessionID == "" {
+		return SessionFreshness{}, jwt.ErrTokenInvalidClaims
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	var freshSince time.Time
+	err := s.pg.QueryRow(ctx, `
+		SELECT COALESCE(last_authenticated_at, created_at)
+		FROM profiles.refresh_sessions
+		WHERE id = $1::uuid
+		  AND user_id = $2::uuid
+		  AND issuer = $3
+		  AND revoked_at IS NULL
+		  AND (expires_at IS NULL OR expires_at > now())
+	`, sessionID, userID, s.opts.Issuer).Scan(&freshSince)
+	if err != nil {
+		return SessionFreshness{}, err
+	}
+
+	remaining := SensitiveActionFreshAuthWindow - now.Sub(freshSince)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return SessionFreshness{
+		LastAuthenticatedAt:           freshSince,
+		TimeUntilReauthRequired:       remaining,
+		ReauthRequiredForSensitiveOps: remaining <= 0,
+	}, nil
+}
+
+func (s *Service) RequireFreshSession(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
+	freshness, err := s.SessionFreshness(ctx, userID, sessionID, now)
+	if err != nil {
+		return SessionFreshness{}, err
+	}
+	if freshness.ReauthRequiredForSensitiveOps {
+		return freshness, ErrReauthenticationRequired
+	}
+	return freshness, nil
+}
+
+func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
+	if s.pg == nil {
+		return errors.New("postgres not configured")
+	}
+	userID = strings.TrimSpace(userID)
+	sessionID = strings.TrimSpace(sessionID)
+	if userID == "" || sessionID == "" {
+		return jwt.ErrTokenInvalidClaims
+	}
+	tag, err := s.pg.Exec(ctx, `
+		UPDATE profiles.refresh_sessions
+		SET last_authenticated_at = now()
+		WHERE id = $1::uuid
+		  AND user_id = $2::uuid
+		  AND issuer = $3
+		  AND revoked_at IS NULL
+		  AND (expires_at IS NULL OR expires_at > now())
+	`, sessionID, userID, s.opts.Issuer)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return jwt.ErrTokenInvalidClaims
+	}
+	return nil
 }
 
 // ResolveSessionByRefresh finds the session id for a presented refresh token, if valid and active.

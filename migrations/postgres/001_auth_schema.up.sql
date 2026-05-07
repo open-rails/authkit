@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS profiles.refresh_sessions (
     current_token_hash  bytea NOT NULL,
     previous_token_hash bytea,
     created_at          timestamptz NOT NULL DEFAULT now(),
+    last_authenticated_at timestamptz,
     last_used_at        timestamptz NOT NULL DEFAULT now(),
     expires_at          timestamptz,
     revoked_at          timestamptz,

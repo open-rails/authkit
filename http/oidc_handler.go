@@ -9,6 +9,7 @@ import (
 // OIDCHandler returns a handler that serves browser redirect flows:
 // - GET /oidc/{provider}/login
 // - GET /oidc/{provider}/callback
+// - GET /oidc/{provider}/reauth/callback
 func (s *Service) OIDCHandler() http.Handler {
 	if s == nil || s.svc == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, "authkit_not_initialized") })
@@ -17,6 +18,7 @@ func (s *Service) OIDCHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /oidc/{provider}/login", http.HandlerFunc(s.handleOIDCLoginGET))
 	mux.Handle("GET /oidc/{provider}/callback", http.HandlerFunc(s.handleOIDCCallbackGET))
+	mux.Handle("GET /oidc/{provider}/reauth/callback", http.HandlerFunc(s.handleOIDCCallbackGET))
 
 	h := http.Handler(mux)
 	h = LanguageMiddleware(s.langCfg)(h)

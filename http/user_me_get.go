@@ -7,22 +7,25 @@ import (
 )
 
 type userMeResponse struct {
-	ID               string           `json:"id"`
-	Email            *string          `json:"email"`
-	PhoneNumber      *string          `json:"phone_number"`
-	Username         string           `json:"username"`
-	DiscordUsername  *string          `json:"discord_username,omitempty"`
-	SolanaAddress    *string          `json:"solana_address,omitempty"`
-	LinkedProviders  []string         `json:"linked_providers,omitempty"`
-	EnabledProviders []string         `json:"enabled_providers,omitempty"`
-	EmailVerified    bool             `json:"email_verified"`
-	PhoneVerified    bool             `json:"phone_verified"`
-	HasPassword      bool             `json:"has_password"`
-	Roles            *[]string        `json:"roles,omitempty"`
-	Orgs             *[]orgMembership `json:"orgs,omitempty"`
-	Entitlements     []string         `json:"entitlements"`
-	Biography        *string          `json:"biography,omitempty"`
-	CreatedAt        *string          `json:"created_at,omitempty"`
+	ID                                string           `json:"id"`
+	Email                             *string          `json:"email"`
+	PhoneNumber                       *string          `json:"phone_number"`
+	Username                          string           `json:"username"`
+	DiscordUsername                   *string          `json:"discord_username,omitempty"`
+	SolanaAddress                     *string          `json:"solana_address,omitempty"`
+	LinkedProviders                   []string         `json:"linked_providers,omitempty"`
+	EnabledProviders                  []string         `json:"enabled_providers,omitempty"`
+	EmailVerified                     bool             `json:"email_verified"`
+	PhoneVerified                     bool             `json:"phone_verified"`
+	HasPassword                       bool             `json:"has_password"`
+	Roles                             *[]string        `json:"roles,omitempty"`
+	Orgs                              *[]orgMembership `json:"orgs,omitempty"`
+	Entitlements                      []string         `json:"entitlements"`
+	Biography                         *string          `json:"biography,omitempty"`
+	CreatedAt                         *string          `json:"created_at,omitempty"`
+	LastAuthenticatedAt               *string          `json:"last_authenticated_at,omitempty"`
+	TimeUntilReauthRequired           *int64           `json:"time_until_reauth_required,omitempty"`
+	ReauthRequiredForSensitiveActions *bool            `json:"reauth_required_for_sensitive_actions,omitempty"`
 }
 
 type orgMembership struct {
@@ -120,24 +123,40 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		formatted := adminUser.CreatedAt.UTC().Format(time.RFC3339)
 		createdAt = &formatted
 	}
+	var lastAuthenticatedAt *string
+	var timeUntilReauthRequired *int64
+	var reauthRequiredForSensitiveActions *bool
+	if strings.TrimSpace(claims.SessionID) != "" {
+		if freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now()); err == nil {
+			formatted := freshness.LastAuthenticatedAt.UTC().Format(time.RFC3339)
+			lastAuthenticatedAt = &formatted
+			seconds := int64((freshness.TimeUntilReauthRequired + time.Second - time.Nanosecond) / time.Second)
+			timeUntilReauthRequired = &seconds
+			required := freshness.ReauthRequiredForSensitiveOps
+			reauthRequiredForSensitiveActions = &required
+		}
+	}
 
 	resp := userMeResponse{
-		ID:               adminUser.ID,
-		Email:            adminUser.Email,
-		PhoneNumber:      adminUser.PhoneNumber,
-		Username:         username,
-		DiscordUsername:  adminUser.DiscordUsername,
-		SolanaAddress:    solanaAddressPtr,
-		LinkedProviders:  linkedProviders,
-		EnabledProviders: enabledProviders,
-		EmailVerified:    adminUser.EmailVerified,
-		PhoneVerified:    adminUser.PhoneVerified,
-		HasPassword:      hasPassword,
-		Roles:            rolesPtr,
-		Orgs:             orgsPtr,
-		Entitlements:     adminUser.Entitlements,
-		Biography:        adminUser.Biography,
-		CreatedAt:        createdAt,
+		ID:                                adminUser.ID,
+		Email:                             adminUser.Email,
+		PhoneNumber:                       adminUser.PhoneNumber,
+		Username:                          username,
+		DiscordUsername:                   adminUser.DiscordUsername,
+		SolanaAddress:                     solanaAddressPtr,
+		LinkedProviders:                   linkedProviders,
+		EnabledProviders:                  enabledProviders,
+		EmailVerified:                     adminUser.EmailVerified,
+		PhoneVerified:                     adminUser.PhoneVerified,
+		HasPassword:                       hasPassword,
+		Roles:                             rolesPtr,
+		Orgs:                              orgsPtr,
+		Entitlements:                      adminUser.Entitlements,
+		Biography:                         adminUser.Biography,
+		CreatedAt:                         createdAt,
+		LastAuthenticatedAt:               lastAuthenticatedAt,
+		TimeUntilReauthRequired:           timeUntilReauthRequired,
+		ReauthRequiredForSensitiveActions: reauthRequiredForSensitiveActions,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

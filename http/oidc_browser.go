@@ -130,6 +130,9 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		unauthorized(w, "oidc_exchange_failed")
 		return
 	}
+	if s.completeOIDCReauth(w, r, sd, provider, issuer, claims.Subject) {
+		return
+	}
 
 	var userID, email string
 	created := false
@@ -151,7 +154,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		if strings.TrimSpace(provUsername) != "" {
 			_ = s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername)
 		}
-	} else if uid, provEmail, err := s.svc.GetProviderLink(r.Context(), provider, claims.Subject); err == nil && uid != "" {
+	} else if uid, provEmail, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject); err == nil && uid != "" {
 		userID = uid
 		if email == "" && provEmail != nil {
 			email = *provEmail

@@ -61,14 +61,12 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 		NewEmail string `json:"new_email"`
 		Password string `json:"password"`
 	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewEmail) == "" || body.Password == "" {
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewEmail) == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
 
-	_, _, err := s.svc.PasswordLoginByUserID(r.Context(), claims.UserID, body.Password, nil)
-	if err != nil {
-		unauthorized(w, "invalid_password")
+	if !s.requireFreshAuthOrPassword(w, r, claims, body.Password) {
 		return
 	}
 
@@ -113,6 +111,10 @@ func (s *Service) handleUserEmailChangeConfirmPOST(w http.ResponseWriter, r *htt
 
 	code := strings.ToUpper(strings.TrimSpace(body.Code))
 	if err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, code); err != nil {
+		if strings.Contains(err.Error(), "already in use") {
+			badRequest(w, "email_in_use")
+			return
+		}
 		badRequest(w, "invalid_or_expired_code")
 		return
 	}
@@ -166,14 +168,12 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 		NewPhone string `json:"phone_number"`
 		Password string `json:"password"`
 	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewPhone) == "" || body.Password == "" {
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewPhone) == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
 
-	_, _, err := s.svc.PasswordLoginByUserID(r.Context(), claims.UserID, body.Password, nil)
-	if err != nil {
-		unauthorized(w, "invalid_password")
+	if !s.requireFreshAuthOrPassword(w, r, claims, body.Password) {
 		return
 	}
 

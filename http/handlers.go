@@ -81,6 +81,7 @@ func (s *Service) APIHandler() http.Handler {
 		mux.Handle("DELETE /orgs/{org}/members/{user_id}/roles", required(http.HandlerFunc(s.handleOrgMemberRolesDELETE)))
 	}
 	mux.Handle("DELETE /logout", required(http.HandlerFunc(s.handleLogoutDELETE)))
+	mux.Handle("POST /reauth/password", required(http.HandlerFunc(s.handlePasswordReauthPOST)))
 	mux.Handle("POST /user/password", required(http.HandlerFunc(s.handleUserPasswordPOST)))
 	mux.Handle("GET /user/sessions", required(http.HandlerFunc(s.handleUserSessionsGET)))
 	mux.Handle("DELETE /user/sessions/{id}", required(http.HandlerFunc(s.handleUserSessionDELETE)))
@@ -91,6 +92,7 @@ func (s *Service) APIHandler() http.Handler {
 	// User routes
 	mux.Handle("PATCH /user/username", required(http.HandlerFunc(s.handleUserUsernamePATCH)))
 	mux.Handle("POST /oidc/{provider}/link/start", required(http.HandlerFunc(s.handleOIDCLinkStartPOST)))
+	mux.Handle("POST /oidc/{provider}/reauth/start", required(http.HandlerFunc(s.handleOIDCReauthStartPOST)))
 	mux.Handle("POST /user/email/change/request", required(http.HandlerFunc(s.handleUserEmailChangeRequestPOST)))
 	mux.Handle("POST /user/email/change/confirm", required(http.HandlerFunc(s.handleUserEmailChangeConfirmPOST)))
 	mux.Handle("POST /user/email/change/resend", required(http.HandlerFunc(s.handleUserEmailChangeResendPOST)))

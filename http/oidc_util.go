@@ -37,6 +37,8 @@ func buildRedirectURI(r *http.Request, provider string) string {
 		p = strings.TrimSuffix(p, "/login") + "/callback"
 	case strings.HasSuffix(p, "/link/start"):
 		p = strings.TrimSuffix(p, "/link/start") + "/callback"
+	case strings.HasSuffix(p, "/reauth/start"):
+		p = strings.TrimSuffix(p, "/reauth/start") + "/reauth/callback"
 	default:
 		if i := strings.Index(p, "/oidc/"); i >= 0 {
 			prefix := p[:i]

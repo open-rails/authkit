@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,17 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
 }
 
+func TestOIDCHandler_ReauthCallback_MissingStateOrCode(t *testing.T) {
+	s := newTestService(t)
+	h := s.OIDCHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/google/reauth/callback", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+}
+
 func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
 	s := newTestService(t)
 	h := s.OIDCHandler()
@@ -149,6 +161,44 @@ func TestBuildFrontendCallbackURL(t *testing.T) {
 	}
 }
 
+func TestBuildRedirectURI_ReauthStartUsesReauthCallback(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "https://auth.example/api/v1/oidc/google/reauth/start", nil)
+	got := buildRedirectURI(r, "google")
+	require.Equal(t, "https://auth.example/api/v1/oidc/google/reauth/callback", got)
+}
+
+func TestFreshReauthRouteContract(t *testing.T) {
+	reauthSrc := readHTTPSource(t, "reauth.go")
+	oidcBrowserSrc := readHTTPSource(t, "oidc_browser.go")
+	userRoutesSrc := readHTTPSource(t, "user_routes.go")
+	passwordSrc := readHTTPSource(t, "user_password_post.go")
+	userMeSrc := readHTTPSource(t, "user_me_get.go")
+
+	for _, marker := range []string{
+		"handlePasswordReauthPOST",
+		"handleOIDCReauthStartPOST",
+		"ReauthUserID",
+		"ReauthSessionID",
+		"GetProviderLinkByIssuer(r.Context(), issuer, subject)",
+		"MarkSessionAuthenticated",
+		"reauth_methods",
+	} {
+		require.Contains(t, reauthSrc, marker)
+	}
+	require.Contains(t, oidcBrowserSrc, "completeOIDCReauth")
+	require.Contains(t, oidcBrowserSrc, "GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject)")
+	require.Contains(t, userRoutesSrc, "requireFreshAuthOrPassword")
+	require.Contains(t, passwordSrc, "RequireFreshSession")
+	require.Contains(t, userMeSrc, "time_until_reauth_required")
+}
+
+func readHTTPSource(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(b)
+}
+
 func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
@@ -173,7 +223,9 @@ func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
 		{name: "user session delete", method: http.MethodDelete, path: "/user/sessions/session-id", want: http.StatusUnauthorized},
 		{name: "user sessions revoke all", method: http.MethodDelete, path: "/user/sessions", want: http.StatusUnauthorized},
 		{name: "logout", method: http.MethodDelete, path: "/logout", want: http.StatusUnauthorized},
+		{name: "password reauth", method: http.MethodPost, path: "/reauth/password", body: `{}`, want: http.StatusUnauthorized},
 		{name: "provider link start", method: http.MethodPost, path: "/oidc/google/link/start", want: http.StatusUnauthorized},
+		{name: "provider reauth start", method: http.MethodPost, path: "/oidc/google/reauth/start", want: http.StatusUnauthorized},
 		{name: "2fa status", method: http.MethodGet, path: "/user/2fa", want: http.StatusUnauthorized},
 		{name: "2fa verify", method: http.MethodPost, path: "/2fa/verify", body: `{}`, want: http.StatusBadRequest},
 		{name: "solana challenge", method: http.MethodPost, path: "/solana/challenge", body: `{}`, want: http.StatusBadRequest},
