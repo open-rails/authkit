@@ -2,23 +2,18 @@ package authhttp
 
 import (
 	"net/http"
-	"strings"
 
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
 func (s *Service) oidcManager() *oidckit.Manager {
-	providers := s.oidcProviders
-	if providers == nil {
-		providers = map[string]oidckit.RPConfig{}
-	}
-	return oidckit.NewManagerFromMinimal(providers)
+	return oidckit.NewManagerFromProviders(s.authProviders())
 }
 
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
-	if strings.EqualFold(strings.TrimSpace(provider), "discord") {
-		s.handleDiscordLinkStartPOST(w, r)
+	if cfg, ok := s.oauth2Provider(provider); ok {
+		s.handleOAuthLinkStartPOST(w, r, cfg.Name)
 		return
 	}
 	if !s.allow(r, RLOIDCStart) {
@@ -32,13 +27,19 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 	}
 	state := randB64(32)
 	nonce := randB64(16)
-	verifier, challenge, err := oidckit.GeneratePKCE()
-	if err != nil {
-		serverErr(w, "pkce_generation_failed")
-		return
+	verifier := ""
+	challenge := ""
+	manager := s.oidcManager()
+	if pc, ok := manager.Provider(provider); ok && pc.PKCE {
+		var err error
+		verifier, challenge, err = oidckit.GeneratePKCE()
+		if err != nil {
+			serverErr(w, "pkce_generation_failed")
+			return
+		}
 	}
 	redirectURI := buildRedirectURI(r, provider)
-	url, err := s.oidcManager().Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
+	url, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
 		badRequest(w, "oidc_begin_failed")
 		return

@@ -3,6 +3,7 @@ package core
 import (
 	"time"
 
+	"github.com/open-rails/authkit/authprovider"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
@@ -50,6 +51,11 @@ type Config struct {
 	// Providers – identity providers by name ("google", "apple", "github", "discord").
 	// Only client id/secret are required; standard scopes are derived from defaults.
 	Providers map[string]oidckit.RPConfig
+
+	// ProviderDescriptors define OAuth2/OIDC providers using config-first
+	// descriptors. These augment/override built-in Providers entries and are
+	// the preferred path for adding custom providers.
+	ProviderDescriptors map[string]authprovider.Provider
 }
 
 type RegistrationVerificationPolicy string

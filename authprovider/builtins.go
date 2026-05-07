@@ -1,0 +1,77 @@
+package authprovider
+
+var builtIns = map[string]Provider{
+	"google": {
+		Name:   "google",
+		Kind:   KindOIDC,
+		Issuer: "https://accounts.google.com",
+		Scopes: []string{"openid", "email", "profile"},
+		PKCE:   true,
+		UserMapping: UserMapping{
+			Subject:           FieldMapping{Path: "sub", Transforms: []string{"string", "trim"}},
+			Email:             FieldMapping{Path: "email", Transforms: []string{"trim"}},
+			EmailVerified:     FieldMapping{Path: "email_verified"},
+			PreferredUsername: FieldMapping{Path: "preferred_username", Transforms: []string{"trim"}},
+			DisplayName:       FieldMapping{Path: "name", Transforms: []string{"trim"}},
+		},
+	},
+	"apple": {
+		Name:            "apple",
+		Kind:            KindOIDC,
+		Issuer:          "https://appleid.apple.com",
+		Scopes:          []string{"openid", "email", "name"},
+		PKCE:            false,
+		ExtraAuthParams: map[string]string{"response_mode": "form_post"},
+		UserMapping: UserMapping{
+			Subject:       FieldMapping{Path: "sub", Transforms: []string{"string", "trim"}},
+			Email:         FieldMapping{Path: "email", Transforms: []string{"trim"}},
+			EmailVerified: FieldMapping{Path: "email_verified"},
+			DisplayName:   FieldMapping{Path: "name", Transforms: []string{"trim"}},
+		},
+	},
+	"discord": {
+		Name:         "discord",
+		Kind:         KindOAuth2,
+		Issuer:       "https://discord.com",
+		AuthorizeURL: "https://discord.com/api/oauth2/authorize",
+		TokenURL:     "https://discord.com/api/oauth2/token",
+		UserInfoURL:  "https://discord.com/api/users/@me",
+		Scopes:       []string{"identify", "email"},
+		UserMapping: UserMapping{
+			Subject:           FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
+			Email:             FieldMapping{Path: "email", Transforms: []string{"trim"}},
+			EmailVerified:     FieldMapping{Path: "verified"},
+			PreferredUsername: FieldMapping{Path: "username", Transforms: []string{"trim"}},
+			DisplayName:       FieldMapping{Path: "global_name", Transforms: []string{"trim"}},
+		},
+	},
+	"github": {
+		Name:           "github",
+		Kind:           KindOAuth2,
+		Issuer:         "https://github.com/login/oauth",
+		AuthorizeURL:   "https://github.com/login/oauth/authorize",
+		TokenURL:       "https://github.com/login/oauth/access_token",
+		UserInfoURL:    "https://api.github.com/user",
+		UserInfoAccept: "application/vnd.github+json",
+		Scopes:         []string{"read:user", "user:email"},
+		PKCE:           true,
+		UserMapping: UserMapping{
+			Subject:           FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
+			Email:             FieldMapping{Path: "email", Transforms: []string{"trim"}},
+			EmailVerified:     FieldMapping{Value: true},
+			PreferredUsername: FieldMapping{Path: "login", Transforms: []string{"trim"}},
+			DisplayName:       FieldMapping{Path: "name", Transforms: []string{"trim"}},
+		},
+		EmailFallback: &FallbackLookup{
+			URL:    "https://api.github.com/user/emails",
+			Accept: "application/vnd.github+json",
+			Array:  true,
+			Select: map[string]any{
+				"primary":  true,
+				"verified": true,
+			},
+			Email:         FieldMapping{Path: "email", Transforms: []string{"trim"}},
+			EmailVerified: FieldMapping{Value: true},
+		},
+	},
+}

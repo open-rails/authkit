@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/authprovider"
 	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	oidckit "github.com/open-rails/authkit/oidc"
@@ -124,19 +126,72 @@ func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestOIDCHandler_DiscordUsesGenericProviderRoute(t *testing.T) {
+func TestServiceStateCachePersistsWithoutRedis(t *testing.T) {
+	s := newTestService(t)
+	err := s.stateCache().Put(context.Background(), "state-1", oidckit.StateData{Provider: "github"})
+	require.NoError(t, err)
+
+	got, ok, err := s.stateCache().Get(context.Background(), "state-1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "github", got.Provider)
+}
+
+func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 	s := newTestService(t)
 	s.oidcProviders = map[string]oidckit.RPConfig{
 		"discord": {ClientID: "discord-client"},
+		"github":  {ClientID: "github-client"},
+	}
+	s.providers = map[string]authprovider.Provider{
+		"custom-oauth": {
+			Name:         "custom-oauth",
+			Kind:         authprovider.KindOAuth2,
+			Issuer:       "https://custom.example",
+			ClientID:     "custom-client",
+			ClientSecret: authprovider.ClientSecret{Value: "custom-secret"},
+			AuthorizeURL: "https://custom.example/oauth/authorize",
+			TokenURL:     "https://custom.example/oauth/token",
+			UserInfoURL:  "https://custom.example/me",
+			Scopes:       []string{"profile"},
+			PKCE:         true,
+			UserMapping: authprovider.UserMapping{
+				Subject: authprovider.FieldMapping{Path: "id"},
+			},
+		},
 	}
 	h := s.OIDCHandler()
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/oidc/discord/login", nil)
-	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusFound, w.Code)
-	require.Contains(t, w.Header().Get("Location"), "https://discord.com/api/oauth2/authorize")
-	require.NotContains(t, w.Header().Get("Location"), "openid")
+	tests := []struct {
+		provider string
+		wantURL  string
+		wantPKCE bool
+	}{
+		{provider: "discord", wantURL: "https://discord.com/api/oauth2/authorize"},
+		{provider: "github", wantURL: "https://github.com/login/oauth/authorize", wantPKCE: true},
+		{provider: "custom-oauth", wantURL: "https://custom.example/oauth/authorize", wantPKCE: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/oidc/"+tt.provider+"/login", nil)
+			h.ServeHTTP(w, r)
+			require.Equal(t, http.StatusFound, w.Code)
+			location := w.Header().Get("Location")
+			require.Contains(t, location, tt.wantURL)
+			require.NotContains(t, location, "openid")
+			u, err := url.Parse(location)
+			require.NoError(t, err)
+			q := u.Query()
+			if tt.wantPKCE {
+				require.NotEmpty(t, q.Get("code_challenge"))
+				require.Equal(t, "S256", q.Get("code_challenge_method"))
+			} else {
+				require.Empty(t, q.Get("code_challenge"))
+				require.Empty(t, q.Get("code_challenge_method"))
+			}
+		})
+	}
 }
 
 func TestBuildFrontendCallbackURL(t *testing.T) {

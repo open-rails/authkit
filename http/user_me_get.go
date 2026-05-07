@@ -90,10 +90,8 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	enabledProviders := []string{}
-	if s.oidcProviders != nil {
-		for provider := range s.oidcProviders {
-			enabledProviders = append(enabledProviders, provider)
-		}
+	for provider := range s.authProviders() {
+		enabledProviders = append(enabledProviders, provider)
 	}
 
 	var rolesPtr *[]string

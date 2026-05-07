@@ -15,8 +15,8 @@ import (
 
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
-	if strings.EqualFold(strings.TrimSpace(provider), "discord") {
-		s.handleDiscordLoginGET(w, r)
+	if cfg, ok := s.oauth2Provider(provider); ok {
+		s.handleOAuthLoginGET(w, r, cfg.Name)
 		return
 	}
 	if !s.allow(r, RLOIDCStart) {
@@ -26,13 +26,19 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 
 	state := randB64(32)
 	nonce := randB64(16)
-	verifier, challenge, err := oidckit.GeneratePKCE()
-	if err != nil {
-		serverErr(w, "pkce_generation_failed")
-		return
+	verifier := ""
+	challenge := ""
+	manager := s.oidcManager()
+	if pc, ok := manager.Provider(provider); ok && pc.PKCE {
+		var err error
+		verifier, challenge, err = oidckit.GeneratePKCE()
+		if err != nil {
+			serverErr(w, "pkce_generation_failed")
+			return
+		}
 	}
 	redirectURI := buildRedirectURI(r, provider)
-	authURL, err := s.oidcCfg().Manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
+	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
 		badRequest(w, "oidc_begin_failed")
 		return
@@ -84,8 +90,8 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
-	if strings.EqualFold(strings.TrimSpace(provider), "discord") {
-		s.handleDiscordCallbackGET(w, r)
+	if cfg, ok := s.oauth2Provider(provider); ok {
+		s.handleOAuthCallbackGET(w, r, cfg.Name)
 		return
 	}
 	if !s.allow(r, RLOIDCCallback) {

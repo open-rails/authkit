@@ -41,8 +41,8 @@ func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Reques
 
 func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Request) {
 	provider := strings.TrimSpace(r.PathValue("provider"))
-	if strings.EqualFold(provider, "discord") {
-		badRequest(w, "unsupported_reauth_provider")
+	if cfg, ok := s.oauth2Provider(provider); ok {
+		s.handleOAuthReauthStartPOST(w, r, cfg.Name)
 		return
 	}
 	if !s.allow(r, RLOIDCStart) {
@@ -73,10 +73,15 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 
 	state := randB64(32)
 	nonce := randB64(16)
-	verifier, challenge, err := oidckit.GeneratePKCE()
-	if err != nil {
-		serverErr(w, "pkce_generation_failed")
-		return
+	verifier := ""
+	challenge := ""
+	if pc, ok := manager.Provider(provider); ok && pc.PKCE {
+		var err error
+		verifier, challenge, err = oidckit.GeneratePKCE()
+		if err != nil {
+			serverErr(w, "pkce_generation_failed")
+			return
+		}
 	}
 	redirectURI := buildRedirectURI(r, provider)
 	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
@@ -192,7 +197,7 @@ func (s *Service) reauthMethods(r *http.Request, userID string) []string {
 	defer rows.Close()
 	for rows.Next() {
 		var provider string
-		if err := rows.Scan(&provider); err != nil || strings.EqualFold(strings.TrimSpace(provider), "discord") {
+		if err := rows.Scan(&provider); err != nil {
 			continue
 		}
 		if _, ok := s.oidcManager().IssuerFor(provider); ok {

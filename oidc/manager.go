@@ -21,6 +21,7 @@ type RPClient struct {
 	Scopes               []string
 	// Optional: additional auth params (e.g., response_mode)
 	ExtraAuthParams map[string]string
+	PKCE            bool
 }
 
 // Manager builds provider RPs and helps construct auth URLs with PKCE.
@@ -44,11 +45,11 @@ func (m *Manager) Begin(ctx context.Context, provider, state, nonce, codeChallen
 		return "", err
 	}
 
-	// Build auth URL. PKCE S256 + nonce where supported. Apple web flow may not accept PKCE.
+	// Build auth URL. PKCE S256 + nonce where supported.
 	opts := []rp.AuthURLOpt{
 		rp.AuthURLOpt(rp.WithURLParam("nonce", nonce)),
 	}
-	if provider != "apple" {
+	if pc.PKCE {
 		opts = append(opts, rp.WithCodeChallenge(codeChallenge))
 		opts = append(opts, rp.AuthURLOpt(rp.WithURLParam("code_challenge_method", "S256")))
 	}
