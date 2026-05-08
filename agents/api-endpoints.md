@@ -4,6 +4,14 @@ AuthKit HTTP handlers are prefix-neutral. The paths below are handler paths; whe
 
 Downstream applications that embed AuthKit should mount the AuthKit API at `/api/v1` and should not add an extra `/auth` segment. Browser OIDC routes should usually be mounted outside API versioning at `/oidc/*`.
 
+AuthKit's exported route specs are the canonical source of truth for JSON API
+routes. Host apps should mount `svc.Routes().DefaultAPI()` or explicit
+`svc.Routes().Groups(...)` selections through the built-in Gin/Chi adapters or
+their own router registration loop, not maintain duplicated route allowlists.
+Browser OIDC login/callback routes are a separate browser group. Account
+provider linking is an API group, `RouteAccountOIDCLinking`, and is exposed as
+`POST /oidc/:provider/link/start` under the host-selected API prefix.
+
 ## Authentication Levels
 
 | Level | Description |

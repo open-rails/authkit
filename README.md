@@ -9,7 +9,7 @@ refresh uses `POST /token` with the refresh token. It is not a cookie-session
 library: it does not currently provide opaque `session_id` browser cookies,
 HttpOnly token-cookie callbacks, or CSRF/session middleware for that model.
 
-Note: This repo ships the HTTP transport as the top-level `http` package (`github.com/open-rails/authkit/http`). The old Gin adapter has been removed (breaking change); bump your module version/tag accordingly when releasing.
+Note: This repo ships the HTTP transport as the top-level `http` package (`github.com/open-rails/authkit/http`). First-party router adapters live in `github.com/open-rails/authkit/adapters/gin` and `github.com/open-rails/authkit/adapters/chi`.
 
 Scope (minimal)
 - Asymmetric JWT issuing (RS256) + JWKS endpoint (no persistence yet).
@@ -24,6 +24,7 @@ Packages
 - siws: Sign In With Solana - Ed25519 signature verification for Solana wallets.
 - storage: minimal interfaces for users, passwords, providers, resets, roles, revocations.
 - migrations: embedded SQL defining the `profiles` schema and minimal tables.
+- adapters/gin and adapters/chi: optional router adapters that register AuthKit's canonical route specs on host-owned route groups.
 
 Migrations
 - Postgres SQL migrations live in `migrations/postgres/` and are embedded via `go:embed`.
@@ -31,16 +32,16 @@ Migrations
 
 ---
 
-Quick Start (net/http)
+Quick Start (Gin)
 
 ```go
 package main
 
 import (
-  "net/http"
-
-  authhttp "github.com/open-rails/authkit/http"
+  "github.com/gin-gonic/gin"
+  authkitgin "github.com/open-rails/authkit/adapters/gin"
   core "github.com/open-rails/authkit/core"
+  authhttp "github.com/open-rails/authkit/http"
 )
 
 func main() {
@@ -59,22 +60,66 @@ func main() {
   svc, _ := authhttp.NewService(cfg)
   // svc = svc.WithPostgres(pg).WithRedis(redis).WithEmailSender(email).WithSMSSender(sms)...
 
+  router := gin.New()
+  v1 := router.Group("/api/v1")
+
+  authkitgin.RegisterJWKS(router, svc)
+  authkitgin.RegisterAPI(v1, svc)
+  authkitgin.RegisterOIDC(router, svc, "/oidc")
+
+  router.Run(":8080")
+}
+```
+
+AuthKit route specs are prefix-neutral. The host app chooses the mount point:
+registering `RegisterAPI(router.Group("/api/v1"), svc)` exposes `/api/v1/token`,
+`/api/v1/user/me`, and `/api/v1/admin/users`, while AuthKit's internal route
+paths remain `/token`, `/user/me`, and `/admin/users`.
+
+Hosts can mount only selected route groups or wrap individual handlers:
+
+```go
+authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
+  authhttp.RouteCore,
+  authhttp.RoutePassword,
+  authhttp.RouteRegister,
+  authhttp.RouteEmailVerification,
+  authhttp.RouteUser,
+  authhttp.RouteAccountOIDCLinking,
+)))
+```
+
+For custom routers, iterate `svc.Routes().DefaultAPI()` or
+`svc.Routes().Groups(...)` and register each `RouteSpec.Method`,
+`RouteSpec.Path`, and `RouteSpec.Handler` yourself. Host apps should not keep
+duplicated AuthKit route allowlists.
+
+Quick Start (net/http)
+
+```go
+package main
+
+import (
+  "net/http"
+
+  authhttp "github.com/open-rails/authkit/http"
+  core "github.com/open-rails/authkit/core"
+)
+
+func main() {
+  cfg := core.Config{
+    Issuer:            "https://myapp.com",
+    IssuedAudiences:   []string{"myapp"},
+    ExpectedAudiences: []string{"myapp"},
+    BaseURL:           "https://myapp.com",
+    FrontendCallbackPath: "/login/callback",
+  }
+
+  svc, _ := authhttp.NewService(cfg)
   mux := http.NewServeMux()
   mux.Handle("/.well-known/jwks.json", svc.JWKSHandler())
-
-  apiPrefix := "/api/v1"
-  apiH := http.StripPrefix(apiPrefix, svc.APIHandler())
-
-  // AuthKit handlers are prefix-neutral. Mount JSON API routes at your app's
-  // API prefix; this exposes /api/v1/token, /api/v1/user/me, and /api/v1/admin/users.
-  mux.Handle(apiPrefix+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    apiH.ServeHTTP(w, r)
-  }))
-
-  // Browser OIDC routes are not JSON API routes. Mount them wherever the app
-  // wants browser redirects; the recommended public routes are /oidc/*.
+  mux.Handle("/api/v1/", http.StripPrefix("/api/v1", svc.APIHandler()))
   mux.Handle("/oidc/", svc.OIDCHandler())
-
   http.ListenAndServe(":8080", mux)
 }
 ```
@@ -412,12 +457,12 @@ Integration requirements (API server)
 
 ---
 
-Endpoints mounted automatically by `APIHandler()` are shown relative to the host-selected API mount prefix. With the recommended `/api/v1` mount, `GET /user/me` is served at `GET /api/v1/user/me`. Browser OIDC routes are served by `OIDCHandler()` and are usually mounted outside API versioning at `/oidc/*`.
+AuthKit API route specs, and the `APIHandler()` net/http compatibility handler built from those same specs, are shown relative to the host-selected API mount prefix. With the recommended `/api/v1` mount, `GET /user/me` is served at `GET /api/v1/user/me`. Browser OIDC routes are served separately and are usually mounted outside API versioning at `/oidc/*`.
 - GET /.well-known/jwks.json
 - OIDC:
   - GET /oidc/:provider/login
   - GET /oidc/:provider/callback
-  - POST /oidc/:provider/link/start (APIHandler, requires auth) → {auth_url}
+  - POST /oidc/:provider/link/start (RouteAccountOIDCLinking API group, requires auth) -> {auth_url}
 - Password:
   - POST /password/login (accepts email, phone, or username in identifier field)
   - POST /email/password/reset/request

@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"net/http"
+	"strings"
 
 	oidckit "github.com/open-rails/authkit/oidc"
 )
@@ -16,13 +17,10 @@ func (s *Service) OIDCHandler() http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("GET /oidc/{provider}/login", http.HandlerFunc(s.handleOIDCLoginGET))
-	mux.Handle("GET /oidc/{provider}/callback", http.HandlerFunc(s.handleOIDCCallbackGET))
-	mux.Handle("GET /oidc/{provider}/reauth/callback", http.HandlerFunc(s.handleOIDCCallbackGET))
-
-	h := http.Handler(mux)
-	h = LanguageMiddleware(s.langCfg)(h)
-	return h
+	for _, route := range s.OIDCBrowserRoutes() {
+		mux.Handle(route.Method+" "+joinRoutePath("/oidc", route.Path), route.Handler)
+	}
+	return mux
 }
 
 type oidcConfig struct {
@@ -35,4 +33,19 @@ func (s *Service) oidcCfg() oidcConfig {
 		Manager:    s.oidcManager(),
 		StateCache: s.stateCache(),
 	}
+}
+
+func joinRoutePath(prefix, path string) string {
+	prefix = "/" + strings.Trim(strings.TrimSpace(prefix), "/")
+	if prefix == "/" {
+		prefix = ""
+	}
+	path = "/" + strings.Trim(strings.TrimSpace(path), "/")
+	if path == "/" {
+		path = ""
+	}
+	if prefix == "" && path == "" {
+		return "/"
+	}
+	return prefix + path
 }
