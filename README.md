@@ -415,6 +415,29 @@ Verification delivery and expiry
   - Email password reset confirm: `POST /email/password/reset/confirm` with `{"reset_session":"...","new_password":"..."}`
 - AuthKit API routes are prefix-neutral. Your API can live under a prefix (recommended: `/api/v1`); do not add an extra `/auth` segment when embedding AuthKit.
 
+Identity validation policy
+- AuthKit owns identity validation policy. Host applications should not
+  duplicate or override username, password, email, or phone validation rules.
+- Username rules are fixed: trim whitespace, 4-30 characters, start with an
+  ASCII letter, allow only ASCII letters/digits/underscore, no `@`, and no
+  leading `+`. AuthKit normalizes the owner slug by lowercasing and converting
+  underscore/dash runs to single dashes.
+- Username namespace checks reject collisions with users/orgs, renamed or
+  recently held slugs, soft-deleted owners, parked namespaces, and restricted
+  names. Parked/restricted names return `username_not_allowed`; held/taken
+  names return `owner_slug_taken`.
+- User rename cooldown is fixed at 72 hours. `PATCH /user/username` returns
+  `rename_rate_limited` with `time_until_rename_available` when blocked.
+- Password policy is fixed in AuthKit and currently requires at least 8
+  characters; weak passwords return `password_too_short`.
+- Email and phone validation/normalization are fixed in AuthKit. Email is
+  trimmed/lowercased and must be address-like. Phone numbers must be E.164-like
+  (`+` followed by country code and digits).
+- Shared helpers are exported from `core`: `ValidateUsername`,
+  `OwnerSlugFromUsername`, `ValidatePassword`, `NormalizeEmail`,
+  `ValidateEmail`, `NormalizePhone`, `ValidatePhone`, and
+  `ValidationErrorCode`.
+
 Two-Factor Authentication (2FA):
 - Optional security feature for admin accounts to prevent account takeover if password is leaked.
 - Users can enable 2FA via email or SMS methods.

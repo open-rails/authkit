@@ -8,7 +8,6 @@ import (
 	"time"
 
 	core "github.com/open-rails/authkit/core"
-	pwhash "github.com/open-rails/authkit/password"
 )
 
 type adminUsersListResponse struct {
@@ -203,10 +202,6 @@ func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http
 		badRequest(w, "invalid_request")
 		return
 	}
-	if err := validateUsername(req.Username); err != nil {
-		badRequest(w, err.Error())
-		return
-	}
 	if !s.allow(r, RLAdminRolesGrant) {
 		tooMany(w)
 		return
@@ -214,6 +209,10 @@ func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http
 	if err := s.svc.UpdateUsername(r.Context(), req.UserID, req.Username); err != nil {
 		if err == core.ErrOwnerSlugTaken {
 			badRequest(w, "owner_slug_taken")
+			return
+		}
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
 			return
 		}
 		badRequest(w, "failed_to_update_username")
@@ -227,8 +226,12 @@ func (s *Service) handleAdminUsersSetPasswordPOST(w http.ResponseWriter, r *http
 		UserID   string `json:"user_id"`
 		Password string `json:"password"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Password == "" || pwhash.Validate(req.Password) != nil {
+	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Password == "" {
 		badRequest(w, "invalid_request")
+		return
+	}
+	if err := core.ValidatePassword(req.Password); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
 	if !s.allow(r, RLAdminRolesGrant) {
@@ -236,6 +239,10 @@ func (s *Service) handleAdminUsersSetPasswordPOST(w http.ResponseWriter, r *http
 		return
 	}
 	if err := s.svc.AdminSetPassword(r.Context(), req.UserID, req.Password); err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
 		badRequest(w, "failed_to_set_password")
 		return
 	}

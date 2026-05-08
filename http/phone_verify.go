@@ -3,6 +3,8 @@ package authhttp
 import (
 	"net/http"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
@@ -24,10 +26,11 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	phone := strings.TrimSpace(req.PhoneNumber)
-	if phone == "" || !reE164.MatchString(phone) {
+	if err := core.ValidatePhone(phone); err != nil {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}
+	phone = core.NormalizePhone(phone)
 
 	_ = s.svc.RequestPhoneVerification(r.Context(), phone, 0)
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})

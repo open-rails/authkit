@@ -19,6 +19,15 @@ func sendErr(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, errResp{Error: code})
 }
 
+func sendErrData(w http.ResponseWriter, status int, code string, data map[string]any) {
+	if data == nil {
+		sendErr(w, status, code)
+		return
+	}
+	data["error"] = code
+	writeJSON(w, status, data)
+}
+
 func badRequest(w http.ResponseWriter, code string)   { sendErr(w, http.StatusBadRequest, code) }
 func unauthorized(w http.ResponseWriter, code string) { sendErr(w, http.StatusUnauthorized, code) }
 func forbidden(w http.ResponseWriter, code string)    { sendErr(w, http.StatusForbidden, code) }

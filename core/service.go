@@ -289,7 +289,7 @@ func (s *Service) AdminSetPassword(ctx context.Context, userID, new string) erro
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	if err := password.Validate(new); err != nil {
+	if err := ValidatePassword(new); err != nil {
 		return err
 	}
 	phc, err := password.HashArgon2id(new)
@@ -504,10 +504,10 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		return fmt.Errorf("postgres not configured")
 	}
 
-	trimmed := strings.TrimSpace(newPhone)
-	if trimmed == "" {
-		return fmt.Errorf("phone required")
+	if err := ValidatePhone(newPhone); err != nil {
+		return err
 	}
+	trimmed := NormalizePhone(newPhone)
 
 	// Get user
 	u, err := s.getUserByID(ctx, userID)
@@ -871,7 +871,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	if err := password.Validate(new); err != nil {
+	if err := ValidatePassword(new); err != nil {
 		return err
 	}
 	// If a password exists, verify current
@@ -929,7 +929,7 @@ func (s *Service) SetPasswordAfterFreshAuth(ctx context.Context, userID, new str
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	if err := password.Validate(new); err != nil {
+	if err := ValidatePassword(new); err != nil {
 		return err
 	}
 	phc, err := password.HashArgon2id(new)
@@ -1318,6 +1318,8 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 // Returns (emailTaken, usernameTaken, error)
 func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
 	var emailTaken, usernameTaken bool
+	email = NormalizeEmail(email)
+	username = strings.TrimSpace(username)
 	if s.pg != nil {
 		err := s.pg.QueryRow(ctx, `
 			SELECT
@@ -1480,6 +1482,8 @@ func (s *Service) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, to
 // Returns (phoneTaken, usernameTaken, error)
 func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
 	var phoneTaken, usernameTaken bool
+	phone = NormalizePhone(phone)
+	username = strings.TrimSpace(username)
 
 	if s.pg != nil {
 		err := s.pg.QueryRow(ctx, `
@@ -1876,6 +1880,14 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 	if s.pg == nil {
 		return "", fmt.Errorf("postgres not configured")
 	}
+	if err := ValidateEmail(email); err != nil {
+		return "", err
+	}
+	if _, err := s.ValidateUsernameForRegistration(ctx, username); err != nil {
+		return "", err
+	}
+	email = NormalizeEmail(email)
+	username = strings.TrimSpace(username)
 
 	u, err := s.createUser(ctx, email, username)
 	if err != nil {
@@ -1908,9 +1920,14 @@ func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, userna
 	if s.pg == nil {
 		return "", fmt.Errorf("postgres not configured")
 	}
-	if strings.TrimSpace(phone) == "" {
-		return "", fmt.Errorf("invalid phone")
+	if err := ValidatePhone(phone); err != nil {
+		return "", err
 	}
+	if _, err := s.ValidateUsernameForRegistration(ctx, username); err != nil {
+		return "", err
+	}
+	phone = NormalizePhone(phone)
+	username = strings.TrimSpace(username)
 
 	u, err := s.createUser(ctx, "", username)
 	if err != nil {
@@ -2045,6 +2062,10 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return nil
 	}
 	newUsername := strings.TrimSpace(username)
+	newSlug, excludeOrgID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
+	if err != nil {
+		return err
+	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
@@ -2058,11 +2079,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
 		return nil
 	}
-	newSlug := ownerSlugFromUsername(newUsername)
-	if newSlug == "" || validateOrgSlug(newSlug) != nil {
-		return fmt.Errorf("invalid_username_for_owner_namespace")
-	}
-	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, ""); err != nil {
+	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeOrgID); err != nil {
 		return err
 	}
 
@@ -2171,10 +2188,10 @@ func (s *Service) updateEmail(ctx context.Context, id, email string) error {
 	if s.pg == nil {
 		return nil
 	}
-	trimmed := strings.TrimSpace(email)
-	if trimmed == "" {
-		return fmt.Errorf("email required")
+	if err := ValidateEmail(email); err != nil {
+		return err
 	}
+	trimmed := NormalizeEmail(email)
 	u, err := s.getUserByID(ctx, id)
 	if err != nil {
 		return err
@@ -2204,10 +2221,10 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 		return fmt.Errorf("postgres not configured")
 	}
 
-	trimmed := strings.TrimSpace(newEmail)
-	if trimmed == "" {
-		return fmt.Errorf("email required")
+	if err := ValidateEmail(newEmail); err != nil {
+		return err
 	}
+	trimmed := NormalizeEmail(newEmail)
 
 	// Get user
 	u, err := s.getUserByID(ctx, userID)

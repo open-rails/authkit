@@ -52,20 +52,13 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) registrationUsernameAvailability(r *http.Request, username string) (*registrationAvailabilityField, error) {
-	if err := validateUsername(username); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: err.Error()}, nil
-	}
-
-	lookup, err := s.svc.LookupOwnerNamespace(r.Context(), username)
-	if err != nil {
+	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			return &registrationAvailabilityField{Available: false, Error: code}, nil
+		}
 		return nil, err
 	}
-	if lookup != nil && !lookup.Claimable {
-		return &registrationAvailabilityField{
-			Available: false,
-			Error:     registrationUsernameUnavailableError(lookup.Status),
-		}, nil
-	}
+	username = strings.TrimSpace(username)
 
 	_, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), "", username)
 	if err != nil {
@@ -79,9 +72,10 @@ func (s *Service) registrationUsernameAvailability(r *http.Request, username str
 }
 
 func (s *Service) registrationEmailAvailability(r *http.Request, email string) (*registrationAvailabilityField, error) {
-	if !strings.Contains(email, "@") {
-		return &registrationAvailabilityField{Available: false, Error: "invalid_email"}, nil
+	if err := core.ValidateEmail(email); err != nil {
+		return &registrationAvailabilityField{Available: false, Error: core.ValidationErrorCode(err)}, nil
 	}
+	email = core.NormalizeEmail(email)
 
 	emailTaken, _, err := s.svc.CheckPendingRegistrationConflict(r.Context(), email, "")
 	if err != nil {
@@ -92,15 +86,4 @@ func (s *Service) registrationEmailAvailability(r *http.Request, email string) (
 	}
 
 	return &registrationAvailabilityField{Available: true}, nil
-}
-
-func registrationUsernameUnavailableError(status core.OwnerNamespaceLookupStatus) string {
-	switch status {
-	case core.OwnerNamespaceStatusParkedUser,
-		core.OwnerNamespaceStatusParkedOrg,
-		core.OwnerNamespaceStatusRestrictedName:
-		return "username_not_allowed"
-	default:
-		return "username_in_use"
-	}
 }

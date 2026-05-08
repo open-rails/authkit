@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -52,7 +51,7 @@ func (s *Service) useEphemeralStore() bool {
 }
 
 func normalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
+	return NormalizeEmail(email)
 }
 
 func (s *Service) ephemSetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {

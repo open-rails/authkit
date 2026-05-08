@@ -68,17 +68,26 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	username := strings.TrimSpace(req.Username)
 	pass := req.Password
 
-	if identifier == "" || username == "" || pwhash.Validate(pass) != nil {
+	if identifier == "" || username == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	if err := validateUsername(username); err != nil {
-		badRequest(w, err.Error())
+	if err := core.ValidatePassword(pass); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
+	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
+		serverErr(w, "database_error")
+		return
+	}
+	username = strings.TrimSpace(username)
 
-	isPhone := reE164.MatchString(identifier)
-	isEmail := strings.Contains(identifier, "@")
+	isPhone := core.ValidatePhone(identifier) == nil
+	isEmail := core.ValidateEmail(identifier) == nil
 	if !isPhone && !isEmail {
 		badRequest(w, "invalid_identifier")
 		return
@@ -98,6 +107,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	requiresVerification := policy == core.RegistrationVerificationRequired
 
 	if isPhone {
+		identifier = core.NormalizePhone(identifier)
 		if requiresVerification && !s.svc.HasSMSSender() {
 			serverErr(w, "phone_registration_unavailable")
 			return
@@ -117,6 +127,10 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		}
 		_, err = s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, username, phc)
 		if err != nil {
+			if code := core.ValidationErrorCode(err); code != "" {
+				badRequest(w, code)
+				return
+			}
 			serverErr(w, "registration_failed")
 			return
 		}
@@ -147,6 +161,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	identifier = core.NormalizeEmail(identifier)
 	if requiresVerification && !s.svc.HasEmailSender() {
 		serverErr(w, "email_registration_unavailable")
 		return
@@ -166,6 +181,10 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 	_, err = s.svc.CreatePendingRegistration(r.Context(), identifier, username, phc, 0)
 	if err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
 		serverErr(w, "registration_failed")
 		return
 	}
@@ -248,10 +267,11 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
-	if phone == "" || !reE164.MatchString(phone) {
+	if err := core.ValidatePhone(phone); err != nil {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}
+	phone = core.NormalizePhone(phone)
 
 	pending, err := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), phone)
 	if err == nil && pending != nil {

@@ -3,6 +3,7 @@ package authhttp
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	core "github.com/open-rails/authkit/core"
 )
@@ -25,20 +26,26 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := validateUsername(body.Username); err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-
 	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
 		if err == core.ErrOwnerSlugTaken {
 			badRequest(w, "owner_slug_taken")
 			return
 		}
+		if err == core.ErrRenameRateLimited {
+			seconds, _ := s.svc.TimeUntilUsernameRenameAvailable(r.Context(), claims.UserID, time.Now())
+			sendErrData(w, http.StatusTooManyRequests, core.ErrCodeRenameRateLimited, map[string]any{
+				"time_until_rename_available": seconds,
+			})
+			return
+		}
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
 		badRequest(w, "failed_to_update_username")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time_until_rename_available": int64(0)})
 }
 
 func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +78,10 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.svc.RequestEmailChange(r.Context(), claims.UserID, body.NewEmail); err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
 		msg := err.Error()
 		switch {
 		case strings.Contains(msg, "same as current"):
@@ -178,6 +189,10 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.svc.RequestPhoneChange(r.Context(), claims.UserID, body.NewPhone); err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
 		msg := err.Error()
 		switch {
 		case strings.Contains(msg, "same as current"):

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	core "github.com/open-rails/authkit/core"
-	pwhash "github.com/open-rails/authkit/password"
 )
 
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
@@ -24,8 +23,12 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		CurrentPassword string `json:"current_password"`
 		NewPassword     string `json:"new_password"`
 	}
-	if err := decodeJSON(r, &body); err != nil || pwhash.Validate(body.NewPassword) != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, "invalid_request")
+		return
+	}
+	if err := core.ValidatePassword(body.NewPassword); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
 
@@ -64,6 +67,10 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		changeErr = s.svc.ChangePassword(r.Context(), claims.UserID, body.CurrentPassword, body.NewPassword, keep)
 	}
 	if changeErr != nil {
+		if code := core.ValidationErrorCode(changeErr); code != "" {
+			badRequest(w, code)
+			return
+		}
 		badRequest(w, "password_change_failed")
 		return
 	}

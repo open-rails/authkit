@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	pwhash "github.com/open-rails/authkit/password"
+	core "github.com/open-rails/authkit/core"
 )
 
 var reE164 = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
@@ -48,13 +48,21 @@ func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *
 		ResetSession string `json:"reset_session"`
 		NewPassword  string `json:"new_password"`
 	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.ResetSession) == "" || req.NewPassword == "" || pwhash.Validate(req.NewPassword) != nil {
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.ResetSession) == "" || req.NewPassword == "" {
 		badRequest(w, "invalid_request")
+		return
+	}
+	if err := core.ValidatePassword(req.NewPassword); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
 
 	_, err := s.svc.ConfirmPasswordResetWithSession(r.Context(), strings.TrimSpace(req.ResetSession), req.NewPassword)
 	if err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
 		badRequest(w, "invalid_or_expired_reset_session")
 		return
 	}

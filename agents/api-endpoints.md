@@ -12,6 +12,14 @@ Browser OIDC login/callback routes are a separate browser group. Account
 provider linking is an API group, `RouteAccountOIDCLinking`, and is exposed as
 `POST /oidc/:provider/link/start` under the host-selected API prefix.
 
+AuthKit is opinionated about identity validation. Host apps should not
+reimplement or customize username, password, email, or phone validation rules.
+AuthKit returns stable error codes such as `username_too_short`,
+`username_must_start_with_letter`, `username_invalid_characters`,
+`owner_slug_taken`, `username_not_allowed`, `rename_rate_limited`,
+`invalid_email`, `invalid_phone_number`, and `password_too_short`.
+Username rename cooldown responses include `time_until_rename_available`.
+
 ## Authentication Levels
 
 | Level | Description |

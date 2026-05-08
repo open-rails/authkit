@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	pwhash "github.com/open-rails/authkit/password"
+	core "github.com/open-rails/authkit/core"
 )
 
 func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
@@ -25,10 +25,11 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
-	if !reE164.MatchString(phone) {
-		badRequest(w, "invalid_phone_number")
+	if err := core.ValidatePhone(phone); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
+	phone = core.NormalizePhone(phone)
 	_ = s.svc.RequestPhonePasswordReset(r.Context(), phone, 0)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"ok":      true,
@@ -58,13 +59,17 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 		badRequest(w, "invalid_request")
 		return
 	}
-	if err := pwhash.Validate(newPass); err != nil {
-		badRequest(w, "weak_password")
+	if err := core.ValidatePassword(newPass); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
 
 	userID, err := s.svc.ConfirmPasswordResetWithSession(r.Context(), resetSession, newPass)
 	if err != nil {
+		if code := core.ValidationErrorCode(err); code != "" {
+			badRequest(w, code)
+			return
+		}
 		badRequest(w, "invalid_or_expired_reset_session")
 		return
 	}
