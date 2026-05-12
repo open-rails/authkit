@@ -2523,6 +2523,8 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 }
 
 var ErrReservedRoleSlug = errors.New("reserved_role_slug")
+var ErrCannotRemoveLastAdminRole = errors.New("cannot_remove_last_admin_role")
+var ErrUserRoleNotFound = errors.New("user_role_not_found")
 
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
 	if strings.EqualFold(strings.TrimSpace(slug), "owner") {
@@ -2543,8 +2545,66 @@ func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) err
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `DELETE FROM profiles.user_roles ur USING profiles.roles r WHERE ur.role_id=r.id AND ur.user_id=$1 AND r.slug=$2`, userID, slug)
-	return err
+	roleSlug := strings.ToLower(strings.TrimSpace(slug))
+	if roleSlug == "admin" {
+		return s.removeAdminRoleIfNotLast(ctx, userID)
+	}
+	tag, err := s.pg.Exec(ctx, `DELETE FROM profiles.user_roles ur USING profiles.roles r WHERE ur.role_id=r.id AND ur.user_id=$1 AND r.slug=$2 AND r.deleted_at IS NULL`, userID, roleSlug)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserRoleNotFound
+	}
+	return nil
+}
+
+func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) error {
+	tx, err := s.pg.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var roleID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM profiles.roles WHERE slug='admin' AND deleted_at IS NULL FOR UPDATE`).Scan(&roleID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserRoleNotFound
+		}
+		return err
+	}
+
+	var hasRole bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.user_roles WHERE user_id=$1 AND role_id=$2)`, userID, roleID).Scan(&hasRole); err != nil {
+		return err
+	}
+	if !hasRole {
+		return ErrUserRoleNotFound
+	}
+
+	var activeAdminCount int64
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM profiles.user_roles ur
+		JOIN profiles.users u ON u.id=ur.user_id
+		WHERE ur.role_id=$1
+		  AND u.deleted_at IS NULL
+		  AND u.banned_at IS NULL
+	`, roleID).Scan(&activeAdminCount); err != nil {
+		return err
+	}
+	if activeAdminCount <= 1 {
+		return ErrCannotRemoveLastAdminRole
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM profiles.user_roles WHERE user_id=$1 AND role_id=$2`, userID, roleID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserRoleNotFound
+	}
+	return tx.Commit(ctx)
 }
 
 // Exported wrappers for admin endpoints

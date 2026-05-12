@@ -65,6 +65,14 @@ func (s *Service) handleAdminRolesRevokePOST(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := s.svc.RemoveRoleBySlug(r.Context(), req.UserID, req.Role); err != nil {
+		if errors.Is(err, core.ErrCannotRemoveLastAdminRole) {
+			sendErr(w, http.StatusConflict, "cannot_remove_last_admin")
+			return
+		}
+		if errors.Is(err, core.ErrUserRoleNotFound) {
+			notFound(w, "user_role_not_found")
+			return
+		}
 		serverErr(w, "revoke_failed")
 		return
 	}
