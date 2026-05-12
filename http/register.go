@@ -81,6 +81,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			badRequest(w, code)
 			return
 		}
+		s.logInternalError(r, "register", "validate_username", "database_error", err)
 		serverErr(w, "database_error")
 		return
 	}
@@ -114,6 +115,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		}
 		phoneTaken, usernameTaken, err := s.svc.CheckPhoneRegistrationConflict(r.Context(), identifier, username)
 		if err != nil {
+			s.logInternalError(r, "register", "check_phone_conflict", "database_error", err)
 			serverErr(w, "database_error")
 			return
 		}
@@ -168,6 +170,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 	emailTaken, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), identifier, username)
 	if err != nil {
+		s.logInternalError(r, "register", "check_email_conflict", "database_error", err)
 		serverErr(w, "database_error")
 		return
 	}

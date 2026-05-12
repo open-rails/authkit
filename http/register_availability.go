@@ -34,6 +34,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	if username != "" {
 		field, err := s.registrationUsernameAvailability(r, username)
 		if err != nil {
+			s.logInternalError(r, "register_availability", "username", "database_error", err)
 			serverErr(w, "database_error")
 			return
 		}
@@ -42,6 +43,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	if email != "" {
 		field, err := s.registrationEmailAvailability(r, email)
 		if err != nil {
+			s.logInternalError(r, "register_availability", "email", "database_error", err)
 			serverErr(w, "database_error")
 			return
 		}

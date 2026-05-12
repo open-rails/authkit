@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ type Service struct {
 	rd            *redis.Client
 	rl            RateLimiter
 	clientIP      ClientIPFunc
+	errorLogger   func(context.Context, InternalErrorEvent)
 	oidcProviders map[string]oidckit.RPConfig
 	providers     map[string]authprovider.Provider
 	memStateCache oidckit.StateCache
@@ -117,6 +119,10 @@ func (s *Service) WithSMSSender(sender core.SMSSender) *Service {
 }
 func (s *Service) WithLanguageConfig(cfg LanguageConfig) *Service {
 	s.langCfg = &cfg
+	return s
+}
+func (s *Service) WithErrorLogger(fn func(context.Context, InternalErrorEvent)) *Service {
+	s.errorLogger = fn
 	return s
 }
 func (s *Service) WithAuthLogger(l core.AuthEventLogger) *Service {
