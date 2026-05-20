@@ -1,19 +1,17 @@
--- AuthKit Schema for PostgreSQL
--- Handles user authentication, registration, passwords, OAuth, 2FA, and session management
--- All apps use admin super-user, no role management needed
+-- AuthKit PostgreSQL baseline schema.
+--
+-- PostgreSQL 18+ is required. The schema uses native uuidv7() defaults.
 
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
 
--- Create citext extension for case-insensitive text in public schema
 CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 CREATE SCHEMA IF NOT EXISTS profiles;
 
--- Users: Core user accounts
--- Users can register with email, phone, or OAuth
 CREATE TABLE IF NOT EXISTS profiles.users (
-  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                uuid PRIMARY KEY DEFAULT uuidv7(),
   email             public.citext,
   username          public.citext UNIQUE,
   discord_username  text,
@@ -21,21 +19,27 @@ CREATE TABLE IF NOT EXISTS profiles.users (
   phone_number      text UNIQUE,
   phone_verified    boolean DEFAULT false,
   banned_at         timestamptz,
+  banned_until      timestamptz,
+  ban_reason        text,
+  banned_by         uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
   deleted_at        timestamptz,
   biography         text,
+  metadata          jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now(),
   last_login        timestamptz
 );
-
--- Case-insensitive uniqueness via partial unique index on citext
--- Partial index allows multiple NULL emails (e.g., OAuth users with unverified emails)
-CREATE UNIQUE INDEX IF NOT EXISTS users_email_uidx ON profiles.users (email) WHERE email IS NOT NULL;
-
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_uidx
+  ON profiles.users (email)
+  WHERE email IS NOT NULL;
 COMMENT ON COLUMN profiles.users.phone_number IS 'E.164 format phone number (e.g., +14155551234)';
 COMMENT ON COLUMN profiles.users.phone_verified IS 'Whether the phone number has been verified via SMS code';
+COMMENT ON COLUMN profiles.users.banned_at IS 'When the user was banned';
+COMMENT ON COLUMN profiles.users.banned_until IS 'When a temporary ban expires (NULL for permanent)';
+COMMENT ON COLUMN profiles.users.ban_reason IS 'Reason for ban';
+COMMENT ON COLUMN profiles.users.banned_by IS 'User ID of admin who imposed ban';
+COMMENT ON COLUMN profiles.users.metadata IS 'Arbitrary user metadata (internal/admin flags such as reserved)';
 
--- Passwords: Hashed password storage
 CREATE TABLE IF NOT EXISTS profiles.user_passwords (
   user_id             uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
   password_hash       text NOT NULL,
@@ -44,9 +48,8 @@ CREATE TABLE IF NOT EXISTS profiles.user_passwords (
   password_updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- External providers: OAuth/OIDC provider linkage
 CREATE TABLE IF NOT EXISTS profiles.user_providers (
-  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                uuid PRIMARY KEY DEFAULT uuidv7(),
   user_id           uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   issuer            text NOT NULL,
   provider_slug     text,
@@ -57,26 +60,22 @@ CREATE TABLE IF NOT EXISTS profiles.user_providers (
   UNIQUE (issuer, subject),
   UNIQUE (user_id, issuer)
 );
-CREATE INDEX IF NOT EXISTS user_providers_user_id_idx ON profiles.user_providers (user_id);
+CREATE INDEX IF NOT EXISTS user_providers_user_id_idx
+  ON profiles.user_providers (user_id);
+CREATE INDEX IF NOT EXISTS user_providers_user_id_provider_slug_idx
+  ON profiles.user_providers (user_id, provider_slug);
 
-
--- Roles: User roles and permissions
 CREATE TABLE IF NOT EXISTS profiles.roles (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
   name        text NOT NULL,
   slug        text NOT NULL UNIQUE,
   description text,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  deleted_at  timestamptz
+  deleted_at  timestamptz,
+  CONSTRAINT roles_slug_not_owner_chk CHECK (lower(slug) <> 'owner')
 );
 
--- Deterministic role IDs derived from slug.
---
--- This is part of the auth mechanism (stable identity), not app-specific role taxonomy.
--- Role IDs are computed as UUIDv5(namespace, "role:" || slug).
---
--- NOTE: relies on pgcrypto (digest/sha1 + gen_random_uuid()) being available in the DB.
 CREATE OR REPLACE FUNCTION profiles.uuid_v5(p_namespace uuid, p_name text) RETURNS uuid
  LANGUAGE plpgsql
  IMMUTABLE
@@ -89,11 +88,8 @@ DECLARE
 BEGIN
   h := digest(uuid_send(p_namespace) || convert_to(p_name, 'utf8'), 'sha1');
   b := substring(h from 1 for 16);
-
-  -- Set UUID version (5) and variant (RFC 4122).
-  b := set_byte(b, 6, (get_byte(b, 6) & 15) | 80);   -- 0x50
-  b := set_byte(b, 8, (get_byte(b, 8) & 63) | 128);  -- 0x80
-
+  b := set_byte(b, 6, (get_byte(b, 6) & 15) | 80);
+  b := set_byte(b, 8, (get_byte(b, 8) & 63) | 128);
   hex := encode(b, 'hex');
   RETURN (
     substring(hex from 1 for 8) || '-' ||
@@ -128,7 +124,6 @@ CREATE TRIGGER roles_set_id_from_slug
   FOR EACH ROW
   EXECUTE FUNCTION profiles.trg_roles_set_id_from_slug();
 
--- Treat role slugs as immutable identity.
 CREATE OR REPLACE FUNCTION profiles.trg_roles_slug_immutable() RETURNS trigger
  LANGUAGE plpgsql
  AS $$
@@ -146,8 +141,12 @@ CREATE TRIGGER roles_slug_immutable
   FOR EACH ROW
   EXECUTE FUNCTION profiles.trg_roles_slug_immutable();
 
+INSERT INTO profiles.roles (name, slug, description)
+VALUES ('Admin', 'admin', 'Global platform administrator')
+ON CONFLICT (slug) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS profiles.user_roles (
-  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   role_id    uuid NOT NULL REFERENCES profiles.roles(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -155,50 +154,192 @@ CREATE TABLE IF NOT EXISTS profiles.user_roles (
   UNIQUE (user_id, role_id)
 );
 
--- Refresh sessions: Server-side refresh token sessions
 CREATE TABLE IF NOT EXISTS profiles.refresh_sessions (
-    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id             uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
-    issuer              text NOT NULL,
-    family_id           uuid NOT NULL DEFAULT gen_random_uuid(),
-    current_token_hash  bytea NOT NULL,
-    previous_token_hash bytea,
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    last_authenticated_at timestamptz,
-    last_used_at        timestamptz NOT NULL DEFAULT now(),
-    expires_at          timestamptz,
-    revoked_at          timestamptz,
-    user_agent          text,
-    ip_addr             inet
+  id                    uuid PRIMARY KEY DEFAULT uuidv7(),
+  user_id               uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  issuer                text NOT NULL,
+  family_id             uuid NOT NULL DEFAULT uuidv7(),
+  current_token_hash    bytea NOT NULL,
+  previous_token_hash   bytea,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  last_authenticated_at timestamptz,
+  last_used_at          timestamptz NOT NULL DEFAULT now(),
+  expires_at            timestamptz,
+  revoked_at            timestamptz,
+  user_agent            text,
+  ip_addr               inet
 );
 CREATE UNIQUE INDEX IF NOT EXISTS refresh_sessions_current_hash_active
-    ON profiles.refresh_sessions (current_token_hash)
-    WHERE revoked_at IS NULL;
+  ON profiles.refresh_sessions (current_token_hash)
+  WHERE revoked_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS refresh_sessions_prev_hash_active
-    ON profiles.refresh_sessions (previous_token_hash)
-    WHERE revoked_at IS NULL AND previous_token_hash IS NOT NULL;
+  ON profiles.refresh_sessions (previous_token_hash)
+  WHERE revoked_at IS NULL AND previous_token_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS refresh_sessions_user_active
-    ON profiles.refresh_sessions (user_id, issuer)
-    WHERE revoked_at IS NULL;
+  ON profiles.refresh_sessions (user_id, issuer)
+  WHERE revoked_at IS NULL;
 
--- Two-factor authentication settings
 CREATE TABLE IF NOT EXISTS profiles.two_factor_settings (
-    user_id UUID PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
-    enabled BOOLEAN NOT NULL DEFAULT false,
-    method VARCHAR(10) NOT NULL DEFAULT 'email' CHECK (method IN ('email', 'sms')),
-    phone_number VARCHAR(20), -- E.164 format, required if method='sms'
-    backup_codes TEXT[], -- Array of hashed backup codes for account recovery
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- Ensure phone_number is provided when method is 'sms'
-    CONSTRAINT phone_required_for_sms CHECK (
-        (method = 'sms' AND phone_number IS NOT NULL) OR
-        (method = 'email')
-    )
+  user_id      uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
+  enabled      boolean NOT NULL DEFAULT false,
+  method       varchar(10) NOT NULL DEFAULT 'email' CHECK (method IN ('email', 'sms')),
+  phone_number varchar(20),
+  backup_codes text[],
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT phone_required_for_sms CHECK (
+    (method = 'sms' AND phone_number IS NOT NULL) OR
+    (method = 'email')
+  )
 );
-CREATE INDEX IF NOT EXISTS idx_two_factor_settings_enabled ON profiles.two_factor_settings(enabled) WHERE enabled = true;
-
+CREATE INDEX IF NOT EXISTS idx_two_factor_settings_enabled
+  ON profiles.two_factor_settings(enabled)
+  WHERE enabled = true;
 COMMENT ON TABLE profiles.two_factor_settings IS 'Two-factor authentication settings per user (admin accounts)';
 COMMENT ON COLUMN profiles.two_factor_settings.method IS 'Preferred 2FA method: email or sms';
 COMMENT ON COLUMN profiles.two_factor_settings.backup_codes IS 'Hashed backup codes for account recovery (10 codes)';
+
+CREATE TABLE IF NOT EXISTS profiles.orgs (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  slug          text NOT NULL UNIQUE,
+  is_personal   boolean NOT NULL DEFAULT false,
+  owner_user_id uuid REFERENCES profiles.users(id) ON DELETE RESTRICT,
+  metadata      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  deleted_at    timestamptz,
+  CONSTRAINT orgs_slug_format_chk CHECK (
+    char_length(slug) BETWEEN 1 AND 63
+    AND slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  ),
+  CONSTRAINT orgs_personal_owner_chk CHECK (
+    (is_personal = true AND owner_user_id IS NOT NULL)
+    OR (is_personal = false AND owner_user_id IS NULL)
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS orgs_owner_user_personal_uidx
+  ON profiles.orgs(owner_user_id)
+  WHERE is_personal = true AND deleted_at IS NULL;
+COMMENT ON COLUMN profiles.orgs.metadata IS 'Arbitrary org metadata (internal/admin flags such as reserved)';
+
+CREATE TABLE IF NOT EXISTS profiles.org_members (
+  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
+  UNIQUE (org_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS org_members_user_id_idx
+  ON profiles.org_members (user_id)
+  WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS profiles.org_roles (
+  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  role       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (org_id, role),
+  CONSTRAINT org_roles_role_format_chk CHECK (
+    char_length(role) BETWEEN 1 AND 64
+    AND role ~ '^[a-zA-Z0-9:_-]+$'
+  )
+);
+
+CREATE TABLE IF NOT EXISTS profiles.org_member_roles (
+  org_id     uuid NOT NULL,
+  user_id    uuid NOT NULL,
+  role       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (org_id, user_id, role),
+  FOREIGN KEY (org_id, user_id) REFERENCES profiles.org_members(org_id, user_id) ON DELETE CASCADE,
+  FOREIGN KEY (org_id, role) REFERENCES profiles.org_roles(org_id, role) ON DELETE CASCADE,
+  CONSTRAINT org_member_roles_role_format_chk CHECK (
+    char_length(role) BETWEEN 1 AND 64
+    AND role ~ '^[a-zA-Z0-9:_-]+$'
+  )
+);
+CREATE INDEX IF NOT EXISTS org_member_roles_member_idx
+  ON profiles.org_member_roles (org_id, user_id);
+CREATE INDEX IF NOT EXISTS org_member_roles_org_idx
+  ON profiles.org_member_roles (org_id);
+
+CREATE TABLE IF NOT EXISTS profiles.org_invites (
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
+  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE RESTRICT,
+  status     text NOT NULL DEFAULT 'pending',
+  expires_at timestamptz,
+  acted_at   timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
+  CONSTRAINT org_invites_status_chk CHECK (status IN ('pending', 'accepted', 'declined', 'revoked', 'expired'))
+);
+CREATE INDEX IF NOT EXISTS org_invites_org_idx
+  ON profiles.org_invites(org_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS org_invites_user_idx
+  ON profiles.org_invites(user_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS org_invites_status_idx
+  ON profiles.org_invites(status)
+  WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS org_invites_pending_org_user_uidx
+  ON profiles.org_invites(org_id, user_id)
+  WHERE status = 'pending' AND deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS profiles.owner_reserved_names (
+  slug       text PRIMARY KEY,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT owner_reserved_names_slug_format_chk CHECK (
+    char_length(slug) BETWEEN 1 AND 63
+    AND slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  )
+);
+INSERT INTO profiles.owner_reserved_names (slug)
+VALUES ('admin'), ('superuser'), ('root'), ('sudo')
+ON CONFLICT (slug) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS profiles.org_renames (
+  id         bigserial PRIMARY KEY,
+  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  from_slug  text NOT NULL,
+  to_slug    text NOT NULL,
+  renamed_at timestamptz NOT NULL DEFAULT now(),
+  renamed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  CONSTRAINT org_renames_from_slug_format_chk CHECK (
+    from_slug = lower(from_slug)
+    AND from_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  ),
+  CONSTRAINT org_renames_to_slug_format_chk CHECK (
+    to_slug = lower(to_slug)
+    AND to_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  )
+);
+CREATE INDEX IF NOT EXISTS org_renames_from_renamed_idx
+  ON profiles.org_renames (from_slug, renamed_at DESC);
+CREATE INDEX IF NOT EXISTS org_renames_org_idx
+  ON profiles.org_renames (org_id, renamed_at DESC);
+
+CREATE TABLE IF NOT EXISTS profiles.user_renames (
+  id         bigserial PRIMARY KEY,
+  user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  from_slug  text NOT NULL,
+  to_slug    text NOT NULL,
+  renamed_at timestamptz NOT NULL DEFAULT now(),
+  renamed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  CONSTRAINT user_renames_from_slug_format_chk CHECK (
+    from_slug = lower(from_slug)
+    AND from_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  ),
+  CONSTRAINT user_renames_to_slug_format_chk CHECK (
+    to_slug = lower(to_slug)
+    AND to_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  )
+);
+CREATE INDEX IF NOT EXISTS user_renames_from_renamed_idx
+  ON profiles.user_renames (from_slug, renamed_at DESC);
+CREATE INDEX IF NOT EXISTS user_renames_user_idx
+  ON profiles.user_renames (user_id, renamed_at DESC);

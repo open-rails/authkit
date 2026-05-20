@@ -7,7 +7,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/authkit-devserver ./authkit-devserver.go
 
-FROM postgres:17-alpine
+FROM postgres:18-alpine
 
 RUN apk add --no-cache ca-certificates
 

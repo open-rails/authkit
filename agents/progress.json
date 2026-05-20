@@ -706,6 +706,23 @@
         "[x] Document descriptor examples for Google, Apple, Discord, GitHub, and a custom provider."
       ],
       "completed": true
+    },
+    {
+      "name": "Hard-cut AuthKit-generated row IDs to UUIDv7",
+      "id_number": 37,
+      "description": "AuthKit should mint UUIDv7 IDs for runtime-created UUID rows instead of UUIDv4 or deterministic slug-derived UUIDs. Host applications may receive AuthKit UUIDs, but they should not choose them. Deterministic role IDs remain intentionally slug-derived because role slug identity is a stable auth mechanism, not a runtime row-minting path.\n\nScope:\n- users, sessions, session families, providers, user-role join rows, orgs, personal orgs, parked org namespaces, and org invitations use UUIDv7 when AuthKit code mints IDs.\n- PostgreSQL schema defaults use `uuidv7()` for AuthKit-owned UUID defaults.\n- the all-in-one devserver image uses PostgreSQL 18 so the database has native UUIDv7 support.",
+      "tasks": [
+        "[x] Add a central UUIDv7 helper for AuthKit core code paths that mint UUIDs.",
+        "[x] Convert user creation, session IDs, session family IDs, provider rows, user-role rows, org rows, personal-org rows, parked-org rows, and org invite rows to UUIDv7.",
+        "[x] Remove public deterministic user/org UUID helper surface from `identity` so apps cannot rely on username/slug-derived AuthKit IDs.",
+        "[x] Add AuthKit-owned legacy user import/update helpers that accept legacy attributes but still mint new user IDs inside AuthKit.",
+        "[x] Add AuthKit-owned role upsert helper so app legacy migrators can stop writing `profiles.roles` directly.",
+        "[x] Update PostgreSQL migrations for AuthKit-owned UUID defaults from `gen_random_uuid()` to `uuidv7()`.",
+        "[x] Move the all-in-one devserver image to PostgreSQL 18.",
+        "[x] Verify with `go test ./...` and `git diff --check`.",
+        "[ ] Tag/release AuthKit and pin downstream apps to the released version/commit that includes UUIDv7 behavior."
+      ],
+      "completed": false
     }
   ],
   "completed_features": [

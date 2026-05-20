@@ -92,14 +92,16 @@ func TestResolveUserBySlugFallsThroughUserRenamesToCurrentUsername(t *testing.T)
 }
 
 func TestRenameHistoryMigrationHasEfficientLookupIndexesAndNoHistoryUniqueness(t *testing.T) {
-	src := readSource(t, "../migrations/postgres/015_rename_history.up.sql")
+	src := readSource(t, "../migrations/postgres/001_auth_schema.up.sql")
+	renameSrc := sourceBetween(t, src, "CREATE TABLE IF NOT EXISTS profiles.org_renames", "CREATE TABLE IF NOT EXISTS profiles.user_renames")
+	renameSrc += sourceBetween(t, src, "CREATE TABLE IF NOT EXISTS profiles.user_renames", "")
 	required := []string{
 		"ON profiles.org_renames (from_slug, renamed_at DESC)",
 		"ON profiles.user_renames (from_slug, renamed_at DESC)",
 		"ON profiles.org_renames (org_id, renamed_at DESC)",
 		"ON profiles.user_renames (user_id, renamed_at DESC)",
-		"org_id      uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE",
-		"user_id     uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE",
+		"org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE",
+		"user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE",
 	}
 	for _, marker := range required {
 		if !strings.Contains(src, marker) {
@@ -111,7 +113,7 @@ func TestRenameHistoryMigrationHasEfficientLookupIndexesAndNoHistoryUniqueness(t
 		"from_slug   text NOT NULL UNIQUE",
 		"CREATE UNIQUE INDEX",
 	} {
-		if strings.Contains(src, forbidden) {
+		if strings.Contains(renameSrc, forbidden) {
 			t.Fatalf("rename history must not make historical slugs globally unique; found %q", forbidden)
 		}
 	}
@@ -119,11 +121,10 @@ func TestRenameHistoryMigrationHasEfficientLookupIndexesAndNoHistoryUniqueness(t
 
 func TestCurrentSlugColumnsRemainUnique(t *testing.T) {
 	authSchema := readSource(t, "../migrations/postgres/001_auth_schema.up.sql")
-	orgSchema := readSource(t, "../migrations/postgres/006_orgs.up.sql")
 	if !strings.Contains(authSchema, "username          public.citext UNIQUE") {
 		t.Fatalf("profiles.users.username must remain unique")
 	}
-	if !strings.Contains(orgSchema, "slug         text NOT NULL UNIQUE") {
+	if !strings.Contains(authSchema, "slug          text NOT NULL UNIQUE") {
 		t.Fatalf("profiles.orgs.slug must remain unique")
 	}
 }
@@ -214,4 +215,20 @@ func readSource(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(src)
+}
+
+func sourceBetween(t *testing.T, src, startMarker, endMarker string) string {
+	t.Helper()
+	start := strings.Index(src, startMarker)
+	if start < 0 {
+		t.Fatalf("could not find source marker %q", startMarker)
+	}
+	if endMarker == "" {
+		return src[start:]
+	}
+	end := strings.Index(src[start+len(startMarker):], endMarker)
+	if end < 0 {
+		t.Fatalf("could not find source marker %q", endMarker)
+	}
+	return src[start : start+len(startMarker)+end]
 }

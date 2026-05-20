@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/open-rails/authkit/identity"
 )
 
 type OwnerNamespaceState string
@@ -307,18 +305,15 @@ func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (orgID stri
 	if conflict {
 		return "", false, ErrOwnerSlugTaken
 	}
-	// Explicit ::text cast on $2 — pgx can't infer the type when the parameter
-	// is only used inside jsonb_build_object.
-	// Deterministic id (see identity/uuid.go). Parked orgs share the same
-	// uuid5 namespace as registered orgs — when a parked slug is later
-	// claimed (or auto-promotes via reserved_name resolution), the org row
-	// already has the canonical id.
-	derivedID := identity.OrgIDFromSlug(slug).String()
+	orgIDToInsert, err := newUUIDV7String()
+	if err != nil {
+		return "", false, err
+	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO profiles.orgs (id, slug, metadata)
 		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', $3::text, 'reserved', to_jsonb(true)))
 		RETURNING id::text
-	`, derivedID, slug, string(OwnerNamespaceStateParkedOrg)).Scan(&orgID); err != nil {
+	`, orgIDToInsert, slug, string(OwnerNamespaceStateParkedOrg)).Scan(&orgID); err != nil {
 		return "", false, err
 	}
 	if _, err := tx.Exec(ctx, `

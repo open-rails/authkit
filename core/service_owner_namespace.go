@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/open-rails/authkit/identity"
 )
 
 var (
@@ -274,18 +272,18 @@ func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username
 		return err
 	}
 
-	// Deterministic id from slug (see identity/uuid.go). The ON CONFLICT
-	// clause already preserves the existing id on the personal-org rename
-	// path — nothing in the UPDATE branch touches id.
-	derivedID := identity.OrgIDFromSlug(slug).String()
+	orgIDToInsert, err := newUUIDV7String()
+	if err != nil {
+		return err
+	}
 	var orgID string
-	err := s.pg.QueryRow(ctx, `
+	err = s.pg.QueryRow(ctx, `
 		INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id, metadata)
 		VALUES ($1::uuid, $2, true, $3::uuid, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 		ON CONFLICT (owner_user_id) WHERE is_personal=true AND deleted_at IS NULL
 		DO UPDATE SET slug=EXCLUDED.slug, updated_at=now()
 		RETURNING id::text
-	`, derivedID, slug, userID).Scan(&orgID)
+	`, orgIDToInsert, slug, userID).Scan(&orgID)
 	if err != nil {
 		return err
 	}

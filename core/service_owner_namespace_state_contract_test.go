@@ -32,7 +32,7 @@ func TestParkOrgNamespaceCreatesOrgWithoutUserPlaceholder(t *testing.T) {
 	}
 	code := string(src)
 	if !strings.Contains(code, "INSERT INTO profiles.orgs (id, slug, metadata)") {
-		t.Fatalf("expected parked-org promotion to create org record with deterministic id")
+		t.Fatalf("expected parked-org promotion to create org record directly")
 	}
 	if strings.Contains(code, "INSERT INTO profiles.users") {
 		t.Fatalf("parked-org promotion should not require creating same-slug login users")

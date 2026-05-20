@@ -63,11 +63,19 @@ func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent str
 		v := ip.String()
 		ipstr = &v
 	}
+	sid, err = newUUIDV7String()
+	if err != nil {
+		return "", "", nil, err
+	}
+	fam, err = newUUIDV7String()
+	if err != nil {
+		return "", "", nil, err
+	}
 	// Insert row
-	q := `INSERT INTO profiles.refresh_sessions (user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at)
-          VALUES ($1,$2,$3,$4,$5,$6,now())
+	q := `INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
           RETURNING id::text, family_id::text`
-	if err = s.pg.QueryRow(ctx, q, userID, s.opts.Issuer, hash, expPtr, nullable(userAgent), ipstr).Scan(&sid, &fam); err != nil {
+	if err = s.pg.QueryRow(ctx, q, sid, fam, userID, s.opts.Issuer, hash, expPtr, nullable(userAgent), ipstr).Scan(&sid, &fam); err != nil {
 		return "", "", nil, err
 	}
 	return sid, rt, expPtr, nil

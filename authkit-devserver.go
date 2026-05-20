@@ -173,7 +173,7 @@ func runMigrations(ctx context.Context, dbURL string) error {
 	}
 	defer sqlDB.Close()
 
-	// AuthKit migrations rely on pgcrypto (gen_random_uuid, digest/sha1).
+	// AuthKit migrations rely on pgcrypto for deterministic UUIDv5 helpers.
 	if _, err := sqlDB.ExecContext(ctx, `CREATE EXTENSION IF NOT EXISTS pgcrypto`); err != nil {
 		return fmt.Errorf("enable pgcrypto: %w", err)
 	}

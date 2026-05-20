@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	stdlog "log"
@@ -20,7 +21,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	entpg "github.com/open-rails/authkit/entitlements"
-	"github.com/open-rails/authkit/identity"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/open-rails/authkit/password"
 )
@@ -1744,6 +1744,21 @@ type User struct {
 	LastLogin       *time.Time
 }
 
+type ImportUserInput struct {
+	Email         string
+	PhoneNumber   string
+	Username      string
+	EmailVerified bool
+	PhoneVerified bool
+	BannedAt      *time.Time
+	BannedUntil   *time.Time
+	BanReason     *string
+	BannedBy      *string
+	Metadata      map[string]any
+	CreatedAt     *time.Time
+	UpdatedAt     *time.Time
+}
+
 func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
@@ -1845,12 +1860,11 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
 		return nil, err
 	}
-	// Convert empty email to NULL for database (allows multiple users without emails).
-	// Deterministic id from username — see identity/uuid.go. The id stays
-	// pinned across username renames; profiles.user_renames handles
-	// backwards lookup and old-username reuse blocking.
-	derivedID := identity.UserIDFromUsername(username).String()
-	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (id, email, username) VALUES ($1::uuid, NULLIF(lower($2), ''), $3) RETURNING id, email, username, email_verified, banned_at, deleted_at`, derivedID, email, username)
+	userID, err := newUUIDV7String()
+	if err != nil {
+		return nil, err
+	}
+	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (id, email, username) VALUES ($1::uuid, NULLIF(lower($2), ''), $3) RETURNING id, email, username, email_verified, banned_at, deleted_at`, userID, email, username)
 	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.BannedAt, &u.DeletedAt); err != nil {
 		return nil, err
@@ -1862,6 +1876,132 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 		}
 	}
 	return &u, nil
+}
+
+func normalizeImportUserInput(input ImportUserInput) (email any, phone any, username string, bannedBy any, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
+	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
+		if err := ValidateEmail(trimmed); err != nil {
+			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
+		}
+		email = NormalizeEmail(trimmed)
+	}
+	if trimmed := strings.TrimSpace(input.PhoneNumber); trimmed != "" {
+		if err := ValidatePhone(trimmed); err != nil {
+			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
+		}
+		phone = NormalizePhone(trimmed)
+	}
+	username = strings.TrimSpace(input.Username)
+	slug := ownerSlugFromUsername(username)
+	if slug == "" || validateOrgSlug(slug) != nil {
+		return nil, nil, "", nil, "", time.Time{}, time.Time{}, fmt.Errorf("invalid_username_for_owner_namespace")
+	}
+	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
+		bannedBy = strings.TrimSpace(*input.BannedBy)
+	}
+	rawMetadata := input.Metadata
+	if rawMetadata == nil {
+		rawMetadata = map[string]any{}
+	}
+	metadataJSON, err := json.Marshal(rawMetadata)
+	if err != nil {
+		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
+	}
+	now := time.Now().UTC()
+	createdAt = now
+	if input.CreatedAt != nil {
+		createdAt = input.CreatedAt.UTC()
+	}
+	updatedAt = now
+	if input.UpdatedAt != nil {
+		updatedAt = input.UpdatedAt.UTC()
+	}
+	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
+}
+
+func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
+	if err != nil {
+		return nil, err
+	}
+	slug := ownerSlugFromUsername(username)
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
+		return nil, err
+	}
+	userID, err := newUUIDV7String()
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.pg.Exec(ctx, `
+		INSERT INTO profiles.users (
+			id, email, phone_number, username, email_verified, phone_verified,
+			banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
+		)
+		VALUES (
+			$1::uuid, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10::uuid, $11::jsonb, $12, $13
+		)
+	`, userID, email, phone, username, input.EmailVerified, input.PhoneVerified, input.BannedAt, input.BannedUntil, input.BanReason, bannedBy, metadata, createdAt, updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
+			return nil, err
+		}
+	}
+	return s.getUserByID(ctx, userID)
+}
+
+func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrUserNotFound
+	}
+	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
+	if err != nil {
+		return nil, err
+	}
+	slug := ownerSlugFromUsername(username)
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
+		return nil, err
+	}
+	var updatedID string
+	err = s.pg.QueryRow(ctx, `
+		UPDATE profiles.users
+		SET email = COALESCE($2, email),
+		    phone_number = COALESCE($3, phone_number),
+		    username = $4,
+		    email_verified = $5,
+		    phone_verified = $6,
+		    banned_at = $7,
+		    banned_until = $8,
+		    ban_reason = $9,
+		    banned_by = $10::uuid,
+		    metadata = COALESCE(metadata, '{}'::jsonb) || $11::jsonb,
+		    created_at = CASE WHEN $12 < created_at THEN $12 ELSE created_at END,
+		    updated_at = $13
+		WHERE id = $1::uuid
+		RETURNING id::text
+	`, userID, email, phone, username, input.EmailVerified, input.PhoneVerified, input.BannedAt, input.BannedUntil, input.BanReason, bannedBy, metadata, createdAt, updatedAt).Scan(&updatedID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
+		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
+			return nil, err
+		}
+	}
+	return s.getUserByID(ctx, updatedID)
 }
 
 func (s *Service) setEmailVerified(ctx context.Context, id string, v bool) error {
@@ -2126,9 +2266,10 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 			return err
 		}
 		if strings.TrimSpace(orgID) == "" {
-			// Deterministic id from the new slug (the personal org is being
-			// freshly created here because the prior lookup found none).
-			derivedOrgID := identity.OrgIDFromSlug(newSlug).String()
+			derivedOrgID, err := newUUIDV7String()
+			if err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id)
 				VALUES ($1::uuid, $2, true, $3::uuid)
@@ -2537,7 +2678,38 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 	if err := s.pg.QueryRow(ctx, `SELECT id FROM profiles.roles WHERE slug=$1`, slug).Scan(&roleID); err != nil {
 		return err
 	}
-	_, err := s.pg.Exec(ctx, `INSERT INTO profiles.user_roles (user_id, role_id) VALUES ($1,$2) ON CONFLICT (user_id, role_id) DO NOTHING`, userID, roleID)
+	userRoleID, err := newUUIDV7String()
+	if err != nil {
+		return err
+	}
+	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.user_roles (id, user_id, role_id) VALUES ($1,$2,$3) ON CONFLICT (user_id, role_id) DO NOTHING`, userRoleID, userID, roleID)
+	return err
+}
+
+func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
+	if s.pg == nil {
+		return nil
+	}
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		return fmt.Errorf("invalid_role")
+	}
+	if slug == "owner" {
+		return ErrReservedRoleSlug
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = slug
+	}
+	_, err := s.pg.Exec(ctx, `
+		INSERT INTO profiles.roles (name, slug, description)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (slug) DO UPDATE SET
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			updated_at = NOW(),
+			deleted_at = NULL
+	`, name, slug, description)
 	return err
 }
 
@@ -2610,6 +2782,9 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 // Exported wrappers for admin endpoints
 func (s *Service) AssignRoleBySlug(ctx context.Context, userID, slug string) error {
 	return s.assignRoleBySlug(ctx, userID, slug)
+}
+func (s *Service) UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
+	return s.upsertRoleBySlug(ctx, name, slug, description)
 }
 func (s *Service) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {
 	return s.removeRoleBySlug(ctx, userID, slug)
@@ -3010,13 +3185,17 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 	// First delete old Discord link if user is switching to a different Discord account
 	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.user_providers WHERE user_id=$1 AND issuer=$2 AND subject != $3`, userID, issuer, subject)
 	// Then insert/update the new link
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_providers (user_id, issuer, provider_slug, subject, email_at_provider)
-		VALUES ($1,$2,$3,$4,$5)
+	providerID, err := newUUIDV7String()
+	if err != nil {
+		return err
+	}
+	_, err = s.pg.Exec(ctx, `
+		INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
+		VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT (issuer, subject) DO UPDATE
 		SET email_at_provider=EXCLUDED.email_at_provider,
 		    provider_slug=COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
-	`, userID, issuer, providerSlug, subject, email)
+	`, providerID, userID, issuer, providerSlug, subject, email)
 	return err
 }
 
@@ -3078,9 +3257,13 @@ func (s *Service) linkProvider(ctx context.Context, userID, issuer, subject stri
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `INSERT INTO profiles.user_providers (user_id, issuer, subject, email_at_provider)
-        VALUES ($1,$2,$3,$4)
-        ON CONFLICT (issuer, subject) DO UPDATE SET email_at_provider=EXCLUDED.email_at_provider`, userID, issuer, subject, email)
+	providerID, err := newUUIDV7String()
+	if err != nil {
+		return err
+	}
+	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.user_providers (id, user_id, issuer, subject, email_at_provider)
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (issuer, subject) DO UPDATE SET email_at_provider=EXCLUDED.email_at_provider`, providerID, userID, issuer, subject, email)
 	return err
 }
 

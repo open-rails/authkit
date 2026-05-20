@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit/identity"
 )
 
 var (
@@ -162,16 +161,16 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
 		return nil, err
 	}
-	// Deterministic id from slug — see identity/uuid.go for the rationale.
-	// Slug renames leave this id unchanged; profiles.org_renames handles
-	// backwards lookup and old-slug reuse blocking.
-	derivedID := identity.OrgIDFromSlug(slug).String()
+	orgID, err := newUUIDV7String()
+	if err != nil {
+		return nil, err
+	}
 	var id, canonical string
-	err := s.pg.QueryRow(ctx, `
+	err = s.pg.QueryRow(ctx, `
 		INSERT INTO profiles.orgs (id, slug, metadata)
 		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 		RETURNING id::text, slug
-	`, derivedID, slug).Scan(&id, &canonical)
+	`, orgID, slug).Scan(&id, &canonical)
 	if err != nil {
 		return nil, err
 	}

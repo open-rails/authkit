@@ -34,12 +34,16 @@ func (s *Service) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedB
 	if userID == "" || invitedBy == "" {
 		return nil, fmt.Errorf("invalid_user")
 	}
+	inviteID, err := newUUIDV7String()
+	if err != nil {
+		return nil, err
+	}
 	var out OrgInvite
 	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.org_invites (org_id, user_id, invited_by, status, expires_at)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending', $4)
-		RETURNING id::text, $5, user_id::text, invited_by::text, status, expires_at, acted_at, created_at
-	`, org.ID, userID, invitedBy, expiresAt, org.Slug).Scan(&out.ID, &out.Org, &out.UserID, &out.InvitedBy, &out.Status, &out.ExpiresAt, &out.ActedAt, &out.CreatedAt)
+		INSERT INTO profiles.org_invites (id, org_id, user_id, invited_by, status, expires_at)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'pending', $5)
+		RETURNING id::text, $6, user_id::text, invited_by::text, status, expires_at, acted_at, created_at
+	`, inviteID, org.ID, userID, invitedBy, expiresAt, org.Slug).Scan(&out.ID, &out.Org, &out.UserID, &out.InvitedBy, &out.Status, &out.ExpiresAt, &out.ActedAt, &out.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

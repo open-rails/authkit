@@ -29,6 +29,7 @@ Packages
 Migrations
 - Postgres SQL migrations live in `migrations/postgres/` and are embedded via `go:embed`.
 - Import `github.com/open-rails/authkit/migrations/postgres` and register `Migrations` with your runner, or use `FS`.
+- PostgreSQL-backed storage requires PostgreSQL 18 or newer. Older PostgreSQL versions are not supported. AuthKit migrations use native `uuidv7()` defaults for AuthKit-owned UUID identifiers; PostgreSQL 17 can store UUIDv7 values but does not provide the required `uuidv7()` function.
 
 ---
 
@@ -397,7 +398,7 @@ Reserved slug policy
   - `hold_until`: present for active rename reuse holds.
   - `entity_kind`: `none`, `org`, `user`, or `org_and_user`
   - optional `org` and/or `user` payloads when records exist.
-- Migration `012_owner_namespace_states.up.sql` introduces the reserved-name table, backfills legacy reserved rows, and converts legacy reserved personal placeholder orgs to non-personal parked orgs.
+- The PostgreSQL baseline schema creates `profiles.owner_reserved_names` and seeds canonical restricted names (`admin`, `superuser`, `root`, `sudo`) directly.
 - Public register/create/rename/org-create/org-rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
 - Reserved users are non-loginable (reserved placeholder credentials/providers are cleared by migration and reserve flows).
 
