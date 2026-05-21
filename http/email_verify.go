@@ -18,22 +18,29 @@ type authTokensResponse struct {
 }
 
 func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.svc.HasEmailSender() {
-		serverErr(w, "email_verification_unavailable")
-		return
-	}
 	if s.rateLimited(w, r, RLEmailVerifyRequest) {
 		return
 	}
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Email) == "" {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if err := core.ValidateEmail(req.Email); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
+		return
+	}
+	if !s.svc.HasEmailSender() {
+		serverErr(w, "email_verification_unavailable")
 		return
 	}
 	if err := s.svc.RequestEmailVerification(r.Context(), req.Email, 0); err != nil {
 		if s.handleDeliveryError(w, r, "email_verify_request", "send_email_verification", err) {
+			return
+		}
+		if handleVerificationRequestError(w, err) {
 			return
 		}
 		s.logInternalError(r, "email_verify_request", "request_email_verification", "verification_request_failed", err)

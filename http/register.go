@@ -227,10 +227,6 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}
-	if !s.svc.HasEmailSender() {
-		serverErr(w, "email_unavailable")
-		return
-	}
 	if s.rateLimited(w, r, RLAuthRegisterResendEmail) {
 		return
 	}
@@ -238,34 +234,40 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Email) == "" {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if err := core.ValidateEmail(req.Email); err != nil {
+		badRequest(w, core.ValidationErrorCode(err))
+		return
+	}
+	if !s.svc.HasEmailSender() {
+		serverErr(w, "email_unavailable")
 		return
 	}
 	email := strings.TrimSpace(req.Email)
 
 	pendingUser, err := s.svc.GetPendingRegistrationByEmail(r.Context(), email)
-	if err == nil && pendingUser != nil {
-		if _, err := s.svc.CreatePendingRegistration(r.Context(), email, pendingUser.Username, pendingUser.PasswordHash, 0); err != nil {
-			if s.handleDeliveryError(w, r, "register_resend_email", "send_email_verification", err) {
-				return
-			}
-			s.logInternalError(r, "register_resend_email", "create_pending_registration", "resend_failed", err)
-			serverErr(w, "resend_failed")
+	if err != nil || pendingUser == nil {
+		notFound(w, "pending_registration_not_found")
+		return
+	}
+	if _, err := s.svc.CreatePendingRegistration(r.Context(), email, pendingUser.Username, pendingUser.PasswordHash, 0); err != nil {
+		if s.handleDeliveryError(w, r, "register_resend_email", "send_email_verification", err) {
 			return
 		}
+		s.logInternalError(r, "register_resend_email", "create_pending_registration", "resend_failed", err)
+		serverErr(w, "resend_failed")
+		return
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If a pending registration exists, new verification credentials have been sent."})
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
 func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.svc.Options().RegistrationVerificationEnabled() {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
-		return
-	}
-	if !s.svc.HasSMSSender() {
-		serverErr(w, "phone_unavailable")
 		return
 	}
 	if s.rateLimited(w, r, RLAuthRegisterResendPhone) {
@@ -276,27 +278,33 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		PhoneNumber string `json:"phone_number"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		badRequest(w, "invalid_request")
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
 	if err := core.ValidatePhone(phone); err != nil {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
 	phone = core.NormalizePhone(phone)
 
+	if !s.svc.HasSMSSender() {
+		serverErr(w, "phone_unavailable")
+		return
+	}
 	pending, err := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), phone)
-	if err == nil && pending != nil {
-		if _, err := s.svc.CreatePendingPhoneRegistration(r.Context(), phone, pending.Username, pending.PasswordHash); err != nil {
-			if s.handleDeliveryError(w, r, "register_resend_phone", "send_phone_verification", err) {
-				return
-			}
-			s.logInternalError(r, "register_resend_phone", "create_pending_phone_registration", "resend_failed", err)
-			serverErr(w, "resend_failed")
+	if err != nil || pending == nil {
+		notFound(w, "pending_registration_not_found")
+		return
+	}
+	if _, err := s.svc.CreatePendingPhoneRegistration(r.Context(), phone, pending.Username, pending.PasswordHash); err != nil {
+		if s.handleDeliveryError(w, r, "register_resend_phone", "send_phone_verification", err) {
 			return
 		}
+		s.logInternalError(r, "register_resend_phone", "create_pending_phone_registration", "resend_failed", err)
+		serverErr(w, "resend_failed")
+		return
 	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If a pending registration exists, new verification credentials have been sent."})
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }

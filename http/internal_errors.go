@@ -2,8 +2,11 @@ package authhttp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 // InternalErrorEvent captures a swallowed internal handler error so host apps
@@ -53,4 +56,30 @@ func (s *Service) handleDeliveryError(w http.ResponseWriter, r *http.Request, ro
 	s.logInternalError(r, route, stage, code, err)
 	deliveryErr(w, code)
 	return true
+}
+
+func handleVerificationRequestError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	if code := core.ValidationErrorCode(err); code != "" {
+		badRequest(w, code)
+		return true
+	}
+	switch {
+	case errors.Is(err, core.ErrUserNotFound):
+		notFound(w, "user_not_found")
+		return true
+	case errors.Is(err, core.ErrPendingRegistrationNotFound):
+		notFound(w, "pending_registration_not_found")
+		return true
+	case errors.Is(err, core.ErrEmailAlreadyVerified):
+		sendErr(w, http.StatusConflict, "email_already_verified")
+		return true
+	case errors.Is(err, core.ErrPhoneAlreadyVerified):
+		sendErr(w, http.StatusConflict, "phone_already_verified")
+		return true
+	default:
+		return false
+	}
 }

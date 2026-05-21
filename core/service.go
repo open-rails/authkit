@@ -67,6 +67,12 @@ var (
 	ErrUserBanned = errors.New("user_banned")
 	// ErrUserNotFound indicates a user does not exist (or is not visible).
 	ErrUserNotFound = errors.New("user_not_found")
+	// ErrEmailAlreadyVerified indicates an email verification request targeted an already-verified email.
+	ErrEmailAlreadyVerified = errors.New("email_already_verified")
+	// ErrPhoneAlreadyVerified indicates a phone verification request targeted an already-verified phone.
+	ErrPhoneAlreadyVerified = errors.New("phone_already_verified")
+	// ErrPendingRegistrationNotFound indicates a registration resend request did not match a pending registration.
+	ErrPendingRegistrationNotFound = errors.New("pending_registration_not_found")
 )
 
 const defaultFrontendCallbackPath = "/login/callback"
@@ -1134,23 +1140,30 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 	return s.ConfirmPasswordResetWithSession(ctx, resetSession, newPassword)
 }
 
-// RequestEmailVerification creates a verification code and dispatches an email. Always returns 202-like behavior.
+// RequestEmailVerification creates a verification code and dispatches an email.
 func (s *Service) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
+	email = NormalizeEmail(email)
+	if err := ValidateEmail(email); err != nil {
+		return err
+	}
 	if s.pg == nil {
-		return nil
+		return s.requirePG()
 	}
 	u, err := s.getUserByEmail(ctx, email)
-	if err != nil || u == nil {
-		return nil
+	if errors.Is(err, pgx.ErrNoRows) || u == nil {
+		return ErrUserNotFound
+	}
+	if err != nil {
+		return err
 	}
 	if u.EmailVerified {
-		return nil
+		return ErrEmailAlreadyVerified
 	}
 	if ttl <= 0 {
 		ttl = 15 * time.Minute
 	}
 	if u.Email == nil {
-		return nil // Can't verify a NULL email
+		return ErrUserNotFound
 	}
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
@@ -1565,20 +1578,26 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, erro
 
 // RequestPhoneVerification looks up the user by phone number and sends a verification code.
 // This mirrors the RequestEmailVerification pattern - caller only needs to provide the phone number.
-// Always returns nil for security (prevents phone enumeration).
 func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
+	phone = NormalizePhone(phone)
+	if err := ValidatePhone(phone); err != nil {
+		return err
+	}
 	if s.pg == nil {
-		return nil
+		return s.requirePG()
 	}
 	u, err := s.GetUserByPhone(ctx, phone)
-	if err != nil || u == nil {
-		return nil // Fail silently
+	if errors.Is(err, pgx.ErrNoRows) || u == nil {
+		return ErrUserNotFound
+	}
+	if err != nil {
+		return err
 	}
 	if u.PhoneVerified {
-		return nil // Already verified
+		return ErrPhoneAlreadyVerified
 	}
 	if u.PhoneNumber == nil {
-		return nil // No phone number set
+		return ErrUserNotFound
 	}
 	return s.SendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
 }

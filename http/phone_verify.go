@@ -8,10 +8,6 @@ import (
 )
 
 func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.svc.HasSMSSender() {
-		serverErr(w, "phone_verification_unavailable")
-		return
-	}
 	if s.rateLimited(w, r, RLPhoneVerifyRequest) {
 		return
 	}
@@ -20,19 +16,26 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		PhoneNumber string `json:"phone_number"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		badRequest(w, "invalid_request")
 		return
 	}
 
 	phone := strings.TrimSpace(req.PhoneNumber)
 	if err := core.ValidatePhone(phone); err != nil {
-		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
 	phone = core.NormalizePhone(phone)
 
+	if !s.svc.HasSMSSender() {
+		serverErr(w, "phone_verification_unavailable")
+		return
+	}
 	if err := s.svc.RequestPhoneVerification(r.Context(), phone, 0); err != nil {
 		if s.handleDeliveryError(w, r, "phone_verify_request", "send_phone_verification", err) {
+			return
+		}
+		if handleVerificationRequestError(w, err) {
 			return
 		}
 		s.logInternalError(r, "phone_verify_request", "request_phone_verification", "verification_request_failed", err)

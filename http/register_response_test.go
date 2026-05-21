@@ -190,14 +190,15 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{}`))
+	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{"email":"user@example.com"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "172.21.0.1:1234"
 	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	require.JSONEq(t, `{"error":"pending_registration_not_found"}`, w.Body.String())
 
 	w = httptest.NewRecorder()
-	r = httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{}`))
+	r = httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{"email":"user@example.com"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "172.21.0.1:1234"
 	h.ServeHTTP(w, r)

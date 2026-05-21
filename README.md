@@ -504,11 +504,13 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
   - Set `RegistrationVerification: none|optional|required` in `core.Config`
   - POST /register/resend-email
   - POST /register/resend-phone
+  - Registration resend requests now return `invalid_email` / `invalid_phone_number` for malformed input and `pending_registration_not_found` when no matching pending registration exists.
   - Message delivery failures from the configured sender are surfaced as stable `email_delivery_failed` / `sms_delivery_failed` errors after AuthKit attempts provider submission.
 - Email verification:
   - POST /email/verify/request
   - POST /email/verify/confirm
   - POST /email/verify/confirm-link
+  - Verification request endpoints return explicit target-state errors: `user_not_found`, `email_already_verified`, or `phone_already_verified`.
 - Phone verification and password reset:
   - POST /phone/verify/request
   - POST /phone/verify/confirm

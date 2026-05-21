@@ -80,6 +80,8 @@ Reserved slug policy:
 
 Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
 
+Registration resend and email/phone verification request endpoints are honest about malformed input and target state. They return validation errors for malformed identifiers, `pending_registration_not_found` for missing pending registration resend targets, `user_not_found` for missing verification targets, and `email_already_verified` / `phone_already_verified` for already-verified accounts.
+
 ---
 
 ## Email/Phone Verification
@@ -95,7 +97,7 @@ Request-code endpoints are rate-limited by default: one request per client every
 
 ---
 
-For verification, reset, and 2FA send operations, a 2xx response means AuthKit submitted the message to the configured email/SMS provider. Provider submission failures return stable public errors such as `email_delivery_failed` or `sms_delivery_failed`; downstream mailbox/carrier delivery is outside AuthKit's synchronous confirmation boundary.
+For verification, registration resend, and 2FA send operations, a 2xx response means AuthKit submitted the message to the configured email/SMS provider. Provider submission failures return stable public errors such as `email_delivery_failed` or `sms_delivery_failed`; downstream mailbox/carrier delivery is outside AuthKit's synchronous confirmation boundary.
 
 ## User Management (Authenticated)
 
