@@ -15,9 +15,15 @@ type Claims struct {
 	DiscordUsername string
 	SessionID       string
 	Roles           []string
-	Org             string
-	OrgRoles        []string
-	Entitlements    []string
+	// GlobalRoles are the user's GLOBAL (platform-wide) roles, carried in the
+	// `global_roles` claim in both single and multi-org mode. Use these for
+	// global-admin authorization decisions.
+	GlobalRoles []string
+	Org         string
+	// OrgRoles are the roles scoped to the org named in Org, carried in the
+	// `org_roles` claim on org-scoped tokens. Use these for org-scoped authz.
+	OrgRoles     []string
+	Entitlements []string
 	Issuer          string
 	UserTier        string
 	JTI             string

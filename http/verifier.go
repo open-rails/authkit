@@ -323,18 +323,30 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
 
+	// Split global/org role claims (additive). `global_roles` carries the user's
+	// platform-wide roles in both single and multi-org mode; `org_roles` carries
+	// roles scoped to the org on an org-scoped token.
+	cl.GlobalRoles = strSliceClaim(mc, "global_roles")
+	if oroles := strSliceClaim(mc, "org_roles"); len(oroles) > 0 {
+		cl.OrgRoles = oroles
+	}
+
 	// A delegated token's tenant comes from `tenant`, falling back to `org`.
 	if strings.TrimSpace(cl.Tenant) == "" {
 		cl.Tenant = cl.Org
 	}
 
-	// In org_mode=multi, if org is present, roles are org-scoped. Delegated
-	// tokens keep their roles on Roles (the federated principal carries its own
-	// roles), so only shuffle for native-user tokens.
+	// Back-compat: in org_mode=multi, if org is present, the legacy `roles` claim
+	// is org-scoped. Delegated tokens keep their roles on Roles (the federated
+	// principal carries its own roles), so only shuffle for native-user tokens.
+	// Only fall back to deriving OrgRoles from Roles when the explicit `org_roles`
+	// claim is absent (older tokens).
 	if !cl.IsDelegated() &&
 		strings.EqualFold(strings.TrimSpace(v.orgMode), "multi") &&
 		strings.TrimSpace(cl.Org) != "" && len(cl.Roles) > 0 {
-		cl.OrgRoles = cl.Roles
+		if len(cl.OrgRoles) == 0 {
+			cl.OrgRoles = cl.Roles
+		}
 		cl.Roles = nil
 	}
 

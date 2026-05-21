@@ -326,9 +326,18 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
 	expiresAt = base.ExpiresAt.Time
+	// globalRoles are the user's platform-wide roles. They are emitted in the
+	// `global_roles` claim in BOTH single and multi-org mode so consumers can do
+	// global-admin authorization from any access token.
+	var globalRoles []string
+	if s.pg != nil {
+		globalRoles = s.listRoleSlugsByUser(ctx, userID)
+	}
+	// roles is the legacy claim, populated only in single-org mode for
+	// back-compat (unchanged behavior).
 	var roles []string
-	if s.pg != nil && strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
-		roles = s.listRoleSlugsByUser(ctx, userID)
+	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
+		roles = globalRoles
 	}
 	var ents []string
 	if s.entitlements != nil {
@@ -377,6 +386,9 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 		"discord_username": discord,
 		"entitlements":     ents,
 	}
+	// global_roles is emitted in both single and multi-org mode (additive).
+	claims["global_roles"] = globalRoles
+	// roles (legacy) is emitted only in single-org mode, unchanged.
 	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
 		claims["roles"] = roles
 	}
@@ -415,9 +427,12 @@ func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlu
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	// org + roles (legacy) preserve existing behavior; org_roles is the new
+	// explicit org-scoped claim. global_roles is added by IssueAccessToken.
 	claims := map[string]any{
-		"org":   org.Slug,
-		"roles": orgRoles,
+		"org":       org.Slug,
+		"roles":     orgRoles,
+		"org_roles": orgRoles,
 	}
 	if extra == nil {
 		extra = map[string]any{}
