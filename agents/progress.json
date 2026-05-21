@@ -784,14 +784,14 @@
         "[x] core/service.go IssueOrgAccessToken: populate `global_roles` (user's global roles) AND `org_roles` (roles scoped to that org).",
         "[x] Token parse/verify (http): populate Claims.GlobalRoles and Claims.OrgRoles from the new JWT claims; map legacy `roles` for back-compat.",
         "[x] Tests: single-mode + multi-mode access tokens carry global_roles; org-scoped token carries global_roles + org_roles; legacy `roles` unchanged. go build ./... + go test affected packages.",
-        "[ ] Commit + push + tag authkit with a new version (changes are additive/back-compat). Note the tag for consumers.",
-        "[ ] ALL authkit-consuming repos must be adjusted MANUALLY (bump dep + `go mod tidy` + change API/assumptions). Consumers identified 2026-05-21: cozy-art (4 files read the roles claim), tensorhub (14 files), gen-orchestrator (uses authkit but reads no role claims \u2014 likely no change). If a consumer pins authkit via a local `replace` it already builds against source; if it pins a version, bump to the new tag.",
-        "[ ] tensorhub: bump authkit, `go mod tidy`, update authz to read claims.GlobalRoles (global-admin) + claims.OrgRoles (org scope) instead of the legacy `roles` claim. NOTE an uncommitted local fix already exists in internal/api/owner_authz_http.go that hydrates GlobalRoles via ListRoleSlugsByUser \u2014 harmonize (claims-first, DB-hydrate fallback). go build ./...",
-        "[ ] cozy-art: bump authkit, `go mod tidy`, update the 4 files reading the roles claim to the new global_roles/org_roles where relevant. go build ./... + frontend unaffected. (cozy-art may be under concurrent edits \u2014 make minimal additive changes.)",
-        "[ ] gen-orchestrator: bump authkit + `go mod tidy` to stay in sync even though it reads no role claims; go build ./...",
-        "[ ] Verify all consumers build against the new authkit; report any API/assumption changes made per repo."
+        "[x] Commit + push + tag authkit with a new version (changes are additive/back-compat). Note the tag for consumers.",
+        "[x] ALL authkit-consuming repos must be adjusted MANUALLY (bump dep + `go mod tidy` + change API/assumptions). Consumers identified 2026-05-21: cozy-art (4 files read the roles claim), tensorhub (14 files), gen-orchestrator (uses authkit but reads no role claims \u2014 likely no change). If a consumer pins authkit via a local `replace` it already builds against source; if it pins a version, bump to the new tag.",
+        "[x] tensorhub: bump authkit, `go mod tidy`, update authz to read claims.GlobalRoles (global-admin) + claims.OrgRoles (org scope) instead of the legacy `roles` claim. NOTE an uncommitted local fix already exists in internal/api/owner_authz_http.go that hydrates GlobalRoles via ListRoleSlugsByUser \u2014 harmonize (claims-first, DB-hydrate fallback). go build ./...",
+        "[x] cozy-art: bump authkit, `go mod tidy`, update the 4 files reading the roles claim to the new global_roles/org_roles where relevant. go build ./... + frontend unaffected. (cozy-art may be under concurrent edits \u2014 make minimal additive changes.)",
+        "[x] gen-orchestrator: bump authkit + `go mod tidy` to stay in sync even though it reads no role claims; go build ./...",
+        "[x] Verify all consumers build against the new authkit; report any API/assumption changes made per repo."
       ],
-      "completed": false
+      "completed": true
     }
   ],
   "completed_features": [
