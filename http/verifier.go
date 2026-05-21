@@ -287,6 +287,12 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		}
 	}
 
+	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
+	// platform token (`delegated_sub`) — never both. Reject the ambiguous case.
+	if strClaim(mapClaims, "sub") != "" && strClaim(mapClaims, "delegated_sub") != "" {
+		return Claims{}, errors.New("conflicting_subject")
+	}
+
 	return v.extractClaims(mapClaims), nil
 }
 
@@ -296,6 +302,8 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 		Issuer: strClaim(mc, "iss"),
 	}
 	cl.UserID = strClaim(mc, "sub")
+	cl.DelegatedSubject = strClaim(mc, "delegated_sub")
+	cl.Tenant = strClaim(mc, "tenant")
 	cl.Email = strClaim(mc, "email")
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.Username = strClaim(mc, "username")
@@ -315,8 +323,16 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
 
-	// In org_mode=multi, if org is present, roles are org-scoped.
-	if strings.EqualFold(strings.TrimSpace(v.orgMode), "multi") &&
+	// A delegated token's tenant comes from `tenant`, falling back to `org`.
+	if strings.TrimSpace(cl.Tenant) == "" {
+		cl.Tenant = cl.Org
+	}
+
+	// In org_mode=multi, if org is present, roles are org-scoped. Delegated
+	// tokens keep their roles on Roles (the federated principal carries its own
+	// roles), so only shuffle for native-user tokens.
+	if !cl.IsDelegated() &&
+		strings.EqualFold(strings.TrimSpace(v.orgMode), "multi") &&
 		strings.TrimSpace(cl.Org) != "" && len(cl.Roles) > 0 {
 		cl.OrgRoles = cl.Roles
 		cl.Roles = nil

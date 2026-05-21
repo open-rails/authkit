@@ -753,6 +753,26 @@
         "[x] Release AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` is still the AuthKit-defined route and returns `429` after the resend bucket is exceeded"
       ],
       "completed": true
+    },
+    {
+      "name": "Own the full platform-delegation system in authkit (federated orgs: registration + token minting + validation)",
+      "id_number": 40,
+      "description": "Make authkit the single owner of the entire platform-delegation lifecycle so an ORG can bring in FEDERATED USERS — users that live in the org's own system and authenticate via the org's issuer rather than local passwords. authkit owns BOTH SIDES of federation, so two authkit-embedding services register with and trust each other (one side is the platform/IdP that mints+sends; the other is the resource-server that accepts+validates). Capabilities, all in authkit:\n\n1. REGISTRATION HANDSHAKE (authkit <-> authkit), both sides owned:\n   - OUTBOUND 'send my registration' client (platform side, e.g. cozy-art): publish this org's issuer id + jwks_url to a resource server.\n   - INBOUND 'accept registrations' server (resource-server side, e.g. tensorhub): accept + store a federated org's issuer registration. Replaces tensorhub's bespoke `/api/v1/platform/issuers` + `tensorhub.platform_issuers`.\n2. MINTING (platform side, cozy-art): issue delegated platform tokens. The external user goes in `delegated_sub` (NEVER `sub`), plus `org`/`tenant`, `user_tier`, roles, aud, exp, signed by the org's platform issuer key.\n3. VALIDATION (resource-server side, tensorhub): validate delegated tokens -> typed DelegatedPrincipal {tenant, delegated_sub, tier, roles}, verifying iss/aud/exp/signature against the registered federated-org keys, with NO local-user lookup (no `user_disabled`).\n\nINVARIANT: a token carries EITHER `sub` (native user) XOR `delegated_sub` (federated user) — NEVER both. authkit must reject a token presenting both, and never mint both. Discriminator + the existing local-user gate (conditioned on `UserID != \"\"` from `sub`) means a `delegated_sub`-only token auto-skips the gate. authkit-only work; tensorhub (#366 there) and cozy-art (#46 there) bump to it after this lands. Unblocks cozy.art #44.",
+      "tasks": [
+        "[x] STAGE 1 — token shape + validation/minting primitives. Claims: add `DelegatedSubject`, `Tenant`, `IsDelegated()`; parse `delegated_sub`/`org`/`user_tier`/roles from the token.",
+        "[x] STAGE 1. INVARIANT: reject any token presenting BOTH `sub` and `delegated_sub` (mutually exclusive); the minting helper must never emit both. Test both directions.",
+        "[x] STAGE 1. Verify(): do NOT hard-require `sub`; for a delegated token validate iss/aud/exp/signature only.",
+        "[x] STAGE 1. Required middleware: EXPLICITLY skip local-DB enrichment + the `IsUserAllowed` gate for delegated claims (today it incidentally no-ops when UserID==\"\"; make it intentional + documented).",
+        "[x] STAGE 1. MINTING API: helper to issue a delegated platform token (delegated_sub, org/tenant, user_tier, roles, aud, exp) signed by a platform issuer key — cozy-art embeds this.",
+        "[x] STAGE 1. VALIDATION API: expose a typed DelegatedPrincipal from a verified delegated token — tensorhub embeds this.",
+        "[x] STAGE 1. Tests: native vs delegated token; no-`sub` token verifies; delegated principal extraction; local-user gate skipped for delegated; minting round-trips through validation.",
+        "[ ] STAGE 1. Release authkit (new minor) with minting + validation.",
+        "[ ] STAGE 2 — federated-org registry. Org model: federated identity — `Federated bool`, `IssuerID`, `JWKSURL`/keys, issuer status (new Org fields or a `federated_org_issuers` table) + migration.",
+        "[ ] STAGE 2. REGISTRATION HANDSHAKE, both sides owned by authkit: (a) INBOUND accept-side handler that stores a federated org's issuer registration (the home for tensorhub's `/api/v1/platform/issuers`), authorized by org owner/admin; (b) OUTBOUND send-side client that publishes this org's issuer id + jwks_url to a resource server. Two authkit instances complete the handshake (platform <-> resource-server).",
+        "[ ] STAGE 2. In-house JWKS fetch/refresh for federated-org issuers; the Verifier loads federated issuers from authkit's OWN store (no external push/sync).",
+        "[ ] STAGE 2. Docs: the federated-org concept (orgs bring federated users), the 3 roles (register/mint/validate), and the delegated-token contract (`delegated_sub`, etc.). Release authkit."
+      ],
+      "completed": false
     }
   ],
   "completed_features": [

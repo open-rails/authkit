@@ -24,8 +24,13 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Best-effort DB enrichment when a service is attached.
-			if v.enrich != nil && cl.UserID != "" {
+			// Best-effort DB enrichment when a service is attached. Skipped for
+			// delegated platform principals: their subject is a federated user
+			// that does not exist locally, so the local-user enrichment + the
+			// IsUserAllowed gate must not apply (the resource server authorizes
+			// by tenant/issuer trust instead). A delegated token carries no
+			// `sub`, so UserID is empty anyway — this is the explicit guard.
+			if v.enrich != nil && cl.UserID != "" && !cl.IsDelegated() {
 				// Discord username enrichment.
 				if du, err := v.enrich.GetProviderUsername(r.Context(), cl.UserID, "discord"); err == nil && du != "" {
 					cl.DiscordUsername = du
