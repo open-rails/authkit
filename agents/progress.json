@@ -734,9 +734,9 @@
         "[x] HTTP: map delivery failures to stable public error codes (`email_delivery_failed`, `sms_delivery_failed`) and log provider details through the internal error logger or host logger without exposing raw provider responses",
         "[x] Tests: add fake sender tests proving registration/resend returns a delivery error when the sender returns an error",
         "[x] Docs: update API docs/provider docs to state that 2xx means AuthKit submitted the message to the configured provider, not that the recipient mailbox accepted or opened it",
-        "[ ] Release: tag AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` surfaces provider submission failures through the AuthKit-defined route"
+        "[x] Release: tag AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` surfaces provider submission failures through the AuthKit-defined route"
       ],
-      "completed": false
+      "completed": true
     },
     {
       "name": "Make AuthKit resend/request-code rate limits work behind Docker and reverse proxies",
@@ -750,9 +750,9 @@
         "[x] Add route-level tests proving `/register/resend-email` returns `429` after the configured bucket is exceeded for Docker/private-peer-shaped requests",
         "[x] Add tests for trusted forwarded headers: trusted proxy uses the forwarded client IP; untrusted peer ignores spoofed forwarded headers",
         "[x] Update AuthKit docs to explain default rate-limit client identity behavior for direct traffic, Docker Compose, and reverse proxies",
-        "[ ] Release AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` is still the AuthKit-defined route and returns `429` after the resend bucket is exceeded"
+        "[x] Release AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` is still the AuthKit-defined route and returns `429` after the resend bucket is exceeded"
       ],
-      "completed": false
+      "completed": true
     }
   ],
   "completed_features": [
