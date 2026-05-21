@@ -766,7 +766,7 @@
         "[x] STAGE 1. MINTING API: helper to issue a delegated platform token (delegated_sub, org/tenant, user_tier, roles, aud, exp) signed by a platform issuer key — cozy-art embeds this.",
         "[x] STAGE 1. VALIDATION API: expose a typed DelegatedPrincipal from a verified delegated token — tensorhub embeds this.",
         "[x] STAGE 1. Tests: native vs delegated token; no-`sub` token verifies; delegated principal extraction; local-user gate skipped for delegated; minting round-trips through validation.",
-        "[ ] STAGE 1. Release authkit (new minor) with minting + validation.",
+        "[x] STAGE 1. Release authkit (new minor) with minting + validation.",
         "[ ] STAGE 2 — federated-org registry. Org model: federated identity — `Federated bool`, `IssuerID`, `JWKSURL`/keys, issuer status (new Org fields or a `federated_org_issuers` table) + migration.",
         "[ ] STAGE 2. REGISTRATION HANDSHAKE, both sides owned by authkit: (a) INBOUND accept-side handler that stores a federated org's issuer registration (the home for tensorhub's `/api/v1/platform/issuers`), authorized by org owner/admin; (b) OUTBOUND send-side client that publishes this org's issuer id + jwks_url to a resource server. Two authkit instances complete the handshake (platform <-> resource-server).",
         "[ ] STAGE 2. In-house JWKS fetch/refresh for federated-org issuers; the Verifier loads federated issuers from authkit's OWN store (no external push/sync).",
