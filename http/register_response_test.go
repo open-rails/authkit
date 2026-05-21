@@ -177,6 +177,24 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 	require.JSONEq(t, `{"error":"email_delivery_failed"}`, w.Body.String())
 }
 
+func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired).
+		WithEmailSender(testEmailSender{})
+	_, err := s.svc.CreatePendingRegistration(context.Background(), "user@example.com", "user", "argon2id$hash", 0)
+	require.NoError(t, err)
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/email/verify/request", strings.NewReader(`{
+		"email":"user@example.com"
+	}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	require.JSONEq(t, `{"ok":true}`, w.Body.String())
+}
+
 func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	s, err := NewService(core.Config{
 		Issuer:                   "https://example.com",

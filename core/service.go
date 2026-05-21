@@ -1146,15 +1146,29 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 	if err := ValidateEmail(email); err != nil {
 		return err
 	}
+	if s.pg != nil {
+		u, err := s.getUserByEmail(ctx, email)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if u != nil {
+			return s.sendEmailVerificationToUser(ctx, u, ttl)
+		}
+	}
+
+	if pending, err := s.GetPendingRegistrationByEmail(ctx, email); err == nil && pending != nil {
+		_, err := s.CreatePendingRegistration(ctx, email, pending.Username, pending.PasswordHash, ttl)
+		return err
+	}
 	if s.pg == nil {
 		return s.requirePG()
 	}
-	u, err := s.getUserByEmail(ctx, email)
-	if errors.Is(err, pgx.ErrNoRows) || u == nil {
+	return ErrUserNotFound
+}
+
+func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl time.Duration) error {
+	if u == nil {
 		return ErrUserNotFound
-	}
-	if err != nil {
-		return err
 	}
 	if u.EmailVerified {
 		return ErrEmailAlreadyVerified
@@ -1583,23 +1597,30 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 	if err := ValidatePhone(phone); err != nil {
 		return err
 	}
+	if s.pg != nil {
+		u, err := s.GetUserByPhone(ctx, phone)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if u != nil {
+			if u.PhoneVerified {
+				return ErrPhoneAlreadyVerified
+			}
+			if u.PhoneNumber == nil {
+				return ErrUserNotFound
+			}
+			return s.SendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
+		}
+	}
+
+	if pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone); err == nil && pending != nil {
+		_, err := s.CreatePendingPhoneRegistration(ctx, phone, pending.Username, pending.PasswordHash)
+		return err
+	}
 	if s.pg == nil {
 		return s.requirePG()
 	}
-	u, err := s.GetUserByPhone(ctx, phone)
-	if errors.Is(err, pgx.ErrNoRows) || u == nil {
-		return ErrUserNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if u.PhoneVerified {
-		return ErrPhoneAlreadyVerified
-	}
-	if u.PhoneNumber == nil {
-		return ErrUserNotFound
-	}
-	return s.SendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
+	return ErrUserNotFound
 }
 
 // SendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
