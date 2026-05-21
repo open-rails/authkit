@@ -44,3 +44,13 @@ func (s *Service) logInternalError(r *http.Request, route, stage, code string, e
 		Err:    err,
 	})
 }
+
+func (s *Service) handleDeliveryError(w http.ResponseWriter, r *http.Request, route, stage string, err error) bool {
+	code := deliveryErrCode(err)
+	if code == "" {
+		return false
+	}
+	s.logInternalError(r, route, stage, code, err)
+	deliveryErr(w, code)
+	return true
+}

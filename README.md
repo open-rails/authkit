@@ -133,6 +133,7 @@ Optional Twilio providers
 - AuthKit never reads provider environment variables directly. Host apps load their own config, build the sender, then pass it with `WithEmailSender` / `WithSMSSender`.
 - The SMS provider requires `AccountSID`, `AuthToken`, and `MessagingServiceSID`. It uses Twilio Messaging (`Messages.json`) only; there is no Verify service path and no `From` number fallback path.
 - The email provider requires a SendGrid/Twilio Email API key and a verified from address. Hosts can provide link builders or full message builders for branded/localized copy.
+- A 2xx response from AuthKit means the message was accepted by the configured sender/provider submission call. It does not prove the recipient mailbox or carrier ultimately delivered, accepted, opened, or displayed the message.
 
 ```go
 emailSender, err := emailtwilio.New(emailtwilio.Config{
@@ -470,11 +471,14 @@ Integration requirements (API server)
 - Rate limiting:
   - Enabled by default (in-memory limiter) with per-bucket defaults from `authhttp.DefaultRateLimits()`.
   - Keys: `auth:<bucket>:ip:<client-ip>`; errors fail-open (request allowed).
-  - Client IP strategy is conservative by default: it uses `RemoteAddr` only when it's a public IP; if `RemoteAddr` is private (common behind proxies), rate limiting fails open to avoid accidentally rate-limiting the proxy as a single client.
+  - Default client IP strategy uses the immediate `RemoteAddr` peer, including private Docker bridge, loopback, and reverse-proxy peers. This keeps anonymous sensitive endpoints protected in local Compose and embedded deployments instead of silently failing open.
+  - Request-code and resend buckets default to a 60-second per-client cooldown and 6 requests per hour for registration, registration resend, email/phone verification, password-reset request, and user email/phone change request/resend.
+  - `429` responses include `{"error":"rate_limited","retry_after_seconds":N}` and a `Retry-After: N` header when the limiter can compute the reset time.
   - **Behind reverse proxies, you must explicitly configure trusted proxies** to safely use `X-Forwarded-For` / `CF-Connecting-IP`. AuthKit will not trust forwarded headers by default (clients can spoof them).
   - For multi-instance production, prefer a Redis/Garnet-backed limiter and a trusted-proxy client IP function, e.g.:
     - `svc.WithRateLimiter(redislimiter.New(redis, authhttp.ToRedisLimits(authhttp.DefaultRateLimits())))`
     - `svc.WithClientIPFunc(authhttp.ClientIPFromForwardedHeaders(trustedProxyCIDRs))` where `trustedProxyCIDRs` are the CIDRs of your ingress/proxy layer (nginx, cloudflared, etc.).
+  - Hosts that intentionally want the older public-remote-only fail-open behavior can opt in with `svc.WithClientIPFunc(authhttp.PublicRemoteAddrClientIP())`.
   - To explicitly opt out: `svc.DisableRateLimiter()`.
 - Storage: run the SQL migrations in `authkit/migrations/postgres` (includes `profiles.refresh_sessions`).
 - Keys/JWKS: host `/.well-known/jwks.json` using `svc.JWKSHandler()` and rotate keys as needed.
@@ -500,6 +504,7 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
   - Set `RegistrationVerification: none|optional|required` in `core.Config`
   - POST /register/resend-email
   - POST /register/resend-phone
+  - Message delivery failures from the configured sender are surfaced as stable `email_delivery_failed` / `sms_delivery_failed` errors after AuthKit attempts provider submission.
 - Email verification:
   - POST /email/verify/request
   - POST /email/verify/confirm

@@ -34,8 +34,7 @@ type orgMembership struct {
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserMe) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserMe) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())

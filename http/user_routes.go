@@ -9,8 +9,7 @@ import (
 )
 
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserUpdateUsername) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserUpdateUsername) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -53,8 +52,7 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 		serverErr(w, "email_verification_unavailable")
 		return
 	}
-	if !s.allow(r, RLUserEmailChangeRequest) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserEmailChangeRequest) {
 		return
 	}
 
@@ -78,6 +76,9 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.svc.RequestEmailChange(r.Context(), claims.UserID, body.NewEmail); err != nil {
+		if s.handleDeliveryError(w, r, "user_email_change_request", "send_email_verification", err) {
+			return
+		}
 		if code := core.ValidationErrorCode(err); code != "" {
 			badRequest(w, code)
 			return
@@ -101,8 +102,7 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 }
 
 func (s *Service) handleUserEmailChangeConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserEmailChangeConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserEmailChangeConfirm) {
 		return
 	}
 
@@ -141,8 +141,7 @@ func (s *Service) handleUserEmailChangeResendPOST(w http.ResponseWriter, r *http
 		serverErr(w, "email_verification_unavailable")
 		return
 	}
-	if !s.allow(r, RLUserEmailChangeResend) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserEmailChangeResend) {
 		return
 	}
 
@@ -153,6 +152,9 @@ func (s *Service) handleUserEmailChangeResendPOST(w http.ResponseWriter, r *http
 	}
 
 	if err := s.svc.ResendEmailChangeCode(r.Context(), claims.UserID); err != nil {
+		if s.handleDeliveryError(w, r, "user_email_change_resend", "send_email_verification", err) {
+			return
+		}
 		badRequest(w, "no_pending_email_change")
 		return
 	}
@@ -164,8 +166,7 @@ func (s *Service) handleUserEmailChangeResendPOST(w http.ResponseWriter, r *http
 }
 
 func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserPhoneChangeRequest) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserPhoneChangeRequest) {
 		return
 	}
 
@@ -189,6 +190,9 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.svc.RequestPhoneChange(r.Context(), claims.UserID, body.NewPhone); err != nil {
+		if s.handleDeliveryError(w, r, "user_phone_change_request", "send_phone_verification", err) {
+			return
+		}
 		if code := core.ValidationErrorCode(err); code != "" {
 			badRequest(w, code)
 			return
@@ -212,8 +216,7 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 }
 
 func (s *Service) handleUserPhoneChangeConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserPhoneChangeConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserPhoneChangeConfirm) {
 		return
 	}
 
@@ -246,8 +249,7 @@ func (s *Service) handleUserPhoneChangeConfirmPOST(w http.ResponseWriter, r *htt
 }
 
 func (s *Service) handleUserPhoneChangeResendPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserPhoneChangeResend) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserPhoneChangeResend) {
 		return
 	}
 
@@ -267,6 +269,9 @@ func (s *Service) handleUserPhoneChangeResendPOST(w http.ResponseWriter, r *http
 	phone := strings.TrimSpace(body.Phone)
 
 	if err := s.svc.ResendPhoneChangeCode(r.Context(), claims.UserID, phone); err != nil {
+		if s.handleDeliveryError(w, r, "user_phone_change_resend", "send_phone_verification", err) {
+			return
+		}
 		badRequest(w, "no_pending_phone_change")
 		return
 	}
@@ -306,8 +311,7 @@ func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserDelete) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserDelete) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -320,8 +324,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserUnlinkProvider) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserUnlinkProvider) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())

@@ -102,8 +102,7 @@ func normalizeAdminAccountKind(kind string) string {
 }
 
 func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	var req struct {
@@ -175,8 +174,7 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	var req struct {
@@ -257,8 +255,7 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Service) handleAdminAccountsRestrictPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	var req struct {
@@ -292,8 +289,7 @@ func (s *Service) handleAdminAccountsRestrictPOST(w http.ResponseWriter, r *http
 }
 
 func (s *Service) handleAdminAccountsUnrestrictPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	var req struct {

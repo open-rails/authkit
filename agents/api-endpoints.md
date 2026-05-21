@@ -78,6 +78,8 @@ Reserved slug policy:
 | POST | `/phone/password/reset/request` | PUBLIC | Request password reset (phone) |
 | POST | `/phone/password/reset/confirm` | PUBLIC | Confirm phone password reset using `reset_session` + `new_password` |
 
+Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
+
 ---
 
 ## Email/Phone Verification
@@ -92,6 +94,8 @@ Reserved slug policy:
 | POST | `/phone/verify/confirm-link` | PUBLIC | Confirm phone verification (expects `token`) |
 
 ---
+
+For verification, reset, and 2FA send operations, a 2xx response means AuthKit submitted the message to the configured email/SMS provider. Provider submission failures return stable public errors such as `email_delivery_failed` or `sms_delivery_failed`; downstream mailbox/carrier delivery is outside AuthKit's synchronous confirmation boundary.
 
 ## User Management (Authenticated)
 

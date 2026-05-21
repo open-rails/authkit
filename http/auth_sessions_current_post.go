@@ -6,8 +6,7 @@ import (
 )
 
 func (s *Service) handleAuthSessionsCurrentPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAuthSessionsCurrent) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthSessionsCurrent) {
 		return
 	}
 	var body struct {

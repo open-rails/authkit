@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,6 +30,14 @@ func (testEmailSender) SendLoginCode(context.Context, string, string, string) er
 }
 func (testEmailSender) SendWelcome(context.Context, string, string) error {
 	return nil
+}
+
+type failingVerificationEmailSender struct {
+	testEmailSender
+}
+
+func (failingVerificationEmailSender) SendVerification(context.Context, string, string, core.VerificationMessage) error {
+	return errors.New("provider rejected message")
 }
 
 func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificationPolicy) *Service {
@@ -130,4 +139,70 @@ func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
 	require.Nil(t, body["discord_username"])
 	require.Equal(t, string(registrationNextActionVerifyEmail), body["next_action"])
 	require.NotContains(t, body, "message")
+}
+
+func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired).
+		WithEmailSender(failingVerificationEmailSender{})
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(`{
+		"identifier":"user@example.com",
+		"username":"user",
+		"password":"password123"
+	}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
+	require.JSONEq(t, `{"error":"email_delivery_failed"}`, w.Body.String())
+}
+
+func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired)
+	_, err := s.svc.CreatePendingRegistration(context.Background(), "user@example.com", "user", "argon2id$hash", 0)
+	require.NoError(t, err)
+	s = s.WithEmailSender(failingVerificationEmailSender{})
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{
+		"email":"user@example.com"
+	}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
+	require.JSONEq(t, `{"error":"email_delivery_failed"}`, w.Body.String())
+}
+
+func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
+	s, err := NewService(core.Config{
+		Issuer:                   "https://example.com",
+		IssuedAudiences:          []string{"test-app"},
+		ExpectedAudiences:        []string{"test-app"},
+		BaseURL:                  "https://example.com",
+		RegistrationVerification: core.RegistrationVerificationRequired,
+	})
+	require.NoError(t, err)
+	s = s.WithEmailSender(testEmailSender{})
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.RemoteAddr = "172.21.0.1:1234"
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.RemoteAddr = "172.21.0.1:1234"
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusTooManyRequests, w.Code, w.Body.String())
+	require.Equal(t, "60", w.Header().Get("Retry-After"))
+	require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+	require.Contains(t, w.Body.String(), `"retry_after_seconds":60`)
 }

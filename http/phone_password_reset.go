@@ -12,8 +12,7 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 		serverErr(w, "sms_unavailable")
 		return
 	}
-	if !s.allow(r, RLPasswordResetRequest) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPasswordResetRequest) {
 		return
 	}
 
@@ -30,7 +29,14 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 		return
 	}
 	phone = core.NormalizePhone(phone)
-	_ = s.svc.RequestPhonePasswordReset(r.Context(), phone, 0)
+	if err := s.svc.RequestPhonePasswordReset(r.Context(), phone, 0); err != nil {
+		if s.handleDeliveryError(w, r, "phone_password_reset_request", "send_sms_password_reset", err) {
+			return
+		}
+		s.logInternalError(r, "phone_password_reset_request", "request_phone_password_reset", "password_reset_request_failed", err)
+		serverErr(w, "password_reset_request_failed")
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"ok":      true,
 		"message": "If this phone number is registered, password reset instructions will be sent via SMS.",
@@ -38,8 +44,7 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 }
 
 func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLPasswordResetConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPasswordResetConfirm) {
 		return
 	}
 

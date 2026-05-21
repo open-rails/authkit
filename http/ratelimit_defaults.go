@@ -9,8 +9,9 @@ import (
 
 // Limit configures a named rate limit bucket.
 type Limit struct {
-	Limit  int
-	Window time.Duration
+	Limit    int
+	Window   time.Duration
+	Cooldown time.Duration
 }
 
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits.
@@ -23,10 +24,10 @@ func DefaultRateLimits() map[string]Limit {
 
 		// Registration + login + token exchange
 		RLAuthToken:                {Limit: 30, Window: time.Minute},
-		RLAuthRegister:             {Limit: 10, Window: time.Hour},
+		RLAuthRegister:             {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLAuthRegisterAvailability: {Limit: 120, Window: time.Minute},
-		RLAuthRegisterResendEmail:  {Limit: 6, Window: 10 * time.Minute},
-		RLAuthRegisterResendPhone:  {Limit: 6, Window: 10 * time.Minute},
+		RLAuthRegisterResendEmail:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLAuthRegisterResendPhone:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordLogin:            {Limit: 20, Window: time.Hour},
 
 		// Logout + sessions
@@ -40,11 +41,11 @@ func DefaultRateLimits() map[string]Limit {
 		},
 
 		// Password reset + verification
-		RLPasswordResetRequest: {Limit: 6, Window: 10 * time.Minute},
+		RLPasswordResetRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordResetConfirm: {Limit: 10, Window: 10 * time.Minute},
-		RLEmailVerifyRequest:   {Limit: 6, Window: 10 * time.Minute},
+		RLEmailVerifyRequest:   {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLEmailVerifyConfirm:   {Limit: 10, Window: 10 * time.Minute},
-		RLPhoneVerifyRequest:   {Limit: 3, Window: 10 * time.Minute},
+		RLPhoneVerifyRequest:   {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLPhoneVerifyConfirm:   {Limit: 10, Window: 10 * time.Minute},
 
 		// User changes
@@ -52,12 +53,12 @@ func DefaultRateLimits() map[string]Limit {
 		RLUserMe:                 {Limit: 120, Window: time.Minute},
 		RLUserUpdateUsername:     {Limit: 12, Window: time.Hour},
 		RLUserUpdateEmail:        {Limit: 12, Window: time.Hour},
-		RLUserEmailChangeRequest: {Limit: 6, Window: time.Hour},
+		RLUserEmailChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserEmailChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
-		RLUserEmailChangeResend:  {Limit: 6, Window: 10 * time.Minute},
-		RLUserPhoneChangeRequest: {Limit: 3, Window: 10 * time.Minute},
+		RLUserEmailChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLUserPhoneChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserPhoneChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
-		RLUserPhoneChangeResend:  {Limit: 3, Window: 10 * time.Minute},
+		RLUserPhoneChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserDelete:             {Limit: 6, Window: time.Hour},
 		RLUserUnlinkProvider:     {Limit: 12, Window: time.Hour},
 
@@ -88,7 +89,7 @@ func DefaultRateLimits() map[string]Limit {
 func ToMemoryLimits(in map[string]Limit) map[string]memorylimiter.Limit {
 	out := make(map[string]memorylimiter.Limit, len(in))
 	for k, v := range in {
-		out[k] = memorylimiter.Limit{Limit: v.Limit, Window: v.Window}
+		out[k] = memorylimiter.Limit{Limit: v.Limit, Window: v.Window, Cooldown: v.Cooldown}
 	}
 	return out
 }
@@ -96,7 +97,7 @@ func ToMemoryLimits(in map[string]Limit) map[string]memorylimiter.Limit {
 func ToRedisLimits(in map[string]Limit) map[string]redislimiter.Limit {
 	out := make(map[string]redislimiter.Limit, len(in))
 	for k, v := range in {
-		out[k] = redislimiter.Limit{Limit: v.Limit, Window: v.Window}
+		out[k] = redislimiter.Limit{Limit: v.Limit, Window: v.Window, Cooldown: v.Cooldown}
 	}
 	return out
 }

@@ -8,8 +8,9 @@ import (
 
 // Limit defines window and max count for a bucket.
 type Limit struct {
-	Limit  int
-	Window time.Duration
+	Limit    int
+	Window   time.Duration
+	Cooldown time.Duration
 }
 
 type bucketState struct {
@@ -51,11 +52,16 @@ func (l *Limiter) get(bucket string) (Limit, bool) {
 // expired entries on each call and removing empty buckets to avoid unbounded
 // memory growth.
 func (l *Limiter) AllowNamed(bucket, key string) (bool, error) {
+	allowed, _, err := l.AllowNamedWithRetryAfter(bucket, key)
+	return allowed, err
+}
+
+func (l *Limiter) AllowNamedWithRetryAfter(bucket, key string) (bool, time.Duration, error) {
 	if l == nil {
-		return true, nil
+		return true, 0, nil
 	}
 	if bucket == "" || key == "" {
-		return false, fmt.Errorf("bucket and key required")
+		return false, 0, fmt.Errorf("bucket and key required")
 	}
 
 	lim, _ := l.get(bucket)
@@ -82,13 +88,28 @@ func (l *Limiter) AllowNamed(bucket, key string) (bool, error) {
 		ts = ts[pruneIdx:]
 	}
 
+	var retryAfter time.Duration
+	if lim.Cooldown > 0 && len(ts) > 0 {
+		nextAllowedMs := ts[len(ts)-1] + lim.Cooldown.Milliseconds()
+		if nowMs < nextAllowedMs {
+			retryAfter = time.Duration(nextAllowedMs-nowMs) * time.Millisecond
+		}
+	}
+
 	if len(ts) >= lim.Limit {
+		windowRetryAfter := time.Duration(ts[0]+lim.Window.Milliseconds()-nowMs) * time.Millisecond
+		if windowRetryAfter < 0 {
+			windowRetryAfter = 0
+		}
+		if windowRetryAfter > retryAfter {
+			retryAfter = windowRetryAfter
+		}
+	}
+
+	if retryAfter > 0 {
 		// Deny without recording this attempt.
 		b.timestamps = ts
-		if len(ts) == 0 {
-			delete(l.buckets, limitKey)
-		}
-		return false, nil
+		return false, retryAfter, nil
 	}
 
 	// Record this request and allow.
@@ -100,5 +121,5 @@ func (l *Limiter) AllowNamed(bucket, key string) (bool, error) {
 		delete(l.buckets, limitKey)
 	}
 
-	return true, nil
+	return true, 0, nil
 }

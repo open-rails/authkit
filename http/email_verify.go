@@ -22,8 +22,7 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		serverErr(w, "email_verification_unavailable")
 		return
 	}
-	if !s.allow(r, RLEmailVerifyRequest) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLEmailVerifyRequest) {
 		return
 	}
 	var req struct {
@@ -33,13 +32,19 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	_ = s.svc.RequestEmailVerification(r.Context(), req.Email, 0)
+	if err := s.svc.RequestEmailVerification(r.Context(), req.Email, 0); err != nil {
+		if s.handleDeliveryError(w, r, "email_verify_request", "send_email_verification", err) {
+			return
+		}
+		s.logInternalError(r, "email_verify_request", "request_email_verification", "verification_request_failed", err)
+		serverErr(w, "verification_request_failed")
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
 func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLEmailVerifyConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLEmailVerifyConfirm) {
 		return
 	}
 	var req struct {

@@ -723,6 +723,36 @@
         "[ ] Tag/release AuthKit and pin downstream apps to the released version/commit that includes UUIDv7 behavior."
       ],
       "completed": false
+    },
+    {
+      "name": "Do not swallow auth message delivery failures",
+      "id_number": 38,
+      "description": "Cozy Art's embedded AuthKit registration resend flow exposed an AuthKit-owned delivery error handling bug. The SendGrid/Twilio email adapter synchronously returns provider submission errors, but core registration verification paths discard them with `_ = s.email.SendVerification(...)`, and the `/register/resend-email` handler also discards the `CreatePendingRegistration` result. That lets hosts return `202 Accepted` even when AuthKit failed to submit the verification email to SendGrid.\n\nTarget behavior:\n- Provider submission failures must propagate through core service methods and HTTP handlers as generic, stable AuthKit errors such as `email_delivery_failed` / `sms_delivery_failed`; do not leak raw SendGrid/Twilio responses to public clients.\n- Enumeration-safe endpoints should keep not-found/malformed-input responses generic, but once AuthKit finds a pending registration and attempts delivery, a delivery failure must be visible to the caller and logged server-side.\n- Cozy Art should be able to consume the released AuthKit fix without adding local wrapper routes around AuthKit-owned registration endpoints.",
+      "tasks": [
+        "[x] Core: replace ignored `s.email.SendVerification(...)` / `s.sms.SendVerification(...)` errors in registration, resend, email-change, phone-change, password-reset, and login-code paths with returned delivery errors where the public operation depends on message delivery",
+        "[x] HTTP: make `/register/resend-email` and `/register/resend-phone` propagate delivery failures for found pending registrations while preserving enumeration safety for missing or malformed identifiers",
+        "[x] HTTP: map delivery failures to stable public error codes (`email_delivery_failed`, `sms_delivery_failed`) and log provider details through the internal error logger or host logger without exposing raw provider responses",
+        "[x] Tests: add fake sender tests proving registration/resend returns a delivery error when the sender returns an error",
+        "[x] Docs: update API docs/provider docs to state that 2xx means AuthKit submitted the message to the configured provider, not that the recipient mailbox accepted or opened it",
+        "[ ] Release: tag AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` surfaces provider submission failures through the AuthKit-defined route"
+      ],
+      "completed": false
+    },
+    {
+      "name": "Make AuthKit resend/request-code rate limits work behind Docker and reverse proxies",
+      "id_number": 39,
+      "description": "Cozy Art mounts AuthKit's canonical `POST /register/resend-email` route under `/api/v1/register/resend-email`. AuthKit had a resend bucket, but local testing showed repeated resend requests all returned `202` instead of `429`. Root cause: AuthKit's default client-IP function returns an empty identity for private/loopback peers, and `Service.allow` fails open when the client IP is empty. In Docker Compose, Gin sees the immediate peer as a private bridge address such as `172.21.0.1`; in production, reverse proxies can produce the same shape unless the host configures a trusted forwarded-header strategy. Request-code and resend endpoints should not silently bypass AuthKit rate limits in those common embedding modes.\n\nTarget behavior:\n- AuthKit-owned resend/request-code endpoints must be rate-limited by default in local Docker Compose, embedded host apps, and normal reverse-proxy deployments.\n- Registration, registration resend, email/phone verification request, password-reset request, and user email/phone change request/resend buckets should default to roughly one request every 60 seconds and 6 requests per hour.\n- When the limiter denies a request, AuthKit should report that rate limiting was hit and how long until the next action is allowed via `Retry-After` and a JSON `retry_after_seconds` field.\n- Hosts can still configure trusted forwarded-header behavior for production boundaries, but missing proxy config should not disable protection for sensitive anonymous endpoints.\n- The fix belongs in AuthKit's HTTP/embedding contract; Cozy Art should not add wrapper routes around AuthKit-owned registration endpoints.",
+      "tasks": [
+        "[x] Decide the default client identity strategy for anonymous sensitive endpoints when `RemoteAddr` is private/loopback: use the peer as a local fallback, require explicit trusted headers, or add an endpoint-specific fallback that never returns empty",
+        "[x] Update `Service.allow` / client-IP handling so `RLAuthRegisterResendEmail`, `RLAuthRegisterResendPhone`, `RLEmailVerifyRequest`, `RLPhoneVerifyRequest`, password-reset request, and user email/phone resend buckets cannot silently fail open only because the immediate peer is private/loopback",
+        "[x] Add a safe public API for host apps to configure trusted forwarded headers and proxy CIDRs without reaching into unexported HTTP internals",
+        "[x] Ensure the default remains safe for direct public traffic and does not blindly trust spoofable `X-Forwarded-For` headers from untrusted peers",
+        "[x] Add route-level tests proving `/register/resend-email` returns `429` after the configured bucket is exceeded for Docker/private-peer-shaped requests",
+        "[x] Add tests for trusted forwarded headers: trusted proxy uses the forwarded client IP; untrusted peer ignores spoofed forwarded headers",
+        "[x] Update AuthKit docs to explain default rate-limit client identity behavior for direct traffic, Docker Compose, and reverse proxies",
+        "[ ] Release AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` is still the AuthKit-defined route and returns `429` after the resend bucket is exceeded"
+      ],
+      "completed": false
     }
   ],
   "completed_features": [

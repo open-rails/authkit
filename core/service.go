@@ -557,7 +557,9 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 	// Send verification message to new phone
 	if s.sms != nil {
-		_ = s.sms.SendVerification(ctx, trimmed, msg)
+		if err := s.sms.SendVerification(ctx, trimmed, msg); err != nil {
+			return smsDeliveryError(err)
+		}
 	} else {
 		stdlog.Printf("[authkit/dev-sms] phone change verify to=%s username=%s code=%s link_token=%s", trimmed, username, code, linkToken)
 	}
@@ -652,7 +654,9 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.sms != nil {
-		_ = s.sms.SendVerification(ctx, phone, msg)
+		if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+			return smsDeliveryError(err)
+		}
 	} else {
 		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s link_token=%s", phone, username, code, linkToken)
 	}
@@ -696,7 +700,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 
 	if s.sms != nil {
 		msg := VerificationMessage{Code: code}
-		return s.sms.SendVerification(ctx, phone, msg)
+		return smsDeliveryError(s.sms.SendVerification(ctx, phone, msg))
 	}
 	// In production, require SMS to be configured
 	if !s.isDevEnvironment() {
@@ -965,6 +969,11 @@ func (m VerificationMessage) Validate() error {
 	return nil
 }
 
+var (
+	ErrEmailDeliveryFailed = errors.New("email_delivery_failed")
+	ErrSMSDeliveryFailed   = errors.New("sms_delivery_failed")
+)
+
 // EmailSender sends verification/login/reset emails.
 type EmailSender interface {
 	SendVerification(ctx context.Context, email, username string, msg VerificationMessage) error
@@ -991,6 +1000,20 @@ func (s *Service) HasEmailSender() bool { return s.email != nil }
 
 // HasSMSSender returns true if an SMS sender is configured.
 func (s *Service) HasSMSSender() bool { return s.sms != nil }
+
+func emailDeliveryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", ErrEmailDeliveryFailed, err)
+}
+
+func smsDeliveryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", ErrSMSDeliveryFailed, err)
+}
 
 // ValidateVerificationConfiguration ensures registration verification policy
 // can be satisfied by currently configured delivery senders.
@@ -1051,7 +1074,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 	}
 
 	if err := s.email.SendPasswordResetLink(ctx, *u.Email, username, token); err != nil {
-		return err
+		return emailDeliveryError(err)
 	}
 
 	s.LogPasswordRecovery(ctx, u.ID, "email", "", nil, nil)
@@ -1148,7 +1171,9 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 		return nil
 	}
 	if s.email != nil {
-		_ = s.email.SendVerification(ctx, *u.Email, username, msg)
+		if err := s.email.SendVerification(ctx, *u.Email, username, msg); err != nil {
+			return emailDeliveryError(err)
+		}
 	} else {
 		stdlog.Printf("[authkit/dev-email] email verify to=%s username=%s code=%s link_token=%s", *u.Email, username, code, linkToken)
 	}
@@ -1219,7 +1244,9 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			_ = s.email.SendVerification(ctx, normEmail, username, msg)
+			if err := s.email.SendVerification(ctx, normEmail, username, msg); err != nil {
+				return "", emailDeliveryError(err)
+			}
 		}
 		return code, nil
 	default:
@@ -1245,7 +1272,9 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.email != nil {
-				_ = s.email.SendVerification(ctx, email, username, msg)
+				if err := s.email.SendVerification(ctx, email, username, msg); err != nil {
+					return "", emailDeliveryError(err)
+				}
 			} else {
 				stdlog.Printf("[authkit/dev-email] verify pending registration to=%s username=%s code=%s link_token=%s", email, username, code, linkToken)
 			}
@@ -1380,7 +1409,9 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			_ = s.sms.SendVerification(ctx, phone, msg)
+			if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+				return "", smsDeliveryError(err)
+			}
 		}
 		return code, nil
 	default:
@@ -1402,7 +1433,9 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.sms != nil {
-				_ = s.sms.SendVerification(ctx, phone, msg)
+				if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+					return "", smsDeliveryError(err)
+				}
 			} else {
 				if !s.isDevEnvironment() {
 					return "", fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone registration requires SMS in production)")
@@ -1581,7 +1614,9 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 
 	// Send SMS
 	if s.sms != nil {
-		_ = s.sms.SendVerification(ctx, phone, msg)
+		if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+			return smsDeliveryError(err)
+		}
 	} else {
 		// In production, require SMS to be configured
 		if !s.isDevEnvironment() {
@@ -1683,7 +1718,9 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		return nil
 	}
 
-	_ = s.sms.SendPasswordResetLink(ctx, phone, token)
+	if err := s.sms.SendPasswordResetLink(ctx, phone, token); err != nil {
+		return smsDeliveryError(err)
+	}
 
 	s.LogPasswordRecovery(ctx, u.ID, "sms", "", nil, nil)
 
@@ -2350,8 +2387,7 @@ func (s *Service) updateEmail(ctx context.Context, id, email string) error {
 		return err
 	}
 
-	_ = s.RequestEmailVerification(ctx, trimmed, 0)
-	return nil
+	return s.RequestEmailVerification(ctx, trimmed, 0)
 }
 
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
@@ -2410,7 +2446,9 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	// Send verification message to NEW email
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	if s.email != nil {
-		_ = s.email.SendVerification(ctx, trimmed, username, msg)
+		if err := s.email.SendVerification(ctx, trimmed, username, msg); err != nil {
+			return emailDeliveryError(err)
+		}
 	} else {
 		stdlog.Printf("[authkit/dev-email] email change verify to=%s username=%s code=%s link_token=%s", trimmed, username, code, linkToken)
 	}
@@ -2525,7 +2563,9 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.email != nil {
-		_ = s.email.SendVerification(ctx, pendingEmail, username, msg)
+		if err := s.email.SendVerification(ctx, pendingEmail, username, msg); err != nil {
+			return emailDeliveryError(err)
+		}
 	} else {
 		stdlog.Printf("[authkit/dev-email] email change resend to=%s username=%s code=%s link_token=%s", pendingEmail, username, code, linkToken)
 	}
@@ -3548,7 +3588,9 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 
 	if settings.Method == "email" {
 		if s.email != nil {
-			_ = s.email.SendLoginCode(ctx, destination, username, code)
+			if err := s.email.SendLoginCode(ctx, destination, username, code); err != nil {
+				return "", emailDeliveryError(err)
+			}
 		} else {
 			// In production, require email to be configured for email 2FA
 			if !s.isDevEnvironment() {
@@ -3559,7 +3601,9 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 		}
 	} else { // sms
 		if s.sms != nil {
-			_ = s.sms.SendLoginCode(ctx, destination, code)
+			if err := s.sms.SendLoginCode(ctx, destination, code); err != nil {
+				return "", smsDeliveryError(err)
+			}
 		} else {
 			// In production, require SMS to be configured for SMS 2FA
 			if !s.isDevEnvironment() {

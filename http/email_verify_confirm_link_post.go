@@ -9,8 +9,7 @@ import (
 )
 
 func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLEmailVerifyConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLEmailVerifyConfirm) {
 		return
 	}
 

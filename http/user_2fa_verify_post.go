@@ -10,8 +10,7 @@ import (
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RL2FAVerify) {
-		tooMany(w)
+	if s.rateLimited(w, r, RL2FAVerify) {
 		return
 	}
 

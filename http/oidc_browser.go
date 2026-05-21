@@ -19,8 +19,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.handleOAuthLoginGET(w, r, cfg.Name)
 		return
 	}
-	if !s.allow(r, RLOIDCStart) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLOIDCStart) {
 		return
 	}
 
@@ -94,8 +93,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		s.handleOAuthCallbackGET(w, r, cfg.Name)
 		return
 	}
-	if !s.allow(r, RLOIDCCallback) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLOIDCCallback) {
 		return
 	}
 

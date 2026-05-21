@@ -10,8 +10,7 @@ import (
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAuthToken) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthToken) {
 		return
 	}
 

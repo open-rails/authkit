@@ -8,8 +8,7 @@ import (
 )
 
 func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAuthSessionsList) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthSessionsList) {
 		return
 	}
 	cl, err := getClaims(r.Context())
@@ -38,8 +37,7 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAuthSessionsRevoke) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthSessionsRevoke) {
 		return
 	}
 	cl, err := getClaims(r.Context())
@@ -61,8 +59,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAuthSessionsRevokeAll) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthSessionsRevokeAll) {
 		return
 	}
 	cl, err := getClaims(r.Context())

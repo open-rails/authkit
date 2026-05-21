@@ -20,8 +20,7 @@ type adminUsersListResponse struct {
 }
 
 func (s *Service) handleAdminRolesGrantPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	var req struct {
@@ -48,8 +47,7 @@ func (s *Service) handleAdminRolesGrantPOST(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Service) handleAdminRolesRevokePOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAdminRolesRevoke) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesRevoke) {
 		return
 	}
 	var req struct {
@@ -80,8 +78,7 @@ func (s *Service) handleAdminRolesRevokePOST(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAdminUserSessionsList) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminUserSessionsList) {
 		return
 	}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -133,8 +130,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.allow(r, RLAdminUserSessionsRevokeAll) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -170,8 +166,7 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.allow(r, RLAdminUserSessionsRevokeAll) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	if err := s.svc.UnbanUser(r.Context(), req.UserID); err != nil {
@@ -190,8 +185,7 @@ func (s *Service) handleAdminUsersSetEmailPOST(w http.ResponseWriter, r *http.Re
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	if err := s.svc.UpdateEmail(r.Context(), req.UserID, req.Email); err != nil {
@@ -210,8 +204,7 @@ func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	if err := s.svc.UpdateUsername(r.Context(), req.UserID, req.Username); err != nil {
@@ -242,8 +235,7 @@ func (s *Service) handleAdminUsersSetPasswordPOST(w http.ResponseWriter, r *http
 		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
-	if !s.allow(r, RLAdminRolesGrant) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	if err := s.svc.AdminSetPassword(r.Context(), req.UserID, req.Password); err != nil {
@@ -263,8 +255,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.allow(r, RLAdminUserSessionsRevokeAll) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	if err := s.svc.SoftDeleteUser(r.Context(), id); err != nil {
@@ -280,8 +271,7 @@ func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Requ
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.allow(r, RLAdminUserSessionsRevokeAll) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	if err := s.svc.RestoreUser(r.Context(), userID); err != nil {
@@ -332,8 +322,7 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.allow(r, RLAdminUserSessionsRevokeAll) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	if err := s.svc.AdminRevokeUserSessions(

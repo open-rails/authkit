@@ -18,8 +18,7 @@ type registrationAvailabilityResponse struct {
 }
 
 func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAuthRegisterAvailability) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthRegisterAvailability) {
 		return
 	}
 

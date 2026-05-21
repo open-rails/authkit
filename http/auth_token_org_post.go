@@ -11,8 +11,7 @@ import (
 
 func (s *Service) handleAuthTokenOrgPOST(w http.ResponseWriter, r *http.Request) {
 	// Reuse auth token rate limit bucket.
-	if !s.allow(r, RLAuthToken) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthToken) {
 		return
 	}
 

@@ -9,8 +9,7 @@ import (
 )
 
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserPasswordChange) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserPasswordChange) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())

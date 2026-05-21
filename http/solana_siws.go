@@ -13,8 +13,7 @@ import (
 )
 
 func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLSolanaChallenge) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLSolanaChallenge) {
 		return
 	}
 
@@ -73,8 +72,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLSolanaLogin) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLSolanaLogin) {
 		return
 	}
 
@@ -167,8 +165,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLSolanaLink) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLSolanaLink) {
 		return
 	}
 

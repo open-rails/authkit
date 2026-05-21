@@ -11,8 +11,7 @@ import (
 )
 
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLPasswordLogin) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPasswordLogin) {
 		return
 	}
 
@@ -180,14 +179,26 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			}
 
 			if needsEmailVerify && s.svc.HasEmailSender() {
-				_ = s.svc.RequestEmailVerification(r.Context(), *fetchedUser.Email, 0)
+				if err := s.svc.RequestEmailVerification(r.Context(), *fetchedUser.Email, 0); err != nil {
+					if s.handleDeliveryError(w, r, "password_login", "send_email_verification", err) {
+						return
+					}
+					serverErr(w, "email_verification_failed")
+					return
+				}
 				logLoginFailed(s, r, userID, "email_not_verified")
 				unauthorized(w, "email_not_verified")
 				return
 			}
 
 			if needsPhoneVerify && s.svc.HasSMSSender() {
-				_ = s.svc.SendPhoneVerificationToUser(r.Context(), *fetchedUser.PhoneNumber, userID, 0)
+				if err := s.svc.SendPhoneVerificationToUser(r.Context(), *fetchedUser.PhoneNumber, userID, 0); err != nil {
+					if s.handleDeliveryError(w, r, "password_login", "send_phone_verification", err) {
+						return
+					}
+					serverErr(w, "phone_verification_failed")
+					return
+				}
 				logLoginFailed(s, r, userID, "phone_not_verified")
 				unauthorized(w, "phone_not_verified")
 				return
@@ -270,6 +281,9 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		if twoFAErr == nil && twoFASettings != nil && twoFASettings.Enabled {
 			verificationID, err := s.svc.Require2FAForLogin(r.Context(), finalUserID)
 			if err != nil {
+				if s.handleDeliveryError(w, r, "password_login", "send_2fa_code", err) {
+					return
+				}
 				serverErr(w, "2fa_send_failed")
 				return
 			}

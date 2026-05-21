@@ -33,11 +33,24 @@ type Service struct {
 }
 
 func (s *Service) allow(r *http.Request, bucket string) bool {
+	return s.allowResult(r, bucket).Allowed
+}
+
+func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {
+	result := s.allowResult(r, bucket)
+	if result.Allowed {
+		return false
+	}
+	tooMany(w, result.RetryAfter)
+	return true
+}
+
+func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if s == nil {
-		return true
+		return RateLimitResult{Allowed: true}
 	}
 	if s.rl == nil {
-		return true
+		return RateLimitResult{Allowed: true}
 	}
 	ipFn := s.clientIP
 	if ipFn == nil {
@@ -45,14 +58,21 @@ func (s *Service) allow(r *http.Request, bucket string) bool {
 	}
 	ip := ipFn(r)
 	if strings.TrimSpace(ip) == "" {
-		return true
+		return RateLimitResult{Allowed: true}
 	}
 	key := "auth:" + bucket + ":ip:" + ip
+	if rl, ok := s.rl.(RateLimiterWithRetryAfter); ok {
+		allowed, retryAfter, err := rl.AllowNamedWithRetryAfter(bucket, key)
+		if err != nil {
+			return RateLimitResult{Allowed: true}
+		}
+		return RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
+	}
 	ok, err := s.rl.AllowNamed(bucket, key)
 	if err != nil {
-		return true
+		return RateLimitResult{Allowed: true}
 	}
-	return ok
+	return RateLimitResult{Allowed: ok}
 }
 
 // NewService constructs a core.Service and wraps it for net/http mounting.

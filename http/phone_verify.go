@@ -12,8 +12,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		serverErr(w, "phone_verification_unavailable")
 		return
 	}
-	if !s.allow(r, RLPhoneVerifyRequest) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPhoneVerifyRequest) {
 		return
 	}
 
@@ -32,13 +31,19 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 	phone = core.NormalizePhone(phone)
 
-	_ = s.svc.RequestPhoneVerification(r.Context(), phone, 0)
+	if err := s.svc.RequestPhoneVerification(r.Context(), phone, 0); err != nil {
+		if s.handleDeliveryError(w, r, "phone_verify_request", "send_phone_verification", err) {
+			return
+		}
+		s.logInternalError(r, "phone_verify_request", "request_phone_verification", "verification_request_failed", err)
+		serverErr(w, "verification_request_failed")
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
 func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLPhoneVerifyConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPhoneVerifyConfirm) {
 		return
 	}
 

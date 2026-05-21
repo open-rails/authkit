@@ -8,8 +8,7 @@ import (
 )
 
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLAuthLogout) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLAuthLogout) {
 		return
 	}
 

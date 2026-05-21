@@ -12,13 +12,23 @@ import (
 // Returning an empty string means "unknown" and causes rate limiting to fail open.
 type ClientIPFunc func(r *http.Request) string
 
-// DefaultClientIP returns a conservative client IP strategy:
+// DefaultClientIP returns the immediate peer IP from RemoteAddr.
+//
+// This intentionally includes private and loopback peers so embedded/local
+// deployments still get default rate-limit protection. Hosts behind reverse
+// proxies should use ClientIPFromForwardedHeaders with trusted proxy CIDRs when
+// they need the original public client IP instead of the proxy peer.
+func DefaultClientIP() ClientIPFunc {
+	return func(r *http.Request) string {
+		return remoteIP(r)
+	}
+}
+
+// PublicRemoteAddrClientIP returns the older conservative client IP strategy:
 //   - If RemoteAddr is a public IP, use it.
 //   - If RemoteAddr is private/loopback/etc, return "" (fail open) so we don't accidentally
 //     rate-limit a reverse proxy/ingress as a single client.
-//
-// Hosts behind proxies should configure a forwarded-header strategy with a trusted proxy list.
-func DefaultClientIP() ClientIPFunc {
+func PublicRemoteAddrClientIP() ClientIPFunc {
 	return func(r *http.Request) string {
 		ip := remoteIP(r)
 		if ip == "" {
@@ -71,11 +81,9 @@ func ClientIPFromForwardedHeaders(trustedProxies []netip.Prefix) ClientIPFunc {
 				}
 			}
 		}
-		// Fallback: only rate limit when peer is public.
-		if isPublicAddr(peerAddr) {
-			return peerAddr.String()
-		}
-		return ""
+		// Fallback to the immediate peer. This keeps rate limiting active even
+		// if the peer is private and no trusted forwarded header is present.
+		return peerAddr.String()
 	}
 }
 

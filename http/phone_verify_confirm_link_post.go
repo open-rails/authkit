@@ -6,8 +6,7 @@ import (
 )
 
 func (s *Service) handlePhoneVerifyConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLPhoneVerifyConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPhoneVerifyConfirm) {
 		return
 	}
 

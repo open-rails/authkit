@@ -15,8 +15,7 @@ type twoFactorStatusResponse struct {
 }
 
 func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLUserMe) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLUserMe) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -39,8 +38,7 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Service) handleUser2FAStartPhonePOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RL2FAStartPhone) {
-		tooMany(w)
+	if s.rateLimited(w, r, RL2FAStartPhone) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -73,6 +71,9 @@ func (s *Service) handleUser2FAStartPhonePOST(w http.ResponseWriter, r *http.Req
 	codeStr := fmt.Sprintf("%06d", code)
 
 	if err := s.svc.SendPhone2FASetupCode(r.Context(), claims.UserID, req.Phone, codeStr); err != nil {
+		if s.handleDeliveryError(w, r, "user_2fa_start_phone", "send_phone_2fa_setup", err) {
+			return
+		}
 		serverErr(w, "send_code_failed")
 		return
 	}
@@ -80,8 +81,7 @@ func (s *Service) handleUser2FAStartPhonePOST(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Service) handleUser2FAEnablePOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RL2FAEnable) {
-		tooMany(w)
+	if s.rateLimited(w, r, RL2FAEnable) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -138,8 +138,7 @@ func (s *Service) handleUser2FAEnablePOST(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) handleUser2FADisablePOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RL2FADisable) {
-		tooMany(w)
+	if s.rateLimited(w, r, RL2FADisable) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -157,8 +156,7 @@ func (s *Service) handleUser2FADisablePOST(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleUser2FARegenerateCodesPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RL2FARegenerateCodes) {
-		tooMany(w)
+	if s.rateLimited(w, r, RL2FARegenerateCodes) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())

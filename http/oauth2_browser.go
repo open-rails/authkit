@@ -68,8 +68,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		badRequest(w, "unknown_provider")
 		return
 	}
-	if !s.allow(r, RLOIDCStart) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLOIDCStart) {
 		return
 	}
 	rp, ok := s.oidcManager().Provider(cfg.Name)
@@ -145,8 +144,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 		badRequest(w, "unknown_provider")
 		return
 	}
-	if !s.allow(r, RLOIDCCallback) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLOIDCCallback) {
 		return
 	}
 	if qErr := r.URL.Query().Get("error"); qErr != "" {

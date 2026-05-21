@@ -45,8 +45,7 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 		s.handleOAuthReauthStartPOST(w, r, cfg.Name)
 		return
 	}
-	if !s.allow(r, RLOIDCStart) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLOIDCStart) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())

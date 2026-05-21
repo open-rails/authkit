@@ -3,11 +3,21 @@ package authhttp
 import (
 	"net"
 	"net/http"
+	"time"
 )
 
 // RateLimiter is a minimal interface used by adapters.
 type RateLimiter interface {
 	AllowNamed(bucket string, key string) (bool, error)
+}
+
+type RateLimitResult struct {
+	Allowed    bool
+	RetryAfter time.Duration
+}
+
+type RateLimiterWithRetryAfter interface {
+	AllowNamedWithRetryAfter(bucket string, key string) (bool, time.Duration, error)
 }
 
 // AllowNamed applies a per-IP limit using the provided bucket name.

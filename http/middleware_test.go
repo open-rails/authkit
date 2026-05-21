@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -195,7 +196,9 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		r.RemoteAddr = "203.0.113.10:1234"
 		h.ServeHTTP(w, r)
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
-		require.JSONEq(t, `{"error":"rate_limited"}`, w.Body.String())
+		require.NotEmpty(t, w.Header().Get("Retry-After"))
+		require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+		require.Contains(t, w.Body.String(), `"retry_after_seconds"`)
 	}
 
 	// Opt-out: disabling limiter should never rate limit.
@@ -210,11 +213,11 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code)
 	}
 
-	// Proxy-safe behavior by default: private RemoteAddr returns "" => rate limiting fails open.
+	// Private Docker/proxy peers are rate-limited by default instead of failing open.
 	svc, err = NewService(cfg)
 	require.NoError(t, err)
 	h = svc.APIHandler()
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
 		r.Header.Set("Content-Type", "application/json")
@@ -222,6 +225,39 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		r.Header.Set("X-Forwarded-For", "203.0.113.99")
 		h.ServeHTTP(w, r)
 		require.Equal(t, http.StatusBadRequest, w.Code)
+	}
+	{
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.RemoteAddr = "10.0.0.10:1234"
+		r.Header.Set("X-Forwarded-For", "203.0.113.99")
+		h.ServeHTTP(w, r)
+		require.Equal(t, http.StatusTooManyRequests, w.Code)
+		require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+	}
+
+	// Spoofed forwarded headers from untrusted peers are ignored; the peer identity is used.
+	svc, err = NewService(cfg)
+	require.NoError(t, err)
+	h = svc.APIHandler()
+	for i := 0; i < 20; i++ {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.RemoteAddr = "10.0.0.11:1234"
+		r.Header.Set("X-Forwarded-For", "203.0.113."+strconv.Itoa(i+1))
+		h.ServeHTTP(w, r)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	}
+	{
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.RemoteAddr = "10.0.0.11:1234"
+		r.Header.Set("X-Forwarded-For", "203.0.113.250")
+		h.ServeHTTP(w, r)
+		require.Equal(t, http.StatusTooManyRequests, w.Code)
 	}
 
 	// When behind a trusted proxy, accept forwarded headers and enforce limits on the client IP.
@@ -244,5 +280,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "203.0.113.99")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
-	require.JSONEq(t, `{"error":"rate_limited"}`, w.Body.String())
+	require.NotEmpty(t, w.Header().Get("Retry-After"))
+	require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+	require.Contains(t, w.Body.String(), `"retry_after_seconds"`)
 }

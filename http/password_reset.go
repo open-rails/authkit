@@ -12,8 +12,7 @@ import (
 var reE164 = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 
 func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLPasswordResetRequest) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPasswordResetRequest) {
 		return
 	}
 
@@ -34,13 +33,19 @@ func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *
 		serverErr(w, "email_password_reset_unavailable")
 		return
 	}
-	_ = s.svc.RequestPasswordReset(r.Context(), email, 0)
+	if err := s.svc.RequestPasswordReset(r.Context(), email, 0); err != nil {
+		if s.handleDeliveryError(w, r, "password_reset_request", "send_email_password_reset", err) {
+			return
+		}
+		s.logInternalError(r, "password_reset_request", "request_password_reset", "password_reset_request_failed", err)
+		serverErr(w, "password_reset_request_failed")
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If this email is registered, password reset instructions will be sent."})
 }
 
 func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLPasswordResetConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPasswordResetConfirm) {
 		return
 	}
 
@@ -71,8 +76,7 @@ func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *
 }
 
 func (s *Service) handleEmailPasswordResetConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.allow(r, RLPasswordResetConfirm) {
-		tooMany(w)
+	if s.rateLimited(w, r, RLPasswordResetConfirm) {
 		return
 	}
 
