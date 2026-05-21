@@ -65,7 +65,7 @@ CREATE INDEX IF NOT EXISTS user_providers_user_id_idx
 CREATE INDEX IF NOT EXISTS user_providers_user_id_provider_slug_idx
   ON profiles.user_providers (user_id, provider_slug);
 
-CREATE TABLE IF NOT EXISTS profiles.roles (
+CREATE TABLE IF NOT EXISTS profiles.global_roles (
   id          uuid PRIMARY KEY DEFAULT uuidv7(),
   name        text NOT NULL,
   slug        text NOT NULL UNIQUE,
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS profiles.roles (
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   deleted_at  timestamptz,
-  CONSTRAINT roles_slug_not_owner_chk CHECK (lower(slug) <> 'owner')
+  CONSTRAINT global_roles_slug_not_owner_chk CHECK (lower(slug) <> 'owner')
 );
 
 CREATE OR REPLACE FUNCTION profiles.uuid_v5(p_namespace uuid, p_name text) RETURNS uuid
@@ -109,7 +109,7 @@ CREATE OR REPLACE FUNCTION profiles.role_id(p_slug text) RETURNS uuid
   SELECT profiles.uuid_v5('ef5d0f45-83c6-5dbe-b15a-e017bc88ab5a'::uuid, 'role:' || p_slug);
 $$;
 
-CREATE OR REPLACE FUNCTION profiles.trg_roles_set_id_from_slug() RETURNS trigger
+CREATE OR REPLACE FUNCTION profiles.trg_global_roles_set_id_from_slug() RETURNS trigger
  LANGUAGE plpgsql
  AS $$
 BEGIN
@@ -118,37 +118,37 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS roles_set_id_from_slug ON profiles.roles;
-CREATE TRIGGER roles_set_id_from_slug
-  BEFORE INSERT ON profiles.roles
+DROP TRIGGER IF EXISTS global_roles_set_id_from_slug ON profiles.global_roles;
+CREATE TRIGGER global_roles_set_id_from_slug
+  BEFORE INSERT ON profiles.global_roles
   FOR EACH ROW
-  EXECUTE FUNCTION profiles.trg_roles_set_id_from_slug();
+  EXECUTE FUNCTION profiles.trg_global_roles_set_id_from_slug();
 
-CREATE OR REPLACE FUNCTION profiles.trg_roles_slug_immutable() RETURNS trigger
+CREATE OR REPLACE FUNCTION profiles.trg_global_roles_slug_immutable() RETURNS trigger
  LANGUAGE plpgsql
  AS $$
 BEGIN
   IF NEW.slug IS DISTINCT FROM OLD.slug THEN
-    RAISE EXCEPTION 'profiles.roles.slug is immutable';
+    RAISE EXCEPTION 'profiles.global_roles.slug is immutable';
   END IF;
   RETURN NEW;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS roles_slug_immutable ON profiles.roles;
-CREATE TRIGGER roles_slug_immutable
-  BEFORE UPDATE OF slug ON profiles.roles
+DROP TRIGGER IF EXISTS global_roles_slug_immutable ON profiles.global_roles;
+CREATE TRIGGER global_roles_slug_immutable
+  BEFORE UPDATE OF slug ON profiles.global_roles
   FOR EACH ROW
-  EXECUTE FUNCTION profiles.trg_roles_slug_immutable();
+  EXECUTE FUNCTION profiles.trg_global_roles_slug_immutable();
 
-INSERT INTO profiles.roles (name, slug, description)
+INSERT INTO profiles.global_roles (name, slug, description)
 VALUES ('Admin', 'admin', 'Global platform administrator')
 ON CONFLICT (slug) DO NOTHING;
 
-CREATE TABLE IF NOT EXISTS profiles.user_roles (
+CREATE TABLE IF NOT EXISTS profiles.global_user_roles (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
-  role_id    uuid NOT NULL REFERENCES profiles.roles(id) ON DELETE CASCADE,
+  role_id    uuid NOT NULL REFERENCES profiles.global_roles(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (user_id, role_id)
@@ -268,13 +268,21 @@ CREATE TABLE IF NOT EXISTS profiles.org_invites (
   org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE RESTRICT,
+  role       text NOT NULL DEFAULT 'member',
   status     text NOT NULL DEFAULT 'pending',
   expires_at timestamptz,
   acted_at   timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
-  CONSTRAINT org_invites_status_chk CHECK (status IN ('pending', 'accepted', 'declined', 'revoked', 'expired'))
+  CONSTRAINT org_invites_status_chk CHECK (status IN ('pending', 'accepted', 'declined', 'revoked', 'expired')),
+  CONSTRAINT org_invites_role_format_chk CHECK (
+    char_length(role) BETWEEN 1 AND 64
+    AND role ~ '^[a-zA-Z0-9:_-]+$'
+  ),
+  -- Role must be one the org actually defines; cascade so deleting a role
+  -- clears any invites that targeted it.
+  FOREIGN KEY (org_id, role) REFERENCES profiles.org_roles(org_id, role) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS org_invites_org_idx
   ON profiles.org_invites(org_id)
@@ -306,16 +314,10 @@ CREATE TABLE IF NOT EXISTS profiles.org_renames (
   id         bigserial PRIMARY KEY,
   org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
   from_slug  text NOT NULL,
-  to_slug    text NOT NULL,
   renamed_at timestamptz NOT NULL DEFAULT now(),
-  renamed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
   CONSTRAINT org_renames_from_slug_format_chk CHECK (
     from_slug = lower(from_slug)
     AND from_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
-  ),
-  CONSTRAINT org_renames_to_slug_format_chk CHECK (
-    to_slug = lower(to_slug)
-    AND to_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
   )
 );
 CREATE INDEX IF NOT EXISTS org_renames_from_renamed_idx
@@ -327,16 +329,10 @@ CREATE TABLE IF NOT EXISTS profiles.user_renames (
   id         bigserial PRIMARY KEY,
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   from_slug  text NOT NULL,
-  to_slug    text NOT NULL,
   renamed_at timestamptz NOT NULL DEFAULT now(),
-  renamed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
   CONSTRAINT user_renames_from_slug_format_chk CHECK (
     from_slug = lower(from_slug)
     AND from_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
-  ),
-  CONSTRAINT user_renames_to_slug_format_chk CHECK (
-    to_slug = lower(to_slug)
-    AND to_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
   )
 );
 CREATE INDEX IF NOT EXISTS user_renames_from_renamed_idx

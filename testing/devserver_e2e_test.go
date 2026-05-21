@@ -433,9 +433,9 @@ func TestDevserverE2E(t *testing.T) {
 
 	t.Run("admin_gate_db_backed", func(t *testing.T) {
 		userID := "11111111-1111-1111-1111-111111111111"
-		execPSQL(t, "INSERT INTO profiles.roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
+		execPSQL(t, "INSERT INTO profiles.global_roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
+			"INSERT INTO profiles.global_user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
 			sqlString(userID),
 		))
 
@@ -677,9 +677,9 @@ func TestDevserverE2E(t *testing.T) {
 			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
 			sqlString(adminUserID), sqlString(adminEmail), sqlString(adminUsername),
 		))
-		execPSQL(t, "INSERT INTO profiles.roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
+		execPSQL(t, "INSERT INTO profiles.global_roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
 		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
+			"INSERT INTO profiles.global_user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
 			sqlString(adminUserID),
 		))
 		adminToken := mint(t, adminUserID, 300)

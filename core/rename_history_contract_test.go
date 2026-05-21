@@ -20,7 +20,7 @@ func TestRenameOrgSlugWritesAuditRowAndChecksCooldown(t *testing.T) {
 		"FROM   profiles.org_renames",
 		"ORDER  BY renamed_at DESC",
 		// Audit row insert.
-		"INSERT INTO profiles.org_renames (org_id, from_slug, to_slug, renamed_by)",
+		"INSERT INTO profiles.org_renames (org_id, from_slug)",
 		// Cooldown error returned when within window.
 		"return ErrRenameRateLimited",
 		// Admin override service method.
@@ -43,10 +43,10 @@ func TestUpdateUsernameWritesAuditRowAndChecksCooldown(t *testing.T) {
 		// Cooldown query for user.
 		"FROM   profiles.user_renames",
 		// Audit row insert (user side).
-		"INSERT INTO profiles.user_renames (user_id, from_slug, to_slug, renamed_by)",
+		"INSERT INTO profiles.user_renames (user_id, from_slug)",
 		// Personal-org rename rides on the user-rename intent and
 		// emits its own org_renames row in the same tx.
-		"INSERT INTO profiles.org_renames (org_id, from_slug, to_slug, renamed_by)",
+		"INSERT INTO profiles.org_renames (org_id, from_slug)",
 		// Admin override variant.
 		"UpdateUsernameForce",
 		// Cooldown error path.

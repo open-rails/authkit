@@ -67,6 +67,7 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		UserID    string  `json:"user_id"`
+		Role      string  `json:"role,omitempty"`
 		ExpiresAt *string `json:"expires_at,omitempty"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
@@ -83,7 +84,7 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 		parsed = parsed.UTC()
 		expiresAt = &parsed
 	}
-	item, err := s.svc.CreateOrgInvite(r.Context(), canonical, strings.TrimSpace(body.UserID), claims.UserID, expiresAt)
+	item, err := s.svc.CreateOrgInvite(r.Context(), canonical, strings.TrimSpace(body.UserID), claims.UserID, strings.TrimSpace(body.Role), expiresAt)
 	if err != nil {
 		badRequest(w, "org_invite_create_failed")
 		return

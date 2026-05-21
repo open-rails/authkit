@@ -28,8 +28,8 @@ func HasRoleDBCheck(ctx context.Context, pg *pgxpool.Pool, userID, role string) 
 	var hasRole bool
 	err := pg.QueryRow(ctx, `
             SELECT EXISTS (
-              SELECT 1 FROM profiles.user_roles ur
-              JOIN profiles.roles r ON ur.role_id = r.id
+              SELECT 1 FROM profiles.global_user_roles ur
+              JOIN profiles.global_roles r ON ur.role_id = r.id
               WHERE ur.user_id = $1 AND r.slug = $2
                 AND r.deleted_at IS NULL
                 AND EXISTS (

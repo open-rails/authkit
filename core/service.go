@@ -2324,11 +2324,11 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	if err != nil {
 		return err
 	}
-	// Audit row for the user rename. `renamed_by` = id (self-rename).
+	// Audit row for the user rename.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.user_renames (user_id, from_slug, to_slug, renamed_by)
-		VALUES ($1::uuid, $2, $3, $1::uuid)
-	`, id, strings.ToLower(strings.TrimSpace(oldUsername)), strings.ToLower(newUsername)); err != nil {
+		INSERT INTO profiles.user_renames (user_id, from_slug)
+		VALUES ($1::uuid, $2)
+	`, id, strings.ToLower(strings.TrimSpace(oldUsername))); err != nil {
 		return err
 	}
 
@@ -2366,9 +2366,9 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 			// already checked against user_renames above; we don't
 			// re-gate here.
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.org_renames (org_id, from_slug, to_slug, renamed_by)
-				VALUES ($1::uuid, $2, $3, $4::uuid)
-			`, orgID, strings.ToLower(strings.TrimSpace(oldOrgSlug)), strings.ToLower(strings.TrimSpace(newSlug)), id); err != nil {
+				INSERT INTO profiles.org_renames (org_id, from_slug)
+				VALUES ($1::uuid, $2)
+			`, orgID, strings.ToLower(strings.TrimSpace(oldOrgSlug))); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `UPDATE profiles.orgs SET slug=$1, updated_at=now() WHERE id=$2::uuid`, newSlug, orgID); err != nil {
@@ -2725,7 +2725,7 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 	if s.pg == nil {
 		return nil
 	}
-	rows, err := s.pg.Query(ctx, `SELECT r.slug FROM profiles.user_roles ur JOIN profiles.roles r ON ur.role_id=r.id WHERE ur.user_id=$1 AND r.deleted_at IS NULL`, userID)
+	rows, err := s.pg.Query(ctx, `SELECT r.slug FROM profiles.global_user_roles ur JOIN profiles.global_roles r ON ur.role_id=r.id WHERE ur.user_id=$1 AND r.deleted_at IS NULL`, userID)
 	if err != nil {
 		return nil
 	}
@@ -2755,14 +2755,14 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 		return nil
 	}
 	var roleID string
-	if err := s.pg.QueryRow(ctx, `SELECT id FROM profiles.roles WHERE slug=$1`, slug).Scan(&roleID); err != nil {
+	if err := s.pg.QueryRow(ctx, `SELECT id FROM profiles.global_roles WHERE slug=$1`, slug).Scan(&roleID); err != nil {
 		return err
 	}
 	userRoleID, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.user_roles (id, user_id, role_id) VALUES ($1,$2,$3) ON CONFLICT (user_id, role_id) DO NOTHING`, userRoleID, userID, roleID)
+	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.global_user_roles (id, user_id, role_id) VALUES ($1,$2,$3) ON CONFLICT (user_id, role_id) DO NOTHING`, userRoleID, userID, roleID)
 	return err
 }
 
@@ -2782,7 +2782,7 @@ func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, descr
 		name = slug
 	}
 	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.roles (name, slug, description)
+		INSERT INTO profiles.global_roles (name, slug, description)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (slug) DO UPDATE SET
 			name = EXCLUDED.name,
@@ -2801,7 +2801,7 @@ func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) err
 	if roleSlug == "admin" {
 		return s.removeAdminRoleIfNotLast(ctx, userID)
 	}
-	tag, err := s.pg.Exec(ctx, `DELETE FROM profiles.user_roles ur USING profiles.roles r WHERE ur.role_id=r.id AND ur.user_id=$1 AND r.slug=$2 AND r.deleted_at IS NULL`, userID, roleSlug)
+	tag, err := s.pg.Exec(ctx, `DELETE FROM profiles.global_user_roles ur USING profiles.global_roles r WHERE ur.role_id=r.id AND ur.user_id=$1 AND r.slug=$2 AND r.deleted_at IS NULL`, userID, roleSlug)
 	if err != nil {
 		return err
 	}
@@ -2819,7 +2819,7 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 	defer tx.Rollback(ctx)
 
 	var roleID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM profiles.roles WHERE slug='admin' AND deleted_at IS NULL FOR UPDATE`).Scan(&roleID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT id FROM profiles.global_roles WHERE slug='admin' AND deleted_at IS NULL FOR UPDATE`).Scan(&roleID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrUserRoleNotFound
 		}
@@ -2827,7 +2827,7 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 	}
 
 	var hasRole bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.user_roles WHERE user_id=$1 AND role_id=$2)`, userID, roleID).Scan(&hasRole); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.global_user_roles WHERE user_id=$1 AND role_id=$2)`, userID, roleID).Scan(&hasRole); err != nil {
 		return err
 	}
 	if !hasRole {
@@ -2837,7 +2837,7 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 	var activeAdminCount int64
 	if err := tx.QueryRow(ctx, `
 		SELECT COUNT(*)
-		FROM profiles.user_roles ur
+		FROM profiles.global_user_roles ur
 		JOIN profiles.users u ON u.id=ur.user_id
 		WHERE ur.role_id=$1
 		  AND u.deleted_at IS NULL
@@ -2849,7 +2849,7 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 		return ErrCannotRemoveLastAdminRole
 	}
 
-	tag, err := tx.Exec(ctx, `DELETE FROM profiles.user_roles WHERE user_id=$1 AND role_id=$2`, userID, roleID)
+	tag, err := tx.Exec(ctx, `DELETE FROM profiles.global_user_roles WHERE user_id=$1 AND role_id=$2`, userID, roleID)
 	if err != nil {
 		return err
 	}
@@ -2969,23 +2969,23 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 
 	switch filter {
 	case "super administrators":
-		from += " JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
+		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
 		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
 		args = append(args, "admin")
 		argIdx++
 	case "taggers":
-		from += " JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
+		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
 		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
 		args = append(args, "tagger")
 		argIdx++
 	case "bloggers":
-		from += " JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
+		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
 		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
 		args = append(args, "blogger")
 		argIdx++
 	case "10 random premium members":
 		// Use a subquery to select 10 random premium user IDs, then join back to users for full data
-		from = "profiles.users u JOIN (SELECT u.id FROM profiles.users u JOIN profiles.user_roles ur ON ur.user_id = u.id JOIN profiles.roles r ON ur.role_id = r.id AND r.deleted_at IS NULL WHERE r.slug = $" + fmt.Sprint(argIdx) + " ORDER BY RANDOM() LIMIT 10) sub ON u.id = sub.id"
+		from = "profiles.users u JOIN (SELECT u.id FROM profiles.users u JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL WHERE r.slug = $" + fmt.Sprint(argIdx) + " ORDER BY RANDOM() LIMIT 10) sub ON u.id = sub.id"
 		args = append(args, "premium")
 		argIdx++
 		// No additional where clause needed

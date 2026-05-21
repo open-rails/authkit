@@ -256,16 +256,10 @@ func (s *Service) renameOrgSlugImpl(ctx context.Context, orgID, newSlug, actorUs
 	// Audit row in org_renames. Source of truth for both forwarding
 	// (from_slug → current owner) and reverse history (org_id → all
 	// historical slugs in order).
-	var actor any
-	if strings.TrimSpace(actorUserID) != "" {
-		actor = actorUserID
-	} else {
-		actor = nil
-	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.org_renames (org_id, from_slug, to_slug, renamed_by)
-		VALUES ($1::uuid, $2, $3, NULLIF($4::text,'')::uuid)
-	`, orgID, strings.ToLower(strings.TrimSpace(oldSlug)), strings.ToLower(strings.TrimSpace(newSlug)), actor); err != nil {
+		INSERT INTO profiles.org_renames (org_id, from_slug)
+		VALUES ($1::uuid, $2)
+	`, orgID, strings.ToLower(strings.TrimSpace(oldSlug))); err != nil {
 		return err
 	}
 

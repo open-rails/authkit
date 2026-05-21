@@ -15,13 +15,14 @@ type OrgInvite struct {
 	Org       string     `json:"org"`
 	UserID    string     `json:"user_id"`
 	InvitedBy string     `json:"invited_by"`
+	Role      string     `json:"role"`
 	Status    string     `json:"status"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	ActedAt   *time.Time `json:"acted_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-func (s *Service) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedBy string, expiresAt *time.Time) (*OrgInvite, error) {
+func (s *Service) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedBy, role string, expiresAt *time.Time) (*OrgInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -34,16 +35,20 @@ func (s *Service) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedB
 	if userID == "" || invitedBy == "" {
 		return nil, fmt.Errorf("invalid_user")
 	}
+	role = strings.TrimSpace(role)
+	if role == "" {
+		role = "member"
+	}
 	inviteID, err := newUUIDV7String()
 	if err != nil {
 		return nil, err
 	}
 	var out OrgInvite
 	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.org_invites (id, org_id, user_id, invited_by, status, expires_at)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'pending', $5)
-		RETURNING id::text, $6, user_id::text, invited_by::text, status, expires_at, acted_at, created_at
-	`, inviteID, org.ID, userID, invitedBy, expiresAt, org.Slug).Scan(&out.ID, &out.Org, &out.UserID, &out.InvitedBy, &out.Status, &out.ExpiresAt, &out.ActedAt, &out.CreatedAt)
+		INSERT INTO profiles.org_invites (id, org_id, user_id, invited_by, role, status, expires_at)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, 'pending', $6)
+		RETURNING id::text, $7, user_id::text, invited_by::text, role, status, expires_at, acted_at, created_at
+	`, inviteID, org.ID, userID, invitedBy, role, expiresAt, org.Slug).Scan(&out.ID, &out.Org, &out.UserID, &out.InvitedBy, &out.Role, &out.Status, &out.ExpiresAt, &out.ActedAt, &out.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -62,14 +67,14 @@ func (s *Service) ListOrgInvites(ctx context.Context, orgSlug, status string) ([
 	var rows pgx.Rows
 	if status == "" {
 		rows, err = s.pg.Query(ctx, `
-			SELECT id::text, $2, user_id::text, invited_by::text, status, expires_at, acted_at, created_at
+			SELECT id::text, $2, user_id::text, invited_by::text, role, status, expires_at, acted_at, created_at
 			FROM profiles.org_invites
 			WHERE org_id=$1::uuid AND deleted_at IS NULL
 			ORDER BY created_at DESC
 		`, org.ID, org.Slug)
 	} else {
 		rows, err = s.pg.Query(ctx, `
-			SELECT id::text, $3, user_id::text, invited_by::text, status, expires_at, acted_at, created_at
+			SELECT id::text, $3, user_id::text, invited_by::text, role, status, expires_at, acted_at, created_at
 			FROM profiles.org_invites
 			WHERE org_id=$1::uuid AND status=$2 AND deleted_at IS NULL
 			ORDER BY created_at DESC
@@ -82,7 +87,7 @@ func (s *Service) ListOrgInvites(ctx context.Context, orgSlug, status string) ([
 	out := make([]OrgInvite, 0, 8)
 	for rows.Next() {
 		var item OrgInvite
-		if err := rows.Scan(&item.ID, &item.Org, &item.UserID, &item.InvitedBy, &item.Status, &item.ExpiresAt, &item.ActedAt, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Org, &item.UserID, &item.InvitedBy, &item.Role, &item.Status, &item.ExpiresAt, &item.ActedAt, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -103,7 +108,7 @@ func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([
 	var err error
 	if status == "" {
 		rows, err = s.pg.Query(ctx, `
-			SELECT i.id::text, o.slug, i.user_id::text, i.invited_by::text, i.status, i.expires_at, i.acted_at, i.created_at
+			SELECT i.id::text, o.slug, i.user_id::text, i.invited_by::text, i.role, i.status, i.expires_at, i.acted_at, i.created_at
 			FROM profiles.org_invites i
 			JOIN profiles.orgs o ON o.id=i.org_id
 			WHERE i.user_id=$1::uuid AND i.deleted_at IS NULL AND o.deleted_at IS NULL
@@ -111,7 +116,7 @@ func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([
 		`, userID)
 	} else {
 		rows, err = s.pg.Query(ctx, `
-			SELECT i.id::text, o.slug, i.user_id::text, i.invited_by::text, i.status, i.expires_at, i.acted_at, i.created_at
+			SELECT i.id::text, o.slug, i.user_id::text, i.invited_by::text, i.role, i.status, i.expires_at, i.acted_at, i.created_at
 			FROM profiles.org_invites i
 			JOIN profiles.orgs o ON o.id=i.org_id
 			WHERE i.user_id=$1::uuid AND i.status=$2 AND i.deleted_at IS NULL AND o.deleted_at IS NULL
@@ -125,7 +130,7 @@ func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([
 	out := make([]OrgInvite, 0, 8)
 	for rows.Next() {
 		var item OrgInvite
-		if err := rows.Scan(&item.ID, &item.Org, &item.UserID, &item.InvitedBy, &item.Status, &item.ExpiresAt, &item.ActedAt, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Org, &item.UserID, &item.InvitedBy, &item.Role, &item.Status, &item.ExpiresAt, &item.ActedAt, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -178,13 +183,13 @@ func (s *Service) transitionOrgInvite(ctx context.Context, inviteID, userID, tar
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var orgID, invitee, status string
+	var orgID, invitee, role, status string
 	var expiresAt *time.Time
 	if err := tx.QueryRow(ctx, `
-		SELECT org_id::text, user_id::text, status, expires_at
+		SELECT org_id::text, user_id::text, role, status, expires_at
 		FROM profiles.org_invites
 		WHERE id=$1::uuid AND deleted_at IS NULL
-	`, inviteID).Scan(&orgID, &invitee, &status, &expiresAt); err != nil {
+	`, inviteID).Scan(&orgID, &invitee, &role, &status, &expiresAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInviteNotFound
 		}
@@ -215,10 +220,10 @@ func (s *Service) transitionOrgInvite(ctx context.Context, inviteID, userID, tar
 		}
 		_, _ = tx.Exec(ctx, `
 			INSERT INTO profiles.org_member_roles (org_id, user_id, role)
-			SELECT $1::uuid, $2::uuid, 'member'
-			WHERE EXISTS (SELECT 1 FROM profiles.org_roles WHERE org_id=$1::uuid AND role='member')
+			SELECT $1::uuid, $2::uuid, $3
+			WHERE EXISTS (SELECT 1 FROM profiles.org_roles WHERE org_id=$1::uuid AND role=$3)
 			ON CONFLICT (org_id, user_id, role) DO NOTHING
-		`, orgID, userID)
+		`, orgID, userID, role)
 	}
 
 	if _, err := tx.Exec(ctx, `
