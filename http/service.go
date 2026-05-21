@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	core "github.com/open-rails/authkit/core"
 	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/ratelimit"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	redisstore "github.com/open-rails/authkit/storage/redis"
@@ -41,6 +42,10 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 	if result.Allowed {
 		return false
 	}
+	if result.Availability != nil {
+		tooManyAvailability(w, *result.Availability, "rate_limited")
+		return true
+	}
 	tooMany(w, result.RetryAfter)
 	return true
 }
@@ -61,12 +66,29 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 		return RateLimitResult{Allowed: true}
 	}
 	key := "auth:" + bucket + ":ip:" + ip
+	if rl, ok := s.rl.(RateLimiterWithResult); ok {
+		result, err := rl.AllowNamedResult(bucket, key)
+		if err != nil {
+			return RateLimitResult{Allowed: true}
+		}
+		availability := availabilityFromRateLimit(bucket, result, time.Now())
+		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
+	}
 	if rl, ok := s.rl.(RateLimiterWithRetryAfter); ok {
 		allowed, retryAfter, err := rl.AllowNamedWithRetryAfter(bucket, key)
 		if err != nil {
 			return RateLimitResult{Allowed: true}
 		}
-		return RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
+		result := RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
+		if !allowed {
+			availability := availabilityFromRateLimit(bucket, ratelimit.Result{
+				Allowed:    false,
+				RetryAfter: retryAfter,
+				Reason:     ratelimit.ReasonLimitExceeded,
+			}, time.Now())
+			result.Availability = &availability
+		}
+		return result
 	}
 	ok, err := s.rl.AllowNamed(bucket, key)
 	if err != nil {

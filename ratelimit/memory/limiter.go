@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/open-rails/authkit/ratelimit"
 )
 
 // Limit defines window and max count for a bucket.
@@ -52,16 +54,21 @@ func (l *Limiter) get(bucket string) (Limit, bool) {
 // expired entries on each call and removing empty buckets to avoid unbounded
 // memory growth.
 func (l *Limiter) AllowNamed(bucket, key string) (bool, error) {
-	allowed, _, err := l.AllowNamedWithRetryAfter(bucket, key)
-	return allowed, err
+	result, err := l.AllowNamedResult(bucket, key)
+	return result.Allowed, err
 }
 
 func (l *Limiter) AllowNamedWithRetryAfter(bucket, key string) (bool, time.Duration, error) {
+	result, err := l.AllowNamedResult(bucket, key)
+	return result.Allowed, result.RetryAfter, err
+}
+
+func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error) {
 	if l == nil {
-		return true, 0, nil
+		return ratelimit.Result{Allowed: true}, nil
 	}
 	if bucket == "" || key == "" {
-		return false, 0, fmt.Errorf("bucket and key required")
+		return ratelimit.Result{}, fmt.Errorf("bucket and key required")
 	}
 
 	lim, _ := l.get(bucket)
@@ -89,10 +96,12 @@ func (l *Limiter) AllowNamedWithRetryAfter(bucket, key string) (bool, time.Durat
 	}
 
 	var retryAfter time.Duration
+	var retryReason string
 	if lim.Cooldown > 0 && len(ts) > 0 {
 		nextAllowedMs := ts[len(ts)-1] + lim.Cooldown.Milliseconds()
 		if nowMs < nextAllowedMs {
 			retryAfter = time.Duration(nextAllowedMs-nowMs) * time.Millisecond
+			retryReason = ratelimit.ReasonCooldown
 		}
 	}
 
@@ -103,13 +112,22 @@ func (l *Limiter) AllowNamedWithRetryAfter(bucket, key string) (bool, time.Durat
 		}
 		if windowRetryAfter > retryAfter {
 			retryAfter = windowRetryAfter
+			retryReason = ratelimit.ReasonLimitExceeded
 		}
 	}
 
 	if retryAfter > 0 {
 		// Deny without recording this attempt.
 		b.timestamps = ts
-		return false, retryAfter, nil
+		return ratelimit.Result{
+			Allowed:    false,
+			RetryAfter: retryAfter,
+			Reason:     retryReason,
+			Limit:      lim.Limit,
+			Remaining:  remaining(lim.Limit, len(ts)),
+			Window:     lim.Window,
+			Cooldown:   lim.Cooldown,
+		}, nil
 	}
 
 	// Record this request and allow.
@@ -121,5 +139,19 @@ func (l *Limiter) AllowNamedWithRetryAfter(bucket, key string) (bool, time.Durat
 		delete(l.buckets, limitKey)
 	}
 
-	return true, 0, nil
+	return ratelimit.Result{
+		Allowed:   true,
+		Limit:     lim.Limit,
+		Remaining: remaining(lim.Limit, len(ts)),
+		Window:    lim.Window,
+		Cooldown:  lim.Cooldown,
+	}, nil
+}
+
+func remaining(limit, used int) int {
+	left := limit - used
+	if left < 0 {
+		return 0
+	}
+	return left
 }

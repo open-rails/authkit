@@ -249,3 +249,31 @@ func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID s
 	remaining := availableAt.Sub(now)
 	return int64((remaining + time.Second - time.Nanosecond) / time.Second), nil
 }
+
+func (s *Service) TimeUntilOrgRenameAvailable(ctx context.Context, orgID string, now time.Time) (int64, error) {
+	if s == nil || s.pg == nil || strings.TrimSpace(orgID) == "" {
+		return 0, nil
+	}
+	var lastRenamedAt *time.Time
+	if err := s.pg.QueryRow(ctx, `
+		SELECT renamed_at
+		FROM   profiles.org_renames
+		WHERE  org_id = $1::uuid
+		ORDER  BY renamed_at DESC
+		LIMIT  1
+	`, strings.TrimSpace(orgID)).Scan(&lastRenamedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
+		return 0, nil
+	}
+	availableAt := lastRenamedAt.Add(renameCooldown)
+	if !availableAt.After(now) {
+		return 0, nil
+	}
+	remaining := availableAt.Sub(now)
+	return int64((remaining + time.Second - time.Nanosecond) / time.Second), nil
+}

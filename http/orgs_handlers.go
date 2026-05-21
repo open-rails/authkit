@@ -3,6 +3,7 @@ package authhttp
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	core "github.com/open-rails/authkit/core"
 )
@@ -147,10 +148,11 @@ func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == core.ErrRenameRateLimited {
-			writeJSON(w, http.StatusTooManyRequests, map[string]any{
-				"error":   "rename_rate_limited",
-				"message": "rename cooldown not met (72 hours between renames)",
-			})
+			seconds, _ := s.svc.TimeUntilOrgRenameAvailable(r.Context(), org.ID, time.Now())
+			availability := cooldownAvailability("rename_org", seconds, 72*time.Hour, time.Now())
+			data := availability.toMap()
+			data["error"] = core.ErrCodeRenameRateLimited
+			writeJSON(w, http.StatusTooManyRequests, data)
 			return
 		}
 		badRequest(w, "org_rename_failed")

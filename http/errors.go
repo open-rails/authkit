@@ -49,6 +49,55 @@ func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
 	sendErrData(w, http.StatusTooManyRequests, "rate_limited", map[string]any{"retry_after_seconds": seconds})
 }
+
+func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability, legacyError string) {
+	if legacyError == "" {
+		legacyError = "rate_limited"
+	}
+	data := availability.toMap()
+	data["error"] = legacyError
+	if availability.RetryAfterSeconds > 0 {
+		seconds := int(availability.RetryAfterSeconds)
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		w.Header().Set("RateLimit-Reset", strconv.Itoa(seconds))
+	}
+	if availability.Limit != nil {
+		w.Header().Set("RateLimit-Limit", strconv.Itoa(*availability.Limit))
+	}
+	if availability.Remaining != nil {
+		w.Header().Set("RateLimit-Remaining", strconv.Itoa(*availability.Remaining))
+	}
+	writeJSON(w, http.StatusTooManyRequests, data)
+}
+
+func (a ActionAvailability) toMap() map[string]any {
+	out := map[string]any{
+		"action":  a.Action,
+		"allowed": a.Allowed,
+	}
+	if a.Reason != "" {
+		out["reason"] = a.Reason
+	}
+	if a.RetryAfterSeconds > 0 {
+		out["retry_after_seconds"] = a.RetryAfterSeconds
+	}
+	if a.NextAllowedAt != nil {
+		out["next_allowed_at"] = a.NextAllowedAt.Format(time.RFC3339)
+	}
+	if a.Limit != nil {
+		out["limit"] = *a.Limit
+	}
+	if a.Remaining != nil {
+		out["remaining"] = *a.Remaining
+	}
+	if a.WindowSeconds != nil {
+		out["window_seconds"] = *a.WindowSeconds
+	}
+	if a.CooldownSeconds != nil {
+		out["cooldown_seconds"] = *a.CooldownSeconds
+	}
+	return out
+}
 func serverErr(w http.ResponseWriter, code string) { sendErr(w, http.StatusInternalServerError, code) }
 func notFound(w http.ResponseWriter, code string)  { sendErr(w, http.StatusNotFound, code) }
 func deliveryErr(w http.ResponseWriter, code string) {

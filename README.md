@@ -429,7 +429,10 @@ Identity validation policy
   names. Parked/restricted names return `username_not_allowed`; held/taken
   names return `owner_slug_taken`.
 - User rename cooldown is fixed at 72 hours. `PATCH /user/username` returns
-  `rename_rate_limited` with `time_until_rename_available` when blocked.
+  `rename_rate_limited` with the shared action-availability fields when
+  blocked (`action`, `allowed`, `reason`, `retry_after_seconds`,
+  `next_allowed_at`, `cooldown_seconds`). `time_until_rename_available` is
+  still included as a compatibility alias.
 - Password policy is fixed in AuthKit and currently requires at least 8
   characters; weak passwords return `password_too_short`.
 - Email and phone validation/normalization are fixed in AuthKit. Email is
@@ -473,7 +476,9 @@ Integration requirements (API server)
   - Keys: `auth:<bucket>:ip:<client-ip>`; errors fail-open (request allowed).
   - Default client IP strategy uses the immediate `RemoteAddr` peer, including private Docker bridge, loopback, and reverse-proxy peers. This keeps anonymous sensitive endpoints protected in local Compose and embedded deployments instead of silently failing open.
   - Request-code and resend buckets default to a 60-second per-client cooldown and 6 requests per hour for registration, registration resend, email/phone verification, password-reset request, and user email/phone change request/resend.
-  - `429` responses include `{"error":"rate_limited","retry_after_seconds":N}` and a `Retry-After: N` header when the limiter can compute the reset time.
+  - `429` responses include one shared action-availability shape for frontend timers:
+    `{"error":"rate_limited","action":"request_email_verification","allowed":false,"reason":"cooldown","retry_after_seconds":N,"next_allowed_at":"...","limit":6,"remaining":5,"window_seconds":3600,"cooldown_seconds":60}`.
+  - `429` responses also include `Retry-After: N` plus `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` when the limiter can compute them.
   - **Behind reverse proxies, you must explicitly configure trusted proxies** to safely use `X-Forwarded-For` / `CF-Connecting-IP`. AuthKit will not trust forwarded headers by default (clients can spoof them).
   - For multi-instance production, prefer a Redis/Garnet-backed limiter and a trusted-proxy client IP function, e.g.:
     - `svc.WithRateLimiter(redislimiter.New(redis, authhttp.ToRedisLimits(authhttp.DefaultRateLimits())))`
