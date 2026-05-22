@@ -1059,7 +1059,7 @@ func (s *Service) ValidateVerificationConfiguration() error {
 
 // RequestPasswordReset creates a password reset token and dispatches a reset link via email.
 // Returns nil for unknown emails to prevent user enumeration (202-like behavior).
-func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration) error {
+func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration, ip *string, ua *string) error {
 	if s.pg == nil {
 		return nil
 	}
@@ -1098,7 +1098,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return emailDeliveryError(err)
 	}
 
-	s.LogPasswordRecovery(ctx, u.ID, "email", "", nil, nil)
+	s.LogPasswordRecovery(ctx, u.ID, "email", "", ip, ua)
 
 	return nil
 }
@@ -1748,7 +1748,7 @@ func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, tok
 
 // RequestPhonePasswordReset creates a password reset token and sends a reset link via SMS.
 // Always returns nil for unknown phone numbers to prevent user enumeration (202-like behavior).
-func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration) error {
+func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error {
 	// Look up user by phone
 	u, err := s.GetUserByPhone(ctx, phone)
 	if err != nil || u == nil {
@@ -1777,7 +1777,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		return smsDeliveryError(err)
 	}
 
-	s.LogPasswordRecovery(ctx, u.ID, "sms", "", nil, nil)
+	s.LogPasswordRecovery(ctx, u.ID, "sms", "", ip, ua)
 
 	return nil
 }

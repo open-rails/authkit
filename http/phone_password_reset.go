@@ -29,7 +29,9 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 		return
 	}
 	phone = core.NormalizePhone(phone)
-	if err := s.svc.RequestPhonePasswordReset(r.Context(), phone, 0); err != nil {
+	ua := r.UserAgent()
+	ip := clientIP(r)
+	if err := s.svc.RequestPhonePasswordReset(r.Context(), phone, 0, &ip, &ua); err != nil {
 		if s.handleDeliveryError(w, r, "phone_password_reset_request", "send_sms_password_reset", err) {
 			return
 		}

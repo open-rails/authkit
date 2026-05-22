@@ -33,7 +33,9 @@ func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *
 		serverErr(w, "email_password_reset_unavailable")
 		return
 	}
-	if err := s.svc.RequestPasswordReset(r.Context(), email, 0); err != nil {
+	ua := r.UserAgent()
+	ip := clientIP(r)
+	if err := s.svc.RequestPasswordReset(r.Context(), email, 0, &ip, &ua); err != nil {
 		if s.handleDeliveryError(w, r, "password_reset_request", "send_email_password_reset", err) {
 			return
 		}

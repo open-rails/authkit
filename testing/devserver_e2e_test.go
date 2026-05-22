@@ -469,6 +469,129 @@ func TestDevserverE2E(t *testing.T) {
 		}
 	})
 
+	// loginAndRefreshSession logs a user in with email+password and returns their
+	// access token and refresh token (a live refresh session).
+	loginAndRefreshSession := func(t *testing.T, email, pass string) (accessToken, refreshToken string) {
+		t.Helper()
+		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
+			"email":    email,
+			"password": pass,
+		})
+		if loginResp.StatusCode != http.StatusOK {
+			t.Fatalf("login: expected 200, got %d: %s", loginResp.StatusCode, string(loginBody))
+		}
+		var out struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := json.Unmarshal(loginBody, &out); err != nil {
+			t.Fatalf("decode login response: %v", err)
+		}
+		if strings.TrimSpace(out.AccessToken) == "" || strings.TrimSpace(out.RefreshToken) == "" {
+			t.Fatalf("login: expected access_token + refresh_token")
+		}
+		return out.AccessToken, out.RefreshToken
+	}
+
+	seedPasswordUser := func(t *testing.T, userID, email, username, pass string) {
+		t.Helper()
+		hash, err := password.HashArgon2id(pass)
+		if err != nil {
+			t.Fatalf("hash password: %v", err)
+		}
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			sqlString(userID), sqlString(email), sqlString(username),
+		))
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo) VALUES (%s, %s, 'argon2id') ON CONFLICT (user_id) DO UPDATE SET password_hash=EXCLUDED.password_hash;",
+			sqlString(userID), sqlString(hash),
+		))
+	}
+
+	refreshAttempt := func(t *testing.T, refreshToken string) int {
+		t.Helper()
+		resp, _ := httpJSON(t, http.MethodPost, baseURL+"/api/v1/token", nil, map[string]any{
+			"grant_type":    "refresh_token",
+			"refresh_token": refreshToken,
+		})
+		return resp.StatusCode
+	}
+
+	userMeStatus := func(t *testing.T, accessToken string) int {
+		t.Helper()
+		resp, _ := httpJSON(t, http.MethodGet, baseURL+"/api/v1/user/me", map[string]string{
+			"Authorization": "Bearer " + accessToken,
+		}, nil)
+		return resp.StatusCode
+	}
+
+	t.Run("ban_revokes_refresh_sessions_and_unban_restores", func(t *testing.T) {
+		userID := "66666666-6666-6666-6666-666666666666"
+		email := "ban-refresh@example.com"
+		pass := "Password123!"
+		seedPasswordUser(t, userID, email, "banrefreshuser", pass)
+
+		accessToken, refreshToken := loginAndRefreshSession(t, email, pass)
+
+		// Baseline: refresh works and /user/me works before ban.
+		if code := refreshAttempt(t, refreshToken); code != http.StatusOK {
+			t.Fatalf("pre-ban refresh: expected 200, got %d", code)
+		}
+		if code := userMeStatus(t, accessToken); code != http.StatusOK {
+			t.Fatalf("pre-ban /user/me: expected 200, got %d", code)
+		}
+
+		// A fresh login (so we have a refresh token that has not been rotated by the
+		// baseline refresh above) is what we ban against.
+		accessToken, refreshToken = loginAndRefreshSession(t, email, pass)
+
+		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET banned_at=now() WHERE id=%s;", sqlString(userID)))
+
+		if code := refreshAttempt(t, refreshToken); code != http.StatusUnauthorized {
+			t.Fatalf("banned refresh: expected 401, got %d", code)
+		}
+		if code := userMeStatus(t, accessToken); code != http.StatusUnauthorized {
+			t.Fatalf("banned /user/me: expected 401, got %d", code)
+		}
+
+		// Unban must restore access: a brand-new login succeeds and yields a usable session.
+		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET banned_at=NULL WHERE id=%s;", sqlString(userID)))
+
+		newAccess, newRefresh := loginAndRefreshSession(t, email, pass)
+		if code := userMeStatus(t, newAccess); code != http.StatusOK {
+			t.Fatalf("post-unban /user/me: expected 200, got %d", code)
+		}
+		if code := refreshAttempt(t, newRefresh); code != http.StatusOK {
+			t.Fatalf("post-unban refresh: expected 200, got %d", code)
+		}
+	})
+
+	t.Run("soft_delete_revokes_refresh_sessions", func(t *testing.T) {
+		userID := "77777777-7777-7777-7777-777777777777"
+		email := "delete-refresh@example.com"
+		pass := "Password123!"
+		seedPasswordUser(t, userID, email, "deleterefreshuser", pass)
+
+		accessToken, refreshToken := loginAndRefreshSession(t, email, pass)
+
+		if code := refreshAttempt(t, refreshToken); code != http.StatusOK {
+			t.Fatalf("pre-delete refresh: expected 200, got %d", code)
+		}
+
+		// Fresh, un-rotated session to soft-delete against.
+		accessToken, refreshToken = loginAndRefreshSession(t, email, pass)
+
+		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET deleted_at=now() WHERE id=%s;", sqlString(userID)))
+
+		if code := refreshAttempt(t, refreshToken); code != http.StatusUnauthorized {
+			t.Fatalf("soft-deleted refresh: expected 401, got %d", code)
+		}
+		if code := userMeStatus(t, accessToken); code != http.StatusUnauthorized {
+			t.Fatalf("soft-deleted /user/me: expected 401, got %d", code)
+		}
+	})
+
 	t.Run("password_login_refresh_and_logout", func(t *testing.T) {
 		userID := "22222222-2222-2222-2222-222222222222"
 		email := "pw@example.com"
