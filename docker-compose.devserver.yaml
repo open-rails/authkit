@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: authkit_db
       POSTGRES_USER: admin
@@ -8,7 +8,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - authkit_postgres_data:/var/lib/postgresql/data
+      - authkit_postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d authkit_db"]
       interval: 5s

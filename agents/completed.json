@@ -1,0 +1,816 @@
+{
+  "issues": [
+    {
+      "name": "Admin undelete user (restore soft-deleted users)",
+      "id_number": 1,
+      "description": "AuthKit supports soft-deleting users via `deleted_at` (self-delete: `DELETE /auth/user`; admin delete: `DELETE /auth/admin/users/:user_id`) and then hard-deleting later via the purge worker. Add an admin-only restore endpoint so admins can restore a user before they are hard-deleted.\n\nSemantics:\n- Restore only clears `profiles.users.deleted_at` (and updates `updated_at`).\n- Do not change ban state (banned users remain banned after restore).\n- Do not recreate sessions; deleted users had sessions revoked, so they must log in again.\n- Idempotent: restoring an already-restored user is a no-op.\n\nEndpoint:\n- `POST /auth/admin/users/:user_id/restore` (ADMIN)\n- `GET /auth/admin/users/deleted` (ADMIN) for listing deleted users.",
+      "tasks": [
+        "[x] Core: Add restore method that clears deleted_at (no ban changes) and returns not-found when user is missing",
+        "[x] HTTP (gin): Add admin restore route and deleted-users list route under `/auth/admin`",
+        "[x] HTTP (gin): Ensure endpoint requires admin via existing RequireAdmin middleware",
+        "[x] Tests: Add minimal handler tests for restore (ok + not_found)",
+        "[x] Docs: Update `agents/api-endpoints.md` to include restore + deleted list"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Move ephemeral auth state to Redis (codes, SIWS challenges, rate limits)",
+      "id_number": 2,
+      "description": "Use Redis-compatible storage (Garnet) for ephemeral auth state (verification codes, reset tokens, SIWS challenges, and other short-lived entries) so we don't rely on Postgres TTL cleanup. This also makes SIWS safe in multi-instance deployments. In-memory caches remain as a fallback when Garnet is not configured, but they are not safe for distributed use. AuthKit should accept a Redis client interface from the host app (Garnet implements the same protocol).",
+      "tasks": [
+        "[x] Define a minimal Redis client interface (Get/Set/Del) and accept it via AuthKit options",
+        "[x] Add Garnet/Redis config in host apps; pass client into AuthKit (no internal dialer)",
+        "[x] Define key prefixes + TTLs for: email/phone verify codes, password resets, pending registrations, 2FA codes, SIWS challenges, rate limit buckets",
+        "[x] Replace Postgres writes for ephemeral tables with Redis writes (keep Postgres for durable user/session records)",
+        "[x] Update verification flows to read from Redis and delete on success",
+        "[x] Add store selection: memory|redis|postgres (configurable). Memory is dev-only; redis required for multi-instance prod; postgres is explicit opt-in adapter",
+        "[x] Enforce: in prod + multi-instance, require redis; otherwise fail fast with clear error",
+        "[x] Keep in-memory cache fallback for dev/single-instance",
+        "[x] Update migrations/docs: remove ephemeral tables or leave for backward compat; document required Redis for HA",
+        "[x] Add tests for Redis-backed flows (skip when Redis not configured)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Unify OAuth/OIDC routes under /auth/oauth/:provider",
+      "id_number": 3,
+      "description": "Expose a single route pattern for all external identity providers (OIDC and OAuth) under /auth/oauth/:provider to simplify client integration while keeping provider-specific logic internally.",
+      "tasks": [
+        "[x] Add new routes: GET /auth/oauth/:provider/login, GET /auth/oauth/:provider/callback, POST /auth/oauth/:provider/link/start (validated complete 2026-05-22 during archive)",
+        "[x] Wire OIDC providers (google/apple/etc) to the new /auth/oauth/:provider routes without changing internal validation flow (validated complete 2026-05-22 during archive)",
+        "[x] Wire Discord OAuth to the same /auth/oauth/:provider routes (validated complete 2026-05-22 during archive)",
+        "[x] Decide whether to keep /auth/oidc/* and /auth/oauth/discord/* as aliases or deprecate with docs (validated complete 2026-05-22 during archive)",
+        "[x] Update docs (api-endpoints.md) with new unified route pattern and provider list (validated complete 2026-05-22 during archive)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Add phone number change flow (request/confirm/resend)",
+      "id_number": 4,
+      "description": "Add a phone change flow for existing users mirroring the email change behavior. This should verify the new phone number via SMS code and update the user's phone only after confirmation.",
+      "tasks": [
+        "[x] Add core service methods: RequestPhoneChange(userID, newPhone), ConfirmPhoneChange(userID, code), ResendPhoneChangeCode(userID) (validated complete 2026-05-22 during archive)",
+        "[x] Add persistence for pending phone change verification (reuse phone_verifications with a new purpose or add a dedicated table) (validated complete 2026-05-22 during archive)",
+        "[x] Add Gin handlers: POST /auth/user/phone/change/request, POST /auth/user/phone/change/confirm, POST /auth/user/phone/change/resend (validated complete 2026-05-22 during archive)",
+        "[x] Add rate limit keys for request/confirm/resend (validated complete 2026-05-22 during archive)",
+        "[x] Update docs (api-endpoints.md) with phone change routes and expected errors (validated complete 2026-05-22 during archive)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Add phone verification request endpoint",
+      "id_number": 5,
+      "description": "Add POST /auth/phone/verify/request endpoint for existing users to add/verify a phone number, mirroring the existing POST /auth/email/verify/request flow.",
+      "tasks": [
+        "[DONE] Add RequestPhoneVerificationByPhone() method to core/service.go",
+        "[DONE] Create phone_verify_request_post.go handler",
+        "[DONE] Add rate limit constant RLPhoneVerifyRequest to ginutil",
+        "[DONE] Wire up route in service.go GinRegisterAPI",
+        "[DONE] Update api-endpoints.md documentation"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Enhance UserContext with convenience methods",
+      "id_number": 6,
+      "description": "Both doujins and hentai0 wrap authkit's UserContext with their own logic to check roles/entitlements. This should be built into authkit's UserContext directly.\n\n## Problem\n\ndoujins has `internal/auth/user_context.go` with:\n```go\ntype UserContext struct {\n    User         *views.User  // Project-specific\n    IsAdmin      bool\n    IsLoggedIn   bool\n    Language     string\n    Roles        []string\n    Entitlements []string\n}\n```\n\nAnd `internal/middleware/user_context.go` computes these flags:\n```go\nuserCtx.IsAdmin = containsIgnoreCase(userCtx.Roles, \"admin\")\n```\n\nhentai0 uses authkit's UserContext directly but lacks these convenience methods.\n\n## Solution\n\nAdd convenience methods to authkit's `UserContext` in `adapters/gin/userctx.go`:\n\n```go\n// Already exists:\nfunc (uc UserContext) IsAdmin() bool { return hasString(uc.Roles, \"admin\") }\n\n// Add these:\nfunc (uc UserContext) IsLoggedIn() bool { return uc.UserID != \"\" }\nfunc (uc UserContext) HasRole(role string) bool { return hasString(uc.Roles, role) }\nfunc (uc UserContext) HasEntitlement(ent string) bool { return hasString(uc.Entitlements, ent) }\n```\n\n## Important: NO IsPremium() method\n\nDo NOT add `IsPremium()` method. This is overly specific and doesn't scale. Instead, callers should use the generic `HasEntitlement(\"premium\")`. Same logic applies to any future entitlement types - use the generic method, not dedicated boolean methods.\n\n## Migration\n\nAfter authkit changes:\n- doujins can simplify `internal/middleware/user_context.go` to just use `authgin.UserContext` methods\n- doujins can potentially remove `internal/auth/user_context.go` if the only additions were computed flags\n- hentai0 gains these methods automatically\n\n## Note\n\nLanguage middleware and response envelopes are NOT part of this issue - those belong in a separate shared library (e.g., `go-api-common`), not authkit.",
+      "tasks": [
+        "[x] Add IsLoggedIn() method to UserContext (check UserID != \"\")",
+        "[x] Add HasRole(role string) method to UserContext",
+        "[x] Add HasEntitlement(ent string) method to UserContext",
+        "[x] Add unit tests for new UserContext methods",
+        "[x] Downstream app wrapper removal tracked in app repos"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Standalone AuthKit dev issuer (Postgres) + mint JWTs for E2E",
+      "id_number": 8,
+      "description": "Provide a standalone AuthKit **devserver/dummy app** that can be started locally (Docker/compose) using Postgres and can mint JWTs for end-to-end testing of downstream services (e.g. `~/doujins-billing`) as well as AuthKit itself.\n\n## Important constraint\n\nThe dev mint endpoint must live in the **dummy app**, not in the AuthKit library.\n- No changes are required to AuthKit core APIs to support minting.\n- The dummy app just *uses AuthKit as a library* and adds a dev-only route for minting tokens.\n\n## Why\n\nDownstream services that verify JWTs (like billing) need a local issuer that:\n- exposes JWKS at `/.well-known/jwks.json` (already supported by AuthKit gin adapter)\n- can mint short-lived JWTs on demand for API calls\n\nAuthKit already has `testing.TestIssuer` (httptest) for unit tests, but E2E across containers needs a real long-running HTTP service with a stable issuer URL.\n\n## Requirements\n\n- Use Postgres (no sqlite).\n- Safe-by-default: dev minting endpoints must be disabled in production.\n- Usable from docker-compose networks (stable hostname like `issuer:8080`).\n\n## Proposed Design\n\n### 1) Standalone devserver binary\n\nAdd `cmd/authkit-devserver` (or similar) that:\n- connects to Postgres via `DB_URL`/`DATABASE_URL`\n- runs AuthKit migrations (either on boot or via a `migrate` subcommand)\n- starts an HTTP server (gin) that mounts:\n  - AuthKit API routes (`/auth/*`) for normal flows (useful for AuthKit E2E)\n  - JWKS endpoint at `/.well-known/jwks.json` via `authgin.Service.GinRegisterJWKS`\n  - **dev-only** mint endpoint implemented in the devserver (below)\n\n### 2) Dev-only minting API (devserver-owned)\n\nAdd a dev-only endpoint guarded by `AUTHKIT_DEV_MODE=true` and a shared secret `AUTHKIT_DEV_MINT_SECRET`:\n- `POST /auth/dev/mint`\n  - input: `sub`, `aud`, optional `email`, optional `roles`, optional `scopes`, optional `expires_in_seconds`\n  - output: `{token, token_type: \"Bearer\", expires_at}`\n\nSecurity:\n- If `AUTHKIT_DEV_MODE!=true`, this route is not registered.\n- Require `Authorization: Bearer <AUTHKIT_DEV_MINT_SECRET>` (or an `X-DEV-SECRET` header).\n\n### 3) Issuer URL + signing key persistence\n\n- Issuer must be stable across restarts (e.g. `http://issuer:8080` inside compose).\n- Persist signing keys so previously minted tokens remain verifiable after restart.\n  - Option A: store key material in Postgres (recommended)\n  - Option B: store key material in a file mounted as a docker volume\n\n### 4) How this helps billing E2E\n\n- Billing config points to the issuer:\n  - `AUTH_ISSUERS='[\"http://issuer:8080\"]'`\n  - `AUTH_EXPECTED_AUDIENCE=billing-app`\n- Billing E2E scripts call `POST http://issuer:8080/auth/dev/mint`, then use the returned token to call billing APIs.\n\n## Tasks\n\n- [ ] Add `cmd/authkit-devserver` entrypoint (gin server + Postgres)\n- [ ] Add config/env parsing: DB URL, listen addr, dev-mode flags, mint secret\n- [ ] Add migrations execution path (on boot or subcommand)\n- [ ] Implement `/auth/dev/mint` in the devserver (dev-only) + shared-secret guard (no library changes)\n- [ ] Persist signing key material across restarts (DB table or volume-backed file)\n- [ ] Add docker-compose (or documented snippet) to run `postgres` + `authkit-devserver`\n- [ ] Add docs: how to run, how to mint tokens (curl), and example billing integration",
+      "tasks": [
+        "[x] Implement devserver dummy app (`authkit-devserver.go`, Postgres-backed)",
+        "[x] Implement dev-only `/auth/dev/mint` in the devserver (guarded by env + secret)",
+        "[x] Persist signing keys across restarts (volume-backed `/.runtime/authkit`)",
+        "[x] Add `docker-compose.devserver.yaml` + `DEVSERVER.md` + `Dockerfile.devserver`"
+      ],
+      "completed": true
+    },
+    {
+      "name": "E2E tests for authkit-devserver (JWKS + mint + core auth flows)",
+      "id_number": 9,
+      "description": "Add docker-compose-backed E2E tests that exercise AuthKit as a real HTTP server (Postgres-backed), using the new devserver/mint endpoint.\n\n## Why\n\nUnit tests cover helpers and a small set of handlers, but we currently lack end-to-end coverage for:\n- database schema + migrations + boot\n- HTTP routing + middleware + JWT verification via JWKS\n- critical auth flows (password login, refresh, session revocation)\n\nThe devserver gives us a stable issuer and a convenient way to mint tokens for testing protected endpoints without wiring email/SMS providers.\n\n## Current test coverage (today)\n\n- Token verifier/JWKS via `testing.TestIssuer` (httptest): `testing/issuer_test.go`\n- A few Gin adapter tests (handlers + userctx): `adapters/gin/*_test.go`\n- Ephemeral store tests: `core/ephemeral_test.go`\n- SIWS tests: `siws/siws_test.go`\n\n## What we should test (high value)\n\nE2E (docker-compose):\n- Devserver boots, runs migrations, and serves HTTP\n- JWKS served and usable by external verifiers\n- `/auth/dev/mint` guarded correctly and produces valid, expiring JWTs\n- Password login and refresh/session lifecycle against Postgres\n- Banned/deleted users cannot authenticate (and are filtered by DB-backed user lookups)\n- Admin gating is DB-backed (create admin role + grant + confirm admin endpoints work)\n\n## Test structure\n\n- Add E2E tests behind a build tag (e.g. `//go:build e2e`) so they do not run in normal `go test ./...`.\n- The tests shell out to docker compose (`docker compose -f docker-compose.devserver.yaml ...`) with a unique `COMPOSE_PROJECT_NAME`.\n- The tests hit the devserver on `http://localhost:8080` and connect to Postgres on `localhost:5432`.\n\n## Tasks\n\n- [ ] Add `testing/devserver_e2e_test.go` behind `//go:build e2e`\n- [ ] Test: boot + health (`GET /healthz`)\n- [ ] Test: JWKS (`GET /.well-known/jwks.json` returns at least one RSA key)\n- [ ] Test: mint authz\n  - missing/invalid secret => 401\n  - valid secret => 200 + `{token, expires_at}`\n  - `AUTHKIT_DEV_MODE=false` => route not registered (404)\n- [ ] Test: minted token can call an AUTH endpoint when a matching user exists in Postgres\n  - seed `profiles.users` row with same UUID as `sub`\n  - call `GET /auth/user/me` with `Authorization: Bearer <token>` and expect 200\n- [ ] Test: admin gate is DB-backed\n  - seed `profiles.roles` with slug `admin`\n  - seed `profiles.user_roles` mapping for user\n  - call an admin endpoint and expect 200\n- [ ] Test: banned/deleted enforcement\n  - set `profiles.users.banned_at` and verify `GET /auth/user/me` fails (or user is not returned)\n  - set `profiles.users.deleted_at` similarly\n- [ ] Test: password login + refresh\n  - seed `profiles.user_passwords` hash\n  - `POST /auth/password/login` returns access token (and refresh session)\n  - `POST /auth/token` refresh works\n  - revoke session and ensure refresh fails\n- [ ] Docs: add a short section to `DEVSERVER.md` describing how to run E2E tests (`go test -tags=e2e ./testing -run Devserver`)\n",
+      "tasks": [
+        "[x] Add build-tagged docker-compose E2E test suite",
+        "[x] Cover JWKS + /auth/dev/mint (authz + expiry)",
+        "[x] Cover core auth flows (login/refresh/sessions)",
+        "[x] Cover ban/delete enforcement + admin gate"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Language-aware AuthKit (propagate request language to senders)",
+      "id_number": 11,
+      "description": "Make AuthKit language-aware for user-facing communications (email + SMS) by detecting request language and propagating it to the host-provided sender interfaces via `context.Context`.\n\nWhy:\n- Host apps (`~/doujins`, `~/hentai0`) render the email/SMS bodies, but need to know what language-site the user is on at the moment an auth message is sent (signup/login/reset).\n- Some auth flows run before a user profile exists (signup verification), so there is no reliable user_id to look up preferences. Request language is the best signal.\n\nDesign:\n- AuthKit should not depend on host-specific user context types.\n- Introduce an AuthKit-owned context key + helpers to store language in `ctx`.\n- Ensure all calls into EmailSender/SmsSender use the inbound request ctx (or a derived ctx that preserves values), not `context.Background()`.\n\nNotes:\n- This should apply to both API routes and any root/browser flows AuthKit registers.\n- The language source should be configurable but default to: query param `lang` > cookie > `Accept-Language` > default.\n",
+      "tasks": [
+        "=== SHARED LANGUAGE CONTRACT (ALIGN WITH DOUJINS + HENTAI0) ===",
+        "[x] Define and document a single precedence order for request language: `?lang` query param > `/:lang/` path prefix > `lang` cookie > `Accept-Language` header > default",
+        "[x] Add AuthKit `LanguageConfig` (supported + default + cookie/query knobs) passed by the host app; validate and reject/ignore unsupported codes",
+        "[x] Default behavior when config not provided: accept only basic `^[a-z]{2}$` languages, default to `en`",
+        "",
+        "[x] Add `lang` context helpers: `WithLanguage(ctx, lang)` and `LanguageFromContext(ctx)`",
+        "[x] Add middleware/hook in the Gin adapter to detect language (per the shared contract) and attach it to ctx for every AuthKit request",
+        "[x] Ensure AuthKit handlers/services propagate the inbound request ctx through to sender calls (no Background ctx)",
+        "[x] Docs: sender implementations can read language from ctx and choose localized templates",
+        "[x] Tests: language detection + ctx propagation into a fake sender for email + sms",
+        "[x] Tests: ensure `LanguageConfig.Supported` is enforced for query/path/cookie/Accept-Language"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Decouple request language from UserContext (context key)",
+      "id_number": 12,
+      "description": "Ensure AuthKit stores request language as request metadata under a dedicated `context.Context` key (AuthKit-owned), not embedded inside any user identity context struct.\n\nWhy:\n- Request language is not user identity.\n- Some flows do not have a user record yet (signup verification), but are still language-scoped.\n- Keeps AuthKit portable: host apps can read language from ctx in senders without coupling to host-specific `UserContext` layouts.\n\nNon-goals:\n- Making language selection configurable per-app (beyond supported/default validation).\n- Translating AuthKit error messages (this issue is about propagation to senders).\n\nRelationship to issue #11:\n- Issue #11 adds language detection + propagation to senders.\n- This issue enforces the storage pattern: language lives at a dedicated context key (not nested under user ctx).",
+      "tasks": [
+        "[x] Add an AuthKit-owned context key for request language (can reuse the `lang` helpers from issue #11)",
+        "[x] Ensure all sender invocations rely on `lang.LanguageFromContext(ctx)` (not user ctx structs) for language selection",
+        "[x] Document the pattern for host apps: sender implementations should read request language from ctx and fall back to defaults",
+        "[x] Add tests that assert language is present on ctx in both authenticated and unauthenticated auth flows"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Auth analytics: log session lifecycle (not access-token mints)",
+      "id_number": 13,
+      "description": "Stop logging every access-token mint as an analytics/audit event. Instead, log session lifecycle + security-relevant transitions:\n\n- Session created (login / refresh session issuance) \u2192 useful for audit, device tracking, \u201cnew login\u201d alerts.\n- Session revoked/deleted (logout, admin revoke, password change, \u201crevoke all\u201d, eviction by session limit) \u2192 critical for audit.\n\nNon-goals:\n- Per-access-token issuance telemetry.\n\nNotes:\n- Keep logging best-effort and non-blocking.\n- Ensure events are disambiguated across host apps (e.g., include `issuer` and/or `site` in the ClickHouse schema/sink if needed).",
+      "tasks": [
+        "[x] Remove/avoid logging access-token mints (e.g., refresh-exchange events) as primary analytics signals",
+        "[x] Add explicit session lifecycle events to the auth logger interface (created, revoked/deleted, revoke-all, eviction)",
+        "[x] Emit session-created events from all login/session issuance paths",
+        "[x] Emit session-revoked/deleted events from logout + admin revoke + password change + revoke-all + eviction paths",
+        "[x] Remove Postgres `profiles.signin_history` (stop writing to it, migrate/drop table, and update admin sign-in history endpoints to use ClickHouse if still needed)",
+        "[x] Replace ClickHouse auth tables with a single `user_auth_session_events` table (session lifecycle only, not access-token mints)",
+        "[x] ClickHouse schema: include `issuer`, `session_id` (`sid`), `event`, `method`, optional `reason`, plus `ip_addr`/`user_agent`",
+        "[x] Update ClickHouse sink to persist `issuer` + `session_id` + event fields (host app implementation; include `site` only if issuer is insufficient)",
+        "[x] Add a new ClickHouse migration that drops old auth tables/views and creates `user_auth_session_events` (no legacy compatibility, no data backfill)",
+        "[x] Drop `user_last_seen_current` and related materialized views; rely on queries over `user_auth_session_events` instead"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Plan: framework-agnostic selective billing http.Handler",
+      "id_number": 14,
+      "description": "Track work needed to expose doujins-billing HTTP routes as a single mountable `http.Handler` *with selective route groups* (user/admin/webhooks/health), while staying framework-agnostic for hosts.\n\n## Context\n\ncozy-art currently embeds doujins-billing and mounts it under `/billing`. Some host routers (notably Gin) have route-tree constraints around catch-all wildcards, so the integration surface should be a single handler mounted via `http.StripPrefix`/outer mux.\n\nWe also want optionality: some hosts should be able to mount only webhooks, only admin, etc., without exposing the full billing HTTP surface.\n\n## Goal\n\nIn doujins-billing, add a public handler builder such as:\n\n```go\ntype HTTPHandlerOptions struct {\n  IncludeUser bool\n  IncludeAdmin bool\n  IncludeWebhooks bool\n  IncludeHealth bool\n  // optionally: IncludeDebug (dev only)\n}\n\nfunc (e *embedded.Embedded) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler\n```\n\nDefaults should preserve existing standalone behavior, while giving embedded hosts fine-grained control.\n\n## Non-goals\n\n- Do not put billing route selection into authkit; authkit should remain focused on auth routes.\n- Do not reintroduce Gin-only embedding APIs as the primary integration surface.\n\nStatus update (2026-01-27): implemented in doujins-billing + wired into cozy-art.",
+      "tasks": [
+        "doujins-billing implementation:",
+        "[x] Define exported options type (include flags) and document semantics",
+        "[x] Build a single handler that registers only selected route groups",
+        "[x] Keep `Handler()` as backwards-compatible shorthand (all groups)",
+        "[x] Ensure admin routes still enforce auth/admin checks internally",
+        "[x] Add tests that assert excluded groups return 404 (and included groups are not 404)",
+        "[x] Update embedded README with mounting examples",
+        "\ncozy-art integration:",
+        "[x] Mount billing using the selective handler options",
+        "[x] Verify no Gin wildcard route panics",
+        "\nMigration/cleanup:",
+        "[x] Tag/release doujins-billing once satisfied (validated complete 2026-05-22 during archive)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Framework-agnostic net/http adapter (http)",
+      "id_number": 16,
+      "description": "Add a first-class `net/http` transport for AuthKit so host apps can embed AuthKit without Gin.\n\n## Motivation\n\nToday AuthKit\u2019s HTTP surface is implemented via the Gin adapter (`adapters/gin`). That works well for Gin apps, but it couples embedding to Gin\u2019s router/middleware model. A native `net/http` adapter makes embedding framework-agnostic (stdlib mux, chi, echo via bridge, Lambda/APIGW, etc.) and reduces dependency friction for non-Gin hosts.\n\n## High-level approach (staged migration)\n\n1) Introduce `http` that implements the same routes using `net/http` handlers and std context.\n2) Keep `adapters/gin` supported initially. Optionally, later make Gin adapter a thin shim that delegates to the `net/http` adapter (Gin \u2192 ServeHTTP), once parity is proven.\n3) Migrate tests to validate the `net/http` adapter, and add parity tests to prevent behavior drift.\n\n## Scope\n\n- Provide handler registration/mounting for:\n  - JWKS: `GET /.well-known/jwks.json`\n  - Browser flows: `/auth/oidc/:provider/login`, `/auth/oidc/:provider/callback`, and discord oauth routes if configured\n  - JSON API: `/auth/*` endpoints (password login, register, sessions, user, admin, SIWS, etc.)\n- Preserve existing response shapes and status codes where feasible.\n\n## Non-goals\n\n- Do not change core business logic (`core/*`) beyond small helpers needed for transport neutrality.\n- Do not remove Gin adapter in the first iteration.\n- No API redesign; focus on transport parity.\n\n## Risks\n\n- Behavior drift (status codes, error payloads, headers) unless parity-tested.\n- Replacing Gin binding/validation and middleware chaining requires careful design.",
+      "tasks": [
+        "Design:",
+        "[x] Decide adapter public API: `authhttp.NewService(core.Config)` plus mountable handler methods (`JWKSHandler`, `APIHandler`, `OIDCHandler`)",
+        "[x] Decide mounting strategy: expose multiple mountable handlers (JWKS/API/OIDC) rather than a single all-in-one handler",
+        "[x] Define shared error envelope + helpers for consistent responses",
+        "\nImplementation (http):",
+        "[x] Add `http` package skeleton",
+        "[x] Implement JWKS handler (parity with gin handler)",
+        "[x] Implement auth middleware for Required/Optional using core verifier",
+        "[x] Implement request parsing + validation (stdlib + validator library or minimal custom)",
+        "[x] Implement JSON API endpoints (route-by-route parity)",
+        "[x] Implement OIDC/OAuth browser flows endpoints",
+        "[x] Implement SIWS endpoints",
+        "[x] Implement admin routes (RequireAdmin DB check)",
+        "\nTesting:",
+        "[x] Add route-parity tests (Gin vs net/http) for critical endpoints",
+        "[x] Add httptest coverage for net/http adapter",
+        "[x] Add golden tests for error shapes/status codes for high-traffic endpoints",
+        "\nMigration:",
+        "[x] Add docs showing embedding in stdlib mux + example Gin mount via `gin.WrapH`",
+        "[x] (Optional) refactor gin adapter to call net/http adapter where practical (validated complete 2026-05-22 during archive)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Drop Gin adapter + ginutil (breaking): rely fully on net/http routing",
+      "id_number": 17,
+      "description": "AuthKit now has a full `net/http` adapter (`http`, package `authhttp`). We want to remove all Gin-specific logic and dependencies from this repo and rely exclusively on the new router/handler implementation.\n\nThis is a deliberate breaking change: downstream projects that import `github.com/open-rails/authkit/adapters/gin` or `adapters/ginutil` will need to migrate to `http`.\n\nNon-goals:\n- Backwards compatibility for Gin hosts.\n- Shim layers that keep Gin working.\n\nSuccess criteria:\n- No Gin dependency in AuthKit.\n- `go test ./...` passes.\n- README/docs show only `authhttp` mounting.",
+      "tasks": [
+        "[x] Inventory all Gin usages in-repo (packages, tests, docs) and decide the deletion scope (`adapters/gin`, `adapters/ginutil`, any local helpers).",
+        "[x] Remove Gin-specific packages (`adapters/gin`, `adapters/ginutil`) and any Gin-only helpers that are no longer used.",
+        "[x] Update/replace tests that import Gin (e.g. route-parity tests) so the suite does not depend on Gin at all.",
+        "[x] Update README/docs/examples to show only `authhttp` usage; remove `authgin.*` references.",
+        "[x] Remove Gin-related module deps from `go.mod`/`go.sum` (`github.com/gin-gonic/gin`, etc.) and run `go mod tidy`.",
+        "[x] Verify: `go test ./...` passes.",
+        "[x] Versioning: decide and apply a breaking-release strategy (e.g. bump major tag) for downstream migration clarity."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Rate limiting: sensible secure defaults (on by default)",
+      "id_number": 18,
+      "description": "AuthKit\u2019s `authhttp` adapter has per-endpoint rate limit buckets, but rate limiting is currently effectively disabled unless a host app calls `svc.WithRateLimiter(...)`.\n\nThat is a security footgun (password login / token exchange / reset / OIDC start/callback are unthrottled by default).\n\nGoal:\n- Provide sensible, secure default rate limiting behavior out-of-the-box.\n\nNon-goals:\n- Perfect bot protection.\n- Persisting/migrating legacy limiter state.\n\nKey requirements:\n- Defaults must be safe in prod and not accidentally rate-limit a reverse proxy (need configurable client IP extraction / trusted proxy model).\n- Hosts must be able to override limits and to explicitly disable rate limiting (opt-out).\n- Behavior must fail-open on limiter backend errors (availability > throttle correctness).",
+      "tasks": [
+        "[x] Decide default limiter behavior: enable memorylimiter by default vs require explicit config in prod (and how to detect prod).",
+        "[x] Define the default per-bucket limits (reuse existing bucket names: `RLPasswordLogin`, `RLAuthToken`, `RLOIDCStart`, etc.).",
+        "[x] Add a first-class client IP strategy to `authhttp`:\n  - default: RemoteAddr\n  - optional: trusted proxy list / header-based extraction (X-Forwarded-For, CF-Connecting-IP) to avoid limiting the proxy itself.",
+        "[x] Implement: when no limiter is configured, install the default limiter (and defaults) automatically; add an explicit opt-out (e.g. `DisableRateLimiter()` or `WithRateLimiter(NoopLimiter)`).",
+        "[x] Docs: update README / adapter docs with guidance for multi-instance prod (Redis limiter) + proxy configuration.",
+        "[x] Tests: add minimal coverage that rate limiting is active by default (and that opt-out disables it).",
+        "[x] Verify: `go test ./...` passes."
+      ],
+      "completed": true
+    },
+    {
+      "name": "JWT verification: require `exp` for access tokens (verify-only AcceptConfig too)",
+      "id_number": 19,
+      "description": "Today `authhttp.Required(...)` always parses tokens with `jwt.ParseWithClaims` (which validates registered time claims if present), but in verify-only mode (multi-issuer `AcceptConfig`) our explicit expiry check is only applied when `exp` exists.\n\nThat means a signed token that omits `exp` could be accepted in verify-only mode as long as signature + issuer/audience match.\n\nGoal:\n- Require `exp` to be present on access tokens in all verification modes (service-issued and verify-only).\n\nNon-goals:\n- Requiring `nbf` or `iat` to exist.\n\nRequirements:\n- Continue to validate `nbf`/`iat` when present (via jwt library validation and/or explicit checks).\n- Apply a small skew allowance (existing behavior).\n- Produce stable error codes (e.g. `missing_exp`, `token_expired`).",
+      "tasks": [
+        "[x] Decide enforcement: require `exp` for access tokens (no opt-out).",
+        "[x] Update `authhttp.Required` to reject tokens missing `exp` in both service-issued and verify-only (`AcceptConfig`) modes.",
+        "[x] Ensure `nbf`/`iat` are still validated when present (but not required).",
+        "[x] Add tests covering: missing `exp` rejected; expired rejected; valid with `nbf` in future rejected; valid without `nbf`/`iat` accepted.",
+        "[x] Verify: `go test ./...` passes."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Organizations (tenants) + RBAC in AuthKit",
+      "id_number": 20,
+      "description": "Add first-class organizations to AuthKit so users can belong to multiple orgs and services can rely on a consistent org/tenant model across the platform.\n\nGoal:\n- AuthKit is the source of truth for: orgs, memberships, and org-assigned role strings.\n- Roles are opaque strings (org-defined). AuthKit stores them; each application decides what roles mean (permission mapping) within that org.\n\nDesign notes:\n- Host configuration selects org behavior via `org_mode`: `single` (default) or `multi`.\n- Default behavior is `org_mode: single` when no org config is provided.\n\n- `org_mode: single`:\n  - JWTs include `roles` (string[]); no org claim.\n  - `GET /auth/user/me` returns roles only.\n\n- `org_mode: multi`:\n  - Users may belong to 0 orgs, 1 org, or multiple orgs simultaneously.\n  - Default access tokens do NOT embed org membership or org roles; host apps do server-side membership/role checks (GitHub-style).\n  - `GET /auth/user/me` returns all org memberships + all org-scoped roles (server-side).\n  - Optional org-scoped token minting: `POST /auth/token/org` can mint a JWT containing `org` + `roles` for a single org.\n  - Never allow minting org/role claims the user does not have.\n\n- Org identifiers are slugs (human-readable). Slug renames create aliases; aliases must remain valid for auth.\n- Support deployments moving from `single` -> `multi` via configuration.\n- Mode transitions:\n  - `single` -> `multi` must be allowed by configuration change at any time.\n  - `multi` -> `single` should be rejected as a safeguard when there is more than one organization with more than one member (1 org with many members is allowed to downgrade).\n\n- Guardrails are required (hardcoded sensible defaults; not configurable):\n  - Limit org slug/alias length and character set.\n  - Limit role length and character set.\n  - Limit max org memberships per user.\n  - Limit max roles per org membership.\n\n- Claim contract:\n  - Single mode tokens: roles (string[])\n  - Multi mode default tokens: no org/roles claims\n  - Multi mode org-scoped tokens (via `POST /auth/token/org`): org (string) + roles (string[])\n\nNon-goals (v1):\n- Fine-grained per-resource ACLs (repo-level ACLs, etc.).\n- Billing/quota enforcement.\n- Full invitation UX (email invites), beyond basic admin APIs.",
+      "tasks": [
+        "[x] Data model + migrations\n    - orgs table: id (uuid), slug (unique current slug), created_at, updated_at, deleted_at\n    - org_slug_aliases table: org_id, slug (unique alias), created_at, deleted_at (optional)\n      - On rename: insert old slug into org_slug_aliases, update orgs.slug to new slug\n      - Aliases should remain valid for auth forever (or very long) to avoid breaking tokens\n    - org_members table: org_id, user_id, created_at, updated_at, deleted_at; unique(org_id,user_id)\n    - org_roles table: org_id, role (text), created_at; unique(org_id, role)\n    - org_member_roles table: org_id, user_id, role; unique(org_id,user_id,role)\n    - Constraints/validation (guardrails):\n      - org slug/alias length + character set\n      - role length + character set\n    - Indexes for slug/alias lookup and membership checks",
+        "[x] Core service API\n    - CreateOrg(slug) (admin-only or self-serve with rate limit)\n    - RenameOrgSlug(org_id, new_slug) (create alias for old slug)\n    - ResolveOrgBySlug(slug) -> org (accepts current slug or alias; aliases are implicit)\n    - ListOrgMembershipsForUser(user_id) -> []{org}\n    - AddMember(org_id, user_id), RemoveMember(org_id, user_id) (org owner via HTTP)\n    - DefineRole(org_id, role), DeleteRole(org_id, role) (org owner via HTTP; `owner` is protected)\n    - AssignRole(org_id, user_id, role), UnassignRole(org_id, user_id, role) (org owner via HTTP; cannot remove last owner)\n    - ReadMemberRoles(org_id, user_id)\n    - Enforce guardrails (max org memberships per user; max roles per membership; slug/role validation on writes)",
+        "[x] HTTP API endpoints\n    - GET /auth/orgs (list orgs for current user)\n    - POST /auth/orgs (create org)\n    - GET /auth/orgs/:org (metadata; :org accepts slug or alias)\n    - POST /auth/orgs/:org/rename (rename slug; keep alias)\n    - GET/POST/DELETE /auth/orgs/:org/members\n    - GET/POST/DELETE /auth/orgs/:org/roles and /auth/orgs/:org/members/:user_id/roles\n    - POST /auth/token/org (mint org-scoped access token: `org` + `roles`)\n    - GET /auth/user/me (multi: includes org memberships + org-scoped roles; single: roles only)",
+        "[x] AuthZ rules\n    - Only org `owner` can manage members + role definitions + role assignments\n    - Normal members can list org metadata they belong to\n    - Owner bootstrap behavior on org create",
+        "[x] Token claims + optional org-scoped minting\n    - `org_mode: single`: include `roles` (string[]) in JWT (no org claim)\n    - `org_mode: multi` default: JWT has no org/roles claims; host apps check membership/roles server-side\n    - `POST /auth/token/org`: accept `org` parameter; if user is a member, include:\n      - org (string)\n      - roles (string[]) for that org\n    - Reject org-scoped minting when user is not a member of the org\n    - Support aliases via ResolveOrgBySlug (slug or alias accepted); mint canonical slug\n    - Provide an `authhttp` helper for consistent server-side org membership/role checks\n    - `org_mode` behavior:\n      - Default is `single` when unset\n      - `single` -> `multi` supported via config change\n      - `multi` -> `single` rejected when >1 org has >1 member\n    - No scopes claim in v1",
+        "[x] Tests\n    - Core: validate org slug/role guardrails\n    - Token mint (single): `roles` claim present\n    - Token mint (multi default): no org/roles claims present\n    - Token mint (multi org-scoped via /auth/token/org): includes `org` + `roles`\n    - HTTP routing: org endpoints are only exposed in org_mode=multi\n    - Verify: `go test ./...` passes",
+        "[x] Docs\n    - Update README/API docs for org endpoints and claim semantics\n    - Document slug renames + alias semantics (tokens/keys are not broken)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Org-scoped token ergonomics + claim alignment (post-v1)",
+      "id_number": 21,
+      "description": "Refinements based on common industry patterns (Auth0/Entra/Keycloak/WorkOS/etc.) to make AuthKit's org-mode integration more ergonomic and more consistent in claim naming across token types.\n\nGoals:\n- Reduce client round trips by allowing org selection at login/refresh.\n- Use consistent claim names across single vs org-scoped tokens.\n\nNon-goals:\n- Changing the v1 org data model.\n- Embedding full org memberships in default tokens (multi mode stays server-side by design).",
+      "tasks": [
+        "[x] Claim naming alignment\n    - For org-scoped tokens minted in `org_mode: multi`, use `org` (string) + `roles` (string[])\n    - No `org_roles` claim",
+        "[x] Login/refresh ergonomics\n    - Allow `POST /auth/password/login` to accept optional `org` in request (multi mode only)\n      - When provided and user is a member: mint org-scoped access token (`org` + `roles`)\n      - When omitted: mint default access token (no org claims)\n    - Allow refresh/token exchange endpoint(s) to accept optional `org` similarly\n    - Keep `POST /auth/token/org` as an explicit minting endpoint (still useful for org switching without re-auth)",
+        "[x] Doc updates\n    - Update README and `agents/api-endpoints.md` to describe optional `org` parameter and claim name changes\n    - Document a recommended client-side org switching flow (me -> select org -> token/org or refresh-with-org)",
+        "[x] Tests\n    - Validate claim parsing treats `roles` as org-scoped roles when `org` is present\n    - Validate login/refresh optional `org` behavior in multi mode",
+        "[x] (Deferred) Scopes\n    - Explicit non-goal of this issue; no OAuth scope claim is emitted by design. Revisit only if a gateway integration requires it. The 4 substantive tasks (org/roles claim naming, optional org on login/refresh, docs, tests) are implemented in current code (verified 2026-05-22)."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Standalone E2E AuthKit devserver image (AuthKit + embedded Postgres)",
+      "id_number": 22,
+      "description": "Downstream repos (e.g. OpenRails, Doujins) want an E2E sandbox issuer that does not require `../authkit` to be checked out locally.\n\nCreate a single pullable Docker image that runs:\n- a Postgres instance (embedded in the container)\n- the AuthKit devserver (`GET /.well-known/jwks.json` + `POST /auth/dev/mint` for E2E)\n\nThis image is explicitly for local/E2E testing only.\n\nGoals:\n- One container to start (no external Postgres service needed).\n- Stable issuer URL inside a compose network (e.g. `http://issuer:8080`).\n- Persist AuthKit runtime signing keys across restarts (existing `/.runtime/authkit` behavior).\n- Be easy to consume from other repos via `image: ghcr.io/.../authkit-devserver-all-in-one:<tag>`.\n\nNon-goals:\n- Production deployments.\n- HA/multi-instance behavior.\n- Replacing the normal 2-container compose pattern (Postgres + AuthKit) for local development.\n\nConstraints / tradeoffs:\n- This is a multi-process container (Postgres + HTTP server). It should use a minimal init/process supervisor and graceful shutdown semantics.\n- For zero-config E2E, dev minting is enabled by default with a default shared secret (override in your test environment).",
+      "tasks": [
+        "[x] Decide image contract\n    - Image name + tags (GHCR)\n    - Default ports (8080 exposed; Postgres is internal-only)\n    - Supported env vars (AUTHKIT_ISSUER, AUTHKIT_DEV_MODE, AUTHKIT_DEV_MINT_SECRET, AUTHKIT_ISSUED_AUDIENCES, AUTHKIT_EXPECTED_AUDIENCES)\n    - Embedded Postgres defaults (db name/user/password) + ability to override via env",
+        "[x] Add an all-in-one Dockerfile\n    - Build AuthKit devserver binary\n    - Include Postgres 17 as the base image\n    - Provide an entrypoint that starts Postgres + the devserver and handles shutdown",
+        "[x] Implement container bootstrap\n    - Initialize Postgres data dir on first run (Postgres entrypoint)\n    - Run required Postgres setup and AuthKit migrations (devserver migrates on start)\n    - Start AuthKit devserver after DB is ready\n    - Persist Postgres data via a volume mount",
+        "[x] Security + safety defaults\n    - Dev mint endpoint requires AUTHKIT_DEV_MODE=true AND AUTHKIT_DEV_MINT_SECRET\n    - Document that this image must never be exposed publicly\n    - Log clearly when dev minting is enabled\n\nNote: for zero-config E2E, the all-in-one image defaults to AUTHKIT_DEV_MODE=true and AUTHKIT_DEV_MINT_SECRET=change-me (override as needed).",
+        "[x] Documentation\n    - Add usage snippet for downstream compose (single service)\n    - Document how to mint tokens and where JWKS lives\n    - Document volumes (Postgres data + `/.runtime/authkit`) and what they do",
+        "[x] CI/publishing\n    - Add GitHub Actions workflow to build + push the image to GHCR on tags\n    - Publish multi-arch (linux/amd64, linux/arm64)\n    - Versioning strategy: match AuthKit git tags (v*)",
+        "[x] Update E2E examples/tests\n    - Add an example compose file that uses the published image (no `build: ../authkit`)\n    - Update `testing/devserver_e2e_test.go` to optionally validate the all-in-one Dockerfile via local build (AUTHKIT_E2E_ALL_IN_ONE=1)"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Personal orgs + invitations + rename aliases + bootstrap endpoint",
+      "id_number": 23,
+      "description": "Align AuthKit org model with Cozy platform semantics while keeping org_mode=multi as the foundation.\n\nScope:\n- Add first-class personal-org metadata and non-transferable ownership rules.\n- Add a full invitation lifecycle (pending invite, accept/decline) rather than only direct member add/remove.\n- Add/confirm user-rename alias forwarding so personal-owner slugs behave like org slug aliases.\n- Add a single bootstrap endpoint returning canonical personal org + memberships for the current user.\n\nGoals:\n- Keep shared owner namespace semantics predictable across user/org slugs.\n- Reduce host-app glue code for org bootstrap and routing.\n- Preserve backwards compatibility for existing owner/repo refs after renames.\n\nNon-goals (v1):\n- Replacing existing org APIs; this extends them.\n- Building product-specific ACL semantics inside AuthKit.",
+      "tasks": [
+        "[x] Personal org metadata + ownership invariants\n    - Add first-class personal-org metadata (e.g. `is_personal`, `owner_user_id`) to org records\n    - Enforce invariant: personal-org ownership is non-transferable\n    - Guard dangerous operations for personal orgs (owner removal/transfer/delete semantics)",
+        "[x] Invitation lifecycle APIs\n    - Add invite entities with states (pending, accepted, declined, revoked, expired)\n    - Expose endpoints/workflows for create invite, accept, decline, revoke, list\n    - Keep direct add/remove APIs for admin flows, but treat invites as first-class UX path",
+        "[x] User rename alias forwarding (owner namespace stability)\n    - Add/confirm alias forwarding for user rename so old user slug resolves to canonical new slug\n    - Ensure personal-org owner slug behavior matches org alias semantics\n    - Verify old owner-based paths/refs remain resolvable after rename",
+        "[x] Bootstrap endpoint for personal org + memberships\n    - Add endpoint returning current user\u2019s canonical personal org plus all org memberships/roles\n    - Include canonical slugs and alias-aware resolution details needed by host apps\n    - Ensure response is stable for UI/session bootstrap and org switchers",
+        "[x] Docs + migration notes\n    - Document personal-org invariants, invite state machine, and rename alias behavior\n    - Provide migration notes for hosts adopting the new endpoint and invitation APIs",
+        "[x] Tests\n    - Personal-org non-transferability and ownership guard tests\n    - Invitation state transition tests (pending->accepted/declined/revoked/expired)\n    - User rename alias-forwarding tests across owner-slug lookups\n    - Bootstrap endpoint contract tests"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Host-owned configuration only (no library-level env/config loading, except optional key auto-discovery)",
+      "id_number": 24,
+      "description": "Policy: AuthKit library behavior should be configured by the embedding host application via `core.Config` (and explicit method args), not by the library reading process env vars or external files on its own.\n\nAllowed exception:\n- Keep `cfg.Keys == nil` behavior so AuthKit can still auto-discover/generate keys when the host does not provide a key source.\n\nNaming standard for this work:\n- Use `RequireVerifiedRegistrations` as the canonical config name (default true).\n- Use `*_REQUIRE_VERIFIED_REGISTRATIONS` as the canonical env spelling in app/devserver layers.\n\nCurrent non-host configuration reads in library code (to remove or move behind host config, except the key exception):\n1) `core/service_solana.go`\n   - `SOLANA_NETWORK` via `os.Getenv` in `solanaChainID()`.\n2) `core/service.go`\n   - `getEnvironment()` reads `ENV`, `APP_ENV`, `ENVIRONMENT`.\n   - Used by `isDevEnvironment(...)` checks that affect runtime behavior.\n3) `core/ephemeral.go`\n   - `IsDevEnvironment()` depends on `getEnvironment()` (same env reads above).\n4) `jwt/keys.go` (allowed only under `cfg.Keys == nil` exception)\n   - Env: `ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`.\n   - Env for prod detection: `ENV`, `APP_ENV`, `ENVIRONMENT`.\n   - Filesystem: `/vault/auth/keys.json`.\n   - Dev runtime files: `.runtime/authkit/private.pem` + `.runtime/authkit/kid`.\n\nDevserver naming alignment:\n- Keep standalone devserver env loading (app-level), but migrate env prefix from `AUTHKIT_*` to `DEVSERVER_*` to clearly separate devserver app config from embedded library config.",
+      "tasks": [
+        "[x] Devserver env prefix migration (app-level, not library-level): adopt `DEVSERVER_*` names for standalone devserver runtime config (`DEVSERVER_ISSUER`, `DEVSERVER_LISTEN_ADDR`, `DEVSERVER_DEV_MODE`, `DEVSERVER_DEV_MINT_SECRET`, `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS`, `DEVSERVER_MIGRATE_ON_START`, `DEVSERVER_ISSUED_AUDIENCES`, `DEVSERVER_EXPECTED_AUDIENCES`).",
+        "[x] Backward compatibility: keep existing `AUTHKIT_*` env names as deprecated aliases for at least one release; define precedence (`DEVSERVER_*` wins when both are set) and log deprecation warnings.",
+        "[x] Update devserver docs/compose/examples/tests to prefer `DEVSERVER_*` names while still validating alias compatibility during transition.",
+        "[x] Canonical naming migration in library config: rename `VerificationRequired` to `RequireVerifiedRegistrations` (default true) in `core.Config`/`Options`, while keeping backward-compatible aliases for one transition window.",
+        "[x] Canonical env alias mapping for transition: support legacy `AUTHKIT_VERIFICATION_REQUIRED` and `DEVSERVER_VERIFICATION_REQUIRED` as deprecated aliases to `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS`.",
+        "[x] Add explicit host-provided runtime config fields for behaviors currently derived from env in library code (e.g., environment mode, Solana chain/network).",
+        "[x] Replace `SOLANA_NETWORK` env read in `core/service_solana.go` with config passed from host (`core.Config` -> `Options`).",
+        "[x] Replace `getEnvironment()` env reads (`ENV`/`APP_ENV`/`ENVIRONMENT`) in core with host-provided mode/flags; remove direct env dependency from library behavior.",
+        "[x] Keep key auto-discovery only when `cfg.Keys == nil`, but make this path explicitly documented as the sole env/filesystem exception.",
+        "[x] Ensure callers can fully disable env/filesystem key auto-discovery by always passing `cfg.Keys`.",
+        "[x] Add tests proving non-key library behavior is deterministic from `core.Config` alone (no env mutation needed).",
+        "[x] Add docs section: \"Configuration ownership\" with one table listing allowed library-side exception (`cfg.Keys == nil`) and all host-required inputs, plus a deprecation table (`VerificationRequired` -> `RequireVerifiedRegistrations`, legacy env aliases -> canonical env names)."
+      ],
+      "completed": true
+    },
+    {
+      "name": "DB-seeded reserved slugs (replace runtime hardcoded blocked-name checks)",
+      "id_number": 25,
+      "description": "Move reserved-name enforcement in AuthKit to a single data-driven path: reserve critical slugs in the database during migrations, then rely on normal uniqueness/existence + reserved metadata checks at runtime.\n\nGoal:\n- One enforcement layer for slug claimability.\n- No scattered runtime hardcoded blocked-name checks in public registration/rename flows.\n\nScope:\n- Applies to both user and org slugs.\n- Keep `reserve_account` / `claim_reserved_account` internal helpers.\n\nKey decision:\n- Seed reserved slugs via SQL migration (idempotent), not via ad-hoc startup code.\n\nInitial reserved slugs list (single canonical constant/source in repo):\n- `admin`, `superuser`, `root`, `sudo` (extendable in one place).",
+      "tasks": [
+        "[x] Add one canonical reserved-slug list in AuthKit source (single location) for migration generation + verification docs.",
+        "[x] Add SQL migration to seed reserved slugs as reserved user + reserved org records (metadata `reserved=true`) for each slug.",
+        "[x] Migration must be idempotent (`ON CONFLICT`/upsert semantics) and safe on re-run.",
+        "[x] Ensure seeded reserved accounts have no auth credentials/providers by default (no accidental login path).",
+        "[x] Remove runtime/public hardcoded blocked-name checks for reserved slugs from register/create/rename/org-create/org-rename paths.",
+        "[x] Keep runtime enforcement data-driven: slug already exists/reserved in DB => request rejected by normal uniqueness/resolution path.",
+        "[x] Add migration/boot invariant verification: required reserved slugs must exist (fail fast or explicit admin error if missing).",
+        "[x] Add tests:\n    - public registration/create/rename cannot take seeded reserved slugs\n    - behavior still blocks those slugs after app restart (DB-backed)\n    - no runtime hardcoded denylist path remains in request handlers",
+        "[x] Update docs (`README` + `agents/api-endpoints.md`) to describe reserved-slug policy and migration-seeded source of truth.",
+        "[x] Add rollout notes: if a reserved slug was previously user-created in an environment, define deterministic migration behavior (skip with warning vs manual remediation)."
+      ],
+      "completed": true
+    },
+    {
+      "name": "AuthKit provider-agnostic core + optional Twilio Email/Twilio Messaging adapters",
+      "id_number": 26,
+      "issue_number": 240,
+      "description": "Implement provider-agnostic verification delivery interfaces, enum-based registration verification policy, one-click token link flows, password-reset session handoff, and optional Twilio Messaging/Twilio Email adapters. Hard-cut old config/api paths.",
+      "tasks": [
+        "[x] Replace registration verification boolean config with enum policy none|optional|required and enforce semantics in registration flows.",
+        "[x] Enforce startup validation: required policy must have at least one sender; none/optional allow startup and log warning when no sender exists.",
+        "[x] Replace old verification sender contracts with unified provider-neutral verification message carrying optional code and/or link token with validation.",
+        "[x] Implement one-click verification token confirm flows for email + phone while preserving manual numeric code confirmation flows.",
+        "[x] Enforce TTL policy: manual verification code 15m, verification link token 1h, password reset token 1h.",
+        "[x] Add password-reset browser handoff: validate reset token into short-lived one-time reset session, then confirm password with reset session.",
+        "[x] Invalidate prior sessions after successful password reset/password change.",
+        "[x] Add optional transport-only Twilio Messaging adapter (Messaging Service SID) and optional Twilio Email adapter.",
+        "[x] Remove provider-specific references from core behavior and keep providers isolated to adapter packages.",
+        "[x] Add/refresh tests for verification message validation, policy validation, code+link token persistence, and reset-session one-time consumption.",
+        "[x] Update docs to reflect provider-agnostic senders, code+link verification model, and optional Twilio adapters."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Legacy/dead surface cleanup (hard-cuts + compatibility removals)",
+      "id_number": 27,
+      "description": "AuthKit still has several legacy/dead surfaces that should be removed to simplify the API and reduce maintenance risk. This issue tracks immediate hard-cuts plus staged compatibility removals that require short downstream migration windows.",
+      "tasks": [
+        "Immediate hard-cuts (low-risk removals):",
+        "[x] Remove `/auth/admin/users/toggle-active` route + handler and keep only explicit `/ban` + `/unban` semantics.",
+        "[x] Remove legacy reserved-placeholder claim path in core (`ClaimReservedAccount`, `ErrReservedAccountProtected`) now that org ownership transitions are handled via owner-namespace states (`restricted_name`/`parked_org`/`registered_org`).",
+        "[x] Remove unused legacy wrapper `ConfirmPhonePasswordReset` and associated contract surface (HTTP already uses reset-session confirmation).",
+        "[x] Remove unused `IsOrgReservedBySlug` helper if no first-party callers remain.",
+        "[x] Remove or shrink unused `core.Provider` interface surface if it has no first-party callers (or replace with minimal interfaces at call sites).",
+        "Compatibility removals (after migration window):",
+        "[x] Remove deprecated owner-namespace alias constant + parser fallback for `reserved_name`; keep only `restricted_name`.",
+        "[x] Remove deprecated verify-only `IssuerAccept.Audience` fallback; require `IssuerAccept.Audiences`.",
+        "[x] Remove devserver `AUTHKIT_*` environment-variable alias support and keep canonical `DEVSERVER_*` keys only.",
+        "Validation + rollout:",
+        "[x] Add/refresh hard-cut route tests for removed legacy endpoints (expected 404).",
+        "[x] Update downstream repos/docs before each compatibility removal (notably any consumers still using `IssuerAccept.Audience`).",
+        "[x] Verify with `go test ./...` in authkit plus targeted downstream auth proxy/verifier tests before marking complete."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Verifier API cleanup: kill core.Verifier, functional options, Verify returns Claims",
+      "id_number": 28,
+      "description": "Simplify the Verifier public API. Kill the core.Verifier interface entirely \u2014 middleware takes *authhttp.Verifier directly. Remove core.AcceptConfig/IssuerAccept (callers shouldn't import core for verify-only mode). Change NewVerifier to functional options. Make Verify return typed Claims instead of jwt.MapClaims. Make middleware call Verify instead of re-implementing 90 lines of duplicated validation logic.\n\nFor issuing-mode (authhttp.Service), the Service constructs an internal *Verifier from its core.Service's key material + config, so all verification goes through one path.\n\nBreaking change \u2014 no deprecation shims.\n\nDownstream impact: tensorhub changes 1 line (NewVerifier(core.AcceptConfig{}) -> NewVerifier()). doujins and hentai0 change middleware wiring from authhttp.Required(svc.Core()) to authhttp.Required(svc.Verifier()) \u2014 typically 1-3 lines each.",
+      "tasks": [
+        "=== STEP 1: NewVerifier functional options + flatten Verifier internals ===",
+        "[x] Change NewVerifier(accept core.AcceptConfig) to NewVerifier(opts ...VerifierOption) *Verifier",
+        "[x] Add VerifierOption type and constructors: WithSkew(time.Duration), WithAlgorithms([]string), WithHTTPClient(*http.Client), WithOrgMode(string)",
+        "[x] Replace Verifier.accept (core.AcceptConfig) with flat fields: skew time.Duration, algorithms []string, orgMode string",
+        "[x] Default skew to 60s, default algorithms to [\"RS256\"] (same as today)",
+        "",
+        "=== STEP 2: Fold core.IssuerAccept into private issuerEntry, merge useful fields into IssuerOptions ===",
+        "[x] Add CacheTTL, MaxStale, PinnedRSAPEM fields to authhttp.IssuerOptions (moved from core.IssuerAccept)",
+        "[x] Add RawKeys map[string]*rsa.PublicKey field to IssuerOptions \u2014 allows injecting key material directly without PEM round-tripping (used by authhttp.Service to inject core.Service's keys)",
+        "[x] Create private issuerEntry struct: issuer, audiences, jwksURL, cacheTTL, maxStale, pinnedRSAPEM (all fields that were on core.IssuerAccept)",
+        "[x] Replace Verifier.accept.Issuers ([]core.IssuerAccept) with Verifier.issuers []issuerEntry",
+        "[x] Update AddIssuer to build issuerEntry from IssuerOptions + handle RawKeys (seed pubByKID directly from the map, no PEM parsing)",
+        "[x] Update RemoveIssuer, matchIssuer, publicKeyFor, refreshIssuerKeys to use issuerEntry",
+        "[x] Remove AcceptConfig() method from Verifier",
+        "",
+        "=== STEP 3: Verify returns Claims instead of jwt.MapClaims ===",
+        "[x] Change Verify(tokenStr string) (jwt.MapClaims, error) to Verify(tokenStr string) (Claims, error)",
+        "[x] Move the MapClaims-to-Claims extraction into Verify: sub, email, email_verified, username, discord_username, sid, org, roles/org_roles (org_mode-aware using v.orgMode), entitlements, iss, user_tier/plan, jti",
+        "[x] Claims struct stays in authhttp package (no core dependency needed since core.Verifier is gone)",
+        "",
+        "=== STEP 4: Middleware takes *Verifier, calls Verify ===",
+        "[x] Change Required(svc core.Verifier) to Required(v *Verifier)",
+        "[x] Change Optional(svc core.Verifier) to Optional(v *Verifier)",
+        "[x] Rewrite Required: bearerToken() -> v.Verify(token) -> enrichment (roles, email, discord from v.enrich if set; user gate via v.enrich.IsUserAllowed if set) -> setClaims(ctx) -> next",
+        "[x] Remove the two-branch verification logic (~90 lines of duplicated issuer/audience/expiry checking)",
+        "[x] Ensure error codes remain stable: missing_token, invalid_token, bad_issuer, bad_audience, missing_exp, token_expired, token_not_yet_valid, user_disabled",
+        "",
+        "=== STEP 5: authhttp.Service creates a Verifier internally (issuing-mode integration) ===",
+        "[x] Add core.Service.PublicKeysByKID() map[string]*rsa.PublicKey method (exposes keys.PublicKeys for Verifier injection)",
+        "[x] In authhttp.NewService: create a *Verifier using NewVerifier(WithSkew(5*time.Second), WithOrgMode(opts.OrgMode), WithAlgorithms(\"RS256\"))",
+        "[x] Call verifier.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{RawKeys: coreSvc.PublicKeysByKID()})",
+        "[x] Call verifier.WithService(coreSvc) for enrichment hooks",
+        "[x] Store verifier on authhttp.Service struct; expose via Verifier() method for downstream middleware wiring",
+        "[x] Update handlers.go: required := Required(s.verifier) instead of Required(s.svc)",
+        "[x] Update s.JWKSHandler() to use s.svc.JWKS() directly (no core.Verifier needed)",
+        "[x] Change standalone JWKSHandler(svc core.Verifier) to JWKSHandler(jwks jwtkit.JWKS)",
+        "",
+        "=== STEP 6: Remove dead Verifier methods that only existed to satisfy core.Verifier ===",
+        "[x] Remove Verifier.JWKS() (returned empty JWKS{} \u2014 only existed to satisfy interface)",
+        "[x] Remove Verifier.Options() (returned empty Options{} \u2014 only existed to satisfy interface)",
+        "[x] Remove Verifier.Keyfunc() public method (keyForToken stays internal)",
+        "[x] Remove Verifier.ListRoleSlugsByUser (enrichment now handled inside middleware via v.enrich directly)",
+        "[x] Remove Verifier.GetProviderUsername (same reason)",
+        "[x] Remove Verifier.GetEmailByUserID (same reason)",
+        "",
+        "=== STEP 7: Delete core.Verifier interface + core.AcceptConfig + core.IssuerAccept ===",
+        "[x] Delete core.Verifier interface from core/provider.go",
+        "[x] Delete core/accept.go (AcceptConfig + IssuerAccept)",
+        "[x] Remove any remaining references/imports of core.Verifier across the codebase",
+        "",
+        "=== STEP 8: RequireAdmin \u2014 confirm no changes needed ===",
+        "[x] RequireAdmin(pg *pgxpool.Pool) does not use core.Verifier \u2014 confirmed no changes needed",
+        "[x] JWKSHandler in handlers_test.go: updated to pass JWKS directly via core.Service.JWKS()",
+        "",
+        "=== STEP 9: Update all callers + tests ===",
+        "[x] testing/issuer_test.go: NewVerifier(core.AcceptConfig{...}) -> NewVerifier(WithSkew(...), WithAlgorithms(...)) + AddIssuer(...). Verify return: claims.UserID instead of claims[\"sub\"]",
+        "[x] testing/devserver_e2e_test.go: same \u2014 functional options + AddIssuer + typed Claims fields",
+        "[x] http/middleware_test.go: testVerifier mock removed \u2014 tests use real *Verifier with AddIssuer + RawKeys",
+        "[x] http/org_scoped_claims_test.go: updated to use real *Verifier with WithOrgMode",
+        "[x] http/handlers_test.go: added newTestService() helper, TestJWKSHandler passes JWKS directly",
+        "[x] http/error_shapes_test.go, admin_reserved_accounts_test.go, org_mode_routes_test.go: updated to use newTestService()/newTestServiceWithOrgMode()",
+        "[x] README.md: updated examples to use NewVerifier() + AddIssuer pattern, removed core.AcceptConfig/IssuerAccept references",
+        "",
+        "=== STEP 10: Verify + test ===",
+        "[x] go test ./... passes",
+        "[x] go vet ./... passes",
+        "[x] Manually verify downstream build: VERIFIED 2026-05-22 - core.Verifier/AcceptConfig removed; tensorhub uses authhttp.Required(s.verifier) (built via provider.Verifier().WithService), doujins and hentai0 use authhttp.Required/Optional(svc.Verifier()); all three build on tagged authkit v0.10.1."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Prefix-neutral API routes + admin target-user session revocation",
+      "id_number": 29,
+      "issue_number": 241,
+      "description": "Make AuthKit's embedded HTTP API prefix-neutral so host applications control the entire public mount path. AuthKit should register routes such as `/token`, `/user/me`, `/admin/users`, and org/provider routes without a baked-in `/auth` segment. Host apps like doujins and hentai0 can then mount AuthKit at `/api/v1` and expose standardized public routes with no extra `/auth` prefix. Also add the missing admin target-user session revocation HTTP route so apps do not need their own `/admin/users/:user_id/sessions/revoke` implementation.",
+      "tasks": [
+        "=== ROUTE CONTRACT ===",
+        "[x] Define the new prefix-neutral API route contract: AuthKit `APIHandler()` owns relative routes under `/token`, `/sessions/current`, `/user/*`, `/admin/*`, org routes, provider-link routes, Solana routes, and related auth/session endpoints.",
+        "[x] Keep browser OIDC route ownership separate from JSON API routing and document the expected host mount behavior for browser flows.",
+        "[x] Update `agents/api-endpoints.md` and README examples to describe prefix-neutral AuthKit internals plus host-selected public mounts.",
+        "[x] Document downstream target mounts: doujins and hentai0 mount AuthKit JSON API at `/api/v1`, producing public routes such as `/api/v1/admin/users`, `/api/v1/user/me`, `/api/v1/token`, and no `/api/v1/auth/*` identity routes.",
+        "",
+        "=== IMPLEMENTATION ===",
+        "[x] Remove the baked-in `/auth` prefix from `http/APIHandler()` route registrations while preserving handlers, payloads, response shapes, auth requirements, and rate-limit buckets.",
+        "[x] Update route tests to call prefix-neutral paths directly against `APIHandler()`.",
+        "[x] Decide and implement compatibility policy for old `/auth/*` internal paths: hard cut vs temporary aliases. If aliases are kept, add explicit sunset tests/docs.",
+        "[x] Add canonical admin target-user session revocation route: `POST /admin/users/{user_id}/sessions/revoke`.",
+        "[x] Wire the new admin revocation HTTP route to existing core `AdminRevokeUserSessions` with `SessionRevokeReasonAdminRevokeAll`.",
+        "[x] Keep existing regular user self-revocation routes unchanged in prefix-neutral form: `GET /user/sessions`, `DELETE /user/sessions/{id}`, `DELETE /user/sessions`, and `DELETE /logout`.",
+        "",
+        "=== DOWNSTREAM COORDINATION ===",
+        "[x] Publish migration notes for hosts currently mounting AuthKit by stripping `/api/v1` and relying on internal `/auth/*` routes.",
+        "[x] Coordinate with doujins/hentai0 app issues so they remove app-level identity/admin-user route duplication after upgrading AuthKit.",
+        "[x] Cut or consume an AuthKit release containing this prefix-neutral route contract, then bump downstream `github.com/open-rails/authkit` requirements or verify with an explicit workspace/replace. Verified downstream with temporary Go workspaces pointing at `~/authkit`.",
+        "[x] Ensure downstream apps move or explicitly justify app-owned product routes that conflict with AuthKit's prefix-neutral `/user/*` and `/admin/*` identity namespaces.",
+        "",
+        "=== VALIDATION ===",
+        "[x] Add route-contract tests for admin list/get/delete/restore/ban/unban/roles/signins/session-revoke under prefix-neutral paths.",
+        "[x] Add route-contract tests for regular user identity, session self-revocation, provider, 2FA, and token endpoints under prefix-neutral paths.",
+        "[x] Run `go test ./...` in AuthKit.",
+        "[x] After downstream migration patches exist, verify doujins and hentai0 route smoke tests pass against the new AuthKit route contract."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Configurable frontend OIDC callback path + browser-route mount guidance",
+      "id_number": 30,
+      "issue_number": 242,
+      "description": "Plan and implement the AuthKit-side cleanup for browser OIDC redirects. AuthKit currently redirects successful full-page OIDC callbacks to a hardcoded `{BaseURL}/login/callback#...` frontend route. That route is host-app-owned, so AuthKit should let the embedding host configure the frontend callback path while keeping a sensible default. Also clarify in AuthKit docs/tests that `OIDCHandler()` is prefix-neutral and should usually be mounted as browser routes such as `/oidc/{provider}/login|callback`, separate from JSON API routes such as `/api/v1/token`.",
+      "tasks": [
+        "=== DESIGN ===",
+        "[x] Add a host-owned config field for the final frontend callback path, e.g. `FrontendCallbackPath`, defaulting to `/login/callback` for backwards compatibility.",
+        "[x] Validate/normalize the configured path: require a leading `/`, reject full external URLs, preserve optional query string if deliberately supported, and document whether fragments are allowed.",
+        "[x] Keep provider callback routes prefix-neutral in `OIDCHandler()` (`/oidc/{provider}/login`, `/oidc/{provider}/callback`) and do not bake in `/api/v1` or `/auth`.",
+        "[x] Define compatibility behavior for existing hosts that do not set the new field: final redirect remains `{BaseURL}/login/callback#access_token=...`.",
+        "",
+        "=== IMPLEMENTATION ===",
+        "[x] Update `core.Config` / service options to carry the configured frontend callback path.",
+        "[x] Update `http/oidc_browser.go` to build the final full-page redirect from `{BaseURL}{FrontendCallbackPath}` instead of hardcoded `/login/callback`.",
+        "[x] Ensure popup OIDC (`ui=popup`) behavior is unchanged and does not use the frontend callback path.",
+        "[x] Add tests for default callback path, custom callback path, invalid callback path validation, fragment token handoff, and unchanged popup behavior.",
+        "",
+        "=== DOCS ===",
+        "[x] Update README and `agents/api-endpoints.md` to explain the two browser callback concepts: provider callback handled by AuthKit, and host frontend callback path served by the app.",
+        "[x] Update README examples to recommend mounting JSON API at `/api/v1` and browser OIDC at root `/oidc/*`, while noting the host may choose another mount.",
+        "[x] Document downstream work required in doujins/hentai0: mount `OIDCHandler()` outside `/api/v1` and configure/serve the frontend callback path.",
+        "",
+        "=== VALIDATION ===",
+        "[x] Run `go test ./http`.",
+        "[x] Run `go test ./...`.",
+        "[x] Verify downstream route-contract tests after doujins/hentai0 migration patches exist."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Rename history edge-case coverage",
+      "id_number": 31,
+      "description": "Cover user/org rename edge cases now that AuthKit stores rename history as A -> B rows keyed by stable owner IDs rather than birth slugs or alias tables. Ensure recent historical names cannot be reclaimed, soft-deleted owners still hold names, hard deletion releases names through cascade, and historical lookups resolve to the current canonical owner.",
+      "tasks": [
+        "[x] Add contract tests for user/org rename lookup through stable owner IDs and current canonical slugs/usernames.",
+        "[x] Add contract tests for efficient rename-history lookup indexes and the 90-day reuse hold policy.",
+        "[x] Add E2E coverage for A -> B -> C username rename chains resolving A to current username C.",
+        "[x] Add E2E coverage that recent historical usernames are blocked from reuse by other users.",
+        "[x] Add E2E coverage that soft-deleted users still hold current usernames, while hard-deleted users release names through cascade.",
+        "[x] Fix username create/rename paths to enforce shared owner-namespace availability outside multi-org mode too.",
+        "[x] Verify with `go test ./core`, `go test ./...`, and targeted all-in-one devserver E2E."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Rich owner namespace lookup status",
+      "id_number": 32,
+      "description": "Make `GET /owners/{slug}` useful for both canonical owner routing and availability/preflight UI by returning one authoritative owner-namespace view. The response should distinguish live registered owners, parked namespaces, restricted names, historical rename redirects, soft-deleted owners that still hold a slug, recent rename holds, and truly unregistered/claimable names.",
+      "tasks": [
+        "[x] Design response contract with `requested_slug`, canonical `slug`/`canonical_slug`, `status`, `claimable`, `renamed`, optional `hold_until`, and existing `exists`/`entity_kind`/`user`/`org` payloads.",
+        "[x] Add core lookup that uses the same sources as routing and availability: users, orgs, reserved names, user rename history, org rename history, soft-delete state, and rename reuse hold.",
+        "[x] Return distinct statuses: `registered_user`, `registered_org`, `parked_user`, `parked_org`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, and `unregistered`.",
+        "[x] Wire `GET /owners/{slug}` to the richer core lookup while preserving existing top-level `slug`, `exists`, `entity_kind`, `user`, and `org` fields.",
+        "[x] Extend rename E2E coverage to assert renamed, soft-deleted, recent-hold, expired-hold, and claimability response states.",
+        "[x] Verify with `go test ./core ./http`, `go test ./...`, and targeted all-in-one devserver E2E."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Move HTTP transport and provider implementations out of adapters",
+      "id_number": 33,
+      "description": "Make the package layout idiomatic for host applications: AuthKit's embeddable HTTP surface should live at the top-level `http` package, while concrete third-party sender implementations should live under `providers/<channel>/<provider>`. The old `adapters/` tree should disappear instead of carrying compatibility aliases.",
+      "tasks": [
+        "[x] Move `adapters/http` to top-level `http` with `git mv` and preserve the package name/import alias `authhttp`.",
+        "[x] Move Twilio email sender implementation to `providers/email/twilio` with `git mv`.",
+        "[x] Move Twilio SMS sender implementation to `providers/sms/twilio` with `git mv`.",
+        "[x] Remove the empty `adapters/` directory tree.",
+        "[x] Update AuthKit imports, source-path contract tests, README examples, and package docs to use `github.com/open-rails/authkit/http` and `providers/*/twilio`.",
+        "[x] Update doujins and hentai0 imports so host applications embed AuthKit through `github.com/open-rails/authkit/http`.",
+        "[x] Update other local AuthKit consumers found by search (`cozy-art`, `tensorhub`, `gen-orchestrator`, and `openrails`) to use `github.com/open-rails/authkit/http`."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Structured registration next_action response",
+      "id_number": 34,
+      "description": "Replace human registration success messages with a machine-readable `next_action` enum so host frontends can decide whether to continue immediately or show first-contact verification UI. Keep the response focused on state: `ok`, submitted identifiers, and `next_action` (`none`, `verify_email`, `verify_phone`). Human-facing copy belongs in host applications, not AuthKit API responses.",
+      "tasks": [
+        "[x] Design registration success contract: include `username`, nullable `email`/`phone_number`/`discord_username`, and `next_action`.",
+        "[x] Add a small typed response builder in `http/register.go` so email and phone registration paths share the same shape.",
+        "[x] Remove `message` from `/register` success responses.",
+        "[x] Return `next_action=verify_email` when email registration requires verification, `verify_phone` when phone registration requires verification, and `none` otherwise.",
+        "[x] Return access/refresh tokens directly when `next_action=none`, and from successful email/phone verification code or link confirmation.",
+        "[x] Update AuthKit HTTP tests/docs for the structured response.",
+        "[x] Update cozy-art frontend to consume `next_action` instead of inferring verification from messages or failed login."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Production-grade Twilio/SendGrid provider adapters + remove doujins-email dependency",
+      "id_number": 35,
+      "description": "Replace AuthKit's basic Twilio provider adapters with production-grade generic adapters based on the proven `~/doujins` app-level senders, while keeping AuthKit core provider-agnostic and keeping app-specific templates/copy in host apps. The shared adapters must not depend on `github.com/doujins-org/doujins-email`; that package is considered obsolete and should be removed from downstream live code as part of this work.\n\nTarget model:\n- AuthKit core continues to expose only `core.EmailSender` and `core.SMSSender` interfaces.\n- Provider implementations live under `providers/email/twilio` and `providers/sms/twilio` as optional convenience imports.\n- SMS uses Twilio Messaging API only (`/2010-04-01/Accounts/{sid}/Messages.json`) with `MessagingServiceSid`; do not use Twilio Verify.\n- Email uses Twilio Email API / SendGrid Mail Send (`/v3/mail/send`) directly; do not depend on `doujins-email`.\n- Host apps can still provide custom senders when they need branded templates, localization, analytics categories, or specialized logging.\n\nReference behavior:\n- Mirror the important transport behavior from `~/doujins/internal/server/auth_sms_sender.go` and `~/doujins/internal/server/auth_email_sender.go`.\n- Keep AuthKit adapters generic: configurable app label, from identity, optional link builders, optional message/body builders, injectable HTTP client, and deterministic validation/errors.",
+      "tasks": [
+        "=== AUTHKIT ADAPTER DESIGN ===",
+        "[x] Audit current `providers/email/twilio` and `providers/sms/twilio` APIs against `~/doujins` senders and write the final generic config structs.",
+        "[x] Define constructor/config validation semantics: trim all inputs, fail fast on partial configs, require `MessagingServiceSID` for SMS, require API key + from email for email.",
+        "[x] Keep adapter package names stable (`providers/email/twilio`, `providers/sms/twilio`) but update docs to describe them as production convenience adapters, not core requirements.",
+        "",
+        "=== SMS: TWILIO MESSAGING ONLY ===",
+        "[x] Replace/verify SMS adapter transport uses Twilio Messaging API only: `POST /2010-04-01/Accounts/{account_sid}/Messages.json` with HTTP Basic Auth.",
+        "[x] Require `MessagingServiceSid` in the request body; do not support Twilio Verify service SID and do not support `From` number fallback unless a separate explicit adapter is added later.",
+        "[x] Build verification SMS the same way as `doujins`: include generated code when present and include generated verification link when a link token/link builder is present.",
+        "[x] Build login-code and password-reset SMS bodies generically with configurable app label and reset/verification link builder hooks.",
+        "[x] Add tests asserting the adapter posts to `/Messages.json`, includes `MessagingServiceSid`, includes code/link bodies, uses Basic Auth, and never calls `verify.twilio.com`.",
+        "",
+        "=== EMAIL: SENDGRID / TWILIO EMAIL API DIRECTLY ===",
+        "[x] Replace/verify email adapter uses SendGrid Mail Send directly, with no dependency on `doujins-email`.",
+        "[x] Support text + HTML bodies for verification, login code, welcome, and password reset; default bodies should be generic but host apps can override body builders.",
+        "[x] Support verification/reset link builder hooks so hosts can produce user-facing URLs instead of exposing raw tokens.",
+        "[x] Preserve optional SendGrid metadata that is generally useful (categories/custom args) without hardcoding any `doujins`, `hentai0`, or `cozy-art` copy.",
+        "[x] Add tests for validation, payload shape, text/html content, link builder behavior, categories/custom args, HTTP status handling, and request auth header.",
+        "",
+        "=== DOCS AND COMPATIBILITY ===",
+        "[x] Update AuthKit README/provider docs with minimal examples for Twilio Messaging SMS and Twilio Email API/SendGrid email.",
+        "[x] Remove or rewrite any AuthKit docs/plans that describe Twilio Verify as the default SMS verification path.",
+        "[x] Clearly document that AuthKit never reads provider env vars directly; host apps load config and pass constructed senders via `WithEmailSender` / `WithSMSSender`.",
+        "[x] Run `go test ./...` in AuthKit.",
+        "",
+        "=== DOWNSTREAM CLEANUP ===",
+        "[x] `~/doujins`: confirm no live `doujins-email` import/module dependency exists; keep using local sender or migrate to the improved AuthKit adapters only if the generic hooks cover current behavior.",
+        "[x] `~/hentai0`: remove `github.com/doujins-org/doujins-email` from `go.mod`/`go.sum` and replace `internal/infra/email_sender.go` with direct SendGrid/Twilio Email API code or the improved AuthKit email adapter.",
+        "[x] `~/hentai0`: replace Twilio Verify SMS usage with Twilio Messaging API behavior matching `doujins` and the AuthKit SMS adapter; remove `verify_service_sid` config/env/docs.",
+        "[x] `~/cozy/cozy-art`: consider replacing the local SendGrid sender with the improved AuthKit email adapter if it covers required verification/reset behavior; otherwise keep a local sender with no `doujins-email` dependency.",
+        "[x] Search all active local repos with `rg -n \"doujins-email|github.com/doujins-org/doujins-email\" /home/fidika` and remove every live code, config, module, and doc reference.",
+        "[x] Decide whether archived tracker files (`agents/completed.json`, old TODO archives) should be rewritten to remove historical `doujins-email` mentions; no historical archive rewrite was needed because the only remaining active mention is this tracking issue."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Config-first pluggable OAuth2/OIDC providers",
+      "id_number": 36,
+      "description": "Move external identity provider support toward a provider descriptor model where OAuth2 and OIDC providers are registered from configuration first, with code hooks only for genuinely non-declarative behavior.\n\nGoal:\n- Adding a normal OIDC provider should be pure configuration: name, kind=oidc, issuer, scopes, optional extra auth params, and standard claim mapping.\n- Adding a simple OAuth2 provider should be pure configuration: name, kind=oauth2, issuer, authorize/token/userinfo URLs, scopes, PKCE flag, and JSON path mappings from provider userinfo to AuthKit's normalized identity shape.\n- Provider-specific code should be reserved for special cases such as Apple's dynamic client secret JWT or OAuth2 providers that require secondary API calls or nontrivial transforms.\n\nTarget descriptor concepts:\n- Common fields: name, kind, issuer, client_id, client_secret, scopes, pkce, extra_auth_params.\n- OIDC fields: discovery/issuer config and optional claim mapping, defaulting to standard OIDC claims (`sub`, `email`, `email_verified`, `preferred_username`, `name`).\n- OAuth2 fields: authorize_url, token_url, userinfo_url, user_mapping with JSON paths for subject/email/email_verified/preferred_username/display_name.\n- Optional fallback lookups: e.g. GitHub primary verified email from `/user/emails` using declarative array selection.\n- Secret strategies: literal/env secrets for normal providers; `client_secret.strategy=apple_jwt` with team_id/key_id/private_key/ttl for Apple.\n\nArchitectural constraint:\n- The browser login/link/reauth/session flow must remain shared. Provider descriptors only define how to start provider auth and normalize provider identity into `{issuer, subject, email, email_verified, preferred_username, display_name}`.",
+      "tasks": [
+        "[x] Define a neutral provider descriptor type covering both `kind=oidc` and `kind=oauth2` providers.",
+        "[x] Define declarative identity mapping: JSON/claim dot paths, static booleans, optional transforms such as string conversion/trim/lowercase.",
+        "[x] Define declarative fallback lookup support for simple secondary API calls, including array selection by equality filters (needed for GitHub verified primary email).",
+        "[x] Define `client_secret` sources: literal value, env var, and named strategy.",
+        "[x] Implement `client_secret.strategy=apple_jwt` using the existing Apple ES256 JWT secret provider.",
+        "[x] Convert built-in OIDC providers (Google, Apple) into descriptors; keep Apple-specific behavior isolated in the secret strategy.",
+        "[x] Convert built-in OAuth2 providers (Discord, GitHub) into descriptors; keep GitHub's email fallback declarative if the mapping model supports it cleanly.",
+        "[x] Teach the OIDC manager to build provider config from descriptors instead of provider-specific switch/table code.",
+        "[x] Teach the OAuth2 browser flow to build authorize/token/userinfo behavior from descriptors and the shared mapper.",
+        "[x] Keep an internal hook escape hatch for providers that cannot be represented declaratively, but make pure config the default path.",
+        "[x] Add tests showing a new simple OIDC provider can be added using only descriptor data.",
+        "[x] Add tests showing a new simple OAuth2 provider can be added using only descriptor data.",
+        "[x] Add regression tests for Google, Apple, Discord, and GitHub descriptors.",
+        "[x] Document descriptor examples for Google, Apple, Discord, GitHub, and a custom provider."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Hard-cut AuthKit-generated row IDs to UUIDv7",
+      "id_number": 37,
+      "description": "AuthKit should mint UUIDv7 IDs for runtime-created UUID rows instead of UUIDv4 or deterministic slug-derived UUIDs. Host applications may receive AuthKit UUIDs, but they should not choose them. Deterministic role IDs remain intentionally slug-derived because role slug identity is a stable auth mechanism, not a runtime row-minting path.\n\nScope:\n- users, sessions, session families, providers, user-role join rows, orgs, personal orgs, parked org namespaces, and org invitations use UUIDv7 when AuthKit code mints IDs.\n- PostgreSQL schema defaults use `uuidv7()` for AuthKit-owned UUID defaults.\n- the all-in-one devserver image uses PostgreSQL 18 so the database has native UUIDv7 support.",
+      "tasks": [
+        "[x] Add a central UUIDv7 helper for AuthKit core code paths that mint UUIDs.",
+        "[x] Convert user creation, session IDs, session family IDs, provider rows, user-role rows, org rows, personal-org rows, parked-org rows, and org invite rows to UUIDv7.",
+        "[x] Remove public deterministic user/org UUID helper surface from `identity` so apps cannot rely on username/slug-derived AuthKit IDs.",
+        "[x] Add AuthKit-owned legacy user import/update helpers that accept legacy attributes but still mint new user IDs inside AuthKit.",
+        "[x] Add AuthKit-owned role upsert helper so app legacy migrators can stop writing `profiles.roles` directly.",
+        "[x] Update PostgreSQL migrations for AuthKit-owned UUID defaults from `gen_random_uuid()` to `uuidv7()`.",
+        "[x] Move the all-in-one devserver image to PostgreSQL 18.",
+        "[x] Verify with `go test ./...` and `git diff --check`.",
+        "[x] Tag/release AuthKit and pin downstream apps to the released version/commit that includes UUIDv7 behavior. DONE: UUIDv7 (commit d0b6a63) shipped in v0.9.0 and is present through v0.10.1; cozy.art pins authkit v0.10.1."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Do not swallow auth message delivery failures",
+      "id_number": 38,
+      "description": "Cozy Art's embedded AuthKit registration resend flow exposed an AuthKit-owned delivery error handling bug. The SendGrid/Twilio email adapter synchronously returns provider submission errors, but core registration verification paths discard them with `_ = s.email.SendVerification(...)`, and the `/register/resend-email` handler also discards the `CreatePendingRegistration` result. That lets hosts return `202 Accepted` even when AuthKit failed to submit the verification email to SendGrid.\n\nTarget behavior:\n- Provider submission failures must propagate through core service methods and HTTP handlers as generic, stable AuthKit errors such as `email_delivery_failed` / `sms_delivery_failed`; do not leak raw SendGrid/Twilio responses to public clients.\n- Enumeration-safe endpoints should keep not-found/malformed-input responses generic, but once AuthKit finds a pending registration and attempts delivery, a delivery failure must be visible to the caller and logged server-side.\n- Cozy Art should be able to consume the released AuthKit fix without adding local wrapper routes around AuthKit-owned registration endpoints.",
+      "tasks": [
+        "[x] Core: replace ignored `s.email.SendVerification(...)` / `s.sms.SendVerification(...)` errors in registration, resend, email-change, phone-change, password-reset, and login-code paths with returned delivery errors where the public operation depends on message delivery",
+        "[x] HTTP: make `/register/resend-email` and `/register/resend-phone` propagate delivery failures for found pending registrations while preserving enumeration safety for missing or malformed identifiers",
+        "[x] HTTP: map delivery failures to stable public error codes (`email_delivery_failed`, `sms_delivery_failed`) and log provider details through the internal error logger or host logger without exposing raw provider responses",
+        "[x] Tests: add fake sender tests proving registration/resend returns a delivery error when the sender returns an error",
+        "[x] Docs: update API docs/provider docs to state that 2xx means AuthKit submitted the message to the configured provider, not that the recipient mailbox accepted or opened it",
+        "[x] Release: tag AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` surfaces provider submission failures through the AuthKit-defined route"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Make AuthKit resend/request-code rate limits work behind Docker and reverse proxies",
+      "id_number": 39,
+      "description": "Cozy Art mounts AuthKit's canonical `POST /register/resend-email` route under `/api/v1/register/resend-email`. AuthKit had a resend bucket, but local testing showed repeated resend requests all returned `202` instead of `429`. Root cause: AuthKit's default client-IP function returns an empty identity for private/loopback peers, and `Service.allow` fails open when the client IP is empty. In Docker Compose, Gin sees the immediate peer as a private bridge address such as `172.21.0.1`; in production, reverse proxies can produce the same shape unless the host configures a trusted forwarded-header strategy. Request-code and resend endpoints should not silently bypass AuthKit rate limits in those common embedding modes.\n\nTarget behavior:\n- AuthKit-owned resend/request-code endpoints must be rate-limited by default in local Docker Compose, embedded host apps, and normal reverse-proxy deployments.\n- Registration, registration resend, email/phone verification request, password-reset request, and user email/phone change request/resend buckets should default to roughly one request every 60 seconds and 6 requests per hour.\n- When the limiter denies a request, AuthKit should report that rate limiting was hit and how long until the next action is allowed via `Retry-After` and a JSON `retry_after_seconds` field.\n- Hosts can still configure trusted forwarded-header behavior for production boundaries, but missing proxy config should not disable protection for sensitive anonymous endpoints.\n- The fix belongs in AuthKit's HTTP/embedding contract; Cozy Art should not add wrapper routes around AuthKit-owned registration endpoints.",
+      "tasks": [
+        "[x] Decide the default client identity strategy for anonymous sensitive endpoints when `RemoteAddr` is private/loopback: use the peer as a local fallback, require explicit trusted headers, or add an endpoint-specific fallback that never returns empty",
+        "[x] Update `Service.allow` / client-IP handling so `RLAuthRegisterResendEmail`, `RLAuthRegisterResendPhone`, `RLEmailVerifyRequest`, `RLPhoneVerifyRequest`, password-reset request, and user email/phone resend buckets cannot silently fail open only because the immediate peer is private/loopback",
+        "[x] Add a safe public API for host apps to configure trusted forwarded headers and proxy CIDRs without reaching into unexported HTTP internals",
+        "[x] Ensure the default remains safe for direct public traffic and does not blindly trust spoofable `X-Forwarded-For` headers from untrusted peers",
+        "[x] Add route-level tests proving `/register/resend-email` returns `429` after the configured bucket is exceeded for Docker/private-peer-shaped requests",
+        "[x] Add tests for trusted forwarded headers: trusted proxy uses the forwarded client IP; untrusted peer ignores spoofed forwarded headers",
+        "[x] Update AuthKit docs to explain default rate-limit client identity behavior for direct traffic, Docker Compose, and reverse proxies",
+        "[x] Release AuthKit and bump Cozy Art to the released version; verify `POST /api/v1/register/resend-email` is still the AuthKit-defined route and returns `429` after the resend bucket is exceeded"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Own the full platform-delegation system in authkit (federated orgs: registration + token minting + validation)",
+      "id_number": 40,
+      "description": "Make authkit the single owner of the entire platform-delegation lifecycle so an ORG can bring in FEDERATED USERS \u2014 users that live in the org's own system and authenticate via the org's issuer rather than local passwords. authkit owns BOTH SIDES of federation, so two authkit-embedding services register with and trust each other (one side is the platform/IdP that mints+sends; the other is the resource-server that accepts+validates). Capabilities, all in authkit:\n\n1. REGISTRATION HANDSHAKE (authkit <-> authkit), both sides owned:\n   - OUTBOUND 'send my registration' client (platform side, e.g. cozy-art): publish this org's issuer id + jwks_url to a resource server.\n   - INBOUND 'accept registrations' server (resource-server side, e.g. tensorhub): accept + store a federated org's issuer registration. Replaces tensorhub's bespoke `/api/v1/platform/issuers` + `tensorhub.platform_issuers`.\n2. MINTING (platform side, cozy-art): issue delegated platform tokens. The external user goes in `delegated_sub` (NEVER `sub`), plus `org`/`tenant`, `user_tier`, roles, aud, exp, signed by the org's platform issuer key.\n3. VALIDATION (resource-server side, tensorhub): validate delegated tokens -> typed DelegatedPrincipal {tenant, delegated_sub, tier, roles}, verifying iss/aud/exp/signature against the registered federated-org keys, with NO local-user lookup (no `user_disabled`).\n\nINVARIANT: a token carries EITHER `sub` (native user) XOR `delegated_sub` (federated user) \u2014 NEVER both. authkit must reject a token presenting both, and never mint both. Discriminator + the existing local-user gate (conditioned on `UserID != \"\"` from `sub`) means a `delegated_sub`-only token auto-skips the gate. authkit-only work; tensorhub (#366 there) and cozy-art (#46 there) bump to it after this lands. Unblocks cozy.art #44.",
+      "tasks": [
+        "[x] STAGE 1 \u2014 token shape + validation/minting primitives. Claims: add `DelegatedSubject`, `Tenant`, `IsDelegated()`; parse `delegated_sub`/`org`/`user_tier`/roles from the token.",
+        "[x] STAGE 1. INVARIANT: reject any token presenting BOTH `sub` and `delegated_sub` (mutually exclusive); the minting helper must never emit both. Test both directions.",
+        "[x] STAGE 1. Verify(): do NOT hard-require `sub`; for a delegated token validate iss/aud/exp/signature only.",
+        "[x] STAGE 1. Required middleware: EXPLICITLY skip local-DB enrichment + the `IsUserAllowed` gate for delegated claims (today it incidentally no-ops when UserID==\"\"; make it intentional + documented).",
+        "[x] STAGE 1. MINTING API: helper to issue a delegated platform token (delegated_sub, org/tenant, user_tier, roles, aud, exp) signed by a platform issuer key \u2014 cozy-art embeds this.",
+        "[x] STAGE 1. VALIDATION API: expose a typed DelegatedPrincipal from a verified delegated token \u2014 tensorhub embeds this.",
+        "[x] STAGE 1. Tests: native vs delegated token; no-`sub` token verifies; delegated principal extraction; local-user gate skipped for delegated; minting round-trips through validation.",
+        "[x] STAGE 1. Release authkit (new minor) with minting + validation.",
+        "[x] STAGE 2 \u2014 federated-org registry. Org model: federated identity \u2014 `Federated bool`, `IssuerID`, `JWKSURL`/keys, issuer status (new Org fields or a `federated_org_issuers` table) + migration.",
+        "[x] STAGE 2. REGISTRATION HANDSHAKE, both sides owned by authkit: (a) INBOUND accept-side handler that stores a federated org's issuer registration (the home for tensorhub's `/api/v1/platform/issuers`), authorized by org owner/admin; (b) OUTBOUND send-side client that publishes this org's issuer id + jwks_url to a resource server. Two authkit instances complete the handshake (platform <-> resource-server).",
+        "[x] STAGE 2. In-house JWKS fetch/refresh for federated-org issuers; the Verifier loads federated issuers from authkit's OWN store (no external push/sync).",
+        "[x] STAGE 2. Docs: the federated-org concept (orgs bring federated users), the 3 roles (register/mint/validate), and the delegated-token contract (`delegated_sub`, etc.). Release authkit."
+      ],
+      "completed": true
+    },
+    {
+      "id_number": 41,
+      "name": "Access tokens expose global_roles (single+multi) and org_roles (org-scoped) for consumer authz",
+      "description": "Access tokens must expose GLOBAL roles separately from ORG-scoped roles so consumers can do global-admin and org authz from the token.\n\n## Defect\n`core/service.go` IssueAccessToken sets `claims[\"roles\"]` ONLY when OrgMode==\"single\" (lines ~380-382). In MULTI-org mode the access token carries NO global-role claim at all. Consumers that read the token's roles for global-admin authz therefore see nothing in multi-org mode.\n\nObserved 2026-05-21: tensorhub runs authkit in OrgMode=multi. The bootstrap `cozy` user IS a global admin (profiles.global_user_roles has cozy->admin), but its password-login token has no roles claim, so tensorhub's platform-admin route (canActAsOwner / resolveAuthkitOwnerForRequest) computed an empty GlobalRoles and returned 403 to the global admin when registering a platform tenant's policy. (tensorhub also had an independent bug \u2014 its authkit-source owner path didn't honor global admins at all \u2014 fixed separately by hydrating via ListRoleSlugsByUser.)\n\n## Desired design (owner)\nThere are now `roles` (legacy) and split `global_roles` / `org_roles`. In general:\n- emit `global_roles` for the user's GLOBAL roles in BOTH single AND multi-org mode;\n- emit `org_roles` for roles scoped to a specific org, only when an org is in scope (org-scoped token);\n- keep `roles` populated for back-compat where it is today (don't break existing consumers).\n\n## Touch points\n- core/service.go IssueAccessToken (add global_roles in both modes via listRoleSlugsByUser) and IssueOrgAccessToken (add global_roles + org_roles).\n- http/claims.go Claims (add GlobalRoles, OrgRoles fields + json tags global_roles/org_roles) and the token parse/verify path that populates Claims from the JWT.\n- Keep changes additive/back-compat (existing `roles` + consumers keep working).\n\nSurfaced while e2e-testing cozy-art delegated inference enforcement (#41/#43/#45 in cozy-art) against the live tensorhub stack.",
+      "tasks": [
+        "[x] http/claims.go: add GlobalRoles []string (json `global_roles`) and OrgRoles []string (json `org_roles`) to the Claims struct; keep Roles for back-compat.",
+        "[x] core/service.go IssueAccessToken: populate `global_roles` claim from listRoleSlugsByUser in BOTH single and multi-org mode (today `roles` is only set in single mode). Keep `roles` as-is for back-compat.",
+        "[x] core/service.go IssueOrgAccessToken: populate `global_roles` (user's global roles) AND `org_roles` (roles scoped to that org).",
+        "[x] Token parse/verify (http): populate Claims.GlobalRoles and Claims.OrgRoles from the new JWT claims; map legacy `roles` for back-compat.",
+        "[x] Tests: single-mode + multi-mode access tokens carry global_roles; org-scoped token carries global_roles + org_roles; legacy `roles` unchanged. go build ./... + go test affected packages.",
+        "[x] Commit + push + tag authkit with a new version (changes are additive/back-compat). Note the tag for consumers.",
+        "[x] ALL authkit-consuming repos must be adjusted MANUALLY (bump dep + `go mod tidy` + change API/assumptions). Consumers identified 2026-05-21: cozy-art (4 files read the roles claim), tensorhub (14 files), gen-orchestrator (uses authkit but reads no role claims \u2014 likely no change). If a consumer pins authkit via a local `replace` it already builds against source; if it pins a version, bump to the new tag.",
+        "[x] tensorhub: bump authkit, `go mod tidy`, update authz to read claims.GlobalRoles (global-admin) + claims.OrgRoles (org scope) instead of the legacy `roles` claim. NOTE an uncommitted local fix already exists in internal/api/owner_authz_http.go that hydrates GlobalRoles via ListRoleSlugsByUser \u2014 harmonize (claims-first, DB-hydrate fallback). go build ./...",
+        "[x] cozy-art: bump authkit, `go mod tidy`, update the 4 files reading the roles claim to the new global_roles/org_roles where relevant. go build ./... + frontend unaffected. (cozy-art may be under concurrent edits \u2014 make minimal additive changes.)",
+        "[x] gen-orchestrator: bump authkit + `go mod tidy` to stay in sync even though it reads no role claims; go build ./...",
+        "[x] Verify all consumers build against the new authkit; report any API/assumption changes made per repo."
+      ],
+      "completed": true
+    },
+    {
+      "id_number": 42,
+      "name": "Verifier federated-issuer cache coherence: lazy-load on miss, reconcile/evict on reload, refetch rotated keys on failure",
+      "description": "## Problem\n\nThe Verifier validates delegated tokens against an IN-MEMORY map of trusted issuers (`byIss` / `issuers` in `http/verifier.go`). That map is populated only at startup and by the periodic `StartFederatedIssuerSyncLoop` (consumers run it on a ~5-minute tick). `matchIssuer` (`http/verifier.go:443`) walks only the in-memory slice and returns nil on a miss; `keyForToken` (`:422`) then returns `bad_issuer` -> `invalid_token`. There is NO DB read on the validation path.\n\nConsequence: right after a federated org registers its issuer (POST /federated-issuers writes a DB row), tokens it mints are rejected for up to a full sync interval (~5 min) until the next bulk reload, even though the issuer is already in the DB. 'Push into the Verifier on write' does NOT fix this for multi-replica deployments (e.g. tensorhub runs 2+ replicas behind a load balancer): a push only updates the replica that received the registration; the siblings still wait for their own tick.\n\n## Goal\n\nA newly-registered federated issuer should be trusted by EVERY replica on first token use, with no per-request DB or JWKS hit after the first.\n\n## Fix: lazy-load on cache-miss\n\nWhen `matchIssuer` misses and the Verifier has a federated-issuer source (`v.enrich`, a `*core.Service` set via `WithService`, `verifier.go:39,237`), look up that ONE issuer in the store, `AddIssuer` it (which fetches + caches its JWKS), then retry the in-memory match. First use of a new issuer pays one DB read + one JWKS fetch; everything after hits the in-memory cache. The periodic reload stays as a coarse refresh/eviction backstop.\n\n`core.Service.GetFederatedOrgIssuer(ctx, issuerID)` ALREADY exists (`core/service_federated_issuers.go:85`); expose it on the `FederatedIssuerSource` interface (today only `ListFederatedOrgIssuers`) so the on-miss path and tests can use it.\n\n## Implementation notes / constraints\n\n- Put the lazy-load in `keyForToken` (or a small wrapper), NOT inside `matchIssuer`'s critical section: `matchIssuer` holds `v.mu`, and `AddIssuer` ALSO locks `v.mu`, so calling AddIssuer under the lock would deadlock, and the DB + JWKS network calls must not happen while holding the lock. Flow: matchIssuer returns nil -> (no lock) GetFederatedOrgIssuer + AddIssuer -> retry matchIssuer.\n- Only trust ACTIVE issuers (match the `activeOnly=true` semantics of the bulk load). Check `status == 'active'` (or add an active-only variant).\n- Audience handling must match the bulk load: `LoadFederatedIssuers` registers issuers with the audiences passed by the caller (tensorhub passes nil -> no per-issuer aud gate, since aud is validated elsewhere in Verify against `match.audiences`). The lazy-load MUST register with the SAME audiences so behavior is identical -> store/thread the federated audiences on the Verifier.\n- Guard against thundering-herd / DoS on unknown issuers: every garbage `iss` would otherwise trigger a DB lookup per request. Add a short negative cache (remember not-found issuers for a few seconds) and/or single-flight so repeated bad tokens and concurrent first-use don't hammer the DB / JWKS endpoint. Keep it simple.\n- Backward compatible: if `v.enrich` is nil (no source configured), behavior is unchanged (miss -> bad_issuer).\n\n## Cache coherence: the cache must also notice CHANGES and DELETES, not just misses\n\nLazy-load only fixes the MISS case (a brand-new issuer). Two other staleness cases must be handled, because the in-memory cache can otherwise serve wrong answers:\n\n1. **Revocation (delete / deactivate).** `LoadFederatedIssuers` (`verifier.go:261`) is ADD-ONLY: it iterates the active issuers and `AddIssuer`s each, but NEVER removes an issuer that has dropped out of the active set. So a deleted or deactivated issuer stays trusted in memory until the process restarts. Fix: make the periodic reload RECONCILE -- evict in-memory issuers that are no longer in the active DB set. This bounds revocation lag to the tick interval. (Optional, heavier: a Postgres LISTEN/NOTIFY stream of issuer-row changes per replica for near-instant eviction. Recommend reconciling-reload as the primary fix and treating LISTEN/NOTIFY as a follow-up only if sub-tick revocation is required; note the operator can also shorten the tick to trade DB load for tighter revocation.)\n\n2. **Key rotation (JWKS changed).** `publicKeyFor` already refetches JWKS on a TTL (default 5m, with stale-while-revalidate), so rotation is picked up within the TTL. But a token signed with a freshly rotated `kid` that arrives while the cached JWKS is still 'fresh' (before expiry) fails with unknown-kid. Fix (the user's 'fall through on failure' idea): on an unknown-kid for a KNOWN issuer, force ONE bounded JWKS refetch (guarded by a min-interval / single-flight so a storm of bad kids can't hammer the JWKS endpoint) and retry before returning a failure. This also covers the 'our cache was stale and that is why validation failed' case.\n\nNet model: MISS -> lazy-load from DB; CHANGED keys -> TTL refresh + on-unknown-kid refetch; DELETED/DEACTIVATED -> reconciling reload evicts (optionally NOTIFY/LISTEN for instant). All bounded, all multi-replica correct.\n\n## Rollout\n\nThis is an additive Verifier change in authkit `http/verifier.go`, so it benefits every consumer. Release a new authkit minor and bump tensorhub + cozy-art (go get + go mod tidy). Consumers need no code change beyond the version bump (the periodic loop call can stay as the backstop).\n",
+      "tasks": [
+        "[x] Add GetFederatedOrgIssuer(ctx, issuerID) to the FederatedIssuerSource interface (core.Service already implements it).",
+        "[x] Implement lazy-load-on-miss in keyForToken: on matchIssuer miss + v.enrich set, GetFederatedOrgIssuer (active only) -> AddIssuer (JWKS fetch+cache) -> retry. Do the DB/JWKS work OUTSIDE v.mu to avoid deadlock with AddIssuer.",
+        "[x] Register lazy-loaded issuers with the SAME audiences the bulk LoadFederatedIssuers uses (store/thread the federated audiences on the Verifier).",
+        "[x] Negative cache + single-flight so unknown/garbage issuers and concurrent first-use do not hammer the DB / JWKS endpoint.",
+        "[x] REVOCATION: make LoadFederatedIssuers RECONCILE -- evict in-memory issuers no longer in the active DB set (today it is add-only, so deletes/deactivations never take effect until restart). This bounds revocation lag to the reload tick.",
+        "[x] KEY ROTATION: on an unknown-kid for a KNOWN issuer, force one bounded JWKS refetch (min-interval / single-flight guarded) and retry before failing, so a rotated kid arriving mid-TTL is picked up immediately (the 'fall through on failure' path).",
+        "[x] (Optional / note in code) Evaluate a Postgres LISTEN/NOTIFY stream of federated-issuer row changes for near-instant eviction; do NOT build it unless sub-tick revocation is required -- reconciling reload + on-failure refetch give bounded correctness without it.",
+        "[x] Backward compatible: v.enrich nil -> unchanged (miss -> bad_issuer).",
+        "[x] Unit tests: lazy-load success + cached-on-second-use (source + JWKS fetch called once); unknown issuer fails and is negatively cached; reconciling reload evicts a now-inactive issuer (token stops validating); rotated-kid refetch succeeds and is single-flight-guarded; deadlock-free under concurrent first-use.",
+        "[x] go build ./... + go test ./... pass.",
+        "[x] Release a new authkit minor tag (commit + push + tag), then bump tensorhub + cozy-art (go get @<tag> + go mod tidy) and verify both build."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Remove is_active (use ban/delete only)",
+      "id_number": 7,
+      "description": "Replace the `profiles.users.is_active` boolean with explicit ban/delete semantics.\n\n## Requirements\n\n- Only two access-blocking states exist:\n  - banned (reversible): `banned_at IS NOT NULL`\n  - deleted (soft delete): `deleted_at IS NOT NULL`\n- Admin delete and user self-delete both set `deleted_at` (soft delete) initially.\n- Login/token issuance must refuse banned/deleted users.\n- Deleted users remain soft-deleted for 30 days, then are hard-deleted.\n\n## Target semantics\n\n- Active user is implied: `deleted_at IS NULL AND banned_at IS NULL`.\n- Ban should revoke sessions immediately.\n- Soft delete should revoke sessions immediately.\n- Hard delete occurs after 30 days (purge job).",
+      "tasks": [
+        "SCHEMA/MIGRATIONS:",
+        "[x] Add `profiles.users.banned_at timestamptz` (optional: banned_reason, banned_by)",
+        "[x] Backfill `banned_at` for existing users with is_active=false and deleted_at IS NULL (treat as banned)",
+        "[x] Remove `profiles.users.is_active` (drop column) after code is migrated",
+        "",
+        "CORE LOGIC:",
+        "[x] Replace all `IsActive` checks with `deleted_at IS NULL AND banned_at IS NULL`",
+        "[x] Replace `SetActive` APIs with explicit `BanUser` / `UnbanUser` + `SoftDeleteUser` (deleted_at)",
+        "[x] Ensure ban and soft delete revoke refresh sessions (issuer-scoped) consistently",
+        "[x] Ensure JWT issuance paths refuse banned/deleted users (password login, OAuth/OIDC callbacks, SIWS, refresh, etc.)",
+        "[x] Ensure authz gates respect banned/deleted (Required middleware, RequireAdmin/RequireRole/RequireEntitlement, and any DB-backed UserContext enrichment should deny when banned_at or deleted_at is set)",
+        "[x] Ensure admin/live DB checks don\u2019t treat \"row exists\" as sufficient; they must join/filter on `profiles.users` status",
+        "",
+        "HTTP API:",
+        "[x] Change admin ban/unban endpoints to set/clear `banned_at` (and revoke sessions on ban)",
+        "[x] Remove or repurpose \"toggle active\" endpoint (make it ban/unban; no generic active toggle)",
+        "[x] Change `DELETE /auth/user` to call soft delete (`deleted_at=now()` + revoke sessions)",
+        "[x] Change admin delete endpoint to soft delete by default (`deleted_at=now()`), not hard delete",
+        "",
+        "ADMIN VIEWS:",
+        "[x] Update AdminUser / listing to expose `banned_at` and `deleted_at` (and derived booleans if needed)",
+        "[x] Update any filters/search that currently use is_active",
+        "",
+        "RETENTION + PURGE (30 DAYS):",
+        "[x] Add `profiles.users.deleted_at` retention policy: hard-delete after 30 days from deleted_at",
+        "[x] Provide an AuthKit River module so host apps can \"plug in\" purge without re-implementing logic:",
+        "      - A River job args type (`authkit/riverjobs.PurgeDeletedUsersArgs`) with params: retention_days, batch_size",
+        "      - A worker implementation that selects `deleted_at < now() - retention_days` and hard-deletes authkit-owned rows",
+        "      - Helpers: `RegisterPurgeDeletedUsersWorker` and `AddPurgeDeletedUsersPeriodicJob`",
+        "[x] Define a host callback for app-domain cleanup/anonymization, invoked before the authkit hard-delete:",
+        "      - `BeforeUserHardDelete(ctx, user_id) error` (delete likes/favorites, anonymize comments, etc.)",
+        "[x] (OBSOLETE for this library - host-app concern, not authkit; authkit provides the BeforeUserHardDelete hook and the FK/anonymization policy lives in the host apps) Document downstream data policy in host apps (examples):",
+        "      - comments: keep content by changing FK to `ON DELETE SET NULL` (so author becomes NULL on hard-delete); frontend renders author=NULL as \"user deleted\" (also handle legacy anonymous comments via anon_name when present)",
+        "      - reactions/favorites: usually delete (cascade or explicit cleanup)",
+        "      - posts/content with non-null author_id: decide per-app (either cascade-delete posts on user hard-delete, or switch author FK to SET NULL and render \"user deleted\")",
+        "      - ClickHouse analytics/events: treat as append-only history; user_id may remain in event rows after user purge (acceptable; avoid expensive deletes)",
+        "      - billing/audit/security logs: retain required records; remove/obfuscate PII as needed",
+        "",
+        "TESTS/VALIDATION:",
+        "[x] Add tests: banned users cannot log in; deleted users cannot log in; unban restores access; ban revokes sessions; delete revokes sessions -> [x] DONE 2026-05-22: e2e subtests ban_revokes_refresh_sessions_and_unban_restores + soft_delete_revokes_refresh_sessions pass live against the pg18 devserver.",
+        "[x] Add tests for purge candidate selection: deleted_at older/newer than cutoff -> [x] DONE 2026-05-22: riverjobs/purge_deleted_users_test.go added (TestPurgeCandidateSelectionBoundary, DB-gated per repo convention; TestPurgeRetentionDefaults passes).",
+        "[x] (OBSOLETE - migrations were squashed into a single baseline 001 with no is_active column and no backfill step; there is no old->new path left to test) Run migration path test: old data -> backfill -> code works -> drop is_active"
+      ],
+      "completed": true
+    },
+    {
+      "name": "Security audit events: password reset requests (non-session)",
+      "id_number": 15,
+      "description": "Add a separate, non-session security audit event stream for flows like password reset requests.\n\nWhy:\n- Password reset requests are security-relevant, but are not session lifecycle events and should not be mixed into `user_auth_session_events`.\n- Host apps may want an audit trail for account recovery activity without logging per-access-token issuance.\n\nDesign:\n- Add a new ClickHouse table (e.g., `user_auth_security_events`) keyed by `(issuer, occurred_at, event, user_id?)`.\n- Add a dedicated logger interface/method (separate from session events) so session lifecycle logging remains focused.\n- Avoid logging raw identifiers (email/phone). Prefer `user_id` when known; otherwise log a hash + identifier type if absolutely needed.\n\nEvents (initial):\n- `password_reset_requested` (email/phone)\n\nNon-goals:\n- Changing session lifecycle logging.\n- Per-access-token mint telemetry.",
+      "tasks": [
+        "[x] (SUPERSEDED - the separate stream was not built; reset-request auditing was folded into the existing session-event stream instead) Define `SecurityEvent` types and a new logger interface (separate from session events)",
+        "[x] (SUPERSEDED - no separate table; events are recorded in the existing user_auth_session_events) Add ClickHouse migration to create `user_auth_security_events`",
+        "[x] REMAINING GAP (real): reset-request events ARE already emitted (as `password_recovery` via LogPasswordRecovery at request time, email service.go:1101 / phone :1780, carrying issuer + user_id, never raw email/phone) - but ip/ua are currently passed as nil (http/password_reset.go forwards no request IP/UA). Capture and forward request ip/ua on these events. -> [x] DONE 2026-05-22: request ip/ua threaded from the HTTP handlers through RequestPasswordReset/RequestPhonePasswordReset into LogPasswordRecovery; shipped in authkit v0.10.2.",
+        "[x] (DONE BY DESIGN - the session-event records log only user_id, never raw email/phone) Decide on identifier logging policy (no raw email/phone; optional hash if needed) and document it",
+        "[x] (OBSOLETE - no separate table; the existing user_auth_session_events sink already carries these events) Update host apps' ClickHouse sink(s) to insert into `user_auth_security_events`"
+      ],
+      "completed": true
+    }
+  ]
+}
