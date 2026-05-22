@@ -31,6 +31,16 @@ func (m *memFederatedSource) ListFederatedOrgIssuers(_ context.Context, activeOn
 	return out, nil
 }
 
+func (m *memFederatedSource) GetFederatedOrgIssuer(_ context.Context, issuerID string) (*core.FederatedOrgIssuer, error) {
+	for i := range m.items {
+		if m.items[i].IssuerID == issuerID {
+			fi := m.items[i]
+			return &fi, nil
+		}
+	}
+	return nil, core.ErrFederatedIssuerNotFound
+}
+
 // jwksServer serves a single signer's JWKS, returning its base URL.
 func jwksServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Server {
 	t.Helper()

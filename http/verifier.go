@@ -37,6 +37,30 @@ type Verifier struct {
 	byIss   map[string]*issuerKeys
 
 	enrich *core.Service
+
+	// Federated-issuer lazy-load coherence state. fedSource is the store the
+	// lazy-load-on-miss path consults; it defaults to enrich (*core.Service) but
+	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
+	// issuer is registered with the SAME audiences the bulk LoadFederatedIssuers
+	// used. fedKnown records which issuers were sourced from the federated store
+	// so reconciling reload only evicts those (never statically-configured ones).
+	fedSource    FederatedIssuerSource
+	fedAudiences []string
+	fedKnown     map[string]bool
+
+	// negCache remembers issuers the federated source did not return as active,
+	// for negCacheTTL, so garbage/unknown `iss` values don't hit the DB per
+	// request. fedFlight single-flights concurrent first-use of the same issuer.
+	negCache    map[string]time.Time
+	negCacheTTL time.Duration
+	fedFlight   map[string]*sync.WaitGroup
+
+	// kidRefetch tracks the last forced JWKS refetch per issuer (driven by an
+	// unknown-kid for a KNOWN issuer) so a storm of bad kids can't hammer the
+	// JWKS endpoint. Guarded by a min-interval and single-flight.
+	kidRefetchAt     map[string]time.Time
+	kidRefetchFlight map[string]*sync.WaitGroup
+	kidRefetchMin    time.Duration
 }
 
 // issuerEntry describes a trusted issuer (private — replaces core.IssuerAccept).
@@ -93,10 +117,17 @@ func WithOrgMode(mode string) VerifierOption {
 // NewVerifier creates a new Verifier. Add trusted issuers via AddIssuer.
 func NewVerifier(opts ...VerifierOption) *Verifier {
 	v := &Verifier{
-		skew:       60 * time.Second,
-		algorithms: []string{"RS256"},
-		httpClient: http.DefaultClient,
-		byIss:      map[string]*issuerKeys{},
+		skew:             60 * time.Second,
+		algorithms:       []string{"RS256"},
+		httpClient:       http.DefaultClient,
+		byIss:            map[string]*issuerKeys{},
+		fedKnown:         map[string]bool{},
+		negCache:         map[string]time.Time{},
+		negCacheTTL:      5 * time.Second,
+		fedFlight:        map[string]*sync.WaitGroup{},
+		kidRefetchAt:     map[string]time.Time{},
+		kidRefetchFlight: map[string]*sync.WaitGroup{},
+		kidRefetchMin:    30 * time.Second,
 	}
 	for _, o := range opts {
 		o(v)
@@ -233,8 +264,18 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 // Enrichment
 // ---------------------------------------------------------------------------
 
-// WithService enables best-effort enrichment hooks (roles/provider usernames) from Postgres.
-func (v *Verifier) WithService(svc *core.Service) *Verifier { v.enrich = svc; return v }
+// WithService enables best-effort enrichment hooks (roles/provider usernames)
+// from Postgres, and wires the same *core.Service as the default
+// federated-issuer source for lazy-load-on-miss (see keyForToken).
+func (v *Verifier) WithService(svc *core.Service) *Verifier {
+	v.enrich = svc
+	v.mu.Lock()
+	if v.fedSource == nil && svc != nil {
+		v.fedSource = svc
+	}
+	v.mu.Unlock()
+	return v
+}
 
 // ---------------------------------------------------------------------------
 // Federated-org issuers (in-house store, no external push/sync)
@@ -245,6 +286,10 @@ func (v *Verifier) WithService(svc *core.Service) *Verifier { v.enrich = svc; re
 // supply its own implementation in tests or to source issuers from elsewhere.
 type FederatedIssuerSource interface {
 	ListFederatedOrgIssuers(ctx context.Context, activeOnly bool) ([]core.FederatedOrgIssuer, error)
+	// GetFederatedOrgIssuer fetches a SINGLE federated-org issuer by its
+	// issuer_id, used by the lazy-load-on-miss path in keyForToken. *core.Service
+	// already implements this.
+	GetFederatedOrgIssuer(ctx context.Context, issuerID string) (*core.FederatedOrgIssuer, error)
 }
 
 // LoadFederatedIssuers loads the ACTIVE federated-org issuers from authkit's
@@ -265,16 +310,127 @@ func (v *Verifier) LoadFederatedIssuers(ctx context.Context, src FederatedIssuer
 		}
 		src = v.enrich
 	}
+
+	// Remember the source + audiences so lazy-load-on-miss (keyForToken) behaves
+	// IDENTICALLY to this bulk load.
+	v.mu.Lock()
+	v.fedSource = src
+	v.fedAudiences = audiences
+	v.mu.Unlock()
+
 	issuers, err := src.ListFederatedOrgIssuers(ctx, true)
 	if err != nil {
 		return err
 	}
+
+	// Build the active set, then AddIssuer each (AddIssuer locks v.mu internally,
+	// so it must be called WITHOUT holding v.mu).
+	active := make(map[string]bool, len(issuers))
 	for _, fi := range issuers {
-		if err := v.AddIssuer(fi.IssuerID, audiences, IssuerOptions{JWKSURL: fi.JWKSURL}); err != nil {
+		issuerID := strings.TrimSpace(fi.IssuerID)
+		if issuerID == "" {
+			continue
+		}
+		active[issuerID] = true
+		if err := v.AddIssuer(issuerID, audiences, IssuerOptions{JWKSURL: fi.JWKSURL}); err != nil {
 			return err
 		}
+		v.mu.Lock()
+		v.fedKnown[issuerID] = true
+		delete(v.negCache, issuerID) // it is active now; clear any negative entry
+		v.mu.Unlock()
+	}
+
+	// RECONCILE: evict in-memory FEDERATED issuers that are no longer in the
+	// active set. Only federated issuers (tracked in fedKnown) are eligible —
+	// statically-configured issuers added via AddIssuer are never evicted here.
+	// This bounds revocation lag to the reload tick. (A Postgres LISTEN/NOTIFY
+	// stream of issuer-row changes could give sub-tick eviction; not built here —
+	// reconciling reload + on-unknown-kid refetch give bounded correctness.)
+	v.mu.Lock()
+	var toEvict []string
+	for issuerID := range v.fedKnown {
+		if !active[issuerID] {
+			toEvict = append(toEvict, issuerID)
+		}
+	}
+	for _, issuerID := range toEvict {
+		delete(v.fedKnown, issuerID)
+	}
+	v.mu.Unlock()
+
+	// RemoveIssuer locks v.mu internally; call outside the critical section.
+	for _, issuerID := range toEvict {
+		v.RemoveIssuer(issuerID)
 	}
 	return nil
+}
+
+// lazyLoadIssuer is the lazy-load-on-miss path: when matchIssuer misses and a
+// federated-issuer source is configured, fetch that ONE issuer from the store
+// and, if ACTIVE, register it (AddIssuer fetches+caches its JWKS). All DB/JWKS
+// work happens WITHOUT holding v.mu (AddIssuer locks v.mu internally, so calling
+// it under the lock would deadlock). A short negative cache + single-flight stop
+// garbage `iss` values and concurrent first-use from hammering the DB/JWKS.
+//
+// Returns true if the issuer is now registered (caller should retry matchIssuer).
+func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
+	issuer = strings.TrimSpace(issuer)
+	if issuer == "" {
+		return false
+	}
+
+	v.mu.Lock()
+	src := v.fedSource
+	if src == nil {
+		v.mu.Unlock()
+		return false
+	}
+	// Negative cache: skip recently-failed lookups.
+	if t, ok := v.negCache[issuer]; ok && time.Since(t) < v.negCacheTTL {
+		v.mu.Unlock()
+		return false
+	}
+	// Single-flight: if another goroutine is already loading this issuer, wait
+	// for it, then let the caller re-check the in-memory cache.
+	if wg, inflight := v.fedFlight[issuer]; inflight {
+		v.mu.Unlock()
+		wg.Wait()
+		return true // caller retries matchIssuer; may still miss (load failed)
+	}
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	v.fedFlight[issuer] = wg
+	aud := v.fedAudiences
+	v.mu.Unlock()
+
+	defer func() {
+		v.mu.Lock()
+		delete(v.fedFlight, issuer)
+		v.mu.Unlock()
+		wg.Done()
+	}()
+
+	fi, err := src.GetFederatedOrgIssuer(ctx, issuer)
+	if err != nil || fi == nil || !strings.EqualFold(strings.TrimSpace(fi.Status), "active") {
+		v.mu.Lock()
+		v.negCache[issuer] = time.Now()
+		v.mu.Unlock()
+		return false
+	}
+
+	if err := v.AddIssuer(fi.IssuerID, aud, IssuerOptions{JWKSURL: fi.JWKSURL}); err != nil {
+		v.mu.Lock()
+		v.negCache[issuer] = time.Now()
+		v.mu.Unlock()
+		return false
+	}
+
+	v.mu.Lock()
+	v.fedKnown[strings.TrimSpace(fi.IssuerID)] = true
+	delete(v.negCache, issuer)
+	v.mu.Unlock()
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -433,7 +589,16 @@ func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
 	iss, _ := claims["iss"].(string)
 	match := v.matchIssuer(iss)
 	if match == nil {
-		return nil, fmt.Errorf("bad_issuer")
+		// Lazy-load-on-miss: a brand-new federated issuer may already be in the
+		// store but not yet in this replica's in-memory cache. Fetch+register it
+		// (outside v.mu — AddIssuer locks v.mu) and retry. Backward compatible:
+		// when no federated source is configured this is a no-op (-> bad_issuer).
+		if v.lazyLoadIssuer(context.Background(), iss) {
+			match = v.matchIssuer(iss)
+		}
+		if match == nil {
+			return nil, fmt.Errorf("bad_issuer")
+		}
 	}
 
 	kid, _ := token.Header["kid"].(string)
@@ -499,19 +664,68 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 	}
 
 	v.mu.Lock()
-	defer v.mu.Unlock()
 	if kid != "" {
 		if pk := c.pubByKID[kid]; pk != nil {
+			v.mu.Unlock()
 			return pk, nil
+		}
+		// Unknown kid for a KNOWN issuer: a key may have rotated mid-TTL (the
+		// cached JWKS is still "fresh" so the TTL refresh above did not fire).
+		// Force ONE bounded JWKS refetch (min-interval + single-flight guarded so
+		// a storm of bad kids can't hammer the JWKS endpoint) and retry.
+		v.mu.Unlock()
+		if v.refetchForUnknownKID(ctx, iss, ie, cacheTTL, maxStale) {
+			v.mu.Lock()
+			if pk := c.pubByKID[kid]; pk != nil {
+				v.mu.Unlock()
+				return pk, nil
+			}
+			v.mu.Unlock()
 		}
 		return nil, errors.New("unknown_kid")
 	}
+	defer v.mu.Unlock()
 	if len(c.pubByKID) == 1 {
 		for _, pk := range c.pubByKID {
 			return pk, nil
 		}
 	}
 	return nil, errors.New("missing_kid")
+}
+
+// refetchForUnknownKID forces a single bounded JWKS refetch for a known issuer
+// when an unknown kid arrives mid-TTL (key rotation). A min-interval guard plus
+// single-flight ensure a storm of bad kids cannot hammer the JWKS endpoint:
+// concurrent callers coalesce onto one fetch, and a fetch is skipped if one ran
+// within kidRefetchMin. Returns true if a refetch ran (or just completed).
+func (v *Verifier) refetchForUnknownKID(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) bool {
+	v.mu.Lock()
+	// Coalesce concurrent unknown-kid storms onto a single in-flight refetch.
+	if wg, inflight := v.kidRefetchFlight[issuer]; inflight {
+		v.mu.Unlock()
+		wg.Wait()
+		return true
+	}
+	// Min-interval guard: don't refetch more than once per kidRefetchMin.
+	if last, ok := v.kidRefetchAt[issuer]; ok && time.Since(last) < v.kidRefetchMin {
+		v.mu.Unlock()
+		return false
+	}
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	v.kidRefetchFlight[issuer] = wg
+	v.mu.Unlock()
+
+	defer func() {
+		v.mu.Lock()
+		v.kidRefetchAt[issuer] = time.Now()
+		delete(v.kidRefetchFlight, issuer)
+		v.mu.Unlock()
+		wg.Done()
+	}()
+
+	_ = v.refreshIssuerKeys(ctx, issuer, ie, cacheTTL, maxStale)
+	return true
 }
 
 func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) error {
