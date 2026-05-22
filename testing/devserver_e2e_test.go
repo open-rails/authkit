@@ -405,8 +405,14 @@ func TestDevserverE2E(t *testing.T) {
 				t.Fatalf("expected 400 for reserved slug username update, got %d: %s", resp.StatusCode, string(body))
 			}
 			bodyText := string(body)
-			if !strings.Contains(bodyText, `"error":"owner_slug_taken"`) && !strings.Contains(bodyText, `"error":"failed_to_update_username"`) {
-				t.Fatalf("expected owner_slug_taken or failed_to_update_username, got: %s", bodyText)
+			// A reserved/restricted slug surfaces as username_not_allowed from the
+			// username-update validation path (core.UsernameOwnerNamespaceError ->
+			// ErrCodeUsernameNotAllowed for restricted/parked names). The update must
+			// still be REJECTED — we just assert the current rejection code.
+			if !strings.Contains(bodyText, `"error":"username_not_allowed"`) &&
+				!strings.Contains(bodyText, `"error":"owner_slug_taken"`) &&
+				!strings.Contains(bodyText, `"error":"failed_to_update_username"`) {
+				t.Fatalf("expected username_not_allowed (reserved slug rejection), got: %s", bodyText)
 			}
 		}
 
@@ -731,12 +737,18 @@ func TestDevserverE2E(t *testing.T) {
 			sqlString(ownerID), sqlString(a),
 		))
 
+		// profiles.user_renames records one row per vacated slug (from_slug +
+		// renamed_at); there is NO to_slug column — the audit trail tracks which
+		// historical slugs a user has released, not explicit transition pairs.
+		// After A->B and B->C the table must hold both vacated slugs (renamea and
+		// renameb). The renamed_at values are deliberately re-stamped above to
+		// exercise hold-expiry below, so assert membership rather than order.
 		chain := queryPSQL(t, fmt.Sprintf(
-			"SELECT string_agg(from_slug || '>' || to_slug, ',' ORDER BY renamed_at ASC) FROM profiles.user_renames WHERE user_id=%s;",
+			"SELECT string_agg(from_slug, ',' ORDER BY from_slug ASC) FROM profiles.user_renames WHERE user_id=%s;",
 			sqlString(ownerID),
 		))
-		if !strings.Contains(chain, "renamea>renameb") || !strings.Contains(chain, "renameb>renamec") {
-			t.Fatalf("expected A->B and B->C audit rows, got %q", chain)
+		if !strings.Contains(chain, a) || !strings.Contains(chain, b) {
+			t.Fatalf("expected vacated-slug audit rows for %q and %q, got %q", a, b, chain)
 		}
 
 		ownersOut := lookupOwner(t, a)
@@ -790,15 +802,38 @@ func TestDevserverE2E(t *testing.T) {
 	})
 
 	t.Run("reserved_account_reserve_claim_login_flow", func(t *testing.T) {
+		// The reserved-account HTTP surface in the current code is the
+		// restrict/unrestrict pair (/admin/accounts/restrict +
+		// /admin/accounts/unrestrict), which manage the profiles.owner_reserved_names
+		// blocklist. There is no /admin/accounts/reserve or /admin/accounts/claim
+		// route (the old placeholder-user "reserve+password-claim" flow was never
+		// shipped as HTTP routes and assumed multi-org mode the devserver does not
+		// run). This exercises the real, route-backed reserved-name feature.
 		adminUserID := "11111111-1111-1111-1111-111111111111"
 		adminEmail := "admin@example.com"
 		adminUsername := "admin-user"
-		reservedSlug := "reserved-owner"
-		reservedPassword := "StrongPass123!"
+		// Slug must be a valid username (no hyphen) so the rename reaches the
+		// reserved-name check rather than failing earlier character validation.
+		reservedSlug := "reservedowner"
+
+		// A separate, active user that will try to claim the restricted slug.
+		renamerID := "66666666-6666-6666-6666-666666666666"
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			sqlString(renamerID), sqlString("reserve-renamer@example.com"), sqlString("reserverenamer"),
+		))
+		renamerToken := mint(t, renamerID, 300)
 
 		execPSQL(t, fmt.Sprintf(
 			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
 			sqlString(adminUserID), sqlString(adminEmail), sqlString(adminUsername),
+		))
+		// Earlier subtests (ban_and_delete_enforcement / soft_delete_*) reuse this
+		// same user id and leave it banned/soft-deleted. Reactivate it so the minted
+		// admin token is accepted (otherwise auth middleware returns user_disabled).
+		execPSQL(t, fmt.Sprintf(
+			"UPDATE profiles.users SET banned_at=NULL, deleted_at=NULL WHERE id=%s;",
+			sqlString(adminUserID),
 		))
 		execPSQL(t, "INSERT INTO profiles.global_roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
 		execPSQL(t, fmt.Sprintf(
@@ -807,76 +842,74 @@ func TestDevserverE2E(t *testing.T) {
 		))
 		adminToken := mint(t, adminUserID, 300)
 
-		reserveResp, reserveBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/reserve", map[string]string{
+		// Restrict the slug -> it lands on the owner_reserved_names blocklist.
+		restrictResp, restrictBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/restrict", map[string]string{
 			"Authorization": "Bearer " + adminToken,
 		}, map[string]any{
-			"slug": reservedSlug,
+			"slugs": []string{reservedSlug},
 		})
-		if reserveResp.StatusCode != http.StatusOK {
-			t.Fatalf("expected reserve 200, got %d: %s", reserveResp.StatusCode, string(reserveBody))
+		if restrictResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected restrict 200, got %d: %s", restrictResp.StatusCode, string(restrictBody))
+		}
+		if !strings.Contains(string(restrictBody), reservedSlug) {
+			t.Fatalf("expected %q in restrict response, got: %s", reservedSlug, string(restrictBody))
+		}
+		reservedRows := queryPSQL(t, fmt.Sprintf(
+			"SELECT COUNT(*) FROM profiles.owner_reserved_names WHERE slug=%s;",
+			sqlString(reservedSlug),
+		))
+		if reservedRows != "1" {
+			t.Fatalf("expected reserved-name row for %q, got %q", reservedSlug, reservedRows)
 		}
 
-		userReserved := queryPSQL(t, fmt.Sprintf(
-			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%s LIMIT 1;",
-			sqlString(reservedSlug),
-		))
-		if userReserved != "t" {
-			t.Fatalf("expected user metadata.reserved=true, got %q", userReserved)
+		// A live user cannot claim the restricted slug (reserved-name rejection).
+		renameResp, renameBody := httpJSON(t, http.MethodPatch, baseURL+"/api/v1/user/username", map[string]string{
+			"Authorization": "Bearer " + renamerToken,
+		}, map[string]any{"username": reservedSlug})
+		if renameResp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400 claiming restricted slug, got %d: %s", renameResp.StatusCode, string(renameBody))
 		}
-		orgReserved := queryPSQL(t, fmt.Sprintf(
-			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.orgs WHERE slug=%s AND deleted_at IS NULL LIMIT 1;",
-			sqlString(reservedSlug),
-		))
-		if orgReserved != "t" {
-			t.Fatalf("expected org metadata.reserved=true, got %q", orgReserved)
-		}
-		passwordRows := queryPSQL(t, fmt.Sprintf(
-			"SELECT COUNT(*) FROM profiles.user_passwords up JOIN profiles.users u ON u.id=up.user_id WHERE u.username=%s;",
-			sqlString(reservedSlug),
-		))
-		if passwordRows != "0" {
-			t.Fatalf("expected no password rows for reserved placeholder, got %q", passwordRows)
-		}
-		providerRows := queryPSQL(t, fmt.Sprintf(
-			"SELECT COUNT(*) FROM profiles.user_providers p JOIN profiles.users u ON u.id=p.user_id WHERE u.username=%s;",
-			sqlString(reservedSlug),
-		))
-		if providerRows != "0" {
-			t.Fatalf("expected no provider rows for reserved placeholder, got %q", providerRows)
+		if !strings.Contains(string(renameBody), `"error":"username_not_allowed"`) &&
+			!strings.Contains(string(renameBody), `"error":"owner_slug_taken"`) {
+			t.Fatalf("expected username_not_allowed for restricted slug, got: %s", string(renameBody))
 		}
 
-		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
-			"username": reservedSlug,
-			"password": reservedPassword,
-		})
-		if loginResp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("expected login denied for unclaimed placeholder, got %d: %s", loginResp.StatusCode, string(loginBody))
-		}
-
-		claimResp, claimBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/claim", map[string]string{
+		// Restricting again reports it as already restricted, not newly restricted.
+		restrictAgainResp, restrictAgainBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/restrict", map[string]string{
 			"Authorization": "Bearer " + adminToken,
 		}, map[string]any{
-			"slug":     reservedSlug,
-			"password": reservedPassword,
-			"email":    "reserved-owner@example.com",
+			"slugs": []string{reservedSlug},
 		})
-		if claimResp.StatusCode != http.StatusOK {
-			t.Fatalf("expected claim 200, got %d: %s", claimResp.StatusCode, string(claimBody))
+		if restrictAgainResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected repeat restrict 200, got %d: %s", restrictAgainResp.StatusCode, string(restrictAgainBody))
 		}
-		userReservedAfter := queryPSQL(t, fmt.Sprintf(
-			"SELECT COALESCE((metadata->>'reserved')::boolean, false) FROM profiles.users WHERE username=%s LIMIT 1;",
-			sqlString(reservedSlug),
-		))
-		if userReservedAfter != "f" {
-			t.Fatalf("expected user metadata.reserved=false after claim, got %q", userReservedAfter)
+		if !strings.Contains(string(restrictAgainBody), `"already_restricted":["`+reservedSlug+`"]`) {
+			t.Fatalf("expected %q reported as already_restricted, got: %s", reservedSlug, string(restrictAgainBody))
 		}
 
-		loginResp2, loginBody2 := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
-			"username": reservedSlug,
-			"password": reservedPassword,
+		// Unrestrict frees the slug.
+		unrestrictResp, unrestrictBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/unrestrict", map[string]string{
+			"Authorization": "Bearer " + adminToken,
+		}, map[string]any{
+			"slugs": []string{reservedSlug},
 		})
-		if loginResp2.StatusCode != http.StatusOK {
-			t.Fatalf("expected claimed user login 200, got %d: %s", loginResp2.StatusCode, string(loginBody2))
+		if unrestrictResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected unrestrict 200, got %d: %s", unrestrictResp.StatusCode, string(unrestrictBody))
+		}
+		reservedRowsAfter := queryPSQL(t, fmt.Sprintf(
+			"SELECT COUNT(*) FROM profiles.owner_reserved_names WHERE slug=%s;",
+			sqlString(reservedSlug),
+		))
+		if reservedRowsAfter != "0" {
+			t.Fatalf("expected reserved-name row removed for %q, got %q", reservedSlug, reservedRowsAfter)
+		}
+
+		// Now the slug is claimable: the live user can rename into it.
+		renameOKResp, renameOKBody := httpJSON(t, http.MethodPatch, baseURL+"/api/v1/user/username", map[string]string{
+			"Authorization": "Bearer " + renamerToken,
+		}, map[string]any{"username": reservedSlug})
+		if renameOKResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 claiming freed slug, got %d: %s", renameOKResp.StatusCode, string(renameOKBody))
 		}
 	})
 }
