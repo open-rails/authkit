@@ -52,6 +52,7 @@ const (
 	RLAdminUserSessionsList      = "auth_admin_user_sessions_list"
 	RLAdminUserSessionsRevoke    = "auth_admin_user_sessions_revoke"
 	RLAdminUserSessionsRevokeAll = "auth_admin_user_sessions_revoke_all"
+	RLAdminPasswordReset         = "auth_admin_password_reset"
 
 	// Solana SIWS authentication
 	RLSolanaChallenge = "auth_solana_challenge"

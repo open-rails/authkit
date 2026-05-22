@@ -83,6 +83,7 @@ func DefaultRateLimits() map[string]Limit {
 		RLAdminRolesRevoke:           {Limit: 30, Window: time.Hour},
 		RLAdminUserSessionsList:      {Limit: 600, Window: time.Hour},
 		RLAdminUserSessionsRevokeAll: {Limit: 30, Window: time.Hour},
+		RLAdminPasswordReset:         {Limit: 20, Window: time.Hour},
 	}
 }
 

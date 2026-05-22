@@ -163,6 +163,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/admin/users/deleted", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminDeletedUsersListGET))},
 		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserSigninsGET))},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserSessionsRevokePOST))},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserPasswordResetPOST))},
 		{Method: http.MethodPost, Path: "/admin/accounts/restrict", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountsRestrictPOST))},
 		{Method: http.MethodPost, Path: "/admin/accounts/unrestrict", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST))},
 		{Method: http.MethodPost, Path: "/admin/account/park", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountParkPOST))},

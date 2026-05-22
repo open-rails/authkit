@@ -316,6 +316,36 @@ func (s *Service) handleAdminDeletedUsersListGET(w http.ResponseWriter, r *http.
 	})
 }
 
+func (s *Service) handleAdminUserPasswordResetPOST(w http.ResponseWriter, r *http.Request) {
+	userID := strings.TrimSpace(r.PathValue("user_id"))
+	if userID == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if s.rateLimited(w, r, RLAdminPasswordReset) {
+		return
+	}
+	if !s.svc.HasEmailSender() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "email_sender_unavailable"})
+		return
+	}
+	u, err := s.svc.AdminGetUser(r.Context(), userID)
+	if err != nil || u == nil {
+		notFound(w, "not_found")
+		return
+	}
+	if u.Email == nil || strings.TrimSpace(*u.Email) == "" {
+		sendErr(w, http.StatusUnprocessableEntity, "no_email")
+		return
+	}
+	if err := s.svc.RequestPasswordReset(r.Context(), *u.Email, 0, nil, nil); err != nil {
+		s.logInternalError(r, "admin_password_reset", "request_password_reset", "password_reset_request_failed", err)
+		serverErr(w, "password_reset_request_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
