@@ -796,3 +796,94 @@ SpaceX accepts access tokens from multiple issuers; both tesla.com and x.com.
     http.ListenAndServe(":8080", mux)
   }
 ```
+
+---
+
+### Federated Orgs & Platform Delegation
+
+AuthKit owns the full platform-delegation lifecycle so an **org can bring in
+federated users** — users who live in the org's own system and authenticate via
+the org's **issuer** rather than local passwords. Two AuthKit-embedding services
+register with and trust each other:
+
+- the **platform / IdP** side (e.g. cozy-art) **mints** delegated tokens and
+  **sends** its registration;
+- the **resource-server** side (e.g. tensorhub) **accepts** registrations and
+  **validates** the delegated tokens.
+
+There are three roles, all owned by AuthKit:
+
+| Role | Side | API |
+|---|---|---|
+| **register** | both | `FederationClient.RegisterIssuer` (outbound) → `POST /federated-issuers` (inbound) |
+| **mint** | platform | `MintDelegatedToken(ctx, signer, DelegatedTokenParams)` |
+| **validate** | resource server | `Verifier.LoadFederatedIssuers` + `Verifier.Verify` → `Claims.Delegated()` |
+
+#### The delegated-token contract
+
+A delegated platform token is signed by the org's platform issuer key and
+carries:
+
+- `delegated_sub` — the **federated user id**. A delegated token **never** sets
+  `sub`. The invariant is: a token carries EITHER `sub` (native user) **XOR**
+  `delegated_sub` (federated user), never both. AuthKit refuses to mint both,
+  and `Verify()` rejects any token presenting both (`conflicting_subject`).
+- `org` / `tenant` — the federated org slug. `Claims.Tenant` reads `tenant`,
+  falling back to `org`.
+- `user_tier` — the platform's tier for this user (`Claims.UserTier`).
+- `roles` — platform-scoped roles for the federated user.
+- `aud` — the resource servers this token targets.
+- `exp` — expiry (defaults to 15m).
+
+Because a delegated token has no `sub`, the resource server's middleware
+**skips the local-user gate** (no `user_disabled` lookup) — authorization is by
+issuer/tenant trust, not local-user existence. Validated delegated tokens are
+read via:
+
+```go
+cl, _ := verifier.Verify(token)
+if dp, ok := cl.Delegated(); ok {
+    // dp.Tenant, dp.DelegatedSubject, dp.UserTier, dp.Roles, dp.Issuer
+}
+```
+
+#### Registration handshake (both sides)
+
+**Outbound (platform side, e.g. cozy-art)** — publish this org's issuer +
+JWKS URL to a resource server's accept endpoint:
+
+```go
+fc := authhttp.NewFederationClient(
+    authhttp.WithFederationAuthToken(ownerAccessToken), // org owner/admin token
+)
+err := fc.RegisterIssuer(ctx, "https://tensorhub.example/api/v1/federated-issuers",
+    authhttp.FederationRegistration{
+        Org:      "cozy-art",
+        IssuerID: "https://cozy.art",
+        JWKSURL:  "https://cozy.art/.well-known/jwks.json",
+    })
+```
+
+**Inbound (resource-server side, e.g. tensorhub)** — mount the `RouteFederation`
+group. `POST /federated-issuers` accepts + stores a registration, authorized by
+the **org owner/admin** of the registering org (global admins may register for
+any org); `DELETE /federated-issuers` removes one; `GET /federated-issuers`
+(global-admin) lists them. This is the AuthKit-owned home for what services used
+to expose as a bespoke `/api/v1/platform/issuers` endpoint.
+
+#### In-house JWKS — no external push/sync
+
+The resource server loads registered federated issuers from AuthKit's **own
+store** (the `profiles.federated_org_issuers` table) and registers each with the
+Verifier, whose existing in-house JWKS fetch/refresh then handles the keys.
+There is **no external key push or sync** — the resource server pulls JWKS from
+each issuer's URL on demand and refreshes per `CacheTTL`.
+
+```go
+// At startup (and re-run on a ticker / after a registration) to pick up store changes:
+err := verifier.LoadFederatedIssuers(ctx, coreSvc /* or any FederatedIssuerSource */, []string{"tensorhub"})
+```
+
+`LoadFederatedIssuers` registers only `active` issuers. A newly-accepted
+registration is also added to the Verifier immediately by the inbound handler,
+so it is usable without waiting for the next store load.

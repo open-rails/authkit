@@ -24,6 +24,10 @@ const (
 	RouteSolana             RouteGroup = "solana"
 	RouteAdmin              RouteGroup = "admin"
 	RouteOIDCBrowser        RouteGroup = "oidc_browser"
+	// RouteFederation exposes the inbound accept-side federated-issuer registry
+	// routes (the home for what tensorhub previously exposed as
+	// `/api/v1/platform/issuers`).
+	RouteFederation RouteGroup = "federation"
 )
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
@@ -165,6 +169,14 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/account/claim", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountClaimPOST))},
 		{Method: http.MethodPost, Path: "/admin/org/park", Group: RouteAdmin, Handler: notFoundHandler},
 		{Method: http.MethodPost, Path: "/admin/org/claim", Group: RouteAdmin, Handler: notFoundHandler},
+
+		// Federated-org issuer registry (INBOUND accept side). Registration +
+		// deletion authorize on org owner/admin inside the handler (so they only
+		// need `required`, not the global-admin RequireAdmin gate). Listing is
+		// global-admin only for operator visibility.
+		{Method: http.MethodPost, Path: "/federated-issuers", Group: RouteFederation, Handler: required(http.HandlerFunc(s.handleFederatedIssuerRegisterPOST))},
+		{Method: http.MethodDelete, Path: "/federated-issuers", Group: RouteFederation, Handler: required(http.HandlerFunc(s.handleFederatedIssuerDeleteDELETE))},
+		{Method: http.MethodGet, Path: "/federated-issuers", Group: RouteFederation, Handler: admin(http.HandlerFunc(s.handleFederatedIssuersListGET))},
 	}
 
 	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {

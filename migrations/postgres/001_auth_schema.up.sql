@@ -339,3 +339,41 @@ CREATE INDEX IF NOT EXISTS user_renames_from_renamed_idx
   ON profiles.user_renames (from_slug, renamed_at DESC);
 CREATE INDEX IF NOT EXISTS user_renames_user_idx
   ON profiles.user_renames (user_id, renamed_at DESC);
+
+-- Federated-org issuer registry.
+--
+-- A federated org "brings its own" users that authenticate via the org's OWN
+-- issuer (not local passwords). The org registers its issuer URL + JWKS URL
+-- here; a resource-server-side AuthKit then trusts delegated tokens minted by
+-- that issuer (carrying `delegated_sub`). This table is the resource-server's
+-- store of accepted federated issuers — it replaces a bespoke per-app table
+-- (e.g. tensorhub's `platform_issuers`). The Verifier loads `active` rows from
+-- here and registers each as a trusted issuer (with the org's JWKS URL), so its
+-- existing in-house JWKS fetch/refresh handles federated keys with NO external
+-- push/sync.
+CREATE TABLE IF NOT EXISTS profiles.federated_org_issuers (
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
+  -- Org identity as presented by the registering platform. `org_slug` is the
+  -- tenant slug carried in delegated tokens (`org`/`tenant`); it is NOT a FK to
+  -- profiles.orgs because a federated org lives in the remote platform, not
+  -- locally.
+  org_slug   text NOT NULL,
+  -- issuer_id is the `iss` URL the federated platform signs delegated tokens
+  -- with; it is the trust anchor and is globally unique.
+  issuer_id  text NOT NULL UNIQUE,
+  jwks_url   text NOT NULL,
+  status     text NOT NULL DEFAULT 'active',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT federated_org_issuers_status_chk CHECK (status IN ('active', 'inactive')),
+  CONSTRAINT federated_org_issuers_org_slug_format_chk CHECK (
+    char_length(org_slug) BETWEEN 1 AND 63
+    AND org_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  )
+);
+CREATE INDEX IF NOT EXISTS federated_org_issuers_org_slug_idx
+  ON profiles.federated_org_issuers (org_slug);
+CREATE INDEX IF NOT EXISTS federated_org_issuers_status_idx
+  ON profiles.federated_org_issuers (status)
+  WHERE status = 'active';
+COMMENT ON TABLE profiles.federated_org_issuers IS 'Registry of trusted federated-org issuers (delegated-token federation). Resource-server side.';

@@ -767,12 +767,12 @@
         "[x] STAGE 1. VALIDATION API: expose a typed DelegatedPrincipal from a verified delegated token \u2014 tensorhub embeds this.",
         "[x] STAGE 1. Tests: native vs delegated token; no-`sub` token verifies; delegated principal extraction; local-user gate skipped for delegated; minting round-trips through validation.",
         "[x] STAGE 1. Release authkit (new minor) with minting + validation.",
-        "[ ] STAGE 2 \u2014 federated-org registry. Org model: federated identity \u2014 `Federated bool`, `IssuerID`, `JWKSURL`/keys, issuer status (new Org fields or a `federated_org_issuers` table) + migration.",
-        "[ ] STAGE 2. REGISTRATION HANDSHAKE, both sides owned by authkit: (a) INBOUND accept-side handler that stores a federated org's issuer registration (the home for tensorhub's `/api/v1/platform/issuers`), authorized by org owner/admin; (b) OUTBOUND send-side client that publishes this org's issuer id + jwks_url to a resource server. Two authkit instances complete the handshake (platform <-> resource-server).",
-        "[ ] STAGE 2. In-house JWKS fetch/refresh for federated-org issuers; the Verifier loads federated issuers from authkit's OWN store (no external push/sync).",
-        "[ ] STAGE 2. Docs: the federated-org concept (orgs bring federated users), the 3 roles (register/mint/validate), and the delegated-token contract (`delegated_sub`, etc.). Release authkit."
+        "[x] STAGE 2 \u2014 federated-org registry. Org model: federated identity \u2014 `Federated bool`, `IssuerID`, `JWKSURL`/keys, issuer status (new Org fields or a `federated_org_issuers` table) + migration.",
+        "[x] STAGE 2. REGISTRATION HANDSHAKE, both sides owned by authkit: (a) INBOUND accept-side handler that stores a federated org's issuer registration (the home for tensorhub's `/api/v1/platform/issuers`), authorized by org owner/admin; (b) OUTBOUND send-side client that publishes this org's issuer id + jwks_url to a resource server. Two authkit instances complete the handshake (platform <-> resource-server).",
+        "[x] STAGE 2. In-house JWKS fetch/refresh for federated-org issuers; the Verifier loads federated issuers from authkit's OWN store (no external push/sync).",
+        "[x] STAGE 2. Docs: the federated-org concept (orgs bring federated users), the 3 roles (register/mint/validate), and the delegated-token contract (`delegated_sub`, etc.). Release authkit."
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id_number": 41,

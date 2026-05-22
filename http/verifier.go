@@ -237,6 +237,47 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 func (v *Verifier) WithService(svc *core.Service) *Verifier { v.enrich = svc; return v }
 
 // ---------------------------------------------------------------------------
+// Federated-org issuers (in-house store, no external push/sync)
+// ---------------------------------------------------------------------------
+
+// FederatedIssuerSource is the minimal store contract the Verifier needs to
+// load federated-org issuers. *core.Service satisfies it. An embedding app may
+// supply its own implementation in tests or to source issuers from elsewhere.
+type FederatedIssuerSource interface {
+	ListFederatedOrgIssuers(ctx context.Context, activeOnly bool) ([]core.FederatedOrgIssuer, error)
+}
+
+// LoadFederatedIssuers loads the ACTIVE federated-org issuers from authkit's
+// OWN store (the federated_org_issuers table) and registers each as a trusted
+// issuer via AddIssuer with its JWKS URL. The Verifier's existing in-house
+// JWKS fetch/refresh then handles the federated keys — there is NO external
+// push or sync of keys.
+//
+// audiences, when non-empty, is applied to every loaded issuer (typically this
+// resource server's own audience). Call this at startup, and re-call (e.g. on
+// a ticker, or after an inbound registration) to pick up store changes. Pass
+// the embedding app's core.Service (or any FederatedIssuerSource); if nil, the
+// Service provided via WithService is used.
+func (v *Verifier) LoadFederatedIssuers(ctx context.Context, src FederatedIssuerSource, audiences []string) error {
+	if src == nil {
+		if v.enrich == nil {
+			return errors.New("no federated-issuer source available")
+		}
+		src = v.enrich
+	}
+	issuers, err := src.ListFederatedOrgIssuers(ctx, true)
+	if err != nil {
+		return err
+	}
+	for _, fi := range issuers {
+		if err := v.AddIssuer(fi.IssuerID, audiences, IssuerOptions{JWKSURL: fi.JWKSURL}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Verification
 // ---------------------------------------------------------------------------
 

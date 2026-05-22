@@ -213,3 +213,17 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | GET | `/owners/:slug` | PUBLIC | Fetch public owner metadata and availability status (`requested_slug`, canonical `slug`, `status`, `claimable`, `renamed`, optional `hold_until`, plus org/user info) |
 
 Owner lookup statuses: `registered_user`, `registered_org`, `parked_user`, `parked_org`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, `unregistered`.
+
+## Federated Orgs (RouteFederation, resource-server side)
+
+The inbound accept-side of the platform-delegation handshake. The resource
+server stores trusted federated-org issuers; delegated tokens minted by those
+issuers (carrying `delegated_sub`) are then validated by the Verifier with
+in-house JWKS fetch/refresh (no external push/sync). The outbound side is the
+Go `authhttp.FederationClient` (no route).
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/federated-issuers` | AUTH (org owner/admin) | Register/upsert a federated org's issuer (`{org, issuer_id, jwks_url, status?}`); also added to the live Verifier |
+| DELETE | `/federated-issuers` | AUTH (org owner/admin) | Remove a federated org's issuer registration (`{org, issuer_id}`) |
+| GET | `/federated-issuers` | ADMIN | List registered federated-org issuers |
