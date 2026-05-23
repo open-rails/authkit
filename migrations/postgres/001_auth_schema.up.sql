@@ -263,6 +263,31 @@ CREATE INDEX IF NOT EXISTS org_member_roles_member_idx
 CREATE INDEX IF NOT EXISTS org_member_roles_org_idx
   ON profiles.org_member_roles (org_id);
 
+-- Organization Access Tokens (OATs): long-lived, revocable bearer credentials
+-- OWNED BY AN ORG (not a person), for machine/automation callers. The token is
+-- `<app>oat_<key_id>_<secret>`: key_id is a NON-secret public id used for O(1)
+-- indexed lookup (avoids a full-table scan + timing leak), and only the
+-- sha256(secret) is stored. `permissions` is the set of app-defined permission
+-- strings the token carries (opaque to authkit; the embedding app defines +
+-- enforces their meaning), frozen at mint time. created_by is AUDIT-only and
+-- nullable ON DELETE SET NULL so a token keeps working after its minter leaves.
+CREATE TABLE IF NOT EXISTS profiles.org_access_tokens (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  org_id       uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  key_id       text NOT NULL UNIQUE,
+  secret_hash  bytea NOT NULL,
+  name         text NOT NULL,
+  permissions  text[] NOT NULL DEFAULT '{}',
+  created_by   uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz,
+  expires_at   timestamptz,
+  revoked_at   timestamptz,
+  CONSTRAINT org_access_tokens_name_len_chk CHECK (char_length(name) BETWEEN 1 AND 128)
+);
+CREATE INDEX IF NOT EXISTS org_access_tokens_org_idx
+  ON profiles.org_access_tokens (org_id);
+
 CREATE TABLE IF NOT EXISTS profiles.org_invites (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
   org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,

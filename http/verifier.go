@@ -30,6 +30,11 @@ type Verifier struct {
 	algorithms []string
 	orgMode    string
 
+	// tokenPrefix is the host application's OAT brand prefix (see core.Config
+	// TokenPrefix). Used to detect Organization Access Tokens in the middleware
+	// before JWT verification. Empty -> bare "oat_".
+	tokenPrefix string
+
 	httpClient *http.Client
 
 	mu      sync.Mutex
@@ -112,6 +117,50 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 // as org-scoped roles.
 func WithOrgMode(mode string) VerifierOption {
 	return func(v *Verifier) { v.orgMode = mode }
+}
+
+// WithTokenPrefix sets the host application's Organization Access Token (OAT)
+// brand prefix used to detect OATs in the middleware. Empty -> bare "oat_".
+func WithTokenPrefix(prefix string) VerifierOption {
+	return func(v *Verifier) { v.tokenPrefix = strings.TrimSpace(prefix) }
+}
+
+// resolveServiceToken handles Organization Access Tokens (OATs). It returns
+// matched=true when the bearer token carries the configured OAT marker — in
+// which case the caller MUST NOT fall through to JWT verification — along with
+// service-principal Claims on success or a sanitized error on failure. When the
+// token is not an OAT, matched is false and the caller proceeds to JWT verify.
+func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Claims, matched bool, err error) {
+	if !core.HasOATPrefix(v.tokenPrefix, token) {
+		return Claims{}, false, nil
+	}
+	// Shaped like an OAT: from here we never fall through to JWT verification.
+	if v.enrich == nil {
+		return Claims{}, true, errors.New("invalid_token")
+	}
+	keyID, secret, ok := core.ParseOAT(v.tokenPrefix, token)
+	if !ok {
+		return Claims{}, true, errors.New("invalid_token")
+	}
+	org, permissions, rerr := v.enrich.ResolveOrgAccessToken(ctx, keyID, secret)
+	if rerr != nil {
+		switch {
+		case errors.Is(rerr, core.ErrAccessTokenRevoked):
+			return Claims{}, true, core.ErrAccessTokenRevoked
+		case errors.Is(rerr, core.ErrAccessTokenExpired):
+			return Claims{}, true, core.ErrAccessTokenExpired
+		case errors.Is(rerr, core.ErrInvalidAccessToken):
+			return Claims{}, true, core.ErrInvalidAccessToken
+		default:
+			// Never leak DB/internal errors through the auth response.
+			return Claims{}, true, errors.New("invalid_token")
+		}
+	}
+	return Claims{
+		Org:         org,
+		Permissions: permissions,
+		TokenType:   ServiceTokenType,
+	}, true, nil
 }
 
 // NewVerifier creates a new Verifier. Add trusted issuers via AddIssuer.

@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+// isPrivilegedOrgRole reports whether an org role may perform org management
+// (members, roles, invites, access tokens). `owner` is the only role authkit
+// hardcodes as privileged; any `admin` or finer-grained authority is the
+// platform's concern, not authkit's.
 func isPrivilegedOrgRole(role string) bool {
 	switch strings.ToLower(strings.TrimSpace(role)) {
 	case "owner":

@@ -47,7 +47,9 @@ const (
 	maxOrgsPerUser        = 200
 	maxRolesPerMembership = 50
 
-	// Reserved org role names.
+	// Reserved org role names. `owner` is the ONLY role authkit hardcodes — it is
+	// the org's root authority (seeded at creation, undeletable). Every other
+	// role, including any `admin` role, is defined by the platform/app, not here.
 	orgOwnerRole = "owner"
 )
 

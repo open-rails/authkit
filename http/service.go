@@ -31,6 +31,11 @@ type Service struct {
 	solanaDomain  string // Domain for SIWS messages (optional, derived from request if empty)
 	langCfg       *LanguageConfig
 	authlogr      core.AuthEventLogReader
+
+	// oatGrantAuthorizer, when set, decides whether a caller may mint an OAT
+	// carrying the requested permissions (the embedding app owns the permission
+	// vocabulary). Nil → owner-only minting with no permission bounding.
+	oatGrantAuthorizer OATGrantAuthorizer
 }
 
 func (s *Service) allow(r *http.Request, bucket string) bool {
@@ -111,6 +116,7 @@ func NewService(cfg core.Config) (*Service, error) {
 	ver := NewVerifier(
 		WithSkew(5*time.Second),
 		WithOrgMode(opts.OrgMode),
+		WithTokenPrefix(opts.TokenPrefix),
 	)
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
@@ -130,6 +136,15 @@ func NewService(cfg core.Config) (*Service, error) {
 }
 
 func (s *Service) WithPostgres(pg *pgxpool.Pool) *Service { s.svc = s.svc.WithPostgres(pg); return s }
+
+// WithOATGrantAuthorizer installs the host hook that authorizes OAT minting:
+// whether a caller may grant the requested permissions for an org. The embedding
+// app (which owns the permission vocabulary) implements it. When unset, OAT
+// minting falls back to owner-only with no permission bounding.
+func (s *Service) WithOATGrantAuthorizer(a OATGrantAuthorizer) *Service {
+	s.oatGrantAuthorizer = a
+	return s
+}
 func (s *Service) WithEntitlements(p core.EntitlementsProvider) *Service {
 	s.svc = s.svc.WithEntitlements(p)
 	return s

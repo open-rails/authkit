@@ -24,9 +24,9 @@ type Claims struct {
 	// `org_roles` claim on org-scoped tokens. Use these for org-scoped authz.
 	OrgRoles     []string
 	Entitlements []string
-	Issuer          string
-	UserTier        string
-	JTI             string
+	Issuer       string
+	UserTier     string
+	JTI          string
 
 	// Delegated/federated fields. A delegated platform token carries the
 	// external user in DelegatedSubject (claim `delegated_sub`) and the
@@ -34,6 +34,28 @@ type Claims struct {
 	// carries `sub` (UserID stays empty), so the local-user gate does not apply.
 	Tenant           string
 	DelegatedSubject string
+
+	// TokenType marks the credential class. Empty for ordinary user JWTs;
+	// "service" for an Organization Access Token (OAT) acting AS THE ORG. A
+	// service principal carries Org + Permissions but no UserID, so the live-user
+	// ban/enrichment gate is skipped (there is no user to look up).
+	TokenType string
+
+	// Permissions are the app-defined permission strings a service principal
+	// (OAT) carries directly — the PBAC grant. Empty for user principals, whose
+	// authority is expressed as OrgRoles that the resource server expands to
+	// permissions at request time. authkit treats permission strings as opaque.
+	Permissions []string
+}
+
+// ServiceTokenType is the TokenType value carried by an Organization Access
+// Token (OAT) — a machine credential that acts as the org, not a user.
+const ServiceTokenType = "service"
+
+// IsService reports whether these claims represent a service principal (an
+// Organization Access Token), as opposed to a human user or delegated subject.
+func (c Claims) IsService() bool {
+	return strings.EqualFold(strings.TrimSpace(c.TokenType), ServiceTokenType)
 }
 
 // DelegatedPrincipal is the federated identity carried by a delegated platform

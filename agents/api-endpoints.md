@@ -143,6 +143,60 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | POST | `/orgs/:org/members/:user_id/roles` | AUTH | Assign role to member (org owner; only owner can grant `owner`) |
 | DELETE | `/orgs/:org/members/:user_id/roles` | AUTH | Unassign role from member (org owner; cannot remove last owner) |
 | POST | `/token/org` | AUTH | Mint org-scoped access token (`org` + `roles`) |
+| POST | `/orgs/:org/access-tokens` | AUTH | Mint an Organization Access Token. Body `{name, permissions[], expires_at?}`. Authorized by the host OAT grant hook (owner-only fallback). Returns the full token ONCE. |
+| GET | `/orgs/:org/access-tokens` | AUTH | List the org's access tokens (metadata only; never the secret) |
+| DELETE | `/orgs/:org/access-tokens/:token_id` | AUTH | Revoke an access token |
+
+> **Org roles:** `owner` is the only role authkit hardcodes — the org's root authority, seeded at creation and undeletable. All other roles (including any `admin` role) are defined by the platform/app, which also owns the permission catalog. Org-management endpoints require the `owner` role (or a platform global admin).
+
+---
+
+## Organization Access Tokens (OATs)
+
+Long-lived, revocable bearer credentials **owned by an org** (not a person), for
+machine/automation callers (CI, the e2e operator CLI, service-to-service). An
+OAT acts **as the org**: middleware sets `Claims.Org` + `Claims.Permissions`
+(the token's app-defined permission strings) and a service marker
+(`Claims.IsService()`), with **no** `UserID`, mirroring the delegated-principal
+pattern. Permissions are opaque to authkit — the embedding app owns the
+vocabulary and enforces meaning. (Users, by contrast, carry `OrgRoles`; the
+resource server expands role→permission at request time.)
+
+**Presentation.** `Authorization: Bearer <app>oat_<key_id>_<secret>`. `<app>` is
+the host's configured `TokenPrefix` brand (e.g. `cozy` → `cozy_oat_…`); empty →
+bare `oat_`. `key_id` is a non-secret public id for O(1) indexed lookup; only
+`sha256(secret)` is stored. The full token is shown **once** at creation.
+
+**Resolution** happens in the `Required`/`Optional` middleware *before* JWT
+verification: tokens carrying the configured marker are looked up by `key_id`,
+the secret is compared in constant time, and revoked/expired/org-deleted tokens
+are rejected. Non-OAT tokens fall through to normal JWT verification. The OAT
+path is distinct from the password-login handler, so OATs **bypass the
+interactive password-login rate limiter by design** (a robot must not use the
+human login path).
+
+**Mint authorization (delegated to the host).** authkit doesn't know what app
+permissions mean, so a host `OATGrantAuthorizer.CanGrantOAT(caller, org,
+permissions)` decides whether the caller may mint and may grant each requested
+permission (no privilege escalation — the app checks the permissions against the
+caller's own authority). On denial the **entire** request is rejected `403
+permission_grant_denied` with the offending permission(s) named. When no
+authorizer is configured authkit falls back to **owner-only** minting with no
+permission bounding (degraded standalone mode). Permissions are frozen at mint
+time (revoke to reduce). An OAT carries no user, so it can never mint another OAT
+(and cannot list/revoke OATs either).
+
+**Lifetime.** Optional `expires_at` (null = non-expiring). A host may set a max
+TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
+checked on every request.
+
+**Storage.** `profiles.org_access_tokens` (`key_id` unique, `secret_hash` bytea,
+`permissions text[]`, `created_by` audit-only & `ON DELETE SET NULL` so a token
+outlives its minter, nullable `expires_at`/`revoked_at`, `last_used_at` touched
+best-effort/async).
+
+**Configuration.** `core.Config.TokenPrefix` (lowercase alnum, ≤16 chars; empty
+→ `oat_`) and `core.Config.OrgAccessTokenMaxTTL` (0 = no cap).
 
 ---
 

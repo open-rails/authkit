@@ -381,9 +381,18 @@ Organizations (org_mode)
     - Org owners create/list/revoke invites with `/orgs/:org/invites`.
     - Users list their invites via `GET /org-invites`.
     - Users accept/decline via `/org-invites/:invite_id/accept|decline`.
-  - Org management endpoints require the reserved `owner` role; `owner` is protected and cannot be deleted or removed as the last owner.
+  - Org management endpoints require the reserved `owner` role; `owner` is the only role authkit hardcodes (the org's root authority), is protected, and cannot be deleted or removed as the last owner. Any `admin` role, custom roles, and the permission catalog are defined by the platform/app, not authkit.
 - In `OrgMode: "single"` (default), AuthKit behaves like a single-tenant app:
   - Access tokens include `roles` (string[]) and there are no org-related claims/fields.
+
+Organization Access Tokens (OATs)
+- Long-lived, revocable bearer credentials **owned by an org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). The standard machine-auth primitive (cf. Docker Hub OATs, Stripe `sk_` keys) — robots should not replay the human password-login path.
+- An OAT acts **as the org**: middleware sets `Claims.Org` + `Claims.Permissions` (the token's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `OrgRoles`; the resource server expands role→permission at request time.)
+- Presented as `Authorization: Bearer <app>oat_<key_id>_<secret>`, where `<app>` is the host-configured `Config.TokenPrefix` brand (e.g. `cozy` → `cozy_oat_…`; empty → bare `oat_`). `key_id` is a non-secret public id for O(1) indexed lookup; only `sha256(secret)` is stored; the full token is shown **once**.
+- Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/org-deleted rejected; non-OAT tokens fall through to JWT). The OAT path is separate from the password-login handler, so OATs **bypass the interactive password-login rate limiter** by design.
+- **Mint authorization is delegated** to a host `OATGrantAuthorizer` (the app owns the permission vocabulary): it decides whether the caller may mint and may grant each requested permission, rejecting an over-broad request `403 permission_grant_denied` with the offending permission(s) named. No authorizer configured → owner-only fallback with no bounding. Permissions are frozen at mint time. An OAT can never mint/list/revoke OATs (no user).
+- Manage via `POST/GET/DELETE /orgs/:org/access-tokens[/:token_id]`. Optional `expires_at` (null = non-expiring), capped by `Config.OrgAccessTokenMaxTTL` when set. Stored in `profiles.org_access_tokens`.
+- **Leak response:** revoke the token (`DELETE …/access-tokens/:id`) — the `<app>oat_` prefix is registrable with secret-scanning/push-protection partners so leaked tokens can be auto-detected.
 
 Reserved slug policy
 - Owner namespaces use explicit states:

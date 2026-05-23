@@ -56,6 +56,21 @@ type Config struct {
 	// descriptors. These augment/override built-in Providers entries and are
 	// the preferred path for adding custom providers.
 	ProviderDescriptors map[string]authprovider.Provider
+
+	// TokenPrefix is the issuing application's BRAND prefix for Organization
+	// Access Tokens (OATs). It is a single value per deployment (NOT per-org)
+	// and a free brand choice by the host app — e.g. tensorhub sets "cozy" so
+	// every OAT it mints is `cozy_oat_<key_id>_<secret>`. The `_oat_` type
+	// segment is fixed and not configurable. Empty -> bare `oat_`. Must be
+	// lowercase alphanumeric, 1-16 chars. A unique app prefix lets leak
+	// scanners and push-protection partners identify the issuer at a glance.
+	TokenPrefix string
+
+	// OrgAccessTokenMaxTTL caps how far in the future a minted OAT may expire.
+	// 0 (default) means no cap (tokens may be non-expiring). When set, a
+	// requested expiry beyond now+MaxTTL — including a null/no-expiry request —
+	// is capped to now+MaxTTL at mint time.
+	OrgAccessTokenMaxTTL time.Duration
 }
 
 type RegistrationVerificationPolicy string

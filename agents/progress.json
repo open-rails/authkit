@@ -1,5 +1,22 @@
 {
-  "issues": [],
+  "issues": [
+    {
+      "name": "Permission-scoped OATs + role→permission model (v2 of #43)",
+      "id_number": 44,
+      "description": "Evolve Organization Access Tokens (shipped role-scoped in #43) to carry a set of PERMISSIONS (app-defined atomic operations, e.g. `endpoint:revise`) instead of org RBAC role slugs. This is permission-based access control (PBAC) layered over the existing RBAC, matching GitHub fine-grained PATs / Stripe restricted keys.\n\nPRINCIPLE: authkit stays permission-AGNOSTIC. It still hardcodes only the `owner` role; the permission catalog, roles, and role→permission map all live in the consuming app (tensorhub, see its issue). authkit just (a) carries opaque permission strings on an OAT, (b) exposes them in claims, and (c) delegates mint authorization to a host hook.\n\nCLAIMS SHAPE (what middleware produces):\n  - OAT principal:  { Org, Permissions:[...], TokenType:'service' }  (no UserID, no roles)\n  - User principal: { Org, UserID, OrgRoles:[...] }  (Permissions stays EMPTY — the resource server expands roles→permissions at request time; do NOT bake a permission union into the JWT: it goes stale when role definitions change and bloats the token)\n\nMINT AUTHORIZATION via a host hook (authkit can't interpret app permissions): authkit calls a host-provided OATGrantAuthorizer at POST /orgs/{org}/access-tokens to answer BOTH 'may this caller mint?' and 'may they grant these permissions?'. tensorhub implements it by checking the caller's effective permissions (from their roles) ⊇ the requested set, and that the caller holds an `oat:mint` permission. When no authorizer is configured, fall back to the #43 behavior (owner-only mint). The role-subset no-escalation check moves OUT of authkit (it no longer knows what permissions mean) and INTO the hook; keep the structural guard that a service principal (an OAT) can never reach the mint handler.\n\nDepends on nothing; consumed by tensorhub #369 and e2e #94.",
+      "tasks": [
+        "[x] Add `Claims.Permissions []string`; middleware sets it for OAT principals (repoint from the #43 OrgRoles reuse). User principals keep roles in OrgRoles, Permissions empty.",
+        "[x] Rename OAT `scopes`→`permissions` across MintOrgAccessToken/List/Resolve, the request/response JSON, and the `org_access_tokens` column (migration: rename column `scopes`→`permissions`). Values are opaque app permission strings.",
+        "[x] Define `OATGrantAuthorizer` interface { CanGrantOAT(ctx, caller, org string, permissions []string) (allowed bool, offending []string, err error) } + `WithOATGrantAuthorizer` Service option.",
+        "[x] POST /orgs/{org}/access-tokens: call the authorizer for mint authority + permission grant; owner-only fallback when none configured. Return 403 with offending permissions named on denial.",
+        "[x] Remove the org-role-subset no-escalation check from the handler (now the hook's job); keep service-principal-cannot-mint guard.",
+        "[x] Tests: hook allow/deny (offending named), owner-only fallback, Claims.Permissions populated for OATs, OAT round-trip; update #43 tests for permissions naming.",
+        "[x] Docs: api-endpoints.md + README OAT section (permission-scoped; hook contract; permissions vs roles).",
+        "[x] Version bump notes; flag consumer follow-ups (tensorhub #369, e2e #94)."
+      ],
+      "completed": true
+    }
+  ],
   "completed_features": [
     {
       "name": "Sign In With Solana (SIWS)",

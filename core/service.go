@@ -49,6 +49,12 @@ type Options struct {
 	Environment string
 	// SolanaNetwork is host-provided chain selector for SIWS flows.
 	SolanaNetwork string
+
+	// TokenPrefix is the issuing application's brand prefix for Organization
+	// Access Tokens (validated lowercase-alnum, 1-16 chars; empty -> bare oat_).
+	TokenPrefix string
+	// OrgAccessTokenMaxTTL caps a minted OAT's expiry (0 = no cap).
+	OrgAccessTokenMaxTTL time.Duration
 }
 
 // Keyset holds the active signer and the public keys exposed via JWKS.
@@ -172,6 +178,10 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	tokenPrefix := strings.TrimSpace(cfg.TokenPrefix)
+	if !validTokenPrefix(tokenPrefix) {
+		return nil, fmt.Errorf("authkit: invalid TokenPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", cfg.TokenPrefix)
+	}
 	opts := Options{
 		Issuer:                   issuer,
 		IssuedAudiences:          issuedAudiences,
@@ -185,8 +195,27 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		OrgMode:                  orgMode,
 		Environment:              strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:            strings.TrimSpace(cfg.SolanaNetwork),
+		TokenPrefix:              tokenPrefix,
+		OrgAccessTokenMaxTTL:     cfg.OrgAccessTokenMaxTTL,
 	}
 	return NewService(opts, ks), nil
+}
+
+// validTokenPrefix reports whether p is an acceptable OAT application prefix:
+// empty (-> bare oat_) or 1-16 lowercase alphanumeric characters.
+func validTokenPrefix(p string) bool {
+	if p == "" {
+		return true
+	}
+	if len(p) > 16 {
+		return false
+	}
+	for _, r := range p {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeRegistrationVerification(v RegistrationVerificationPolicy) (RegistrationVerificationPolicy, error) {

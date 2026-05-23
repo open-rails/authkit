@@ -18,6 +18,23 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Organization Access Token (OAT) branch, BEFORE JWT verification.
+			// If the bearer token carries the configured OAT marker it is
+			// resolved against the DB as a service principal; a shaped-but-invalid
+			// OAT is rejected here rather than mistakenly re-tried as a JWT. The
+			// password-login rate limiter lives on a different code path, so OATs
+			// bypass it by design. Service principals carry no UserID, so the
+			// live-user enrichment/ban gate below is skipped for them.
+			if scl, matched, serr := v.resolveServiceToken(r.Context(), tokenStr); matched {
+				if serr != nil {
+					unauthorized(w, serr.Error())
+					return
+				}
+				r = r.WithContext(setClaims(r.Context(), scl))
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			cl, err := v.Verify(tokenStr)
 			if err != nil {
 				unauthorized(w, err.Error())
