@@ -210,7 +210,7 @@ type IssuerOptions struct {
 	RawKeys map[string]*rsa.PublicKey
 
 	// CacheTTL controls how long fetched JWKS keys are considered fresh.
-	// Default: 5 minutes.
+	// Default: 10 minutes.
 	CacheTTL time.Duration
 
 	// MaxStale controls how long stale keys may be used as fallback after
@@ -486,12 +486,22 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 // Verification
 // ---------------------------------------------------------------------------
 
-// Verify parses + verifies a token and returns typed Claims.
-// It enforces issuer/audience/expiry with the configured skew.
-func (v *Verifier) Verify(tokenStr string) (Claims, error) {
+// VerifyClaims parses and cryptographically verifies a token against the
+// registered issuers and returns its RAW validated claims. It performs the
+// generic, token-type-agnostic checks: JWKS key resolution + signature,
+// issuer must be registered, audience match, and exp/nbf/iat with the
+// configured skew. It does NOT apply authkit's user-token semantics (the
+// sub/delegated_sub invariant) or map into the typed Claims struct.
+//
+// Use it to verify CUSTOM token types (e.g. a host application's capability
+// tokens) that should reuse authkit's single JWKS engine — registry, caching,
+// rotation, lazy-load — while carrying their own claim shape. The caller
+// registers the token's issuer via AddIssuer and parses the returned MapClaims
+// itself. Verify() is built on top of this for authkit's own user tokens.
+func (v *Verifier) VerifyClaims(tokenStr string) (jwt.MapClaims, error) {
 	tokenStr = strings.TrimSpace(tokenStr)
 	if tokenStr == "" {
-		return Claims{}, errors.New("missing_token")
+		return nil, errors.New("missing_token")
 	}
 
 	mapClaims := jwt.MapClaims{}
@@ -500,37 +510,49 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		return v.keyForToken(token)
 	})
 	if err != nil || tok == nil || !tok.Valid {
-		return Claims{}, errors.New("invalid_token")
+		return nil, errors.New("invalid_token")
 	}
 
 	iss, _ := mapClaims["iss"].(string)
 	match := v.matchIssuer(iss)
 	if match == nil {
-		return Claims{}, errors.New("bad_issuer")
+		return nil, errors.New("bad_issuer")
 	}
 
 	if len(match.audiences) > 0 && !audContainsAny(mapClaims["aud"], match.audiences) {
-		return Claims{}, errors.New("bad_audience")
+		return nil, errors.New("bad_audience")
 	}
 
 	skew := v.skew
 	now := time.Now()
 	expUnix, ok := toUnix(mapClaims["exp"])
 	if !ok {
-		return Claims{}, errors.New("missing_exp")
+		return nil, errors.New("missing_exp")
 	}
 	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return Claims{}, errors.New("token_expired")
+		return nil, errors.New("token_expired")
 	}
 	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok {
 		if time.Unix(nbfUnix, 0).After(now.Add(skew)) {
-			return Claims{}, errors.New("token_not_yet_valid")
+			return nil, errors.New("token_not_yet_valid")
 		}
 	}
 	if iatUnix, ok := toUnix(mapClaims["iat"]); ok {
 		if time.Unix(iatUnix, 0).After(now.Add(skew)) {
-			return Claims{}, errors.New("token_not_yet_valid")
+			return nil, errors.New("token_not_yet_valid")
 		}
+	}
+
+	return mapClaims, nil
+}
+
+// Verify parses + verifies a token and returns typed Claims.
+// It enforces issuer/audience/expiry with the configured skew, plus authkit's
+// user-token invariant, on top of VerifyClaims.
+func (v *Verifier) Verify(tokenStr string) (Claims, error) {
+	mapClaims, err := v.VerifyClaims(tokenStr)
+	if err != nil {
+		return Claims{}, err
 	}
 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
@@ -687,7 +709,7 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 
 	cacheTTL := ie.cacheTTL
 	if cacheTTL == 0 {
-		cacheTTL = 5 * time.Minute
+		cacheTTL = 10 * time.Minute
 	}
 	maxStale := ie.maxStale
 	if maxStale == 0 {
