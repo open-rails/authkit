@@ -18,17 +18,8 @@ func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return
-		}
-		serverErr(w, "org_lookup_failed")
-		return
-	}
-	if !isOwner {
-		forbidden(w, "forbidden")
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	if !gateOK {
 		return
 	}
 	members, err := s.svc.ListOrgMembers(r.Context(), canonical)
@@ -50,17 +41,8 @@ func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return
-		}
-		serverErr(w, "org_lookup_failed")
-		return
-	}
-	if !isOwner {
-		forbidden(w, "forbidden")
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	if !gateOK {
 		return
 	}
 	var body struct {
@@ -88,17 +70,8 @@ func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request)
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return
-		}
-		serverErr(w, "org_lookup_failed")
-		return
-	}
-	if !isOwner {
-		forbidden(w, "forbidden")
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	if !gateOK {
 		return
 	}
 	var body struct {

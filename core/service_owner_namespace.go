@@ -309,5 +309,9 @@ func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username
 	`, orgID, userID); err != nil {
 		return err
 	}
+	// Seed owner=`*` + any app-declared default roles for the personal org.
+	if err := s.seedRolePermissionDefaults(ctx, orgID); err != nil {
+		return err
+	}
 	return nil
 }

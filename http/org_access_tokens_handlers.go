@@ -1,7 +1,6 @@
 package authhttp
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -10,31 +9,13 @@ import (
 )
 
 // Organization Access Token (OAT) management endpoints. An OAT carries a set of
-// app-defined PERMISSIONS (opaque to authkit). Minting authorization — whether a
-// caller may grant the requested permissions — is delegated to the host via
-// OATGrantAuthorizer (the app owns the permission vocabulary). Listing and
-// revoking remain gated to the org owner (or a platform global admin). A service
-// principal (an OAT) carries no UserID, so it can never reach these handlers: an
-// OAT can never mint, list, or revoke OATs.
-
-// OATGrantAuthorizer lets the embedding application decide whether a caller may
-// mint an OAT carrying the requested permissions for an org. authkit does not
-// know what app permissions mean, so it delegates this decision. The app should
-// verify (a) the caller may mint OATs at all, and (b) every requested permission
-// is one the caller is allowed to confer (no privilege escalation). On denial it
-// returns allowed=false and the offending permission(s) for a precise error.
-type OATGrantAuthorizer interface {
-	CanGrantOAT(ctx context.Context, caller OATGrantCaller, org string, permissions []string) (allowed bool, offending []string, err error)
-}
-
-// OATGrantCaller identifies the human principal requesting the mint. The host
-// implementation resolves the caller's authority from its own records (e.g.
-// their org roles → permissions); UserID and GlobalRoles are provided so it can
-// do so without trusting client-supplied claims for the decision.
-type OATGrantCaller struct {
-	UserID      string
-	GlobalRoles []string
-}
+// app-defined PERMISSIONS (opaque to authkit). All three endpoints are gated by
+// the base permission org:tokens:manage (owner holds `*`; a platform global
+// admin bypasses). Minting validates the requested permissions against the
+// catalog AND the caller's own effective permissions (no-escalation), and bars
+// reserved `org:` management permissions + wildcards from OATs (an OAT does
+// machine work, not org management). A service principal (an OAT) has no UserID,
+// so it can never reach these handlers — an OAT can never mint/list/revoke OATs.
 
 // accessTokenView is the non-secret JSON shape returned for an OAT. The secret
 // is only ever present in the create response's top-level `token` field.
@@ -90,24 +71,10 @@ func cleanStrings(in []string) []string {
 	return out
 }
 
-// orgAccessTokenManageGate resolves the org and confirms the caller may MANAGE
-// the org's tokens (list/revoke): org owner, or a platform global admin. It
-// writes the error response itself and returns ok=false when not permitted.
+// orgAccessTokenManageGate resolves the org and confirms the caller holds
+// org:tokens:manage (list/revoke). Owner holds `*`; a global admin bypasses.
 func (s *Service) orgAccessTokenManageGate(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string) (canonical string, ok bool) {
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return "", false
-		}
-		serverErr(w, "org_lookup_failed")
-		return "", false
-	}
-	if !isOwner && !claimsHasGlobalAdmin(claims) {
-		forbidden(w, "forbidden")
-		return "", false
-	}
-	return canonical, true
+	return s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgTokensManage)
 }
 
 func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Request) {
@@ -182,39 +149,39 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// authorizeOATMint decides whether the caller may mint an OAT with the requested
-// permissions, returning the canonical org slug. When a host OATGrantAuthorizer
-// is installed, the decision is delegated to it (the app owns the permission
-// vocabulary + the no-escalation rule). Otherwise authkit falls back to
-// owner-only minting with no permission bounding (degraded standalone mode).
+// authorizeOATMint gates minting on org:tokens:manage and validates the
+// requested permissions: they must be concrete catalog permissions the caller
+// itself holds (no-escalation) — never wildcards/exclusions or reserved `org:`
+// management permissions (an OAT does machine work, not org management).
 func (s *Service) authorizeOATMint(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string, permissions []string) (canonical string, ok bool) {
-	if s.oatGrantAuthorizer == nil {
-		// Fallback: owner (or global admin) only; permissions are not bounded
-		// because authkit has no permission catalog of its own.
-		return s.orgAccessTokenManageGate(w, r, claims, orgSlug)
-	}
-	org, err := s.svc.ResolveOrgBySlug(r.Context(), orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return "", false
+	var notGrantable []string
+	for _, p := range permissions {
+		if p == core.PermWildcard || strings.HasPrefix(p, "!") || core.IsReservedPermission(p) {
+			notGrantable = append(notGrantable, p)
 		}
-		serverErr(w, "org_lookup_failed")
+	}
+	if len(notGrantable) > 0 {
+		sendErrData(w, http.StatusForbidden, "permission_not_grantable_to_oat", map[string]any{"offending_permissions": notGrantable})
 		return "", false
 	}
-	caller := OATGrantCaller{UserID: claims.UserID, GlobalRoles: claims.GlobalRoles}
-	allowed, offending, err := s.oatGrantAuthorizer.CanGrantOAT(r.Context(), caller, org.Slug, permissions)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgTokensManage)
+	if !gateOK {
+		return "", false
+	}
+	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, permissions, claimsHasGlobalAdmin(claims))
 	if err != nil {
-		serverErr(w, "oat_grant_check_failed")
+		serverErr(w, "permission_validate_failed")
 		return "", false
 	}
-	if !allowed {
-		sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{
-			"offending_permissions": offending,
-		})
+	if len(unknown) > 0 {
+		sendErrData(w, http.StatusBadRequest, "unknown_permission", map[string]any{"unknown_permissions": unknown})
 		return "", false
 	}
-	return org.Slug, true
+	if len(offending) > 0 {
+		sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{"offending_permissions": offending})
+		return "", false
+	}
+	return canonical, true
 }
 
 func (s *Service) handleOrgAccessTokensGET(w http.ResponseWriter, r *http.Request) {

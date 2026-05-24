@@ -71,6 +71,36 @@ type Config struct {
 	// requested expiry beyond now+MaxTTL — including a null/no-expiry request —
 	// is capped to now+MaxTTL at mint time.
 	OrgAccessTokenMaxTTL time.Duration
+
+	// PermissionCatalog is the embedding application's set of valid permission
+	// strings (e.g. tensorhub's `endpoint:revise`, `repo:create`). authkit merges
+	// this with its own base permissions (the reserved `org:` namespace) to form
+	// the catalog it validates role/OAT grants against. Permissions are opaque to
+	// authkit — it never interprets their meaning. Names must not collide with
+	// the reserved `org:` base permissions.
+	PermissionCatalog []PermissionDef
+
+	// DefaultRoles are role templates seeded into every org at creation, in
+	// addition to the built-in `owner` role (which is always seeded with `*`).
+	// e.g. tensorhub declares `admin` = {"*", "!org:roles:manage",
+	// "!org:members:manage"} (everything an owner has except role + membership
+	// management). Permission tokens: a concrete permission, `*` (all), or
+	// `!perm` (exclude).
+	DefaultRoles []DefaultRole
+}
+
+// PermissionDef is one entry in the permission catalog: an opaque permission
+// string plus a human-readable description (surfaced to admin UIs).
+type PermissionDef struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// DefaultRole is a role template seeded into every org at creation: a role name
+// and its permission set (tokens may include `*` and `!perm` exclusions).
+type DefaultRole struct {
+	Name        string   `json:"name"`
+	Permissions []string `json:"permissions"`
 }
 
 type RegistrationVerificationPolicy string

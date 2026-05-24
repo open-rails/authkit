@@ -2,7 +2,10 @@ package authhttp
 
 import (
 	"context"
+	"net/http"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 // isPrivilegedOrgRole reports whether an org role may perform org management
@@ -51,4 +54,46 @@ func (s *Service) requireOrgOwner(ctx context.Context, userID, orgSlug string) (
 		}
 	}
 	return canonicalOrg, roles, false, nil
+}
+
+// requireOrgPermission resolves the org and reports whether the caller holds the
+// given permission there — via any role granted it (owner holds `*`), or a
+// platform global-admin bypass. This is the permission-based gate for
+// org-management endpoints (authkit #46), replacing the hardcoded owner check.
+func (s *Service) requireOrgPermission(ctx context.Context, claims Claims, orgSlug, perm string) (canonical string, allowed bool, err error) {
+	org, err := s.svc.ResolveOrgBySlug(ctx, orgSlug)
+	if err != nil {
+		return "", false, err
+	}
+	canonical = org.Slug
+	if claimsHasGlobalAdmin(claims) {
+		return canonical, true, nil
+	}
+	if strings.TrimSpace(claims.UserID) == "" {
+		return canonical, false, nil
+	}
+	ok, err := s.svc.HasPermission(ctx, canonical, claims.UserID, perm)
+	if err != nil {
+		return canonical, false, err
+	}
+	return canonical, ok, nil
+}
+
+// requireOrgPermissionGin is the gin/handler wrapper: writes the standard error
+// responses and returns ok=false when not permitted.
+func (s *Service) requireOrgPermissionGin(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug, perm string) (canonical string, ok bool) {
+	canonical, allowed, err := s.requireOrgPermission(r.Context(), claims, orgSlug, perm)
+	if err != nil {
+		if err == core.ErrOrgNotFound {
+			notFound(w, "org_not_found")
+			return "", false
+		}
+		serverErr(w, "org_lookup_failed")
+		return "", false
+	}
+	if !allowed {
+		forbidden(w, "forbidden")
+		return "", false
+	}
+	return canonical, true
 }

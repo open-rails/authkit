@@ -127,27 +127,43 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | POST | `/orgs` | AUTH | Create an org (creator is bootstrapped as `owner`) |
 | GET | `/orgs/:org` | AUTH | Get org metadata (`:org` accepts slug or alias) |
 | POST | `/orgs/:org/rename` | AUTH | Rename org slug (keeps old slug as alias) |
-| GET | `/orgs/:org/members` | AUTH | List members (org owner) |
-| POST | `/orgs/:org/members` | AUTH | Add member (org owner) |
-| DELETE | `/orgs/:org/members` | AUTH | Remove member (org owner) |
-| GET | `/orgs/:org/invites` | AUTH | List org invites (org owner) |
-| POST | `/orgs/:org/invites` | AUTH | Create invite (org owner) |
-| POST | `/orgs/:org/invites/:invite_id/revoke` | AUTH | Revoke pending invite (org owner) |
+| GET | `/orgs/:org/members` | AUTH | List members (`org:read`) |
+| POST | `/orgs/:org/members` | AUTH | Add member (`org:members:manage`) |
+| DELETE | `/orgs/:org/members` | AUTH | Remove member (`org:members:manage`) |
+| GET | `/orgs/:org/invites` | AUTH | List org invites (`org:read`) |
+| POST | `/orgs/:org/invites` | AUTH | Create invite (`org:members:manage`) |
+| POST | `/orgs/:org/invites/:invite_id/revoke` | AUTH | Revoke pending invite (`org:members:manage`) |
 | GET | `/org-invites` | AUTH | List invites for current user |
 | POST | `/org-invites/:invite_id/accept` | AUTH | Accept invite as current user |
 | POST | `/org-invites/:invite_id/decline` | AUTH | Decline invite as current user |
-| GET | `/orgs/:org/roles` | AUTH | List defined roles (org owner) |
-| POST | `/orgs/:org/roles` | AUTH | Define role (org owner; `owner` is protected) |
-| DELETE | `/orgs/:org/roles` | AUTH | Delete role (org owner; `owner` is protected) |
-| GET | `/orgs/:org/members/:user_id/roles` | AUTH | Read member roles (org owner) |
-| POST | `/orgs/:org/members/:user_id/roles` | AUTH | Assign role to member (org owner; only owner can grant `owner`) |
-| DELETE | `/orgs/:org/members/:user_id/roles` | AUTH | Unassign role from member (org owner; cannot remove last owner) |
+| GET | `/orgs/:org/roles` | AUTH | List defined roles (`org:read`) |
+| POST | `/orgs/:org/roles` | AUTH | Define a role name (`org:roles:manage`) |
+| DELETE | `/orgs/:org/roles` | AUTH | Delete a role (`org:roles:manage`; `owner` protected) |
+| GET | `/orgs/:org/members/:user_id/roles` | AUTH | Read member roles (`org:read`) |
+| POST | `/orgs/:org/members/:user_id/roles` | AUTH | Assign role to member (`org:members:manage`; no-escalation: the role's permissions must be ⊆ the assigner's, so granting `owner` requires owner) |
+| DELETE | `/orgs/:org/members/:user_id/roles` | AUTH | Unassign role (`org:members:manage`; cannot remove last owner) |
+| GET | `/permissions` | AUTH | The permission catalog: authkit base permissions ∪ the app-declared catalog |
+| GET | `/orgs/:org/roles/:role/permissions` | AUTH | A role's permissions (`org:read`) |
+| PUT | `/orgs/:org/roles/:role/permissions` | AUTH | Set a role's permissions (`org:roles:manage`; catalog-validated + no-escalation) |
+| GET | `/orgs/:org/members/:user_id/permissions` | AUTH | A member's effective permissions (`org:read`) |
 | POST | `/token/org` | AUTH | Mint org-scoped access token (`org` + `roles`) |
-| POST | `/orgs/:org/access-tokens` | AUTH | Mint an Organization Access Token. Body `{name, permissions[], expires_at?}`. Authorized by the host OAT grant hook (owner-only fallback). Returns the full token ONCE. |
-| GET | `/orgs/:org/access-tokens` | AUTH | List the org's access tokens (metadata only; never the secret) |
-| DELETE | `/orgs/:org/access-tokens/:token_id` | AUTH | Revoke an access token |
+| POST | `/orgs/:org/access-tokens` | AUTH | Mint an OAT (`org:tokens:manage`). Body `{name, permissions[], expires_at?}`; perms catalog-validated + no-escalation, reserved `org:*`/wildcards barred. Full token shown ONCE. |
+| GET | `/orgs/:org/access-tokens` | AUTH | List the org's access tokens (`org:tokens:manage`; metadata only) |
+| DELETE | `/orgs/:org/access-tokens/:token_id` | AUTH | Revoke an access token (`org:tokens:manage`) |
 
-> **Org roles:** `owner` is the only role authkit hardcodes — the org's root authority, seeded at creation and undeletable. All other roles (including any `admin` role) are defined by the platform/app, which also owns the permission catalog. Org-management endpoints require the `owner` role (or a platform global admin).
+> **Org RBAC (permission-based).** A role is a set of permissions. Org-management
+> endpoints are gated by authkit's **base permissions** (reserved `org:`
+> namespace): `org:roles:manage`, `org:members:manage`, `org:tokens:manage`,
+> `org:read`. The embedding app declares its own permission catalog
+> (`core.Config.PermissionCatalog`) + optional default roles
+> (`core.Config.DefaultRoles`); the effective catalog = base ∪ app. The `owner`
+> role is hardcoded and seeded with `*` (all permissions); other roles are
+> app/org-defined. Permission tokens in a role: a concrete permission, `*` (all),
+> or `!perm` (exclude). All assignment/grant is **no-escalation** (you can only
+> confer permissions you hold) and **catalog-validated** (unknown permissions
+> rejected). A platform global admin bypasses. Permissions are opaque to
+> authkit — the app owns their meaning and enforces them at its own endpoints
+> via `core.EffectivePermissions(ctx, org, userID)`.
 
 ---
 
@@ -175,16 +191,15 @@ path is distinct from the password-login handler, so OATs **bypass the
 interactive password-login rate limiter by design** (a robot must not use the
 human login path).
 
-**Mint authorization (delegated to the host).** authkit doesn't know what app
-permissions mean, so a host `OATGrantAuthorizer.CanGrantOAT(caller, org,
-permissions)` decides whether the caller may mint and may grant each requested
-permission (no privilege escalation — the app checks the permissions against the
-caller's own authority). On denial the **entire** request is rejected `403
-permission_grant_denied` with the offending permission(s) named. When no
-authorizer is configured authkit falls back to **owner-only** minting with no
-permission bounding (degraded standalone mode). Permissions are frozen at mint
-time (revoke to reduce). An OAT carries no user, so it can never mint another OAT
-(and cannot list/revoke OATs either).
+**Mint authorization (native, permission-based).** Minting requires
+`org:tokens:manage`. authkit validates the requested permissions itself against
+the org's effective catalog: each must be a defined permission (else `400
+unknown_permission`) the caller themselves holds (else `403
+permission_grant_denied`, offending named) — no privilege escalation. Reserved
+`org:*` management permissions and wildcards/exclusions are barred from OATs
+(`403 permission_not_grantable_to_oat`) — an OAT does machine work, not org
+management. Permissions are frozen at mint time (revoke to reduce). An OAT
+carries no user, so it can never mint/list/revoke OATs.
 
 **Lifetime.** Optional `expires_at` (null = non-expiring). A host may set a max
 TTL that caps the effective expiry. Revoke at any time; expiry + revocation are

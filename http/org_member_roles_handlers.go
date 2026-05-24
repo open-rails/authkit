@@ -19,17 +19,8 @@ func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return
-		}
-		serverErr(w, "org_lookup_failed")
-		return
-	}
-	if !isOwner {
-		forbidden(w, "forbidden")
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	if !gateOK {
 		return
 	}
 	roles, err := s.svc.ReadMemberRoles(r.Context(), canonical, targetUserID)
@@ -52,17 +43,8 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return
-		}
-		serverErr(w, "org_lookup_failed")
-		return
-	}
-	if !isOwner {
-		forbidden(w, "forbidden")
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	if !gateOK {
 		return
 	}
 	var body struct {
@@ -70,6 +52,22 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
 		badRequest(w, "invalid_request")
+		return
+	}
+	// NO-ESCALATION: assigning a role grants its permissions, so the assigner
+	// must hold every permission the role confers (owner=`*`/global-admin pass).
+	// This is what keeps a member with org:members:manage from granting the
+	// `owner` role (which is `*`) and escalating.
+	rolePerms, err := s.svc.EffectiveRolePermissions(r.Context(), canonical, body.Role)
+	if err != nil {
+		serverErr(w, "role_permissions_lookup_failed")
+		return
+	}
+	if _, offending, verr := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, rolePerms, claimsHasGlobalAdmin(claims)); verr != nil {
+		serverErr(w, "permission_validate_failed")
+		return
+	} else if len(offending) > 0 {
+		sendErrData(w, http.StatusForbidden, "role_exceeds_grantor", map[string]any{"offending_permissions": offending})
 		return
 	}
 	if err := s.svc.AssignRole(r.Context(), canonical, targetUserID, body.Role); err != nil {
@@ -91,17 +89,8 @@ func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Requ
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
-	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
-			return
-		}
-		serverErr(w, "org_lookup_failed")
-		return
-	}
-	if !isOwner {
-		forbidden(w, "forbidden")
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	if !gateOK {
 		return
 	}
 	var body struct {

@@ -184,6 +184,10 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	`, id, orgOwnerRole); err != nil {
 		return nil, err
 	}
+	// Seed owner=`*` + any app-declared default roles (e.g. admin).
+	if err := s.seedRolePermissionDefaults(ctx, id); err != nil {
+		return nil, err
+	}
 	return &Org{ID: id, Slug: canonical}, nil
 }
 

@@ -55,6 +55,10 @@ type Options struct {
 	TokenPrefix string
 	// OrgAccessTokenMaxTTL caps a minted OAT's expiry (0 = no cap).
 	OrgAccessTokenMaxTTL time.Duration
+	// PermissionCatalog is the app's permission vocabulary (merged with authkit's
+	// base `org:` permissions). DefaultRoles are role templates seeded per org.
+	PermissionCatalog []PermissionDef
+	DefaultRoles      []DefaultRole
 }
 
 // Keyset holds the active signer and the public keys exposed via JWKS.
@@ -197,6 +201,8 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		SolanaNetwork:            strings.TrimSpace(cfg.SolanaNetwork),
 		TokenPrefix:              tokenPrefix,
 		OrgAccessTokenMaxTTL:     cfg.OrgAccessTokenMaxTTL,
+		PermissionCatalog:        cfg.PermissionCatalog,
+		DefaultRoles:             cfg.DefaultRoles,
 	}
 	return NewService(opts, ks), nil
 }
