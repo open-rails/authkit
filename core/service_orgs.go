@@ -437,6 +437,12 @@ func (s *Service) AssignRole(ctx context.Context, orgSlug, userID, role string) 
 	if err := validateOrgRole(role); err != nil {
 		return err
 	}
+	// Lazily materialize an app DefaultRole template the first time it is
+	// granted (default roles aren't seeded eagerly). This also creates the
+	// org_roles row the assignment INSERT below requires.
+	if err := s.materializeDefaultRole(ctx, org.ID, role); err != nil {
+		return err
+	}
 	// Guardrail.
 	roles, err := s.ReadMemberRoles(ctx, orgSlug, userID)
 	if err == nil && len(roles) >= maxRolesPerMembership {

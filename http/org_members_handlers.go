@@ -70,18 +70,16 @@ func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request)
 		badRequest(w, "invalid_request")
 		return
 	}
+	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
+	if targetUserID == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
 	if !gateOK {
 		return
 	}
-	var body struct {
-		UserID string `json:"user_id"`
-	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
-		badRequest(w, "invalid_request")
-		return
-	}
-	if err := s.svc.RemoveMember(r.Context(), canonical, strings.TrimSpace(body.UserID)); err != nil {
+	if err := s.svc.RemoveMember(r.Context(), canonical, targetUserID); err != nil {
 		if err == core.ErrPersonalOrgOwner {
 			badRequest(w, "cannot_remove_personal_org_owner")
 			return

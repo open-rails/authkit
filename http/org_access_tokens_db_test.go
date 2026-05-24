@@ -69,11 +69,18 @@ func newOATTestEnv(t *testing.T) *oatTestEnv {
 	mux.Handle("GET /orgs/{org}/access-tokens", required(http.HandlerFunc(s.handleOrgAccessTokensGET)))
 	mux.Handle("DELETE /orgs/{org}/access-tokens/{token_id}", required(http.HandlerFunc(s.handleOrgAccessTokenDELETE)))
 	mux.Handle("GET /permissions", required(http.HandlerFunc(s.handlePermissionCatalogGET)))
-	mux.Handle("GET /orgs/{org}/roles/{role}/permissions", required(http.HandlerFunc(s.handleOrgRolePermissionsGET)))
-	mux.Handle("PUT /orgs/{org}/roles/{role}/permissions", required(http.HandlerFunc(s.handleOrgRolePermissionsPUT)))
 	mux.Handle("GET /orgs/{org}/members/{user_id}/permissions", required(http.HandlerFunc(s.handleOrgMemberPermissionsGET)))
 	mux.Handle("POST /orgs/{org}/members/{user_id}/roles", required(http.HandlerFunc(s.handleOrgMemberRolesPOST)))
+	mux.Handle("GET /orgs/{org}/members/{user_id}/roles", required(http.HandlerFunc(s.handleOrgMemberRolesGET)))
 	mux.Handle("POST /orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersPOST)))
+	mux.Handle("GET /orgs/{org}/members", required(http.HandlerFunc(s.handleOrgMembersGET)))
+	mux.Handle("DELETE /orgs/{org}/members/{user_id}", required(http.HandlerFunc(s.handleOrgMembersDELETE)))
+	mux.Handle("GET /orgs/{org}/roles", required(http.HandlerFunc(s.handleOrgRolesGET)))
+	mux.Handle("GET /orgs/{org}/roles/{role}", required(http.HandlerFunc(s.handleOrgRoleGET)))
+	mux.Handle("PUT /orgs/{org}/roles/{role}", required(http.HandlerFunc(s.handleOrgRolePUT)))
+	mux.Handle("DELETE /orgs/{org}/roles/{role}", required(http.HandlerFunc(s.handleOrgRolesDELETE)))
+	mux.Handle("GET /orgs/{org}/me", required(http.HandlerFunc(s.handleOrgMeGET)))
+	mux.Handle("POST /orgs/{org}/permissions/check", required(http.HandlerFunc(s.handleOrgPermissionCheckPOST)))
 	mux.Handle("GET /whoami", required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, _ := ClaimsFromContext(r.Context())
 		writeJSON(w, http.StatusOK, map[string]any{"org": cl.Org, "permissions": cl.Permissions, "is_service": cl.IsService(), "user_id": cl.UserID})
@@ -85,10 +92,13 @@ func newOATTestEnv(t *testing.T) *oatTestEnv {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.orgs (slug) VALUES ($1) RETURNING id::text`, slug).Scan(&orgID))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE id=$1::uuid`, orgID) })
 	env := &oatTestEnv{t: t, pool: pool, signer: signer, mux: mux, slug: slug, orgID: orgID}
-	// Roles + their permissions. owner=`*`; tokenmgr can mint endpoint:deploy.
+	// Roles + their permissions. owner=`*`; tokenmgr can mint endpoint:deploy
+	// + org:read (the only OAT-grantable reserved perm).
 	env.seedRole("owner", "*")
 	env.seedRole("deployer", "endpoint:deploy")
-	env.seedRole("tokenmgr", "org:tokens:manage", "endpoint:deploy")
+	env.seedRole("tokenmgr", "org:tokens:manage", "endpoint:deploy", "org:read")
+	// can mint OATs but lacks org:read itself — for the org:read no-escalation case.
+	env.seedRole("tokenmgr-noread", "org:tokens:manage", "endpoint:deploy")
 	return env
 }
 
@@ -221,10 +231,26 @@ func TestOAT_HTTP_MintAuthorization(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code)
 		require.Contains(t, w.Body.String(), "unknown_permission")
 	})
-	t.Run("reserved org:* perm not grantable to an OAT", func(t *testing.T) {
-		w := env.do(http.MethodPost, base, env.jwtFor(tokenmgr), `{"name":"x","permissions":["org:roles:manage"]}`)
+	t.Run("reserved write/mint org:* perm not grantable to an OAT", func(t *testing.T) {
+		for _, p := range []string{"org:roles:manage", "org:members:manage", "org:tokens:manage"} {
+			w := env.do(http.MethodPost, base, env.jwtFor(tokenmgr), `{"name":"x","permissions":["`+p+`"]}`)
+			require.Equal(t, http.StatusForbidden, w.Code, p)
+			require.Contains(t, w.Body.String(), "permission_not_grantable_to_oat", p)
+		}
+	})
+	t.Run("read-only org:read IS grantable to an OAT", func(t *testing.T) {
+		w := env.do(http.MethodPost, base, env.jwtFor(tokenmgr), `{"name":"audit-bot","permissions":["org:read"]}`)
+		require.Equal(t, http.StatusCreated, w.Code)
+		require.Contains(t, w.Body.String(), "org:read")
+	})
+	t.Run("org:read still subject to no-escalation", func(t *testing.T) {
+		// tokenmgr-noread can mint OATs but doesn't hold org:read itself; even
+		// though org:read is OAT-grantable, it can't grant what it lacks.
+		noread := env.addUser("oat-noread-" + env.slug)
+		env.addMember(noread, "tokenmgr-noread")
+		w := env.do(http.MethodPost, base, env.jwtFor(noread), `{"name":"x","permissions":["org:read"]}`)
 		require.Equal(t, http.StatusForbidden, w.Code)
-		require.Contains(t, w.Body.String(), "permission_not_grantable_to_oat")
+		require.Contains(t, w.Body.String(), "permission_grant_denied")
 	})
 	t.Run("wildcard not grantable to an OAT", func(t *testing.T) {
 		w := env.do(http.MethodPost, base, env.jwtFor(tokenmgr), `{"name":"x","permissions":["*"]}`)

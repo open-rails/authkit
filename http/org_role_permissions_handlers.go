@@ -24,34 +24,12 @@ func (s *Service) handlePermissionCatalogGET(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"permissions": s.svc.Catalog()})
 }
 
-func (s *Service) handleOrgRolePermissionsGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
-		unauthorized(w, "unauthorized")
-		return
-	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	role := strings.TrimSpace(r.PathValue("role"))
-	if orgSlug == "" || role == "" {
-		badRequest(w, "invalid_request")
-		return
-	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
-	if !gateOK {
-		return
-	}
-	perms, err := s.svc.GetRolePermissions(r.Context(), canonical, role)
-	if err != nil {
-		serverErr(w, "role_permissions_lookup_failed")
-		return
-	}
-	if perms == nil {
-		perms = []string{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"role": role, "permissions": perms})
-}
-
-func (s *Service) handleOrgRolePermissionsPUT(w http.ResponseWriter, r *http.Request) {
+// handleOrgRolePUT is idempotent create-or-replace for a role: it defines the
+// role name if absent and sets its permission set in one call (REST resource
+// PUT, replacing the old POST /roles + PUT /roles/{role}/permissions pair).
+// Gated org:roles:manage with catalog validation + no-escalation. Read the
+// result back via GET /orgs/{org}/roles/{role}.
+func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
 		unauthorized(w, "unauthorized")
@@ -90,11 +68,16 @@ func (s *Service) handleOrgRolePermissionsPUT(w http.ResponseWriter, r *http.Req
 		sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{"offending_permissions": offending})
 		return
 	}
-	if err := s.svc.SetRolePermissions(r.Context(), canonical, role, body.Permissions); err != nil {
+	// Create-or-replace: define the role name (no-op if it exists), then set perms.
+	if err := s.svc.DefineRole(r.Context(), canonical, role); err != nil {
 		if err == core.ErrInvalidOrgRole {
-			notFound(w, "role_not_found")
+			badRequest(w, "invalid_role")
 			return
 		}
+		serverErr(w, "define_role_failed")
+		return
+	}
+	if err := s.svc.SetRolePermissions(r.Context(), canonical, role, body.Permissions); err != nil {
 		serverErr(w, "role_permissions_update_failed")
 		return
 	}

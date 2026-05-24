@@ -65,7 +65,7 @@ func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 	sSingle := newTestServiceWithOrgMode(t, "single")
 	hSingle := sSingle.APIHandler()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/org-invites", nil)
+	r := httptest.NewRequest(http.MethodGet, "/me/invites", nil)
 	hSingle.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
 
@@ -73,7 +73,7 @@ func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 	sMulti := newTestServiceWithOrgMode(t, "multi")
 	hMulti := sMulti.APIHandler()
 	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodGet, "/org-invites", nil)
+	r2 := httptest.NewRequest(http.MethodGet, "/me/invites", nil)
 	hMulti.ServeHTTP(w2, r2)
 	require.Equal(t, http.StatusUnauthorized, w2.Code)
 	require.Contains(t, w2.Body.String(), `"error":"missing_token"`)

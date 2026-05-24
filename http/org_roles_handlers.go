@@ -30,35 +30,6 @@ func (s *Service) handleOrgRolesGET(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"roles": roles})
 }
 
-func (s *Service) handleOrgRolesPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
-		return
-	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
-		badRequest(w, "invalid_request")
-		return
-	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesManage)
-	if !gateOK {
-		return
-	}
-	var body struct {
-		Role string `json:"role"`
-	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, "invalid_request")
-		return
-	}
-	if err := s.svc.DefineRole(r.Context(), canonical, body.Role); err != nil {
-		badRequest(w, "define_role_failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
-}
-
 func (s *Service) handleOrgRolesDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
@@ -66,7 +37,8 @@ func (s *Service) handleOrgRolesDELETE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	role := strings.TrimSpace(r.PathValue("role"))
+	if orgSlug == "" || role == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -74,14 +46,7 @@ func (s *Service) handleOrgRolesDELETE(w http.ResponseWriter, r *http.Request) {
 	if !gateOK {
 		return
 	}
-	var body struct {
-		Role string `json:"role"`
-	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, "invalid_request")
-		return
-	}
-	if err := s.svc.DeleteRole(r.Context(), canonical, body.Role); err != nil {
+	if err := s.svc.DeleteRole(r.Context(), canonical, role); err != nil {
 		if err == core.ErrProtectedOrgRole {
 			badRequest(w, "protected_role")
 			return

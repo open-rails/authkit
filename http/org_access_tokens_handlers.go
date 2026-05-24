@@ -13,8 +13,10 @@ import (
 // the base permission org:tokens:manage (owner holds `*`; a platform global
 // admin bypasses). Minting validates the requested permissions against the
 // catalog AND the caller's own effective permissions (no-escalation), and bars
-// reserved `org:` management permissions + wildcards from OATs (an OAT does
-// machine work, not org management). A service principal (an OAT) has no UserID,
+// wildcards + the write/mint reserved `org:` management permissions from OATs
+// (an OAT does machine work, not org management). Read-only org:read IS
+// OAT-grantable (escalation-harmless, for monitoring/audit automation). A
+// service principal (an OAT) has no UserID,
 // so it can never reach these handlers — an OAT can never mint/list/revoke OATs.
 
 // accessTokenView is the non-secret JSON shape returned for an OAT. The secret
@@ -156,7 +158,7 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) authorizeOATMint(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string, permissions []string) (canonical string, ok bool) {
 	var notGrantable []string
 	for _, p := range permissions {
-		if p == core.PermWildcard || strings.HasPrefix(p, "!") || core.IsReservedPermission(p) {
+		if p == core.PermWildcard || strings.HasPrefix(p, "!") || (core.IsReservedPermission(p) && !core.IsOATGrantableReservedPermission(p)) {
 			notGrantable = append(notGrantable, p)
 		}
 	}

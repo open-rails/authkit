@@ -21,7 +21,8 @@ func TestOrgRolePermissions_HTTP(t *testing.T) {
 	rolemgr := env.addUser("rp-rolemgr-" + env.slug)
 	env.addMember(rolemgr, "rolemgr")
 
-	rolePerms := func(role string) string { return "/orgs/" + env.slug + "/roles/" + role + "/permissions" }
+	// Role is a REST resource: PUT create-or-replace (body {permissions}), GET detail.
+	rolePerms := func(role string) string { return "/orgs/" + env.slug + "/roles/" + role }
 
 	t.Run("catalog = base UNION app", func(t *testing.T) {
 		w := env.do(http.MethodGet, "/permissions", ownerJWT, "")
@@ -44,6 +45,22 @@ func TestOrgRolePermissions_HTTP(t *testing.T) {
 		w = env.do(http.MethodGet, rolePerms("deployer"), ownerJWT, "")
 		require.Equal(t, http.StatusOK, w.Code)
 		require.Contains(t, w.Body.String(), "endpoint:deploy")
+	})
+
+	t.Run("PUT create-or-replace: defines a brand-new role in one call", func(t *testing.T) {
+		// "publisher" was never seeded — PUT both creates the name and sets perms.
+		require.Equal(t, http.StatusNotFound, env.do(http.MethodGet, rolePerms("publisher"), ownerJWT, "").Code)
+		w := env.do(http.MethodPut, rolePerms("publisher"), ownerJWT, `{"permissions":["repo:read"]}`)
+		require.Equal(t, http.StatusOK, w.Code)
+		w = env.do(http.MethodGet, rolePerms("publisher"), ownerJWT, "")
+		require.Equal(t, http.StatusOK, w.Code)
+		var b struct {
+			Role        string
+			Permissions []string
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &b))
+		require.Equal(t, "publisher", b.Role)
+		require.Equal(t, []string{"repo:read"}, b.Permissions)
 	})
 
 	t.Run("unknown permission rejected", func(t *testing.T) {

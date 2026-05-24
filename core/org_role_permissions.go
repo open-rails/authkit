@@ -47,9 +47,26 @@ func BasePermissions() []PermissionDef {
 }
 
 // IsReservedPermission reports whether name is in authkit's reserved base
-// namespace (an app catalog may not redefine these; OATs may not hold them).
+// namespace (an app catalog may not redefine these; OATs may not hold them
+// unless OAT-grantable, see IsOATGrantableReservedPermission).
 func IsReservedPermission(name string) bool {
 	return strings.HasPrefix(strings.TrimSpace(name), reservedPermissionPrefix)
+}
+
+// oatGrantableReservedPermissions are the reserved base permissions an OAT MAY
+// hold. Only read-only perms qualify: the write/mint management perms
+// (org:roles:manage, org:members:manage, org:tokens:manage) stay user-only so
+// an OAT can never bootstrap broader authority — it cannot mint another OAT,
+// redefine roles, or alter membership. org:read is escalation-harmless and
+// unblocks read-only automation (monitoring/audit bots listing members/roles).
+var oatGrantableReservedPermissions = map[string]bool{
+	PermOrgRead: true,
+}
+
+// IsOATGrantableReservedPermission reports whether a reserved `org:` permission
+// may be granted to an OAT. Returns false for non-reserved names.
+func IsOATGrantableReservedPermission(name string) bool {
+	return oatGrantableReservedPermissions[strings.TrimSpace(name)]
 }
 
 // Catalog returns the full permission catalog: authkit base permissions plus the
@@ -268,11 +285,26 @@ func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string
 		case strings.HasPrefix(t, permExcludePrefix):
 			// exclusion only narrows; nothing to validate.
 		default:
+			// A concrete permission is valid if it is in the catalog, OR it is
+			// a RESOURCE-SCOPED grant "<resource>:<action>:<name>" whose
+			// "<resource>:<action>" base is in the catalog (e.g. repo:write:my-model
+			// validates against repo:write). The app interprets the <name>;
+			// authkit only checks the base is a real permission. Reserved
+			// 3-segment base perms (org:roles:manage, ...) match catalog[t]
+			// directly and are not re-split.
+			base := t
 			if !catalog[t] {
+				if parts := strings.SplitN(t, ":", 3); len(parts) == 3 {
+					base = parts[0] + ":" + parts[1]
+				}
+			}
+			if !catalog[base] {
 				unknown = append(unknown, t)
 				continue
 			}
-			if !actorAll && !actorEff[t] {
+			// No-escalation: the actor must hold the exact scoped perm OR its
+			// org-wide base (holding repo:write lets you grant repo:write:x).
+			if !actorAll && !actorEff[t] && !actorEff[base] {
 				offending = append(offending, t)
 			}
 		}
@@ -303,28 +335,53 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// seedRolePermissionDefaults seeds the built-in owner role (`*`) and every
-// app-declared DefaultRole (role name + permission tokens) for a freshly created
-// org. Idempotent.
+// seedRolePermissionDefaults seeds ONLY the built-in owner role (`*`) for a
+// freshly created (or claimed) org. App-declared DefaultRoles are NOT seeded
+// eagerly — they are role TEMPLATES for human teammates and are materialized
+// LAZILY the first time the role is granted (see materializeDefaultRole),
+// so a solo org (no other human members) carries no dormant role scaffolding.
+// Idempotent.
 func (s *Service) seedRolePermissionDefaults(ctx context.Context, orgID string) error {
-	if _, err := s.pg.Exec(ctx, `
+	_, err := s.pg.Exec(ctx, `
 		INSERT INTO profiles.org_role_permissions (org_id, role, permission)
 		VALUES ($1::uuid, $2, $3) ON CONFLICT DO NOTHING
-	`, orgID, orgOwnerRole, PermWildcard); err != nil {
+	`, orgID, orgOwnerRole, PermWildcard)
+	return err
+}
+
+// materializeDefaultRole lazily seeds an app-declared DefaultRole's permission
+// template into the org the first time that role is needed (e.g. on grant), if
+// it isn't already present. No-op for the owner role, unknown roles, or roles
+// that already have permissions. Idempotent.
+func (s *Service) materializeDefaultRole(ctx context.Context, orgID, role string) error {
+	role = canonicalizeOrgRole(role)
+	if role == "" || strings.EqualFold(role, orgOwnerRole) {
+		return nil
+	}
+	var tmpl *DefaultRole
+	for i := range s.opts.DefaultRoles {
+		if canonicalizeOrgRole(s.opts.DefaultRoles[i].Name) == role {
+			tmpl = &s.opts.DefaultRoles[i]
+			break
+		}
+	}
+	if tmpl == nil {
+		return nil // not an app default role; nothing to materialize
+	}
+	// Already materialized?
+	var exists bool
+	if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.org_role_permissions WHERE org_id=$1::uuid AND role=$2)`, orgID, role).Scan(&exists); err != nil {
 		return err
 	}
-	for _, dr := range s.opts.DefaultRoles {
-		role := canonicalizeOrgRole(dr.Name)
-		if role == "" || strings.EqualFold(role, orgOwnerRole) {
-			continue
-		}
-		if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.org_roles (org_id, role) VALUES ($1::uuid,$2) ON CONFLICT (org_id, role) DO NOTHING`, orgID, role); err != nil {
+	if exists {
+		return nil
+	}
+	if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.org_roles (org_id, role) VALUES ($1::uuid,$2) ON CONFLICT (org_id, role) DO NOTHING`, orgID, role); err != nil {
+		return err
+	}
+	for _, p := range dedupeStrings(tmpl.Permissions) {
+		if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.org_role_permissions (org_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, orgID, role, p); err != nil {
 			return err
-		}
-		for _, p := range dedupeStrings(dr.Permissions) {
-			if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.org_role_permissions (org_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, orgID, role, p); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
