@@ -25,10 +25,13 @@ func newTestCoreService(t *testing.T) *core.Service {
 	require.NoError(t, err)
 	ks := core.Keyset{Active: signer, PublicKeys: map[string]*rsa.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := core.Options{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"test-app"},
-		ExpectedAudiences:   []string{"test-app"},
-		AccessTokenDuration: time.Hour,
+		Issuer:               "https://example.com",
+		IssuedAudiences:      []string{"test-app"},
+		ExpectedAudiences:    []string{"test-app"},
+		AccessTokenDuration:  time.Hour,
+		// Tests that use newTestCoreService are not testing registration/verification flows,
+		// so we explicitly opt out to avoid needing a real email sender.
+		RegistrationVerification: core.RegistrationVerificationNone,
 	}
 	return core.NewService(opts, ks)
 }

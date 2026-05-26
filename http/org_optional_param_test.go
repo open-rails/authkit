@@ -13,11 +13,12 @@ import (
 
 func TestPasswordLogin_OrgParamRejectedInSingleMode(t *testing.T) {
 	cfg := core.Config{
-		Issuer:            "https://example.com",
-		IssuedAudiences:   []string{"test-app"},
-		ExpectedAudiences: []string{"test-app"},
-		BaseURL:           "https://example.com",
-		OrgMode:           "single",
+		Issuer:                   "https://example.com",
+		IssuedAudiences:          []string{"test-app"},
+		ExpectedAudiences:        []string{"test-app"},
+		BaseURL:                  "https://example.com",
+		OrgMode:                  "single",
+		RegistrationVerification: core.RegistrationVerificationNone,
 	}
 	svc, err := NewService(cfg)
 	require.NoError(t, err)
@@ -32,11 +33,12 @@ func TestPasswordLogin_OrgParamRejectedInSingleMode(t *testing.T) {
 
 func TestAuthToken_OrgParamRejectedInSingleMode(t *testing.T) {
 	cfg := core.Config{
-		Issuer:            "https://example.com",
-		IssuedAudiences:   []string{"test-app"},
-		ExpectedAudiences: []string{"test-app"},
-		BaseURL:           "https://example.com",
-		OrgMode:           "single",
+		Issuer:                   "https://example.com",
+		IssuedAudiences:          []string{"test-app"},
+		ExpectedAudiences:        []string{"test-app"},
+		BaseURL:                  "https://example.com",
+		OrgMode:                  "single",
+		RegistrationVerification: core.RegistrationVerificationNone,
 	}
 	svc, err := NewService(cfg)
 	require.NoError(t, err)

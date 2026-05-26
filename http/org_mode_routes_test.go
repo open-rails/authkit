@@ -20,11 +20,12 @@ func newTestCoreServiceWithOrgMode(t *testing.T, mode string) *core.Service {
 	require.NoError(t, err)
 	ks := core.Keyset{Active: signer, PublicKeys: map[string]*rsa.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := core.Options{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"test-app"},
-		ExpectedAudiences:   []string{"test-app"},
-		AccessTokenDuration: time.Hour,
-		OrgMode:             mode,
+		Issuer:                   "https://example.com",
+		IssuedAudiences:          []string{"test-app"},
+		ExpectedAudiences:        []string{"test-app"},
+		AccessTokenDuration:      time.Hour,
+		OrgMode:                  mode,
+		RegistrationVerification: core.RegistrationVerificationNone,
 	}
 	return core.NewService(opts, ks)
 }
