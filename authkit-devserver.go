@@ -73,7 +73,7 @@ func loadConfig() (*config, error) {
 		IssuedAudiences:          issuedAudiences,
 		ExpectedAudiences:        expectedAudiences,
 		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
+		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "required")))),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")

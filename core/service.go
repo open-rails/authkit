@@ -227,7 +227,7 @@ func validTokenPrefix(p string) bool {
 func normalizeRegistrationVerification(v RegistrationVerificationPolicy) (RegistrationVerificationPolicy, error) {
 	value := RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(string(v))))
 	if value == "" {
-		return RegistrationVerificationNone, nil
+		return RegistrationVerificationRequired, nil
 	}
 	switch value {
 	case RegistrationVerificationNone, RegistrationVerificationOptional, RegistrationVerificationRequired:
