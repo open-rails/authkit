@@ -71,6 +71,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, "invalid_request")
 		return
 	}
+
+	// Per-identifier check: prevents spamming verification emails to the same
+	// address from many IPs, each spending their own per-IP budget.
+	if s.rateLimitedByIdentifier(w, r, RLAuthRegister, identifier) {
+		return
+	}
 	if err := core.ValidatePassword(pass); err != nil {
 		badRequest(w, core.ValidationErrorCode(err))
 		return
@@ -247,6 +253,9 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 		return
 	}
 	email := strings.TrimSpace(req.Email)
+	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterResendEmail, email) {
+		return
+	}
 
 	pendingUser, err := s.svc.GetPendingRegistrationByEmail(r.Context(), email)
 	if err != nil || pendingUser == nil {

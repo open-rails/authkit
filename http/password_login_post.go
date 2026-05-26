@@ -11,6 +11,7 @@ import (
 )
 
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
+	// IP-only pre-check before we even parse the body (fast path).
 	if s.rateLimited(w, r, RLPasswordLogin) {
 		return
 	}
@@ -33,6 +34,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	identifier := strings.TrimSpace(req.Email)
 	if identifier == "" {
 		identifier = strings.TrimSpace(req.Login)
+	}
+
+	// Per-identifier check: prevents distributed brute-force against a single account
+	// from many IPs, each spending their own per-IP budget.
+	if s.rateLimitedByIdentifier(w, r, RLPasswordLogin, identifier) {
+		return
 	}
 	if identifier == "" {
 		badRequest(w, "invalid_request")

@@ -50,6 +50,68 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 	return true
 }
 
+// rateLimitedByIdentifier checks an additional per-identifier key for the given bucket.
+// It is designed to be called *after* the caller has already run s.rateLimited (IP check).
+// Checking a second key closes the distributed-brute-force gap where many IPs each get
+// their own per-IP budget against the same account or email address.
+//
+// identifier should be normalised (lowercased / trimmed) before being passed in.
+// An empty identifier is a no-op (returns false).
+func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request, bucket, identifier string) bool {
+	if strings.TrimSpace(identifier) == "" {
+		return false
+	}
+	// Build and check the per-identifier key (separate from the IP key).
+	idKey := "auth:" + bucket + ":id:" + strings.ToLower(strings.TrimSpace(identifier))
+	result := s.allowResultForKey(bucket, idKey)
+	if result.Allowed {
+		return false
+	}
+	if result.Availability != nil {
+		tooManyAvailability(w, *result.Availability, "rate_limited")
+		return true
+	}
+	tooMany(w, result.RetryAfter)
+	return true
+}
+
+// allowResultForKey is like allowResult but accepts an explicit key instead of deriving one from
+// the request IP.  Used by rateLimitedByIdentifier to check a second, identifier-scoped key.
+func (s *Service) allowResultForKey(bucket, key string) RateLimitResult {
+	if s == nil || s.rl == nil {
+		return RateLimitResult{Allowed: true}
+	}
+	if rl, ok := s.rl.(RateLimiterWithResult); ok {
+		result, err := rl.AllowNamedResult(bucket, key)
+		if err != nil {
+			return RateLimitResult{Allowed: true}
+		}
+		availability := availabilityFromRateLimit(bucket, result, time.Now())
+		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
+	}
+	if rl, ok := s.rl.(RateLimiterWithRetryAfter); ok {
+		allowed, retryAfter, err := rl.AllowNamedWithRetryAfter(bucket, key)
+		if err != nil {
+			return RateLimitResult{Allowed: true}
+		}
+		result := RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
+		if !allowed {
+			availability := availabilityFromRateLimit(bucket, ratelimit.Result{
+				Allowed:    false,
+				RetryAfter: retryAfter,
+				Reason:     ratelimit.ReasonLimitExceeded,
+			}, time.Now())
+			result.Availability = &availability
+		}
+		return result
+	}
+	ok, err := s.rl.AllowNamed(bucket, key)
+	if err != nil {
+		return RateLimitResult{Allowed: true}
+	}
+	return RateLimitResult{Allowed: ok}
+}
+
 func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if s == nil {
 		return RateLimitResult{Allowed: true}
