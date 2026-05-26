@@ -34,7 +34,7 @@ func TestRegistrationVerificationResolution(t *testing.T) {
 		val  RegistrationVerificationPolicy
 		want RegistrationVerificationPolicy
 	}{
-		{name: "default_none", val: "", want: RegistrationVerificationNone},
+		{name: "default_required", val: "", want: RegistrationVerificationRequired},
 		{name: "optional", val: RegistrationVerificationOptional, want: RegistrationVerificationOptional},
 		{name: "required", val: RegistrationVerificationRequired, want: RegistrationVerificationRequired},
 	}

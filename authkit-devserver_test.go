@@ -22,7 +22,7 @@ func resetDevserverEnv(t *testing.T) {
 }
 
 func TestLoadConfigRegistrationVerification(t *testing.T) {
-	t.Run("default_none", func(t *testing.T) {
+	t.Run("default_required", func(t *testing.T) {
 		resetDevserverEnv(t)
 		t.Setenv("DB_URL", "postgres://u:p@localhost:5432/db?sslmode=disable")
 		t.Setenv("DEVSERVER_ISSUER", "http://issuer:8080")
@@ -31,8 +31,8 @@ func TestLoadConfigRegistrationVerification(t *testing.T) {
 		if err != nil {
 			t.Fatalf("loadConfig failed: %v", err)
 		}
-		if cfg.RegistrationVerification != "none" {
-			t.Fatalf("expected RegistrationVerification=none, got %q", cfg.RegistrationVerification)
+		if cfg.RegistrationVerification != "required" {
+			t.Fatalf("expected RegistrationVerification=required, got %q", cfg.RegistrationVerification)
 		}
 	})
 
