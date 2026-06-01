@@ -2,13 +2,10 @@
   "global": {
     "audit": "enabled",
     "nosec": "enabled",
-    "show-ignored": "true",
-    "severity": "medium",
-    "confidence": "medium"
+    "show-ignored": "true"
   },
-  "rules": {
-    "G104": {
-      "audit": "false"
-    }
+  "G101": {
+    "pattern": "(?i)(passwd|pass|password|pwd|secret|token|api_key|apikey|access_key|auth)",
+    "ignore_entropy": false
   }
 }

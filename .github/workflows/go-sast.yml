@@ -44,6 +44,9 @@ jobs:
             -fmt sarif
             -out gosec.sarif
             -conf .gosec.json
+            -severity medium
+            -confidence medium
+            -exclude=G104
             -exclude-dir=testing
             -exclude-dir=migrations
             -exclude-dir=agents

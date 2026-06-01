@@ -4,3 +4,7 @@
 
 authkit
 *.exe
+
+# Local SAST scan output
+.reports/
+*.sarif
