@@ -1,0 +1,11 @@
+{
+  "global": {
+    "audit": "enabled",
+    "nosec": "enabled",
+    "show-ignored": "true"
+  },
+  "G101": {
+    "pattern": "(?i)(passwd|pass|password|pwd|secret|token|api_key|apikey|access_key|auth)",
+    "ignore_entropy": false
+  }
+}

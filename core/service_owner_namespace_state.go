@@ -373,7 +373,7 @@ func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, own
 	}
 	switch state {
 	case OwnerNamespaceStateRestrictedName:
-		orgID, created, err = s.ParkOrgNamespace(ctx, slug)
+		_, created, err = s.ParkOrgNamespace(ctx, slug)
 		if err != nil {
 			return "", false, err
 		}

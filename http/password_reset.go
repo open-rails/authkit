@@ -2,14 +2,11 @@ package authhttp
 
 import (
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	core "github.com/open-rails/authkit/core"
 )
-
-var reE164 = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 
 func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RLPasswordResetRequest) {
