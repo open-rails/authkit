@@ -113,10 +113,6 @@ func uniqueTokenHashes(primary string, hashes []string) []string {
 	return out
 }
 
-func (s *Service) storePendingRegistration(ctx context.Context, email, username, passwordHash, tokenHash string, ttl time.Duration) error {
-	return s.storePendingRegistrationTokens(ctx, email, username, passwordHash, map[string]time.Duration{tokenHash: ttl})
-}
-
 func (s *Service) storePendingRegistrationTokens(ctx context.Context, email, username, passwordHash string, tokenTTLs map[string]time.Duration) error {
 	email = normalizeEmail(email)
 	userKey := keyPendingRegUser + username
@@ -180,10 +176,6 @@ func (s *Service) deletePendingRegistration(ctx context.Context, tokenHash strin
 	if data.Username != "" {
 		_ = s.ephemDel(ctx, keyPendingRegUser+data.Username)
 	}
-}
-
-func (s *Service) storePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash, tokenHash string, ttl time.Duration) error {
-	return s.storePendingPhoneRegistrationTokens(ctx, phone, username, passwordHash, map[string]time.Duration{tokenHash: ttl})
 }
 
 func (s *Service) storePendingPhoneRegistrationTokens(ctx context.Context, phone, username, passwordHash string, tokenTTLs map[string]time.Duration) error {
@@ -370,10 +362,6 @@ func (s *Service) getPhoneVerification(ctx context.Context, purpose, phone strin
 		return nil, fmt.Errorf("not found")
 	}
 	return &data, nil
-}
-
-func (s *Service) storeEmailVerification(ctx context.Context, userID, tokenHash string, email *string, ttl time.Duration) error {
-	return s.storeEmailVerificationTokens(ctx, userID, email, map[string]time.Duration{tokenHash: ttl})
 }
 
 func (s *Service) storeEmailVerificationTokens(ctx context.Context, userID string, email *string, tokenTTLs map[string]time.Duration) error {

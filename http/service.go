@@ -33,10 +33,6 @@ type Service struct {
 	authlogr      core.AuthEventLogReader
 }
 
-func (s *Service) allow(r *http.Request, bucket string) bool {
-	return s.allowResult(r, bucket).Allowed
-}
-
 func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {
 	result := s.allowResult(r, bucket)
 	if result.Allowed {

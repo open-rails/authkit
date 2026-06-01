@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-	"time"
 )
 
 // GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
@@ -25,8 +24,7 @@ func (s *Service) GenerateAvailableUsername(ctx context.Context, base string) st
 			return candidate
 		}
 	}
-	// Fallback: base + random 4 digits
-	rand.Seed(time.Now().UnixNano())
+	// Fallback: base + random 4 digits (global rand is auto-seeded since Go 1.20)
 	for tries := 0; tries < 100; tries++ {
 		candidate := fmt.Sprintf("%s%04d", base, rand.Intn(10000))
 		if s.usernameAvailable(ctx, candidate) {

@@ -2179,10 +2179,6 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 	return u.ID, nil
 }
 
-func (s *Service) createVerifiedPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string) (string, error) {
-	return s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
-}
-
 func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string, phoneVerified bool) (string, error) {
 	if s.pg == nil {
 		return "", fmt.Errorf("postgres not configured")
@@ -2727,22 +2723,6 @@ ON CONFLICT (user_id) DO UPDATE SET password_hash=EXCLUDED.password_hash, hash_a
 type emailVerifyToken struct {
 	UserID string
 	Email  *string
-}
-
-func (s *Service) createEmailVerifyToken(ctx context.Context, userID, tokenHash string, email string, exp time.Time) error {
-	if !s.useEphemeralStore() {
-		return fmt.Errorf("ephemeral store not configured")
-	}
-	var em *string
-	if strings.TrimSpace(email) != "" {
-		v := normalizeEmail(email)
-		em = &v
-	}
-	ttl := time.Until(exp)
-	if ttl <= 0 {
-		ttl = 24 * time.Hour
-	}
-	return s.storeEmailVerification(ctx, userID, tokenHash, em, ttl)
 }
 
 func (s *Service) useEmailVerifyToken(ctx context.Context, tokenHash string) (*emailVerifyToken, error) {
@@ -3684,7 +3664,7 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 		} else {
 			// In production, require email to be configured for email 2FA
 			if !s.isDevEnvironment() {
-				return "", fmt.Errorf("Email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
+				return "", fmt.Errorf("email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
 			}
 			// Dev mode: log code to stdout
 			stdlog.Printf("[authkit/dev-2fa] email 2FA code for %s: %s", destination, code)
