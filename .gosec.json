@@ -1,0 +1,14 @@
+{
+  "global": {
+    "audit": "enabled",
+    "nosec": "enabled",
+    "show-ignored": "true",
+    "severity": "medium",
+    "confidence": "medium"
+  },
+  "rules": {
+    "G104": {
+      "audit": "false"
+    }
+  }
+}
