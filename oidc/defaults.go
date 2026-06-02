@@ -81,7 +81,7 @@ func RPClientFromProvider(provider authprovider.Provider) (RPClient, error) {
 	if provider.Kind == authprovider.KindOIDC {
 		client.Scopes = ensureOpenID(client.Scopes)
 	}
-	if strings.EqualFold(strings.TrimSpace(provider.ClientSecret.Strategy), "apple_jwt") {
+	if strings.EqualFold(strings.TrimSpace(provider.ClientSecret.Strategy), authprovider.SecretStrategyAppleJWT) {
 		sp, err := appleJWTSecretProvider(provider)
 		if err != nil {
 			return RPClient{}, err

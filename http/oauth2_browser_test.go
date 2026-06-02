@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
+	core "github.com/open-rails/authkit/core"
+	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -131,4 +133,45 @@ func TestFetchOAuthUserInfoUsesCustomDescriptorMapping(t *testing.T) {
 	require.True(t, info.EmailVerified)
 	require.Equal(t, "mapped-user", info.Preferred)
 	require.Equal(t, "Mapped User", info.Display)
+}
+
+func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
+	s := newTestServiceWithPolicy(t, true, false)
+	cfg := authprovider.Provider{
+		Name:   "github",
+		Kind:   authprovider.KindOAuth2,
+		Issuer: "https://github.com/login/oauth",
+	}
+	info := oauth2UserInfo{
+		Subject:       "brand-new-subject",
+		Email:         "newuser@example.com",
+		EmailVerified: true,
+	}
+	_, created, err := s.resolveOAuthUser(
+		httptest.NewRequest(http.MethodGet, "/", nil),
+		cfg,
+		oidckit.StateData{},
+		info,
+	)
+	require.ErrorIs(t, err, core.ErrRegistrationDisabled)
+	require.False(t, created)
+}
+
+func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
+	s := newTestServiceWithPolicy(t, true, false)
+	cfg := authprovider.Provider{
+		Name:   "github",
+		Kind:   authprovider.KindOAuth2,
+		Issuer: "https://github.com/login/oauth",
+	}
+	info := oauth2UserInfo{Subject: "linked-subject", Email: "linked@example.com"}
+	uid, created, err := s.resolveOAuthUser(
+		httptest.NewRequest(http.MethodGet, "/", nil),
+		cfg,
+		oidckit.StateData{LinkUserID: "user-123"},
+		info,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "user-123", uid)
+	require.False(t, created)
 }
