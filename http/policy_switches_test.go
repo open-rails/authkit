@@ -23,10 +23,14 @@ func newTestServiceWithPolicy(t *testing.T, registrationDisabled, orgManagementD
 	require.NoError(t, err)
 	ks := core.Keyset{Active: signer, PublicKeys: map[string]*rsa.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := core.Options{
-		Issuer:                      "https://example.com",
-		IssuedAudiences:             []string{"test-app"},
-		ExpectedAudiences:           []string{"test-app"},
-		AccessTokenDuration:         time.Hour,
+		Issuer:              "https://example.com",
+		IssuedAudiences:     []string{"test-app"},
+		ExpectedAudiences:   []string{"test-app"},
+		AccessTokenDuration: time.Hour,
+		// These tests don't exercise registration verification delivery; opt out
+		// so APIHandler's ValidateVerificationConfiguration doesn't panic on the
+		// default "required" policy with no sender configured.
+		RegistrationVerification:    core.RegistrationVerificationNone,
 		OrgMode:                     "multi",
 		PublicRegistrationDisabled:  registrationDisabled,
 		PublicOrgManagementDisabled: orgManagementDisabled,

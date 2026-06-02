@@ -2,10 +2,11 @@ package siws
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/mr-tron/base58"
 )
 
 // ConstructMessage builds the SIWS message following the ABNF specification.
@@ -102,14 +103,17 @@ func ConstructMessage(input SignInInput) string {
 }
 
 // GenerateNonce creates a cryptographically secure random nonce.
-// The nonce is at least 8 characters as required by the SIWS spec.
+// The nonce is base58-encoded so it is purely alphanumeric, as required by the
+// SIWS / EIP-4361 ABNF (nonce = 8*( ALPHA / DIGIT )). base64url is unsuitable
+// because its alphabet includes '-' and '_', which strict wallets reject.
+// 16 random bytes (128 bits of entropy) encode to ~22 alphanumeric characters,
+// comfortably above the 8-character minimum.
 func GenerateNonce() (string, error) {
 	b := make([]byte, 16) // 16 bytes = 128 bits of entropy
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
-	// Use URL-safe base64 encoding, trim padding
-	return strings.TrimRight(base64.RawURLEncoding.EncodeToString(b), "="), nil
+	return base58.Encode(b), nil
 }
 
 // NewSignInInput creates a SignInInput with required fields and sensible defaults.

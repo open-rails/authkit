@@ -6,9 +6,20 @@ import (
 	"testing"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/stretchr/testify/require"
 )
+
+func parseClaimsNoValidate(t *testing.T, token string, pub *rsa.PublicKey) jwt.MapClaims {
+	t.Helper()
+	claims := jwt.MapClaims{}
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	parsed, err := parser.ParseWithClaims(token, claims, func(token *jwt.Token) (any, error) { return pub, nil })
+	require.NoError(t, err)
+	require.True(t, parsed.Valid)
+	return claims
+}
 
 func newClaimTestService(t *testing.T, orgMode string) (*Service, *rsa.PublicKey) {
 	t.Helper()

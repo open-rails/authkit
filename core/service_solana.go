@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"strings"
 	"time"
@@ -113,19 +114,10 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 	// Delete the nonce immediately (single-use)
 	_ = cache.Del(ctx, parsedInput.Nonce)
 
-	// Verify the address matches
-	if challengeData.Address != output.Account.Address {
-		return "", time.Time{}, "", "", false, fmt.Errorf("address mismatch")
-	}
-
-	// Verify timestamps
-	if err := siws.ValidateTimestamps(parsedInput); err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("timestamp validation failed: %w", err)
-	}
-
-	// Verify the cryptographic signature
-	if err := siws.VerifySignature(output); err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("signature verification failed: %w", err)
+	// Run the stateless verification (expiry, address, domain, timestamps,
+	// public-key consistency, signature) against the server-issued challenge.
+	if err := verifySIWSChallenge(challengeData, parsedInput, output, time.Now().UTC()); err != nil {
+		return "", time.Time{}, "", "", false, err
 	}
 
 	// Check if wallet is already linked to a user
@@ -214,19 +206,9 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 	// Delete the nonce immediately (single-use)
 	_ = cache.Del(ctx, parsedInput.Nonce)
 
-	// Verify the address matches
-	if challengeData.Address != output.Account.Address {
-		return fmt.Errorf("address mismatch")
-	}
-
-	// Verify timestamps
-	if err := siws.ValidateTimestamps(parsedInput); err != nil {
-		return fmt.Errorf("timestamp validation failed: %w", err)
-	}
-
-	// Verify the cryptographic signature
-	if err := siws.VerifySignature(output); err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
+	// Run the stateless verification against the server-issued challenge.
+	if err := verifySIWSChallenge(challengeData, parsedInput, output, time.Now().UTC()); err != nil {
+		return err
 	}
 
 	// Check if wallet is already linked to another user
@@ -276,6 +258,70 @@ func (s *Service) GetSolanaAddress(ctx context.Context, userID string) (string, 
 		return "", nil // No wallet linked
 	}
 	return address, nil
+}
+
+// verifySIWSChallenge performs the stateless verification of a SIWS sign-in
+// output against a stored challenge. It does not touch the database or cache, so
+// it is unit-testable in isolation. parsedInput is the result of parsing
+// output.SignedMessage; challengeData is the server-issued challenge looked up
+// by nonce; now is the reference time (pass time.Now().UTC()).
+//
+// Checks, in order: server-issued expiry (authoritative, independent of the
+// client-supplied expirationTime), address match, domain binding, message
+// timestamps, public-key consistency, and the Ed25519 signature.
+func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.SignInInput, output siws.SignInOutput, now time.Time) error {
+	// Enforce the server-issued expiry window. This is authoritative and does
+	// not trust the client-supplied expirationTime in the signed message.
+	if now.After(challengeData.ExpiresAt) {
+		return fmt.Errorf("challenge expired")
+	}
+
+	// Verify the address matches the one the challenge was issued for.
+	if challengeData.Address != output.Account.Address {
+		return fmt.Errorf("address mismatch")
+	}
+
+	// Bind the signed message's domain to the server-issued challenge domain
+	// (anti-phishing). Field-level rather than strict byte-compare so wallets
+	// that reconstruct the message text remain compatible.
+	if err := siws.ValidateDomain(parsedInput, challengeData.Input.Domain); err != nil {
+		return fmt.Errorf("domain validation failed: %w", err)
+	}
+
+	// Verify the message timestamps (issuedAt skew, notBefore, expirationTime).
+	if err := siws.ValidateTimestamps(parsedInput); err != nil {
+		return fmt.Errorf("timestamp validation failed: %w", err)
+	}
+
+	// If the wallet supplied a public key, ensure it is consistent with the
+	// address (the address is the source of truth for the provider link).
+	if err := validateSolanaPublicKey(output.Account); err != nil {
+		return err
+	}
+
+	// Verify the cryptographic signature.
+	if err := siws.VerifySignature(output); err != nil {
+		return fmt.Errorf("signature verification failed: %w", err)
+	}
+
+	return nil
+}
+
+// validateSolanaPublicKey ensures that, when a wallet supplies an explicit
+// public key, it is consistent with the account address. The address (base58 of
+// the Ed25519 public key) remains the source of truth for verification and the
+// provider link; this only rejects an inconsistent client payload.
+func validateSolanaPublicKey(account siws.AccountInfo) error {
+	if len(account.PublicKey) == 0 {
+		return nil
+	}
+	if len(account.PublicKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("invalid public key length")
+	}
+	if siws.PublicKeyToBase58(account.PublicKey) != account.Address {
+		return fmt.Errorf("public key does not match address")
+	}
+	return nil
 }
 
 // deriveSolanaUsername creates a username from a Solana address.

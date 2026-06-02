@@ -32,6 +32,12 @@ type config struct {
 	IssuedAudiences          []string
 	ExpectedAudiences        []string
 	Environment              string
+	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
+	// catalog) so existing deployments are unaffected; the e2e suite sets
+	// these to exercise the multi-org OAT/RBAC surface against a real server.
+	OrgMode           string
+	TokenPrefix       string
+	PermissionCatalog []string
 }
 
 func main() {
@@ -74,6 +80,9 @@ func loadConfig() (*config, error) {
 		ExpectedAudiences:        expectedAudiences,
 		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
 		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "required")))),
+		OrgMode:                  strings.TrimSpace(envOr("DEVSERVER_ORG_MODE", "")),
+		TokenPrefix:              strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
+		PermissionCatalog:        parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")
@@ -119,6 +128,9 @@ func runServe(cfg *config) error {
 		Keys:                     keySource,
 		Environment:              cfg.Environment,
 		RegistrationVerification: cfg.RegistrationVerification,
+		OrgMode:                  cfg.OrgMode,
+		TokenPrefix:              cfg.TokenPrefix,
+		PermissionCatalog:        toPermissionDefs(cfg.PermissionCatalog),
 	})
 	if err != nil {
 		return err
@@ -141,6 +153,12 @@ func runServe(cfg *config) error {
 		// Dev-only: mint arbitrary JWTs for downstream service E2E tests.
 		if cfg.DevMode && r.Method == http.MethodPost && r.URL.Path == apiPrefix+"/dev/mint" {
 			devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret).ServeHTTP(w, r)
+			return
+		}
+		// Dev-only: reflect the authenticated principal (user OR service/OAT)
+		// so E2E tests can assert how a token resolved through the real verifier.
+		if cfg.DevMode && r.Method == http.MethodGet && r.URL.Path == apiPrefix+"/dev/whoami" {
+			devWhoamiHandler(svc).ServeHTTP(w, r)
 			return
 		}
 		// Browser flows are GET-only (/login and /callback). Link-start endpoints live in the JSON API.
@@ -217,6 +235,7 @@ type mintRequest struct {
 	Aud              string   `json:"aud" binding:"required"`
 	Email            string   `json:"email"`
 	Roles            []string `json:"roles"`
+	GlobalRoles      []string `json:"global_roles"`
 	Entitlements     []string `json:"entitlements"`
 	ExpiresInSeconds int64    `json:"expires_in_seconds"`
 }
@@ -225,6 +244,39 @@ type mintResponse struct {
 	Token     string    `json:"token"`
 	TokenType string    `json:"token_type"`
 	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func toPermissionDefs(names []string) []core.PermissionDef {
+	if len(names) == 0 {
+		return nil
+	}
+	defs := make([]core.PermissionDef, 0, len(names))
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			defs = append(defs, core.PermissionDef{Name: n})
+		}
+	}
+	return defs
+}
+
+// devWhoamiHandler reflects the authenticated principal as resolved by the real
+// verifier (JWT user OR branded service/OAT token), behind the standard auth
+// middleware. Dev-only; used by the RBAC E2E suite to assert OAT resolution.
+func devWhoamiHandler(svc *authhttp.Service) http.Handler {
+	reflect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cl, ok := authhttp.ClaimsFromContext(r.Context())
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"org":         cl.Org,
+			"permissions": cl.Permissions,
+			"is_service":  cl.IsService(),
+			"user_id":     cl.UserID,
+		})
+	})
+	return authhttp.Required(svc.Verifier())(reflect)
 }
 
 func devMintHandler(issuer string, signer jwtkit.Signer, secret string) http.Handler {
@@ -269,6 +321,9 @@ func devMintHandler(issuer string, signer jwtkit.Signer, secret string) http.Han
 		}
 		if len(req.Roles) > 0 {
 			claims["roles"] = req.Roles
+		}
+		if len(req.GlobalRoles) > 0 {
+			claims["global_roles"] = req.GlobalRoles
 		}
 		if len(req.Entitlements) > 0 {
 			claims["entitlements"] = req.Entitlements

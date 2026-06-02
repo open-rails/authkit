@@ -137,7 +137,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		}
 		errMsg := err.Error()
 		switch {
-		case contains(errMsg, "challenge not found"):
+		case contains(errMsg, "challenge not found"), contains(errMsg, "challenge expired"):
 			unauthorized(w, "challenge_expired")
 		case contains(errMsg, "signature verification failed"):
 			unauthorized(w, "invalid_signature")
@@ -231,10 +231,12 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	if err := s.svc.LinkSolanaWallet(r.Context(), s.siwsCache(), claims.UserID, output); err != nil {
 		errMsg := err.Error()
 		switch {
-		case contains(errMsg, "challenge not found"):
+		case contains(errMsg, "challenge not found"), contains(errMsg, "challenge expired"):
 			unauthorized(w, "challenge_expired")
 		case contains(errMsg, "signature verification failed"):
 			unauthorized(w, "invalid_signature")
+		case contains(errMsg, "address mismatch"):
+			badRequest(w, "address_mismatch")
 		case contains(errMsg, "wallet already linked"):
 			sendErr(w, http.StatusConflict, "wallet_already_linked")
 		default:

@@ -123,6 +123,17 @@ func TestGenerateNonce(t *testing.T) {
 	if nonce1 == nonce2 {
 		t.Error("nonces should be unique")
 	}
+
+	// SIWS / EIP-4361 ABNF requires nonce = 8*( ALPHA / DIGIT ): purely
+	// alphanumeric. base64url chars '-' and '_' must never appear.
+	for _, n := range []string{nonce1, nonce2} {
+		for _, c := range n {
+			isAlphaNum := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+			if !isAlphaNum {
+				t.Errorf("nonce contains non-alphanumeric character %q: %s", c, n)
+			}
+		}
+	}
 }
 
 func TestNewSignInInput(t *testing.T) {
