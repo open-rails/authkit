@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -28,12 +29,22 @@ type Claims struct {
 	UserTier     string
 	JTI          string
 
-	// Delegated/federated fields. A delegated platform token carries the
-	// external user in DelegatedSubject (claim `delegated_sub`) and the
-	// federated org in Tenant (claim `tenant`, falling back to `org`). It never
-	// carries `sub` (UserID stays empty), so the local-user gate does not apply.
+	// Delegated/federated fields. A delegated access token carries the external
+	// actor in DelegatedSubject (claim `delegated_sub`) and the canonical target
+	// tenant in Tenant (claim `tenant`, falling back to `org`). It never carries
+	// `sub` (UserID stays empty), so the local-user gate does not apply.
 	Tenant           string
 	DelegatedSubject string
+
+	// Attributes is the `attributes` claim of a delegated access token: an
+	// object of issuer-provided policy metadata (e.g. {"tier":"cozy_free"}).
+	// Values are kept as raw JSON so the receiving service can decode each into
+	// its own typed schema. Nil when the claim is absent.
+	Attributes map[string]json.RawMessage
+
+	// TokenTyp is the JOSE `typ` header value. "at+jwt" identifies a delegated
+	// access token. Empty when the header is absent (e.g. legacy tokens).
+	TokenTyp string
 
 	// TokenType marks the credential class. Empty for ordinary user JWTs;
 	// "service" for an Organization Access Token (OAT) acting AS THE ORG. A
@@ -58,22 +69,45 @@ func (c Claims) IsService() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), ServiceTokenType)
 }
 
-// DelegatedPrincipal is the federated identity carried by a delegated platform
-// token: an external user (DelegatedSubject) acting under a federated org
-// (Tenant). The subject does NOT exist as a local user in the validating
-// service — authorization is by tenant/issuer trust, not local-user lookup.
+// DelegatedPrincipal is the federated identity carried by a delegated access
+// token: an external actor (DelegatedSubject) acting under a canonical target
+// tenant (Tenant). The subject does NOT exist as a local user in the validating
+// service — authorization is by tenant/issuer trust plus Permissions, not
+// local-user lookup. Roles are non-authoritative compatibility metadata only.
 type DelegatedPrincipal struct {
+	Issuer           string
 	Tenant           string
 	DelegatedSubject string
-	UserTier         string
-	Roles            []string
-	Issuer           string
+	// Permissions are the resource-defined permission strings the receiving
+	// service authorizes against its own catalog. This is the authority source.
+	Permissions []string
+	// Attributes is issuer-provided policy metadata (raw JSON values).
+	Attributes map[string]json.RawMessage
+	// JTI is the token identifier (`jti` claim), when present.
+	JTI string
+	// UserTier is the resolved tier, sourced from `attributes.tier` and falling
+	// back to the legacy top-level `user_tier` claim during migration.
+	UserTier string
+	// Roles is NON-AUTHORITATIVE compatibility metadata describing the issuer's
+	// local role system. Receiving services MUST NOT use it as authority.
+	Roles []string
 }
 
-// IsDelegated reports whether these claims represent a delegated platform
-// principal (i.e. carry `delegated_sub` rather than a local `sub`).
+// IsDelegated reports whether these claims represent a delegated principal
+// (i.e. carry `delegated_sub` rather than a local `sub`).
 func (c Claims) IsDelegated() bool {
 	return strings.TrimSpace(c.DelegatedSubject) != ""
+}
+
+// IsDelegatedAccessToken reports whether these claims represent a delegated
+// access token. The canonical signal is the `typ=at+jwt` JOSE header; for
+// legacy tokens minted without that header it falls back to claim-shape
+// detection (presence of `delegated_sub`, never a local `sub`).
+func (c Claims) IsDelegatedAccessToken() bool {
+	if strings.EqualFold(strings.TrimSpace(c.TokenTyp), DelegatedAccessTokenType) {
+		return strings.TrimSpace(c.UserID) == "" && c.IsDelegated()
+	}
+	return c.IsDelegated()
 }
 
 // Delegated returns the typed DelegatedPrincipal when the claims are delegated.
@@ -90,12 +124,47 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 		roles = c.OrgRoles
 	}
 	return DelegatedPrincipal{
+		Issuer:           c.Issuer,
 		Tenant:           tenant,
 		DelegatedSubject: c.DelegatedSubject,
+		Permissions:      c.Permissions,
+		Attributes:       c.Attributes,
+		JTI:              c.JTI,
 		UserTier:         c.UserTier,
 		Roles:            roles,
-		Issuer:           c.Issuer,
 	}, true
+}
+
+// DelegatedAccess is the canonical accessor for a delegated access token's
+// principal. It returns the typed DelegatedPrincipal and true only when the
+// claims are a delegated access token (see IsDelegatedAccessToken).
+func (c Claims) DelegatedAccess() (DelegatedPrincipal, bool) {
+	if !c.IsDelegatedAccessToken() {
+		return DelegatedPrincipal{}, false
+	}
+	return c.Delegated()
+}
+
+// Attribute returns the raw JSON value of a single delegated-access-token
+// attribute and whether it was present.
+func (c Claims) Attribute(key string) (json.RawMessage, bool) {
+	if c.Attributes == nil {
+		return nil, false
+	}
+	v, ok := c.Attributes[key]
+	return v, ok
+}
+
+// HasPermission reports whether the claims carry the exact permission string.
+// Receiving services should layer scope semantics on top — string presence
+// alone is not authorization.
+func (c Claims) HasPermission(perm string) bool {
+	for _, p := range c.Permissions {
+		if p == perm {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Claims) HasRole(role string) bool {
