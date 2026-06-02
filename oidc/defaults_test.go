@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"testing"
 	"time"
 
@@ -100,6 +101,22 @@ func TestNewManagerFromProvidersAcceptsCustomOAuth2Descriptor(t *testing.T) {
 	}
 }
 
+func TestRPClientFromProviderSurfacesResolveStaticError(t *testing.T) {
+	const key = "AUTHKIT_RP_CLIENT_ENV_EMPTY"
+	t.Setenv(key, "")
+
+	_, err := RPClientFromProvider(authprovider.Provider{
+		Name:         "google",
+		Kind:         authprovider.KindOIDC,
+		Issuer:       "https://accounts.google.com",
+		ClientID:     "google-client",
+		ClientSecret: authprovider.ClientSecret{Env: key},
+	})
+	if !errors.Is(err, authprovider.ErrClientSecretEnvEmpty) {
+		t.Fatalf("expected ErrClientSecretEnvEmpty, got %v", err)
+	}
+}
+
 func TestAppleJWTClientSecretStrategyBuildsSecretProvider(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -117,7 +134,7 @@ func TestAppleJWTClientSecretStrategyBuildsSecretProvider(t *testing.T) {
 		Issuer:   "https://appleid.apple.com",
 		ClientID: "com.example.web",
 		ClientSecret: authprovider.ClientSecret{
-			Strategy: "apple_jwt",
+			Strategy: authprovider.SecretStrategyAppleJWT,
 			AppleJWT: &authprovider.AppleJWTSecret{
 				TeamID:        "TEAMID1234",
 				KeyID:         "KEYID1234",

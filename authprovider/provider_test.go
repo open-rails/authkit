@@ -1,6 +1,9 @@
 package authprovider
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestMapIdentityConvertsAndTransformsFields(t *testing.T) {
 	root := map[string]any{
@@ -40,6 +43,111 @@ func TestMapFallbackEmailSelectsVerifiedPrimary(t *testing.T) {
 	})
 	if email != "primary@example.com" || !verified {
 		t.Fatalf("unexpected fallback email: %q %v", email, verified)
+	}
+}
+
+func TestResolveStatic(t *testing.T) {
+	t.Run("static value", func(t *testing.T) {
+		got, err := (ClientSecret{Value: " secret "}).ResolveStatic()
+		if err != nil || got != "secret" {
+			t.Fatalf("got %q err %v", got, err)
+		}
+	})
+
+	t.Run("env set and populated", func(t *testing.T) {
+		const key = "AUTHKIT_TEST_CLIENT_SECRET"
+		t.Setenv(key, "from-env")
+		got, err := (ClientSecret{Env: key}).ResolveStatic()
+		if err != nil || got != "from-env" {
+			t.Fatalf("got %q err %v", got, err)
+		}
+	})
+
+	t.Run("env set but empty", func(t *testing.T) {
+		const key = "AUTHKIT_TEST_CLIENT_SECRET_EMPTY"
+		t.Setenv(key, "")
+		_, err := (ClientSecret{Env: key}).ResolveStatic()
+		if !errors.Is(err, ErrClientSecretEnvEmpty) {
+			t.Fatalf("expected ErrClientSecretEnvEmpty, got %v", err)
+		}
+	})
+
+	t.Run("dynamic strategy", func(t *testing.T) {
+		got, err := (ClientSecret{Strategy: SecretStrategyAppleJWT}).ResolveStatic()
+		if err != nil || got != "" {
+			t.Fatalf("got %q err %v", got, err)
+		}
+	})
+
+	t.Run("no source", func(t *testing.T) {
+		got, err := (ClientSecret{}).ResolveStatic()
+		if err != nil || got != "" {
+			t.Fatalf("got %q err %v", got, err)
+		}
+	})
+}
+
+func TestMapBoolNumericValues(t *testing.T) {
+	cases := []struct {
+		value any
+		want  bool
+	}{
+		{value: 1, want: true},
+		{value: int64(0), want: false},
+		{value: float64(2), want: true},
+		{value: uint(0), want: false},
+	}
+	for _, tc := range cases {
+		got, err := mapBool(map[string]any{"v": tc.value}, FieldMapping{Path: "v"})
+		if err != nil {
+			t.Fatalf("mapBool returned error: %v", err)
+		}
+		if got != tc.want {
+			t.Fatalf("value %v: got %v want %v", tc.value, got, tc.want)
+		}
+	}
+}
+
+func TestProviderValidateRejectsUnknownTransform(t *testing.T) {
+	err := (Provider{
+		Name: "custom",
+		Kind: KindOAuth2,
+		UserMapping: UserMapping{
+			Subject: FieldMapping{Path: "id", Transforms: []string{"rot13"}},
+		},
+	}).Validate()
+	if !errors.Is(err, ErrProviderInvalidTransform) {
+		t.Fatalf("expected ErrProviderInvalidTransform, got %v", err)
+	}
+}
+
+func TestProviderValidateRejectsNonHTTPSOAuthURLs(t *testing.T) {
+	err := (Provider{
+		Name:        "custom",
+		Kind:        KindOAuth2,
+		TokenURL:    "http://token.example/oauth/token",
+		UserInfoURL: "https://userinfo.example/me",
+		UserMapping: UserMapping{
+			Subject: FieldMapping{Path: "id"},
+		},
+	}).Validate()
+	if !errors.Is(err, ErrProviderNonHTTPSURL) {
+		t.Fatalf("expected ErrProviderNonHTTPSURL, got %v", err)
+	}
+}
+
+func TestProviderValidateAcceptsHTTPSOAuthURLs(t *testing.T) {
+	if err := (Provider{
+		Name:         "custom",
+		Kind:         KindOAuth2,
+		AuthorizeURL: "https://oauth.example/authorize",
+		TokenURL:     "https://token.example/oauth/token",
+		UserInfoURL:  "https://userinfo.example/me",
+		UserMapping: UserMapping{
+			Subject: FieldMapping{Path: "id"},
+		},
+	}).Validate(); err != nil {
+		t.Fatalf("unexpected validate error: %v", err)
 	}
 }
 

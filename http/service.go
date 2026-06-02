@@ -19,18 +19,19 @@ import (
 
 // Service wraps core.Service with net/http mounting helpers.
 type Service struct {
-	svc           *core.Service
-	verifier      *Verifier
-	rd            *redis.Client
-	rl            RateLimiter
-	clientIP      ClientIPFunc
-	errorLogger   func(context.Context, InternalErrorEvent)
-	oidcProviders map[string]oidckit.RPConfig
-	providers     map[string]authprovider.Provider
-	memStateCache oidckit.StateCache
-	solanaDomain  string // Domain for SIWS messages (optional, derived from request if empty)
-	langCfg       *LanguageConfig
-	authlogr      core.AuthEventLogReader
+	svc                 *core.Service
+	verifier            *Verifier
+	rd                  *redis.Client
+	rl                  RateLimiter
+	clientIP            ClientIPFunc
+	errorLogger         func(context.Context, InternalErrorEvent)
+	oidcProviders       map[string]oidckit.RPConfig
+	providers           map[string]authprovider.Provider
+	authProvidersByName map[string]authprovider.Provider
+	memStateCache       oidckit.StateCache
+	solanaDomain        string // Domain for SIWS messages (optional, derived from request if empty)
+	langCfg             *LanguageConfig
+	authlogr            core.AuthEventLogReader
 }
 
 func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {
@@ -176,14 +177,20 @@ func NewService(cfg core.Config) (*Service, error) {
 	})
 	ver.WithService(coreSvc)
 
+	authProvidersByName, err := buildAuthProvidersMap(cfg.Providers, cfg.ProviderDescriptors)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Service{
-		svc:           coreSvc,
-		verifier:      ver,
-		oidcProviders: cfg.Providers,
-		providers:     cfg.ProviderDescriptors,
-		memStateCache: memorystore.NewStateCache(15 * time.Minute),
-		rl:            memorylimiter.New(ToMemoryLimits(DefaultRateLimits())),
-		clientIP:      DefaultClientIP(),
+		svc:                 coreSvc,
+		verifier:            ver,
+		oidcProviders:       cfg.Providers,
+		providers:           cfg.ProviderDescriptors,
+		authProvidersByName: authProvidersByName,
+		memStateCache:       memorystore.NewStateCache(15 * time.Minute),
+		rl:                  memorylimiter.New(ToMemoryLimits(DefaultRateLimits())),
+		clientIP:            DefaultClientIP(),
 	}
 	return s, nil
 }

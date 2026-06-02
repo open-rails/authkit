@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -14,7 +15,23 @@ type Kind string
 const (
 	KindOIDC   Kind = "oidc"
 	KindOAuth2 Kind = "oauth2"
+
+	// SecretStrategyAppleJWT selects dynamic Apple ES256 client-secret minting.
+	SecretStrategyAppleJWT = "apple_jwt"
 )
+
+var (
+	ErrClientSecretEnvEmpty     = errors.New("client_secret_env_empty")
+	ErrProviderInvalidTransform = errors.New("provider_invalid_transform")
+	ErrProviderNonHTTPSURL      = errors.New("provider_non_https_url")
+)
+
+var allowedTransforms = map[string]struct{}{
+	"":          {},
+	"string":    {},
+	"trim":      {},
+	"lowercase": {},
+}
 
 type Provider struct {
 	Name            string
@@ -129,13 +146,48 @@ func (s ClientSecret) ResolveStatic() (string, error) {
 	if strings.TrimSpace(s.Value) != "" {
 		return strings.TrimSpace(s.Value), nil
 	}
-	if strings.TrimSpace(s.Env) != "" {
-		return strings.TrimSpace(os.Getenv(strings.TrimSpace(s.Env))), nil
+	env := strings.TrimSpace(s.Env)
+	if env != "" {
+		v := strings.TrimSpace(os.Getenv(env))
+		if v == "" {
+			return "", fmt.Errorf("%w: %s", ErrClientSecretEnvEmpty, env)
+		}
+		return v, nil
 	}
 	if strings.TrimSpace(s.Strategy) != "" {
 		return "", nil
 	}
 	return "", nil
+}
+
+// Validate checks descriptor shape for config-loaded providers.
+func (p Provider) Validate() error {
+	if err := validateUserMappingTransforms(p.UserMapping); err != nil {
+		return err
+	}
+	if p.EmailFallback != nil {
+		if err := validateFieldMappingTransforms(p.EmailFallback.Email); err != nil {
+			return err
+		}
+		if err := validateFieldMappingTransforms(p.EmailFallback.EmailVerified); err != nil {
+			return err
+		}
+		if err := validateHTTPSURL(p.EmailFallback.URL); err != nil {
+			return err
+		}
+	}
+	if p.Kind == KindOAuth2 {
+		if err := validateHTTPSURL(p.TokenURL); err != nil {
+			return err
+		}
+		if err := validateHTTPSURL(p.UserInfoURL); err != nil {
+			return err
+		}
+		if err := validateHTTPSURL(p.AuthorizeURL); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func MapIdentity(root any, mapping UserMapping) (Identity, error) {
@@ -207,9 +259,66 @@ func mapBool(root any, mapping FieldMapping) (bool, error) {
 		return v, nil
 	case string:
 		return strings.EqualFold(strings.TrimSpace(v), "true"), nil
+	case int:
+		return v != 0, nil
+	case int8:
+		return v != 0, nil
+	case int16:
+		return v != 0, nil
+	case int32:
+		return v != 0, nil
+	case int64:
+		return v != 0, nil
+	case uint:
+		return v != 0, nil
+	case uint8:
+		return v != 0, nil
+	case uint16:
+		return v != 0, nil
+	case uint32:
+		return v != 0, nil
+	case uint64:
+		return v != 0, nil
+	case float32:
+		return v != 0, nil
+	case float64:
+		return v != 0, nil
 	default:
 		return false, nil
 	}
+}
+
+func validateUserMappingTransforms(m UserMapping) error {
+	for _, fm := range []FieldMapping{m.Subject, m.Email, m.EmailVerified, m.PreferredUsername, m.DisplayName} {
+		if err := validateFieldMappingTransforms(fm); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateFieldMappingTransforms(m FieldMapping) error {
+	for _, transform := range m.Transforms {
+		if _, ok := allowedTransforms[strings.ToLower(strings.TrimSpace(transform))]; !ok {
+			return fmt.Errorf("%w: %q", ErrProviderInvalidTransform, transform)
+		}
+	}
+	return nil
+}
+
+func validateHTTPSURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrProviderNonHTTPSURL, raw)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("%w: %s", ErrProviderNonHTTPSURL, raw)
+	}
+	return nil
 }
 
 func mappedValue(root any, mapping FieldMapping) (any, bool) {

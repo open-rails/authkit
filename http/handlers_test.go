@@ -163,6 +163,9 @@ func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 			},
 		},
 	}
+	var err error
+	s.authProvidersByName, err = buildAuthProvidersMap(s.oidcProviders, s.providers)
+	require.NoError(t, err)
 	h := s.OIDCHandler()
 
 	tests := []struct {
