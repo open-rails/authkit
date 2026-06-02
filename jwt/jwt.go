@@ -28,6 +28,18 @@ type Signer interface {
 	Sign(ctx context.Context, claims jwt.MapClaims) (token string, err error)
 }
 
+// HeaderSigner is an optional extension of Signer that lets callers set extra
+// JOSE header parameters (e.g. `typ`) on the signed token. Delegated access
+// tokens use it to stamp the `typ=at+jwt` header. Mint code type-asserts to
+// this interface and falls back to plain Sign when a signer does not implement
+// it, so the extension is fully backwards compatible.
+type HeaderSigner interface {
+	Signer
+	// SignWithHeaders signs claims and merges the provided extra JOSE header
+	// params into the token header (kid is still set by the signer).
+	SignWithHeaders(ctx context.Context, claims jwt.MapClaims, headers map[string]any) (token string, err error)
+}
+
 // Minimal in-memory RSA signer for bootstrap/dev. Production should load from KMS or DB.
 type RSASigner struct {
 	key *rsa.PrivateKey
@@ -52,6 +64,21 @@ func (s *RSASigner) PrivateKey() *rsa.PrivateKey { return s.key }
 
 func (s *RSASigner) Sign(_ context.Context, claims jwt.MapClaims) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = s.kid
+	return token.SignedString(s.key)
+}
+
+// SignWithHeaders implements HeaderSigner: it signs claims and merges extra JOSE
+// header params (e.g. `typ`) into the token header. The signer's own kid is set
+// last and cannot be overridden by the supplied headers.
+func (s *RSASigner) SignWithHeaders(_ context.Context, claims jwt.MapClaims, headers map[string]any) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	for k, val := range headers {
+		if k == "kid" || k == "alg" {
+			continue
+		}
+		token.Header[k] = val
+	}
 	token.Header["kid"] = s.kid
 	return token.SignedString(s.key)
 }

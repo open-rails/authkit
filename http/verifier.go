@@ -66,6 +66,12 @@ type Verifier struct {
 	kidRefetchAt     map[string]time.Time
 	kidRefetchFlight map[string]*sync.WaitGroup
 	kidRefetchMin    time.Duration
+
+	// Delegated-access-token validation hooks (optional). permValidator checks
+	// `permissions` against the resource server's catalog; attrValidator checks
+	// `attributes` against a policy schema. Run only by VerifyDelegatedAccess.
+	permValidator PermissionValidator
+	attrValidator AttributesValidator
 }
 
 // issuerEntry describes a trusted issuer (private — replaces core.IssuerAccept).
@@ -123,6 +129,30 @@ func WithOrgMode(mode string) VerifierOption {
 // brand prefix used to detect OATs in the middleware. Empty -> bare "oat_".
 func WithTokenPrefix(prefix string) VerifierOption {
 	return func(v *Verifier) { v.tokenPrefix = strings.TrimSpace(prefix) }
+}
+
+// PermissionValidator validates a delegated access token's `permissions`
+// against the receiving service's own permission catalog. Return an error to
+// reject the token. Called only for delegated access tokens.
+type PermissionValidator func(permissions []string) error
+
+// AttributesValidator validates a delegated access token's `attributes`
+// against the receiving service/tenant policy schema. Return an error to reject
+// the token. Called only for delegated access tokens.
+type AttributesValidator func(attributes map[string]json.RawMessage) error
+
+// WithPermissionCatalog installs a validator that VerifyDelegatedAccess runs
+// against the token's `permissions`. Use it to ensure every permission string
+// belongs to this resource server's catalog.
+func WithPermissionCatalog(fn PermissionValidator) VerifierOption {
+	return func(v *Verifier) { v.permValidator = fn }
+}
+
+// WithAttributesPolicy installs a validator that VerifyDelegatedAccess runs
+// against the token's `attributes`. Use it to enforce a policy schema (allowed
+// keys, value shapes/ranges).
+func WithAttributesPolicy(fn AttributesValidator) VerifierOption {
+	return func(v *Verifier) { v.attrValidator = fn }
 }
 
 // resolveServiceToken handles Organization Access Tokens (OATs). It returns
@@ -550,18 +580,81 @@ func (v *Verifier) VerifyClaims(tokenStr string) (jwt.MapClaims, error) {
 // It enforces issuer/audience/expiry with the configured skew, plus authkit's
 // user-token invariant, on top of VerifyClaims.
 func (v *Verifier) Verify(tokenStr string) (Claims, error) {
-	mapClaims, err := v.VerifyClaims(tokenStr)
+	mapClaims, typ, err := v.verifyClaimsWithHeader(tokenStr)
 	if err != nil {
 		return Claims{}, err
 	}
 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
-	// platform token (`delegated_sub`) — never both. Reject the ambiguous case.
+	// access token (`delegated_sub`) — never both. Reject the ambiguous case.
 	if strClaim(mapClaims, "sub") != "" && strClaim(mapClaims, "delegated_sub") != "" {
 		return Claims{}, errors.New("conflicting_subject")
 	}
 
-	return v.extractClaims(mapClaims), nil
+	// Invariant: a `typ=at+jwt` delegated access token MUST NOT carry a normal
+	// `sub` — no local account may be implied. Reject it explicitly so a
+	// misconfigured issuer can't slip a local subject into an access token.
+	if strings.EqualFold(strings.TrimSpace(typ), DelegatedAccessTokenType) &&
+		strClaim(mapClaims, "sub") != "" {
+		return Claims{}, errors.New("access_token_has_sub")
+	}
+
+	// Invariant: `org` is a compatibility alias and is accepted ONLY when it
+	// exactly equals the canonical `tenant`. A mismatch is a hard reject.
+	tenant := strings.TrimSpace(strClaim(mapClaims, "tenant"))
+	org := strings.TrimSpace(strClaim(mapClaims, "org"))
+	if tenant != "" && org != "" && tenant != org {
+		return Claims{}, errors.New("tenant_org_mismatch")
+	}
+
+	cl := v.extractClaims(mapClaims)
+	cl.TokenTyp = strings.TrimSpace(typ)
+	return cl, nil
+}
+
+// VerifyDelegatedAccess verifies a token, requires it to be a delegated access
+// token, and runs any configured permission/attributes validators. It returns
+// the typed Claims and the DelegatedPrincipal. Use it on resource servers that
+// only accept delegated access tokens and want catalog/policy enforcement.
+func (v *Verifier) VerifyDelegatedAccess(tokenStr string) (Claims, DelegatedPrincipal, error) {
+	cl, err := v.Verify(tokenStr)
+	if err != nil {
+		return Claims{}, DelegatedPrincipal{}, err
+	}
+	dp, ok := cl.DelegatedAccess()
+	if !ok {
+		return Claims{}, DelegatedPrincipal{}, errors.New("not_delegated_access_token")
+	}
+	if v.permValidator != nil {
+		if err := v.permValidator(cl.Permissions); err != nil {
+			return Claims{}, DelegatedPrincipal{}, err
+		}
+	}
+	if v.attrValidator != nil {
+		if err := v.attrValidator(cl.Attributes); err != nil {
+			return Claims{}, DelegatedPrincipal{}, err
+		}
+	}
+	return cl, dp, nil
+}
+
+// verifyClaimsWithHeader is VerifyClaims plus the JOSE `typ` header value, so
+// Verify can enforce delegated-access-token typing. The header is read from the
+// already-verified token; callers must not trust typ for security decisions
+// beyond what the signature and registered-issuer checks already guarantee.
+func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, string, error) {
+	mapClaims, err := v.VerifyClaims(tokenStr)
+	if err != nil {
+		return nil, "", err
+	}
+	// Re-parse (unverified) only to read the header; signature/issuer/audience
+	// were already validated by VerifyClaims above.
+	typ := ""
+	parser := jwt.NewParser()
+	if tok, _, perr := parser.ParseUnverified(strings.TrimSpace(tokenStr), jwt.MapClaims{}); perr == nil && tok != nil {
+		typ, _ = tok.Header["typ"].(string)
+	}
+	return mapClaims, typ, nil
 }
 
 // extractClaims converts jwt.MapClaims into typed Claims.
@@ -583,9 +676,29 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	}
 	cl.JTI = strClaim(mc, "jti")
 
+	// Permissions are the resource-defined authority source for delegated access
+	// tokens (NOT OAuth space-delimited scope).
+	cl.Permissions = strSliceClaim(mc, "permissions")
+
+	// Attributes is issuer policy metadata kept as raw JSON for per-service
+	// decoding. `attributes.tier` is the canonical home for the tier label.
+	cl.Attributes = rawAttributesClaim(mc, "attributes")
+
 	cl.UserTier = strClaim(mc, "user_tier")
 	if cl.UserTier == "" {
 		cl.UserTier = strClaim(mc, "plan")
+	}
+	// Canonical: tier lives under attributes.tier. Prefer it when present;
+	// otherwise keep the legacy top-level `user_tier` read fallback above for
+	// Tensorhub/Gen-Orchestrator migration.
+	if tier := rawStringAttribute(cl.Attributes, "tier"); tier != "" {
+		cl.UserTier = tier
+	} else if cl.UserTier != "" && cl.Attributes == nil {
+		// READ fallback: surface legacy `user_tier` as attributes.tier so
+		// consumers can migrate to reading attributes.tier uniformly.
+		cl.Attributes = map[string]json.RawMessage{
+			"tier": json.RawMessage(`"` + cl.UserTier + `"`),
+		}
 	}
 
 	cl.Roles = strSliceClaim(mc, "roles")
@@ -640,6 +753,43 @@ func strSliceClaim(mc jwt.MapClaims, key string) []string {
 		return rs
 	}
 	return nil
+}
+
+// rawAttributesClaim extracts an object-valued claim (e.g. `attributes`) as
+// map[string]json.RawMessage so each value can be re-decoded by the receiving
+// service into its own typed schema. Returns nil when the claim is absent or
+// not an object.
+func rawAttributesClaim(mc jwt.MapClaims, key string) map[string]json.RawMessage {
+	obj, ok := mc[key].(map[string]any)
+	if !ok || len(obj) == 0 {
+		return nil
+	}
+	out := make(map[string]json.RawMessage, len(obj))
+	for k, val := range obj {
+		b, err := json.Marshal(val)
+		if err != nil {
+			continue
+		}
+		out[k] = json.RawMessage(b)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// rawStringAttribute decodes a single attribute value as a JSON string, or
+// returns "" when absent / not a string.
+func rawStringAttribute(attrs map[string]json.RawMessage, key string) string {
+	raw, ok := attrs[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
 }
 
 // ---------------------------------------------------------------------------

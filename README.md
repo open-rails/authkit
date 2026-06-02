@@ -888,34 +888,83 @@ There are three roles, all owned by AuthKit:
 | Role | Side | API |
 |---|---|---|
 | **register** | both | `FederationClient.RegisterIssuer` (outbound) → `POST /federated-issuers` (inbound) |
-| **mint** | platform | `MintDelegatedToken(ctx, signer, DelegatedTokenParams)` |
-| **validate** | resource server | `Verifier.LoadFederatedIssuers` + `Verifier.Verify` → `Claims.Delegated()` |
+| **mint** | platform | `MintDelegatedAccessToken(ctx, signer, DelegatedAccessParams)` |
+| **validate** | resource server | `Verifier.LoadFederatedIssuers` + `Verifier.VerifyDelegatedAccess` → `Claims.DelegatedAccess()` |
 
-#### The delegated-token contract
+#### Delegated access tokens (canonical primitive)
 
-A delegated platform token is signed by the org's platform issuer key and
-carries:
+A **delegated access token** is AuthKit's standard primitive for tenant/platform
+federation: one AuthKit issuer signs a short-lived JWT for an external
+(delegated) actor, and a resource service (OpenRails, Tensorhub,
+Gen-Orchestrator, …) accepts it after issuer/JWKS/audience/tenant validation.
+Mint it with `MintDelegatedAccessToken` / `DelegatedAccessParams`.
 
-- `delegated_sub` — the **federated user id**. A delegated token **never** sets
-  `sub`. The invariant is: a token carries EITHER `sub` (native user) **XOR**
-  `delegated_sub` (federated user), never both. AuthKit refuses to mint both,
-  and `Verify()` rejects any token presenting both (`conflicting_subject`).
-- `org` / `tenant` — the federated org slug. `Claims.Tenant` reads `tenant`,
-  falling back to `org`.
-- `user_tier` — the platform's tier for this user (`Claims.UserTier`).
-- `roles` — platform-scoped roles for the federated user.
-- `aud` — the resource servers this token targets.
-- `exp` — expiry (defaults to 15m).
+Canonical claim contract:
 
-Because a delegated token has no `sub`, the resource server's middleware
+| Claim | Meaning | Typed accessor |
+|---|---|---|
+| header `typ=at+jwt` | identifies a delegated access token (`DelegatedAccessTokenType`) | `Claims.TokenTyp` / `IsDelegatedAccessToken()` |
+| `iss` | tenant/platform AuthKit issuer that signed the token | `Claims.Issuer` |
+| `aud` | target resource API (`openrails`, `tensorhub`, `gen-orchestrator`) | (matched at verify) |
+| `tenant` | **canonical** target tenant/platform slug | `Claims.Tenant` |
+| `delegated_sub` | issuer-side actor id; **no local account is implied** | `Claims.DelegatedSubject` |
+| `permissions []string` | resource-defined permission strings (NOT OAuth space-delimited scope) — the **authority source** | `Claims.Permissions` / `HasPermission()` |
+| `attributes {}` | issuer policy metadata, e.g. `{"tier":"cozy_free"}` (arbitrary JSON) | `Claims.Attributes` / `Attribute(key)` |
+| `iat`/`exp`/`nbf`/`jti` | standard timing + token id | `Claims.JTI` |
+
+**Hard invariants** (enforced + tested):
+
+- A delegated access token **MUST NOT** carry a normal `sub`. `Verify()` rejects
+  a `typ=at+jwt` token that carries `sub` (`access_token_has_sub`).
+- A token carrying **both** `sub` and `delegated_sub` is rejected
+  (`conflicting_subject`).
+- `roles` are **NOT authority** for the receiving service — they describe the
+  issuer's local role system. `MintDelegatedAccessToken` does not mint `roles`;
+  receiving services authorize on `permissions` + explicit `attributes` policy.
+  When present on legacy tokens, roles are surfaced as
+  `DelegatedPrincipal.Roles` non-authoritative compat metadata only.
+- `tenant` is **canonical**. A compat `org` claim is accepted **only when it
+  exactly equals `tenant`**; a mismatch is rejected (`tenant_org_mismatch`).
+  When `tenant` is absent, `org` is the fallback for `Claims.Tenant`.
+
+Receiving services can install validation hooks:
+
+```go
+v := authhttp.NewVerifier(
+    authhttp.WithPermissionCatalog(func(perms []string) error { /* check catalog */ }),
+    authhttp.WithAttributesPolicy(func(a map[string]json.RawMessage) error { /* check schema */ }),
+)
+cl, dp, err := v.VerifyDelegatedAccess(token) // requires typ=at+jwt + runs hooks
+// dp.Tenant, dp.DelegatedSubject, dp.Permissions, dp.Attributes, dp.JTI, dp.Issuer
+```
+
+Because a delegated access token has no `sub`, the resource server's middleware
 **skips the local-user gate** (no `user_disabled` lookup) — authorization is by
-issuer/tenant trust, not local-user existence. Validated delegated tokens are
-read via:
+issuer/tenant trust + `permissions`, not local-user existence.
+
+Recommended OpenRails permission naming uses a service prefix even though
+`aud=openrails` is present, because a tenant AuthKit catalog may carry
+permissions for several resource services: self-scoped
+`openrails:self:billing:read`, `openrails:self:checkout:create`,
+`openrails:self:subscriptions:cancel`; tenant/admin
+`openrails:tenant:catalog:write`, `openrails:tenant:payments:refund`,
+`openrails:tenant:admin`. Routes must still check scope semantics, not just
+string presence.
+
+#### Legacy delegated platform token (compatibility)
+
+The earlier Tensorhub/Gen-Orchestrator shape used `delegated_sub`,
+`tenant`/`org`, and a top-level **`user_tier`** claim. It is still minted by the
+deprecated `MintDelegatedToken` / `DelegatedTokenParams` and still verifies.
+Migration: new tokens carry the tier under **`attributes.tier`**; the verifier
+keeps a temporary **read fallback** that surfaces legacy top-level `user_tier`
+as both `Claims.UserTier` and `attributes.tier`, and prefers `attributes.tier`
+when both are present. Consumers should migrate to reading `attributes.tier`.
 
 ```go
 cl, _ := verifier.Verify(token)
-if dp, ok := cl.Delegated(); ok {
-    // dp.Tenant, dp.DelegatedSubject, dp.UserTier, dp.Roles, dp.Issuer
+if dp, ok := cl.DelegatedAccess(); ok {
+    // dp.Tenant, dp.DelegatedSubject, dp.Permissions, dp.Attributes, dp.UserTier, dp.Issuer
 }
 ```
 

@@ -18,7 +18,7 @@
     },
     {
       "name": "Magic-link login (passwordless) via email/SMS (separate from verify/reset)",
-      "id_number": 13,
+      "id_number": 49,
       "description": "Add optional passwordless login using one-time magic links. This is intentionally separate from verification/password reset links.\n\nGoals:\n- Allow a user to request a login link to email (and optionally SMS) and authenticate by clicking it.\n- Keep existing password + 2FA flows intact; magic login is additive and can be disabled entirely.\n\nSecurity notes:\n- High-entropy, single-use, short TTL tokens stored as hashes.\n- Prevent open redirects; fixed redirect or allowlist.\n- Rate limit requests and token consumption; do not leak whether a user exists.\n- Consider session fixation and device binding (optional).\n\nUX:\n- Link lands on host frontend route (e.g. `/auth/magic?token=...`) which calls AuthKit to consume token and then stores session tokens.\n\nProvider notes:\n- Email is straightforward.\n- SMS magic links require Twilio Messaging/SMS API (not Twilio Verify).",
       "tasks": [
         "[ ] Add request endpoint(s): POST /auth/magic-link/request (email/phone) with anti-enumeration response",
@@ -33,7 +33,7 @@
     },
     {
       "name": "AuthKit as a standalone service (first-class deployment target)",
-      "id_number": 14,
+      "id_number": 50,
       "description": "Today AuthKit is primarily used as a library embedded in host services (doujins/hentai0/openrails) and via a devserver used for E2E testing.\n\nDefine and implement a supported mode where AuthKit runs as its own standalone HTTP service that:\n- mints and verifies JWTs for multiple downstream services\n- serves JWKS at a stable URL\n- provides the full AuthKit API surface under `/auth/*`\n- can be deployed independently (Docker/Kubernetes) with clear configuration and operational guidance.\n\nGoals:\n- Stable, documented deployment contract (env/config) for AuthKit-as-a-service.\n- Downstream services can integrate by trusting issuers (JWKS fetch) + expected audiences.\n- Support multi-instance deployments safely (durable store + Redis for ephemeral/rate-limit where required).\n\nNon-goals:\n- Forcing downstream services to stop embedding AuthKit (embedding remains valid).\n- Becoming a full OAuth authorization server with third-party client registration UX (keep AuthKit's scope).\n\nKey design questions to answer:\n- Issuer and audience strategy (single issuer vs per-service issuers; how to partition).\n- Key management (rotation, persistence, JWKS caching headers).\n- Storage requirements (Postgres always; Redis optional vs required for HA).\n- Service-to-service auth and admin API exposure.",
       "tasks": [
         "[ ] Define the standalone service contract\n    - Public base URL + issuer URL (`AUTHKIT_ISSUER`)\n    - Audience model (per downstream service vs shared audiences)\n    - Required configuration for prod vs dev (DB_URL, Redis, proxy/trust headers, CORS, etc.)",

@@ -203,24 +203,24 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("authkit: invalid TokenPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", cfg.TokenPrefix)
 	}
 	opts := Options{
-		Issuer:                   issuer,
-		IssuedAudiences:          issuedAudiences,
-		ExpectedAudiences:        expectedAudiences,
-		AccessTokenDuration:      accessTTL,
-		RefreshTokenDuration:     refTTL,
-		SessionMaxPerUser:        maxSess,
-		BaseURL:                  baseURL,
-		FrontendCallbackPath:     frontendCallbackPath,
+		Issuer:                      issuer,
+		IssuedAudiences:             issuedAudiences,
+		ExpectedAudiences:           expectedAudiences,
+		AccessTokenDuration:         accessTTL,
+		RefreshTokenDuration:        refTTL,
+		SessionMaxPerUser:           maxSess,
+		BaseURL:                     baseURL,
+		FrontendCallbackPath:        frontendCallbackPath,
 		RegistrationVerification:    registrationVerification,
 		OrgMode:                     orgMode,
 		PublicRegistrationDisabled:  cfg.PublicRegistrationDisabled,
 		PublicOrgManagementDisabled: cfg.PublicOrgManagementDisabled,
-		Environment:              strings.TrimSpace(cfg.Environment),
-		SolanaNetwork:            strings.TrimSpace(cfg.SolanaNetwork),
-		TokenPrefix:              tokenPrefix,
-		OrgAccessTokenMaxTTL:     cfg.OrgAccessTokenMaxTTL,
-		PermissionCatalog:        cfg.PermissionCatalog,
-		DefaultRoles:             cfg.DefaultRoles,
+		Environment:                 strings.TrimSpace(cfg.Environment),
+		SolanaNetwork:               strings.TrimSpace(cfg.SolanaNetwork),
+		TokenPrefix:                 tokenPrefix,
+		OrgAccessTokenMaxTTL:        cfg.OrgAccessTokenMaxTTL,
+		PermissionCatalog:           cfg.PermissionCatalog,
+		DefaultRoles:                cfg.DefaultRoles,
 	}
 	return NewService(opts, ks), nil
 }
