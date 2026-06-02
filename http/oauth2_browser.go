@@ -192,6 +192,10 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 			badRequest(w, "provider_already_linked")
 			return
 		}
+		if errors.Is(err, core.ErrRegistrationDisabled) {
+			registrationDisabled(w)
+			return
+		}
 		serverErr(w, "user_creation_failed")
 		return
 	}
@@ -350,6 +354,12 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 			}
 			return u.ID, false, nil
 		}
+	}
+	// No existing user matched this provider identity. Auto-creating a new
+	// account is a public registration path, blocked when public registration
+	// is disabled (existing-user login above still works).
+	if s.publicRegistrationDisabled() {
+		return "", false, core.ErrRegistrationDisabled
 	}
 	username := s.svc.DeriveUsernameForOAuth(r.Context(), cfg.Name, info.Preferred, info.Email, info.Display)
 	u, err := s.svc.CreateUser(r.Context(), info.Email, username)

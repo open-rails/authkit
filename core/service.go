@@ -45,6 +45,13 @@ type Options struct {
 	// Valid values: "single" or "multi".
 	OrgMode string
 
+	// PublicRegistrationDisabled turns off all public user self-registration and
+	// auto-registration paths. See Config.PublicRegistrationDisabled.
+	PublicRegistrationDisabled bool
+	// PublicOrgManagementDisabled denies the public org-facing onboarding and
+	// management HTTP routes. See Config.PublicOrgManagementDisabled.
+	PublicOrgManagementDisabled bool
+
 	// Environment is host-provided runtime mode used for dev/prod behavior checks.
 	Environment string
 	// SolanaNetwork is host-provided chain selector for SIWS flows.
@@ -83,6 +90,15 @@ var (
 	ErrPhoneAlreadyVerified = errors.New("phone_already_verified")
 	// ErrPendingRegistrationNotFound indicates a registration resend request did not match a pending registration.
 	ErrPendingRegistrationNotFound = errors.New("pending_registration_not_found")
+	// ErrRegistrationDisabled indicates a public user-creation path was attempted
+	// while PublicRegistrationDisabled is set. Existing-user authentication is
+	// unaffected; only NEW account creation through public/auto-registration is
+	// blocked.
+	ErrRegistrationDisabled = errors.New("registration_disabled")
+	// ErrOrgManagementDisabled indicates a public org onboarding/management path
+	// was attempted while PublicOrgManagementDisabled is set. Embedded
+	// bootstrap/admin core APIs remain available.
+	ErrOrgManagementDisabled = errors.New("org_management_disabled")
 )
 
 const defaultFrontendCallbackPath = "/login/callback"
@@ -195,8 +211,10 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		SessionMaxPerUser:        maxSess,
 		BaseURL:                  baseURL,
 		FrontendCallbackPath:     frontendCallbackPath,
-		RegistrationVerification: registrationVerification,
-		OrgMode:                  orgMode,
+		RegistrationVerification:    registrationVerification,
+		OrgMode:                     orgMode,
+		PublicRegistrationDisabled:  cfg.PublicRegistrationDisabled,
+		PublicOrgManagementDisabled: cfg.PublicOrgManagementDisabled,
 		Environment:              strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:            strings.TrimSpace(cfg.SolanaNetwork),
 		TokenPrefix:              tokenPrefix,
@@ -275,6 +293,19 @@ func (o Options) RegistrationVerificationRequired() bool {
 
 func (o Options) RegistrationVerificationEnabled() bool {
 	return o.RegistrationVerificationPolicy() != RegistrationVerificationNone
+}
+
+// PublicRegistrationEnabled reports whether public user self-registration /
+// auto-registration is allowed. It is the inverse of PublicRegistrationDisabled.
+func (o Options) PublicRegistrationEnabled() bool {
+	return !o.PublicRegistrationDisabled
+}
+
+// PublicOrgManagementEnabled reports whether the public org onboarding /
+// management HTTP routes are allowed. It is the inverse of
+// PublicOrgManagementDisabled.
+func (o Options) PublicOrgManagementEnabled() bool {
+	return !o.PublicOrgManagementDisabled
 }
 
 func isWellFormattedURL(raw string) bool {
@@ -1289,6 +1320,9 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
+	if s.opts.PublicRegistrationDisabled {
+		return "", ErrRegistrationDisabled
+	}
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
 		_, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
@@ -1364,6 +1398,9 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 // ConfirmPendingRegistration verifies token and creates the actual user account.
 // This implements "first to verify wins" - whoever verifies first gets the username/email.
 func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) (userID string, err error) {
+	if s.opts.PublicRegistrationDisabled {
+		return "", ErrRegistrationDisabled
+	}
 	hash := sha256Hex(token)
 
 	var email, username, passwordHash string
@@ -1458,6 +1495,9 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
+	if s.opts.PublicRegistrationDisabled {
+		return "", ErrRegistrationDisabled
+	}
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
 		_, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
@@ -1528,6 +1568,9 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 // ConfirmPendingPhoneRegistration verifies code and creates the actual user account.
 // Implements "first to verify wins" - whoever verifies first gets the username/phone.
 func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
+	if s.opts.PublicRegistrationDisabled {
+		return "", ErrRegistrationDisabled
+	}
 	hash := sha256Hex(code)
 
 	var username, passwordHash, pendingPhone string

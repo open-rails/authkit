@@ -182,6 +182,14 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 		if !matched {
+			// No existing user matched this federated identity. Auto-creating a
+			// new account is a public registration path, so it is blocked when
+			// public registration is disabled (existing-user OIDC login above
+			// still works).
+			if s.publicRegistrationDisabled() {
+				registrationDisabled(w)
+				return
+			}
 			displayName := ""
 			if claims.Name != nil {
 				displayName = *claims.Name

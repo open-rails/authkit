@@ -49,6 +49,10 @@ func newRegistrationResponse(username string, email, phone *string, nextAction r
 }
 
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
+	if s.publicRegistrationDisabled() {
+		registrationDisabled(w)
+		return
+	}
 	if s.rateLimited(w, r, RLAuthRegister) {
 		return
 	}
@@ -223,6 +227,10 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *http.Request) {
+	if s.publicRegistrationDisabled() {
+		registrationDisabled(w)
+		return
+	}
 	if !s.svc.Options().RegistrationVerificationEnabled() {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
@@ -266,6 +274,10 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 }
 
 func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.Request) {
+	if s.publicRegistrationDisabled() {
+		registrationDisabled(w)
+		return
+	}
 	if !s.svc.Options().RegistrationVerificationEnabled() {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return

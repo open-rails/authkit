@@ -180,6 +180,25 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/federated-issuers", Group: RouteFederation, Handler: admin(http.HandlerFunc(s.handleFederatedIssuersListGET))},
 	}
 
+	// When public org onboarding/management is disabled, wrap the mutating
+	// org-facing routes with a stable org_management_disabled deny handler.
+	// Read-only org routes (listing, lookup, role/permission reads,
+	// introspection) and the org-scoped token route stay available so existing
+	// members can still authenticate and inspect their orgs. Embedded
+	// bootstrap/admin core APIs are unaffected (they never traverse these HTTP
+	// handlers).
+	orgMgmt := func(method, path string, h http.Handler) http.Handler {
+		if !s.publicOrgManagementDisabled() {
+			return h
+		}
+		if !isPublicOrgManagementRoute(method, path) {
+			return h
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			orgManagementDisabled(w)
+		})
+	}
+
 	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
 		routes = append(routes,
 			RouteSpec{Method: http.MethodPost, Path: "/token/org", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleAuthTokenOrgPOST))},
@@ -219,10 +238,37 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		if !selected(route.Group) {
 			continue
 		}
+		if route.Group == RouteOrganizations {
+			route.Handler = orgMgmt(route.Method, route.Path, route.Handler)
+		}
 		route.Handler = lang(route.Handler)
 		out = append(out, route)
 	}
 	return out
+}
+
+// isPublicOrgManagementRoute reports whether (method, path) is a public
+// org-facing onboarding/management route gated by PublicOrgManagementDisabled.
+// These are the mutating org routes (creation, rename, invites, member changes,
+// role changes, OAT management) plus invite acceptance/decline. Read-only org
+// routes and the org-scoped token route are intentionally excluded so existing
+// members can still authenticate and inspect their orgs.
+func isPublicOrgManagementRoute(method, path string) bool {
+	switch method {
+	case http.MethodGet:
+		// All org reads stay available (listings, lookups, role/permission
+		// reads, introspection).
+		return false
+	case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
+		// The org-scoped token exchange (`POST /token/org`) is authentication,
+		// not org management — keep it available for existing members.
+		if method == http.MethodPost && path == "/token/org" {
+			return false
+		}
+		return strings.HasPrefix(path, "/orgs") || strings.HasPrefix(path, "/me/invites")
+	default:
+		return false
+	}
 }
 
 // OIDCBrowserRoutes returns browser redirect routes with no mount prefix.

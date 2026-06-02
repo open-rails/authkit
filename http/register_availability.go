@@ -29,6 +29,20 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// When public registration is disabled, never report a name or email as
+	// usable: every requested field is unavailable with a stable reason.
+	if s.publicRegistrationDisabled() {
+		resp := registrationAvailabilityResponse{}
+		if username != "" {
+			resp.Username = &registrationAvailabilityField{Available: false, Error: errRegistrationDisabled}
+		}
+		if email != "" {
+			resp.Email = &registrationAvailabilityField{Available: false, Error: errRegistrationDisabled}
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
 	resp := registrationAvailabilityResponse{}
 	if username != "" {
 		field, err := s.registrationUsernameAvailability(r, username)

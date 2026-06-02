@@ -34,6 +34,26 @@ type Config struct {
 	// Valid values: "single" (default) or "multi".
 	OrgMode string
 
+	// PublicRegistrationDisabled, when true, turns off all PUBLIC user
+	// self-registration and auto-registration paths: password registration,
+	// availability, resend, OIDC/social/Solana/passkey auto-create, and
+	// pending-registration confirmation. Existing-user authentication (login,
+	// refresh, logout, password reset/recovery, verification, sessions) is
+	// unaffected, and embedded bootstrap/admin/internal creation via the
+	// exported CreateUser / ImportUser core APIs still works.
+	//
+	// Default false preserves current behavior (public registration enabled).
+	PublicRegistrationDisabled bool
+
+	// PublicOrgManagementDisabled, when true, denies the PUBLIC org-facing
+	// onboarding/management HTTP routes (org creation, rename, invites, member
+	// changes, role changes, OAT management). Embedded core/bootstrap code can
+	// still ensure the initial orgs, roles, admin membership, and OATs through
+	// the exported core APIs (CreateOrg, AssignRole, OAT minting, etc.).
+	//
+	// Default false preserves current behavior (public org management enabled).
+	PublicOrgManagementDisabled bool
+
 	// Environment is a host-provided runtime mode string used for dev/prod behavior checks.
 	// Expected values include "prod"/"production" for production, anything else is treated as non-prod.
 	Environment string
