@@ -31,6 +31,10 @@ func (s *Service) handleOrgsListGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
+	if s.publicOrgManagementDisabled() {
+		orgManagementDisabled(w)
+		return
+	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")

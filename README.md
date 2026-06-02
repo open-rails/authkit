@@ -95,6 +95,69 @@ For custom routers, iterate `svc.Routes().DefaultAPI()` or
 `RouteSpec.Path`, and `RouteSpec.Handler` yourself. Host apps should not keep
 duplicated AuthKit route allowlists.
 
+Coarse policy switches (locked-down hosts)
+
+Route-group selection is the primary host control: a locked-down host should
+mount only the `svc.Routes().Groups(...)` subset it intentionally exposes
+instead of `DefaultAPI()`. As a defense-in-depth backstop (for hosts that
+accidentally mount more than intended), AuthKit also provides two coarse
+runtime switches on `core.Config`:
+
+- `PublicRegistrationDisabled` — turns off ALL public user self-registration and
+  auto-registration paths. When set, `POST /register`, `/register/availability`,
+  `/register/resend-email`, `/register/resend-phone`, OIDC/social/Solana
+  auto-create, and pending-registration confirmation all return a stable
+  `registration_disabled` error (`/register/availability` reports every field
+  as unavailable, never usable). Existing-user authentication is unaffected:
+  login, refresh, logout, password reset/recovery, token verification, and
+  sessions all keep working. Embedded bootstrap/admin creation through the
+  exported core APIs (`CreateUser`, `ImportUser`) still works.
+- `PublicOrgManagementDisabled` — denies the public org-facing onboarding and
+  management routes (org creation/rename, invites, member changes, role
+  changes, OAT management routes) with a stable `org_management_disabled`
+  error. Read-only org routes and the org-scoped token exchange (`POST
+  /token/org`) stay available for existing members. Embedded core/bootstrap
+  code can still ensure the initial orgs, roles, admins, and OATs through the
+  exported core APIs (`CreateOrg`, `DefineRole`, `AddMember`, `AssignRole`,
+  `MintOrgAccessToken`, ...).
+
+Both default to `false`, preserving current behavior for existing consumers.
+
+Locked-down (e.g. self-hosted OpenRails) pattern: mount only the chosen route
+groups, set both switches, and bootstrap through embedded core APIs.
+
+```go
+cfg := core.Config{
+  // ...issuer/audiences/keys...
+  PublicRegistrationDisabled:  true, // no public signup
+  PublicOrgManagementDisabled: true, // no public org onboarding/management
+}
+svc, _ := authhttp.NewService(cfg)
+
+// Mount only the route groups this deployment intentionally exposes:
+authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
+  authhttp.RouteCore,     // /token, /sessions/current, /logout
+  authhttp.RoutePassword, // login + password reset for existing users
+  authhttp.RouteUser,     // self-service for existing accounts
+)))
+
+// Bootstrap the default tenant/operator org, roles, admin user, and OATs
+// internally via the AuthKit core APIs (unaffected by the switches above):
+core := svc.Core()
+admin, _ := core.CreateUser(ctx, "ops@example.com", "operator")
+org, _ := core.CreateOrg(ctx, "operator")
+_ = core.DefineRole(ctx, org.Slug, "owner")
+_ = core.AddMember(ctx, org.Slug, admin.ID)
+_ = core.AssignRole(ctx, org.Slug, admin.ID, "owner")
+oat, secret, _ := core.MintOrgAccessToken(ctx, org.Slug, "ci", []string{"*"}, admin.ID, nil)
+_ = oat
+_ = secret
+```
+
+Hosted SaaS deployments can later flip both switches to `false` and mount the
+`RouteRegister` / `RouteOrganizations` groups to enable public signup and org
+onboarding without code changes.
+
 Quick Start (net/http)
 
 ```go

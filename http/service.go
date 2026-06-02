@@ -249,6 +249,24 @@ func (s *Service) WithSolanaDomain(domain string) *Service {
 func (s *Service) Core() *core.Service { return s.svc }
 func (s *Service) Verifier() *Verifier { return s.verifier }
 
+// publicRegistrationDisabled reports whether public user self-registration /
+// auto-registration is turned off for this service.
+func (s *Service) publicRegistrationDisabled() bool {
+	if s == nil || s.svc == nil {
+		return false
+	}
+	return s.svc.Options().PublicRegistrationDisabled
+}
+
+// publicOrgManagementDisabled reports whether the public org onboarding /
+// management HTTP routes are turned off for this service.
+func (s *Service) publicOrgManagementDisabled() bool {
+	if s == nil || s.svc == nil {
+		return false
+	}
+	return s.svc.Options().PublicOrgManagementDisabled
+}
+
 func (s *Service) stateCache() oidckit.StateCache {
 	if s.rd != nil {
 		return redisstore.NewStateCache(s.rd, "auth:oidc:state:", 0)

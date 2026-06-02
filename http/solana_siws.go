@@ -131,6 +131,10 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 			unauthorized(w, "user_banned")
 			return
 		}
+		if errors.Is(err, core.ErrRegistrationDisabled) {
+			registrationDisabled(w)
+			return
+		}
 		errMsg := err.Error()
 		switch {
 		case contains(errMsg, "challenge not found"):

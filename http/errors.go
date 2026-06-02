@@ -37,6 +37,25 @@ func sendErrData(w http.ResponseWriter, status int, code string, data map[string
 func badRequest(w http.ResponseWriter, code string)   { sendErr(w, http.StatusBadRequest, code) }
 func unauthorized(w http.ResponseWriter, code string) { sendErr(w, http.StatusUnauthorized, code) }
 func forbidden(w http.ResponseWriter, code string)    { sendErr(w, http.StatusForbidden, code) }
+
+// Stable error codes for the coarse policy switches.
+const (
+	errRegistrationDisabled  = "registration_disabled"
+	errOrgManagementDisabled = "org_management_disabled"
+)
+
+// registrationDisabled writes the stable registration-disabled rejection used by
+// every public user-creation path when PublicRegistrationDisabled is set.
+func registrationDisabled(w http.ResponseWriter) {
+	sendErr(w, http.StatusForbidden, errRegistrationDisabled)
+}
+
+// orgManagementDisabled writes the stable org-management-disabled rejection used
+// by public org onboarding/management routes when PublicOrgManagementDisabled is
+// set.
+func orgManagementDisabled(w http.ResponseWriter) {
+	sendErr(w, http.StatusForbidden, errOrgManagementDisabled)
+}
 func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 	if len(retryAfter) == 0 || retryAfter[0] <= 0 {
 		sendErr(w, http.StatusTooManyRequests, "rate_limited")

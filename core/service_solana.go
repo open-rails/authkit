@@ -135,7 +135,12 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		userID = existingUserID
 		created = false
 	} else {
-		// New user - create account
+		// New user - create account. Blocked when public registration is
+		// disabled: an existing wallet still logs in via the branch above, but
+		// no NEW account may be auto-created here.
+		if s.opts.PublicRegistrationDisabled {
+			return "", time.Time{}, "", "", false, ErrRegistrationDisabled
+		}
 		username := challengeData.Username
 		if username == "" {
 			username = s.deriveSolanaUsername(output.Account.Address)
