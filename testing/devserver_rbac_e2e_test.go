@@ -86,7 +86,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 	execSQL := func(t *testing.T, sql string) string {
 		t.Helper()
 		args := []string{"-f", composeFile, "-f", overridePath, "exec", "-T", "postgres",
-			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql}
+			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-qAt", "-c", sql}
 		return strings.TrimSpace(c.run(t, args...))
 	}
 

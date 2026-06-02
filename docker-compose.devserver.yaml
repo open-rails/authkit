@@ -19,6 +19,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.devserver
+      network: host
     depends_on:
       postgres:
         condition: service_healthy

@@ -79,7 +79,7 @@ func loadConfig() (*config, error) {
 		IssuedAudiences:          issuedAudiences,
 		ExpectedAudiences:        expectedAudiences,
 		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "required")))),
+		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
 		OrgMode:                  strings.TrimSpace(envOr("DEVSERVER_ORG_MODE", "")),
 		TokenPrefix:              strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
 		PermissionCatalog:        parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
