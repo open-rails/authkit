@@ -6,9 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"sync"
+	"time"
 
 	"github.com/zitadel/oidc/v2/pkg/client/rp"
 )
+
+// DefaultRPCacheTTL is how long static-secret relying parties are cached after discovery.
+const DefaultRPCacheTTL = time.Hour
 
 // RPClient holds issuer-based OIDC settings for a single IdP (internal RP wiring).
 type RPClient struct {
@@ -24,14 +29,34 @@ type RPClient struct {
 	PKCE            bool
 }
 
+type rpCacheEntry struct {
+	rp     rp.RelyingParty
+	expiry time.Time
+}
+
 // Manager builds provider RPs and helps construct auth URLs with PKCE.
-type Manager struct{ providers map[string]RPClient }
+type Manager struct {
+	providers map[string]RPClient
+	cacheTTL  time.Duration
+
+	mu      sync.RWMutex
+	rpCache map[string]rpCacheEntry
+}
 
 // NewManager initializes the RP clients lazily on first use.
-func NewManager(cfgs map[string]RPClient) *Manager { return &Manager{providers: cfgs} }
+func NewManager(cfgs map[string]RPClient) *Manager {
+	return &Manager{
+		providers: cfgs,
+		cacheTTL:  DefaultRPCacheTTL,
+		rpCache:   make(map[string]rpCacheEntry),
+	}
+}
 
 // Provider returns the configured RPClient for a provider slug (if present).
-func (m *Manager) Provider(name string) (RPClient, bool) { pc, ok := m.providers[name]; return pc, ok }
+func (m *Manager) Provider(name string) (RPClient, bool) {
+	pc, ok := m.providers[name]
+	return pc, ok
+}
 
 // Begin returns an authorization URL for the given provider using PKCE and state/nonce you supply.
 // The caller should persist state+verifier (e.g., Redis) and redirect the user to the returned URL.
@@ -40,7 +65,7 @@ func (m *Manager) Begin(ctx context.Context, provider, state, nonce, codeChallen
 	if !ok {
 		return "", errors.New("unknown provider")
 	}
-	rpClient, err := m.rp(ctx, pc, redirectURI)
+	rpClient, err := m.rp(ctx, provider, pc, redirectURI)
 	if err != nil {
 		return "", err
 	}
@@ -61,17 +86,54 @@ func (m *Manager) Begin(ctx context.Context, provider, state, nonce, codeChallen
 	return rp.AuthURL(state, rpClient, opts...), nil
 }
 
-// getOrCreateRP initializes a relying party from discovery on first use.
-func (m *Manager) rp(ctx context.Context, pc RPClient, redirectURI string) (rp.RelyingParty, error) {
+func (m *Manager) rpCacheKey(provider, redirectURI string) string {
+	return provider + "|" + redirectURI
+}
+
+func (m *Manager) rp(ctx context.Context, provider string, pc RPClient, redirectURI string) (rp.RelyingParty, error) {
+	// Dynamic client secrets (e.g. Apple ES256 JWT) must not be cached with a stale secret.
+	if pc.ClientSecretProvider != nil {
+		return m.buildRP(ctx, pc, redirectURI)
+	}
+
+	key := m.rpCacheKey(provider, redirectURI)
+	now := time.Now()
+
+	m.mu.RLock()
+	if ent, ok := m.rpCache[key]; ok && now.Before(ent.expiry) {
+		m.mu.RUnlock()
+		return ent.rp, nil
+	}
+	m.mu.RUnlock()
+
+	built, err := m.buildRP(ctx, pc, redirectURI)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	m.rpCache[key] = rpCacheEntry{rp: built, expiry: now.Add(m.cacheTTL)}
+	m.mu.Unlock()
+	return built, nil
+}
+
+func (m *Manager) buildRP(ctx context.Context, pc RPClient, redirectURI string) (rp.RelyingParty, error) {
 	secret := pc.ClientSecret
 	if pc.ClientSecretProvider != nil {
-		if s, err := pc.ClientSecretProvider(ctx); err == nil {
-			secret = s
-		} else {
+		s, err := pc.ClientSecretProvider(ctx)
+		if err != nil {
 			return nil, err
 		}
+		secret = s
 	}
-	return rp.NewRelyingPartyOIDC(pc.Issuer, pc.ClientID, secret, redirectURI, pc.Scopes)
+	return rp.NewRelyingPartyOIDC(
+		pc.Issuer,
+		pc.ClientID,
+		secret,
+		redirectURI,
+		pc.Scopes,
+		rp.WithHTTPClient(OutboundHTTPClient()),
+	)
 }
 
 // GetRP exposes the relying party for a configured provider.
@@ -80,7 +142,7 @@ func (m *Manager) GetRPWithRedirect(ctx context.Context, provider, redirectURI s
 	if !ok {
 		return nil, errors.New("unknown provider")
 	}
-	return m.rp(ctx, pc, redirectURI)
+	return m.rp(ctx, provider, pc, redirectURI)
 }
 
 // IssuerFor returns the configured issuer URL for a provider slug.

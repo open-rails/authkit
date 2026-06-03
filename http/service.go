@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +29,8 @@ type Service struct {
 	oidcProviders       map[string]oidckit.RPConfig
 	providers           map[string]authprovider.Provider
 	authProvidersByName map[string]authprovider.Provider
+	oidcMgr             *oidckit.Manager
+	oidcMgrOnce         sync.Once
 	memStateCache       oidckit.StateCache
 	solanaDomain        string // Domain for SIWS messages (optional, derived from request if empty)
 	langCfg             *LanguageConfig
