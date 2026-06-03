@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zitadel/oidc/v2/pkg/client/rp"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
 )
 
 // DefaultRPCacheTTL is how long static-secret relying parties are cached after discovery.
@@ -127,6 +127,7 @@ func (m *Manager) buildRP(ctx context.Context, pc RPClient, redirectURI string) 
 		secret = s
 	}
 	return rp.NewRelyingPartyOIDC(
+		ctx,
 		pc.Issuer,
 		pc.ClientID,
 		secret,
