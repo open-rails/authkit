@@ -1,7 +1,7 @@
 package authhttp
 
 import (
-	"crypto/rsa"
+	"crypto"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,7 +18,7 @@ func TestRequired_OrgScopedRoles_UsesRolesWhenOrgPresent(t *testing.T) {
 
 	v := NewVerifier(WithOrgMode("multi"))
 	err = v.AddIssuer("https://example.com", []string{"test-app"}, IssuerOptions{
-		RawKeys: map[string]*rsa.PublicKey{
+		RawKeys: map[string]crypto.PublicKey{
 			signer.KID(): signer.PublicKey(),
 		},
 	})

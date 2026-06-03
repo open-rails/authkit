@@ -83,7 +83,7 @@ func newRotatableJWKS(t *testing.T, signer *jwtkit.RSASigner) *rotatableJWKS {
 		r.mu.Lock()
 		s := r.signer
 		r.mu.Unlock()
-		jwk := jwtkit.RSAPublicToJWK(s.PublicKey(), s.KID(), s.Algorithm())
+		jwk := jwtkit.PublicToJWK(s.PublicKey(), s.KID(), s.Algorithm())
 		jwtkit.ServeJWKS(w, req, jwtkit.JWKS{Keys: []jwtkit.JWK{jwk}})
 	})
 	r.srv = httptest.NewServer(mux)

@@ -46,7 +46,7 @@ func jwksServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
-		jwk := jwtkit.RSAPublicToJWK(signer.PublicKey(), signer.KID(), signer.Algorithm())
+		jwk := jwtkit.PublicToJWK(signer.PublicKey(), signer.KID(), signer.Algorithm())
 		jwtkit.ServeJWKS(w, r, jwtkit.JWKS{Keys: []jwtkit.JWK{jwk}})
 	})
 	return httptest.NewServer(mux)

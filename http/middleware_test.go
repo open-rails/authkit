@@ -2,7 +2,7 @@ package authhttp
 
 import (
 	"context"
-	"crypto/rsa"
+	"crypto"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -29,7 +29,7 @@ func newTestVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string, audi
 	t.Helper()
 	v := NewVerifier(opts...)
 	err := v.AddIssuer(issuer, audiences, IssuerOptions{
-		RawKeys: map[string]*rsa.PublicKey{
+		RawKeys: map[string]crypto.PublicKey{
 			signer.KID(): signer.PublicKey(),
 		},
 	})

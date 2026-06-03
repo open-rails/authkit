@@ -1,7 +1,7 @@
 package authhttp
 
 import (
-	"crypto/rsa"
+	"crypto"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,7 +16,7 @@ func newClaimVerifier(t *testing.T, orgMode string, signer *jwtkit.RSASigner) *V
 	t.Helper()
 	v := NewVerifier(WithOrgMode(orgMode))
 	err := v.AddIssuer("https://example.com", []string{"test-app"}, IssuerOptions{
-		RawKeys: map[string]*rsa.PublicKey{signer.KID(): signer.PublicKey()},
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	})
 	require.NoError(t, err)
 	return v
