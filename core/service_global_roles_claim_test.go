@@ -21,6 +21,13 @@ func parseClaimsNoValidate(t *testing.T, token string, pub crypto.PublicKey) jwt
 	return claims
 }
 
+func parseHeaderNoValidate(t *testing.T, token string) map[string]any {
+	t.Helper()
+	parsed, _, err := jwt.NewParser().ParseUnverified(token, jwt.MapClaims{})
+	require.NoError(t, err)
+	return parsed.Header
+}
+
 func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicKey) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
@@ -34,6 +41,15 @@ func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicK
 		OrgMode:             orgMode,
 	}, ks)
 	return s, signer.PublicKey()
+}
+
+func TestIssueAccessToken_TypHeader(t *testing.T) {
+	s, _ := newClaimTestService(t, "multi")
+	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
+	require.NoError(t, err)
+
+	header := parseHeaderNoValidate(t, tok)
+	require.Equal(t, jwtkit.AccessTokenType, header["typ"])
 }
 
 // global_roles is emitted in BOTH single and multi-org mode (additive).

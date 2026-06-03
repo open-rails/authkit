@@ -139,14 +139,13 @@ func TestVerifierLoadsFederatedIssuerAndValidates(t *testing.T) {
 		t.Fatalf("LoadFederatedIssuers: %v", err)
 	}
 
-	// Platform mints a delegated token.
-	tok, err := MintDelegatedToken(context.Background(), signer, DelegatedTokenParams{
+	// Platform mints a delegated access token.
+	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "ext-user-1",
 		Tenant:           "cozy-art",
-		UserTier:         "cozy_pro",
-		Roles:            []string{"member"},
+		Attributes:       map[string]any{"tier": "cozy_pro"},
 		TTL:              time.Minute,
 	})
 	if err != nil {
@@ -167,6 +166,90 @@ func TestVerifierLoadsFederatedIssuerAndValidates(t *testing.T) {
 	}
 }
 
+// TestVerifierRejectsFederatedTenantMismatch proves the resource server binds a
+// federated issuer to the org/resource account it was registered for.
+func TestVerifierRejectsFederatedTenantMismatch(t *testing.T) {
+	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := jwksServer(t, signer)
+	defer jwks.Close()
+
+	iss := "https://doujins.example"
+	aud := []string{"openrails"}
+	src := newCountingSource(core.FederatedOrgIssuer{
+		OrgSlug:  "doujins",
+		IssuerID: iss,
+		JWKSURL:  jwks.URL + "/.well-known/jwks.json",
+		Status:   "active",
+	})
+
+	ver := NewVerifier(WithOrgMode("multi"))
+	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
+		t.Fatalf("LoadFederatedIssuers: %v", err)
+	}
+
+	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer:           iss,
+		Audiences:        aud,
+		Tenant:           "hentai0",
+		DelegatedSubject: "paul-fidika",
+		Permissions:      []string{"openrails:tenant:admin"},
+		TTL:              time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+
+	_, _, err = ver.VerifyDelegatedAccess(tok)
+	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
+		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
+	}
+}
+
+func TestVerifierRejectsLazyLoadedFederatedTenantMismatch(t *testing.T) {
+	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := jwksServer(t, signer)
+	defer jwks.Close()
+
+	iss := "https://doujins.example"
+	aud := []string{"openrails"}
+	src := newCountingSource(core.FederatedOrgIssuer{
+		OrgSlug:  "doujins",
+		IssuerID: iss,
+		JWKSURL:  jwks.URL + "/.well-known/jwks.json",
+		Status:   "active",
+	})
+
+	// Load only the source/audience; the List path returns nothing so the token
+	// must exercise lazy-load-on-miss.
+	ver := NewVerifier(WithOrgMode("multi"))
+	if err := ver.LoadFederatedIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
+		t.Fatalf("LoadFederatedIssuers: %v", err)
+	}
+
+	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer:           iss,
+		Audiences:        aud,
+		Tenant:           "hentai0",
+		DelegatedSubject: "paul-fidika",
+		Permissions:      []string{"openrails:tenant:admin"},
+		TTL:              time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+
+	_, _, err = ver.VerifyDelegatedAccess(tok)
+	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
+		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
+	}
+}
+
 // TestVerifierRejectsUnregisteredIssuer confirms an unregistered issuer's token
 // is rejected even though the JWKS is reachable.
 func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
@@ -176,7 +259,7 @@ func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	if err := ver.LoadFederatedIssuers(context.Background(), src, []string{"tensorhub"}); err != nil {
 		t.Fatalf("LoadFederatedIssuers: %v", err)
 	}
-	tok, _ := MintDelegatedToken(context.Background(), signer, DelegatedTokenParams{
+	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer: "https://rogue.example", Audiences: []string{"tensorhub"},
 		DelegatedSubject: "x", Tenant: "rogue", TTL: time.Minute,
 	})

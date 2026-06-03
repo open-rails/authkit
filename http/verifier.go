@@ -72,11 +72,12 @@ type Verifier struct {
 
 // issuerEntry describes a trusted issuer (private — replaces core.IssuerAccept).
 type issuerEntry struct {
-	issuer    string
-	audiences []string
-	jwksURL   string
-	cacheTTL  time.Duration
-	maxStale  time.Duration
+	issuer                 string
+	audiences              []string
+	jwksURL                string
+	cacheTTL               time.Duration
+	maxStale               time.Duration
+	trustedResourceAccount string
 }
 
 type issuerKeys struct {
@@ -132,9 +133,9 @@ func WithTokenPrefix(prefix string) VerifierOption {
 // reject the token. Called only for delegated access tokens.
 type PermissionValidator func(permissions []string) error
 
-// AttributesValidator validates a delegated access token's `attributes`
-// against the receiving service/tenant policy schema. Return an error to reject
-// the token. Called only for delegated access tokens.
+// AttributesValidator validates a delegated access token's `attributes` against
+// the receiving service's policy schema. Return an error to reject the token.
+// Called only for delegated access tokens.
 type AttributesValidator func(attributes map[string]json.RawMessage) error
 
 // WithPermissionCatalog installs a validator that VerifyDelegatedAccess runs
@@ -241,6 +242,12 @@ type IssuerOptions struct {
 	// MaxStale controls how long stale keys may be used as fallback after
 	// a failed JWKS refresh. Default: 1 hour.
 	MaxStale time.Duration
+
+	// TrustedResourceAccount optionally binds delegated access tokens from this
+	// issuer to one resource-service account slug. Federated issuers loaded from
+	// the federated_org_issuers store set this to that row's org_slug, so a
+	// trusted issuer cannot mint a delegated token for another resource account.
+	TrustedResourceAccount string
 }
 
 // AddIssuer registers (or updates) a trusted issuer. This is the single
@@ -253,11 +260,12 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	}
 
 	ie := issuerEntry{
-		issuer:    issuerID,
-		audiences: audiences,
-		jwksURL:   strings.TrimSpace(opts.JWKSURL),
-		cacheTTL:  opts.CacheTTL,
-		maxStale:  opts.MaxStale,
+		issuer:                 issuerID,
+		audiences:              audiences,
+		jwksURL:                strings.TrimSpace(opts.JWKSURL),
+		cacheTTL:               opts.CacheTTL,
+		maxStale:               opts.MaxStale,
+		trustedResourceAccount: strings.ToLower(strings.TrimSpace(opts.TrustedResourceAccount)),
 	}
 
 	v.mu.Lock()
@@ -406,7 +414,7 @@ func (v *Verifier) LoadFederatedIssuers(ctx context.Context, src FederatedIssuer
 			continue
 		}
 		active[issuerID] = true
-		if err := v.AddIssuer(issuerID, audiences, IssuerOptions{JWKSURL: fi.JWKSURL}); err != nil {
+		if err := v.AddIssuer(issuerID, audiences, IssuerOptions{JWKSURL: fi.JWKSURL, TrustedResourceAccount: fi.OrgSlug}); err != nil {
 			return err
 		}
 		v.mu.Lock()
@@ -493,7 +501,7 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 		return false
 	}
 
-	if err := v.AddIssuer(fi.IssuerID, aud, IssuerOptions{JWKSURL: fi.JWKSURL}); err != nil {
+	if err := v.AddIssuer(fi.IssuerID, aud, IssuerOptions{JWKSURL: fi.JWKSURL, TrustedResourceAccount: fi.OrgSlug}); err != nil {
 		v.mu.Lock()
 		v.negCache[issuer] = time.Now()
 		v.mu.Unlock()
@@ -586,25 +594,78 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		return Claims{}, errors.New("conflicting_subject")
 	}
 
-	// Invariant: a `typ=at+jwt` delegated access token MUST NOT carry a normal
-	// `sub` — no local account may be implied. Reject it explicitly so a
-	// misconfigured issuer can't slip a local subject into an access token.
-	if strings.EqualFold(strings.TrimSpace(typ), DelegatedAccessTokenType) &&
-		strClaim(mapClaims, "sub") != "" {
+	tokenTyp := strings.TrimSpace(typ)
+	hasSub := strClaim(mapClaims, "sub") != ""
+	hasDelegatedSub := strClaim(mapClaims, "delegated_sub") != ""
+	isAccessTyp := strings.EqualFold(tokenTyp, AccessTokenType)
+	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, DelegatedAccessTokenType)
+
+	// Invariant: a delegated access token MUST NOT carry a normal `sub` — no
+	// local account may be implied. Reject it explicitly so a misconfigured
+	// issuer can't slip a local subject into an access token.
+	if isDelegatedAccessTyp && strClaim(mapClaims, "sub") != "" {
 		return Claims{}, errors.New("access_token_has_sub")
 	}
 
-	// Invariant: `org` is a compatibility alias and is accepted ONLY when it
-	// exactly equals the canonical `tenant`. A mismatch is a hard reject.
+	switch {
+	case hasDelegatedSub && !isDelegatedAccessTyp:
+		return Claims{}, errors.New("delegated_access_wrong_typ")
+	case hasSub && !isAccessTyp:
+		return Claims{}, errors.New("access_token_wrong_typ")
+	case tokenTyp == "":
+		return Claims{}, errors.New("missing_token_typ")
+	case !isAccessTyp && !isDelegatedAccessTyp:
+		return Claims{}, errors.New("unsupported_token_typ")
+	case isDelegatedAccessTyp && !hasDelegatedSub:
+		return Claims{}, errors.New("missing_delegated_sub")
+	case isAccessTyp && !hasSub:
+		return Claims{}, errors.New("missing_sub")
+	}
+
 	tenant := strings.TrimSpace(strClaim(mapClaims, "tenant"))
 	org := strings.TrimSpace(strClaim(mapClaims, "org"))
-	if tenant != "" && org != "" && tenant != org {
-		return Claims{}, errors.New("tenant_org_mismatch")
+	if isDelegatedAccessTyp {
+		if tenant == "" {
+			return Claims{}, errors.New("missing_tenant")
+		}
+		if org != "" {
+			return Claims{}, errors.New("delegated_access_has_org")
+		}
+		if strClaim(mapClaims, "user_tier") != "" {
+			return Claims{}, errors.New("delegated_access_has_user_tier")
+		}
+		if len(strSliceClaim(mapClaims, "roles")) > 0 {
+			return Claims{}, errors.New("delegated_access_has_roles")
+		}
+	}
+	if err := v.validateDelegatedIssuerResourceAccount(mapClaims, tenant); err != nil {
+		return Claims{}, err
 	}
 
 	cl := v.extractClaims(mapClaims)
-	cl.TokenTyp = strings.TrimSpace(typ)
+	cl.TokenTyp = tokenTyp
 	return cl, nil
+}
+
+// validateDelegatedIssuerResourceAccount binds federated delegated-access tokens
+// to the resource account registered for their issuer. The JWT `tenant` claim is
+// signed, but it is still issuer-controlled; this check ties it to the resource
+// server's trust registry so one trusted issuer cannot claim another resource
+// account.
+func (v *Verifier) validateDelegatedIssuerResourceAccount(mapClaims jwt.MapClaims, tenant string) error {
+	if strClaim(mapClaims, "delegated_sub") == "" {
+		return nil
+	}
+	issuer := strings.TrimSpace(strClaim(mapClaims, "iss"))
+	match := v.matchIssuer(issuer)
+	if match == nil || strings.TrimSpace(match.trustedResourceAccount) == "" {
+		return nil
+	}
+	resourceAccount := strings.ToLower(strings.TrimSpace(tenant))
+	if resourceAccount == "" || resourceAccount != strings.ToLower(strings.TrimSpace(match.trustedResourceAccount)) {
+		return errors.New("resource_account_issuer_mismatch")
+	}
+	return nil
 }
 
 // VerifyDelegatedAccess verifies a token, requires it to be a delegated access
@@ -679,20 +740,15 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	// decoding. `attributes.tier` is the canonical home for the tier label.
 	cl.Attributes = rawAttributesClaim(mc, "attributes")
 
-	cl.UserTier = strClaim(mc, "user_tier")
-	if cl.UserTier == "" {
-		cl.UserTier = strClaim(mc, "plan")
-	}
-	// Canonical: tier lives under attributes.tier. Prefer it when present;
-	// otherwise keep the legacy top-level `user_tier` read fallback above for
-	// Tensorhub/Gen-Orchestrator migration.
-	if tier := rawStringAttribute(cl.Attributes, "tier"); tier != "" {
-		cl.UserTier = tier
-	} else if cl.UserTier != "" && cl.Attributes == nil {
-		// READ fallback: surface legacy `user_tier` as attributes.tier so
-		// consumers can migrate to reading attributes.tier uniformly.
-		cl.Attributes = map[string]json.RawMessage{
-			"tier": json.RawMessage(`"` + cl.UserTier + `"`),
+	if cl.IsDelegated() {
+		// Canonical delegated access tokens carry tier under attributes.tier.
+		if tier := rawStringAttribute(cl.Attributes, "tier"); tier != "" {
+			cl.UserTier = tier
+		}
+	} else {
+		cl.UserTier = strClaim(mc, "user_tier")
+		if cl.UserTier == "" {
+			cl.UserTier = strClaim(mc, "plan")
 		}
 	}
 
@@ -705,11 +761,6 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.GlobalRoles = strSliceClaim(mc, "global_roles")
 	if oroles := strSliceClaim(mc, "org_roles"); len(oroles) > 0 {
 		cl.OrgRoles = oroles
-	}
-
-	// A delegated token's tenant comes from `tenant`, falling back to `org`.
-	if strings.TrimSpace(cl.Tenant) == "" {
-		cl.Tenant = cl.Org
 	}
 
 	// Back-compat: in org_mode=multi, if org is present, the legacy `roles` claim

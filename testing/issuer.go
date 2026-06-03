@@ -87,7 +87,11 @@ func (ti *TestIssuer) CreateTokenWithClaims(userID, email string, extraClaims ma
 	for k, v := range extraClaims {
 		claims[k] = v
 	}
-	token, err := ti.signer.Sign(context.Background(), claims)
+	hs, ok := ti.signer.(jwtkit.HeaderSigner)
+	if !ok {
+		panic("signer does not support SignWithHeaders")
+	}
+	token, err := hs.SignWithHeaders(context.Background(), claims, map[string]any{"typ": jwtkit.AccessTokenType})
 	if err != nil {
 		panic("failed to sign token: " + err.Error())
 	}

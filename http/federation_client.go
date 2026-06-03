@@ -54,7 +54,7 @@ func NewFederationClient(opts ...FederationClientOption) *FederationClient {
 
 // FederationRegistration is the payload published to a resource server.
 type FederationRegistration struct {
-	// Org is THIS org's slug (becomes the `org`/tenant claim of delegated tokens).
+	// Org is this issuer's resource account slug on the receiving service.
 	Org string
 	// IssuerID is THIS platform's issuer URL (the `iss` of delegated tokens).
 	IssuerID string

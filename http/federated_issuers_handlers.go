@@ -87,7 +87,7 @@ func (s *Service) handleFederatedIssuerRegisterPOST(w http.ResponseWriter, r *ht
 	// Make the newly-trusted issuer immediately usable without waiting for the
 	// next store-load: register it with this service's Verifier.
 	if s.verifier != nil && strings.EqualFold(fi.Status, "active") {
-		_ = s.verifier.AddIssuer(fi.IssuerID, nil, IssuerOptions{JWKSURL: fi.JWKSURL})
+		_ = s.verifier.AddIssuer(fi.IssuerID, nil, IssuerOptions{JWKSURL: fi.JWKSURL, TrustedResourceAccount: fi.OrgSlug})
 	}
 
 	writeJSON(w, http.StatusOK, federatedIssuerView(*fi))

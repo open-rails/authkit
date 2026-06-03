@@ -21,20 +21,19 @@ func newDelegatedTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string
 	return v
 }
 
-func TestMintAndVerifyDelegatedToken(t *testing.T) {
+func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
 		t.Fatal(err)
 	}
 	iss := "https://cozy.example"
 	aud := []string{"tensorhub"}
-	tok, err := MintDelegatedToken(context.Background(), signer, DelegatedTokenParams{
+	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
 		Tenant:           "cozy-art",
-		UserTier:         "cozy_free",
-		Roles:            []string{"member"},
+		Attributes:       map[string]any{"tier": "cozy_free"},
 		TTL:              time.Minute,
 	})
 	if err != nil {
@@ -57,9 +56,6 @@ func TestMintAndVerifyDelegatedToken(t *testing.T) {
 	}
 	if dp.Tenant != "cozy-art" || dp.DelegatedSubject != "user-123" || dp.UserTier != "cozy_free" {
 		t.Fatalf("principal=%+v", dp)
-	}
-	if len(dp.Roles) != 1 || dp.Roles[0] != "member" {
-		t.Fatalf("roles=%v", dp.Roles)
 	}
 }
 
@@ -86,12 +82,35 @@ func TestVerifyRejectsBothSubAndDelegatedSub(t *testing.T) {
 
 func TestMintRequiresDelegatedSubject(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	if _, err := MintDelegatedToken(context.Background(), signer, DelegatedTokenParams{Issuer: "x"}); err == nil {
+	if _, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{Issuer: "x"}); err == nil {
 		t.Fatal("expected error for missing delegated_sub")
 	}
 }
 
 func TestNativeTokenIsNotDelegated(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	now := time.Now()
+	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
+		"iss": iss,
+		"aud": []string{"tensorhub"},
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
+		"sub": "local-1",
+	}, map[string]any{"typ": AccessTokenType})
+	cl, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cl.IsDelegated() {
+		t.Fatal("native token should not be delegated")
+	}
+	if cl.UserID != "local-1" {
+		t.Fatalf("UserID=%q", cl.UserID)
+	}
+}
+
+func TestVerifyRejectsAccessTokenWithoutAccessTyp(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()
@@ -102,14 +121,26 @@ func TestNativeTokenIsNotDelegated(t *testing.T) {
 		"exp": now.Add(time.Minute).Unix(),
 		"sub": "local-1",
 	})
-	cl, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
-	if err != nil {
-		t.Fatal(err)
+	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	if err == nil || err.Error() != "access_token_wrong_typ" {
+		t.Fatalf("expected access_token_wrong_typ, got %v", err)
 	}
-	if cl.IsDelegated() {
-		t.Fatal("native token should not be delegated")
-	}
-	if cl.UserID != "local-1" {
-		t.Fatalf("UserID=%q", cl.UserID)
+}
+
+func TestVerifyRejectsDelegatedSubWithoutDelegatedTyp(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	now := time.Now()
+	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
+		"iss":           iss,
+		"aud":           []string{"tensorhub"},
+		"iat":           now.Unix(),
+		"exp":           now.Add(time.Minute).Unix(),
+		"tenant":        "cozy-art",
+		"delegated_sub": "ext-1",
+	}, map[string]any{"typ": AccessTokenType})
+	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	if err == nil || err.Error() != "delegated_access_wrong_typ" {
+		t.Fatalf("expected delegated_access_wrong_typ, got %v", err)
 	}
 }

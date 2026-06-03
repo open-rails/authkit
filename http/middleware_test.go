@@ -18,7 +18,9 @@ import (
 
 func signToken(t *testing.T, signer jwtkit.Signer, claims map[string]any) string {
 	t.Helper()
-	tok, err := signer.Sign(context.Background(), claims)
+	hs, ok := signer.(jwtkit.HeaderSigner)
+	require.True(t, ok, "test signer must support JOSE headers")
+	tok, err := hs.SignWithHeaders(context.Background(), claims, map[string]any{"typ": AccessTokenType})
 	require.NoError(t, err)
 	return tok
 }

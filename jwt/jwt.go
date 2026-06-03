@@ -11,6 +11,13 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
+// AuthKit JOSE `typ` header values. These separate ordinary AuthKit access
+// tokens from delegated access tokens before claims are mapped into principals.
+const (
+	AccessTokenType          = "access+jwt"
+	DelegatedAccessTokenType = "delegated-access+jwt"
+)
+
 // ClaimsBuilder builds custom claims layered on top of RegisteredClaims.
 type ClaimsBuilder interface {
 	// Build returns application-specific claims to embed.
@@ -27,11 +34,9 @@ type Signer interface {
 	Sign(ctx context.Context, claims jwt.MapClaims) (token string, err error)
 }
 
-// HeaderSigner is an optional extension of Signer that lets callers set extra
-// JOSE header parameters (e.g. `typ`) on the signed token. Delegated access
-// tokens use it to stamp the `typ=at+jwt` header. Mint code type-asserts to
-// this interface and falls back to plain Sign when a signer does not implement
-// it, so the extension is fully backwards compatible.
+// HeaderSigner is an extension of Signer that lets callers set extra JOSE
+// header parameters (e.g. `typ`) on the signed token. AuthKit token minting uses
+// it to stamp the token profile header.
 type HeaderSigner interface {
 	Signer
 	// SignWithHeaders signs claims and merges the provided extra JOSE header

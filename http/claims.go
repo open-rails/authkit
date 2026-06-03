@@ -31,7 +31,7 @@ type Claims struct {
 
 	// Delegated/federated fields. A delegated access token carries the external
 	// actor in DelegatedSubject (claim `delegated_sub`) and the canonical target
-	// tenant in Tenant (claim `tenant`, falling back to `org`). It never carries
+	// resource account in Tenant (claim `tenant`). It never carries
 	// `sub` (UserID stays empty), so the local-user gate does not apply.
 	Tenant           string
 	DelegatedSubject string
@@ -42,8 +42,9 @@ type Claims struct {
 	// its own typed schema. Nil when the claim is absent.
 	Attributes map[string]json.RawMessage
 
-	// TokenTyp is the JOSE `typ` header value. "at+jwt" identifies a delegated
-	// access token. Empty when the header is absent (e.g. legacy tokens).
+	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
+	// AuthKit access token; "delegated-access+jwt" identifies a delegated access
+	// token.
 	TokenTyp string
 
 	// TokenType marks the credential class. Empty for ordinary user JWTs;
@@ -71,9 +72,9 @@ func (c Claims) IsService() bool {
 
 // DelegatedPrincipal is the federated identity carried by a delegated access
 // token: an external actor (DelegatedSubject) acting under a canonical target
-// tenant (Tenant). The subject does NOT exist as a local user in the validating
-// service — authorization is by tenant/issuer trust plus Permissions, not
-// local-user lookup. Roles are non-authoritative compatibility metadata only.
+// resource account (Tenant). The subject does NOT exist as a local user in the
+// validating service — authorization is by issuer/resource-account trust plus
+// Permissions, not local-user lookup.
 type DelegatedPrincipal struct {
 	Issuer           string
 	Tenant           string
@@ -85,12 +86,8 @@ type DelegatedPrincipal struct {
 	Attributes map[string]json.RawMessage
 	// JTI is the token identifier (`jti` claim), when present.
 	JTI string
-	// UserTier is the resolved tier, sourced from `attributes.tier` and falling
-	// back to the legacy top-level `user_tier` claim during migration.
+	// UserTier is the resolved tier, sourced from `attributes.tier`.
 	UserTier string
-	// Roles is NON-AUTHORITATIVE compatibility metadata describing the issuer's
-	// local role system. Receiving services MUST NOT use it as authority.
-	Roles []string
 }
 
 // IsDelegated reports whether these claims represent a delegated principal
@@ -100,14 +97,12 @@ func (c Claims) IsDelegated() bool {
 }
 
 // IsDelegatedAccessToken reports whether these claims represent a delegated
-// access token. The canonical signal is the `typ=at+jwt` JOSE header; for
-// legacy tokens minted without that header it falls back to claim-shape
-// detection (presence of `delegated_sub`, never a local `sub`).
+// access token. The canonical signal is the `typ=delegated-access+jwt` JOSE
+// header plus a delegated subject and no local user subject.
 func (c Claims) IsDelegatedAccessToken() bool {
-	if strings.EqualFold(strings.TrimSpace(c.TokenTyp), DelegatedAccessTokenType) {
-		return strings.TrimSpace(c.UserID) == "" && c.IsDelegated()
-	}
-	return c.IsDelegated()
+	return strings.EqualFold(strings.TrimSpace(c.TokenTyp), DelegatedAccessTokenType) &&
+		strings.TrimSpace(c.UserID) == "" &&
+		c.IsDelegated()
 }
 
 // Delegated returns the typed DelegatedPrincipal when the claims are delegated.
@@ -115,23 +110,14 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	if !c.IsDelegated() {
 		return DelegatedPrincipal{}, false
 	}
-	tenant := strings.TrimSpace(c.Tenant)
-	if tenant == "" {
-		tenant = strings.TrimSpace(c.Org)
-	}
-	roles := c.Roles
-	if len(roles) == 0 {
-		roles = c.OrgRoles
-	}
 	return DelegatedPrincipal{
 		Issuer:           c.Issuer,
-		Tenant:           tenant,
+		Tenant:           strings.TrimSpace(c.Tenant),
 		DelegatedSubject: c.DelegatedSubject,
 		Permissions:      c.Permissions,
 		Attributes:       c.Attributes,
 		JTI:              c.JTI,
 		UserTier:         c.UserTier,
-		Roles:            roles,
 	}, true
 }
 
