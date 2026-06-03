@@ -2,8 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -71,7 +71,7 @@ type Options struct {
 // Keyset holds the active signer and the public keys exposed via JWKS.
 type Keyset struct {
 	Active     jwtkit.Signer
-	PublicKeys map[string]*rsa.PublicKey // kid -> pub
+	PublicKeys map[string]crypto.PublicKey // kid -> pub
 }
 
 // EntitlementsProvider returns application entitlements for a user (e.g., billing tiers).
@@ -343,11 +343,9 @@ func (s *Service) JWKS() jwtkit.JWKS {
 		pub := s.keys.PublicKeys[kid]
 		alg := activeAlg
 		if strings.TrimSpace(kid) != activeKID || strings.TrimSpace(alg) == "" {
-			// Current JWKS keys are RSA public keys (RS256 signers), including
-			// rotated verification keys that may not be the active signer.
-			alg = "RS256"
+			alg = jwtkit.AlgorithmForPublicKey(pub)
 		}
-		ks.Keys = append(ks.Keys, jwtkit.RSAPublicToJWK(pub, kid, alg))
+		ks.Keys = append(ks.Keys, jwtkit.PublicToJWK(pub, kid, alg))
 	}
 	return ks
 }
@@ -517,7 +515,7 @@ func (s *Service) Options() Options {
 }
 
 // PublicKeysByKID returns the public keys indexed by key ID.
-func (s *Service) PublicKeysByKID() map[string]*rsa.PublicKey {
+func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
 	return s.keys.PublicKeys
 }
 
@@ -576,9 +574,10 @@ func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
 				return pub, nil
 			}
 		}
-		// Fallback: active signer public key (works when only one key is used)
-		if rsaSigner, ok := s.keys.Active.(*jwtkit.RSASigner); ok {
-			return rsaSigner.PublicKey(), nil
+		if ps, ok := s.keys.Active.(jwtkit.PublicKeySigner); ok {
+			if pub := ps.PublicKey(); pub != nil {
+				return pub, nil
+			}
 		}
 		return nil, jwt.ErrTokenUnverifiable
 	}

@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"crypto/rsa"
+	"crypto"
 	"testing"
 	"time"
 
@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func parseClaimsNoValidate(t *testing.T, token string, pub *rsa.PublicKey) jwt.MapClaims {
+func parseClaimsNoValidate(t *testing.T, token string, pub crypto.PublicKey) jwt.MapClaims {
 	t.Helper()
 	claims := jwt.MapClaims{}
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
@@ -21,11 +21,11 @@ func parseClaimsNoValidate(t *testing.T, token string, pub *rsa.PublicKey) jwt.M
 	return claims
 }
 
-func newClaimTestService(t *testing.T, orgMode string) (*Service, *rsa.PublicKey) {
+func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicKey) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
-	ks := Keyset{Active: signer, PublicKeys: map[string]*rsa.PublicKey{"kid": signer.PublicKey()}}
+	ks := Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"kid": signer.PublicKey()}}
 	s := NewService(Options{
 		Issuer:              "https://example.com",
 		IssuedAudiences:     []string{"app"},

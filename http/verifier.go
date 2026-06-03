@@ -2,15 +2,11 @@ package authhttp
 
 import (
 	"context"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/base64"
+	"crypto"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -85,7 +81,7 @@ type issuerEntry struct {
 
 type issuerKeys struct {
 	jwks       jwtkit.JWKS
-	pubByKID   map[string]*rsa.PublicKey
+	pubByKID   map[string]crypto.PublicKey
 	fetchedAt  time.Time
 	expiresAt  time.Time
 	staleUntil time.Time
@@ -197,7 +193,7 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 func NewVerifier(opts ...VerifierOption) *Verifier {
 	v := &Verifier{
 		skew:             60 * time.Second,
-		algorithms:       []string{"RS256"},
+		algorithms:       []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"},
 		httpClient:       http.DefaultClient,
 		byIss:            map[string]*issuerKeys{},
 		fedKnown:         map[string]bool{},
@@ -235,9 +231,8 @@ type IssuerOptions struct {
 	// refreshing by calling AddIssuer again with updated keys.
 	Keys []IssuerKey
 
-	// RawKeys are pre-provided public keys. Useful when the caller already
-	// has parsed *rsa.PublicKey values (e.g., from a co-located core.Service).
-	RawKeys map[string]*rsa.PublicKey
+	// RawKeys are pre-provided public keys (e.g., from a co-located core.Service).
+	RawKeys map[string]crypto.PublicKey
 
 	// CacheTTL controls how long fetched JWKS keys are considered fresh.
 	// Default: 10 minutes.
@@ -298,14 +293,14 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 }
 
 // collectKeys merges PEM Keys and RawKeys into a single map.
-func (v *Verifier) collectKeys(opts IssuerOptions) map[string]*rsa.PublicKey {
-	out := map[string]*rsa.PublicKey{}
+func (v *Verifier) collectKeys(opts IssuerOptions) map[string]crypto.PublicKey {
+	out := map[string]crypto.PublicKey{}
 	for _, k := range opts.Keys {
 		kid := strings.TrimSpace(k.KID)
 		if kid == "" {
 			continue
 		}
-		pub, err := parseRSAPublicKeyFromPEM(k.PublicKeyPEM)
+		pub, err := jwtkit.ParsePublicKeyFromPEM(k.PublicKeyPEM)
 		if err != nil {
 			continue
 		}
@@ -851,7 +846,7 @@ func (v *Verifier) algAllowed(alg string) bool {
 	return false
 }
 
-func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string) (*rsa.PublicKey, error) {
+func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string) (crypto.PublicKey, error) {
 	iss := ie.issuer
 	if iss == "" {
 		return nil, errors.New("bad_issuer")
@@ -971,7 +966,7 @@ func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issu
 	if err := json.NewDecoder(limited).Decode(&ks); err != nil {
 		return err
 	}
-	pubByKID, err := jwksToRSAPublicKeys(ks)
+	pubByKID, err := jwtkit.JWKSToPublicKeys(ks)
 	if err != nil {
 		return err
 	}
@@ -1028,57 +1023,3 @@ func audContainsAny(aud any, want []string) bool {
 // ---------------------------------------------------------------------------
 // Key parsing helpers
 // ---------------------------------------------------------------------------
-
-func jwksToRSAPublicKeys(ks jwtkit.JWKS) (map[string]*rsa.PublicKey, error) {
-	out := map[string]*rsa.PublicKey{}
-	for _, k := range ks.Keys {
-		if !strings.EqualFold(k.Kty, "RSA") {
-			continue
-		}
-		nBytes, err := base64.RawURLEncoding.DecodeString(k.N)
-		if err != nil {
-			return nil, err
-		}
-		eBytes, err := base64.RawURLEncoding.DecodeString(k.E)
-		if err != nil {
-			return nil, err
-		}
-		n := new(big.Int).SetBytes(nBytes)
-		e := new(big.Int).SetBytes(eBytes)
-		if !e.IsInt64() {
-			return nil, errors.New("bad_rsa_exponent")
-		}
-		pk := &rsa.PublicKey{N: n, E: int(e.Int64())}
-		kid := strings.TrimSpace(k.Kid)
-		if kid == "" {
-			kid = "default"
-		}
-		out[kid] = pk
-	}
-	if len(out) == 0 {
-		return nil, errors.New("empty_jwks")
-	}
-	return out, nil
-}
-
-func parseRSAPublicKeyFromPEM(pemText string) (*rsa.PublicKey, error) {
-	block, _ := pem.Decode([]byte(pemText))
-	if block == nil {
-		return nil, errors.New("bad_pem")
-	}
-	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		if cert, err2 := x509.ParseCertificate(block.Bytes); err2 == nil {
-			pub = cert.PublicKey
-			err = nil
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	rsaPub, ok := pub.(*rsa.PublicKey)
-	if !ok {
-		return nil, errors.New("not_rsa")
-	}
-	return rsaPub, nil
-}

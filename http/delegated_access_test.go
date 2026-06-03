@@ -2,7 +2,7 @@ package authhttp
 
 import (
 	"context"
-	"crypto/rsa"
+	"crypto"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -431,6 +431,6 @@ func TestCompatOrgWritesMatchingOrg(t *testing.T) {
 	}
 }
 
-func rawKey(s *jwtkit.RSASigner) map[string]*rsa.PublicKey {
-	return map[string]*rsa.PublicKey{s.KID(): s.PublicKey()}
+func rawKey(s jwtkit.PublicKeySigner) map[string]crypto.PublicKey {
+	return map[string]crypto.PublicKey{s.KID(): s.PublicKey()}
 }

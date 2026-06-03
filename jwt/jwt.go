@@ -2,10 +2,9 @@ package jwtkit
 
 import (
 	"context"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"time"
 
@@ -59,7 +58,7 @@ func NewRSASigner(bits int, kid string) (*RSASigner, error) {
 
 func (s *RSASigner) Algorithm() string           { return jwt.SigningMethodRS256.Alg() }
 func (s *RSASigner) KID() string                 { return s.kid }
-func (s *RSASigner) PublicKey() *rsa.PublicKey   { return &s.key.PublicKey }
+func (s *RSASigner) PublicKey() crypto.PublicKey { return &s.key.PublicKey }
 func (s *RSASigner) PrivateKey() *rsa.PrivateKey { return s.key }
 
 func (s *RSASigner) Sign(_ context.Context, claims jwt.MapClaims) (string, error) {
@@ -83,34 +82,17 @@ func (s *RSASigner) SignWithHeaders(_ context.Context, claims jwt.MapClaims, hea
 	return token.SignedString(s.key)
 }
 
-// NewRSASignerFromPEM constructs an RSASigner from a PEM-encoded private key.
+// NewRSASignerFromPEM constructs an RSASigner from a PEM-encoded RSA private key.
 func NewRSASignerFromPEM(kid string, pemBytes []byte) (*RSASigner, error) {
-	if len(pemBytes) == 0 {
-		return nil, errors.New("empty RSA private key pem")
-	}
-	blk, _ := pem.Decode(pemBytes)
-	if blk == nil {
-		return nil, errors.New("failed to decode RSA private key pem")
-	}
-	var parsed *rsa.PrivateKey
-	var err error
-	switch blk.Type {
-	case "RSA PRIVATE KEY":
-		parsed, err = x509.ParsePKCS1PrivateKey(blk.Bytes)
-	default:
-		var key any
-		key, err = x509.ParsePKCS8PrivateKey(blk.Bytes)
-		if err == nil {
-			var ok bool
-			if parsed, ok = key.(*rsa.PrivateKey); !ok {
-				err = errors.New("pkcs8 key is not RSA private key")
-			}
-		}
-	}
+	signer, err := NewSignerFromPEM(kid, pemBytes)
 	if err != nil {
 		return nil, err
 	}
-	return &RSASigner{key: parsed, kid: kid}, nil
+	r, ok := signer.(*RSASigner)
+	if !ok {
+		return nil, errors.New("pem is not RSA private key")
+	}
+	return r, nil
 }
 
 // Helper to make base registered claims.

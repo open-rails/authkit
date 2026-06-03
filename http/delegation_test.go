@@ -2,7 +2,7 @@ package authhttp
 
 import (
 	"context"
-	"crypto/rsa"
+	"crypto"
 	"testing"
 	"time"
 
@@ -14,7 +14,7 @@ func newDelegatedTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string
 	t.Helper()
 	v := NewVerifier(WithOrgMode("multi"))
 	if err := v.AddIssuer(iss, aud, IssuerOptions{
-		RawKeys: map[string]*rsa.PublicKey{signer.KID(): signer.PublicKey()},
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}); err != nil {
 		t.Fatalf("AddIssuer: %v", err)
 	}

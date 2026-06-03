@@ -1,7 +1,7 @@
 package authkitgin
 
 import (
-	"crypto/rsa"
+	"crypto"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -59,7 +59,7 @@ func newTestService(t *testing.T) *authhttp.Service {
 		AccessTokenDuration: time.Hour,
 		Keys: jwtkit.StaticKeySource{
 			Active: signer,
-			Pubs:   map[string]*rsa.PublicKey{"test-kid": signer.PublicKey()},
+			Pubs:   map[string]crypto.PublicKey{"test-kid": signer.PublicKey()},
 		},
 	}
 	svc, err := authhttp.NewService(cfg)

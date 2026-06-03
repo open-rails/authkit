@@ -3,7 +3,7 @@ package authhttp
 import (
 	"bytes"
 	"context"
-	"crypto/rsa"
+	"crypto"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,7 +18,7 @@ func newTestCoreServiceWithOrgMode(t *testing.T, mode string) *core.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := core.Keyset{Active: signer, PublicKeys: map[string]*rsa.PublicKey{"test-kid": signer.PublicKey()}}
+	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := core.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},
