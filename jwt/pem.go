@@ -89,11 +89,11 @@ func NewSignerFromPEM(kid string, pemBytes []byte) (Signer, error) {
 
 // AlgorithmForPublicKey returns a default JWS alg for a public key when none is specified.
 func AlgorithmForPublicKey(pub crypto.PublicKey) string {
-	switch pub.(type) {
+	switch k := pub.(type) {
 	case *rsa.PublicKey:
 		return "RS256"
 	case *ecdsa.PublicKey:
-		switch pub.(*ecdsa.PublicKey).Params().Name {
+		switch k.Params().Name {
 		case "P-384":
 			return "ES384"
 		case "P-521":

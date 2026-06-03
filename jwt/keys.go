@@ -70,16 +70,13 @@ func (g *GeneratedKeySource) PublicKeys() map[string]crypto.PublicKey {
 }
 
 func loadKeysFromDisk() (*RSASigner, map[string]crypto.PublicKey, bool) {
-	keyPath := filepath.Join(defaultKeysDir, privateKeyFile)
-	kidPath := filepath.Join(defaultKeysDir, keyIDFile)
-
-	pemBytes, err := os.ReadFile(keyPath)
+	pemBytes, err := readFileUnderDir(defaultKeysDir, privateKeyFile)
 	if err != nil {
 		return nil, nil, false
 	}
 
 	kid := "dev"
-	if kidBytes, err := os.ReadFile(kidPath); err == nil {
+	if kidBytes, err := readFileUnderDir(defaultKeysDir, keyIDFile); err == nil {
 		if k := strings.TrimSpace(string(kidBytes)); k != "" {
 			kid = k
 		}
@@ -203,8 +200,7 @@ func tryLoadFromFilesystem(keysPath string) (KeySource, error) {
 		return nil, nil
 	}
 
-	dataPath := filepath.Join(keysPath, "keys.json")
-	data, err := os.ReadFile(dataPath)
+	data, err := readFileUnderDir(keysPath, "keys.json")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -251,4 +247,18 @@ func signerPublicKey(s Signer) crypto.PublicKey {
 		return ps.PublicKey()
 	}
 	return nil
+}
+
+// readFileUnderDir reads a single path segment under baseDir, rejecting traversal.
+func readFileUnderDir(baseDir, name string) ([]byte, error) {
+	cleanName := filepath.Clean(name)
+	if cleanName != name || cleanName == "." || cleanName == ".." || strings.Contains(cleanName, string(os.PathSeparator)) {
+		return nil, fmt.Errorf("invalid file name %q", name)
+	}
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.ReadFile(cleanName)
 }
