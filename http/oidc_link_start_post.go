@@ -2,12 +2,22 @@ package authhttp
 
 import (
 	"net/http"
+	"sync"
 
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
 func (s *Service) oidcManager() *oidckit.Manager {
-	return oidckit.NewManagerFromProviders(s.authProviders())
+	s.oidcMgrOnce.Do(func() {
+		s.oidcMgr = oidckit.NewManagerFromProviders(s.authProviders())
+	})
+	return s.oidcMgr
+}
+
+// resetOIDCManagerForTest clears the lazy OIDC manager (http tests that mutate providers after New).
+func (s *Service) resetOIDCManagerForTest() {
+	s.oidcMgrOnce = sync.Once{}
+	s.oidcMgr = nil
 }
 
 func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request) {
