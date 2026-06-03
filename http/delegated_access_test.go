@@ -35,7 +35,7 @@ func TestMintAndVerifyDelegatedAccessToken(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	// JOSE header carries typ=at+jwt.
+	// JOSE header carries typ=delegated-access+jwt.
 	tokObj, _, perr := jwt.NewParser().ParseUnverified(tok, jwt.MapClaims{})
 	if perr != nil {
 		t.Fatalf("parse: %v", perr)
@@ -69,7 +69,8 @@ func TestMintAndVerifyDelegatedAccessToken(t *testing.T) {
 	}
 }
 
-// TestDelegatedAccessRejectsNormalSub: a typ=at+jwt token MUST NOT carry `sub`.
+// TestDelegatedAccessRejectsNormalSub: a typ=delegated-access+jwt token MUST
+// NOT carry `sub`.
 func TestDelegatedAccessRejectsNormalSub(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
@@ -96,8 +97,9 @@ func TestDelegatedAccessRejectsNormalSub(t *testing.T) {
 	}
 }
 
-// TestDelegatedAccessRejectsSubOnlyAccessToken: a typ=at+jwt token with ONLY a
-// normal sub (no delegated_sub) must still be rejected by the typ invariant.
+// TestDelegatedAccessRejectsSubOnlyAccessToken: a typ=delegated-access+jwt
+// token with ONLY a normal sub (no delegated_sub) must still be rejected by the
+// typ invariant.
 func TestDelegatedAccessRejectsSubOnlyAccessToken(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
@@ -136,69 +138,70 @@ func TestDelegatedAccessRejectsSubPlusDelegatedSub(t *testing.T) {
 	}
 }
 
-// TestDelegatedAccessRejectsTenantOrgMismatch: org accepted only when == tenant.
-func TestDelegatedAccessRejectsTenantOrgMismatch(t *testing.T) {
+func TestDelegatedAccessRejectsOrgClaim(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()
-	tok, _ := signer.Sign(context.Background(), jwt.MapClaims{
+	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
 		"iss":           iss,
 		"aud":           []string{"openrails"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
 		"tenant":        "cozy-art",
-		"org":           "other-org",
+		"org":           "cozy-art",
 		"delegated_sub": "ext-1",
-	})
+	}, map[string]any{"typ": DelegatedAccessTokenType})
 	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err == nil || err.Error() != "tenant_org_mismatch" {
-		t.Fatalf("expected tenant_org_mismatch, got %v", err)
+	if err == nil || err.Error() != "delegated_access_has_org" {
+		t.Fatalf("expected delegated_access_has_org, got %v", err)
 	}
 }
 
-// TestDelegatedAccessOrgEqualsTenantAccepted: matching org+tenant verifies.
-func TestDelegatedAccessOrgEqualsTenantAccepted(t *testing.T) {
+func TestDelegatedAccessRejectsIssuerTenantMismatch(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://doujins.example"
+	aud := []string{"openrails"}
+
+	v := NewVerifier()
+	if err := v.AddIssuer(iss, aud, IssuerOptions{
+		RawKeys:                rawKey(signer),
+		TrustedResourceAccount: "doujins",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer:           iss,
+		Audiences:        aud,
+		Tenant:           "hentai0",
+		DelegatedSubject: "paul-fidika",
+		Permissions:      []string{"openrails:tenant:admin"},
+		TTL:              time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = v.VerifyDelegatedAccess(tok)
+	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
+		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
+	}
+}
+
+func TestDelegatedAccessRejectsMissingTenant(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()
-	tok, _ := signer.Sign(context.Background(), jwt.MapClaims{
+	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
 		"iss":           iss,
 		"aud":           []string{"openrails"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
-		"tenant":        "cozy-art",
-		"org":           "cozy-art",
 		"delegated_sub": "ext-1",
-	})
-	cl, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if cl.Tenant != "cozy-art" {
-		t.Fatalf("tenant=%q", cl.Tenant)
-	}
-}
-
-// TestDelegatedAccessOrgFallbackWhenTenantAbsent: legacy token with only `org`
-// still resolves Tenant from org.
-func TestDelegatedAccessOrgFallbackWhenTenantAbsent(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	iss := "https://cozy.example"
-	now := time.Now()
-	tok, _ := signer.Sign(context.Background(), jwt.MapClaims{
-		"iss":           iss,
-		"aud":           []string{"openrails"},
-		"iat":           now.Unix(),
-		"exp":           now.Add(time.Minute).Unix(),
-		"org":           "cozy-art",
-		"delegated_sub": "ext-1",
-	})
-	cl, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if cl.Tenant != "cozy-art" {
-		t.Fatalf("expected Tenant fallback from org, got %q", cl.Tenant)
+	}, map[string]any{"typ": DelegatedAccessTokenType})
+	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
+	if err == nil || err.Error() != "missing_tenant" {
+		t.Fatalf("expected missing_tenant, got %v", err)
 	}
 }
 
@@ -248,44 +251,11 @@ func TestDelegatedAccessRoundTripsArbitraryAttributes(t *testing.T) {
 	}
 }
 
-// TestLegacyUserTierMapsToAttributesTier: legacy top-level user_tier surfaces
-// as attributes.tier AND UserTier.
-func TestLegacyUserTierMapsToAttributesTier(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	iss := "https://cozy.example"
-	aud := []string{"tensorhub"}
-	// Legacy mint path writes top-level user_tier and no attributes.
-	tok, err := MintDelegatedToken(context.Background(), signer, DelegatedTokenParams{
-		Issuer:           iss,
-		Audiences:        aud,
-		DelegatedSubject: "u1",
-		Tenant:           "cozy-art",
-		UserTier:         "cozy_free",
-		TTL:              time.Minute,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cl, err := newDelegatedTestVerifier(t, signer, iss, aud).Verify(tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if cl.UserTier != "cozy_free" {
-		t.Fatalf("UserTier=%q", cl.UserTier)
-	}
-	tier := rawStringAttribute(cl.Attributes, "tier")
-	if tier != "cozy_free" {
-		t.Fatalf("expected legacy user_tier surfaced as attributes.tier, got %q", tier)
-	}
-}
-
-// TestAttributesTierPreferredOverLegacyUserTier: when both present, attributes
-// .tier wins.
-func TestAttributesTierPreferredOverLegacyUserTier(t *testing.T) {
+func TestDelegatedAccessRejectsTopLevelUserTier(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()
-	tok, _ := signer.Sign(context.Background(), jwt.MapClaims{
+	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
 		"iss":           iss,
 		"aud":           []string{"tensorhub"},
 		"iat":           now.Unix(),
@@ -294,23 +264,17 @@ func TestAttributesTierPreferredOverLegacyUserTier(t *testing.T) {
 		"delegated_sub": "u1",
 		"user_tier":     "legacy_free",
 		"attributes":    map[string]any{"tier": "canonical_pro"},
-	})
-	cl, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if cl.UserTier != "canonical_pro" {
-		t.Fatalf("expected attributes.tier to win, got %q", cl.UserTier)
+	}, map[string]any{"typ": DelegatedAccessTokenType})
+	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
+	if err == nil || err.Error() != "delegated_access_has_user_tier" {
+		t.Fatalf("expected delegated_access_has_user_tier, got %v", err)
 	}
 }
 
-// TestRolesAreNotAuthoritative: roles round-trip as metadata but the principal
-// authority is Permissions, and DelegatedPrincipal documents Roles as compat.
-func TestRolesAreNotAuthoritative(t *testing.T) {
+func TestDelegatedAccessRejectsRolesClaim(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()
-	// A token carrying roles but NO permissions: no authority is granted.
 	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
 		"iss":           iss,
 		"aud":           []string{"openrails"},
@@ -320,26 +284,9 @@ func TestRolesAreNotAuthoritative(t *testing.T) {
 		"delegated_sub": "u1",
 		"roles":         []string{"admin", "superuser"},
 	}, map[string]any{"typ": DelegatedAccessTokenType})
-	cl, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if len(cl.Permissions) != 0 {
-		t.Fatalf("roles must not become permissions: %v", cl.Permissions)
-	}
-	if cl.HasPermission("openrails:tenant:admin") {
-		t.Fatal("roles must not grant any permission")
-	}
-	dp, ok := cl.DelegatedAccess()
-	if !ok {
-		t.Fatal("expected delegated access principal")
-	}
-	if len(dp.Permissions) != 0 {
-		t.Fatalf("principal authority (permissions) must be empty, got %v", dp.Permissions)
-	}
-	// Roles are surfaced as non-authoritative compat metadata only.
-	if len(dp.Roles) != 2 {
-		t.Fatalf("roles metadata = %v", dp.Roles)
+	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
+	if err == nil || err.Error() != "delegated_access_has_roles" {
+		t.Fatalf("expected delegated_access_has_roles, got %v", err)
 	}
 }
 
@@ -410,24 +357,6 @@ func TestAttributesPolicyValidator(t *testing.T) {
 	})
 	if _, _, err := v.VerifyDelegatedAccess(good); err != nil {
 		t.Fatalf("good token rejected: %v", err)
-	}
-}
-
-// TestCompatOrgWritesMatchingOrg verifies the opt-in compat org claim equals tenant.
-func TestCompatOrgWritesMatchingOrg(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	iss := "https://cozy.example"
-	aud := []string{"openrails"}
-	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "cozy-art", DelegatedSubject: "u",
-		CompatOrg: true, TTL: time.Minute,
-	})
-	cl, err := newDelegatedTestVerifier(t, signer, iss, aud).Verify(tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if cl.Tenant != "cozy-art" || cl.Org != "cozy-art" {
-		t.Fatalf("tenant=%q org=%q", cl.Tenant, cl.Org)
 	}
 }
 

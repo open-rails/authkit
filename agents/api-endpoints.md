@@ -295,6 +295,23 @@ issuers (carrying `delegated_sub`) are then validated by the Verifier with
 in-house JWKS fetch/refresh (no external push/sync). The outbound side is the
 Go `authhttp.FederationClient` (no route).
 
+Delegated access tokens are minted with `authhttp.MintDelegatedAccessToken`.
+They carry `typ=delegated-access+jwt`, required `tenant`, `delegated_sub`,
+resource-defined `permissions`, optional JSON `attributes`, and no normal
+`sub`. Ordinary AuthKit access tokens carry `typ=access+jwt`; resource servers
+reject missing, unknown, or cross-profile `typ` values. Delegated access tokens
+must not carry delegated-token legacy claims such as `org`, `roles`, or
+top-level `user_tier`; those are rejected. Resource servers should validate them
+with `Verifier.VerifyDelegatedAccess`, optionally installing
+permission-catalog and attributes-policy hooks. Federated issuers loaded from
+this store are bound to their registered `org_slug`; delegated tokens claiming
+another resource account are rejected with `resource_account_issuer_mismatch`.
+For browser-direct OpenRails billing, a host app should expose its own
+authenticated current-user token endpoint, mint a short-lived `aud=openrails`
+delegated access token for its resource account with self-scoped permissions such as
+`openrails:self:billing:read` or `openrails:self:checkout:create`, and let the
+browser call OpenRails directly; the host does not need to proxy billing routes.
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/federated-issuers` | AUTH (org owner/admin) | Register/upsert a federated org's issuer (`{org, issuer_id, jwks_url, status?}`); also added to the live Verifier |

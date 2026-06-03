@@ -101,7 +101,7 @@ func (r *rotatableJWKS) url() string { return r.srv.URL + "/.well-known/jwks.jso
 
 func mintFor(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) string {
 	t.Helper()
-	tok, err := MintDelegatedToken(context.Background(), signer, DelegatedTokenParams{
+	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "ext-user",

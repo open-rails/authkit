@@ -329,7 +329,12 @@ func devMintHandler(issuer string, signer jwtkit.Signer, secret string) http.Han
 			claims["entitlements"] = req.Entitlements
 		}
 
-		token, err := signer.Sign(r.Context(), claims)
+		hs, ok := signer.(jwtkit.HeaderSigner)
+		if !ok {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "header signer required"})
+			return
+		}
+		token, err := hs.SignWithHeaders(r.Context(), claims, map[string]any{"typ": jwtkit.AccessTokenType})
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to sign token"})
 			return

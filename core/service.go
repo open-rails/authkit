@@ -461,7 +461,11 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	for k, v := range extra {
 		claims[k] = v
 	}
-	tok, err := s.keys.Active.Sign(ctx, claims)
+	hs, ok := s.keys.Active.(jwtkit.HeaderSigner)
+	if !ok {
+		return "", time.Time{}, errors.New("header signer required")
+	}
+	tok, err := hs.SignWithHeaders(ctx, claims, map[string]any{"typ": jwtkit.AccessTokenType})
 	return tok, expiresAt, err
 }
 
