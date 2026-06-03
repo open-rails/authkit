@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/zitadel/oidc/v2/pkg/client/rp"
-	"github.com/zitadel/oidc/v2/pkg/oidc"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"golang.org/x/oauth2"
 )
 
@@ -33,10 +33,11 @@ func DefaultExchanger(ctx context.Context, rpClient rp.RelyingParty, provider, c
 		return Claims{}, fmt.Errorf("no id_token in response")
 	}
 
+	baseVerifier := rpClient.IDTokenVerifier()
 	customVerifier := rp.NewIDTokenVerifier(
-		rpClient.IDTokenVerifier().Issuer(),
-		rpClient.IDTokenVerifier().ClientID(),
-		rpClient.IDTokenVerifier().KeySet(),
+		baseVerifier.Issuer,
+		baseVerifier.ClientID,
+		baseVerifier.KeySet,
 		rp.WithNonce(func(context.Context) string { return nonce }),
 	)
 
