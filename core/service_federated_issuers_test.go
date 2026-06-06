@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// testPG returns a pool against AUTHKIT_TEST_DATABASE_URL, or skips. The schema
-// in migrations/postgres/001_auth_schema.up.sql must already be applied.
+// testPG returns a pool against AUTHKIT_TEST_DATABASE_URL, or skips. The
+// Postgres migrations in migrations/postgres must already be applied.
 func testPG(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")

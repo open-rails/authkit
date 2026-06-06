@@ -92,6 +92,12 @@ type Config struct {
 	// is capped to now+MaxTTL at mint time.
 	OrgAccessTokenMaxTTL time.Duration
 
+	// ResourceScopeAuthorizer optionally authorizes host-defined OAT resource
+	// scopes during HTTP minting. AuthKit validates only shape/length and stores
+	// resource Kind/ID pairs opaquely; the embedding host owns semantic
+	// no-escalation such as "may this caller mint openrails.payer_org=cozy-art".
+	ResourceScopeAuthorizer ResourceScopeAuthorizer
+
 	// PermissionCatalog is the embedding application's set of valid permission
 	// strings (e.g. tensorhub's `endpoint:revise`, `repo:create`). authkit merges
 	// this with its own base permissions (the reserved `org:` namespace) to form

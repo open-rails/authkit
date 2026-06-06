@@ -100,6 +100,63 @@ func TestValidTokenPrefix(t *testing.T) {
 	}
 }
 
+func TestOrgAccessTokenResourceContract(t *testing.T) {
+	resources, err := normalizeOrgAccessTokenResources([]OrgAccessTokenResource{
+		{Kind: " openrails.tenant ", ID: " tensorhub "},
+		{Kind: "openrails.payer_org", ID: "*"},
+	})
+	if err != nil {
+		t.Fatalf("normalize resources: %v", err)
+	}
+	if len(resources) != 2 {
+		t.Fatalf("resources len=%d, want 2", len(resources))
+	}
+	if resources[0] != (OrgAccessTokenResource{Kind: "openrails.tenant", ID: "tensorhub"}) {
+		t.Fatalf("trimmed resource = %+v", resources[0])
+	}
+	if resources[1].ID != "*" {
+		t.Fatalf("wildcard-looking ID should be stored opaquely, got %+v", resources[1])
+	}
+
+	if _, err := normalizeOrgAccessTokenResources([]OrgAccessTokenResource{{Kind: "tenant", ID: "x"}, {Kind: "tenant", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
+		t.Fatalf("duplicate err=%v, want duplicate_resource", err)
+	}
+	if _, err := normalizeOrgAccessTokenResources([]OrgAccessTokenResource{{Kind: "", ID: "x"}}); err == nil || err.Error() != "invalid_resource" {
+		t.Fatalf("empty kind err=%v, want invalid_resource", err)
+	}
+	if _, err := normalizeOrgAccessTokenResources([]OrgAccessTokenResource{{Kind: "tenant", ID: strings.Repeat("x", oatResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
+		t.Fatalf("long id err=%v, want invalid_resource", err)
+	}
+}
+
+func TestResourceScopeAuthorizer(t *testing.T) {
+	allowed := false
+	svc := NewService(Options{
+		Issuer: "https://test",
+		ResourceScopeAuthorizer: func(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
+			if req.OrgSlug != "acme" || req.ActorUserID != "user-1" {
+				t.Fatalf("unexpected request identity: %+v", req)
+			}
+			if len(req.Resources) != 1 || req.Resources[0] != (OrgAccessTokenResource{Kind: "repo", ID: "alpha"}) {
+				t.Fatalf("unexpected resources: %+v", req.Resources)
+			}
+			allowed = true
+			return nil
+		},
+	}, Keyset{})
+	err := svc.AuthorizeOrgAccessTokenResources(context.Background(), ResourceScopeAuthorizationRequest{
+		OrgSlug:     " acme ",
+		ActorUserID: " user-1 ",
+		Resources:   []OrgAccessTokenResource{{Kind: " repo ", ID: " alpha "}},
+	})
+	if err != nil {
+		t.Fatalf("authorize resources: %v", err)
+	}
+	if !allowed {
+		t.Fatalf("authorizer was not called")
+	}
+}
+
 // TestOrgAccessTokenLifecycle exercises mint -> resolve -> list -> revoke ->
 // rejected against a real database. Skips when AUTHKIT_TEST_DATABASE_URL is
 // unset. created_by is left nil (audit-only, ON DELETE SET NULL) so the test
@@ -118,7 +175,15 @@ func TestOrgAccessTokenLifecycle(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE id=$1::uuid`, orgID) })
 
 	// Mint.
-	tok, plaintext, err := svc.MintOrgAccessToken(ctx, slug, "ci-token", []string{"deployer"}, "", nil)
+	resources := []OrgAccessTokenResource{
+		{Kind: "openrails.tenant", ID: "tensorhub"},
+		{Kind: "openrails.payer_org", ID: "cozy-art"},
+	}
+	tok, plaintext, err := svc.MintOrgAccessTokenWithOptions(ctx, slug, OrgAccessTokenMintOptions{
+		Name:        "ci-token",
+		Permissions: []string{"deployer"},
+		Resources:   resources,
+	})
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -141,6 +206,16 @@ func TestOrgAccessTokenLifecycle(t *testing.T) {
 	if len(gotScopes) != 1 || gotScopes[0] != "deployer" {
 		t.Fatalf("resolve scopes = %v, want [deployer]", gotScopes)
 	}
+	resolved, err := svc.ResolveOrgAccessTokenWithResources(ctx, keyID, secret)
+	if err != nil {
+		t.Fatalf("resolve with resources: %v", err)
+	}
+	if resolved.TokenID != tok.ID || resolved.KeyID != tok.KeyID || resolved.OrgSlug != slug {
+		t.Fatalf("resolved metadata = %+v, token = %+v", resolved, tok)
+	}
+	if len(resolved.Resources) != 2 || resolved.Resources[0] != resources[1] || resolved.Resources[1] != resources[0] {
+		t.Fatalf("resolved resources = %+v, want ordered by kind/id from %+v", resolved.Resources, resources)
+	}
 
 	// Wrong secret + unknown key_id are both invalid_token (no info leak).
 	if _, _, err := svc.ResolveOrgAccessToken(ctx, keyID, "wrongsecret"); !errors.Is(err, ErrInvalidAccessToken) {
@@ -157,6 +232,15 @@ func TestOrgAccessTokenLifecycle(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Name != "ci-token" || list[0].KeyID != tok.KeyID {
 		t.Fatalf("list = %+v", list)
+	}
+	if len(list[0].Resources) != 2 {
+		t.Fatalf("list resources = %+v, want 2 resources", list[0].Resources)
+	}
+	if _, _, err := svc.MintOrgAccessTokenWithOptions(ctx, slug, OrgAccessTokenMintOptions{
+		Name:      "dupe-resource",
+		Resources: []OrgAccessTokenResource{{Kind: "repo", ID: "alpha"}, {Kind: "repo", ID: "alpha"}},
+	}); err == nil || err.Error() != "duplicate_resource" {
+		t.Fatalf("duplicate resource mint err=%v, want duplicate_resource", err)
 	}
 
 	// Expiry rejection (force past expiry).
@@ -197,5 +281,40 @@ func TestOrgAccessTokenLifecycle(t *testing.T) {
 	}
 	if d := time.Until(*tok2.ExpiresAt); d <= 0 || d > time.Hour+time.Minute {
 		t.Fatalf("capped expiry out of range: %v", d)
+	}
+
+	legacyTok, legacyPlaintext, err := svc.MintOrgAccessToken(ctx, slug, "legacy-wrapper", []string{"deployer"}, "", nil)
+	if err != nil {
+		t.Fatalf("mint legacy wrapper: %v", err)
+	}
+	legacyKeyID, legacySecret, ok := ParseOAT("cozy", legacyPlaintext)
+	if !ok || legacyKeyID != legacyTok.KeyID {
+		t.Fatalf("ParseOAT legacy recovered (%q,ok=%v), want key %q", legacyKeyID, ok, legacyTok.KeyID)
+	}
+	legacyResolved, err := svc.ResolveOrgAccessTokenWithResources(ctx, legacyKeyID, legacySecret)
+	if err != nil {
+		t.Fatalf("resolve legacy wrapper with resources: %v", err)
+	}
+	if len(legacyResolved.Resources) != 0 {
+		t.Fatalf("legacy resources = %+v, want empty", legacyResolved.Resources)
+	}
+
+	oneResourceTok, oneResourcePlaintext, err := svc.MintOrgAccessTokenWithOptions(ctx, slug, OrgAccessTokenMintOptions{
+		Name:      "one-resource",
+		Resources: []OrgAccessTokenResource{{Kind: "openrails.tenant", ID: "tensorhub"}},
+	})
+	if err != nil {
+		t.Fatalf("mint one resource: %v", err)
+	}
+	oneKeyID, oneSecret, ok := ParseOAT("cozy", oneResourcePlaintext)
+	if !ok || oneKeyID != oneResourceTok.KeyID {
+		t.Fatalf("ParseOAT one-resource recovered (%q,ok=%v), want key %q", oneKeyID, ok, oneResourceTok.KeyID)
+	}
+	oneResolved, err := svc.ResolveOrgAccessTokenWithResources(ctx, oneKeyID, oneSecret)
+	if err != nil {
+		t.Fatalf("resolve one resource: %v", err)
+	}
+	if len(oneResolved.Resources) != 1 || oneResolved.Resources[0] != (OrgAccessTokenResource{Kind: "openrails.tenant", ID: "tensorhub"}) {
+		t.Fatalf("one resource resolved = %+v", oneResolved.Resources)
 	}
 }

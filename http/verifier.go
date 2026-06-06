@@ -169,7 +169,7 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 	if !ok {
 		return Claims{}, true, errors.New("invalid_token")
 	}
-	org, permissions, rerr := v.enrich.ResolveOrgAccessToken(ctx, keyID, secret)
+	resolved, rerr := v.enrich.ResolveOrgAccessTokenWithResources(ctx, keyID, secret)
 	if rerr != nil {
 		switch {
 		case errors.Is(rerr, core.ErrAccessTokenRevoked):
@@ -184,8 +184,9 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 		}
 	}
 	return Claims{
-		Org:         org,
-		Permissions: permissions,
+		Org:         resolved.OrgSlug,
+		Permissions: resolved.Permissions,
+		Resources:   resolved.Resources,
 		TokenType:   ServiceTokenType,
 	}, true, nil
 }

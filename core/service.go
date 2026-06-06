@@ -62,6 +62,10 @@ type Options struct {
 	TokenPrefix string
 	// OrgAccessTokenMaxTTL caps a minted OAT's expiry (0 = no cap).
 	OrgAccessTokenMaxTTL time.Duration
+	// ResourceScopeAuthorizer optionally authorizes host-defined OAT resource
+	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
+	// opaquely for callers who may manage OATs for the org.
+	ResourceScopeAuthorizer ResourceScopeAuthorizer
 	// PermissionCatalog is the app's permission vocabulary (merged with authkit's
 	// base `org:` permissions). DefaultRoles are role templates seeded per org.
 	PermissionCatalog []PermissionDef
@@ -219,6 +223,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		SolanaNetwork:               strings.TrimSpace(cfg.SolanaNetwork),
 		TokenPrefix:                 tokenPrefix,
 		OrgAccessTokenMaxTTL:        cfg.OrgAccessTokenMaxTTL,
+		ResourceScopeAuthorizer:     cfg.ResourceScopeAuthorizer,
 		PermissionCatalog:           cfg.PermissionCatalog,
 		DefaultRoles:                cfg.DefaultRoles,
 	}

@@ -34,9 +34,10 @@ var (
 const (
 	// oatTypeSegment is the FIXED, non-configurable type tag. The full marker is
 	// "<app>_oat_" when an app prefix is set, or bare "oat_" when it is empty.
-	oatTypeSegment = "oat_"
-	oatKeyIDLen    = 16 // base62 chars; non-secret public lookup id
-	oatSecretLen   = 43 // base62 chars ~= 256 bits of entropy
+	oatTypeSegment    = "oat_"
+	oatKeyIDLen       = 16  // base62 chars; non-secret public lookup id
+	oatSecretLen      = 43  // base62 chars ~= 256 bits of entropy
+	oatResourceMaxLen = 128 // DB check constraint; resource strings are host-defined.
 )
 
 const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -104,11 +105,93 @@ type OrgAccessToken struct {
 	KeyID       string
 	Name        string
 	Permissions []string
+	Resources   []OrgAccessTokenResource
 	CreatedBy   string
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
 	ExpiresAt   *time.Time
 	RevokedAt   *time.Time
+}
+
+// OrgAccessTokenResource is one opaque, host-defined resource scope carried by
+// an OAT. AuthKit stores and returns the exact Kind/ID pair but does not
+// interpret it. Hosts own resource semantics, including any wildcard-looking IDs
+// such as "*".
+type OrgAccessTokenResource struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+// ResolvedOrgAccessToken is the resource-aware OAT resolution result.
+type ResolvedOrgAccessToken struct {
+	TokenID     string
+	KeyID       string
+	OrgSlug     string
+	Permissions []string
+	Resources   []OrgAccessTokenResource
+}
+
+// OrgAccessTokenMintOptions is the resource-aware OAT mint request. The token
+// format remains unchanged; resources are stored beside the opaque credential.
+type OrgAccessTokenMintOptions struct {
+	Name        string
+	Permissions []string
+	Resources   []OrgAccessTokenResource
+	CreatedBy   string
+	ExpiresAt   *time.Time
+}
+
+// ResourceScopeAuthorizationRequest is passed to a host callback when the HTTP
+// OAT mint route receives resource scopes. AuthKit has already validated shape
+// and permission no-escalation before this hook runs.
+type ResourceScopeAuthorizationRequest struct {
+	OrgSlug          string
+	ActorUserID      string
+	Permissions      []string
+	Resources        []OrgAccessTokenResource
+	ActorGlobalAdmin bool
+}
+
+// ResourceScopeAuthorizer is an optional host callback for OAT resource-scope
+// no-escalation. Return an error to deny minting. AuthKit treats resource kinds
+// and IDs as opaque and never interprets their semantics itself.
+type ResourceScopeAuthorizer func(ctx context.Context, req ResourceScopeAuthorizationRequest) error
+
+func (s *Service) AuthorizeOrgAccessTokenResources(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
+	resources, err := normalizeOrgAccessTokenResources(req.Resources)
+	if err != nil {
+		return err
+	}
+	if s.opts.ResourceScopeAuthorizer == nil {
+		return nil
+	}
+	req.OrgSlug = strings.TrimSpace(req.OrgSlug)
+	req.ActorUserID = strings.TrimSpace(req.ActorUserID)
+	req.Resources = resources
+	req.Permissions = dedupeStrings(req.Permissions)
+	return s.opts.ResourceScopeAuthorizer(ctx, req)
+}
+
+func normalizeOrgAccessTokenResources(in []OrgAccessTokenResource) ([]OrgAccessTokenResource, error) {
+	if in == nil {
+		return []OrgAccessTokenResource{}, nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]OrgAccessTokenResource, 0, len(in))
+	for _, r := range in {
+		kind := strings.TrimSpace(r.Kind)
+		id := strings.TrimSpace(r.ID)
+		if kind == "" || id == "" || len(kind) > oatResourceMaxLen || len(id) > oatResourceMaxLen {
+			return nil, errors.New("invalid_resource")
+		}
+		key := kind + "\x00" + id
+		if seen[key] {
+			return nil, errors.New("duplicate_resource")
+		}
+		seen[key] = true
+		out = append(out, OrgAccessTokenResource{Kind: kind, ID: id})
+	}
+	return out, nil
 }
 
 // MintOrgAccessToken inserts a new OAT for the org and returns its metadata plus
@@ -117,6 +200,17 @@ type OrgAccessToken struct {
 // expiresAt is optional (nil = no expiry) and is capped to OrgAccessTokenMaxTTL
 // when set.
 func (s *Service) MintOrgAccessToken(ctx context.Context, orgSlug, name string, permissions []string, createdBy string, expiresAt *time.Time) (OrgAccessToken, string, error) {
+	return s.MintOrgAccessTokenWithOptions(ctx, orgSlug, OrgAccessTokenMintOptions{
+		Name:        name,
+		Permissions: permissions,
+		CreatedBy:   createdBy,
+		ExpiresAt:   expiresAt,
+	})
+}
+
+// MintOrgAccessTokenWithOptions inserts a new OAT using the resource-aware mint
+// contract. Permissions and resources must already be authorized by the caller.
+func (s *Service) MintOrgAccessTokenWithOptions(ctx context.Context, orgSlug string, opts OrgAccessTokenMintOptions) (OrgAccessToken, string, error) {
 	if err := s.requirePG(); err != nil {
 		return OrgAccessToken{}, "", err
 	}
@@ -124,15 +218,21 @@ func (s *Service) MintOrgAccessToken(ctx context.Context, orgSlug, name string, 
 	if err != nil {
 		return OrgAccessToken{}, "", err
 	}
-	name = strings.TrimSpace(name)
+	name := strings.TrimSpace(opts.Name)
 	if name == "" {
 		return OrgAccessToken{}, "", errors.New("missing_name")
 	}
+	permissions := opts.Permissions
 	if permissions == nil {
 		permissions = []string{}
 	}
+	resources, err := normalizeOrgAccessTokenResources(opts.Resources)
+	if err != nil {
+		return OrgAccessToken{}, "", err
+	}
 
 	now := time.Now().UTC()
+	expiresAt := opts.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
 		return OrgAccessToken{}, "", errors.New("invalid_expiry")
 	}
@@ -150,8 +250,8 @@ func (s *Service) MintOrgAccessToken(ctx context.Context, orgSlug, name string, 
 	secretHash := sha256Raw(secret)
 
 	var createdByArg any
-	if strings.TrimSpace(createdBy) != "" {
-		createdByArg = strings.TrimSpace(createdBy)
+	if strings.TrimSpace(opts.CreatedBy) != "" {
+		createdByArg = strings.TrimSpace(opts.CreatedBy)
 	}
 
 	// key_id is unique; retry a few times on the (astronomically unlikely)
@@ -164,17 +264,34 @@ func (s *Service) MintOrgAccessToken(ctx context.Context, orgSlug, name string, 
 		}
 		var id string
 		var createdAt time.Time
-		err = s.pg.QueryRow(ctx, `
+		tx, err := s.pg.Begin(ctx)
+		if err != nil {
+			return OrgAccessToken{}, "", err
+		}
+		err = tx.QueryRow(ctx, `
 			INSERT INTO profiles.org_access_tokens
 			  (org_id, key_id, secret_hash, name, permissions, created_by, expires_at)
 			VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7)
 			RETURNING id::text, created_at
 		`, org.ID, keyID, secretHash, name, permissions, createdByArg, expiresAt).Scan(&id, &createdAt)
 		if err != nil {
+			_ = tx.Rollback(ctx)
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "key_id") {
 				continue // key_id collision; regenerate
 			}
+			return OrgAccessToken{}, "", err
+		}
+		for _, r := range resources {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO profiles.org_access_token_resources (token_id, kind, resource_id)
+				VALUES ($1::uuid, $2, $3)
+			`, id, r.Kind, r.ID); err != nil {
+				_ = tx.Rollback(ctx)
+				return OrgAccessToken{}, "", err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
 			return OrgAccessToken{}, "", err
 		}
 		out = OrgAccessToken{
@@ -182,7 +299,8 @@ func (s *Service) MintOrgAccessToken(ctx context.Context, orgSlug, name string, 
 			KeyID:       keyID,
 			Name:        name,
 			Permissions: permissions,
-			CreatedBy:   strings.TrimSpace(createdBy),
+			Resources:   resources,
+			CreatedBy:   strings.TrimSpace(opts.CreatedBy),
 			CreatedAt:   createdAt,
 			ExpiresAt:   expiresAt,
 		}
@@ -220,9 +338,18 @@ func (s *Service) ListOrgAccessTokens(ctx context.Context, orgSlug string) ([]Or
 			&t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt, &t.RevokedAt); err != nil {
 			return nil, err
 		}
+		if t.Permissions == nil {
+			t.Permissions = []string{}
+		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.loadOrgAccessTokenResources(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // RevokeOrgAccessToken marks the OAT revoked. It is scoped to the org so a
@@ -252,10 +379,23 @@ func (s *Service) RevokeOrgAccessToken(ctx context.Context, orgSlug, tokenID str
 // an indexed lookup by key_id, a constant-time secret compare, and revoked /
 // expired / org-deleted checks, then best-effort async-touches last_used_at.
 func (s *Service) ResolveOrgAccessToken(ctx context.Context, keyID, secret string) (orgSlug string, permissions []string, err error) {
-	if err := s.requirePG(); err != nil {
+	resolved, err := s.ResolveOrgAccessTokenWithResources(ctx, keyID, secret)
+	if err != nil {
 		return "", nil, err
 	}
+	return resolved.OrgSlug, resolved.Permissions, nil
+}
+
+// ResolveOrgAccessTokenWithResources validates a presented OAT and returns the
+// full resource-aware result. Existing tokens with no resources return an empty
+// Resources slice and remain org-wide for hosts that use the compatibility
+// resolver.
+func (s *Service) ResolveOrgAccessTokenWithResources(ctx context.Context, keyID, secret string) (ResolvedOrgAccessToken, error) {
+	if err := s.requirePG(); err != nil {
+		return ResolvedOrgAccessToken{}, err
+	}
 	var (
+		err        error
 		id         string
 		secretHash []byte
 		gotPerms   []string
@@ -273,30 +413,40 @@ func (s *Service) ResolveOrgAccessToken(ctx context.Context, keyID, secret strin
 	`, keyID).Scan(&id, &secretHash, &gotPerms, &expiresAt, &revokedAt, &slug, &orgDeleted)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil, ErrInvalidAccessToken
+			return ResolvedOrgAccessToken{}, ErrInvalidAccessToken
 		}
-		return "", nil, err
+		return ResolvedOrgAccessToken{}, err
 	}
 
 	// Constant-time secret comparison.
 	if subtle.ConstantTimeCompare(secretHash, sha256Raw(secret)) != 1 {
-		return "", nil, ErrInvalidAccessToken
+		return ResolvedOrgAccessToken{}, ErrInvalidAccessToken
 	}
 	if revokedAt != nil {
-		return "", nil, ErrAccessTokenRevoked
+		return ResolvedOrgAccessToken{}, ErrAccessTokenRevoked
 	}
 	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
-		return "", nil, ErrAccessTokenExpired
+		return ResolvedOrgAccessToken{}, ErrAccessTokenExpired
 	}
 	if orgDeleted != nil {
-		return "", nil, ErrInvalidAccessToken
+		return ResolvedOrgAccessToken{}, ErrInvalidAccessToken
 	}
 
 	s.touchAccessTokenAsync(id)
 	if gotPerms == nil {
 		gotPerms = []string{}
 	}
-	return slug, gotPerms, nil
+	resources, err := s.listOrgAccessTokenResources(ctx, id)
+	if err != nil {
+		return ResolvedOrgAccessToken{}, err
+	}
+	return ResolvedOrgAccessToken{
+		TokenID:     id,
+		KeyID:       keyID,
+		OrgSlug:     slug,
+		Permissions: gotPerms,
+		Resources:   resources,
+	}, nil
 }
 
 // touchAccessTokenAsync updates last_used_at without blocking the request. A
@@ -307,4 +457,59 @@ func (s *Service) touchAccessTokenAsync(id string) {
 		defer cancel()
 		_, _ = s.pg.Exec(ctx, `UPDATE profiles.org_access_tokens SET last_used_at=now() WHERE id=$1::uuid`, id)
 	}()
+}
+
+func (s *Service) loadOrgAccessTokenResources(ctx context.Context, tokens []OrgAccessToken) error {
+	if len(tokens) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(tokens))
+	byID := make(map[string]int, len(tokens))
+	for i := range tokens {
+		tokens[i].Resources = []OrgAccessTokenResource{}
+		ids = append(ids, tokens[i].ID)
+		byID[tokens[i].ID] = i
+	}
+	rows, err := s.pg.Query(ctx, `
+		SELECT token_id::text, kind, resource_id
+		FROM profiles.org_access_token_resources
+		WHERE token_id = ANY($1::uuid[])
+		ORDER BY token_id::text, kind, resource_id
+	`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tokenID, kind, resourceID string
+		if err := rows.Scan(&tokenID, &kind, &resourceID); err != nil {
+			return err
+		}
+		if i, ok := byID[tokenID]; ok {
+			tokens[i].Resources = append(tokens[i].Resources, OrgAccessTokenResource{Kind: kind, ID: resourceID})
+		}
+	}
+	return rows.Err()
+}
+
+func (s *Service) listOrgAccessTokenResources(ctx context.Context, tokenID string) ([]OrgAccessTokenResource, error) {
+	rows, err := s.pg.Query(ctx, `
+		SELECT kind, resource_id
+		FROM profiles.org_access_token_resources
+		WHERE token_id=$1::uuid
+		ORDER BY kind, resource_id
+	`, strings.TrimSpace(tokenID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OrgAccessTokenResource{}
+	for rows.Next() {
+		var r OrgAccessTokenResource
+		if err := rows.Scan(&r.Kind, &r.ID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

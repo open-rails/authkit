@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 // Claims is a typed view of authenticated user information attached by middleware.
@@ -58,6 +60,11 @@ type Claims struct {
 	// authority is expressed as OrgRoles that the resource server expands to
 	// permissions at request time. authkit treats permission strings as opaque.
 	Permissions []string
+
+	// Resources are opaque host-defined resource scopes carried by an
+	// Organization Access Token. Empty means the OAT has no AuthKit-stored
+	// resource constraints; resource-aware hosts decide whether to require them.
+	Resources []core.OrgAccessTokenResource
 }
 
 // ServiceTokenType is the TokenType value carried by an Organization Access

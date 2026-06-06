@@ -22,15 +22,16 @@ import (
 // accessTokenView is the non-secret JSON shape returned for an OAT. The secret
 // is only ever present in the create response's top-level `token` field.
 type accessTokenView struct {
-	ID          string   `json:"id"`
-	KeyID       string   `json:"key_id"`
-	Name        string   `json:"name"`
-	Permissions []string `json:"permissions"`
-	CreatedBy   string   `json:"created_by,omitempty"`
-	CreatedAt   string   `json:"created_at"`
-	LastUsedAt  string   `json:"last_used_at,omitempty"`
-	ExpiresAt   string   `json:"expires_at,omitempty"`
-	RevokedAt   string   `json:"revoked_at,omitempty"`
+	ID          string                        `json:"id"`
+	KeyID       string                        `json:"key_id"`
+	Name        string                        `json:"name"`
+	Permissions []string                      `json:"permissions"`
+	Resources   []core.OrgAccessTokenResource `json:"resources"`
+	CreatedBy   string                        `json:"created_by,omitempty"`
+	CreatedAt   string                        `json:"created_at"`
+	LastUsedAt  string                        `json:"last_used_at,omitempty"`
+	ExpiresAt   string                        `json:"expires_at,omitempty"`
+	RevokedAt   string                        `json:"revoked_at,omitempty"`
 }
 
 func rfc3339Ptr(t *time.Time) string {
@@ -45,11 +46,16 @@ func toAccessTokenView(t core.OrgAccessToken) accessTokenView {
 	if perms == nil {
 		perms = []string{}
 	}
+	resources := t.Resources
+	if resources == nil {
+		resources = []core.OrgAccessTokenResource{}
+	}
 	return accessTokenView{
 		ID:          t.ID,
 		KeyID:       t.KeyID,
 		Name:        t.Name,
 		Permissions: perms,
+		Resources:   resources,
 		CreatedBy:   t.CreatedBy,
 		CreatedAt:   t.CreatedAt.UTC().Format(time.RFC3339),
 		LastUsedAt:  rfc3339Ptr(t.LastUsedAt),
@@ -94,9 +100,10 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Name        string   `json:"name"`
-		Permissions []string `json:"permissions"`
-		ExpiresAt   string   `json:"expires_at"`
+		Name        string                        `json:"name"`
+		Permissions []string                      `json:"permissions"`
+		Resources   []core.OrgAccessTokenResource `json:"resources"`
+		ExpiresAt   string                        `json:"expires_at"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, "invalid_request")
@@ -118,20 +125,48 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	permissions := cleanStrings(body.Permissions)
+	resources := body.Resources
 
 	// Authorize the mint + the permission grant.
 	canonical, ok := s.authorizeOATMint(w, r, claims, orgSlug, permissions)
 	if !ok {
 		return
 	}
+	if err := s.svc.AuthorizeOrgAccessTokenResources(r.Context(), core.ResourceScopeAuthorizationRequest{
+		OrgSlug:          canonical,
+		ActorUserID:      claims.UserID,
+		Permissions:      permissions,
+		Resources:        resources,
+		ActorGlobalAdmin: claimsHasGlobalAdmin(claims),
+	}); err != nil {
+		switch err.Error() {
+		case "invalid_resource":
+			badRequest(w, "invalid_resource")
+		case "duplicate_resource":
+			badRequest(w, "duplicate_resource")
+		default:
+			sendErrData(w, http.StatusForbidden, "resource_scope_denied", map[string]any{})
+		}
+		return
+	}
 
-	tok, plaintext, err := s.svc.MintOrgAccessToken(r.Context(), canonical, body.Name, permissions, claims.UserID, expiresAt)
+	tok, plaintext, err := s.svc.MintOrgAccessTokenWithOptions(r.Context(), canonical, core.OrgAccessTokenMintOptions{
+		Name:        body.Name,
+		Permissions: permissions,
+		Resources:   resources,
+		CreatedBy:   claims.UserID,
+		ExpiresAt:   expiresAt,
+	})
 	if err != nil {
 		switch err.Error() {
 		case "invalid_expiry":
 			badRequest(w, "invalid_expiry")
 		case "missing_name":
 			badRequest(w, "missing_name")
+		case "invalid_resource":
+			badRequest(w, "invalid_resource")
+		case "duplicate_resource":
+			badRequest(w, "duplicate_resource")
 		default:
 			serverErr(w, "access_token_create_failed")
 		}
@@ -144,6 +179,7 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 		"key_id":      view.KeyID,
 		"name":        view.Name,
 		"permissions": view.Permissions,
+		"resources":   view.Resources,
 		"created_at":  view.CreatedAt,
 		"expires_at":  view.ExpiresAt,
 		// Shown ONCE — never retrievable again.

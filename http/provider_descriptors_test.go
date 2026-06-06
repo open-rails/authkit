@@ -46,9 +46,9 @@ func TestAuthProviderCacheIsolation(t *testing.T) {
 
 func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 	cfg := core.Config{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"test"},
-		ExpectedAudiences:   []string{"test"},
+		Issuer:            "https://example.com",
+		IssuedAudiences:   []string{"test"},
+		ExpectedAudiences: []string{"test"},
 		Providers: map[string]oidckit.RPConfig{
 			"github": {ClientID: "github-client", ClientSecret: "github-secret"},
 		},

@@ -148,8 +148,8 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | GET | `/orgs/:org/me` | AUTH | **Caller's own** membership view: `{roles[], permissions[]}` (membership only — no `org:read`; global admin → full catalog) |
 | POST | `/orgs/:org/permissions/check` | AUTH | Check permissions for a principal. Body `{permissions[], user_id?}` → `{granted[]}` (requested subset held). Self by default; `user_id` checks another member (`org:read`). Global admin holds all. (GCP `testIamPermissions` shape) |
 | POST | `/token/org` | AUTH | Mint org-scoped access token (`org` + `roles`) |
-| POST | `/orgs/:org/access-tokens` | AUTH | Mint an OAT (`org:tokens:manage`). Body `{name, permissions[], expires_at?}`; perms catalog-validated + no-escalation, reserved write/mint `org:*` perms + wildcards barred (read-only `org:read` allowed). Full token shown ONCE. |
-| GET | `/orgs/:org/access-tokens` | AUTH | List the org's access tokens (`org:tokens:manage`; metadata only) |
+| POST | `/orgs/:org/access-tokens` | AUTH | Mint an OAT (`org:tokens:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms catalog-validated + no-escalation, reserved write/mint `org:*` perms + wildcards barred (read-only `org:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full token shown ONCE. |
+| GET | `/orgs/:org/access-tokens` | AUTH | List the org's access tokens (`org:tokens:manage`; metadata only, includes `resources[]`, never secrets) |
 | DELETE | `/orgs/:org/access-tokens/:token_id` | AUTH | Revoke an access token (`org:tokens:manage`) |
 
 > **Org RBAC (permission-based).** A role is a set of permissions. Org-management
@@ -205,6 +205,30 @@ for monitoring/audit automation), still subject to no-escalation. Permissions
 are frozen at mint time (revoke to reduce). An OAT
 carries no user, so it can never mint/list/revoke OATs.
 
+**Resource scopes.** OATs may also carry `resources: [{kind, id}]`. AuthKit
+stores these as opaque exact-match Kind/ID pairs and returns them from
+`ListOrgAccessTokens`, `ResolveOrgAccessTokenWithResources`, and OAT middleware
+`Claims.Resources`. AuthKit validates only shape/length and duplicate pairs; it
+does not interpret resource kinds or grant wildcards by itself. A host may use
+literal IDs such as `"*"` if that host wants wildcard semantics. Hosts that need
+resource no-escalation install `core.Config.ResourceScopeAuthorizer`; otherwise
+any caller who passes the normal OAT management and permission checks may attach
+valid resource scopes. The rule is: **permissions say what; resources say
+where**.
+
+Example:
+
+```json
+{
+  "name": "cozy-spend",
+  "permissions": ["openrails:credits:spend"],
+  "resources": [
+    {"kind": "openrails.tenant", "id": "tensorhub"},
+    {"kind": "openrails.payer_org", "id": "cozy-art"}
+  ]
+}
+```
+
 **Lifetime.** Optional `expires_at` (null = non-expiring). A host may set a max
 TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
 checked on every request.
@@ -212,10 +236,12 @@ checked on every request.
 **Storage.** `profiles.org_access_tokens` (`key_id` unique, `secret_hash` bytea,
 `permissions text[]`, `created_by` audit-only & `ON DELETE SET NULL` so a token
 outlives its minter, nullable `expires_at`/`revoked_at`, `last_used_at` touched
-best-effort/async).
+best-effort/async) plus `profiles.org_access_token_resources` for opaque
+Kind/ID scope rows.
 
 **Configuration.** `core.Config.TokenPrefix` (lowercase alnum, ≤16 chars; empty
-→ `oat_`) and `core.Config.OrgAccessTokenMaxTTL` (0 = no cap).
+→ `oat_`), `core.Config.OrgAccessTokenMaxTTL` (0 = no cap), and optional
+`core.Config.ResourceScopeAuthorizer`.
 
 ---
 

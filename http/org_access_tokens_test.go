@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +25,26 @@ func TestClaimsIsService(t *testing.T) {
 	require.False(t, Claims{TokenType: "user"}.IsService())
 	// A service principal is not a delegated principal.
 	require.False(t, Claims{TokenType: "service"}.IsDelegated())
+}
+
+func TestAccessTokenViewIncludesResources(t *testing.T) {
+	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	view := toAccessTokenView(core.OrgAccessToken{
+		ID:          "tok_1",
+		KeyID:       "key_1",
+		Name:        "ci",
+		Permissions: []string{"openrails:credits:spend"},
+		Resources: []core.OrgAccessTokenResource{
+			{Kind: "openrails.tenant", ID: "tensorhub"},
+			{Kind: "openrails.payer_org", ID: "cozy-art"},
+		},
+		CreatedAt: created,
+	})
+	require.Equal(t, []core.OrgAccessTokenResource{
+		{Kind: "openrails.tenant", ID: "tensorhub"},
+		{Kind: "openrails.payer_org", ID: "cozy-art"},
+	}, view.Resources)
+	require.Equal(t, "2026-01-02T03:04:05Z", view.CreatedAt)
 }
 
 // TestOATMiddlewareDetectionAndFallthrough verifies that the Required middleware
