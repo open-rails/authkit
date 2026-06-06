@@ -125,6 +125,12 @@ func NewService(opts Options, keys Keyset) *Service {
 	if strings.TrimSpace(opts.TenantMode) == "" {
 		opts.TenantMode = "single"
 	}
+	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
+		opts.NativeUserRegistrationMode = mode
+	}
+	if mode, err := normalizeRegistrationMode(opts.TenantRegistrationMode); err == nil {
+		opts.TenantRegistrationMode = mode
+	}
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
 	}
