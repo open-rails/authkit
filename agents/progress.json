@@ -51,7 +51,7 @@
         "[x] Replace HTTP tenant routes from /orgs and /token/org to /tenants and /token/tenant; no legacy route aliases were added.",
         "[x] Replace service-token string marker from oat_ to st_ and update middleware detection/resolution.",
         "[x] Rename reserved base permissions from org:* to tenant:* including tenant:service_tokens:manage.",
-        "[x] Collapse tenant_membership_roles into a single role on tenant_memberships; current pass preserves the existing multi-role implementation under tenant names.",
+        "[x] Collapse tenant_membership_roles into a single role on tenant_memberships.",
         "[x] Rename owner-namespace/status strings from registered_org/parked_org/etc. to registered_tenant/parked_tenant/etc.",
         "[ ] Coordinate OpenRails, Doujins, Hentai0, Cozy Art, and Tensorhub against the new tenant/service-token APIs."
       ],
@@ -100,17 +100,17 @@
         "[x] Keep route groups modular so embedded host applications can avoid mounting public native-user registration routes, public tenant registration routes, or any other public auth surface they do not want exposed.",
         "[x] Ensure public registration-disabled modes require admin/bootstrap/backend-controlled creation paths: manifest bootstrap, internal admin APIs, or host-side provisioning.",
         "[x] Ensure native-user-only deployments can have zero tenants without fake personal/tenant rows unless a separate issue intentionally introduces personal tenants.",
-        "[ ] Ensure closed-registration relying-party deployments can have zero native users and still accept delegated-user JWTs for registered tenant issuers.",
+        "[x] Ensure closed-registration relying-party deployments can have zero native users and still accept delegated-user JWTs for registered tenant issuers.",
         "[x] Ensure B2B deployments support tenant memberships with one role per membership by default.",
         "[x] Replace old tenant registration flags/docs/tests with the new registration-mode vocabulary.",
-        "[ ] Add mode matrix tests for Doujins/Hentai0-style native app, Tensorhub-style B2B app, and OpenRails-style relying-party app, including host-not-mounted public route behavior.",
+        "[x] Add mode matrix tests for Doujins/Hentai0-style native app, Tensorhub-style B2B app, and OpenRails-style relying-party app, including host-not-mounted public route behavior.",
         "[x] Document which APIs are enabled/disabled by registration mode and which route groups hosts should omit for closed-registration deployments.",
         "[x] Do not auto-create tenants on native-user registration by default; if personal/team workspaces are ever desired, require an explicit host opt-in and tenant kind/product policy.",
         "[x] Support native-user-only deployments like Doujins/Hentai0 where tenant registration is disabled and user registration creates no tenant-related rows.",
         "[x] For B2B deployments like Tensorhub, optionally add a transactional shared reserved-slug namespace so `users.username` and `tenants.slug` cannot collide without creating fake tenants.",
         "[x] Document that shared slug reservation is host/mode-controlled and unnecessary when tenant registration is fully disabled."
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id_number": 57,
