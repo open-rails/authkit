@@ -316,7 +316,7 @@ Owner lookup enabledes: `registered_user`, `registered_tenant`, `parked_user`, `
 ## Tenant Issuers (RouteTenantIssuers, resource-server side)
 
 The inbound accept-side of the platform-delegation handshake. The resource
-server stores trusted tenant-tenant issuers; delegated tokens minted by those
+server stores trusted tenant issuers; delegated tokens minted by those
 issuers (carrying `delegated_sub`) are then validated by the Verifier with
 in-house JWKS fetch/refresh (no external push/sync). The outbound side is the
 Go `authhttp.TenantIssuersClient` (no route).
@@ -340,6 +340,6 @@ browser call OpenRails directly; the host does not need to proxy billing routes.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/tenant-issuers` | AUTH (tenant owner/admin) | Register/upsert a tenant tenant's issuer (`{tenant, issuer, jwks_uri, enabled?}`); also added to the live Verifier |
-| DELETE | `/tenant-issuers` | AUTH (tenant owner/admin) | Remove a tenant tenant's issuer registration (`{tenant, issuer}`) |
-| GET | `/tenant-issuers` | ADMIN | List registered tenant-tenant issuers |
+| POST | `/tenant-issuers` | AUTH (tenant owner/admin) | Register/upsert a tenant issuer (`{tenant, issuer, jwks_uri, enabled?}`); also added to the live Verifier |
+| DELETE | `/tenant-issuers` | AUTH (tenant owner/admin) | Remove a tenant issuer registration (`{tenant, issuer}`) |
+| GET | `/tenant-issuers` | ADMIN | List registered tenant issuers |

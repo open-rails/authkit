@@ -128,7 +128,8 @@ initial tenants, roles, admins, and service tokens through exported core APIs
 
 Locked-down (e.g. self-hosted OpenRails) pattern: mount only the chosen route
 groups, set both modes to `admin_bootstrap_only` or `manifest_only`, and
-bootstrap through embedded core APIs.
+bootstrap through embedded core APIs or a deployment-owned tenant manifest.
+Bootstrap authority is an operator/deploy action, not a fake AuthKit tenant.
 
 ```go
 cfg := core.Config{
@@ -153,14 +154,14 @@ tenant, _ := core.CreateTenant(ctx, "operator")
 _ = core.DefineRole(ctx, tenant.Slug, "owner")
 _ = core.AddMember(ctx, tenant.Slug, admin.ID)
 _ = core.AssignRole(ctx, tenant.Slug, admin.ID, "owner")
-service token, secret, _ := core.MintServiceToken(ctx, tenant.Slug, "ci", []string{"*"}, admin.ID, nil)
-_ = service token
+svcToken, secret, _ := core.MintServiceToken(ctx, tenant.Slug, "ci", []string{"*"}, admin.ID, nil)
+_ = svcToken
 _ = secret
 ```
 
-Hosted SaaS deployments can later flip both switches to `false` and mount the
-`RouteRegister` / `RouteTenants` groups to enable public signup and tenant
-onboarding without code changes.
+Hosted SaaS deployments can later set both registration modes to `open` and
+mount the `RouteRegister` / `RouteTenants` groups to enable public signup and
+tenant onboarding without code changes.
 
 Quick Start (net/http)
 

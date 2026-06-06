@@ -31,6 +31,11 @@ func TestTenantIssuerRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, "cozy-art")
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, "cozy-art") })
+	if _, err := svc.CreateTenant(ctx, "cozy-art"); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
 	t.Cleanup(func() { _ = svc.DeleteTenantIssuer(ctx, iss) })
 
 	// Upsert (insert).

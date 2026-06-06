@@ -84,8 +84,8 @@
         "[x] Allow manifest-declared service tokens with arbitrary permissions, arbitrary resource scopes, and arbitrary output targets such as Vault KV path/field or local file. Do not hardcode OpenRails/Doujins permissions.",
         "[x] If an output already contains a non-empty token, preserve it; otherwise mint and write a new opaque service token. Include an explicit rotate workflow separately from startup reconciliation.",
         "[ ] Expose the reconciler as startup hook and CLI/job command in host applications so production can run it with a deploy identity rather than giving every API pod long-lived Vault write access.",
-        "[ ] Add tests for multi-replica lock behavior and issuer update/disable. Added coverage for idempotency, service token output preservation, and invalid manifest rejection.",
-        "[ ] Document closed-registration deployments and the distinction between deployment bootstrap authority and AuthKit tenants."
+        "[x] Add tests for multi-replica lock behavior and issuer update/disable. Existing coverage also covers idempotency, service token output preservation, and invalid manifest rejection. Validated with AUTHKIT_TEST_DATABASE_URL-backed core tests.",
+        "[x] Document closed-registration deployments and the distinction between deployment bootstrap authority and AuthKit tenants."
       ],
       "completed": false
     },

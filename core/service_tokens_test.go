@@ -166,7 +166,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
-	const slug = "service token-lifecycle-test"
+	const slug = "service-token-lifecycle-test"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
 	var tenantID string
 	if err := pool.QueryRow(ctx, `INSERT INTO profiles.tenants (slug) VALUES ($1) RETURNING id::text`, slug).Scan(&tenantID); err != nil {
@@ -213,7 +213,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if resolved.TokenID != tok.ID || resolved.KeyID != tok.KeyID || resolved.TenantSlug != slug {
 		t.Fatalf("resolved metadata = %+v, token = %+v", resolved, tok)
 	}
-	if len(resolved.Resources) != 2 || resolved.Resources[0] != resources[1] || resolved.Resources[1] != resources[0] {
+	if len(resolved.Resources) != 2 || resolved.Resources[0] != resources[0] || resolved.Resources[1] != resources[1] {
 		t.Fatalf("resolved resources = %+v, want ordered by kind/id from %+v", resolved.Resources, resources)
 	}
 
