@@ -15,18 +15,10 @@ import (
 )
 
 // newTestServiceWithPolicy builds an http.Service whose core Options carry the
-// coarse policy switches under test. TenantMode is "multi" so the tenant-management
+// registration modes under test. TenantMode is "multi" so the tenant-management
 // routes exist and can be exercised.
-func newTestServiceWithPolicy(t *testing.T, registrationDisabled, tenantManagementDisabled bool) *Service {
+func newTestServiceWithPolicy(t *testing.T, nativeMode, tenantMode core.RegistrationMode) *Service {
 	t.Helper()
-	nativeMode := core.RegistrationModeOpen
-	if registrationDisabled {
-		nativeMode = core.RegistrationModeBootstrapOnly
-	}
-	tenantMode := core.RegistrationModeOpen
-	if tenantManagementDisabled {
-		tenantMode = core.RegistrationModeBootstrapOnly
-	}
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
 	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
@@ -86,7 +78,7 @@ func TestPolicyDefaults_RegisterNotShortCircuited(t *testing.T) {
 // --- Registration disabled: every audited public path is rejected ---
 
 func TestRegistrationDisabled_RegisterPOST(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register",
@@ -97,7 +89,7 @@ func TestRegistrationDisabled_RegisterPOST(t *testing.T) {
 }
 
 func TestRegistrationDisabled_AvailabilityNeverUsable(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -116,7 +108,7 @@ func TestRegistrationDisabled_AvailabilityNeverUsable(t *testing.T) {
 }
 
 func TestRegistrationDisabled_ResendEmail(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register/resend-email",
@@ -127,7 +119,7 @@ func TestRegistrationDisabled_ResendEmail(t *testing.T) {
 }
 
 func TestRegistrationDisabled_ResendPhone(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/register/resend-phone",
@@ -140,7 +132,7 @@ func TestRegistrationDisabled_ResendPhone(t *testing.T) {
 // Core-level gates (cover non-HTTP callers and defense-in-depth on the
 // pending-registration + confirmation + Solana auto-create chokepoints).
 func TestRegistrationDisabled_CorePendingAndConfirmGates(t *testing.T) {
-	coreSvc := newTestServiceWithPolicy(t, true, false).svc
+	coreSvc := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen).svc
 
 	_, err := coreSvc.CreatePendingRegistration(t.Context(), "a@b.com", "alice", "hash", 0)
 	require.ErrorIs(t, err, core.ErrRegistrationDisabled)
@@ -161,7 +153,7 @@ func TestRegistrationDisabled_CorePendingAndConfirmGates(t *testing.T) {
 // When registration is enabled, the core pending-registration gate does NOT
 // fire (it proceeds far enough to hit the missing-Postgres error instead).
 func TestRegistrationEnabled_CorePendingNotGated(t *testing.T) {
-	coreSvc := newTestServiceWithPolicy(t, false, false).svc
+	coreSvc := newTestServiceWithPolicy(t, core.RegistrationModeOpen, core.RegistrationModeOpen).svc
 	_, err := coreSvc.CreatePendingRegistration(t.Context(), "a@b.com", "alice", "hash", 0)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, core.ErrRegistrationDisabled)
@@ -174,7 +166,7 @@ func TestRegistrationEnabled_CorePendingNotGated(t *testing.T) {
 // other reasons (no Postgres / bad creds), but never with registration_disabled
 // and never 404.
 func TestRegistrationDisabled_ExistingUserAuthRoutesStillMounted(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	h := s.APIHandler()
 
 	cases := []struct {
@@ -201,7 +193,7 @@ func TestRegistrationDisabled_ExistingUserAuthRoutesStillMounted(t *testing.T) {
 // --- Tenant management disabled ---
 
 func TestTenantManagementDisabled_CreateDenied(t *testing.T) {
-	s := newTestServiceWithPolicy(t, false, true)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeOpen, core.RegistrationModeManifestOnly)
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewReader([]byte(`{"slug":"acme"}`)))
@@ -211,7 +203,7 @@ func TestTenantManagementDisabled_CreateDenied(t *testing.T) {
 }
 
 func TestTenantManagementDisabled_MutatingRoutesDenied(t *testing.T) {
-	s := newTestServiceWithPolicy(t, false, true)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeOpen, core.RegistrationModeManifestOnly)
 	h := s.APIHandler()
 
 	cases := []struct {
@@ -237,7 +229,7 @@ func TestTenantManagementDisabled_MutatingRoutesDenied(t *testing.T) {
 // Read-only tenant routes and the tenant-scoped token route stay available (they
 // require auth, so they reject with 401, NOT tenant_management_disabled).
 func TestTenantManagementDisabled_ReadRoutesStillAvailable(t *testing.T) {
-	s := newTestServiceWithPolicy(t, false, true)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeOpen, core.RegistrationModeManifestOnly)
 	h := s.APIHandler()
 
 	cases := []struct {
@@ -260,7 +252,7 @@ func TestTenantManagementDisabled_ReadRoutesStillAvailable(t *testing.T) {
 
 // When tenant management is enabled (default), the create route is NOT gated.
 func TestTenantManagementEnabled_CreateNotGated(t *testing.T) {
-	s := newTestServiceWithPolicy(t, false, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeOpen, core.RegistrationModeOpen)
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewReader([]byte(`{"slug":"acme"}`)))
@@ -271,7 +263,7 @@ func TestTenantManagementEnabled_CreateNotGated(t *testing.T) {
 // --- Selective route-group mounting ---
 
 func TestSelectiveMounting_OmitRegisterGroup(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	// A locked-down host mounts only Core + Password (no register group at all).
 	routes := s.Routes().Groups(RouteCore, RoutePassword)
 	requireNoRoute(t, routes, http.MethodPost, "/register")

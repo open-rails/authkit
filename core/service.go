@@ -44,6 +44,9 @@ type Options struct {
 	// TenantMode controls multi-tenant behavior.
 	// Valid values: "single" or "multi".
 	TenantMode string
+	// AutoCreatePersonalTenants creates a personal tenant for each native user
+	// in TenantMode "multi". False keeps native users tenant-free by default.
+	AutoCreatePersonalTenants bool
 
 	// NativeUserRegistrationMode controls public native-user self-registration.
 	NativeUserRegistrationMode RegistrationMode
@@ -208,11 +211,11 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	}
 	nativeUserRegistrationMode, err := normalizeRegistrationMode(cfg.NativeUserRegistrationMode)
 	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want \"open\" or \"bootstrap_only\")", cfg.NativeUserRegistrationMode)
+		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, closed)", cfg.NativeUserRegistrationMode)
 	}
 	tenantRegistrationMode, err := normalizeRegistrationMode(cfg.TenantRegistrationMode)
 	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid TenantRegistrationMode %q (want \"open\" or \"bootstrap_only\")", cfg.TenantRegistrationMode)
+		return nil, fmt.Errorf("authkit: invalid TenantRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.TenantRegistrationMode)
 	}
 	tokenPrefix := strings.TrimSpace(cfg.ServiceTokenPrefix)
 	if !validServiceTokenPrefix(tokenPrefix) {
@@ -229,6 +232,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		FrontendCallbackPath:       frontendCallbackPath,
 		RegistrationVerification:   registrationVerification,
 		TenantMode:                 orgMode,
+		AutoCreatePersonalTenants:  cfg.AutoCreatePersonalTenants,
 		NativeUserRegistrationMode: nativeUserRegistrationMode,
 		TenantRegistrationMode:     tenantRegistrationMode,
 		Environment:                strings.TrimSpace(cfg.Environment),
@@ -278,7 +282,12 @@ func normalizeRegistrationMode(v RegistrationMode) (RegistrationMode, error) {
 		return RegistrationModeOpen, nil
 	}
 	switch value {
-	case RegistrationModeOpen, RegistrationModeBootstrapOnly:
+	case RegistrationModeOpen,
+		RegistrationModeInviteOnly,
+		RegistrationModeAdminOnly,
+		RegistrationModeAdminBootstrapOnly,
+		RegistrationModeManifestOnly,
+		RegistrationModeClosed:
 		return value, nil
 	default:
 		return "", fmt.Errorf("invalid_registration_mode")
@@ -323,6 +332,10 @@ func (o Options) RegistrationVerificationRequired() bool {
 
 func (o Options) RegistrationVerificationEnabled() bool {
 	return o.RegistrationVerificationPolicy() != RegistrationVerificationNone
+}
+
+func (o Options) AutoCreatePersonalTenantsEnabled() bool {
+	return o.AutoCreatePersonalTenants && strings.EqualFold(strings.TrimSpace(o.TenantMode), "multi")
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user
@@ -1474,10 +1487,9 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 		return "", err
 	}
 
-	// In tenant_mode=multi every user must have a personal tenant in the owner namespace.
-	// ConfirmPendingRegistration creates the user directly (without going through createUser),
-	// so ensure we provision the personal tenant here too.
-	if strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
+	// Personal tenants are an explicit host opt-in. Native-user-only hosts can
+	// run in tenant_mode=multi without creating tenant rows for each signup.
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
 		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
 			return "", err
 		}
@@ -2074,7 +2086,7 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 		return nil, err
 	}
 
-	if strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
 		if err := s.ensurePersonalOrgForUser(ctx, u.ID, username); err != nil {
 			return nil, err
 		}
@@ -2152,7 +2164,7 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 	if err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
 		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
@@ -2200,7 +2212,7 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 	if err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
 		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
@@ -2455,7 +2467,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return err
 	}
 
-	if strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
 		var tenantID, oldTenantSlug string
 		err := tx.QueryRow(ctx, `
 			SELECT id::text, slug

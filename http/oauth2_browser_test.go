@@ -136,7 +136,7 @@ func TestFetchOAuthUserInfoUsesCustomDescriptorMapping(t *testing.T) {
 }
 
 func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	cfg := authprovider.Provider{
 		Name:   "github",
 		Kind:   authprovider.KindOAuth2,
@@ -158,7 +158,7 @@ func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 }
 
 func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
-	s := newTestServiceWithPolicy(t, true, false)
+	s := newTestServiceWithPolicy(t, core.RegistrationModeAdminBootstrapOnly, core.RegistrationModeOpen)
 	cfg := authprovider.Provider{
 		Name:   "github",
 		Kind:   authprovider.KindOAuth2,

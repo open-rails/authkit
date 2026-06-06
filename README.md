@@ -95,42 +95,46 @@ For custom routers, iterate `svc.Routes().DefaultAPI()` or
 `RouteSpec.Path`, and `RouteSpec.Handler` yourself. Host apps should not keep
 duplicated AuthKit route allowlists.
 
-Coarse policy switches (locked-down hosts)
+Registration modes and route selection
 
 Route-group selection is the primary host control: a locked-down host should
 mount only the `svc.Routes().Groups(...)` subset it intentionally exposes
-instead of `DefaultAPI()`. As a defense-in-depth backstop (for hosts that
-accidentally mount more than intended), AuthKit also provides two coarse
-runtime switches on `core.Config`:
+instead of `DefaultAPI()`. As a defense-in-depth backstop, AuthKit also exposes
+separate registration modes on `core.Config`:
 
-- `PublicRegistrationDisabled` — turns off ALL public user self-registration and
-  auto-registration paths. When set, `POST /register`, `/register/availability`,
-  `/register/resend-email`, `/register/resend-phone`, OIDC/social/Solana
-  auto-create, and pending-registration confirmation all return a stable
-  `registration_disabled` error (`/register/availability` reports every field
-  as unavailable, never usable). Existing-user authentication is unaffected:
-  login, refresh, logout, password reset/recovery, token verification, and
-  sessions all keep working. Embedded bootstrap/admin creation through the
-  exported core APIs (`CreateUser`, `ImportUser`) still works.
-- `PublicTenantManagementDisabled` — denies the public tenant-facing onboarding and
-  management routes (tenant creation/rename, invites, member changes, role
-  changes, service token management routes) with a stable `tenant_management_disabled`
-  error. Read-only tenant routes and the tenant-scoped token exchange (`POST
-  /token/tenant`) stay available for existing members. Embedded core/bootstrap
-  code can still ensure the initial tenants, roles, admins, and service tokens through the
-  exported core APIs (`CreateTenant`, `DefineRole`, `AddMember`, `AssignRole`,
-  `MintServiceToken`, ...).
+- `NativeUserRegistrationMode`: `open`, `invite_only`, `admin_only`,
+  `admin_bootstrap_only`, or `closed`.
+- `TenantRegistrationMode`: `open`, `invite_only`, `admin_only`,
+  `admin_bootstrap_only`, `manifest_only`, or `closed`.
 
-Both default to `false`, preserving current behavior for existing consumers.
+Both default to `open`. Any non-open native-user mode turns off public user
+self-registration and auto-registration paths: `POST /register`,
+`/register/availability`, `/register/resend-email`, `/register/resend-phone`,
+OIDC/social/Solana auto-create, and pending-registration confirmation all return
+a stable `registration_disabled` error (`/register/availability` reports every
+field as unavailable, never usable). Existing-user authentication is unaffected:
+login, refresh, logout, password reset/recovery, token verification, and
+sessions all keep working. Embedded bootstrap/admin creation through exported
+core APIs (`CreateUser`, `ImportUser`) still works.
+
+Any non-open tenant mode denies the public tenant-facing mutation routes
+(tenant creation/rename, invites, member changes, role changes, service token
+management routes) with a stable `tenant_management_disabled` error. Read-only
+tenant routes and the tenant-scoped token exchange (`POST /token/tenant`) stay
+available for existing members. Embedded core/bootstrap code can still ensure
+initial tenants, roles, admins, and service tokens through exported core APIs
+(`CreateTenant`, `DefineRole`, `AddMember`, `AssignRole`, `MintServiceToken`,
+...).
 
 Locked-down (e.g. self-hosted OpenRails) pattern: mount only the chosen route
-groups, set both switches, and bootstrap through embedded core APIs.
+groups, set both modes to `admin_bootstrap_only` or `manifest_only`, and
+bootstrap through embedded core APIs.
 
 ```go
 cfg := core.Config{
   // ...issuer/audiences/keys...
-  PublicRegistrationDisabled:  true, // no public signup
-  PublicTenantManagementDisabled: true, // no public tenant onboarding/management
+  NativeUserRegistrationMode: core.RegistrationModeAdminBootstrapOnly,
+  TenantRegistrationMode:     core.RegistrationModeManifestOnly,
 }
 svc, _ := authhttp.NewService(cfg)
 
@@ -141,8 +145,8 @@ authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
   authhttp.RouteUser,     // self-service for existing accounts
 )))
 
-// Bootstrap the default operator tenant, roles, admin user, and service tokens
-// internally via the AuthKit core APIs (unaffected by the switches above):
+// Bootstrap declared tenants, roles, admins, and service tokens internally via
+// AuthKit core APIs (unaffected by the public registration modes):
 core := svc.Core()
 admin, _ := core.CreateUser(ctx, "ops@example.com", "operator")
 tenant, _ := core.CreateTenant(ctx, "operator")
@@ -430,7 +434,9 @@ Roles (global storage)
 Tenants (tenant_mode)
 - AuthKit supports tenants + tenant-scoped RBAC when `TenantMode: "multi"`:
   - Shared owner namespace: user slugs and tenant slugs should be treated as one namespace (no collisions).
-  - Every user has a personal tenant (non-transferable ownership) keyed by `owner_user_id`.
+  - Native users do not create tenant rows by default. Hosts that want personal
+    workspaces must opt in with `AutoCreatePersonalTenants: true`; those
+    personal tenants are non-transferable and keyed by `owner_user_id`.
   - Users can belong to 0, 1, or many tenants simultaneously.
   - Tenant slug renames create aliases; handlers accept either current slug or alias on `:tenant`.
   - Username renames preserve old owner paths via user slug aliases; personal tenant slug aliases are also retained.

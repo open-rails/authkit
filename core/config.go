@@ -34,14 +34,19 @@ type Config struct {
 	// Valid values: "single" (default) or "multi".
 	TenantMode string
 
+	// AutoCreatePersonalTenants creates a personal tenant for each native user
+	// in TenantMode "multi". Empty/false means native users can exist without
+	// tenant rows; hosts that want personal/team workspaces must opt in.
+	AutoCreatePersonalTenants bool
+
 	// NativeUserRegistrationMode controls public native-user self-registration.
-	// Empty defaults to "open". "bootstrap_only" disables every public user
+	// Empty defaults to "open". Non-open modes disable every public user
 	// creation path while leaving embedded admin/bootstrap core APIs available.
 	NativeUserRegistrationMode RegistrationMode
 
 	// TenantRegistrationMode controls public tenant onboarding/management.
-	// Empty defaults to "open". "bootstrap_only" disables public tenant
-	// mutation routes while leaving manifest/admin/bootstrap core APIs available.
+	// Empty defaults to "open". Non-open modes disable public tenant mutation
+	// routes while leaving manifest/admin/bootstrap core APIs available.
 	TenantRegistrationMode RegistrationMode
 
 	// Environment is a host-provided runtime mode string used for dev/prod behavior checks.
@@ -130,6 +135,10 @@ const (
 type RegistrationMode string
 
 const (
-	RegistrationModeOpen          RegistrationMode = "open"
-	RegistrationModeBootstrapOnly RegistrationMode = "bootstrap_only"
+	RegistrationModeOpen               RegistrationMode = "open"
+	RegistrationModeInviteOnly         RegistrationMode = "invite_only"
+	RegistrationModeAdminOnly          RegistrationMode = "admin_only"
+	RegistrationModeAdminBootstrapOnly RegistrationMode = "admin_bootstrap_only"
+	RegistrationModeManifestOnly       RegistrationMode = "manifest_only"
+	RegistrationModeClosed             RegistrationMode = "closed"
 )

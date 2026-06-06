@@ -30,6 +30,15 @@ BEGIN
 END $$;
 
 ALTER TABLE profiles.tenant_memberships
+  DROP CONSTRAINT IF EXISTS tenant_memberships_role_format_chk;
+
+ALTER TABLE profiles.tenant_memberships
+  DROP CONSTRAINT IF EXISTS tenant_memberships_role_fk;
+
+ALTER TABLE profiles.tenant_memberships
+  DROP CONSTRAINT IF EXISTS tenant_memberships_tenant_id_role_fkey;
+
+ALTER TABLE profiles.tenant_memberships
   ADD CONSTRAINT tenant_memberships_role_format_chk CHECK (
     char_length(role) BETWEEN 1 AND 64
     AND role ~ '^[a-zA-Z0-9:_-]+$'
