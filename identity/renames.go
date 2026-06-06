@@ -13,9 +13,9 @@ import (
 //
 // Two operations are exposed:
 //
-//   ForwardOrgSlug      — given a historical slug, return the current
-//                          slug of the org that holds it. Single-hop;
-//                          rename rows always carry the immutable org_id
+//   ForwardTenantSlug      — given a historical slug, return the current
+//                          slug of the tenant that holds it. Single-hop;
+//                          rename rows always carry the immutable tenant_id
 //                          so we never need to walk a chain.
 //   ListOrgRenameHistory — historical rename rows ordered by renamed_at.
 //                          The first row's from_slug is the first known
@@ -28,11 +28,11 @@ import (
 // See e2e/agents/progress.json issue #58 for the design + index choices.
 // All queries hit covering indexes; sub-ms in steady state.
 
-// ErrSlugNotFound is returned when neither the orgs/users table nor the
+// ErrSlugNotFound is returned when neither the tenants/users table nor the
 // rename history contains the requested slug.
 var ErrSlugNotFound = errors.New("slug_not_found")
 
-func (s *Store) orgRenamesTable() string  { return s.schema + ".org_renames" }
+func (s *Store) orgRenamesTable() string  { return s.schema + ".tenant_renames" }
 func (s *Store) userRenamesTable() string { return s.schema + ".user_renames" }
 
 // RenameHop is one entry in a row's rename history.
@@ -43,15 +43,15 @@ type RenameHop struct {
 	RenamedBy string // empty when actor wasn't recorded (e.g. backfilled rows)
 }
 
-// ForwardOrgSlug resolves any slug — current OR historical — to the
-// current slug of the owning org. Returns ErrSlugNotFound when no row
+// ForwardTenantSlug resolves any slug — current OR historical — to the
+// current slug of the owning tenant. Returns ErrSlugNotFound when no row
 // matches.
 //
 // Lookup order:
-//  1. Direct match on orgs.slug (the typical "no rename" case).
-//  2. Match on org_renames.from_slug, joined to live orgs row,
+//  1. Direct match on tenants.slug (the typical "no rename" case).
+//  2. Match on tenant_renames.from_slug, joined to live tenants row,
 //     most-recent-rename wins (handles rename-back + post-hard-delete reuse).
-func (s *Store) ForwardOrgSlug(ctx context.Context, slug string) (string, error) {
+func (s *Store) ForwardTenantSlug(ctx context.Context, slug string) (string, error) {
 	slug = strings.ToLower(strings.TrimSpace(slug))
 	if s.pg == nil || slug == "" {
 		return "", ErrSlugNotFound
@@ -71,7 +71,7 @@ func (s *Store) ForwardOrgSlug(ctx context.Context, slug string) (string, error)
 	err = s.pg.QueryRow(ctx, `
 		SELECT o.slug
 		FROM `+s.orgRenamesTable()+` r
-		JOIN `+s.orgsTable()+` o ON o.id = r.org_id AND o.deleted_at IS NULL
+		JOIN `+s.orgsTable()+` o ON o.id = r.tenant_id AND o.deleted_at IS NULL
 		WHERE r.from_slug = $1
 		ORDER BY r.renamed_at DESC
 		LIMIT 1
@@ -85,7 +85,7 @@ func (s *Store) ForwardOrgSlug(ctx context.Context, slug string) (string, error)
 	return current, nil
 }
 
-// ForwardUserUsername is the user-namespace equivalent of ForwardOrgSlug.
+// ForwardUserUsername is the user-namespace equivalent of ForwardTenantSlug.
 func (s *Store) ForwardUserUsername(ctx context.Context, username string) (string, error) {
 	username = strings.ToLower(strings.TrimSpace(username))
 	if s.pg == nil || username == "" {
@@ -120,19 +120,19 @@ func (s *Store) ForwardUserUsername(ctx context.Context, username string) (strin
 	return current, nil
 }
 
-// ListOrgRenameHistory returns the recorded org slug rename rows in
+// ListOrgRenameHistory returns the recorded tenant slug rename rows in
 // chronological order. Orgs with no renames return an empty slice.
-func (s *Store) ListOrgRenameHistory(ctx context.Context, orgID string) ([]RenameHop, error) {
-	orgID = strings.TrimSpace(orgID)
-	if s.pg == nil || orgID == "" {
+func (s *Store) ListOrgRenameHistory(ctx context.Context, tenantID string) ([]RenameHop, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	if s.pg == nil || tenantID == "" {
 		return nil, nil
 	}
 	rows, err := s.pg.Query(ctx, `
 		SELECT from_slug, to_slug, renamed_at, COALESCE(renamed_by::text, '')
 		FROM `+s.orgRenamesTable()+`
-		WHERE org_id = $1::uuid
+		WHERE tenant_id = $1::uuid
 		ORDER BY renamed_at ASC
-	`, orgID)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}

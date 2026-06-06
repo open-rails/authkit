@@ -141,9 +141,9 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	return accessToken, exp, newTok, nil
 }
 
-// ExchangeRefreshTokenWithOrg rotates a refresh token and returns a new access token + refresh token.
-// If org is provided and org_mode=multi, it mints an org-scoped access token (org + roles for that org).
-func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken string, ua string, ip net.IP, org string) (idToken string, expiresAt time.Time, newRefresh string, err error) {
+// ExchangeRefreshTokenWithTenant rotates a refresh token and returns a new service token + refresh token.
+// If tenant is provided and tenant_mode=multi, it mints an tenant-scoped service token (tenant + roles for that tenant).
+func (s *Service) ExchangeRefreshTokenWithTenant(ctx context.Context, refreshToken string, ua string, ip net.IP, tenant string) (idToken string, expiresAt time.Time, newRefresh string, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", errors.New("postgres not configured")
 	}
@@ -193,8 +193,8 @@ func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken 
 	}
 
 	claims := map[string]any{"sid": sid}
-	if strings.TrimSpace(org) != "" && strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		accessToken, exp, err := s.IssueOrgAccessToken(ctx, uid, email, org, claims)
+	if strings.TrimSpace(tenant) != "" && strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
+		accessToken, exp, err := s.IssueServiceToken(ctx, uid, email, tenant, claims)
 		if err != nil {
 			return "", time.Time{}, "", err
 		}

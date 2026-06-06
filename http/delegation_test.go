@@ -12,7 +12,7 @@ import (
 
 func newDelegatedTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *Verifier {
 	t.Helper()
-	v := NewVerifier(WithOrgMode("multi"))
+	v := NewVerifier(WithTenantMode("multi"))
 	if err := v.AddIssuer(iss, aud, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}); err != nil {

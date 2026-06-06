@@ -17,14 +17,14 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		GrantType    string `json:"grant_type"`
 		RefreshToken string `json:"refresh_token"`
-		Org          string `json:"org"`
+		Tenant       string `json:"tenant"`
 	}
 	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") || strings.TrimSpace(body.RefreshToken) == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	if strings.TrimSpace(body.Org) != "" && !strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
-		badRequest(w, "org_not_supported")
+	if strings.TrimSpace(body.Tenant) != "" && !strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
+		badRequest(w, "tenant_not_supported")
 		return
 	}
 
@@ -34,8 +34,8 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	var exp time.Time
 	var newRT string
 	var err error
-	if strings.TrimSpace(body.Org) != "" && strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
-		accessToken, exp, newRT, err = s.svc.ExchangeRefreshTokenWithOrg(r.Context(), body.RefreshToken, ua, ip, body.Org)
+	if strings.TrimSpace(body.Tenant) != "" && strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
+		accessToken, exp, newRT, err = s.svc.ExchangeRefreshTokenWithTenant(r.Context(), body.RefreshToken, ua, ip, body.Tenant)
 	} else {
 		accessToken, exp, newRT, err = s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)
 	}
@@ -44,12 +44,12 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 			unauthorized(w, "user_banned")
 			return
 		}
-		if errors.Is(err, core.ErrNotOrgMember) {
-			forbidden(w, "not_org_member")
+		if errors.Is(err, core.ErrNotTenantMember) {
+			forbidden(w, "not_tenant_member")
 			return
 		}
-		if errors.Is(err, core.ErrOrgNotFound) {
-			notFound(w, "org_not_found")
+		if errors.Is(err, core.ErrTenantNotFound) {
+			notFound(w, "tenant_not_found")
 			return
 		}
 		unauthorized(w, "invalid_refresh_token")

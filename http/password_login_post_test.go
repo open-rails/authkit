@@ -23,13 +23,13 @@ func TestRecoverPendingEmailLogin_SuccessWhenVerificationDisabled(t *testing.T) 
 		},
 		func() (string, time.Time, error) {
 			retryCalls++
-			return "access-token", now, nil
+			return "service-token", now, nil
 		},
 	)
 
 	require.True(t, handled)
 	require.Empty(t, responseErr)
-	require.Equal(t, "access-token", tok)
+	require.Equal(t, "service-token", tok)
 	require.Equal(t, now, exp)
 	require.Equal(t, 1, createCalls)
 	require.Equal(t, 1, retryCalls)

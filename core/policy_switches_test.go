@@ -9,40 +9,40 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
 	opts := svc.Options()
-	if opts.PublicRegistrationDisabled {
-		t.Fatalf("PublicRegistrationDisabled should default to false")
+	if opts.NativeUserRegistrationMode != RegistrationModeOpen {
+		t.Fatalf("NativeUserRegistrationMode should default to open")
 	}
-	if opts.PublicOrgManagementDisabled {
-		t.Fatalf("PublicOrgManagementDisabled should default to false")
+	if opts.TenantRegistrationMode != RegistrationModeOpen {
+		t.Fatalf("TenantRegistrationMode should default to open")
 	}
-	if !opts.PublicRegistrationEnabled() {
-		t.Fatalf("PublicRegistrationEnabled should default to true")
+	if !opts.PublicNativeUserRegistrationEnabled() {
+		t.Fatalf("PublicNativeUserRegistrationEnabled should default to true")
 	}
-	if !opts.PublicOrgManagementEnabled() {
-		t.Fatalf("PublicOrgManagementEnabled should default to true")
+	if !opts.PublicTenantRegistrationEnabled() {
+		t.Fatalf("PublicTenantRegistrationEnabled should default to true")
 	}
 }
 
 func TestPolicySwitches_Plumbed(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.PublicRegistrationDisabled = true
-	cfg.PublicOrgManagementDisabled = true
+	cfg.NativeUserRegistrationMode = RegistrationModeBootstrapOnly
+	cfg.TenantRegistrationMode = RegistrationModeBootstrapOnly
 	svc, err := NewFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
 	opts := svc.Options()
-	if !opts.PublicRegistrationDisabled {
-		t.Fatalf("PublicRegistrationDisabled not plumbed through NewFromConfig")
+	if opts.NativeUserRegistrationMode != RegistrationModeBootstrapOnly {
+		t.Fatalf("NativeUserRegistrationMode not plumbed through NewFromConfig")
 	}
-	if !opts.PublicOrgManagementDisabled {
-		t.Fatalf("PublicOrgManagementDisabled not plumbed through NewFromConfig")
+	if opts.TenantRegistrationMode != RegistrationModeBootstrapOnly {
+		t.Fatalf("TenantRegistrationMode not plumbed through NewFromConfig")
 	}
-	if opts.PublicRegistrationEnabled() {
-		t.Fatalf("PublicRegistrationEnabled should be false when disabled")
+	if opts.PublicNativeUserRegistrationEnabled() {
+		t.Fatalf("PublicNativeUserRegistrationEnabled should be false when disabled")
 	}
-	if opts.PublicOrgManagementEnabled() {
-		t.Fatalf("PublicOrgManagementEnabled should be false when disabled")
+	if opts.PublicTenantRegistrationEnabled() {
+		t.Fatalf("PublicTenantRegistrationEnabled should be false when disabled")
 	}
 }
 
@@ -51,7 +51,7 @@ func TestPolicySwitches_Plumbed(t *testing.T) {
 // the switch is on, before touching storage.
 func TestPolicySwitches_CoreRegistrationGate(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.PublicRegistrationDisabled = true
+	cfg.NativeUserRegistrationMode = RegistrationModeBootstrapOnly
 	svc, err := NewFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)

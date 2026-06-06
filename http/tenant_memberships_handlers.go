@@ -13,18 +13,18 @@ func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	if tenantSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
 	if !gateOK {
 		return
 	}
 	members, err := s.svc.ListOrgMembers(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "org_members_lookup_failed")
+		serverErr(w, "tenant_memberships_lookup_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"members": members})
@@ -36,12 +36,12 @@ func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	if tenantSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
 	if !gateOK {
 		return
 	}
@@ -65,8 +65,8 @@ func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request)
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	if tenantSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -75,16 +75,16 @@ func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request)
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
 	if !gateOK {
 		return
 	}
 	if err := s.svc.RemoveMember(r.Context(), canonical, targetUserID); err != nil {
-		if err == core.ErrPersonalOrgOwner {
-			badRequest(w, "cannot_remove_personal_org_owner")
+		if err == core.ErrPersonalTenantOwner {
+			badRequest(w, "cannot_remove_personal_tenant_owner")
 			return
 		}
-		if err == core.ErrLastOrgOwner {
+		if err == core.ErrLastTenantOwner {
 			badRequest(w, "cannot_remove_last_owner")
 			return
 		}

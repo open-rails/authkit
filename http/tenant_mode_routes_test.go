@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestCoreServiceWithOrgMode(t *testing.T, mode string) *core.Service {
+func newTestCoreServiceWithTenantMode(t *testing.T, mode string) *core.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
@@ -24,17 +24,17 @@ func newTestCoreServiceWithOrgMode(t *testing.T, mode string) *core.Service {
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
 		AccessTokenDuration:      time.Hour,
-		OrgMode:                  mode,
+		TenantMode:               mode,
 		RegistrationVerification: core.RegistrationVerificationNone,
 	}
 	return core.NewService(opts, ks)
 }
 
-func newTestServiceWithOrgMode(t *testing.T, mode string) *Service {
+func newTestServiceWithTenantMode(t *testing.T, mode string) *Service {
 	t.Helper()
-	coreSvc := newTestCoreServiceWithOrgMode(t, mode)
+	coreSvc := newTestCoreServiceWithTenantMode(t, mode)
 	opts := coreSvc.Options()
-	ver := NewVerifier(WithSkew(5*time.Second), WithOrgMode(mode))
+	ver := NewVerifier(WithSkew(5*time.Second), WithTenantMode(mode))
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
@@ -44,18 +44,18 @@ func newTestServiceWithOrgMode(t *testing.T, mode string) *Service {
 
 func TestAPIHandler_TokenOrg_RouteOnlyInMultiMode(t *testing.T) {
 	// single: route not registered
-	sSingle := newTestServiceWithOrgMode(t, "single")
+	sSingle := newTestServiceWithTenantMode(t, "single")
 	hSingle := sSingle.APIHandler()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/token/org", bytes.NewReader([]byte(`{"org":"acme"}`)))
+	r := httptest.NewRequest(http.MethodPost, "/token/tenant", bytes.NewReader([]byte(`{"tenant":"acme"}`)))
 	hSingle.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
 
 	// multi: route registered and requires auth
-	sMulti := newTestServiceWithOrgMode(t, "multi")
+	sMulti := newTestServiceWithTenantMode(t, "multi")
 	hMulti := sMulti.APIHandler()
 	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodPost, "/token/org", bytes.NewReader([]byte(`{"org":"acme"}`)))
+	r2 := httptest.NewRequest(http.MethodPost, "/token/tenant", bytes.NewReader([]byte(`{"tenant":"acme"}`)))
 	hMulti.ServeHTTP(w2, r2)
 	require.Equal(t, http.StatusUnauthorized, w2.Code)
 	require.Contains(t, w2.Body.String(), `"error":"missing_token"`)
@@ -63,7 +63,7 @@ func TestAPIHandler_TokenOrg_RouteOnlyInMultiMode(t *testing.T) {
 
 func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 	// single: routes not registered
-	sSingle := newTestServiceWithOrgMode(t, "single")
+	sSingle := newTestServiceWithTenantMode(t, "single")
 	hSingle := sSingle.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/me/invites", nil)
@@ -71,7 +71,7 @@ func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 
 	// multi: route registered and requires auth
-	sMulti := newTestServiceWithOrgMode(t, "multi")
+	sMulti := newTestServiceWithTenantMode(t, "multi")
 	hMulti := sMulti.APIHandler()
 	w2 := httptest.NewRecorder()
 	r2 := httptest.NewRequest(http.MethodGet, "/me/invites", nil)
@@ -81,14 +81,14 @@ func TestAPIHandler_OrgInviteRoutes_OnlyInMultiMode(t *testing.T) {
 }
 
 func TestAPIHandler_TokenOrg_InvalidRequest(t *testing.T) {
-	s := newTestServiceWithOrgMode(t, "multi")
+	s := newTestServiceWithTenantMode(t, "multi")
 	h := s.APIHandler()
 
 	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/token/org", bytes.NewReader([]byte(`{}`)))
+	r := httptest.NewRequest(http.MethodPost, "/token/tenant", bytes.NewReader([]byte(`{}`)))
 	r.Header.Set("Authorization", "Bearer "+tok)
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)

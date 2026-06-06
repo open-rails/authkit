@@ -19,7 +19,7 @@ type userMeResponse struct {
 	PhoneVerified                     bool             `json:"phone_verified"`
 	HasPassword                       bool             `json:"has_password"`
 	Roles                             *[]string        `json:"roles,omitempty"`
-	Orgs                              *[]orgMembership `json:"orgs,omitempty"`
+	Orgs                              *[]orgMembership `json:"tenants,omitempty"`
 	Entitlements                      []string         `json:"entitlements"`
 	Biography                         *string          `json:"biography,omitempty"`
 	CreatedAt                         *string          `json:"created_at,omitempty"`
@@ -29,8 +29,8 @@ type userMeResponse struct {
 }
 
 type orgMembership struct {
-	Org   string   `json:"org"`
-	Roles []string `json:"roles"`
+	Tenant string   `json:"tenant"`
+	Roles  []string `json:"roles"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -95,24 +95,24 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 
 	var rolesPtr *[]string
 	var orgsPtr *[]orgMembership
-	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "single") {
+	if strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "single") {
 		roles := adminUser.Roles
 		if roles == nil {
 			roles = []string{}
 		}
 		rolesPtr = &roles
-	} else if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
-		// Multi-mode: return memberships + org-scoped roles from server-side DB.
-		mems, mErr := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), adminUser.ID)
+	} else if strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
+		// Multi-mode: return memberships + tenant-scoped roles from server-side DB.
+		mems, mErr := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), adminUser.ID)
 		if mErr != nil {
-			serverErr(w, "org_memberships_lookup_failed")
+			serverErr(w, "tenant_memberships_lookup_failed")
 			return
 		}
-		orgs := make([]orgMembership, 0, len(mems))
+		tenants := make([]orgMembership, 0, len(mems))
 		for _, m := range mems {
-			orgs = append(orgs, orgMembership{Org: m.Org, Roles: m.Roles})
+			tenants = append(tenants, orgMembership{Tenant: m.Tenant, Roles: m.Roles})
 		}
-		orgsPtr = &orgs
+		orgsPtr = &tenants
 	}
 
 	var createdAt *string

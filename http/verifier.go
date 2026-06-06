@@ -26,9 +26,9 @@ type Verifier struct {
 	algorithms []string
 	orgMode    string
 
-	// tokenPrefix is the host application's OAT brand prefix (see core.Config
-	// TokenPrefix). Used to detect Organization Access Tokens in the middleware
-	// before JWT verification. Empty -> bare "oat_".
+	// tokenPrefix is the host application's service token brand prefix (see core.Config
+	// ServiceTokenPrefix). Used to detect Service Tokens in the middleware
+	// before JWT verification. Empty -> bare "st_".
 	tokenPrefix string
 
 	httpClient *http.Client
@@ -39,17 +39,17 @@ type Verifier struct {
 
 	enrich *core.Service
 
-	// Federated-issuer lazy-load coherence state. fedSource is the store the
+	// Tenant-issuer lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*core.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
-	// issuer is registered with the SAME audiences the bulk LoadFederatedIssuers
-	// used. fedKnown records which issuers were sourced from the federated store
+	// issuer is registered with the SAME audiences the bulk LoadTenantIssuers
+	// used. fedKnown records which issuers were sourced from the tenant store
 	// so reconciling reload only evicts those (never statically-configured ones).
-	fedSource    FederatedIssuerSource
+	fedSource    TenantIssuerSource
 	fedAudiences []string
 	fedKnown     map[string]bool
 
-	// negCache remembers issuers the federated source did not return as active,
+	// negCache remembers issuers the tenant source did not return as enabled,
 	// for negCacheTTL, so garbage/unknown `iss` values don't hit the DB per
 	// request. fedFlight single-flights concurrent first-use of the same issuer.
 	negCache    map[string]time.Time
@@ -63,7 +63,7 @@ type Verifier struct {
 	kidRefetchFlight map[string]*sync.WaitGroup
 	kidRefetchMin    time.Duration
 
-	// Delegated-access-token validation hooks (optional). permValidator checks
+	// Delegated-service-token validation hooks (optional). permValidator checks
 	// `permissions` against the resource server's catalog; attrValidator checks
 	// `attributes` against a policy schema. Run only by VerifyDelegatedAccess.
 	permValidator PermissionValidator
@@ -115,27 +115,27 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 	}
 }
 
-// WithOrgMode sets the organization mode ("single" or "multi") for claim
-// extraction. When "multi" and an org claim is present, roles are treated
-// as org-scoped roles.
-func WithOrgMode(mode string) VerifierOption {
+// WithTenantMode sets the tenant mode ("single" or "multi") for claim
+// extraction. When "multi" and an tenant claim is present, roles are treated
+// as tenant-scoped roles.
+func WithTenantMode(mode string) VerifierOption {
 	return func(v *Verifier) { v.orgMode = mode }
 }
 
-// WithTokenPrefix sets the host application's Organization Access Token (OAT)
-// brand prefix used to detect OATs in the middleware. Empty -> bare "oat_".
-func WithTokenPrefix(prefix string) VerifierOption {
+// WithServiceTokenPrefix sets the host application's Service Token (service token)
+// brand prefix used to detect service tokens in the middleware. Empty -> bare "st_".
+func WithServiceTokenPrefix(prefix string) VerifierOption {
 	return func(v *Verifier) { v.tokenPrefix = strings.TrimSpace(prefix) }
 }
 
-// PermissionValidator validates a delegated access token's `permissions`
+// PermissionValidator validates a delegated service token's `permissions`
 // against the receiving service's own permission catalog. Return an error to
-// reject the token. Called only for delegated access tokens.
+// reject the token. Called only for delegated service tokens.
 type PermissionValidator func(permissions []string) error
 
-// AttributesValidator validates a delegated access token's `attributes` against
+// AttributesValidator validates a delegated service token's `attributes` against
 // the receiving service's policy schema. Return an error to reject the token.
-// Called only for delegated access tokens.
+// Called only for delegated service tokens.
 type AttributesValidator func(attributes map[string]json.RawMessage) error
 
 // WithPermissionCatalog installs a validator that VerifyDelegatedAccess runs
@@ -152,24 +152,24 @@ func WithAttributesPolicy(fn AttributesValidator) VerifierOption {
 	return func(v *Verifier) { v.attrValidator = fn }
 }
 
-// resolveServiceToken handles Organization Access Tokens (OATs). It returns
-// matched=true when the bearer token carries the configured OAT marker — in
+// resolveServiceToken handles Service Tokens (service tokens). It returns
+// matched=true when the bearer token carries the configured service-token marker — in
 // which case the caller MUST NOT fall through to JWT verification — along with
 // service-principal Claims on success or a sanitized error on failure. When the
-// token is not an OAT, matched is false and the caller proceeds to JWT verify.
+// token is not a service token, matched is false and the caller proceeds to JWT verify.
 func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Claims, matched bool, err error) {
-	if !core.HasOATPrefix(v.tokenPrefix, token) {
+	if !core.HasServiceTokenPrefix(v.tokenPrefix, token) {
 		return Claims{}, false, nil
 	}
-	// Shaped like an OAT: from here we never fall through to JWT verification.
+	// Shaped like a service token: from here we never fall through to JWT verification.
 	if v.enrich == nil {
 		return Claims{}, true, errors.New("invalid_token")
 	}
-	keyID, secret, ok := core.ParseOAT(v.tokenPrefix, token)
+	keyID, secret, ok := core.ParseServiceToken(v.tokenPrefix, token)
 	if !ok {
 		return Claims{}, true, errors.New("invalid_token")
 	}
-	resolved, rerr := v.enrich.ResolveOrgAccessTokenWithResources(ctx, keyID, secret)
+	resolved, rerr := v.enrich.ResolveServiceTokenWithResources(ctx, keyID, secret)
 	if rerr != nil {
 		switch {
 		case errors.Is(rerr, core.ErrAccessTokenRevoked):
@@ -184,7 +184,7 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 		}
 	}
 	return Claims{
-		Org:         resolved.OrgSlug,
+		Tenant:      resolved.TenantSlug,
 		Permissions: resolved.Permissions,
 		Resources:   resolved.Resources,
 		TokenType:   ServiceTokenType,
@@ -223,11 +223,11 @@ type IssuerKey struct {
 }
 
 // IssuerOptions configures how keys are obtained for an issuer.
-// Provide one of JWKSURL, Keys, or RawKeys.
+// Provide one of JWKSURI, Keys, or RawKeys.
 type IssuerOptions struct {
-	// JWKSURL is the URL to fetch JWKS from. If set, keys are fetched
+	// JWKSURI is the URL to fetch JWKS from. If set, keys are fetched
 	// automatically and refreshed when they expire or an unknown kid appears.
-	JWKSURL string
+	JWKSURI string
 
 	// Keys are pre-provided public keys as PEM. The caller is responsible for
 	// refreshing by calling AddIssuer again with updated keys.
@@ -244,9 +244,9 @@ type IssuerOptions struct {
 	// a failed JWKS refresh. Default: 1 hour.
 	MaxStale time.Duration
 
-	// TrustedResourceAccount optionally binds delegated access tokens from this
-	// issuer to one resource-service account slug. Federated issuers loaded from
-	// the federated_org_issuers store set this to that row's org_slug, so a
+	// TrustedResourceAccount optionally binds delegated service tokens from this
+	// issuer to one resource-service account slug. Tenant issuers loaded from
+	// the tenant_issuers store set this to that row's tenant slug, so a
 	// trusted issuer cannot mint a delegated token for another resource account.
 	TrustedResourceAccount string
 }
@@ -263,7 +263,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	ie := issuerEntry{
 		issuer:                 issuerID,
 		audiences:              audiences,
-		jwksURL:                strings.TrimSpace(opts.JWKSURL),
+		jwksURL:                strings.TrimSpace(opts.JWKSURI),
 		cacheTTL:               opts.CacheTTL,
 		maxStale:               opts.MaxStale,
 		trustedResourceAccount: strings.ToLower(strings.TrimSpace(opts.TrustedResourceAccount)),
@@ -349,7 +349,7 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 
 // WithService enables best-effort enrichment hooks (roles/provider usernames)
 // from Postgres, and wires the same *core.Service as the default
-// federated-issuer source for lazy-load-on-miss (see keyForToken).
+// tenant-issuer source for lazy-load-on-miss (see keyForToken).
 func (v *Verifier) WithService(svc *core.Service) *Verifier {
 	v.enrich = svc
 	v.mu.Lock()
@@ -361,35 +361,35 @@ func (v *Verifier) WithService(svc *core.Service) *Verifier {
 }
 
 // ---------------------------------------------------------------------------
-// Federated-org issuers (in-house store, no external push/sync)
+// Federated-tenant issuers (in-house store, no external push/sync)
 // ---------------------------------------------------------------------------
 
-// FederatedIssuerSource is the minimal store contract the Verifier needs to
-// load federated-org issuers. *core.Service satisfies it. An embedding app may
+// TenantIssuerSource is the minimal store contract the Verifier needs to
+// load tenant-tenant issuers. *core.Service satisfies it. An embedding app may
 // supply its own implementation in tests or to source issuers from elsewhere.
-type FederatedIssuerSource interface {
-	ListFederatedOrgIssuers(ctx context.Context, activeOnly bool) ([]core.FederatedOrgIssuer, error)
-	// GetFederatedOrgIssuer fetches a SINGLE federated-org issuer by its
-	// issuer_id, used by the lazy-load-on-miss path in keyForToken. *core.Service
+type TenantIssuerSource interface {
+	ListTenantIssuers(ctx context.Context, enabledOnly bool) ([]core.TenantIssuer, error)
+	// GetTenantIssuer fetches a SINGLE tenant-tenant issuer by its
+	// issuer, used by the lazy-load-on-miss path in keyForToken. *core.Service
 	// already implements this.
-	GetFederatedOrgIssuer(ctx context.Context, issuerID string) (*core.FederatedOrgIssuer, error)
+	GetTenantIssuer(ctx context.Context, issuerID string) (*core.TenantIssuer, error)
 }
 
-// LoadFederatedIssuers loads the ACTIVE federated-org issuers from authkit's
-// OWN store (the federated_org_issuers table) and registers each as a trusted
+// LoadTenantIssuers loads the ACTIVE tenant-tenant issuers from authkit's
+// OWN store (the tenant_issuers table) and registers each as a trusted
 // issuer via AddIssuer with its JWKS URL. The Verifier's existing in-house
-// JWKS fetch/refresh then handles the federated keys — there is NO external
+// JWKS fetch/refresh then handles the tenant keys — there is NO external
 // push or sync of keys.
 //
 // audiences, when non-empty, is applied to every loaded issuer (typically this
 // resource server's own audience). Call this at startup, and re-call (e.g. on
 // a ticker, or after an inbound registration) to pick up store changes. Pass
-// the embedding app's core.Service (or any FederatedIssuerSource); if nil, the
+// the embedding app's core.Service (or any TenantIssuerSource); if nil, the
 // Service provided via WithService is used.
-func (v *Verifier) LoadFederatedIssuers(ctx context.Context, src FederatedIssuerSource, audiences []string) error {
+func (v *Verifier) LoadTenantIssuers(ctx context.Context, src TenantIssuerSource, audiences []string) error {
 	if src == nil {
 		if v.enrich == nil {
-			return errors.New("no federated-issuer source available")
+			return errors.New("no tenant-issuer source available")
 		}
 		src = v.enrich
 	}
@@ -401,31 +401,31 @@ func (v *Verifier) LoadFederatedIssuers(ctx context.Context, src FederatedIssuer
 	v.fedAudiences = audiences
 	v.mu.Unlock()
 
-	issuers, err := src.ListFederatedOrgIssuers(ctx, true)
+	issuers, err := src.ListTenantIssuers(ctx, true)
 	if err != nil {
 		return err
 	}
 
-	// Build the active set, then AddIssuer each (AddIssuer locks v.mu internally,
+	// Build the enabled set, then AddIssuer each (AddIssuer locks v.mu internally,
 	// so it must be called WITHOUT holding v.mu).
-	active := make(map[string]bool, len(issuers))
+	enabled := make(map[string]bool, len(issuers))
 	for _, fi := range issuers {
-		issuerID := strings.TrimSpace(fi.IssuerID)
+		issuerID := strings.TrimSpace(fi.Issuer)
 		if issuerID == "" {
 			continue
 		}
-		active[issuerID] = true
-		if err := v.AddIssuer(issuerID, audiences, IssuerOptions{JWKSURL: fi.JWKSURL, TrustedResourceAccount: fi.OrgSlug}); err != nil {
+		enabled[issuerID] = true
+		if err := v.AddIssuer(issuerID, audiences, IssuerOptions{JWKSURI: fi.JWKSURI, TrustedResourceAccount: fi.TenantSlug}); err != nil {
 			return err
 		}
 		v.mu.Lock()
 		v.fedKnown[issuerID] = true
-		delete(v.negCache, issuerID) // it is active now; clear any negative entry
+		delete(v.negCache, issuerID) // it is enabled now; clear any negative entry
 		v.mu.Unlock()
 	}
 
 	// RECONCILE: evict in-memory FEDERATED issuers that are no longer in the
-	// active set. Only federated issuers (tracked in fedKnown) are eligible —
+	// enabled set. Only tenant issuers (tracked in fedKnown) are eligible —
 	// statically-configured issuers added via AddIssuer are never evicted here.
 	// This bounds revocation lag to the reload tick. (A Postgres LISTEN/NOTIFY
 	// stream of issuer-row changes could give sub-tick eviction; not built here —
@@ -433,7 +433,7 @@ func (v *Verifier) LoadFederatedIssuers(ctx context.Context, src FederatedIssuer
 	v.mu.Lock()
 	var toEvict []string
 	for issuerID := range v.fedKnown {
-		if !active[issuerID] {
+		if !enabled[issuerID] {
 			toEvict = append(toEvict, issuerID)
 		}
 	}
@@ -450,7 +450,7 @@ func (v *Verifier) LoadFederatedIssuers(ctx context.Context, src FederatedIssuer
 }
 
 // lazyLoadIssuer is the lazy-load-on-miss path: when matchIssuer misses and a
-// federated-issuer source is configured, fetch that ONE issuer from the store
+// tenant-issuer source is configured, fetch that ONE issuer from the store
 // and, if ACTIVE, register it (AddIssuer fetches+caches its JWKS). All DB/JWKS
 // work happens WITHOUT holding v.mu (AddIssuer locks v.mu internally, so calling
 // it under the lock would deadlock). A short negative cache + single-flight stop
@@ -494,15 +494,15 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 		wg.Done()
 	}()
 
-	fi, err := src.GetFederatedOrgIssuer(ctx, issuer)
-	if err != nil || fi == nil || !strings.EqualFold(strings.TrimSpace(fi.Status), "active") {
+	fi, err := src.GetTenantIssuer(ctx, issuer)
+	if err != nil || fi == nil || !fi.Enabled {
 		v.mu.Lock()
 		v.negCache[issuer] = time.Now()
 		v.mu.Unlock()
 		return false
 	}
 
-	if err := v.AddIssuer(fi.IssuerID, aud, IssuerOptions{JWKSURL: fi.JWKSURL, TrustedResourceAccount: fi.OrgSlug}); err != nil {
+	if err := v.AddIssuer(fi.Issuer, aud, IssuerOptions{JWKSURI: fi.JWKSURI, TrustedResourceAccount: fi.TenantSlug}); err != nil {
 		v.mu.Lock()
 		v.negCache[issuer] = time.Now()
 		v.mu.Unlock()
@@ -510,7 +510,7 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 	}
 
 	v.mu.Lock()
-	v.fedKnown[strings.TrimSpace(fi.IssuerID)] = true
+	v.fedKnown[strings.TrimSpace(fi.Issuer)] = true
 	delete(v.negCache, issuer)
 	v.mu.Unlock()
 	return true
@@ -590,7 +590,7 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	}
 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
-	// access token (`delegated_sub`) — never both. Reject the ambiguous case.
+	// service token (`delegated_sub`) — never both. Reject the ambiguous case.
 	if strClaim(mapClaims, "sub") != "" && strClaim(mapClaims, "delegated_sub") != "" {
 		return Claims{}, errors.New("conflicting_subject")
 	}
@@ -601,9 +601,9 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	isAccessTyp := strings.EqualFold(tokenTyp, AccessTokenType)
 	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, DelegatedAccessTokenType)
 
-	// Invariant: a delegated access token MUST NOT carry a normal `sub` — no
+	// Invariant: a delegated service token MUST NOT carry a normal `sub` — no
 	// local account may be implied. Reject it explicitly so a misconfigured
-	// issuer can't slip a local subject into an access token.
+	// issuer can't slip a local subject into an service token.
 	if isDelegatedAccessTyp && strClaim(mapClaims, "sub") != "" {
 		return Claims{}, errors.New("access_token_has_sub")
 	}
@@ -624,12 +624,11 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	}
 
 	tenant := strings.TrimSpace(strClaim(mapClaims, "tenant"))
-	org := strings.TrimSpace(strClaim(mapClaims, "org"))
 	if isDelegatedAccessTyp {
 		if tenant == "" {
 			return Claims{}, errors.New("missing_tenant")
 		}
-		if org != "" {
+		if strings.TrimSpace(strClaim(mapClaims, "org")) != "" {
 			return Claims{}, errors.New("delegated_access_has_org")
 		}
 		if strClaim(mapClaims, "user_tier") != "" {
@@ -648,7 +647,7 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	return cl, nil
 }
 
-// validateDelegatedIssuerResourceAccount binds federated delegated-access tokens
+// validateDelegatedIssuerResourceAccount binds tenant delegated-service tokens
 // to the resource account registered for their issuer. The JWT `tenant` claim is
 // signed, but it is still issuer-controlled; this check ties it to the resource
 // server's trust registry so one trusted issuer cannot claim another resource
@@ -672,7 +671,7 @@ func (v *Verifier) validateDelegatedIssuerResourceAccount(mapClaims jwt.MapClaim
 // VerifyDelegatedAccess verifies a token, requires it to be a delegated access
 // token, and runs any configured permission/attributes validators. It returns
 // the typed Claims and the DelegatedPrincipal. Use it on resource servers that
-// only accept delegated access tokens and want catalog/policy enforcement.
+// only accept delegated service tokens and want catalog/policy enforcement.
 func (v *Verifier) VerifyDelegatedAccess(tokenStr string) (Claims, DelegatedPrincipal, error) {
 	cl, err := v.Verify(tokenStr)
 	if err != nil {
@@ -696,7 +695,7 @@ func (v *Verifier) VerifyDelegatedAccess(tokenStr string) (Claims, DelegatedPrin
 }
 
 // verifyClaimsWithHeader is VerifyClaims plus the JOSE `typ` header value, so
-// Verify can enforce delegated-access-token typing. The header is read from the
+// Verify can enforce delegated-service-token typing. The header is read from the
 // already-verified token; callers must not trust typ for security decisions
 // beyond what the signature and registered-issuer checks already guarantee.
 func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, string, error) {
@@ -727,9 +726,9 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Username = strClaim(mc, "username")
 	cl.DiscordUsername = strClaim(mc, "discord_username")
 	cl.SessionID = strClaim(mc, "sid")
-	cl.Org = strClaim(mc, "org")
-	if cl.Org == "" {
-		cl.Org = strClaim(mc, "owner")
+	cl.Tenant = strClaim(mc, "tenant")
+	if cl.Tenant == "" {
+		cl.Tenant = strClaim(mc, "owner")
 	}
 	cl.JTI = strClaim(mc, "jti")
 
@@ -742,7 +741,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Attributes = rawAttributesClaim(mc, "attributes")
 
 	if cl.IsDelegated() {
-		// Canonical delegated access tokens carry tier under attributes.tier.
+		// Canonical delegated service tokens carry tier under attributes.tier.
 		if tier := rawStringAttribute(cl.Attributes, "tier"); tier != "" {
 			cl.UserTier = tier
 		}
@@ -756,24 +755,24 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
 
-	// Split global/org role claims (additive). `global_roles` carries the user's
-	// platform-wide roles in both single and multi-org mode; `org_roles` carries
-	// roles scoped to the org on an org-scoped token.
+	// Split global/tenant role claims (additive). `global_roles` carries the user's
+	// platform-wide roles in both single and multi-tenant mode; `tenant_roles` carries
+	// roles scoped to the tenant on an tenant-scoped token.
 	cl.GlobalRoles = strSliceClaim(mc, "global_roles")
-	if oroles := strSliceClaim(mc, "org_roles"); len(oroles) > 0 {
-		cl.OrgRoles = oroles
+	if oroles := strSliceClaim(mc, "tenant_roles"); len(oroles) > 0 {
+		cl.TenantRoles = oroles
 	}
 
-	// Back-compat: in org_mode=multi, if org is present, the legacy `roles` claim
-	// is org-scoped. Delegated tokens keep their roles on Roles (the federated
+	// Back-compat: in tenant_mode=multi, if tenant is present, the legacy `roles` claim
+	// is tenant-scoped. Delegated tokens keep their roles on Roles (the tenant
 	// principal carries its own roles), so only shuffle for native-user tokens.
-	// Only fall back to deriving OrgRoles from Roles when the explicit `org_roles`
+	// Only fall back to deriving TenantRoles from Roles when the explicit `tenant_roles`
 	// claim is absent (older tokens).
 	if !cl.IsDelegated() &&
 		strings.EqualFold(strings.TrimSpace(v.orgMode), "multi") &&
-		strings.TrimSpace(cl.Org) != "" && len(cl.Roles) > 0 {
-		if len(cl.OrgRoles) == 0 {
-			cl.OrgRoles = cl.Roles
+		strings.TrimSpace(cl.Tenant) != "" && len(cl.Roles) > 0 {
+		if len(cl.TenantRoles) == 0 {
+			cl.TenantRoles = cl.Roles
 		}
 		cl.Roles = nil
 	}
@@ -857,10 +856,10 @@ func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
 	iss, _ := claims["iss"].(string)
 	match := v.matchIssuer(iss)
 	if match == nil {
-		// Lazy-load-on-miss: a brand-new federated issuer may already be in the
+		// Lazy-load-on-miss: a brand-new tenant issuer may already be in the
 		// store but not yet in this replica's in-memory cache. Fetch+register it
 		// (outside v.mu — AddIssuer locks v.mu) and retry. Backward compatible:
-		// when no federated source is configured this is a no-op (-> bad_issuer).
+		// when no tenant source is configured this is a no-op (-> bad_issuer).
 		if v.lazyLoadIssuer(context.Background(), iss) {
 			match = v.matchIssuer(iss)
 		}

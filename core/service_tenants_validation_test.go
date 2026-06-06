@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidateOrgSlug(t *testing.T) {
+func TestValidateTenantSlug(t *testing.T) {
 	t.Run("accepts basic slugs", func(t *testing.T) {
 		for _, slug := range []string{
 			"doujins",
@@ -13,9 +13,9 @@ func TestValidateOrgSlug(t *testing.T) {
 			"a",
 			"a0",
 			"a-0",
-			strings.Repeat("a", orgSlugMaxLen),
+			strings.Repeat("a", tenantSlugMaxLen),
 		} {
-			if err := validateOrgSlug(slug); err != nil {
+			if err := validateTenantSlug(slug); err != nil {
 				t.Fatalf("expected slug %q to be valid, got err=%v", slug, err)
 			}
 		}
@@ -30,27 +30,27 @@ func TestValidateOrgSlug(t *testing.T) {
 			"abc_def",
 			"abc.def",
 			"abc/def",
-			strings.Repeat("a", orgSlugMaxLen+1),
+			strings.Repeat("a", tenantSlugMaxLen+1),
 		} {
-			if err := validateOrgSlug(slug); err == nil {
+			if err := validateTenantSlug(slug); err == nil {
 				t.Fatalf("expected slug %q to be invalid", slug)
 			}
 		}
 	})
 }
 
-func TestValidateOrgRole(t *testing.T) {
+func TestValidateTenantRole(t *testing.T) {
 	t.Run("accepts safe roles", func(t *testing.T) {
 		for _, role := range []string{
 			"owner",
 			"admin",
 			"member",
-			"org:billing_admin",
+			"tenant:billing_admin",
 			"proj-read",
 			"PROJ_WRITE",
-			strings.Repeat("A", orgRoleMaxLen),
+			strings.Repeat("A", tenantRoleMaxLen),
 		} {
-			if err := validateOrgRole(role); err != nil {
+			if err := validateTenantRole(role); err != nil {
 				t.Fatalf("expected role %q to be valid, got err=%v", role, err)
 			}
 		}
@@ -63,9 +63,9 @@ func TestValidateOrgRole(t *testing.T) {
 			"role with space",
 			"role/with/slash",
 			"role.with.dot",
-			strings.Repeat("A", orgRoleMaxLen+1),
+			strings.Repeat("A", tenantRoleMaxLen+1),
 		} {
-			if err := validateOrgRole(role); err == nil {
+			if err := validateTenantRole(role); err == nil {
 				t.Fatalf("expected role %q to be invalid", role)
 			}
 		}

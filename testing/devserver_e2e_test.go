@@ -110,7 +110,7 @@ func waitForHTTP200(t *testing.T, url string, timeout time.Duration) {
 			if resp.StatusCode == http.StatusOK {
 				return
 			}
-			lastErr = fmt.Errorf("status=%d", resp.StatusCode)
+			lastErr = fmt.Errorf("Status=%d", resp.StatusCode)
 		} else {
 			lastErr = err
 		}
@@ -334,7 +334,7 @@ func TestDevserverE2E(t *testing.T) {
 			authhttp.WithSkew(1*time.Millisecond),
 		)
 		_ = ver.AddIssuer(issuer, []string{aud}, authhttp.IssuerOptions{
-			JWKSURL: baseURL + "/.well-known/jwks.json",
+			JWKSURI: baseURL + "/.well-known/jwks.json",
 		})
 
 		claims, err := ver.Verify(token)
@@ -476,7 +476,7 @@ func TestDevserverE2E(t *testing.T) {
 	})
 
 	// loginAndRefreshSession logs a user in with email+password and returns their
-	// access token and refresh token (a live refresh session).
+	// service token and refresh token (a live refresh session).
 	loginAndRefreshSession := func(t *testing.T, email, pass string) (accessToken, refreshToken string) {
 		t.Helper()
 		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
@@ -704,7 +704,7 @@ func TestDevserverE2E(t *testing.T) {
 			Slug          string `json:"slug"`
 			RequestedSlug string `json:"requested_slug"`
 			CanonicalSlug string `json:"canonical_slug"`
-			Status        string `json:"status"`
+			Status        string `json:"Status"`
 			Claimable     bool   `json:"claimable"`
 			EntityKind    string `json:"entity_kind"`
 			Renamed       bool   `json:"renamed"`
@@ -761,7 +761,7 @@ func TestDevserverE2E(t *testing.T) {
 			ownersOut.User == nil ||
 			ownersOut.User.ID != ownerID ||
 			ownersOut.User.Username != cSlug {
-			t.Fatalf("historical username %q should resolve by owner id to current username %q with rename status, got: %+v", a, cSlug, ownersOut)
+			t.Fatalf("historical username %q should resolve by owner id to current username %q with rename Status, got: %+v", a, cSlug, ownersOut)
 		}
 
 		body := renameUser(t, claimantToken, a, http.StatusBadRequest)
@@ -807,7 +807,7 @@ func TestDevserverE2E(t *testing.T) {
 		// /admin/accounts/unrestrict), which manage the profiles.owner_reserved_names
 		// blocklist. There is no /admin/accounts/reserve or /admin/accounts/claim
 		// route (the old placeholder-user "reserve+password-claim" flow was never
-		// shipped as HTTP routes and assumed multi-org mode the devserver does not
+		// shipped as HTTP routes and assumed multi-tenant mode the devserver does not
 		// run). This exercises the real, route-backed reserved-name feature.
 		adminUserID := "11111111-1111-1111-1111-111111111111"
 		adminEmail := "admin@example.com"

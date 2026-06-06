@@ -14,25 +14,25 @@ func (s *Service) handleOrgsListGET(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	mems, err := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), claims.UserID)
+	mems, err := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), claims.UserID)
 	if err != nil {
 		serverErr(w, "orgs_lookup_failed")
 		return
 	}
 	type orgItem struct {
-		Org   string   `json:"org"`
-		Roles []string `json:"roles"`
+		Tenant string   `json:"tenant"`
+		Roles  []string `json:"roles"`
 	}
 	out := make([]orgItem, 0, len(mems))
 	for _, m := range mems {
-		out = append(out, orgItem{Org: m.Org, Roles: m.Roles})
+		out = append(out, orgItem{Tenant: m.Tenant, Roles: m.Roles})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"orgs": out})
+	writeJSON(w, http.StatusOK, map[string]any{"tenants": out})
 }
 
 func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
-	if s.publicOrgManagementDisabled() {
-		orgManagementDisabled(w)
+	if s.publicTenantManagementDisabled() {
+		tenantManagementDisabled(w)
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -47,22 +47,22 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	org, err := s.svc.CreateOrg(r.Context(), body.Slug)
+	tenant, err := s.svc.CreateTenant(r.Context(), body.Slug)
 	if err != nil {
 		if err == core.ErrOwnerSlugTaken {
 			badRequest(w, "owner_slug_taken")
 			return
 		}
-		badRequest(w, "org_create_failed")
+		badRequest(w, "tenant_create_failed")
 		return
 	}
 	// Owner bootstrap: make creator a member and assign "owner" role.
-	_ = s.svc.DefineRole(r.Context(), org.Slug, "owner")
-	_ = s.svc.DefineRole(r.Context(), org.Slug, "member")
-	_ = s.svc.AddMember(r.Context(), org.Slug, claims.UserID)
-	_ = s.svc.AssignRole(r.Context(), org.Slug, claims.UserID, "owner")
+	_ = s.svc.DefineRole(r.Context(), tenant.Slug, "owner")
+	_ = s.svc.DefineRole(r.Context(), tenant.Slug, "member")
+	_ = s.svc.AddMember(r.Context(), tenant.Slug, claims.UserID)
+	_ = s.svc.AssignRole(r.Context(), tenant.Slug, claims.UserID, "owner")
 
-	writeJSON(w, http.StatusCreated, map[string]any{"org": org.Slug})
+	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant.Slug})
 }
 
 func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
@@ -71,31 +71,31 @@ func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	if tenantSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)
+	canonical, member, err := s.requireTenantMember(r.Context(), claims.UserID, tenantSlug)
 	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+		if err == core.ErrTenantNotFound {
+			notFound(w, "tenant_not_found")
 			return
 		}
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, "tenant_lookup_failed")
 		return
 	}
 	if !member {
-		forbidden(w, "not_org_member")
+		forbidden(w, "not_tenant_member")
 		return
 	}
 	// Issue #58: emit a 301 redirect when the request used a historical
-	// slug. requireOrgMember already resolved through `org_renames`
-	// (which ResolveOrgBySlug consults on alias miss), so `canonical`
-	// here is the live `orgs.slug`. If the inbound differs, the caller
+	// slug. requireTenantMember already resolved through `tenant_renames`
+	// (which ResolveTenantBySlug consults on alias miss), so `canonical`
+	// here is the live `tenants.slug`. If the inbound differs, the caller
 	// dropped in a renamed-away name and gets pointed at the new path.
-	if !strings.EqualFold(orgSlug, canonical) {
-		newPath := strings.Replace(r.URL.Path, orgSlug, canonical, 1)
+	if !strings.EqualFold(tenantSlug, canonical) {
+		newPath := strings.Replace(r.URL.Path, tenantSlug, canonical, 1)
 		if r.URL.RawQuery != "" {
 			newPath += "?" + r.URL.RawQuery
 		}
@@ -103,7 +103,7 @@ func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMovedPermanently)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"org": canonical})
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": canonical})
 }
 
 func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
@@ -112,18 +112,18 @@ func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	if tenantSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
+	canonical, _, isOwner, err := s.requireTenantOwner(r.Context(), claims.UserID, tenantSlug)
 	if err != nil {
-		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+		if err == core.ErrTenantNotFound {
+			notFound(w, "tenant_not_found")
 			return
 		}
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, "tenant_lookup_failed")
 		return
 	}
 	if !isOwner {
@@ -137,14 +137,14 @@ func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	org, err := s.svc.ResolveOrgBySlug(r.Context(), canonical)
+	tenant, err := s.svc.ResolveTenantBySlug(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, "tenant_lookup_failed")
 		return
 	}
-	if err := s.svc.RenameOrgSlug(r.Context(), org.ID, body.NewSlug, claims.UserID); err != nil {
-		if err == core.ErrPersonalOrgLocked {
-			badRequest(w, "personal_org_locked")
+	if err := s.svc.RenameTenantSlug(r.Context(), tenant.ID, body.NewSlug, claims.UserID); err != nil {
+		if err == core.ErrPersonalTenantLocked {
+			badRequest(w, "personal_tenant_locked")
 			return
 		}
 		if err == core.ErrOwnerSlugTaken {
@@ -152,21 +152,21 @@ func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == core.ErrRenameRateLimited {
-			seconds, _ := s.svc.TimeUntilOrgRenameAvailable(r.Context(), org.ID, time.Now())
+			seconds, _ := s.svc.TimeUntilOrgRenameAvailable(r.Context(), tenant.ID, time.Now())
 			availability := cooldownAvailability("rename_org", seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
 			data["error"] = core.ErrCodeRenameRateLimited
 			writeJSON(w, http.StatusTooManyRequests, data)
 			return
 		}
-		badRequest(w, "org_rename_failed")
+		badRequest(w, "tenant_rename_failed")
 		return
 	}
 	// Return canonical slug after rename.
-	renamed, err := s.svc.ResolveOrgBySlug(r.Context(), body.NewSlug)
+	renamed, err := s.svc.ResolveTenantBySlug(r.Context(), body.NewSlug)
 	if err != nil {
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, "tenant_lookup_failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"org": renamed.Slug})
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": renamed.Slug})
 }

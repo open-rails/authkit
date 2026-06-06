@@ -8,7 +8,7 @@ import (
 )
 
 func TestEffectivePermsForTokens(t *testing.T) {
-	cat := map[string]bool{"a": true, "b": true, "c": true, "org:read": true}
+	cat := map[string]bool{"a": true, "b": true, "c": true, "tenant:read": true}
 	get := func(toks ...string) []string {
 		return sortedKeys(effectivePermsForTokens(toks, cat))
 	}
@@ -17,8 +17,8 @@ func TestEffectivePermsForTokens(t *testing.T) {
 		toks []string
 		want []string
 	}{
-		{"wildcard = all catalog", []string{"*"}, []string{"a", "b", "c", "org:read"}},
-		{"wildcard minus exclusion", []string{"*", "!b"}, []string{"a", "c", "org:read"}},
+		{"wildcard = all catalog", []string{"*"}, []string{"a", "b", "c", "tenant:read"}},
+		{"wildcard minus exclusion", []string{"*", "!b"}, []string{"a", "c", "tenant:read"}},
 		{"concrete only", []string{"a", "c"}, []string{"a", "c"}},
 		{"empty", nil, []string{}},
 		{"exclusion without wildcard removes from positives", []string{"a", "b", "!b"}, []string{"a"}},
@@ -33,7 +33,7 @@ func TestEffectivePermsForTokens(t *testing.T) {
 }
 
 func TestIsReservedPermission(t *testing.T) {
-	for _, p := range []string{"org:roles:manage", "org:read", "org:tokens:manage"} {
+	for _, p := range []string{"tenant:roles:manage", "tenant:read", "tenant:service_tokens:manage"} {
 		if !IsReservedPermission(p) {
 			t.Errorf("%q should be reserved", p)
 		}
@@ -50,7 +50,7 @@ func TestBasePermissionsPresent(t *testing.T) {
 	for _, d := range BasePermissions() {
 		names[d.Name] = true
 	}
-	for _, want := range []string{PermOrgRolesManage, PermOrgMembersManage, PermOrgTokensManage, PermOrgRead} {
+	for _, want := range []string{PermTenantRolesManage, PermTenantMembersManage, PermTenantTokensManage, PermTenantRead} {
 		if !names[want] {
 			t.Errorf("base permission %q missing", want)
 		}
@@ -82,7 +82,7 @@ func TestValidateGrant_ResourceScopedPrefix(t *testing.T) {
 		{"dataset:read:x", true},          // scoped base dataset:read not in catalog
 	}
 	for _, c := range cases {
-		unknown, _, err := svc.ValidateGrant(ctx, "org", "actor", []string{c.tok}, true)
+		unknown, _, err := svc.ValidateGrant(ctx, "tenant", "actor", []string{c.tok}, true)
 		if err != nil {
 			t.Fatalf("%s: ValidateGrant err: %v", c.tok, err)
 		}

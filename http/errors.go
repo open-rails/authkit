@@ -40,21 +40,21 @@ func forbidden(w http.ResponseWriter, code string)    { sendErr(w, http.StatusFo
 
 // Stable error codes for the coarse policy switches.
 const (
-	errRegistrationDisabled  = "registration_disabled"
-	errOrgManagementDisabled = "org_management_disabled"
+	errRegistrationDisabled     = "registration_disabled"
+	errTenantManagementDisabled = "tenant_management_disabled"
 )
 
 // registrationDisabled writes the stable registration-disabled rejection used by
-// every public user-creation path when PublicRegistrationDisabled is set.
+// every public user-creation path when NativeUserRegistrationMode is set.
 func registrationDisabled(w http.ResponseWriter) {
 	sendErr(w, http.StatusForbidden, errRegistrationDisabled)
 }
 
-// orgManagementDisabled writes the stable org-management-disabled rejection used
-// by public org onboarding/management routes when PublicOrgManagementDisabled is
+// tenantManagementDisabled writes the stable tenant-management-disabled rejection used
+// by public tenant onboarding/management routes when TenantRegistrationMode is
 // set.
-func orgManagementDisabled(w http.ResponseWriter) {
-	sendErr(w, http.StatusForbidden, errOrgManagementDisabled)
+func tenantManagementDisabled(w http.ResponseWriter) {
+	sendErr(w, http.StatusForbidden, errTenantManagementDisabled)
 }
 func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 	if len(retryAfter) == 0 || retryAfter[0] <= 0 {

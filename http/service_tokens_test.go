@@ -29,29 +29,29 @@ func TestClaimsIsService(t *testing.T) {
 
 func TestAccessTokenViewIncludesResources(t *testing.T) {
 	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	view := toAccessTokenView(core.OrgAccessToken{
+	view := toAccessTokenView(core.ServiceToken{
 		ID:          "tok_1",
 		KeyID:       "key_1",
 		Name:        "ci",
 		Permissions: []string{"openrails:credits:spend"},
-		Resources: []core.OrgAccessTokenResource{
+		Resources: []core.ServiceTokenResource{
 			{Kind: "openrails.tenant", ID: "tensorhub"},
-			{Kind: "openrails.payer_org", ID: "cozy-art"},
+			{Kind: "openrails.tenant_subject", ID: "cozy-art"},
 		},
 		CreatedAt: created,
 	})
-	require.Equal(t, []core.OrgAccessTokenResource{
+	require.Equal(t, []core.ServiceTokenResource{
 		{Kind: "openrails.tenant", ID: "tensorhub"},
-		{Kind: "openrails.payer_org", ID: "cozy-art"},
+		{Kind: "openrails.tenant_subject", ID: "cozy-art"},
 	}, view.Resources)
 	require.Equal(t, "2026-01-02T03:04:05Z", view.CreatedAt)
 }
 
-// TestOATMiddlewareDetectionAndFallthrough verifies that the Required middleware
-// routes tokens carrying the configured OAT marker to the (DB-backed) OAT path,
-// while ordinary JWTs still fall through to JWT verification even when an OAT
+// TestServiceTokenMiddlewareDetectionAndFallthrough verifies that the Required middleware
+// routes tokens carrying the configured service-token marker to the (DB-backed) service-token path,
+// while ordinary JWTs still fall through to JWT verification even when a service token
 // prefix is configured.
-func TestOATMiddlewareDetectionAndFallthrough(t *testing.T) {
+func TestServiceTokenMiddlewareDetectionAndFallthrough(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 
@@ -74,33 +74,33 @@ func TestOATMiddlewareDetectionAndFallthrough(t *testing.T) {
 	}
 
 	t.Run("branded prefix: valid JWT falls through and passes", func(t *testing.T) {
-		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithTokenPrefix("cozy"))
+		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithServiceTokenPrefix("cozy"))
 		require.Equal(t, http.StatusOK, call(v, validJWT()).Code)
 	})
 
-	t.Run("OAT-shaped token is routed to OAT path (not JWT) and rejected without a store", func(t *testing.T) {
-		// No service attached -> the OAT path cannot resolve and returns
-		// invalid_token. The key point: it is handled by the OAT branch, never
+	t.Run("service-token-shaped token is routed to service-token path (not JWT) and rejected without a store", func(t *testing.T) {
+		// No service attached -> the service-token path cannot resolve and returns
+		// invalid_token. The key point: it is handled by the service-token branch, never
 		// parsed as a JWT.
-		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithTokenPrefix("cozy"))
-		w := call(v, "cozy_oat_somekeyid_somesecretvalue")
+		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithServiceTokenPrefix("cozy"))
+		w := call(v, "cozy_st_somekeyid_somesecretvalue")
 		require.Equal(t, http.StatusUnauthorized, w.Code)
 		require.JSONEq(t, `{"error":"invalid_token"}`, w.Body.String())
 	})
 
-	t.Run("wrong app prefix is NOT an OAT and falls through to JWT verify", func(t *testing.T) {
-		// With prefix "cozy" the marker is "cozy_oat_"; a bare "oat_..." token is
-		// not an OAT for this app, so it falls through to JWT verification (and
+	t.Run("wrong app prefix is NOT a service token and falls through to JWT verify", func(t *testing.T) {
+		// With prefix "cozy" the marker is "cozy_st_"; a bare "st_..." token is
+		// not a service token for this app, so it falls through to JWT verification (and
 		// fails there as an unparseable JWT).
-		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithTokenPrefix("cozy"))
-		w := call(v, "oat_keyid_secret")
+		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithServiceTokenPrefix("cozy"))
+		w := call(v, "st_keyid_secret")
 		require.Equal(t, http.StatusUnauthorized, w.Code)
 		require.JSONEq(t, `{"error":"invalid_token"}`, w.Body.String())
 	})
 
-	t.Run("default (empty) prefix detects bare oat_", func(t *testing.T) {
+	t.Run("default (empty) prefix detects bare st_", func(t *testing.T) {
 		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"})
-		w := call(v, "oat_keyid_secret")
+		w := call(v, "st_keyid_secret")
 		require.Equal(t, http.StatusUnauthorized, w.Code)
 		require.JSONEq(t, `{"error":"invalid_token"}`, w.Body.String())
 	})

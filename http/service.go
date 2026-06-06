@@ -172,8 +172,8 @@ func NewService(cfg core.Config) (*Service, error) {
 	opts := coreSvc.Options()
 	ver := NewVerifier(
 		WithSkew(5*time.Second),
-		WithOrgMode(opts.OrgMode),
-		WithTokenPrefix(opts.TokenPrefix),
+		WithTenantMode(opts.TenantMode),
+		WithServiceTokenPrefix(opts.ServiceTokenPrefix),
 	)
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
@@ -265,16 +265,16 @@ func (s *Service) publicRegistrationDisabled() bool {
 	if s == nil || s.svc == nil {
 		return false
 	}
-	return s.svc.Options().PublicRegistrationDisabled
+	return !s.svc.Options().PublicNativeUserRegistrationEnabled()
 }
 
-// publicOrgManagementDisabled reports whether the public org onboarding /
+// publicTenantManagementDisabled reports whether the public tenant onboarding /
 // management HTTP routes are turned off for this service.
-func (s *Service) publicOrgManagementDisabled() bool {
+func (s *Service) publicTenantManagementDisabled() bool {
 	if s == nil || s.svc == nil {
 		return false
 	}
-	return s.svc.Options().PublicOrgManagementDisabled
+	return !s.svc.Options().PublicTenantRegistrationEnabled()
 }
 
 func (s *Service) stateCache() oidckit.StateCache {

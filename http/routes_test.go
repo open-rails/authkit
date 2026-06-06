@@ -24,12 +24,12 @@ func TestAPIRoutesGroupSelection(t *testing.T) {
 }
 
 func TestAPIRoutesOrgRoutesOnlyInMultiMode(t *testing.T) {
-	single := newTestServiceWithOrgMode(t, "single")
-	requireNoRoute(t, single.APIRoutes(), http.MethodPost, "/token/org")
+	single := newTestServiceWithTenantMode(t, "single")
+	requireNoRoute(t, single.APIRoutes(), http.MethodPost, "/token/tenant")
 
-	multi := newTestServiceWithOrgMode(t, "multi")
-	requireRoute(t, multi.APIRoutes(), http.MethodPost, "/token/org")
-	requireRoute(t, multi.APIRoutes(RouteOrganizations), http.MethodGet, "/orgs/{org}/members")
+	multi := newTestServiceWithTenantMode(t, "multi")
+	requireRoute(t, multi.APIRoutes(), http.MethodPost, "/token/tenant")
+	requireRoute(t, multi.APIRoutes(RouteTenants), http.MethodGet, "/tenants/{tenant}/members")
 }
 
 func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {

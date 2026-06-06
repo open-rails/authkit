@@ -43,19 +43,19 @@ func (s *Service) setUserReservedTx(ctx context.Context, tx pgx.Tx, userID strin
 	return err
 }
 
-func (s *Service) setOrgReservedTx(ctx context.Context, tx pgx.Tx, orgID string, reserved bool) error {
+func (s *Service) setOrgReservedTx(ctx context.Context, tx pgx.Tx, tenantID string, reserved bool) error {
 	if tx == nil {
 		return fmt.Errorf("tx required")
 	}
-	if strings.TrimSpace(orgID) == "" {
+	if strings.TrimSpace(tenantID) == "" {
 		return fmt.Errorf("invalid_org")
 	}
 	_, err := tx.Exec(ctx, `
-		UPDATE profiles.orgs
+		UPDATE profiles.tenants
 		SET metadata=jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb($2::boolean), true),
 			updated_at=now()
 		WHERE id=$1::uuid
-	`, orgID, reserved)
+	`, tenantID, reserved)
 	return err
 }
 
@@ -141,17 +141,17 @@ func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch ma
 	return nil
 }
 
-func (s *Service) GetOrgMetadata(ctx context.Context, orgID string) (map[string]any, error) {
+func (s *Service) GetOrgMetadata(ctx context.Context, tenantID string) (map[string]any, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(orgID) == "" {
+	if strings.TrimSpace(tenantID) == "" {
 		return nil, fmt.Errorf("invalid_org")
 	}
 	var raw []byte
-	if err := s.pg.QueryRow(ctx, `SELECT COALESCE(metadata, '{}'::jsonb) FROM profiles.orgs WHERE id=$1::uuid AND deleted_at IS NULL`, orgID).Scan(&raw); err != nil {
+	if err := s.pg.QueryRow(ctx, `SELECT COALESCE(metadata, '{}'::jsonb) FROM profiles.tenants WHERE id=$1::uuid AND deleted_at IS NULL`, tenantID).Scan(&raw); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrOrgNotFound
+			return nil, ErrTenantNotFound
 		}
 		return nil, err
 	}
@@ -165,11 +165,11 @@ func (s *Service) GetOrgMetadata(ctx context.Context, orgID string) (map[string]
 	return out, nil
 }
 
-func (s *Service) PatchOrgMetadata(ctx context.Context, orgID string, patch map[string]any) error {
+func (s *Service) PatchOrgMetadata(ctx context.Context, tenantID string, patch map[string]any) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	if strings.TrimSpace(orgID) == "" {
+	if strings.TrimSpace(tenantID) == "" {
 		return fmt.Errorf("invalid_org")
 	}
 	if len(patch) == 0 {
@@ -180,36 +180,36 @@ func (s *Service) PatchOrgMetadata(ctx context.Context, orgID string, patch map[
 		return err
 	}
 	tag, err := s.pg.Exec(ctx, `
-		UPDATE profiles.orgs
+		UPDATE profiles.tenants
 		SET metadata=COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
 			updated_at=now()
 		WHERE id=$1::uuid AND deleted_at IS NULL
-	`, orgID, raw)
+	`, tenantID, raw)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrOrgNotFound
+		return ErrTenantNotFound
 	}
 	return nil
 }
 
-func (s *Service) IsOrgReserved(ctx context.Context, orgID string) (bool, error) {
-	state, err := s.GetOrgNamespaceState(ctx, orgID)
+func (s *Service) IsOrgReserved(ctx context.Context, tenantID string) (bool, error) {
+	state, err := s.GetOrgNamespaceState(ctx, tenantID)
 	if err != nil {
 		return false, err
 	}
-	return state == OwnerNamespaceStateParkedOrg, nil
+	return state == OwnerNamespaceStateParkedTenant, nil
 }
 
 // ReserveAccount reserves a namespace slug without requiring a same-slug login user.
 // For legacy placeholder rows, it still enforces non-loginable reserved invariants.
-func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgID string, reserved bool, err error) {
+func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tenantID string, reserved bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", "", false, err
 	}
 	slug = normalizeReservedSlug(slug)
-	if err := validateOrgSlug(slug); err != nil {
+	if err := validateTenantSlug(slug); err != nil {
 		return "", "", false, err
 	}
 
@@ -230,11 +230,11 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
 		         ELSE false
 		       END
-		FROM profiles.orgs
+		FROM profiles.tenants
 		WHERE slug=$1
 		  AND deleted_at IS NULL
 	`, slug).Scan(&existingOrgID, &existingOrgReserved); err == nil {
-		orgID = strings.TrimSpace(existingOrgID)
+		tenantID = strings.TrimSpace(existingOrgID)
 		if !existingOrgReserved {
 			return "", "", false, ErrReservedAccountClaimed
 		}
@@ -268,8 +268,8 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 		return "", "", false, err
 	}
 
-	if strings.TrimSpace(userID) != "" && strings.TrimSpace(orgID) == "" {
-		var existingOrgSlug string
+	if strings.TrimSpace(userID) != "" && strings.TrimSpace(tenantID) == "" {
+		var existingTenantSlug string
 		switch err := tx.QueryRow(ctx, `
 			SELECT id::text,
 			       slug,
@@ -278,13 +278,13 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 			         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
 			         ELSE false
 			       END
-			FROM profiles.orgs
+			FROM profiles.tenants
 			WHERE owner_user_id=$1::uuid
 			  AND is_personal=true
 			  AND deleted_at IS NULL
-		`, userID).Scan(&existingOrgID, &existingOrgSlug, &existingOrgReserved); {
+		`, userID).Scan(&existingOrgID, &existingTenantSlug, &existingOrgReserved); {
 		case err == nil:
-			orgID = strings.TrimSpace(existingOrgID)
+			tenantID = strings.TrimSpace(existingOrgID)
 			if !existingOrgReserved {
 				return "", "", false, ErrReservedAccountClaimed
 			}
@@ -294,7 +294,7 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 		}
 	}
 
-	if strings.TrimSpace(userID) == "" && strings.TrimSpace(orgID) == "" {
+	if strings.TrimSpace(userID) == "" && strings.TrimSpace(tenantID) == "" {
 		if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
 			return "", "", false, err
 		}
@@ -313,11 +313,11 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 		}
 	}
 
-	if strings.TrimSpace(orgID) != "" {
-		if err := s.setOrgReservedTx(ctx, tx, orgID, true); err != nil {
+	if strings.TrimSpace(tenantID) != "" {
+		if err := s.setOrgReservedTx(ctx, tx, tenantID, true); err != nil {
 			return "", "", false, err
 		}
-		if err := s.setOrgNamespaceStateTx(ctx, tx, orgID, OwnerNamespaceStateParkedOrg); err != nil {
+		if err := s.setOrgNamespaceStateTx(ctx, tx, tenantID, OwnerNamespaceStateParkedTenant); err != nil {
 			return "", "", false, err
 		}
 	}
@@ -325,5 +325,5 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgI
 	if err := tx.Commit(ctx); err != nil {
 		return "", "", false, err
 	}
-	return strings.TrimSpace(userID), strings.TrimSpace(orgID), true, nil
+	return strings.TrimSpace(userID), strings.TrimSpace(tenantID), true, nil
 }

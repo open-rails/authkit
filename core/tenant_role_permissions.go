@@ -7,66 +7,66 @@ import (
 	"strings"
 )
 
-// Org RBAC (authkit #46): roles are NAMES (profiles.org_roles) plus a set of
-// permission strings (profiles.org_role_permissions). Permissions are OPAQUE to
+// Tenant RBAC (authkit #46): roles are NAMES (profiles.tenant_roles) plus a set of
+// permission strings (profiles.tenant_role_permissions). Permissions are OPAQUE to
 // authkit — the embedding app declares its catalog and authkit adds a base set;
 // authkit only stores / serves / validates set-membership, never meaning.
 
 const (
 	// PermWildcard in a role's permission set means "all catalog permissions".
 	PermWildcard = "*"
-	// permExcludePrefix marks an exclusion token (e.g. "!org:roles:manage"),
+	// permExcludePrefix marks an exclusion token (e.g. "!tenant:roles:manage"),
 	// used with `*` to express "everything except". Exclusions only subtract.
 	permExcludePrefix = "!"
 
 	// reservedPermissionPrefix is the namespace authkit owns for its base
-	// org-management permissions; app catalogs must not declare under it, and
-	// OATs may not be scoped to them.
-	reservedPermissionPrefix = "org:"
+	// tenant-management permissions; app catalogs must not declare under it, and
+	// service tokens may not be scoped to them.
+	reservedPermissionPrefix = "tenant:"
 
-	// authkit base org-management permissions. They gate authkit's own
-	// org-management endpoints via the permission system.
-	PermOrgRolesManage   = "org:roles:manage"   // create/modify/delete roles + set role permissions
-	PermOrgMembersManage = "org:members:manage" // add/remove members + grant/remove their roles
-	PermOrgTokensManage  = "org:tokens:manage"  // mint/revoke OATs
-	PermOrgRead          = "org:read"           // view members/roles/tokens
+	// authkit base tenant-management permissions. They gate authkit's own
+	// tenant-management endpoints via the permission system.
+	PermTenantRolesManage   = "tenant:roles:manage"          // create/modify/delete roles + set role permissions
+	PermTenantMembersManage = "tenant:members:manage"        // add/remove members + grant/remove their roles
+	PermTenantTokensManage  = "tenant:service_tokens:manage" // mint/revoke service tokens
+	PermTenantRead          = "tenant:read"                  // view members/roles/tokens
 )
 
 // ErrUnknownPermission indicates a permission not present in the catalog.
 var ErrUnknownPermission = errors.New("unknown_permission")
 
-// BasePermissions are the org-management permissions authkit defines for every
-// embedding app (reserved `org:` namespace).
+// BasePermissions are the tenant-management permissions authkit defines for every
+// embedding app (reserved `tenant:` namespace).
 func BasePermissions() []PermissionDef {
 	return []PermissionDef{
-		{Name: PermOrgRolesManage, Description: "Create, modify, and delete org roles and their permissions"},
-		{Name: PermOrgMembersManage, Description: "Add/remove org members and grant or remove their roles"},
-		{Name: PermOrgTokensManage, Description: "Mint and revoke organization access tokens (OATs)"},
-		{Name: PermOrgRead, Description: "View org members, roles, and access tokens"},
+		{Name: PermTenantRolesManage, Description: "Create, modify, and delete tenant roles and their permissions"},
+		{Name: PermTenantMembersManage, Description: "Add/remove tenant members and grant or remove their roles"},
+		{Name: PermTenantTokensManage, Description: "Mint and revoke service tokens (service tokens)"},
+		{Name: PermTenantRead, Description: "View tenant members, roles, and service tokens"},
 	}
 }
 
 // IsReservedPermission reports whether name is in authkit's reserved base
-// namespace (an app catalog may not redefine these; OATs may not hold them
-// unless OAT-grantable, see IsOATGrantableReservedPermission).
+// namespace (an app catalog may not redefine these; service tokens may not hold them
+// unless service token-grantable, see IsServiceTokenGrantableReservedPermission).
 func IsReservedPermission(name string) bool {
 	return strings.HasPrefix(strings.TrimSpace(name), reservedPermissionPrefix)
 }
 
-// oatGrantableReservedPermissions are the reserved base permissions an OAT MAY
+// serviceTokenGrantableReservedPermissions are the reserved base permissions a service token MAY
 // hold. Only read-only perms qualify: the write/mint management perms
-// (org:roles:manage, org:members:manage, org:tokens:manage) stay user-only so
-// an OAT can never bootstrap broader authority — it cannot mint another OAT,
-// redefine roles, or alter membership. org:read is escalation-harmless and
+// (tenant:roles:manage, tenant:members:manage, tenant:service_tokens:manage) stay user-only so
+// a service token can never bootstrap broader authority — it cannot mint another service token,
+// redefine roles, or alter membership. tenant:read is escalation-harmless and
 // unblocks read-only automation (monitoring/audit bots listing members/roles).
-var oatGrantableReservedPermissions = map[string]bool{
-	PermOrgRead: true,
+var serviceTokenGrantableReservedPermissions = map[string]bool{
+	PermTenantRead: true,
 }
 
-// IsOATGrantableReservedPermission reports whether a reserved `org:` permission
-// may be granted to an OAT. Returns false for non-reserved names.
-func IsOATGrantableReservedPermission(name string) bool {
-	return oatGrantableReservedPermissions[strings.TrimSpace(name)]
+// IsServiceTokenGrantableReservedPermission reports whether a reserved `tenant:` permission
+// may be granted to a service token. Returns false for non-reserved names.
+func IsServiceTokenGrantableReservedPermission(name string) bool {
+	return serviceTokenGrantableReservedPermissions[strings.TrimSpace(name)]
 }
 
 // Catalog returns the full permission catalog: authkit base permissions plus the
@@ -138,19 +138,19 @@ func sortedKeys(m map[string]bool) []string {
 
 // GetRolePermissions returns a role's RAW permission tokens (may include `*` and
 // `!p` exclusions).
-func (s *Service) GetRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
+func (s *Service) GetRolePermissions(ctx context.Context, tenantSlug, role string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
 	if err != nil {
 		return nil, err
 	}
-	role = canonicalizeOrgRole(role)
+	role = canonicalizeTenantRole(role)
 	rows, err := s.pg.Query(ctx, `
-		SELECT permission FROM profiles.org_role_permissions
-		WHERE org_id=$1::uuid AND role=$2 ORDER BY permission ASC
-	`, org.ID, role)
+		SELECT permission FROM profiles.tenant_role_permissions
+		WHERE tenant_id=$1::uuid AND role=$2 ORDER BY permission ASC
+	`, tenant.ID, role)
 	if err != nil {
 		return nil, err
 	}
@@ -169,21 +169,21 @@ func (s *Service) GetRolePermissions(ctx context.Context, orgSlug, role string) 
 // SetRolePermissions replaces a role's permission set (idempotent). The role
 // must already exist (created via DefineRole). Tokens are stored as-is (opaque);
 // callers should validate via ValidateGrant first for no-escalation.
-func (s *Service) SetRolePermissions(ctx context.Context, orgSlug, role string, perms []string) error {
+func (s *Service) SetRolePermissions(ctx context.Context, tenantSlug, role string, perms []string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
 	if err != nil {
 		return err
 	}
-	role = canonicalizeOrgRole(role)
+	role = canonicalizeTenantRole(role)
 	var exists bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.org_roles WHERE org_id=$1::uuid AND role=$2)`, org.ID, role).Scan(&exists); err != nil {
+	if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.tenant_roles WHERE tenant_id=$1::uuid AND role=$2)`, tenant.ID, role).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
-		return ErrInvalidOrgRole
+		return ErrInvalidTenantRole
 	}
 	clean := dedupeStrings(perms)
 	tx, err := s.pg.Begin(ctx)
@@ -191,11 +191,11 @@ func (s *Service) SetRolePermissions(ctx context.Context, orgSlug, role string, 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `DELETE FROM profiles.org_role_permissions WHERE org_id=$1::uuid AND role=$2`, org.ID, role); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM profiles.tenant_role_permissions WHERE tenant_id=$1::uuid AND role=$2`, tenant.ID, role); err != nil {
 		return err
 	}
 	for _, p := range clean {
-		if _, err := tx.Exec(ctx, `INSERT INTO profiles.org_role_permissions (org_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, org.ID, role, p); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, tenant.ID, role, p); err != nil {
 			return err
 		}
 	}
@@ -203,21 +203,21 @@ func (s *Service) SetRolePermissions(ctx context.Context, orgSlug, role string, 
 }
 
 // EffectivePermissions returns the union of permissions across all of the user's
-// roles in the org, expanded against the catalog. This is the single source of
+// roles in the tenant, expanded against the catalog. This is the single source of
 // truth for "what can this principal do" (the embedding app calls it at request
 // time for enforcement — do NOT bake into the JWT).
-func (s *Service) EffectivePermissions(ctx context.Context, orgSlug, userID string) ([]string, error) {
+func (s *Service) EffectivePermissions(ctx context.Context, tenantSlug, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	roles, err := s.ReadMemberRoles(ctx, orgSlug, userID)
+	roles, err := s.ReadMemberRoles(ctx, tenantSlug, userID)
 	if err != nil {
 		return nil, err
 	}
 	catalog := s.catalogSet()
 	eff := map[string]bool{}
 	for _, role := range roles {
-		toks, err := s.GetRolePermissions(ctx, orgSlug, role)
+		toks, err := s.GetRolePermissions(ctx, tenantSlug, role)
 		if err != nil {
 			return nil, err
 		}
@@ -231,18 +231,18 @@ func (s *Service) EffectivePermissions(ctx context.Context, orgSlug, userID stri
 // EffectiveRolePermissions returns a single role's permissions expanded against
 // the catalog (`*` => all, `!p` => exclude). Used to enforce no-escalation when
 // assigning a role to a member (the assigner must hold everything the role grants).
-func (s *Service) EffectiveRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
-	toks, err := s.GetRolePermissions(ctx, orgSlug, role)
+func (s *Service) EffectiveRolePermissions(ctx context.Context, tenantSlug, role string) ([]string, error) {
+	toks, err := s.GetRolePermissions(ctx, tenantSlug, role)
 	if err != nil {
 		return nil, err
 	}
 	return sortedKeys(effectivePermsForTokens(toks, s.catalogSet())), nil
 }
 
-// HasPermission reports whether the user holds perm in the org.
-func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm string) (bool, error) {
+// HasPermission reports whether the user holds perm in the tenant.
+func (s *Service) HasPermission(ctx context.Context, tenantSlug, userID, perm string) (bool, error) {
 	perm = strings.TrimSpace(perm)
-	eff, err := s.EffectivePermissions(ctx, orgSlug, userID)
+	eff, err := s.EffectivePermissions(ctx, tenantSlug, userID)
 	if err != nil {
 		return false, err
 	}
@@ -261,12 +261,12 @@ func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm strin
 // `!p` exclusions only subtract and are always allowed. `actorAll` short-circuits
 // the no-escalation check for an actor known to hold everything (e.g. a platform
 // global admin). Returns (unknown, offending).
-func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
+func (s *Service) ValidateGrant(ctx context.Context, tenantSlug, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
 	catalog := s.catalogSet()
 	var actorEff map[string]bool
 	actorHoldsAll := actorAll
 	if !actorAll {
-		eff, e := s.EffectivePermissions(ctx, orgSlug, actorUserID)
+		eff, e := s.EffectivePermissions(ctx, tenantSlug, actorUserID)
 		if e != nil {
 			return nil, nil, e
 		}
@@ -290,7 +290,7 @@ func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string
 			// "<resource>:<action>" base is in the catalog (e.g. repo:write:my-model
 			// validates against repo:write). The app interprets the <name>;
 			// authkit only checks the base is a real permission. Reserved
-			// 3-segment base perms (org:roles:manage, ...) match catalog[t]
+			// 3-segment base perms (tenant:roles:manage, ...) match catalog[t]
 			// directly and are not re-split.
 			base := t
 			if !catalog[t] {
@@ -303,7 +303,7 @@ func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string
 				continue
 			}
 			// No-escalation: the actor must hold the exact scoped perm OR its
-			// org-wide base (holding repo:write lets you grant repo:write:x).
+			// tenant-wide base (holding repo:write lets you grant repo:write:x).
 			if !actorAll && !actorEff[t] && !actorEff[base] {
 				offending = append(offending, t)
 			}
@@ -336,31 +336,31 @@ func dedupeStrings(in []string) []string {
 }
 
 // seedRolePermissionDefaults seeds ONLY the built-in owner role (`*`) for a
-// freshly created (or claimed) org. App-declared DefaultRoles are NOT seeded
+// freshly created (or claimed) tenant. App-declared DefaultRoles are NOT seeded
 // eagerly — they are role TEMPLATES for human teammates and are materialized
 // LAZILY the first time the role is granted (see materializeDefaultRole),
-// so a solo org (no other human members) carries no dormant role scaffolding.
+// so a solo tenant (no other human members) carries no dormant role scaffolding.
 // Idempotent.
-func (s *Service) seedRolePermissionDefaults(ctx context.Context, orgID string) error {
+func (s *Service) seedRolePermissionDefaults(ctx context.Context, tenantID string) error {
 	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.org_role_permissions (org_id, role, permission)
+		INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission)
 		VALUES ($1::uuid, $2, $3) ON CONFLICT DO NOTHING
-	`, orgID, orgOwnerRole, PermWildcard)
+	`, tenantID, tenantOwnerRole, PermWildcard)
 	return err
 }
 
 // materializeDefaultRole lazily seeds an app-declared DefaultRole's permission
-// template into the org the first time that role is needed (e.g. on grant), if
+// template into the tenant the first time that role is needed (e.g. on grant), if
 // it isn't already present. No-op for the owner role, unknown roles, or roles
 // that already have permissions. Idempotent.
-func (s *Service) materializeDefaultRole(ctx context.Context, orgID, role string) error {
-	role = canonicalizeOrgRole(role)
-	if role == "" || strings.EqualFold(role, orgOwnerRole) {
+func (s *Service) materializeDefaultRole(ctx context.Context, tenantID, role string) error {
+	role = canonicalizeTenantRole(role)
+	if role == "" || strings.EqualFold(role, tenantOwnerRole) {
 		return nil
 	}
 	var tmpl *DefaultRole
 	for i := range s.opts.DefaultRoles {
-		if canonicalizeOrgRole(s.opts.DefaultRoles[i].Name) == role {
+		if canonicalizeTenantRole(s.opts.DefaultRoles[i].Name) == role {
 			tmpl = &s.opts.DefaultRoles[i]
 			break
 		}
@@ -370,17 +370,17 @@ func (s *Service) materializeDefaultRole(ctx context.Context, orgID, role string
 	}
 	// Already materialized?
 	var exists bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.org_role_permissions WHERE org_id=$1::uuid AND role=$2)`, orgID, role).Scan(&exists); err != nil {
+	if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.tenant_role_permissions WHERE tenant_id=$1::uuid AND role=$2)`, tenantID, role).Scan(&exists); err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
-	if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.org_roles (org_id, role) VALUES ($1::uuid,$2) ON CONFLICT (org_id, role) DO NOTHING`, orgID, role); err != nil {
+	if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.tenant_roles (tenant_id, role) VALUES ($1::uuid,$2) ON CONFLICT (tenant_id, role) DO NOTHING`, tenantID, role); err != nil {
 		return err
 	}
 	for _, p := range dedupeStrings(tmpl.Permissions) {
-		if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.org_role_permissions (org_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, orgID, role, p); err != nil {
+		if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, tenantID, role, p); err != nil {
 			return err
 		}
 	}

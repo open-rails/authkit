@@ -30,29 +30,19 @@ type Config struct {
 	// Empty defaults to "none".
 	RegistrationVerification RegistrationVerificationPolicy
 
-	// OrgMode controls multi-organization behavior.
+	// TenantMode controls multi-tenant behavior.
 	// Valid values: "single" (default) or "multi".
-	OrgMode string
+	TenantMode string
 
-	// PublicRegistrationDisabled, when true, turns off all PUBLIC user
-	// self-registration and auto-registration paths: password registration,
-	// availability, resend, OIDC/social/Solana/passkey auto-create, and
-	// pending-registration confirmation. Existing-user authentication (login,
-	// refresh, logout, password reset/recovery, verification, sessions) is
-	// unaffected, and embedded bootstrap/admin/internal creation via the
-	// exported CreateUser / ImportUser core APIs still works.
-	//
-	// Default false preserves current behavior (public registration enabled).
-	PublicRegistrationDisabled bool
+	// NativeUserRegistrationMode controls public native-user self-registration.
+	// Empty defaults to "open". "bootstrap_only" disables every public user
+	// creation path while leaving embedded admin/bootstrap core APIs available.
+	NativeUserRegistrationMode RegistrationMode
 
-	// PublicOrgManagementDisabled, when true, denies the PUBLIC org-facing
-	// onboarding/management HTTP routes (org creation, rename, invites, member
-	// changes, role changes, OAT management). Embedded core/bootstrap code can
-	// still ensure the initial orgs, roles, admin membership, and OATs through
-	// the exported core APIs (CreateOrg, AssignRole, OAT minting, etc.).
-	//
-	// Default false preserves current behavior (public org management enabled).
-	PublicOrgManagementDisabled bool
+	// TenantRegistrationMode controls public tenant onboarding/management.
+	// Empty defaults to "open". "bootstrap_only" disables public tenant
+	// mutation routes while leaving manifest/admin/bootstrap core APIs available.
+	TenantRegistrationMode RegistrationMode
 
 	// Environment is a host-provided runtime mode string used for dev/prod behavior checks.
 	// Expected values include "prod"/"production" for production, anything else is treated as non-prod.
@@ -77,39 +67,39 @@ type Config struct {
 	// the preferred path for adding custom providers.
 	ProviderDescriptors map[string]authprovider.Provider
 
-	// TokenPrefix is the issuing application's BRAND prefix for Organization
-	// Access Tokens (OATs). It is a single value per deployment (NOT per-org)
+	// ServiceTokenPrefix is the issuing application's BRAND prefix for Tenant
+	// Service Tokens (service tokens). It is a single value per deployment (NOT per-tenant)
 	// and a free brand choice by the host app — e.g. tensorhub sets "cozy" so
-	// every OAT it mints is `cozy_oat_<key_id>_<secret>`. The `_oat_` type
-	// segment is fixed and not configurable. Empty -> bare `oat_`. Must be
+	// every service token it mints is `cozy_st_<key_id>_<secret>`. The `_st_` type
+	// segment is fixed and not configurable. Empty -> bare `st_`. Must be
 	// lowercase alphanumeric, 1-16 chars. A unique app prefix lets leak
 	// scanners and push-protection partners identify the issuer at a glance.
-	TokenPrefix string
+	ServiceTokenPrefix string
 
-	// OrgAccessTokenMaxTTL caps how far in the future a minted OAT may expire.
+	// ServiceTokenMaxTTL caps how far in the future a minted service token may expire.
 	// 0 (default) means no cap (tokens may be non-expiring). When set, a
 	// requested expiry beyond now+MaxTTL — including a null/no-expiry request —
 	// is capped to now+MaxTTL at mint time.
-	OrgAccessTokenMaxTTL time.Duration
+	ServiceTokenMaxTTL time.Duration
 
-	// ResourceScopeAuthorizer optionally authorizes host-defined OAT resource
+	// ResourceScopeAuthorizer optionally authorizes host-defined service token resource
 	// scopes during HTTP minting. AuthKit validates only shape/length and stores
 	// resource Kind/ID pairs opaquely; the embedding host owns semantic
-	// no-escalation such as "may this caller mint openrails.payer_org=cozy-art".
+	// no-escalation such as "may this caller mint openrails.tenant_subject=cozy-art".
 	ResourceScopeAuthorizer ResourceScopeAuthorizer
 
 	// PermissionCatalog is the embedding application's set of valid permission
 	// strings (e.g. tensorhub's `endpoint:revise`, `repo:create`). authkit merges
-	// this with its own base permissions (the reserved `org:` namespace) to form
-	// the catalog it validates role/OAT grants against. Permissions are opaque to
+	// this with its own base permissions (the reserved `tenant:` namespace) to form
+	// the catalog it validates role/service token grants against. Permissions are opaque to
 	// authkit — it never interprets their meaning. Names must not collide with
-	// the reserved `org:` base permissions.
+	// the reserved `tenant:` base permissions.
 	PermissionCatalog []PermissionDef
 
-	// DefaultRoles are role templates seeded into every org at creation, in
+	// DefaultRoles are role templates seeded into every tenant at creation, in
 	// addition to the built-in `owner` role (which is always seeded with `*`).
-	// e.g. tensorhub declares `admin` = {"*", "!org:roles:manage",
-	// "!org:members:manage"} (everything an owner has except role + membership
+	// e.g. tensorhub declares `admin` = {"*", "!tenant:roles:manage",
+	// "!tenant:members:manage"} (everything an owner has except role + membership
 	// management). Permission tokens: a concrete permission, `*` (all), or
 	// `!perm` (exclude).
 	DefaultRoles []DefaultRole
@@ -122,7 +112,7 @@ type PermissionDef struct {
 	Description string `json:"description,omitempty"`
 }
 
-// DefaultRole is a role template seeded into every org at creation: a role name
+// DefaultRole is a role template seeded into every tenant at creation: a role name
 // and its permission set (tokens may include `*` and `!perm` exclusions).
 type DefaultRole struct {
 	Name        string   `json:"name"`
@@ -135,4 +125,11 @@ const (
 	RegistrationVerificationNone     RegistrationVerificationPolicy = "none"
 	RegistrationVerificationOptional RegistrationVerificationPolicy = "optional"
 	RegistrationVerificationRequired RegistrationVerificationPolicy = "required"
+)
+
+type RegistrationMode string
+
+const (
+	RegistrationModeOpen          RegistrationMode = "open"
+	RegistrationModeBootstrapOnly RegistrationMode = "bootstrap_only"
 )

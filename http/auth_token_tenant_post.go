@@ -22,9 +22,9 @@ func (s *Service) handleAuthTokenOrgPOST(w http.ResponseWriter, r *http.Request)
 	}
 
 	var body struct {
-		Org string `json:"org"`
+		Tenant string `json:"tenant"`
 	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Org) == "" {
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Tenant) == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -40,14 +40,14 @@ func (s *Service) handleAuthTokenOrgPOST(w http.ResponseWriter, r *http.Request)
 	if strings.TrimSpace(claims.SessionID) != "" {
 		extra["sid"] = claims.SessionID
 	}
-	token, exp, err := s.svc.IssueOrgAccessToken(r.Context(), claims.UserID, email, body.Org, extra)
+	token, exp, err := s.svc.IssueServiceToken(r.Context(), claims.UserID, email, body.Tenant, extra)
 	if err != nil {
-		if errors.Is(err, core.ErrNotOrgMember) {
-			forbidden(w, "not_org_member")
+		if errors.Is(err, core.ErrNotTenantMember) {
+			forbidden(w, "not_tenant_member")
 			return
 		}
-		if errors.Is(err, core.ErrOrgNotFound) {
-			notFound(w, "org_not_found")
+		if errors.Is(err, core.ErrTenantNotFound) {
+			notFound(w, "tenant_not_found")
 			return
 		}
 		serverErr(w, "token_issue_failed")

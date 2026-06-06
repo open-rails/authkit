@@ -25,76 +25,77 @@ func testPG(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-func TestFederatedOrgIssuerRoundTrip(t *testing.T) {
+func TestTenantIssuerRoundTrip(t *testing.T) {
 	pool := testPG(t)
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
-	t.Cleanup(func() { _ = svc.DeleteFederatedOrgIssuer(ctx, iss) })
+	t.Cleanup(func() { _ = svc.DeleteTenantIssuer(ctx, iss) })
 
 	// Upsert (insert).
-	fi, err := svc.UpsertFederatedOrgIssuer(ctx, FederatedOrgIssuer{
-		OrgSlug:  "cozy-art",
-		IssuerID: iss,
-		JWKSURL:  "https://cozy.example/.well-known/jwks.json",
+	fi, err := svc.UpsertTenantIssuer(ctx, TenantIssuer{
+		TenantSlug: "cozy-art",
+		Issuer:     iss,
+		JWKSURI:    "https://cozy.example/.well-known/jwks.json",
+		Enabled:    true,
 	})
 	if err != nil {
 		t.Fatalf("upsert insert: %v", err)
 	}
-	if fi.Status != "active" || fi.OrgSlug != "cozy-art" {
+	if !fi.Enabled || fi.TenantSlug != "cozy-art" {
 		t.Fatalf("unexpected row: %+v", fi)
 	}
 
 	// Get.
-	got, err := svc.GetFederatedOrgIssuer(ctx, iss)
+	got, err := svc.GetTenantIssuer(ctx, iss)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.IssuerID != iss || got.JWKSURL != fi.JWKSURL {
+	if got.Issuer != iss || got.JWKSURI != fi.JWKSURI {
 		t.Fatalf("get mismatch: %+v", got)
 	}
 
-	// Upsert (update jwks + status).
-	upd, err := svc.UpsertFederatedOrgIssuer(ctx, FederatedOrgIssuer{
-		OrgSlug:  "cozy-art",
-		IssuerID: iss,
-		JWKSURL:  "https://cozy.example/v2/jwks.json",
-		Status:   "inactive",
+	// Upsert (update jwks + Enabled).
+	upd, err := svc.UpsertTenantIssuer(ctx, TenantIssuer{
+		TenantSlug: "cozy-art",
+		Issuer:     iss,
+		JWKSURI:    "https://cozy.example/v2/jwks.json",
+		Enabled:    false,
 	})
 	if err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
-	if upd.JWKSURL != "https://cozy.example/v2/jwks.json" || upd.Status != "inactive" {
+	if upd.JWKSURI != "https://cozy.example/v2/jwks.json" || upd.Enabled {
 		t.Fatalf("update did not apply: %+v", upd)
 	}
 
-	// List activeOnly should exclude the now-inactive issuer.
-	active, err := svc.ListFederatedOrgIssuers(ctx, true)
+	// List enabledOnly should exclude the now-disabled issuer.
+	enabled, err := svc.ListTenantIssuers(ctx, true)
 	if err != nil {
-		t.Fatalf("list active: %v", err)
+		t.Fatalf("list enabled: %v", err)
 	}
-	for _, a := range active {
-		if a.IssuerID == iss {
-			t.Fatalf("inactive issuer should not appear in active list")
+	for _, a := range enabled {
+		if a.Issuer == iss {
+			t.Fatalf("disabled issuer should not appear in enabled list")
 		}
 	}
 
 	// Delete.
-	if err := svc.DeleteFederatedOrgIssuer(ctx, iss); err != nil {
+	if err := svc.DeleteTenantIssuer(ctx, iss); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := svc.GetFederatedOrgIssuer(ctx, iss); !errors.Is(err, ErrFederatedIssuerNotFound) {
+	if _, err := svc.GetTenantIssuer(ctx, iss); !errors.Is(err, ErrTenantIssuerNotFound) {
 		t.Fatalf("expected not-found after delete, got %v", err)
 	}
-	if err := svc.DeleteFederatedOrgIssuer(ctx, iss); !errors.Is(err, ErrFederatedIssuerNotFound) {
+	if err := svc.DeleteTenantIssuer(ctx, iss); !errors.Is(err, ErrTenantIssuerNotFound) {
 		t.Fatalf("expected not-found on second delete, got %v", err)
 	}
 }
 
-func TestUpsertFederatedOrgIssuerValidation(t *testing.T) {
+func TestUpsertTenantIssuerValidation(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}) // no PG
-	_, err := svc.UpsertFederatedOrgIssuer(context.Background(), FederatedOrgIssuer{})
+	_, err := svc.UpsertTenantIssuer(context.Background(), TenantIssuer{})
 	if err == nil {
 		t.Fatal("expected error without PG / with empty fields")
 	}

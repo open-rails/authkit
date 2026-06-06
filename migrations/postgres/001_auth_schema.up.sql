@@ -199,7 +199,7 @@ COMMENT ON TABLE profiles.two_factor_settings IS 'Two-factor authentication sett
 COMMENT ON COLUMN profiles.two_factor_settings.method IS 'Preferred 2FA method: email or sms';
 COMMENT ON COLUMN profiles.two_factor_settings.backup_codes IS 'Hashed backup codes for account recovery (10 codes)';
 
-CREATE TABLE IF NOT EXISTS profiles.orgs (
+CREATE TABLE IF NOT EXISTS profiles.tenants (
   id            uuid PRIMARY KEY DEFAULT uuidv7(),
   slug          text NOT NULL UNIQUE,
   is_personal   boolean NOT NULL DEFAULT false,
@@ -208,89 +208,89 @@ CREATE TABLE IF NOT EXISTS profiles.orgs (
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
   deleted_at    timestamptz,
-  CONSTRAINT orgs_slug_format_chk CHECK (
+  CONSTRAINT tenants_slug_format_chk CHECK (
     char_length(slug) BETWEEN 1 AND 63
     AND slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
   ),
-  CONSTRAINT orgs_personal_owner_chk CHECK (
+  CONSTRAINT tenants_personal_owner_chk CHECK (
     (is_personal = true AND owner_user_id IS NOT NULL)
     OR (is_personal = false AND owner_user_id IS NULL)
   )
 );
-CREATE UNIQUE INDEX IF NOT EXISTS orgs_owner_user_personal_uidx
-  ON profiles.orgs(owner_user_id)
+CREATE UNIQUE INDEX IF NOT EXISTS tenants_owner_user_personal_uidx
+  ON profiles.tenants(owner_user_id)
   WHERE is_personal = true AND deleted_at IS NULL;
-COMMENT ON COLUMN profiles.orgs.metadata IS 'Arbitrary org metadata (internal/admin flags such as reserved)';
+COMMENT ON COLUMN profiles.tenants.metadata IS 'Arbitrary tenant metadata (internal/admin flags such as reserved)';
 
-CREATE TABLE IF NOT EXISTS profiles.org_members (
-  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS profiles.tenant_roles (
+  tenant_id     uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
+  role       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, role),
+  CONSTRAINT tenant_roles_role_format_chk CHECK (
+    char_length(role) BETWEEN 1 AND 64
+    AND role ~ '^[a-zA-Z0-9:_-]+$'
+  )
+);
+
+CREATE TABLE IF NOT EXISTS profiles.tenant_memberships (
+  tenant_id  uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  role       text NOT NULL DEFAULT 'member',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
-  UNIQUE (org_id, user_id)
+  UNIQUE (tenant_id, user_id),
+  FOREIGN KEY (tenant_id, role) REFERENCES profiles.tenant_roles(tenant_id, role) ON DELETE CASCADE,
+  CONSTRAINT tenant_memberships_role_format_chk CHECK (
+    char_length(role) BETWEEN 1 AND 64
+    AND role ~ '^[a-zA-Z0-9:_-]+$'
+  )
 );
-CREATE INDEX IF NOT EXISTS org_members_user_id_idx
-  ON profiles.org_members (user_id)
+CREATE INDEX IF NOT EXISTS tenant_memberships_user_id_idx
+  ON profiles.tenant_memberships (user_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS tenant_memberships_tenant_role_idx
+  ON profiles.tenant_memberships (tenant_id, role)
   WHERE deleted_at IS NULL;
 
-CREATE TABLE IF NOT EXISTS profiles.org_roles (
-  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
-  role       text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (org_id, role),
-  CONSTRAINT org_roles_role_format_chk CHECK (
-    char_length(role) BETWEEN 1 AND 64
-    AND role ~ '^[a-zA-Z0-9:_-]+$'
-  )
-);
-
-CREATE TABLE IF NOT EXISTS profiles.org_member_roles (
-  org_id     uuid NOT NULL,
-  user_id    uuid NOT NULL,
-  role       text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (org_id, user_id, role),
-  FOREIGN KEY (org_id, user_id) REFERENCES profiles.org_members(org_id, user_id) ON DELETE CASCADE,
-  FOREIGN KEY (org_id, role) REFERENCES profiles.org_roles(org_id, role) ON DELETE CASCADE,
-  CONSTRAINT org_member_roles_role_format_chk CHECK (
-    char_length(role) BETWEEN 1 AND 64
-    AND role ~ '^[a-zA-Z0-9:_-]+$'
-  )
-);
-CREATE INDEX IF NOT EXISTS org_member_roles_member_idx
-  ON profiles.org_member_roles (org_id, user_id);
-CREATE INDEX IF NOT EXISTS org_member_roles_org_idx
-  ON profiles.org_member_roles (org_id);
-
--- Organization Access Tokens (OATs): long-lived, revocable bearer credentials
--- OWNED BY AN ORG (not a person), for machine/automation callers. The token is
--- `<app>oat_<key_id>_<secret>`: key_id is a NON-secret public id used for O(1)
+-- Service Tokens (service tokens): long-lived, revocable bearer credentials
+-- OWNED BY AN TENANT (not a person), for machine/automation callers. The token is
+-- `<app>st_<key_id>_<secret>`: key_id is a NON-secret public id used for O(1)
 -- indexed lookup (avoids a full-table scan + timing leak), and only the
 -- sha256(secret) is stored. `permissions` is the set of app-defined permission
 -- strings the token carries (opaque to authkit; the embedding app defines +
 -- enforces their meaning), frozen at mint time. created_by is AUDIT-only and
 -- nullable ON DELETE SET NULL so a token keeps working after its minter leaves.
-CREATE TABLE IF NOT EXISTS profiles.org_access_tokens (
+CREATE TABLE IF NOT EXISTS profiles.service_tokens (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),
-  org_id       uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  tenant_id       uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
   key_id       text NOT NULL UNIQUE,
   secret_hash  bytea NOT NULL,
   name         text NOT NULL,
-  permissions  text[] NOT NULL DEFAULT '{}',
   created_by   uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
   created_at   timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
   expires_at   timestamptz,
   revoked_at   timestamptz,
-  CONSTRAINT org_access_tokens_name_len_chk CHECK (char_length(name) BETWEEN 1 AND 128)
+  CONSTRAINT service_tokens_name_len_chk CHECK (char_length(name) BETWEEN 1 AND 128)
 );
-CREATE INDEX IF NOT EXISTS org_access_tokens_org_idx
-  ON profiles.org_access_tokens (org_id);
+CREATE INDEX IF NOT EXISTS service_tokens_tenant_idx
+  ON profiles.service_tokens (tenant_id);
 
-CREATE TABLE IF NOT EXISTS profiles.org_invites (
+CREATE TABLE IF NOT EXISTS profiles.service_token_permissions (
+  service_token_id uuid NOT NULL REFERENCES profiles.service_tokens(id) ON DELETE CASCADE,
+  permission       text NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (service_token_id, permission),
+  CONSTRAINT service_token_permissions_perm_len_chk CHECK (char_length(permission) BETWEEN 1 AND 128)
+);
+CREATE INDEX IF NOT EXISTS service_token_permissions_token_idx
+  ON profiles.service_token_permissions (service_token_id);
+
+CREATE TABLE IF NOT EXISTS profiles.tenant_invites (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
-  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  tenant_id     uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE RESTRICT,
   role       text NOT NULL DEFAULT 'member',
@@ -300,26 +300,26 @@ CREATE TABLE IF NOT EXISTS profiles.org_invites (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
-  CONSTRAINT org_invites_status_chk CHECK (status IN ('pending', 'accepted', 'declined', 'revoked', 'expired')),
-  CONSTRAINT org_invites_role_format_chk CHECK (
+  CONSTRAINT tenant_invites_status_chk CHECK (status IN ('pending', 'accepted', 'declined', 'revoked', 'expired')),
+  CONSTRAINT tenant_invites_role_format_chk CHECK (
     char_length(role) BETWEEN 1 AND 64
     AND role ~ '^[a-zA-Z0-9:_-]+$'
   ),
-  -- Role must be one the org actually defines; cascade so deleting a role
+  -- Role must be one the tenant actually defines; cascade so deleting a role
   -- clears any invites that targeted it.
-  FOREIGN KEY (org_id, role) REFERENCES profiles.org_roles(org_id, role) ON DELETE CASCADE
+  FOREIGN KEY (tenant_id, role) REFERENCES profiles.tenant_roles(tenant_id, role) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS org_invites_org_idx
-  ON profiles.org_invites(org_id)
+CREATE INDEX IF NOT EXISTS tenant_invites_tenant_idx
+  ON profiles.tenant_invites(tenant_id)
   WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS org_invites_user_idx
-  ON profiles.org_invites(user_id)
+CREATE INDEX IF NOT EXISTS tenant_invites_user_idx
+  ON profiles.tenant_invites(user_id)
   WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS org_invites_status_idx
-  ON profiles.org_invites(status)
+CREATE INDEX IF NOT EXISTS tenant_invites_status_idx
+  ON profiles.tenant_invites(status)
   WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS org_invites_pending_org_user_uidx
-  ON profiles.org_invites(org_id, user_id)
+CREATE UNIQUE INDEX IF NOT EXISTS tenant_invites_pending_tenant_user_uidx
+  ON profiles.tenant_invites(tenant_id, user_id)
   WHERE status = 'pending' AND deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS profiles.owner_reserved_names (
@@ -335,20 +335,20 @@ INSERT INTO profiles.owner_reserved_names (slug)
 VALUES ('admin'), ('superuser'), ('root'), ('sudo')
 ON CONFLICT (slug) DO NOTHING;
 
-CREATE TABLE IF NOT EXISTS profiles.org_renames (
+CREATE TABLE IF NOT EXISTS profiles.tenant_renames (
   id         bigserial PRIMARY KEY,
-  org_id     uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,
+  tenant_id     uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
   from_slug  text NOT NULL,
   renamed_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT org_renames_from_slug_format_chk CHECK (
+  CONSTRAINT tenant_renames_from_slug_format_chk CHECK (
     from_slug = lower(from_slug)
     AND from_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
   )
 );
-CREATE INDEX IF NOT EXISTS org_renames_from_renamed_idx
-  ON profiles.org_renames (from_slug, renamed_at DESC);
-CREATE INDEX IF NOT EXISTS org_renames_org_idx
-  ON profiles.org_renames (org_id, renamed_at DESC);
+CREATE INDEX IF NOT EXISTS tenant_renames_from_renamed_idx
+  ON profiles.tenant_renames (from_slug, renamed_at DESC);
+CREATE INDEX IF NOT EXISTS tenant_renames_tenant_idx
+  ON profiles.tenant_renames (tenant_id, renamed_at DESC);
 
 CREATE TABLE IF NOT EXISTS profiles.user_renames (
   id         bigserial PRIMARY KEY,
@@ -365,40 +365,37 @@ CREATE INDEX IF NOT EXISTS user_renames_from_renamed_idx
 CREATE INDEX IF NOT EXISTS user_renames_user_idx
   ON profiles.user_renames (user_id, renamed_at DESC);
 
--- Federated-org issuer registry.
+-- Tenant issuer registry.
 --
--- A federated org "brings its own" users that authenticate via the org's OWN
--- issuer (not local passwords). The org registers its issuer URL + JWKS URL
--- here; a resource-server-side AuthKit then trusts delegated tokens minted by
--- that issuer (carrying `delegated_sub`). This table is the resource-server's
--- store of accepted federated issuers — it replaces a bespoke per-app table
--- (e.g. tensorhub's `platform_issuers`). The Verifier loads `active` rows from
--- here and registers each as a trusted issuer (with the org's JWKS URL), so its
--- existing in-house JWKS fetch/refresh handles federated keys with NO external
--- push/sync.
-CREATE TABLE IF NOT EXISTS profiles.federated_org_issuers (
+-- A tenant brings its own users that authenticate via the tenant's OIDC issuer
+-- rather than local passwords. AuthKit stores the issuer URL and jwks_uri; the
+-- verifier fetches and refreshes JWKS from that URI.
+CREATE TABLE IF NOT EXISTS profiles.tenant_issuers (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
-  -- Org identity as presented by the registering platform. `org_slug` is the
-  -- tenant slug carried in delegated tokens (`org`/`tenant`); it is NOT a FK to
-  -- profiles.orgs because a federated org lives in the remote platform, not
-  -- locally.
-  org_slug   text NOT NULL,
-  -- issuer_id is the `iss` URL the federated platform signs delegated tokens
-  -- with; it is the trust anchor and is globally unique.
-  issuer_id  text NOT NULL UNIQUE,
-  jwks_url   text NOT NULL,
-  status     text NOT NULL DEFAULT 'active',
+  tenant_id  uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
+  issuer     text NOT NULL,
+  jwks_uri   text NOT NULL,
+  audiences  text[] NOT NULL DEFAULT '{}',
+  enabled    boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT federated_org_issuers_status_chk CHECK (status IN ('active', 'inactive')),
-  CONSTRAINT federated_org_issuers_org_slug_format_chk CHECK (
-    char_length(org_slug) BETWEEN 1 AND 63
-    AND org_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
-  )
+  UNIQUE (tenant_id, issuer)
 );
-CREATE INDEX IF NOT EXISTS federated_org_issuers_org_slug_idx
-  ON profiles.federated_org_issuers (org_slug);
-CREATE INDEX IF NOT EXISTS federated_org_issuers_status_idx
-  ON profiles.federated_org_issuers (status)
-  WHERE status = 'active';
-COMMENT ON TABLE profiles.federated_org_issuers IS 'Registry of trusted federated-org issuers (delegated-token federation). Resource-server side.';
+CREATE INDEX IF NOT EXISTS tenant_issuers_tenant_idx
+  ON profiles.tenant_issuers (tenant_id);
+CREATE INDEX IF NOT EXISTS tenant_issuers_enabled_idx
+  ON profiles.tenant_issuers (enabled)
+  WHERE enabled = true;
+COMMENT ON TABLE profiles.tenant_issuers IS 'Registry of trusted tenant-owned OIDC issuers for delegated access tokens.';
+
+CREATE TABLE IF NOT EXISTS profiles.delegated_users (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  tenant_id    uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
+  issuer       text NOT NULL,
+  subject      text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, issuer, subject)
+);
+CREATE INDEX IF NOT EXISTS delegated_users_tenant_idx
+  ON profiles.delegated_users (tenant_id);

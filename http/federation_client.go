@@ -11,74 +11,74 @@ import (
 	"strings"
 )
 
-// FederationClient publishes THIS org's issuer registration to a resource
+// TenantIssuersClient publishes THIS tenant's issuer registration to a resource
 // server's inbound accept endpoint. It is the OUTBOUND (send-side) half of the
 // AuthKit-owned federation handshake — the platform/IdP side (e.g. cozy-art)
 // uses it to tell a resource server (e.g. tensorhub) "trust delegated tokens I
 // mint with this issuer + JWKS URL". The resource server's
-// handleFederatedIssuerRegisterPOST stores the registration.
-type FederationClient struct {
+// handleTenantIssuerRegisterPOST stores the registration.
+type TenantIssuersClient struct {
 	httpClient *http.Client
 	// AuthToken, when set, is sent as a Bearer token on the registration
-	// request. The accept endpoint authorizes by org owner/admin, so this must
-	// be an access token for a user who owns the org being registered.
+	// request. The accept endpoint authorizes by tenant owner/admin, so this must
+	// be an service token for a user who owns the tenant being registered.
 	authToken string
 }
 
-// FederationClientOption configures a FederationClient.
-type FederationClientOption func(*FederationClient)
+// TenantIssuersClientOption configures a TenantIssuersClient.
+type TenantIssuersClientOption func(*TenantIssuersClient)
 
-// WithFederationHTTPClient sets the HTTP client used for registration calls.
-func WithFederationHTTPClient(c *http.Client) FederationClientOption {
-	return func(fc *FederationClient) {
+// WithTenantIssuersHTTPClient sets the HTTP client used for registration calls.
+func WithTenantIssuersHTTPClient(c *http.Client) TenantIssuersClientOption {
+	return func(fc *TenantIssuersClient) {
 		if c != nil {
 			fc.httpClient = c
 		}
 	}
 }
 
-// WithFederationAuthToken sets the Bearer token used to authenticate to the
-// resource server's accept endpoint (owner/admin of the org being registered).
-func WithFederationAuthToken(token string) FederationClientOption {
-	return func(fc *FederationClient) { fc.authToken = strings.TrimSpace(token) }
+// WithTenantIssuersAuthToken sets the Bearer token used to authenticate to the
+// resource server's accept endpoint (owner/admin of the tenant being registered).
+func WithTenantIssuersAuthToken(token string) TenantIssuersClientOption {
+	return func(fc *TenantIssuersClient) { fc.authToken = strings.TrimSpace(token) }
 }
 
-// NewFederationClient creates a FederationClient.
-func NewFederationClient(opts ...FederationClientOption) *FederationClient {
-	fc := &FederationClient{httpClient: http.DefaultClient}
+// NewTenantIssuersClient creates a TenantIssuersClient.
+func NewTenantIssuersClient(opts ...TenantIssuersClientOption) *TenantIssuersClient {
+	fc := &TenantIssuersClient{httpClient: http.DefaultClient}
 	for _, o := range opts {
 		o(fc)
 	}
 	return fc
 }
 
-// FederationRegistration is the payload published to a resource server.
-type FederationRegistration struct {
-	// Org is this issuer's resource account slug on the receiving service.
-	Org string
-	// IssuerID is THIS platform's issuer URL (the `iss` of delegated tokens).
-	IssuerID string
-	// JWKSURL is where the resource server fetches THIS platform's public keys.
-	JWKSURL string
+// TenantIssuersRegistration is the payload published to a resource server.
+type TenantIssuersRegistration struct {
+	// Tenant is this issuer's resource account slug on the receiving service.
+	Tenant string
+	// Issuer is THIS platform's issuer URL (the `iss` of delegated tokens).
+	Issuer string
+	// JWKSURI is where the resource server fetches THIS platform's public keys.
+	JWKSURI string
 }
 
-// RegisterIssuer POSTs this org's issuer registration to the resource server's
+// RegisterIssuer POSTs this tenant's issuer registration to the resource server's
 // accept endpoint (acceptURL is the fully-qualified URL of the inbound
-// handler, e.g. "https://tensorhub.example/api/v1/federated-issuers"). It
+// handler, e.g. "https://tensorhub.example/api/v1/tenant-issuers"). It
 // returns an error for non-2xx responses.
-func (fc *FederationClient) RegisterIssuer(ctx context.Context, acceptURL string, reg FederationRegistration) error {
+func (fc *TenantIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string, reg TenantIssuersRegistration) error {
 	acceptURL = strings.TrimSpace(acceptURL)
 	if acceptURL == "" {
 		return errors.New("accept URL required")
 	}
-	if strings.TrimSpace(reg.Org) == "" || strings.TrimSpace(reg.IssuerID) == "" || strings.TrimSpace(reg.JWKSURL) == "" {
-		return errors.New("org, issuer_id and jwks_url are required")
+	if strings.TrimSpace(reg.Tenant) == "" || strings.TrimSpace(reg.Issuer) == "" || strings.TrimSpace(reg.JWKSURI) == "" {
+		return errors.New("tenant, issuer and jwks_uri are required")
 	}
 
-	payload := federatedIssuerRegistration{
-		Org:      strings.TrimSpace(reg.Org),
-		IssuerID: strings.TrimSpace(reg.IssuerID),
-		JWKSURL:  strings.TrimSpace(reg.JWKSURL),
+	payload := tenantIssuerRegistration{
+		Tenant:  strings.TrimSpace(reg.Tenant),
+		Issuer:  strings.TrimSpace(reg.Issuer),
+		JWKSURI: strings.TrimSpace(reg.JWKSURI),
 	}
 	buf, err := json.Marshal(payload)
 	if err != nil {

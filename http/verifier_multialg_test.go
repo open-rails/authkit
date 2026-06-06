@@ -16,7 +16,7 @@ import (
 	authkittesting "github.com/open-rails/authkit/testing"
 )
 
-func TestVerifierAcceptsES256FederatedIssuer(t *testing.T) {
+func TestVerifierAcceptsES256TenantIssuer(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestVerifierAcceptsES256FederatedIssuer(t *testing.T) {
 
 	v := NewVerifier(WithSkew(5 * time.Second))
 	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, IssuerOptions{
-		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestVerifierAcceptsES256FederatedIssuer(t *testing.T) {
 	}
 }
 
-func TestVerifierAcceptsEdDSAFederatedIssuer(t *testing.T) {
+func TestVerifierAcceptsEdDSATenantIssuer(t *testing.T) {
 	signer, err := jwtkit.NewEd25519Signer("ed-kid")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestVerifierAcceptsEdDSAFederatedIssuer(t *testing.T) {
 
 	v := NewVerifier(WithSkew(5 * time.Second))
 	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, IssuerOptions{
-		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	}); err != nil {
 		t.Fatal(err)
 	}

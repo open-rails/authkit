@@ -17,18 +17,18 @@ func TestPasswordLogin_OrgParamRejectedInSingleMode(t *testing.T) {
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
 		BaseURL:                  "https://example.com",
-		OrgMode:                  "single",
+		TenantMode:               "single",
 		RegistrationVerification: core.RegistrationVerificationNone,
 	}
 	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"login":"x","password":"y","org":"acme"}`))
+	r := httptest.NewRequest(http.MethodPost, "/password/login", strings.NewReader(`{"login":"x","password":"y","tenant":"acme"}`))
 	r.Header.Set("Content-Type", "application/json")
 	svc.APIHandler().ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.JSONEq(t, `{"error":"org_not_supported"}`, w.Body.String())
+	require.JSONEq(t, `{"error":"tenant_not_supported"}`, w.Body.String())
 }
 
 func TestAuthToken_OrgParamRejectedInSingleMode(t *testing.T) {
@@ -37,16 +37,16 @@ func TestAuthToken_OrgParamRejectedInSingleMode(t *testing.T) {
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
 		BaseURL:                  "https://example.com",
-		OrgMode:                  "single",
+		TenantMode:               "single",
 		RegistrationVerification: core.RegistrationVerificationNone,
 	}
 	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(`{"grant_type":"refresh_token","refresh_token":"x","org":"acme"}`))
+	r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(`{"grant_type":"refresh_token","refresh_token":"x","tenant":"acme"}`))
 	r.Header.Set("Content-Type", "application/json")
 	svc.APIHandler().ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.JSONEq(t, `{"error":"org_not_supported"}`, w.Body.String())
+	require.JSONEq(t, `{"error":"tenant_not_supported"}`, w.Body.String())
 }

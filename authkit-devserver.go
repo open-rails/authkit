@@ -32,12 +32,12 @@ type config struct {
 	IssuedAudiences          []string
 	ExpectedAudiences        []string
 	Environment              string
-	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
+	// Tenant/RBAC knobs. Default to authkit's zero values (single-tenant, no
 	// catalog) so existing deployments are unaffected; the e2e suite sets
-	// these to exercise the multi-org OAT/RBAC surface against a real server.
-	OrgMode           string
-	TokenPrefix       string
-	PermissionCatalog []string
+	// these to exercise the multi-tenant service token/RBAC surface against a real server.
+	TenantMode         string
+	ServiceTokenPrefix string
+	PermissionCatalog  []string
 }
 
 func main() {
@@ -80,8 +80,8 @@ func loadConfig() (*config, error) {
 		ExpectedAudiences:        expectedAudiences,
 		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
 		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
-		OrgMode:                  strings.TrimSpace(envOr("DEVSERVER_ORG_MODE", "")),
-		TokenPrefix:              strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
+		TenantMode:               strings.TrimSpace(envOr("DEVSERVER_ORG_MODE", "")),
+		ServiceTokenPrefix:       strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
 		PermissionCatalog:        parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
 	}
 	if c.Issuer == "" {
@@ -128,8 +128,8 @@ func runServe(cfg *config) error {
 		Keys:                     keySource,
 		Environment:              cfg.Environment,
 		RegistrationVerification: cfg.RegistrationVerification,
-		OrgMode:                  cfg.OrgMode,
-		TokenPrefix:              cfg.TokenPrefix,
+		TenantMode:               cfg.TenantMode,
+		ServiceTokenPrefix:       cfg.ServiceTokenPrefix,
 		PermissionCatalog:        toPermissionDefs(cfg.PermissionCatalog),
 	})
 	if err != nil {
@@ -155,7 +155,7 @@ func runServe(cfg *config) error {
 			devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret).ServeHTTP(w, r)
 			return
 		}
-		// Dev-only: reflect the authenticated principal (user OR service/OAT)
+		// Dev-only: reflect the authenticated principal (user OR service/service token)
 		// so E2E tests can assert how a token resolved through the real verifier.
 		if cfg.DevMode && r.Method == http.MethodGet && r.URL.Path == apiPrefix+"/dev/whoami" {
 			devWhoamiHandler(svc).ServeHTTP(w, r)
@@ -260,8 +260,8 @@ func toPermissionDefs(names []string) []core.PermissionDef {
 }
 
 // devWhoamiHandler reflects the authenticated principal as resolved by the real
-// verifier (JWT user OR branded service/OAT token), behind the standard auth
-// middleware. Dev-only; used by the RBAC E2E suite to assert OAT resolution.
+// verifier (JWT user OR branded service/service token token), behind the standard auth
+// middleware. Dev-only; used by the RBAC E2E suite to assert service token resolution.
 func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 	reflect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, ok := authhttp.ClaimsFromContext(r.Context())
@@ -270,7 +270,7 @@ func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"org":         cl.Org,
+			"tenant":      cl.Tenant,
 			"permissions": cl.Permissions,
 			"is_service":  cl.IsService(),
 			"user_id":     cl.UserID,

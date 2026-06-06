@@ -13,13 +13,13 @@ func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
-	if orgSlug == "" || targetUserID == "" {
+	if tenantSlug == "" || targetUserID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
 	if !gateOK {
 		return
 	}
@@ -37,13 +37,13 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
-	if orgSlug == "" || targetUserID == "" {
+	if tenantSlug == "" || targetUserID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
 	if !gateOK {
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 	}
 	// NO-ESCALATION: assigning a role grants its permissions, so the assigner
 	// must hold every permission the role confers (owner=`*`/global-admin pass).
-	// This is what keeps a member with org:members:manage from granting the
+	// This is what keeps a member with tenant:members:manage from granting the
 	// `owner` role (which is `*`) and escalating.
 	rolePerms, err := s.svc.EffectiveRolePermissions(r.Context(), canonical, body.Role)
 	if err != nil {
@@ -83,13 +83,13 @@ func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Requ
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
-	if orgSlug == "" || targetUserID == "" {
+	if tenantSlug == "" || targetUserID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
 	if !gateOK {
 		return
 	}
@@ -101,7 +101,7 @@ func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := s.svc.UnassignRole(r.Context(), canonical, targetUserID, body.Role); err != nil {
-		if err == core.ErrLastOrgOwner {
+		if err == core.ErrLastTenantOwner {
 			badRequest(w, "cannot_remove_last_owner")
 			return
 		}

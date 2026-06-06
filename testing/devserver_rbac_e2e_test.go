@@ -13,22 +13,22 @@ import (
 	"time"
 )
 
-// TestDevserverRBACE2E exercises the org RBAC / OAT surface (authkit #46)
-// against the REAL devserver binary running in multi-org mode with an app
+// TestDevserverRBACE2E exercises the tenant RBAC / service token surface (authkit #46)
+// against the REAL devserver binary running in multi-tenant mode with an app
 // permission catalog, over real HTTP and a real Postgres. It is the realistic
-// replacement for the former in-process http/*_db_test.go suite: org/role/
+// replacement for the former in-process http/*_db_test.go suite: tenant/role/
 // member/permission state is seeded via psql (no public bootstrap route exists
 // for arbitrary state), and every assertion goes through the running server's
 // verifier, middleware, and handlers.
 //
 // The devserver is configured via the override below:
-//   - DEVSERVER_ORG_MODE=multi          -> mounts the /orgs/... route group
-//   - DEVSERVER_TOKEN_PREFIX=cozy        -> OATs are "cozy_oat_..." branded tokens
+//   - DEVSERVER_ORG_MODE=multi          -> mounts the /tenants/... route group
+//   - DEVSERVER_TOKEN_PREFIX=cozy        -> service tokens are "cozy_st_..." branded tokens
 //   - DEVSERVER_PERMISSION_CATALOG=...   -> app permissions the catalog accepts
 //
 // User tokens come from the dev mint endpoint; global-admin is asserted via the
-// minted token's global_roles claim (the OAT-mint bypass is token-based), while
-// org membership/roles/permissions are resolved from the DB.
+// minted token's global_roles claim (the service token-mint bypass is token-based), while
+// tenant membership/roles/permissions are resolved from the DB.
 func TestDevserverRBACE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e in -short")
@@ -90,7 +90,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 		return strings.TrimSpace(c.run(t, args...))
 	}
 
-	// mint returns a user access token via the dev mint endpoint. Pass
+	// mint returns a user service token via the dev mint endpoint. Pass
 	// globalRoles to populate the global_roles claim (e.g. "admin").
 	mint := func(t *testing.T, sub string, globalRoles ...string) string {
 		t.Helper()
@@ -148,59 +148,59 @@ func TestDevserverRBACE2E(t *testing.T) {
 		}
 	}
 
-	// --- seeding helpers (mirror the former oatTestEnv) ---
+	// --- seeding helpers (mirror the former service tokenTestEnv) ---
 
 	addUser := func(t *testing.T, username string) string {
 		t.Helper()
 		return execSQL(t, fmt.Sprintf(
 			"INSERT INTO profiles.users (username) VALUES (%s) RETURNING id::text;", sqlStr(username)))
 	}
-	seedRole := func(t *testing.T, orgID, role string, perms ...string) {
+	seedRole := func(t *testing.T, tenantID, role string, perms ...string) {
 		t.Helper()
 		sql := fmt.Sprintf(
-			"INSERT INTO profiles.org_roles (org_id, role) VALUES (%s::uuid, %s) ON CONFLICT DO NOTHING;",
-			sqlStr(orgID), sqlStr(role))
+			"INSERT INTO profiles.tenant_roles (tenant_id, role) VALUES (%s::uuid, %s) ON CONFLICT DO NOTHING;",
+			sqlStr(tenantID), sqlStr(role))
 		for _, p := range perms {
 			sql += fmt.Sprintf(
-				" INSERT INTO profiles.org_role_permissions (org_id, role, permission) VALUES (%s::uuid, %s, %s) ON CONFLICT DO NOTHING;",
-				sqlStr(orgID), sqlStr(role), sqlStr(p))
+				" INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission) VALUES (%s::uuid, %s, %s) ON CONFLICT DO NOTHING;",
+				sqlStr(tenantID), sqlStr(role), sqlStr(p))
 		}
 		execSQL(t, sql)
 	}
-	addMember := func(t *testing.T, orgID, userID string, roles ...string) {
+	addMember := func(t *testing.T, tenantID, userID string, roles ...string) {
 		t.Helper()
 		sql := fmt.Sprintf(
-			"INSERT INTO profiles.org_members (org_id, user_id) VALUES (%s::uuid, %s::uuid) ON CONFLICT DO NOTHING;",
-			sqlStr(orgID), sqlStr(userID))
+			"INSERT INTO profiles.tenant_memberships (tenant_id, user_id) VALUES (%s::uuid, %s::uuid) ON CONFLICT DO NOTHING;",
+			sqlStr(tenantID), sqlStr(userID))
 		for _, role := range roles {
 			sql += fmt.Sprintf(
-				" INSERT INTO profiles.org_member_roles (org_id, user_id, role) VALUES (%s::uuid, %s::uuid, %s) ON CONFLICT DO NOTHING;",
-				sqlStr(orgID), sqlStr(userID), sqlStr(role))
+				" INSERT INTO profiles.tenant_membership_roles (tenant_id, user_id, role) VALUES (%s::uuid, %s::uuid, %s) ON CONFLICT DO NOTHING;",
+				sqlStr(tenantID), sqlStr(userID), sqlStr(role))
 		}
 		execSQL(t, sql)
 	}
-	// newOrg creates a fresh org and seeds the standard role set used across the
+	// newTenant creates a fresh tenant and seeds the standard role set used across the
 	// ported suite: owner=`*`, deployer, tokenmgr, tokenmgr-noread.
-	newOrg := func(t *testing.T) (slug, id string) {
+	newTenant := func(t *testing.T) (slug, id string) {
 		t.Helper()
-		slug = fmt.Sprintf("oat-e2e-%d", time.Now().UnixNano())
+		slug = fmt.Sprintf("service token-e2e-%d", time.Now().UnixNano())
 		id = execSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.orgs (slug) VALUES (%s) RETURNING id::text;", sqlStr(slug)))
+			"INSERT INTO profiles.tenants (slug) VALUES (%s) RETURNING id::text;", sqlStr(slug)))
 		seedRole(t, id, "owner", "*")
 		seedRole(t, id, "deployer", "endpoint:deploy")
-		seedRole(t, id, "tokenmgr", "org:tokens:manage", "endpoint:deploy", "org:read")
-		seedRole(t, id, "tokenmgr-noread", "org:tokens:manage", "endpoint:deploy")
+		seedRole(t, id, "tokenmgr", "tenant:service_tokens:manage", "endpoint:deploy", "tenant:read")
+		seedRole(t, id, "tokenmgr-noread", "tenant:service_tokens:manage", "endpoint:deploy")
 		return slug, id
 	}
 
 	// ---------------------------------------------------------------------
-	// Ported from http/org_access_tokens_db_test.go
+	// Ported from http/service_tokens_db_test.go
 	// ---------------------------------------------------------------------
 
-	t.Run("OAT_lifecycle", func(t *testing.T) {
-		slug, id := newOrg(t)
-		base := "/orgs/" + slug + "/access-tokens"
-		owner := addUser(t, "oat-owner-"+slug)
+	t.Run("service token_lifecycle", func(t *testing.T) {
+		slug, id := newTenant(t)
+		base := "/tenants/" + slug + "/service-tokens"
+		owner := addUser(t, "service token-owner-"+slug)
 		addMember(t, id, owner, "owner")
 		ownerJWT := mint(t, owner)
 
@@ -213,25 +213,25 @@ func TestDevserverRBACE2E(t *testing.T) {
 			Permissions []string `json:"permissions"`
 		}
 		decode(t, body, &minted)
-		has(t, minted.Token, "cozy_oat_")
+		has(t, minted.Token, "cozy_st_")
 		has(t, body, "endpoint:deploy")
 		has(t, body, "endpoint:read")
 
-		// OAT authenticates as the org with its permissions (service principal).
+		// service token authenticates as the tenant with its permissions (service principal).
 		code, body = req(t, http.MethodGet, "/dev/whoami", minted.Token, "")
 		mustCode(t, http.StatusOK, code, body)
 		var who struct {
-			Org         string   `json:"org"`
+			Tenant      string   `json:"tenant"`
 			Permissions []string `json:"permissions"`
 			IsService   bool     `json:"is_service"`
 			UserID      string   `json:"user_id"`
 		}
 		decode(t, body, &who)
-		if who.Org != slug {
-			t.Fatalf("whoami org=%q want %q", who.Org, slug)
+		if who.Tenant != slug {
+			t.Fatalf("whoami tenant=%q want %q", who.Tenant, slug)
 		}
 		if !who.IsService {
-			t.Fatalf("whoami is_service=false, want true for an OAT")
+			t.Fatalf("whoami is_service=false, want true for a service token")
 		}
 		if who.UserID != "" {
 			t.Fatalf("whoami user_id=%q, want empty for a service principal", who.UserID)
@@ -239,11 +239,11 @@ func TestDevserverRBACE2E(t *testing.T) {
 		has(t, body, "endpoint:deploy")
 		has(t, body, "endpoint:read")
 
-		// An OAT cannot mint another OAT (management requires a real user).
+		// A service token cannot mint another service token (management requires a real user).
 		code, body = req(t, http.MethodPost, base, minted.Token, `{"name":"x","permissions":["endpoint:deploy"]}`)
 		mustCode(t, http.StatusUnauthorized, code, body)
 
-		// Revoke -> the OAT stops working -> deleting again is 404.
+		// Revoke -> the service token stops working -> deleting again is 404.
 		code, body = req(t, http.MethodDelete, base+"/"+minted.ID, ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
 		code, body = req(t, http.MethodGet, "/dev/whoami", minted.Token, "")
@@ -253,15 +253,15 @@ func TestDevserverRBACE2E(t *testing.T) {
 		mustCode(t, http.StatusNotFound, code, body)
 	})
 
-	t.Run("OAT_mint_authorization", func(t *testing.T) {
-		slug, id := newOrg(t)
-		base := "/orgs/" + slug + "/access-tokens"
-		deployer := addUser(t, "oat-deployer-"+slug)
-		addMember(t, id, deployer, "deployer") // endpoint:deploy, NOT org:tokens:manage
-		tokenmgr := addUser(t, "oat-tokenmgr-"+slug)
-		addMember(t, id, tokenmgr, "tokenmgr") // org:tokens:manage + endpoint:deploy + org:read
+	t.Run("service token_mint_authorization", func(t *testing.T) {
+		slug, id := newTenant(t)
+		base := "/tenants/" + slug + "/service-tokens"
+		deployer := addUser(t, "service token-deployer-"+slug)
+		addMember(t, id, deployer, "deployer") // endpoint:deploy, NOT tenant:service_tokens:manage
+		tokenmgr := addUser(t, "service token-tokenmgr-"+slug)
+		addMember(t, id, tokenmgr, "tokenmgr") // tenant:service_tokens:manage + endpoint:deploy + tenant:read
 
-		// caller without org:tokens:manage cannot mint
+		// caller without tenant:service_tokens:manage cannot mint
 		code, body := req(t, http.MethodPost, base, mint(t, deployer), `{"name":"x","permissions":["endpoint:deploy"]}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "forbidden")
@@ -281,55 +281,55 @@ func TestDevserverRBACE2E(t *testing.T) {
 		mustCode(t, http.StatusBadRequest, code, body)
 		has(t, body, "unknown_permission")
 
-		// reserved write/mint org:* perms are never grantable to an OAT
-		for _, p := range []string{"org:roles:manage", "org:members:manage", "org:tokens:manage"} {
+		// reserved write/mint tenant:* perms are never grantable to a service token
+		for _, p := range []string{"tenant:roles:manage", "tenant:members:manage", "tenant:service_tokens:manage"} {
 			code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["`+p+`"]}`)
 			mustCode(t, http.StatusForbidden, code, body)
-			has(t, body, "permission_not_grantable_to_oat")
+			has(t, body, "permission_not_grantable_to_service_token")
 		}
 
-		// read-only org:read IS grantable to an OAT
-		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"audit-bot","permissions":["org:read"]}`)
+		// read-only tenant:read IS grantable to a service token
+		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"audit-bot","permissions":["tenant:read"]}`)
 		mustCode(t, http.StatusCreated, code, body)
-		has(t, body, "org:read")
+		has(t, body, "tenant:read")
 
-		// org:read still subject to no-escalation (noread lacks it)
-		noread := addUser(t, "oat-noread-"+slug)
+		// tenant:read still subject to no-escalation (noread lacks it)
+		noread := addUser(t, "service token-noread-"+slug)
 		addMember(t, id, noread, "tokenmgr-noread")
-		code, body = req(t, http.MethodPost, base, mint(t, noread), `{"name":"x","permissions":["org:read"]}`)
+		code, body = req(t, http.MethodPost, base, mint(t, noread), `{"name":"x","permissions":["tenant:read"]}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "permission_grant_denied")
 
-		// wildcard not grantable to an OAT
+		// wildcard not grantable to a service token
 		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["*"]}`)
 		mustCode(t, http.StatusForbidden, code, body)
-		has(t, body, "permission_not_grantable_to_oat")
+		has(t, body, "permission_not_grantable_to_service_token")
 
 		// global admin (asserted via the token's global_roles claim) may mint any catalog permission
-		admin := addUser(t, "oat-gadmin-"+slug)
+		admin := addUser(t, "service token-gadmin-"+slug)
 		code, body = req(t, http.MethodPost, base, mint(t, admin, "admin"), `{"name":"ops","permissions":["endpoint:deploy","endpoint:read","repo:read"]}`)
 		mustCode(t, http.StatusCreated, code, body)
 	})
 
 	// ---------------------------------------------------------------------
-	// Ported from http/org_member_roles_db_test.go
+	// Ported from http/tenant_membership_roles_db_test.go
 	// ---------------------------------------------------------------------
 
 	t.Run("member_roles_gating_and_no_escalation", func(t *testing.T) {
-		slug, id := newOrg(t)
+		slug, id := newTenant(t)
 		owner := addUser(t, "mr-owner-"+slug)
 		addMember(t, id, owner, "owner")
 		ownerJWT := mint(t, owner)
 
-		seedRole(t, id, "memmgr", "org:members:manage", "endpoint:deploy")
+		seedRole(t, id, "memmgr", "tenant:members:manage", "endpoint:deploy")
 		memmgr := addUser(t, "mr-memmgr-"+slug)
 		addMember(t, id, memmgr, "memmgr")
 
 		target := addUser(t, "mr-target-"+slug)
 		addMember(t, id, target, "deployer")
-		rolesPath := "/orgs/" + slug + "/members/" + target + "/roles"
+		rolesPath := "/tenants/" + slug + "/members/" + target + "/roles"
 
-		// non-manager (target/deployer lacks org:members:manage) cannot assign
+		// non-manager (target/deployer lacks tenant:members:manage) cannot assign
 		code, body := req(t, http.MethodPost, rolesPath, mint(t, target), `{"role":"deployer"}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "forbidden")
@@ -349,30 +349,30 @@ func TestDevserverRBACE2E(t *testing.T) {
 
 		// manager can add a member
 		newbie := addUser(t, "mr-newbie-"+slug)
-		code, body = req(t, http.MethodPost, "/orgs/"+slug+"/members", mint(t, memmgr), `{"user_id":"`+newbie+`"}`)
+		code, body = req(t, http.MethodPost, "/tenants/"+slug+"/members", mint(t, memmgr), `{"user_id":"`+newbie+`"}`)
 		mustCode(t, http.StatusOK, code, body)
 	})
 
 	// ---------------------------------------------------------------------
-	// Ported from http/org_role_permissions_db_test.go
+	// Ported from http/tenant_role_permissions_db_test.go
 	// ---------------------------------------------------------------------
 
 	t.Run("role_permissions_management", func(t *testing.T) {
-		slug, id := newOrg(t)
+		slug, id := newTenant(t)
 		owner := addUser(t, "rp-owner-"+slug)
 		addMember(t, id, owner, "owner")
 		ownerJWT := mint(t, owner)
 
-		seedRole(t, id, "rolemgr", "org:roles:manage", "endpoint:deploy") // NOT endpoint:read
+		seedRole(t, id, "rolemgr", "tenant:roles:manage", "endpoint:deploy") // NOT endpoint:read
 		rolemgr := addUser(t, "rp-rolemgr-"+slug)
 		addMember(t, id, rolemgr, "rolemgr")
 
-		rolePath := func(role string) string { return "/orgs/" + slug + "/roles/" + role }
+		rolePath := func(role string) string { return "/tenants/" + slug + "/roles/" + role }
 
 		// catalog = base UNION app
 		code, body := req(t, http.MethodGet, "/permissions", ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
-		has(t, body, "org:roles:manage")
+		has(t, body, "tenant:roles:manage")
 		has(t, body, "endpoint:deploy")
 
 		// owner sets a role's permissions, then reads them back
@@ -406,7 +406,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 		mustCode(t, http.StatusBadRequest, code, body)
 		has(t, body, "unknown_permission")
 
-		// caller without org:roles:manage cannot edit role permissions
+		// caller without tenant:roles:manage cannot edit role permissions
 		dep := addUser(t, "rp-dep-"+slug)
 		addMember(t, id, dep, "deployer")
 		code, body = req(t, http.MethodPut, rolePath("deployer"), mint(t, dep), `{"permissions":["endpoint:deploy"]}`)
@@ -424,10 +424,10 @@ func TestDevserverRBACE2E(t *testing.T) {
 		mustCode(t, http.StatusOK, code, body)
 
 		// member effective permissions (owner = all catalog via *)
-		code, body = req(t, http.MethodGet, "/orgs/"+slug+"/members/"+owner+"/permissions", ownerJWT, "")
+		code, body = req(t, http.MethodGet, "/tenants/"+slug+"/members/"+owner+"/permissions", ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
 		has(t, body, "endpoint:deploy")
-		has(t, body, "org:roles:manage")
+		has(t, body, "tenant:roles:manage")
 	})
 
 	// ---------------------------------------------------------------------
@@ -435,7 +435,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 	// ---------------------------------------------------------------------
 
 	t.Run("rbac_introspection", func(t *testing.T) {
-		slug, id := newOrg(t)
+		slug, id := newTenant(t)
 		owner := addUser(t, "intro-owner-"+slug)
 		addMember(t, id, owner, "owner")
 		ownerJWT := mint(t, owner)
@@ -444,10 +444,10 @@ func TestDevserverRBACE2E(t *testing.T) {
 		addMember(t, id, dep, "deployer")
 		depJWT := mint(t, dep)
 
-		org := "/orgs/" + slug
+		tenant := "/tenants/" + slug
 
-		// self GET /me returns roles + permissions without org:read
-		code, body := req(t, http.MethodGet, org+"/me", depJWT, "")
+		// self GET /me returns roles + permissions without tenant:read
+		code, body := req(t, http.MethodGet, tenant+"/me", depJWT, "")
 		mustCode(t, http.StatusOK, code, body)
 		var me struct {
 			Roles       []string `json:"roles"`
@@ -463,11 +463,11 @@ func TestDevserverRBACE2E(t *testing.T) {
 
 		// non-member /me is forbidden
 		stranger := addUser(t, "intro-stranger-"+slug)
-		code, body = req(t, http.MethodGet, org+"/me", mint(t, stranger), "")
+		code, body = req(t, http.MethodGet, tenant+"/me", mint(t, stranger), "")
 		mustCode(t, http.StatusForbidden, code, body)
 
 		// permission check (self): granted subset only
-		code, body = req(t, http.MethodPost, org+"/permissions/check", depJWT, `{"permissions":["endpoint:deploy","endpoint:read","repo:read"]}`)
+		code, body = req(t, http.MethodPost, tenant+"/permissions/check", depJWT, `{"permissions":["endpoint:deploy","endpoint:read","repo:read"]}`)
 		mustCode(t, http.StatusOK, code, body)
 		var chk struct {
 			Granted []string `json:"granted"`
@@ -477,12 +477,12 @@ func TestDevserverRBACE2E(t *testing.T) {
 			t.Fatalf("granted=%v want [endpoint:deploy]", chk.Granted)
 		}
 
-		// permission check for another member requires org:read
-		code, body = req(t, http.MethodPost, org+"/permissions/check", depJWT, `{"permissions":["endpoint:deploy"],"user_id":"`+owner+`"}`)
+		// permission check for another member requires tenant:read
+		code, body = req(t, http.MethodPost, tenant+"/permissions/check", depJWT, `{"permissions":["endpoint:deploy"],"user_id":"`+owner+`"}`)
 		mustCode(t, http.StatusForbidden, code, body)
 
-		// owner can check another member (holds org:read via *)
-		code, body = req(t, http.MethodPost, org+"/permissions/check", ownerJWT, `{"permissions":["endpoint:deploy","endpoint:read"],"user_id":"`+dep+`"}`)
+		// owner can check another member (holds tenant:read via *)
+		code, body = req(t, http.MethodPost, tenant+"/permissions/check", ownerJWT, `{"permissions":["endpoint:deploy","endpoint:read"],"user_id":"`+dep+`"}`)
 		mustCode(t, http.StatusOK, code, body)
 		chk.Granted = nil
 		decode(t, body, &chk)
@@ -492,13 +492,13 @@ func TestDevserverRBACE2E(t *testing.T) {
 
 		// global admin self-check holds everything requested
 		ga := addUser(t, "intro-ga-"+slug) // not even a member
-		code, body = req(t, http.MethodPost, org+"/permissions/check", mint(t, ga, "admin"), `{"permissions":["endpoint:deploy","repo:read"]}`)
+		code, body = req(t, http.MethodPost, tenant+"/permissions/check", mint(t, ga, "admin"), `{"permissions":["endpoint:deploy","repo:read"]}`)
 		mustCode(t, http.StatusOK, code, body)
 		has(t, body, "endpoint:deploy")
 		has(t, body, "repo:read")
 
 		// single-role GET returns name + permissions
-		code, body = req(t, http.MethodGet, org+"/roles/deployer", ownerJWT, "")
+		code, body = req(t, http.MethodGet, tenant+"/roles/deployer", ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
 		var role struct {
 			Role        string   `json:"role"`
@@ -510,36 +510,36 @@ func TestDevserverRBACE2E(t *testing.T) {
 		}
 
 		// single-role GET 404 for an undefined role
-		code, body = req(t, http.MethodGet, org+"/roles/ghost", ownerJWT, "")
+		code, body = req(t, http.MethodGet, tenant+"/roles/ghost", ownerJWT, "")
 		mustCode(t, http.StatusNotFound, code, body)
 		has(t, body, "role_not_found")
 	})
 
 	t.Run("rbac_deletes_path_param", func(t *testing.T) {
-		slug, id := newOrg(t)
+		slug, id := newTenant(t)
 		owner := addUser(t, "del-owner-"+slug)
 		addMember(t, id, owner, "owner")
 		ownerJWT := mint(t, owner)
-		org := "/orgs/" + slug
+		tenant := "/tenants/" + slug
 
 		// DELETE role by path param
 		seedRole(t, id, "scratch", "endpoint:deploy")
-		code, body := req(t, http.MethodDelete, org+"/roles/scratch", ownerJWT, "")
+		code, body := req(t, http.MethodDelete, tenant+"/roles/scratch", ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
-		code, body = req(t, http.MethodGet, org+"/roles/scratch", ownerJWT, "")
+		code, body = req(t, http.MethodGet, tenant+"/roles/scratch", ownerJWT, "")
 		mustCode(t, http.StatusNotFound, code, body)
 
 		// DELETE protected owner role rejected
-		code, body = req(t, http.MethodDelete, org+"/roles/owner", ownerJWT, "")
+		code, body = req(t, http.MethodDelete, tenant+"/roles/owner", ownerJWT, "")
 		mustCode(t, http.StatusBadRequest, code, body)
 		has(t, body, "protected_role")
 
 		// DELETE member by path param
 		victim := addUser(t, "del-victim-"+slug)
 		addMember(t, id, victim, "deployer")
-		code, body = req(t, http.MethodDelete, org+"/members/"+victim, ownerJWT, "")
+		code, body = req(t, http.MethodDelete, tenant+"/members/"+victim, ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
-		code, body = req(t, http.MethodGet, org+"/members", ownerJWT, "")
+		code, body = req(t, http.MethodGet, tenant+"/members", ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
 		if strings.Contains(body, victim) {
 			t.Fatalf("deleted member %s still listed: %s", victim, body)

@@ -18,11 +18,11 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Organization Access Token (OAT) branch, BEFORE JWT verification.
-			// If the bearer token carries the configured OAT marker it is
+			// Service Token (service token) branch, BEFORE JWT verification.
+			// If the bearer token carries the configured service-token marker it is
 			// resolved against the DB as a service principal; a shaped-but-invalid
-			// OAT is rejected here rather than mistakenly re-tried as a JWT. The
-			// password-login rate limiter lives on a different code path, so OATs
+			// service token is rejected here rather than mistakenly re-tried as a JWT. The
+			// password-login rate limiter lives on a different code path, so service tokens
 			// bypass it by design. Service principals carry no UserID, so the
 			// live-user enrichment/ban gate below is skipped for them.
 			if scl, matched, serr := v.resolveServiceToken(r.Context(), tokenStr); matched {
@@ -40,9 +40,15 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				unauthorized(w, err.Error())
 				return
 			}
+			if v.enrich != nil && cl.IsDelegated() {
+				if _, err := v.enrich.TouchDelegatedUser(r.Context(), cl.Tenant, cl.Issuer, cl.DelegatedSubject); err != nil {
+					unauthorized(w, "invalid_token")
+					return
+				}
+			}
 
 			// Best-effort DB enrichment when a service is attached. Skipped for
-			// delegated platform principals: their subject is a federated user
+			// delegated platform principals: their subject is a tenant user
 			// that does not exist locally, so the local-user enrichment + the
 			// IsUserAllowed gate must not apply (the resource server authorizes
 			// by tenant/issuer trust instead). A delegated token carries no
@@ -53,7 +59,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 					cl.DiscordUsername = du
 				}
 
-				// Role enrichment (org_mode=single only): if token has no roles, supply canonical roles.
+				// Role enrichment (tenant_mode=single only): if token has no roles, supply canonical roles.
 				if strings.EqualFold(strings.TrimSpace(v.orgMode), "single") || v.orgMode == "" {
 					if len(cl.Roles) == 0 {
 						if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {

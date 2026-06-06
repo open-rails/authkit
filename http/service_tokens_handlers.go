@@ -8,30 +8,30 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// Organization Access Token (OAT) management endpoints. An OAT carries a set of
+// Service Token (service token) management endpoints. A service token carries a set of
 // app-defined PERMISSIONS (opaque to authkit). All three endpoints are gated by
-// the base permission org:tokens:manage (owner holds `*`; a platform global
+// the base permission tenant:service_tokens:manage (owner holds `*`; a platform global
 // admin bypasses). Minting validates the requested permissions against the
 // catalog AND the caller's own effective permissions (no-escalation), and bars
-// wildcards + the write/mint reserved `org:` management permissions from OATs
-// (an OAT does machine work, not org management). Read-only org:read IS
-// OAT-grantable (escalation-harmless, for monitoring/audit automation). A
-// service principal (an OAT) has no UserID,
-// so it can never reach these handlers — an OAT can never mint/list/revoke OATs.
+// wildcards + the write/mint reserved `tenant:` management permissions from service tokens
+// (a service token does machine work, not tenant management). Read-only tenant:read IS
+// service token-grantable (escalation-harmless, for monitoring/audit automation). A
+// service principal (a service token) has no UserID,
+// so it can never reach these handlers — a service token can never mint/list/revoke service tokens.
 
-// accessTokenView is the non-secret JSON shape returned for an OAT. The secret
+// accessTokenView is the non-secret JSON shape returned for a service token. The secret
 // is only ever present in the create response's top-level `token` field.
 type accessTokenView struct {
-	ID          string                        `json:"id"`
-	KeyID       string                        `json:"key_id"`
-	Name        string                        `json:"name"`
-	Permissions []string                      `json:"permissions"`
-	Resources   []core.OrgAccessTokenResource `json:"resources"`
-	CreatedBy   string                        `json:"created_by,omitempty"`
-	CreatedAt   string                        `json:"created_at"`
-	LastUsedAt  string                        `json:"last_used_at,omitempty"`
-	ExpiresAt   string                        `json:"expires_at,omitempty"`
-	RevokedAt   string                        `json:"revoked_at,omitempty"`
+	ID          string                      `json:"id"`
+	KeyID       string                      `json:"key_id"`
+	Name        string                      `json:"name"`
+	Permissions []string                    `json:"permissions"`
+	Resources   []core.ServiceTokenResource `json:"resources"`
+	CreatedBy   string                      `json:"created_by,omitempty"`
+	CreatedAt   string                      `json:"created_at"`
+	LastUsedAt  string                      `json:"last_used_at,omitempty"`
+	ExpiresAt   string                      `json:"expires_at,omitempty"`
+	RevokedAt   string                      `json:"revoked_at,omitempty"`
 }
 
 func rfc3339Ptr(t *time.Time) string {
@@ -41,14 +41,14 @@ func rfc3339Ptr(t *time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-func toAccessTokenView(t core.OrgAccessToken) accessTokenView {
+func toAccessTokenView(t core.ServiceToken) accessTokenView {
 	perms := t.Permissions
 	if perms == nil {
 		perms = []string{}
 	}
 	resources := t.Resources
 	if resources == nil {
-		resources = []core.OrgAccessTokenResource{}
+		resources = []core.ServiceTokenResource{}
 	}
 	return accessTokenView{
 		ID:          t.ID,
@@ -79,31 +79,31 @@ func cleanStrings(in []string) []string {
 	return out
 }
 
-// orgAccessTokenManageGate resolves the org and confirms the caller holds
-// org:tokens:manage (list/revoke). Owner holds `*`; a global admin bypasses.
-func (s *Service) orgAccessTokenManageGate(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string) (canonical string, ok bool) {
-	return s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgTokensManage)
+// orgAccessTokenManageGate resolves the tenant and confirms the caller holds
+// tenant:service_tokens:manage (list/revoke). Owner holds `*`; a global admin bypasses.
+func (s *Service) orgAccessTokenManageGate(w http.ResponseWriter, r *http.Request, claims Claims, tenantSlug string) (canonical string, ok bool) {
+	return s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantTokensManage)
 }
 
-func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleServiceTokensPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
-	// A service principal (OAT) has no UserID; this both authenticates a human
-	// admin and structurally prevents an OAT from minting another OAT.
+	// A service principal (service token) has no UserID; this both authenticates a human
+	// admin and structurally prevents a service token from minting another service token.
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	if tenantSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
 
 	var body struct {
-		Name        string                        `json:"name"`
-		Permissions []string                      `json:"permissions"`
-		Resources   []core.OrgAccessTokenResource `json:"resources"`
-		ExpiresAt   string                        `json:"expires_at"`
+		Name        string                      `json:"name"`
+		Permissions []string                    `json:"permissions"`
+		Resources   []core.ServiceTokenResource `json:"resources"`
+		ExpiresAt   string                      `json:"expires_at"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, "invalid_request")
@@ -128,12 +128,12 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 	resources := body.Resources
 
 	// Authorize the mint + the permission grant.
-	canonical, ok := s.authorizeOATMint(w, r, claims, orgSlug, permissions)
+	canonical, ok := s.authorizeServiceTokenMint(w, r, claims, tenantSlug, permissions)
 	if !ok {
 		return
 	}
-	if err := s.svc.AuthorizeOrgAccessTokenResources(r.Context(), core.ResourceScopeAuthorizationRequest{
-		OrgSlug:          canonical,
+	if err := s.svc.AuthorizeServiceTokenResources(r.Context(), core.ResourceScopeAuthorizationRequest{
+		TenantSlug:       canonical,
 		ActorUserID:      claims.UserID,
 		Permissions:      permissions,
 		Resources:        resources,
@@ -150,7 +150,7 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	tok, plaintext, err := s.svc.MintOrgAccessTokenWithOptions(r.Context(), canonical, core.OrgAccessTokenMintOptions{
+	tok, plaintext, err := s.svc.MintServiceTokenWithOptions(r.Context(), canonical, core.ServiceTokenMintOptions{
 		Name:        body.Name,
 		Permissions: permissions,
 		Resources:   resources,
@@ -187,22 +187,22 @@ func (s *Service) handleOrgAccessTokensPOST(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// authorizeOATMint gates minting on org:tokens:manage and validates the
+// authorizeServiceTokenMint gates minting on tenant:service_tokens:manage and validates the
 // requested permissions: they must be concrete catalog permissions the caller
-// itself holds (no-escalation) — never wildcards/exclusions or reserved `org:`
-// management permissions (an OAT does machine work, not org management).
-func (s *Service) authorizeOATMint(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string, permissions []string) (canonical string, ok bool) {
+// itself holds (no-escalation) — never wildcards/exclusions or reserved `tenant:`
+// management permissions (a service token does machine work, not tenant management).
+func (s *Service) authorizeServiceTokenMint(w http.ResponseWriter, r *http.Request, claims Claims, tenantSlug string, permissions []string) (canonical string, ok bool) {
 	var notGrantable []string
 	for _, p := range permissions {
-		if p == core.PermWildcard || strings.HasPrefix(p, "!") || (core.IsReservedPermission(p) && !core.IsOATGrantableReservedPermission(p)) {
+		if p == core.PermWildcard || strings.HasPrefix(p, "!") || (core.IsReservedPermission(p) && !core.IsServiceTokenGrantableReservedPermission(p)) {
 			notGrantable = append(notGrantable, p)
 		}
 	}
 	if len(notGrantable) > 0 {
-		sendErrData(w, http.StatusForbidden, "permission_not_grantable_to_oat", map[string]any{"offending_permissions": notGrantable})
+		sendErrData(w, http.StatusForbidden, "permission_not_grantable_to_service_token", map[string]any{"offending_permissions": notGrantable})
 		return "", false
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgTokensManage)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantTokensManage)
 	if !gateOK {
 		return "", false
 	}
@@ -222,22 +222,22 @@ func (s *Service) authorizeOATMint(w http.ResponseWriter, r *http.Request, claim
 	return canonical, true
 }
 
-func (s *Service) handleOrgAccessTokensGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleServiceTokensGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
-	if orgSlug == "" {
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	if tenantSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, orgSlug)
+	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, tenantSlug)
 	if !gateOK {
 		return
 	}
-	tokens, err := s.svc.ListOrgAccessTokens(r.Context(), canonical)
+	tokens, err := s.svc.ListServiceTokens(r.Context(), canonical)
 	if err != nil {
 		serverErr(w, "access_token_list_failed")
 		return
@@ -246,26 +246,26 @@ func (s *Service) handleOrgAccessTokensGET(w http.ResponseWriter, r *http.Reques
 	for _, t := range tokens {
 		views = append(views, toAccessTokenView(t))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"access_tokens": views})
+	writeJSON(w, http.StatusOK, map[string]any{"service_tokens": views})
 }
 
-func (s *Service) handleOrgAccessTokenDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleServiceTokenDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
 	tokenID := strings.TrimSpace(r.PathValue("token_id"))
-	if orgSlug == "" || tokenID == "" {
+	if tenantSlug == "" || tokenID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, orgSlug)
+	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, tenantSlug)
 	if !gateOK {
 		return
 	}
-	revoked, err := s.svc.RevokeOrgAccessToken(r.Context(), canonical, tokenID)
+	revoked, err := s.svc.RevokeServiceToken(r.Context(), canonical, tokenID)
 	if err != nil {
 		serverErr(w, "access_token_revoke_failed")
 		return

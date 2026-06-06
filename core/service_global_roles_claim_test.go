@@ -38,7 +38,7 @@ func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicK
 		IssuedAudiences:     []string{"app"},
 		ExpectedAudiences:   []string{"app"},
 		AccessTokenDuration: time.Hour,
-		OrgMode:             orgMode,
+		TenantMode:          orgMode,
 	}, ks)
 	return s, signer.PublicKey()
 }
@@ -52,7 +52,7 @@ func TestIssueAccessToken_TypHeader(t *testing.T) {
 	require.Equal(t, jwtkit.AccessTokenType, header["typ"])
 }
 
-// global_roles is emitted in BOTH single and multi-org mode (additive).
+// global_roles is emitted in BOTH single and multi-tenant mode (additive).
 func TestIssueAccessToken_GlobalRolesClaim_BothModes(t *testing.T) {
 	for _, mode := range []string{"single", "multi"} {
 		mode := mode
@@ -68,7 +68,7 @@ func TestIssueAccessToken_GlobalRolesClaim_BothModes(t *testing.T) {
 }
 
 // Legacy `roles` behavior is unchanged: present in single, absent in multi
-// (for a plain, non-org access token).
+// (for a plain, non-tenant service token).
 func TestIssueAccessToken_LegacyRolesClaim_Unchanged(t *testing.T) {
 	sSingle, pubS := newClaimTestService(t, "single")
 	tokS, _, err := sSingle.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
@@ -76,9 +76,9 @@ func TestIssueAccessToken_LegacyRolesClaim_Unchanged(t *testing.T) {
 	clS := parseClaimsNoValidate(t, tokS, pubS)
 	_, ok := clS["roles"]
 	require.True(t, ok, "legacy roles claim must be present in single mode")
-	// plain access token (no org) carries no org_roles
-	_, ok = clS["org_roles"]
-	require.False(t, ok, "plain access token must not carry org_roles")
+	// plain service token (no tenant) carries no tenant_roles
+	_, ok = clS["tenant_roles"]
+	require.False(t, ok, "plain service token must not carry tenant_roles")
 
 	sMulti, pubM := newClaimTestService(t, "multi")
 	tokM, _, err := sMulti.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
@@ -88,31 +88,31 @@ func TestIssueAccessToken_LegacyRolesClaim_Unchanged(t *testing.T) {
 	require.False(t, ok, "legacy roles claim must be absent in multi mode (plain token)")
 }
 
-// An org-scoped token (the claim shape IssueOrgAccessToken builds) carries
-// global_roles AND org_roles, and keeps the legacy `roles` claim populated.
-func TestIssueAccessToken_OrgScoped_CarriesGlobalAndOrgRoles(t *testing.T) {
+// An tenant-scoped token (the claim shape IssueServiceToken builds) carries
+// global_roles AND tenant_roles, and keeps the legacy `roles` claim populated.
+func TestIssueAccessToken_OrgScoped_CarriesGlobalAndTenantRoles(t *testing.T) {
 	s, pub := newClaimTestService(t, "multi")
-	// Mirror the extra map IssueOrgAccessToken assembles for an org-scoped token.
+	// Mirror the extra map IssueServiceToken assembles for an tenant-scoped token.
 	extra := map[string]any{
-		"org":       "acme",
-		"roles":     []string{"editor"},
-		"org_roles": []string{"editor"},
+		"tenant":       "acme",
+		"roles":        []string{"editor"},
+		"tenant_roles": []string{"editor"},
 	}
 	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", extra)
 	require.NoError(t, err)
 	cl := parseClaimsNoValidate(t, tok, pub)
 
 	_, ok := cl["global_roles"]
-	require.True(t, ok, "org-scoped token must carry global_roles")
+	require.True(t, ok, "tenant-scoped token must carry global_roles")
 
-	orgRoles, ok := cl["org_roles"].([]any)
-	require.True(t, ok, "org-scoped token must carry org_roles")
+	orgRoles, ok := cl["tenant_roles"].([]any)
+	require.True(t, ok, "tenant-scoped token must carry tenant_roles")
 	require.Len(t, orgRoles, 1)
 	require.Equal(t, "editor", orgRoles[0])
 
 	// legacy roles claim still populated for back-compat
 	legacy, ok := cl["roles"].([]any)
-	require.True(t, ok, "org-scoped token must keep legacy roles claim")
+	require.True(t, ok, "tenant-scoped token must keep legacy roles claim")
 	require.Len(t, legacy, 1)
 	require.Equal(t, "editor", legacy[0])
 }

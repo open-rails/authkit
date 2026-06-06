@@ -7,10 +7,10 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// Org RBAC management endpoints (authkit #46). Roles are sets of permissions;
+// Tenant RBAC management endpoints (authkit #46). Roles are sets of permissions;
 // authkit stores them opaquely and validates against the catalog (its base
-// `org:` permissions UNION the app-declared catalog). Management is gated by the
-// base permissions: org:roles:manage to edit a role's permissions, org:read to
+// `tenant:` permissions UNION the app-declared catalog). Management is gated by the
+// base permissions: tenant:roles:manage to edit a role's permissions, tenant:read to
 // view. owner holds `*` (all) so it passes; a platform global admin bypasses.
 
 // handlePermissionCatalogGET returns the full permission catalog (base + app).
@@ -24,20 +24,20 @@ func (s *Service) handlePermissionCatalogGET(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"permissions": s.svc.Catalog()})
 }
 
-// handleOrgRolePUT is idempotent create-or-replace for a role: it defines the
+// handleTenantRolePUT is idempotent create-or-replace for a role: it defines the
 // role name if absent and sets its permission set in one call (REST resource
 // PUT, replacing the old POST /roles + PUT /roles/{role}/permissions pair).
-// Gated org:roles:manage with catalog validation + no-escalation. Read the
-// result back via GET /orgs/{org}/roles/{role}.
-func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
+// Gated tenant:roles:manage with catalog validation + no-escalation. Read the
+// result back via GET /tenants/{tenant}/roles/{role}.
+func (s *Service) handleTenantRolePUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
 	role := strings.TrimSpace(r.PathValue("role"))
-	if orgSlug == "" || role == "" {
+	if tenantSlug == "" || role == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -48,7 +48,7 @@ func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesManage)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRolesManage)
 	if !gateOK {
 		return
 	}
@@ -70,7 +70,7 @@ func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 	}
 	// Create-or-replace: define the role name (no-op if it exists), then set perms.
 	if err := s.svc.DefineRole(r.Context(), canonical, role); err != nil {
-		if err == core.ErrInvalidOrgRole {
+		if err == core.ErrInvalidTenantRole {
 			badRequest(w, "invalid_role")
 			return
 		}
@@ -90,13 +90,13 @@ func (s *Service) handleOrgMemberPermissionsGET(w http.ResponseWriter, r *http.R
 		unauthorized(w, "unauthorized")
 		return
 	}
-	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
-	if orgSlug == "" || targetUserID == "" {
+	if tenantSlug == "" || targetUserID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
 	if !gateOK {
 		return
 	}
