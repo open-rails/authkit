@@ -425,7 +425,7 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 	return s.entitlements
 }
 
-// IssueAccessToken builds and signs an service token (JWT) for the given user.
+// IssueAccessToken builds and signs an access token (JWT) for the given user.
 // Includes core registered claims plus:
 // - roles (snapshot, tenant_mode=single only)
 // - entitlements (snapshot)

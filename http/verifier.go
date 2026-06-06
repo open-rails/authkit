@@ -603,7 +603,7 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 
 	// Invariant: a delegated service token MUST NOT carry a normal `sub` — no
 	// local account may be implied. Reject it explicitly so a misconfigured
-	// issuer can't slip a local subject into an service token.
+	// issuer can't slip a local subject into a service token.
 	if isDelegatedAccessTyp && strClaim(mapClaims, "sub") != "" {
 		return Claims{}, errors.New("access_token_has_sub")
 	}

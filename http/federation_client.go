@@ -21,7 +21,7 @@ type TenantIssuersClient struct {
 	httpClient *http.Client
 	// AuthToken, when set, is sent as a Bearer token on the registration
 	// request. The accept endpoint authorizes by tenant owner/admin, so this must
-	// be an service token for a user who owns the tenant being registered.
+	// be a service token for a user who owns the tenant being registered.
 	authToken string
 }
 

@@ -148,9 +148,9 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | GET | `/tenants/:tenant/me` | AUTH | **Caller's own** membership view: `{roles[], permissions[]}` (membership only — no `tenant:read`; global admin → full catalog) |
 | POST | `/tenants/:tenant/permissions/check` | AUTH | Check permissions for a principal. Body `{permissions[], user_id?}` → `{granted[]}` (requested subset held). Self by default; `user_id` checks another member (`tenant:read`). Global admin holds all. (GCP `testIamPermissions` shape) |
 | POST | `/token/tenant` | AUTH | Mint tenant-scoped service token (`tenant` + `roles`) |
-| POST | `/tenants/:tenant/service-tokens` | AUTH | Mint an service token (`tenant:service_tokens:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms catalog-validated + no-escalation, reserved write/mint `tenant:*` perms + wildcards barred (read-only `tenant:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full token shown ONCE. |
+| POST | `/tenants/:tenant/service-tokens` | AUTH | Mint a service token (`tenant:service_tokens:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms catalog-validated + no-escalation, reserved write/mint `tenant:*` perms + wildcards barred (read-only `tenant:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full token shown ONCE. |
 | GET | `/tenants/:tenant/service-tokens` | AUTH | List the tenant's service tokens (`tenant:service_tokens:manage`; metadata only, includes `resources[]`, never secrets) |
-| DELETE | `/tenants/:tenant/service-tokens/:token_id` | AUTH | Revoke an service token (`tenant:service_tokens:manage`) |
+| DELETE | `/tenants/:tenant/service-tokens/:token_id` | AUTH | Revoke a service token (`tenant:service_tokens:manage`) |
 
 > **Tenant RBAC (permission-based).** A role is a set of permissions. Tenant-management
 > endpoints are gated by authkit's **base permissions** (reserved `tenant:`
@@ -187,9 +187,9 @@ bare `st_`. `key_id` is a non-secret public id for O(1) indexed lookup; only
 **Resolution** happens in the `Required`/`Optional` middleware *before* JWT
 verification: tokens carrying the configured marker are looked up by `key_id`,
 the secret is compared in constant time, and revoked/expired/tenant-deleted tokens
-are rejected. Non-service token tokens fall through to normal JWT verification. The service token
+are rejected. Non-service-token credentials fall through to normal JWT verification. The service token
 path is distinct from the password-login handler, so service tokens **bypass the
-interenabled password-login rate limiter by design** (a robot must not use the
+interactive password-login rate limiter by design** (a robot must not use the
 human login path).
 
 **Mint authorization (native, permission-based).** Minting requires
@@ -199,7 +199,7 @@ unknown_permission`) the caller themselves holds (else `403
 permission_grant_denied`, offending named) — no privilege escalation. The
 reserved **write/mint** management permissions (`tenant:roles:manage`,
 `tenant:members:manage`, `tenant:service_tokens:manage`) and wildcards/exclusions are barred
-from service tokens (`403 permission_not_grantable_to_service_token`) — an service token does machine work,
+from service tokens (`403 permission_not_grantable_to_service_token`) — a service token does machine work,
 not tenant management. The read-only `tenant:read` IS grantable (escalation-harmless,
 for monitoring/audit automation), still subject to no-escalation. Permissions
 are frozen at mint time (revoke to reduce). An service token
