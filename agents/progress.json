@@ -1,5 +1,5 @@
 {
-  "next_id": 60,
+  "next_id": 61,
   "issues": [
     {
       "name": "Passkey (WebAuthn/FIDO2) authentication \u2014 register, login, manage",
@@ -159,6 +159,24 @@
         "[ ] Add tests proving public registration modes do not affect privileged core/manifest provisioning, and closed/manifest-only modes still allow admin/bootstrap creation.",
         "[ ] Document the recommended OpenRails SaaS flow: AuthKit user signup, user-owned AuthKit tenant creation, host-created OpenRails tenant linkage, then OpenRails catalog/secrets/service-token setup.",
         "[ ] Document the recommended closed-registration OpenRails flow: privileged manifest/programmatic AuthKit tenant provisioning, then OpenRails bootstrap applies OpenRails-owned tenant/catalog state."
+      ],
+      "completed": false
+    },
+    {
+      "id_number": 60,
+      "name": "Remove global TenantMode switch",
+      "description": "Remove AuthKit's global `TenantMode` (`single` vs `multi`) because it conflates unrelated product decisions. AuthKit should always support native users, optional tenants, tenant memberships, tenant-scoped tokens, and tenant manifests at the core/library layer. Hosts decide what to expose through route groups, registration modes, and policy, not through a global mode flag.\n\nTarget model:\n\n- Native users may exist with zero tenants.\n- Tenants may exist with zero native users when created by manifest/admin/bootstrap.\n- Public tenant registration is controlled by `TenantRegistrationMode` and route mounting, not `TenantMode`.\n- Public native-user registration is controlled by `NativeUserRegistrationMode` and route mounting, not `TenantMode`.\n- Tenant routes are available when the host mounts the tenants route group; mutating tenant routes are still gated by tenant registration/management mode.\n- Tenant-scoped token exchange is allowed when a tenant is requested and the user is a member of that tenant.\n- Personal tenant auto-creation remains an explicit separate opt-in, or is removed if no host needs it.\n\nThis supports OpenRails SaaS and closed-registration OpenRails without fake modes: OpenRails SaaS can expose user signup and user-owned tenant creation; Doujins/Hentai0 can expose user signup but not tenant registration; closed relying-party deployments can expose no public signup while still loading tenants from manifests.",
+      "tasks": [
+        "[ ] Remove `TenantMode` from `core.Config`, `core.Options`, docs, route tests, and verifier options; do not replace it with another global single/multi switch.",
+        "[ ] Register tenant route specs based on route group mounting and service capability, not `TenantMode == multi`; keep mutating tenant routes gated by `TenantRegistrationMode`.",
+        "[ ] Update token exchange and login flows so an optional `tenant` request mints tenant-scoped claims only if the user is a member of that tenant; absence of `tenant` mints normal user/global claims.",
+        "[ ] Remove single-mode legacy claim branching where possible; if legacy `roles` compatibility still exists, define it as a token-shape compatibility policy independent of tenant support.",
+        "[ ] Replace `AutoCreatePersonalTenantsEnabled` dependency on `TenantMode` with a direct explicit host opt-in, or remove personal-tenant auto-creation if no current host requires it.",
+        "[ ] Remove startup panic/downgrade checks tied to `tenant_mode=single`; replace with schema/data invariants that do not depend on deployment mode.",
+        "[ ] Update verifier claim extraction so tenant claims are parsed whenever present, not only under `WithTenantMode(\"multi\")`; remove `WithTenantMode` or make it a no-op compatibility shim scheduled for deletion.",
+        "[ ] Update registration-mode tests to cover host shapes directly: native-user-only app, SaaS user+tenant app, manifest-only relying-party app, and no-public-route embedded app.",
+        "[ ] Update README and `agents/api-endpoints.md` to describe route groups plus native-user/tenant registration modes instead of tenant_mode.",
+        "[ ] Add migration/consumer notes for OpenRails, OpenRails SaaS, Doujins, Hentai0, and Tensorhub explaining that tenants are always a supported primitive but exposure is host policy."
       ],
       "completed": false
     }
