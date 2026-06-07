@@ -159,6 +159,50 @@ _ = svcToken
 _ = secret
 ```
 
+For a closed-registration deployment, the manifest reconciler is the standard
+machine/bootstrap path. It declares tenants, trusted delegated-token issuers,
+roles, and optional opaque service tokens, then applies them idempotently under
+a Postgres advisory lock:
+
+```yaml
+tenants:
+  - slug: cozy-art
+    issuers:
+      - issuer: https://cozy.example
+        jwks_uri: https://cozy.example/.well-known/jwks.json
+        audiences: ["openrails"]
+        enabled: true
+    roles:
+      - name: operator
+        permissions: ["tenant:read", "openrails:billing:read"]
+    service_tokens:
+      - name: openrails-runtime
+        permissions: ["openrails:entitlements:read"]
+        resources:
+          - kind: openrails.tenant
+            id: cozy-art
+        output:
+          file: /run/secrets/openrails-runtime-token
+```
+
+The standalone AuthKit devserver exposes this as both an opt-in startup hook and
+a one-shot deploy-job command:
+
+```bash
+DEVSERVER_ISSUER=https://auth.example \
+DB_URL=postgres://... \
+DEVSERVER_PERMISSION_CATALOG=openrails:billing:read,openrails:entitlements:read \
+DEVSERVER_TOKEN_PREFIX=cozy \
+DEVSERVER_TENANT_MANIFEST_PATH=/manifests/tenants.yaml \
+/authkit-devserver tenant-manifest apply
+```
+
+Use `DEVSERVER_RECONCILE_TENANT_MANIFEST_ON_START=true` only for local/dev or
+simple self-hosted deployments. Production systems should usually run the
+one-shot command as a release job, or call `core.ReconcileTenantManifest` from
+their own job with a Vault/Kubernetes-backed `TenantManifestTokenStore`, so API
+pods do not need long-lived secret-write credentials.
+
 Hosted SaaS deployments can later set both registration modes to `open` and
 mount the `RouteRegister` / `RouteTenants` groups to enable public signup and
 tenant onboarding without code changes.

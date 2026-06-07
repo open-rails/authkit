@@ -75,7 +75,7 @@
     {
       "id_number": 55,
       "name": "Tenant manifest bootstrap for closed-registration deployments",
-      "description": "Provide a generic DevOps bootstrap path for AuthKit instances that do not allow public tenant registration. Mount a manifest, reconcile declared tenants/issuers/roles/service tokens idempotently, and avoid fake operator/platform/admin tenants. The library reconciler is implemented with a strict YAML parser, Postgres advisory lock, issuer/role reconciliation, service-token output preservation, and file output support; production Vault/Kubernetes output stores and host startup/CLI wiring remain host-owned follow-up.",
+      "description": "Provide a generic DevOps bootstrap path for AuthKit instances that do not allow public tenant registration. Mount a manifest, reconcile declared tenants/issuers/roles/service tokens idempotently, and avoid fake operator/platform/admin tenants. The library reconciler is implemented with a strict YAML parser, Postgres advisory lock, issuer/role reconciliation, service-token output preservation, file output support, a one-shot devserver CLI/job command, and an opt-in startup hook; production Vault/Kubernetes output stores remain host-owned TenantManifestTokenStore implementations.",
       "tasks": [
         "[x] Define manifest schema v1 with `tenants[]`, each containing stable slug, issuers, roles, and optional service token outputs.",
         "[x] Implement idempotent manifest reconciliation behind a lock so multiple app replicas cannot race tenant/token creation.",
@@ -83,11 +83,11 @@
         "[x] Allow manifest-declared roles/permissions using tenant-role vocabulary.",
         "[x] Allow manifest-declared service tokens with arbitrary permissions, arbitrary resource scopes, and arbitrary output targets such as Vault KV path/field or local file. Do not hardcode OpenRails/Doujins permissions.",
         "[x] If an output already contains a non-empty token, preserve it; otherwise mint and write a new opaque service token. Include an explicit rotate workflow separately from startup reconciliation.",
-        "[ ] Expose the reconciler as startup hook and CLI/job command in host applications so production can run it with a deploy identity rather than giving every API pod long-lived Vault write access.",
+        "[x] Expose the reconciler as startup hook and CLI/job command in host applications so production can run it with a deploy identity rather than giving every API pod long-lived Vault write access.",
         "[x] Add tests for multi-replica lock behavior and issuer update/disable. Existing coverage also covers idempotency, service token output preservation, and invalid manifest rejection. Validated with AUTHKIT_TEST_DATABASE_URL-backed core tests.",
         "[x] Document closed-registration deployments and the distinction between deployment bootstrap authority and AuthKit tenants."
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id_number": 56,
