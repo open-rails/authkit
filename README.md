@@ -123,9 +123,11 @@ Any non-open tenant *registration* mode denies the public tenant-facing mutation
 management routes) with a stable `tenant_management_disabled` error. Read-only
 tenant routes and the tenant-scoped token exchange (`POST /token/tenant`) stay
 available for existing members. Embedded core/bootstrap code can still ensure
-initial tenants, roles, admins, and service tokens through exported core APIs
-(`CreateTenant`, `DefineRole`, `AddMember`, `AssignRole`, `MintServiceToken`,
-...).
+initial tenants, roles, admins, trusted issuers, and generated opaque service
+tokens through the privileged provisioning API (`ProvisionTenant`) or the tenant
+manifest reconciler. Public tenant creation uses `CreateTenantForUser`; lower
+level `CreateTenant` is for bootstrap/admin callers that intentionally create an
+ownerless tenant.
 
 Locked-down (e.g. self-hosted OpenRails) pattern: mount only the chosen route
 groups, set both modes to `admin_bootstrap_only` or `manifest_only`, and
@@ -151,19 +153,21 @@ authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
 // AuthKit core APIs (unaffected by the public registration modes):
 core := svc.Core()
 admin, _ := core.CreateUser(ctx, "ops@example.com", "operator")
-tenant, _ := core.CreateTenant(ctx, "operator")
-_ = core.DefineRole(ctx, tenant.Slug, "owner")
-_ = core.AddMember(ctx, tenant.Slug, admin.ID)
-_ = core.AssignRole(ctx, tenant.Slug, admin.ID, "owner")
-svcToken, secret, _ := core.MintServiceToken(ctx, tenant.Slug, "ci", []string{"*"}, admin.ID, nil)
-_ = svcToken
-_ = secret
+bootstrap, _ := core.ProvisionTenant(ctx, core.TenantProvisionRequest{
+  Slug: "operator",
+  Memberships: []core.TenantProvisionMembership{{UserID: admin.ID, Role: "owner"}},
+  ServiceTokens: []core.TenantProvisionServiceToken{{
+    Name: "ci",
+    Permissions: []string{"tenant:read"},
+  }},
+}, nil)
+_ = bootstrap.MintedTokens[0].Plaintext // write once to a secret store
 ```
 
 For a closed-registration deployment, the manifest reconciler is the standard
 machine/bootstrap path. It declares tenants, trusted delegated-token issuers,
-roles, and optional opaque service tokens, then applies them idempotently under
-a Postgres advisory lock:
+roles, optional memberships, trusted issuers, and optional generated opaque
+service tokens, then applies them idempotently under a Postgres advisory lock:
 
 ```yaml
 tenants:
@@ -176,6 +180,9 @@ tenants:
     roles:
       - name: operator
         permissions: ["tenant:read", "openrails:billing:read"]
+    memberships:
+      - user_id: 018f0000-0000-7000-8000-000000000001
+        role: operator
     service_tokens:
       - name: openrails-runtime
         permissions: ["openrails:entitlements:read"]
@@ -207,6 +214,12 @@ pods do not need long-lived secret-write credentials.
 Hosted SaaS deployments can later set both registration modes to `open` and
 mount the `RouteRegister` / `RouteTenants` groups to enable public signup and
 tenant onboarding without code changes.
+
+OpenRails' bootstrap flow should call these AuthKit primitives for AuthKit-owned
+objects: user-owned tenant registration for public SaaS signup, and
+`ProvisionTenant`/`ReconcileTenantManifest` for closed-registration or embedded
+bootstrap. OpenRails still owns OpenRails-specific catalog, prices,
+entitlements, grants, billing, and provider state.
 
 Quick Start (net/http)
 
@@ -510,6 +523,25 @@ Service Tokens (opaque machine credentials)
 - **Resource scopes:** service tokens may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.service_token_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
 - Manage via `POST/GET/DELETE /tenants/:tenant/service-tokens[/:token_id]`. POST accepts `{name, permissions[], resources?:[{kind,id}], expires_at?}`. Optional `expires_at` (null = non-expiring), capped by `Config.ServiceTokenMaxTTL` when set. Stored in `profiles.service_tokens`.
 - **Leak response:** revoke the token (`DELETE …/service-tokens/:id`) — the `<app>st_` prefix is registrable with secret-scanning/push-protection partners so leaked tokens can be auto-detected.
+
+Service JWTs (OIDC/JWKS machine credentials)
+- First-party services with their own AuthKit issuer/JWKS should prefer
+  short-lived service JWTs over generated opaque service tokens. The caller mints
+  a 15-minute JWT with `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`,
+  `token_use=service`, and `permissions: []`, caches it in memory until near
+  expiry, and sends it as `Authorization: Bearer <jwt>`.
+- AuthKit provides `core.MintServiceJWT` / `(*core.Service).MintServiceJWT` and
+  `authhttp.Verifier.VerifyServiceJWT` plus `RequiredServiceJWT`. Verification
+  uses the same issuer/JWKS registry as delegated access tokens, including
+  tenant issuer lazy-load and disabled-issuer fail-closed behavior.
+- `permissions: []` is the canonical requested-capability claim. OAuth `scope`
+  is accepted only as an explicit compatibility bridge. AuthKit parses requested
+  permissions/resources but does not grant them; resource servers such as
+  OpenRails must intersect them with server-side grants for the issuer/subject.
+- Use service JWTs for callers that can publish an issuer/JWKS, such as
+  Doujins/Hentai0 -> OpenRails. Use opaque service tokens for generated
+  API-key-like credentials, non-OIDC clients, bootstrap scripts, and manual
+  integrations.
 
 Reserved slug policy
 - Owner namespaces use explicit states:
@@ -871,11 +903,15 @@ const linkWallet = async (accessToken: string) => {
 
 ### Verifier (JWKS, verify‑only)
 
-Use the verifier when a service needs to accept service tokens issued by one or more
-AuthKit‑powered APIs (e.g., spacex), without mounting any auth routes.
+Use the verifier when a service needs to accept JWTs issued by one or more
+AuthKit-powered APIs (e.g., spacex), without mounting any auth routes.
 
 - Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`. (`WithTenantMode` is a deprecated no-op shim kept for back-compat; tenant claims are parsed whenever present.)
 - Add issuers via `verifier.AddIssuer(issuerID, audiences, opts)` — each may specify a JWKS URL (defaults to `/.well-known/jwks.json`), pre-provided PEM keys, or raw `*rsa.PublicKey` maps.
+- For service JWTs, call `verifier.VerifyServiceJWT(ctx, token)` or mount
+  `authhttp.RequiredServiceJWT(verifier)`. This returns a machine principal with
+  issuer, subject, tenant/resource account, permissions, resources, and JTI; the
+  host still owns final authorization.
 - Default skew: 60s. Default algorithms: RS256.
 - DB enrichment (recommended):
   - Call `verifier.WithService(coreSvc)` to enable best-effort

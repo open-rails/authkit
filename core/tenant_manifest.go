@@ -24,6 +24,7 @@ type TenantManifestTenant struct {
 	Slug          string                       `json:"slug" yaml:"slug"`
 	Issuers       []TenantManifestIssuer       `json:"issuers" yaml:"issuers"`
 	Roles         []TenantManifestRole         `json:"roles" yaml:"roles"`
+	Memberships   []TenantManifestMembership   `json:"memberships" yaml:"memberships"`
 	ServiceTokens []TenantManifestServiceToken `json:"service_tokens" yaml:"service_tokens"`
 }
 
@@ -37,6 +38,11 @@ type TenantManifestIssuer struct {
 type TenantManifestRole struct {
 	Name        string   `json:"name" yaml:"name"`
 	Permissions []string `json:"permissions" yaml:"permissions"`
+}
+
+type TenantManifestMembership struct {
+	UserID string `json:"user_id" yaml:"user_id"`
+	Role   string `json:"role" yaml:"role"`
 }
 
 type TenantManifestServiceToken struct {
@@ -68,6 +74,7 @@ type TenantManifestResult struct {
 	Tenants      int
 	Issuers      int
 	Roles        int
+	Memberships  int
 	TokensMinted int
 	TokensKept   int
 }
@@ -120,73 +127,42 @@ func (s *Service) ReconcileTenantManifest(ctx context.Context, manifest TenantMa
 		if slug == "" {
 			return result, ErrInvalidTenantManifest
 		}
-		if _, err := s.ResolveTenantBySlug(ctx, slug); err != nil {
-			if !errors.Is(err, ErrTenantNotFound) {
-				return result, err
-			}
-			if _, err := s.CreateTenant(ctx, slug); err != nil {
-				return result, err
-			}
-		}
-		result.Tenants++
-
+		req := TenantProvisionRequest{Slug: slug}
 		for _, issuer := range tenant.Issuers {
-			enabled := true
-			if issuer.Enabled != nil {
-				enabled = *issuer.Enabled
-			}
-			if _, err := s.UpsertTenantIssuer(ctx, TenantIssuer{
-				TenantSlug: slug,
-				Issuer:     issuer.Issuer,
-				JWKSURI:    issuer.JWKSURI,
-				Audiences:  issuer.Audiences,
-				Enabled:    enabled,
-			}); err != nil {
-				return result, err
-			}
-			result.Issuers++
+			req.Issuers = append(req.Issuers, TenantProvisionIssuer{
+				Issuer: issuer.Issuer, JWKSURI: issuer.JWKSURI, Audiences: issuer.Audiences, Enabled: issuer.Enabled,
+			})
 		}
-
 		for _, role := range tenant.Roles {
-			name := strings.TrimSpace(role.Name)
-			if name == "" {
-				return result, ErrInvalidTenantManifest
-			}
-			if err := s.DefineRole(ctx, slug, name); err != nil {
-				return result, err
-			}
-			if err := s.SetRolePermissions(ctx, slug, name, role.Permissions); err != nil {
-				return result, err
-			}
-			result.Roles++
+			req.Roles = append(req.Roles, TenantProvisionRole{Name: role.Name, Permissions: role.Permissions})
 		}
-
+		for _, membership := range tenant.Memberships {
+			req.Memberships = append(req.Memberships, TenantProvisionMembership{
+				UserID: membership.UserID, Role: membership.Role,
+			})
+		}
 		for _, token := range tenant.ServiceTokens {
 			if store == nil || token.Output.empty() {
 				return result, ErrInvalidTenantManifest
 			}
-			existing, err := store.ReadTenantManifestToken(ctx, token.Output)
-			if err != nil {
-				return result, err
-			}
-			if strings.TrimSpace(existing) != "" {
-				result.TokensKept++
-				continue
-			}
-			_, plaintext, err := s.MintServiceTokenWithOptions(ctx, slug, ServiceTokenMintOptions{
+			req.ServiceTokens = append(req.ServiceTokens, TenantProvisionServiceToken{
 				Name:        token.Name,
 				Permissions: token.Permissions,
 				Resources:   token.Resources,
 				ExpiresAt:   token.ExpiresAt,
+				Output:      token.Output,
 			})
-			if err != nil {
-				return result, err
-			}
-			if err := store.WriteTenantManifestToken(ctx, token.Output, plaintext); err != nil {
-				return result, err
-			}
-			result.TokensMinted++
 		}
+		applied, err := s.ProvisionTenant(ctx, req, store)
+		if err != nil {
+			return result, err
+		}
+		result.Tenants++
+		result.Issuers += applied.Issuers
+		result.Roles += applied.Roles
+		result.Memberships += applied.Memberships
+		result.TokensMinted += applied.TokensMinted
+		result.TokensKept += applied.TokensKept
 	}
 	return result, nil
 }

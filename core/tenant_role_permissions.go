@@ -335,12 +335,12 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// seedRolePermissionDefaults seeds ONLY the built-in owner role (`*`) for a
-// freshly created (or claimed) tenant. App-declared DefaultRoles are NOT seeded
-// eagerly — they are role TEMPLATES for human teammates and are materialized
-// LAZILY the first time the role is granted (see materializeDefaultRole),
-// so a solo tenant (no other human members) carries no dormant role scaffolding.
-// Idempotent.
+// seedRolePermissionDefaults seeds the built-in owner role permissions (`*`) for
+// a freshly created (or claimed) tenant. App-declared DefaultRoles are NOT
+// seeded eagerly — they are role TEMPLATES for human teammates and are
+// materialized LAZILY the first time the role is granted (see
+// materializeDefaultRole), so a solo tenant carries no dormant app-role
+// scaffolding. Idempotent.
 func (s *Service) seedRolePermissionDefaults(ctx context.Context, tenantID string) error {
 	_, err := s.pg.Exec(ctx, `
 		INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission)

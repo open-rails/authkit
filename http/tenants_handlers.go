@@ -47,20 +47,30 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	tenant, err := s.svc.CreateTenant(r.Context(), body.Slug)
+	tenant, err := s.svc.CreateTenantForUser(r.Context(), core.CreateTenantForUserRequest{
+		Slug:        body.Slug,
+		OwnerUserID: claims.UserID,
+	})
 	if err != nil {
+		if err == core.ErrInvalidTenantSlug {
+			badRequest(w, "invalid_tenant_slug")
+			return
+		}
 		if err == core.ErrOwnerSlugTaken {
 			badRequest(w, "owner_slug_taken")
+			return
+		}
+		if err == core.ErrInvalidTenantOwner {
+			forbidden(w, "invalid_tenant_owner")
+			return
+		}
+		if err == core.ErrTenantLimitExceeded {
+			forbidden(w, "tenant_limit_exceeded")
 			return
 		}
 		badRequest(w, "tenant_create_failed")
 		return
 	}
-	// Owner bootstrap: make creator a member and assign "owner" role.
-	_ = s.svc.DefineRole(r.Context(), tenant.Slug, "owner")
-	_ = s.svc.DefineRole(r.Context(), tenant.Slug, "member")
-	_ = s.svc.AddMember(r.Context(), tenant.Slug, claims.UserID)
-	_ = s.svc.AssignRole(r.Context(), tenant.Slug, claims.UserID, "owner")
 
 	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant.Slug})
 }

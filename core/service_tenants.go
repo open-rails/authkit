@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
@@ -15,6 +16,8 @@ var (
 	ErrNotTenantMember     = errors.New("not_tenant_member")
 	ErrInvalidTenantSlug   = errors.New("invalid_tenant_slug")
 	ErrInvalidTenantRole   = errors.New("invalid_tenant_role")
+	ErrInvalidTenantOwner  = errors.New("invalid_tenant_owner")
+	ErrTenantLimitExceeded = errors.New("tenant_limit_exceeded")
 	ErrProtectedTenantRole = errors.New("protected_tenant_role")
 	ErrLastTenantOwner     = errors.New("cannot_remove_last_owner")
 	ErrPersonalTenantOwner = errors.New("cannot_remove_personal_tenant_owner")
@@ -39,6 +42,14 @@ type TenantMembership struct {
 	Roles  []string
 }
 
+// CreateTenantForUserRequest is the public tenant-registration contract. The
+// tenant is owned by a real authenticated user; ownerless tenant creation is
+// reserved for privileged bootstrap/admin APIs.
+type CreateTenantForUserRequest struct {
+	Slug        string
+	OwnerUserID string
+}
+
 const (
 	tenantSlugMaxLen = 63
 	tenantRoleMaxLen = 64
@@ -49,7 +60,8 @@ const (
 	// Reserved tenant role names. `owner` is the ONLY role authkit hardcodes — it is
 	// the tenant's root authority (seeded at creation, undeletable). Every other
 	// role, including any `admin` role, is defined by the platform/app, not here.
-	tenantOwnerRole = "owner"
+	tenantOwnerRole  = "owner"
+	tenantMemberRole = "member"
 )
 
 func validateTenantSlug(slug string) error {
@@ -151,6 +163,9 @@ func (s *Service) ResolveTenantBySlug(ctx context.Context, slug string) (*Tenant
 	return &Tenant{ID: id, Slug: canonical, IsPersonal: isPersonal, OwnerUserID: ownerUserID}, nil
 }
 
+// CreateTenant creates an ownerless tenant for privileged bootstrap/admin
+// callers. Public self-service tenant registration must use CreateTenantForUser
+// so the tenant, owner membership, and owner role are created atomically.
 func (s *Service) CreateTenant(ctx context.Context, slug string) (*Tenant, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -175,12 +190,12 @@ func (s *Service) CreateTenant(ctx context.Context, slug string) (*Tenant, error
 	if err != nil {
 		return nil, err
 	}
-	// Ensure the reserved owner role always exists for every tenant.
+	// Ensure the baseline owner/member roles always exist for every tenant.
 	if _, err := s.pg.Exec(ctx, `
 		INSERT INTO profiles.tenant_roles (tenant_id, role)
-		VALUES ($1::uuid, $2)
+		VALUES ($1::uuid, $2), ($1::uuid, $3)
 		ON CONFLICT (tenant_id, role) DO NOTHING
-	`, id, tenantOwnerRole); err != nil {
+	`, id, tenantOwnerRole, tenantMemberRole); err != nil {
 		return nil, err
 	}
 	// Seed owner=`*` + any app-declared default roles (e.g. admin).
@@ -188,6 +203,90 @@ func (s *Service) CreateTenant(ctx context.Context, slug string) (*Tenant, error
 		return nil, err
 	}
 	return &Tenant{ID: id, Slug: canonical}, nil
+}
+
+// CreateTenantForUser transactionally creates a tenant and assigns the
+// registering user as its sole initial owner. This is the core API behind
+// public POST /tenants.
+func (s *Service) CreateTenantForUser(ctx context.Context, req CreateTenantForUserRequest) (*Tenant, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	slug := strings.ToLower(strings.TrimSpace(req.Slug))
+	if err := validateTenantSlug(slug); err != nil {
+		return nil, err
+	}
+	ownerUserID := strings.TrimSpace(req.OwnerUserID)
+	if ownerUserID == "" {
+		return nil, ErrInvalidTenantOwner
+	}
+	if allowed, err := s.IsUserAllowed(ctx, ownerUserID); err != nil {
+		if errors.Is(err, ErrUserNotFound) || errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrInvalidTenantOwner
+		}
+		return nil, err
+	} else if !allowed {
+		return nil, ErrInvalidTenantOwner
+	}
+	tenants, err := s.ListTenantMembershipsForUser(ctx, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	if len(tenants) >= maxOrgsPerUser {
+		return nil, ErrTenantLimitExceeded
+	}
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
+		return nil, err
+	}
+	tenantID, err := newUUIDV7String()
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id, canonical string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO profiles.tenants (id, slug, metadata)
+		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
+		RETURNING id::text, slug
+	`, tenantID, slug).Scan(&id, &canonical); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, ErrOwnerSlugTaken
+		}
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO profiles.tenant_roles (tenant_id, role)
+		VALUES ($1::uuid, $2), ($1::uuid, $3)
+		ON CONFLICT (tenant_id, role) DO NOTHING
+	`, id, tenantOwnerRole, tenantMemberRole); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission)
+		VALUES ($1::uuid, $2, $3)
+		ON CONFLICT DO NOTHING
+	`, id, tenantOwnerRole, PermWildcard); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
+		VALUES ($1::uuid, $2::uuid, $3)
+		ON CONFLICT (tenant_id, user_id)
+		DO UPDATE SET role=EXCLUDED.role, deleted_at=NULL, updated_at=now()
+	`, id, ownerUserID, tenantOwnerRole); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &Tenant{ID: id, Slug: canonical, OwnerUserID: ownerUserID}, nil
 }
 
 // RenameTenantSlug renames a non-personal tenant. Subject to the 72h

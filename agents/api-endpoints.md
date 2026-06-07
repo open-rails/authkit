@@ -124,7 +124,7 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/tenants` | AUTH | List tenants for current user (includes per-tenant roles) |
-| POST | `/tenants` | AUTH | Create an tenant (creator is bootstrapped as `owner`) |
+| POST | `/tenants` | AUTH | Public tenant registration. Requires an authenticated user and calls `CreateTenantForUser`: creates the tenant, seeds baseline roles, adds the caller as the initial `owner`, and never creates ownerless public tenants. Disabled by non-open `TenantRegistrationMode`. Ownerless tenants are privileged bootstrap/admin only (`ProvisionTenant` / tenant manifest). |
 | GET | `/tenants/:tenant` | AUTH | Get tenant metadata (`:tenant` accepts slug or alias) |
 | POST | `/tenants/:tenant/rename` | AUTH | Rename tenant slug (keeps old slug as alias) |
 | GET | `/tenants/:tenant/members` | AUTH | List members (`tenant:read`) |
@@ -215,6 +215,27 @@ resource no-escalation install `core.Config.ResourceScopeAuthorizer`; otherwise
 any caller who passes the normal service token management and permission checks may attach
 valid resource scopes. The rule is: **permissions say what; resources say
 where**.
+
+## Service JWTs (OIDC/JWKS machine credentials)
+
+First-party services that have their own AuthKit issuer/JWKS should mint
+short-lived service JWTs instead of receiving generated opaque service tokens
+from the resource service. The canonical token shape is `iss`, `sub`, `aud`,
+`iat`, `nbf`, `exp`, `jti`, `token_use=service`, and `permissions: []`, with
+optional `resources: [{kind,id}]`. AuthKit's default mint lifetime is 15 minutes.
+
+Use `core.MintServiceJWT` or `(*core.Service).MintServiceJWT` on the caller side,
+and `authhttp.Verifier.VerifyServiceJWT` or `authhttp.RequiredServiceJWT` on the
+receiver side. Verification uses registered issuers/JWKS, including tenant issuer
+lazy-load; disabled issuer rows fail closed. AuthKit parses requested
+permissions/resources but does not grant them. The resource service must
+intersect requested permissions with server-side grants for the issuer/subject.
+
+Recommended pattern for Doujins/Hentai0 -> OpenRails: caller caches a 15-minute
+service JWT in memory until near expiry, sends `Authorization: Bearer <jwt>`,
+OpenRails verifies the issuer/JWKS and audience, then authorizes using
+OpenRails-owned service grants. Generated opaque service tokens remain for
+non-OIDC clients, manual API-key-like credentials, and bootstrap/admin scripts.
 
 Example:
 
