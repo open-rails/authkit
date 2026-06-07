@@ -539,13 +539,24 @@ func (v *Verifier) VerifyClaims(tokenStr string) (jwt.MapClaims, error) {
 		return nil, errors.New("missing_token")
 	}
 
-	mapClaims := jwt.MapClaims{}
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	tok, err := parser.ParseWithClaims(tokenStr, mapClaims, func(token *jwt.Token) (any, error) {
-		return v.keyForToken(token)
-	})
+	keyFn := func(token *jwt.Token) (any, error) { return v.keyForToken(token) }
+	mapClaims := jwt.MapClaims{}
+	tok, err := parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
 	if err != nil || tok == nil || !tok.Valid {
-		return nil, errors.New("invalid_token")
+		// Resilience: a verification failure can mean our cached signing key is
+		// stale/rotated (same kid, new key material) or the JWKS was never
+		// fetched (peer was starting on first use). If the token names a KNOWN
+		// issuer, force ONE inline JWKS refetch and retry the verification before
+		// rejecting. (refreshIssuerKeys is itself bounded-retry + the refetch is
+		// once-per-verify, so this cannot hammer the JWKS endpoint.)
+		if v.forceRefreshForToken(tokenStr) {
+			mapClaims = jwt.MapClaims{}
+			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
+		}
+		if err != nil || tok == nil || !tok.Valid {
+			return nil, errors.New("invalid_token")
+		}
 	}
 
 	iss, _ := mapClaims["iss"].(string)
@@ -995,29 +1006,101 @@ func (v *Verifier) refetchForUnknownKID(ctx context.Context, issuer string, ie i
 	return true
 }
 
+// JWKS fetch resilience knobs: a momentarily-unreachable JWKS endpoint (a peer
+// still starting, a transient network blip / 5xx) should not fail token
+// verification on the first try. refreshIssuerKeys retries this many times with
+// exponential backoff starting at jwksRefreshBackoff.
+const (
+	jwksRefreshAttempts = 3
+	jwksRefreshBackoff  = 250 * time.Millisecond
+)
+
+// forceRefreshForToken parses the token's `iss` WITHOUT verifying it, and if it
+// names a KNOWN issuer, force-refreshes that issuer's JWKS inline (bypassing the
+// TTL/known-kid guards). Returns true when a refresh ran, so VerifyClaims can
+// retry the signature check once. This is the "on a verify reject, refetch keys
+// inline and retry" resilience path — it recovers from a stale/rotated signing
+// key or a JWKS that wasn't reachable on first use.
+func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
+	mc := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tokenStr, mc); err != nil {
+		return false
+	}
+	iss := strClaim(mc, "iss")
+	if iss == "" {
+		return false
+	}
+	ie := v.matchIssuer(iss)
+	if ie == nil {
+		return false
+	}
+	entry := *ie // copy out from under the verifier lock before fetching
+	cacheTTL := entry.cacheTTL
+	if cacheTTL == 0 {
+		cacheTTL = 10 * time.Minute
+	}
+	maxStale := entry.maxStale
+	if maxStale == 0 {
+		maxStale = time.Hour
+	}
+	return v.refreshIssuerKeys(context.Background(), iss, entry, cacheTTL, maxStale) == nil
+}
+
 func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) error {
 	jwksURL := strings.TrimSpace(ie.jwksURL)
 	if jwksURL == "" {
 		jwksURL = strings.TrimRight(strings.TrimSpace(issuer), "/") + "/.well-known/jwks.json"
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
-	resp, err := v.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("jwks_http_%d", resp.StatusCode)
+	// One fetch+parse attempt. A nil error means the JWKS was fetched and parsed.
+	attempt := func() (jwtkit.JWKS, map[string]crypto.PublicKey, error) {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
+		resp, err := v.httpClient.Do(req)
+		if err != nil {
+			return jwtkit.JWKS{}, nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return jwtkit.JWKS{}, nil, fmt.Errorf("jwks_http_%d", resp.StatusCode)
+		}
+		// Limit response body to 1MB to prevent OOM from malicious JWKS endpoints.
+		limited := io.LimitReader(resp.Body, 1<<20)
+		var ks jwtkit.JWKS
+		if derr := json.NewDecoder(limited).Decode(&ks); derr != nil {
+			return jwtkit.JWKS{}, nil, derr
+		}
+		pub, perr := jwtkit.JWKSToPublicKeys(ks)
+		if perr != nil {
+			return jwtkit.JWKS{}, nil, perr
+		}
+		return ks, pub, nil
 	}
 
-	// Limit response body to 1MB to prevent OOM from malicious JWKS endpoints.
-	limited := io.LimitReader(resp.Body, 1<<20)
-	var ks jwtkit.JWKS
-	if err := json.NewDecoder(limited).Decode(&ks); err != nil {
-		return err
+	// Resilience: a JWKS endpoint can be momentarily unreachable (peer still
+	// starting, transient network/5xx). Retry a few times with bounded backoff
+	// before giving up, rather than failing the whole token verification on a
+	// single blip. Aborts early if the request context is cancelled.
+	var (
+		ks       jwtkit.JWKS
+		pubByKID map[string]crypto.PublicKey
+		err      error
+	)
+	backoff := jwksRefreshBackoff
+	for i := 0; i < jwksRefreshAttempts; i++ {
+		ks, pubByKID, err = attempt()
+		if err == nil {
+			break
+		}
+		if i == jwksRefreshAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
 	}
-	pubByKID, err := jwtkit.JWKSToPublicKeys(ks)
 	if err != nil {
 		return err
 	}
