@@ -129,17 +129,13 @@ func (s *Service) ReconcileTenantManifest(ctx context.Context, manifest TenantMa
 		}
 		req := TenantProvisionRequest{Slug: slug}
 		for _, issuer := range tenant.Issuers {
-			req.Issuers = append(req.Issuers, TenantProvisionIssuer{
-				Issuer: issuer.Issuer, JWKSURI: issuer.JWKSURI, Audiences: issuer.Audiences, Enabled: issuer.Enabled,
-			})
+			req.Issuers = append(req.Issuers, TenantProvisionIssuer(issuer))
 		}
 		for _, role := range tenant.Roles {
-			req.Roles = append(req.Roles, TenantProvisionRole{Name: role.Name, Permissions: role.Permissions})
+			req.Roles = append(req.Roles, TenantProvisionRole(role))
 		}
 		for _, membership := range tenant.Memberships {
-			req.Memberships = append(req.Memberships, TenantProvisionMembership{
-				UserID: membership.UserID, Role: membership.Role,
-			})
+			req.Memberships = append(req.Memberships, TenantProvisionMembership(membership))
 		}
 		for _, token := range tenant.ServiceTokens {
 			if store == nil || token.Output.empty() {

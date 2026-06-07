@@ -172,7 +172,6 @@ func TestDevserverE2E(t *testing.T) {
 	}
 	repoRoot := filepath.Dir(wd)
 
-	useAllInOne := strings.TrimSpace(os.Getenv("AUTHKIT_E2E_ALL_IN_ONE")) == "1"
 	dbService := "postgres"
 
 	composeFile := filepath.Join(repoRoot, "docker-compose.devserver.yaml")
@@ -190,33 +189,6 @@ func TestDevserverE2E(t *testing.T) {
     environment:
       DEVSERVER_DEV_MINT_SECRET: %q
 `, mintSecret)
-	if useAllInOne {
-		// Test the all-in-one image (embedded Postgres) via a local build.
-		// This avoids requiring any published image and ensures the Dockerfile remains functional.
-		dbService = "issuer"
-		composeFile = filepath.Join(t.TempDir(), "docker-compose.all-in-one.yaml")
-		override = fmt.Sprintf(`services:
-  issuer:
-    build:
-      context: %s
-      dockerfile: Dockerfile.devserver-all-in-one
-    ports:
-      - "8080"
-    environment:
-      ENV: dev
-      DEVSERVER_LISTEN_ADDR: ":8080"
-      DEVSERVER_ISSUER: "http://issuer:8080"
-      DEVSERVER_ISSUED_AUDIENCES: %q
-      DEVSERVER_EXPECTED_AUDIENCES: %q
-      DEVSERVER_DEV_MODE: "true"
-      DEVSERVER_DEV_MINT_SECRET: %q
-`, repoRoot, aud, aud, mintSecret)
-		if err := os.WriteFile(composeFile, []byte(override), 0600); err != nil {
-			t.Fatalf("write all-in-one compose: %v", err)
-		}
-		// We already wrote the full compose content; don't write an override file.
-		overridePath = ""
-	}
 	if overridePath != "" {
 		if err := os.WriteFile(overridePath, []byte(override), 0600); err != nil {
 			t.Fatalf("write override: %v", err)
