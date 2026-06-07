@@ -499,8 +499,8 @@ Tenants (tenant_mode)
 - In `TenantMode: "single"` (default), AuthKit behaves like a single-tenant app:
   - Access tokens include `roles` (string[]) and there are no tenant-related claims/fields.
 
-Service Tokens (service tokens)
-- Long-lived, revocable bearer credentials **owned by an tenant** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). The standard machine-auth primitive (cf. Docker Hub service tokens, Stripe `sk_` keys) — robots should not replay the human password-login path.
+Service Tokens (opaque machine credentials)
+- Long-lived, revocable bearer credentials **owned by a tenant** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). The standard machine-auth primitive (cf. Docker Hub service tokens, Stripe `sk_` keys) — robots should not replay the human password-login path.
 - A service token acts **as the tenant**: middleware sets `Claims.Tenant` + `Claims.Permissions` (the token's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `TenantRoles`; the resource server expands role→permission at request time.)
 - Presented as `Authorization: Bearer <app>st_<key_id>_<secret>`, where `<app>` is the host-configured `Config.ServiceTokenPrefix` brand (e.g. `cozy` → `cozy_st_…`; empty → bare `st_`). `key_id` is a non-secret public id for O(1) indexed lookup; only `sha256(secret)` is stored; the full token is shown **once**.
 - Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/tenant-deleted rejected; non-service-token credentials fall through to JWT). The service token path is separate from the password-login handler, so service tokens **bypass the interactive password-login rate limiter** by design.
@@ -923,12 +923,17 @@ SpaceX accepts service tokens from multiple issuers; both tesla.com and x.com.
 
 ---
 
-### Tenant Issuers & Platform Delegation
+### Tenant Issuers & Delegated Access JWTs
 
-AuthKit owns the full platform-delegation lifecycle so an **tenant can bring in
-tenant users** — users who live in the tenant's own system and authenticate via
-the tenant's **issuer** rather than local passwords. Two AuthKit-embedding services
-register with and trust each other:
+AuthKit owns the shared identity primitives for federation: a resource service
+registers tenant issuers, verifies their OIDC/JWKS metadata, and records minimal
+delegated users as `(tenant_id, issuer, subject)`. Product-specific approval,
+quota, billing, and resource policy still belong to the receiving product.
+
+This lets a tenant bring external principals that live in the tenant's own
+system. Those principals authenticate via the tenant's **issuer** rather than
+local passwords. Two AuthKit-embedding services register with and trust each
+other:
 
 - the **platform / IdP** side (e.g. cozy-art) **mints** delegated tokens and
   **sends** its registration;
@@ -943,12 +948,12 @@ There are three roles, all owned by AuthKit:
 | **mint** | platform | `MintDelegatedAccessToken(ctx, signer, DelegatedAccessParams)` |
 | **validate** | resource server | `Verifier.LoadTenantIssuers` + `Verifier.VerifyDelegatedAccess` → `Claims.DelegatedAccess()` |
 
-#### Delegated service tokens (canonical primitive)
+#### Delegated access JWTs
 
-A **delegated service token** is AuthKit's standard primitive for resource-service
-federation: one AuthKit issuer signs a short-lived JWT for an external
-(delegated) actor, and a resource service (OpenRails, Tensorhub,
-Gen-Orchestrator, …) accepts it after issuer/JWKS/audience/resource-account
+A **delegated access JWT** is AuthKit's standard primitive for user or
+tenant-admin federation: one AuthKit issuer signs a short-lived JWT for an
+external delegated actor, and a resource service (OpenRails, Tensorhub,
+Gen-Orchestrator, ...) accepts it after issuer/JWKS/audience/resource-account
 validation.
 Mint it with `MintDelegatedAccessToken` / `DelegatedAccessParams`.
 
@@ -956,7 +961,7 @@ Canonical claim contract:
 
 | Claim | Meaning | Typed accessor |
 |---|---|---|
-| header `typ=delegated-access+jwt` | identifies a delegated service token (`DelegatedAccessTokenType`) | `Claims.TokenTyp` / `IsDelegatedAccessToken()` |
+| header `typ=delegated-access+jwt` | identifies a delegated access JWT (`DelegatedAccessTokenType`) | `Claims.TokenTyp` / `IsDelegatedAccessToken()` |
 | `iss` | AuthKit issuer that signed the token | `Claims.Issuer` |
 | `aud` | target resource API (`openrails`, `tensorhub`, `gen-orchestrator`) | (matched at verify) |
 | `tenant` | target resource-service account slug, e.g. `doujins` in OpenRails | `Claims.Tenant` |
@@ -967,27 +972,27 @@ Canonical claim contract:
 
 **Hard invariants** (enforced + tested):
 
-- Ordinary AuthKit service tokens use header `typ=access+jwt`; delegated access
+- Ordinary AuthKit access JWTs use header `typ=access+jwt`; delegated access
   tokens use header `typ=delegated-access+jwt`. `Verify()` rejects missing,
   unknown, or cross-profile `typ` values.
-- A delegated service token **MUST NOT** carry a normal `sub`. `Verify()` rejects
+- A delegated access JWT **MUST NOT** carry a normal `sub`. `Verify()` rejects
   a `typ=delegated-access+jwt` token that carries `sub`
   (`access_token_has_sub`).
 - A token carrying **both** `sub` and `delegated_sub` is rejected
   (`conflicting_subject`).
-- `roles` are not part of delegated service tokens. `MintDelegatedAccessToken`
-  does not mint them, and `Verify()` rejects delegated service tokens carrying a
+- `roles` are not part of delegated access JWTs. `MintDelegatedAccessToken`
+  does not mint them, and `Verify()` rejects delegated access JWTs carrying a
   `roles` claim (`delegated_access_has_roles`). Receiving services authorize on
   `permissions` + explicit `attributes` policy.
 - The `tenant` JWT claim is required and means the target resource-service
-  account. Delegated service tokens MUST NOT carry an AuthKit `tenant` claim;
+  account. Delegated access JWTs MUST NOT carry the legacy AuthKit `org` claim;
   `Verify()` rejects it (`delegated_access_has_org`).
-- Tier/plan metadata belongs under `attributes.tier`. Delegated service tokens
+- Tier/plan metadata belongs under `attributes.tier`. Delegated access JWTs
   MUST NOT carry a top-level `user_tier` claim
   (`delegated_access_has_user_tier`).
 - Tenant issuers loaded from AuthKit's `tenant_issuers` store are
   also bound to the registered resource account (`tenant_slug` in the storage row):
-  delegated service tokens from that issuer must claim the same resource account,
+  delegated access JWTs from that issuer must claim the same resource account,
   or verification rejects them with `resource_account_issuer_mismatch`. This
   prevents one trusted issuer from minting a delegated token for another
   resource account.
@@ -1003,7 +1008,7 @@ cl, dp, err := v.VerifyDelegatedAccess(token) // requires typ=delegated-access+j
 // dp.Tenant, dp.DelegatedSubject, dp.Permissions, dp.Attributes, dp.JTI, dp.Issuer
 ```
 
-Because a delegated service token has no `sub`, the resource server's middleware
+Because a delegated access JWT has no `sub`, the resource server's middleware
 **skips the local-user gate** (no `user_disabled` lookup) — authorization is by
 issuer/resource-account trust + `permissions`, not local-user existence.
 
@@ -1023,7 +1028,7 @@ self-scoped OpenRails permissions the current user may receive, then calls
 `MintDelegatedAccessToken` with `aud=openrails`, `tenant`, `delegated_sub` set
 to the current user id, short `TTL`, and permissions such as
 `openrails:self:billing:read` or `openrails:self:checkout:create`. The browser
-then calls OpenRails directly with that delegated service token; the host does
+then calls OpenRails directly with that delegated access JWT; the host does
 not proxy billing reads or checkout/subscription actions.
 
 #### Registration handshake (both sides)

@@ -68,9 +68,9 @@
         "[x] Wire tenant issuers into the existing verifier/JWKS refresh path using issuer-specific audiences when provided.",
         "[x] Implement get-or-touch delegated user persistence during delegated-token resolution.",
         "[x] Add focused tests for delegated_users persistence and two issuers with the same subject.",
-        "[ ] Finish docs polish after host repos migrate."
+        "[x] Finish docs polish after host repos migrate: README and agents/api-endpoints.md now describe tenant issuers, minimal delegated users, delegated access JWTs, and opaque service tokens using the same terminology consumed by OpenRails."
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id_number": 55,

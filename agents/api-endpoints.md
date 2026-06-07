@@ -168,11 +168,11 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 ---
 
-## Service Tokens (service tokens)
+## Service Tokens (opaque machine credentials)
 
-Long-lived, revocable bearer credentials **owned by an tenant** (not a person), for
+Long-lived, revocable bearer credentials **owned by a tenant** (not a person), for
 machine/automation callers (CI, the e2e operator CLI, service-to-service). An
-service token acts **as the tenant**: middleware sets `Claims.Tenant` + `Claims.Permissions`
+opaque service token acts **as the tenant**: middleware sets `Claims.Tenant` + `Claims.Permissions`
 (the token's app-defined permission strings) and a service marker
 (`Claims.IsService()`), with **no** `UserID`, mirroring the delegated-principal
 pattern. Permissions are opaque to authkit — the embedding app owns the
@@ -202,7 +202,7 @@ reserved **write/mint** management permissions (`tenant:roles:manage`,
 from service tokens (`403 permission_not_grantable_to_service_token`) — a service token does machine work,
 not tenant management. The read-only `tenant:read` IS grantable (escalation-harmless,
 for monitoring/audit automation), still subject to no-escalation. Permissions
-are frozen at mint time (revoke to reduce). An service token
+are frozen at mint time (revoke to reduce). A service token
 carries no user, so it can never mint/list/revoke service tokens.
 
 **Resource scopes.** service tokens may also carry `resources: [{kind, id}]`. AuthKit
@@ -321,12 +321,12 @@ issuers (carrying `delegated_sub`) are then validated by the Verifier with
 in-house JWKS fetch/refresh (no external push/sync). The outbound side is the
 Go `authhttp.TenantIssuersClient` (no route).
 
-Delegated service tokens are minted with `authhttp.MintDelegatedAccessToken`.
+Delegated access JWTs are minted with `authhttp.MintDelegatedAccessToken`.
 They carry `typ=delegated-access+jwt`, required `tenant`, `delegated_sub`,
 resource-defined `permissions`, optional JSON `attributes`, and no normal
-`sub`. Ordinary AuthKit service tokens carry `typ=access+jwt`; resource servers
-reject missing, unknown, or cross-profile `typ` values. Delegated service tokens
-must not carry delegated-token legacy claims such as `tenant`, `roles`, or
+`sub`. Ordinary AuthKit access JWTs carry `typ=access+jwt`; resource servers
+reject missing, unknown, or cross-profile `typ` values. Delegated access JWTs
+must not carry legacy claims such as `org`, `roles`, or
 top-level `user_tier`; those are rejected. Resource servers should validate them
 with `Verifier.VerifyDelegatedAccess`, optionally installing
 permission-catalog and attributes-policy hooks. Tenant issuers loaded from
@@ -334,7 +334,7 @@ this store are bound to their registered `tenant_slug`; delegated tokens claimin
 another resource account are rejected with `resource_account_issuer_mismatch`.
 For browser-direct OpenRails billing, a host app should expose its own
 authenticated current-user token endpoint, mint a short-lived `aud=openrails`
-delegated service token for its resource account with self-scoped permissions such as
+delegated access JWT for its resource account with self-scoped permissions such as
 `openrails:self:billing:read` or `openrails:self:checkout:create`, and let the
 browser call OpenRails directly; the host does not need to proxy billing routes.
 
