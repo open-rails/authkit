@@ -125,10 +125,10 @@
         "[x] Keep service tokens tenant-owned and separate from native users/delegated users.",
         "[x] Keep delegated JWT claims using OIDC iss/aud plus tenant/delegated_sub and reject legacy org delegated claims.",
         "[x] Ensure middleware resolves service tokens to service principals and delegated JWTs to delegated principals.",
-        "[ ] Add explicit wrong-token-type denial tests for every route class after host APIs migrate.",
-        "[ ] Finish docs/examples once OpenRails consumes the hard-cut API."
+        "[x] Add explicit wrong-token-type denial tests for every route class after host APIs migrate. DONE: added HTTP regression coverage proving ordinary Required rejects service JWTs, RequiredServiceJWT rejects user/delegated JWTs, and VerifyDelegatedAccess rejects service JWTs.",
+        "[x] Finish docs/examples once OpenRails consumes the hard-cut API. DONE: README documents explicit ordinary, delegated-only, and service-JWT route classes."
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id_number": 58,
@@ -139,12 +139,12 @@
         "[x] Update `POST /tenants` to call the user-owned core API instead of stitching together `CreateTenant`, `DefineRole`, `AddMember`, and `AssignRole` in the HTTP handler.",
         "[x] Ensure `POST /tenants` always requires an authenticated user and cannot create an ownerless tenant.",
         "[x] Keep lower-level `CreateTenant` clearly documented as a privileged/internal primitive for bootstrap/admin/programmatic callers, not public self-service tenant registration.",
-        "[~] Define and test the error contract for duplicate slug, reserved slug, invalid slug, tenant limit exceeded, deleted user, banned user, registration-mode disabled, and parked-tenant claim cases. Added stable errors/mapping plus tests for invalid slug, duplicate slug, missing owner, banned owner, and deleted owner; remaining focused coverage: tenant-limit and reserved/parked namespace variants.",
+        "[x] Define and test the error contract for duplicate slug, reserved slug, invalid slug, tenant limit exceeded, deleted user, banned user, registration-mode disabled, and parked-tenant claim cases. DONE: added tenant-limit coverage plus reserved-name and parked-tenant namespace rejection coverage; existing tests cover invalid, duplicate, missing owner, banned owner, deleted owner, and registration-mode disabled.",
         "[x] Ensure tenant creation and owner assignment are atomic; failures must not leave an ownerless or partially initialized public tenant.",
         "[x] Add tests proving public tenant registration creates exactly one owner membership, seeds tenant role defaults, and rejects unauthenticated/userless creation.",
         "[x] Update docs/API endpoints to state that public tenant registration is user-owned and ownerless tenants are bootstrap/admin-only."
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id_number": 59,

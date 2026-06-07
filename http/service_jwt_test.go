@@ -189,6 +189,76 @@ func TestRequiredServiceJWTMiddleware(t *testing.T) {
 	require.Equal(t, 204, rec.Code)
 }
 
+func TestWrongTokenTypeDenials(t *testing.T) {
+	signer, err := jwtkit.NewRSASigner(2048, "kid")
+	require.NoError(t, err)
+	issuer := "https://auth.hentai0.example"
+	v := newServiceJWTVerifier(t, signer, issuer, []string{"openrails"})
+	now := time.Now().UTC()
+
+	userToken, err := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
+		"iss": issuer,
+		"sub": "user-1",
+		"aud": "openrails",
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
+	}, map[string]any{"typ": AccessTokenType})
+	require.NoError(t, err)
+
+	delegatedToken, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer: issuer, Audiences: []string{"openrails"}, Tenant: "hentai0",
+		DelegatedSubject: "external-user-1", TTL: time.Minute,
+	})
+	require.NoError(t, err)
+
+	serviceToken, _, err := core.MintServiceJWT(context.Background(), signer, issuer, core.ServiceJWTMintOptions{
+		Subject: "service:hentai0-runtime", Audiences: []string{"openrails"}, JTI: "svc-denial",
+	})
+	require.NoError(t, err)
+
+	t.Run("ordinary required rejects service jwt", func(t *testing.T) {
+		protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("service JWT must not reach ordinary Required route")
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+serviceToken)
+		rec := httptest.NewRecorder()
+		protected.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code)
+		require.JSONEq(t, `{"error":"access_token_wrong_typ"}`, rec.Body.String())
+	})
+
+	t.Run("service required rejects user jwt", func(t *testing.T) {
+		protected := RequiredServiceJWT(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("user JWT must not reach service-JWT route")
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+userToken)
+		rec := httptest.NewRecorder()
+		protected.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code)
+		require.JSONEq(t, `{"error":"invalid_service_jwt"}`, rec.Body.String())
+	})
+
+	t.Run("service required rejects delegated jwt", func(t *testing.T) {
+		protected := RequiredServiceJWT(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("delegated JWT must not reach service-JWT route")
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+delegatedToken)
+		rec := httptest.NewRecorder()
+		protected.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code)
+		require.JSONEq(t, `{"error":"invalid_service_jwt"}`, rec.Body.String())
+	})
+
+	t.Run("delegated verifier rejects service jwt", func(t *testing.T) {
+		_, _, err := v.VerifyDelegatedAccess(serviceToken)
+		require.EqualError(t, err, "access_token_wrong_typ")
+	})
+}
+
 func TestVerifyServiceJWTDisabledTenantIssuerFailsClosed(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)

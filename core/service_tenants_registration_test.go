@@ -118,6 +118,101 @@ func TestCreateTenantForUserRejectsInvalidDuplicateBannedAndDeleted(t *testing.T
 	}
 }
 
+func TestCreateTenantForUserRejectsTenantLimit(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+
+	username := fmt.Sprintf("tenant-limit-owner-%d", time.Now().UnixNano())
+	prefix := fmt.Sprintf("tenant-limit-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug LIKE $1`, prefix+"-%")
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
+	})
+
+	user, err := svc.CreateUser(ctx, "", username)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	for i := 0; i < maxOrgsPerUser; i++ {
+		tenantID, err := newUUIDV7String()
+		if err != nil {
+			t.Fatalf("newUUIDV7String: %v", err)
+		}
+		slug := fmt.Sprintf("%s-%03d", prefix, i)
+		if _, err := pool.Exec(ctx, `
+			WITH tenant AS (
+				INSERT INTO profiles.tenants (id, slug, metadata)
+				VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
+				RETURNING id
+			), roles AS (
+				INSERT INTO profiles.tenant_roles (tenant_id, role)
+				SELECT tenant.id, role_name
+				FROM tenant
+				CROSS JOIN (VALUES ('owner'), ('member')) AS role_defs(role_name)
+				RETURNING tenant_id
+			)
+			INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
+			SELECT tenant.id, $3::uuid, 'owner'
+			FROM tenant
+			WHERE (SELECT count(*) FROM roles) = 2
+		`, tenantID, slug, user.ID); err != nil {
+			t.Fatalf("seed tenant membership %d: %v", i, err)
+		}
+	}
+
+	if _, err := svc.CreateTenantForUser(ctx, CreateTenantForUserRequest{
+		Slug: prefix + "-overflow", OwnerUserID: user.ID,
+	}); !errors.Is(err, ErrTenantLimitExceeded) {
+		t.Fatalf("tenant limit err=%v, want ErrTenantLimitExceeded", err)
+	}
+}
+
+func TestCreateTenantForUserRejectsReservedAndParkedNamespace(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+
+	username := fmt.Sprintf("namespace-owner-%d", time.Now().UnixNano())
+	reservedSlug := fmt.Sprintf("reserved-tenant-%d", time.Now().UnixNano())
+	parkedSlug := fmt.Sprintf("parked-tenant-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug IN ($1, $2)`, reservedSlug, parkedSlug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug IN ($1, $2)`, reservedSlug, parkedSlug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
+	})
+
+	user, err := svc.CreateUser(ctx, "", username)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	restricted, _, err := svc.RestrictOwnerNamespaceSlugs(ctx, []string{reservedSlug})
+	if err != nil {
+		t.Fatalf("RestrictOwnerNamespaceSlugs: %v", err)
+	}
+	if len(restricted) != 1 || restricted[0] != reservedSlug {
+		t.Fatalf("restricted=%v, want %q", restricted, reservedSlug)
+	}
+	if _, err := svc.CreateTenantForUser(ctx, CreateTenantForUserRequest{Slug: reservedSlug, OwnerUserID: user.ID}); !errors.Is(err, ErrOwnerSlugTaken) {
+		t.Fatalf("reserved slug err=%v, want ErrOwnerSlugTaken", err)
+	}
+
+	if _, _, err := svc.ParkOrgNamespace(ctx, parkedSlug); err != nil {
+		t.Fatalf("ParkOrgNamespace: %v", err)
+	}
+	state, err := svc.GetOwnerNamespaceStateBySlug(ctx, parkedSlug)
+	if err != nil {
+		t.Fatalf("GetOwnerNamespaceStateBySlug: %v", err)
+	}
+	if state != OwnerNamespaceStateParkedTenant {
+		t.Fatalf("state=%q, want %q", state, OwnerNamespaceStateParkedTenant)
+	}
+	if _, err := svc.CreateTenantForUser(ctx, CreateTenantForUserRequest{Slug: parkedSlug, OwnerUserID: user.ID}); !errors.Is(err, ErrOwnerSlugTaken) {
+		t.Fatalf("parked slug err=%v, want ErrOwnerSlugTaken", err)
+	}
+}
+
 func TestProvisionTenantBypassesPublicRegistrationMode(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()

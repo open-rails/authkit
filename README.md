@@ -912,6 +912,12 @@ AuthKit-powered APIs (e.g., spacex), without mounting any auth routes.
   `authhttp.RequiredServiceJWT(verifier)`. This returns a machine principal with
   issuer, subject, tenant/resource account, permissions, resources, and JTI; the
   host still owns final authorization.
+- Keep route classes explicit: ordinary user/delegated routes use
+  `authhttp.Required`, delegated-only resource routes use
+  `verifier.VerifyDelegatedAccess`, and first-party machine routes use
+  `authhttp.RequiredServiceJWT`. Service JWTs are intentionally rejected by the
+  ordinary/delegated entry points, and user/delegated JWTs are intentionally
+  rejected by `RequiredServiceJWT`.
 - Default skew: 60s. Default algorithms: RS256.
 - DB enrichment (recommended):
   - Call `verifier.WithService(coreSvc)` to enable best-effort
