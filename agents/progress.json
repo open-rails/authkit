@@ -54,7 +54,8 @@
         "[x] Collapse tenant_membership_roles into a single role on tenant_memberships.",
         "[x] Rename owner-namespace/status strings from registered_org/parked_org/etc. to registered_tenant/parked_tenant/etc.",
         "[x] Coordinate OpenRails and Hentai0 against the new tenant/service-token APIs; validated Hentai0 manifest v2, service-token outputs, delegated JWT verification, and tenant-subject entitlement reads through live compose.",
-        "[ ] Coordinate Doujins, Cozy Art, and Tensorhub against the new tenant/service-token APIs."
+        "[x] Coordinate Doujins against the new tenant/service-token APIs; validated manifest v2 issuer registration, OpenRails service-token output, and external-subject entitlement reads through direct compose startup.",
+        "[ ] Coordinate Cozy Art and Tensorhub against the new tenant/service-token APIs."
       ],
       "completed": false
     },
