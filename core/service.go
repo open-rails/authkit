@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	entpg "github.com/open-rails/authkit/entitlements"
 	jwtkit "github.com/open-rails/authkit/jwt"
+	authlang "github.com/open-rails/authkit/lang"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -647,7 +650,8 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 	// Send verification message to new phone
 	if s.sms != nil {
-		if err := s.sms.SendVerification(ctx, trimmed, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.sms.SendVerification(sendCtx, trimmed, msg); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -744,7 +748,8 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.sms != nil {
-		if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.sms.SendVerification(sendCtx, phone, msg); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -790,7 +795,8 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 
 	if s.sms != nil {
 		msg := VerificationMessage{Code: code}
-		return smsDeliveryError(s.sms.SendVerification(ctx, phone, msg))
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		return smsDeliveryError(s.sms.SendVerification(sendCtx, phone, msg))
 	}
 	// In production, require SMS to be configured
 	if !s.isDevEnvironment() {
@@ -1163,7 +1169,8 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return nil
 	}
 
-	if err := s.email.SendPasswordResetLink(ctx, *u.Email, username, token); err != nil {
+	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+	if err := s.email.SendPasswordResetLink(sendCtx, *u.Email, username, token); err != nil {
 		return emailDeliveryError(err)
 	}
 
@@ -1241,7 +1248,7 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 	}
 
 	if pending, err := s.GetPendingRegistrationByEmail(ctx, email); err == nil && pending != nil {
-		_, err := s.CreatePendingRegistration(ctx, email, pending.Username, pending.PasswordHash, ttl)
+		_, err := s.CreatePendingRegistrationWithLocale(ctx, email, pending.Username, pending.PasswordHash, ttl, pending.PreferredLocale)
 		return err
 	}
 	if s.pg == nil {
@@ -1282,7 +1289,8 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		return nil
 	}
 	if s.email != nil {
-		if err := s.email.SendVerification(ctx, *u.Email, username, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+		if err := s.email.SendVerification(sendCtx, *u.Email, username, msg); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -1323,14 +1331,28 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
+	return s.CreatePendingRegistrationWithLocale(ctx, email, username, passwordHash, ttl, "")
+}
+
+func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLocale string) (string, error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
+	locale, err := NormalizePreferredLocale(preferredLocale)
+	if err != nil {
+		return "", err
+	}
+	sendCtx := contextWithPreferredLocale(ctx, locale)
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
-		_, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
+		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
 		if err != nil {
 			return "", err
+		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
 		}
 		return "", nil
 	case RegistrationVerificationOptional:
@@ -1338,6 +1360,11 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, verified)
 		if err != nil {
 			return "", err
+		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
 		}
 		if verified {
 			return "", nil
@@ -1358,7 +1385,7 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			if err := s.email.SendVerification(ctx, normEmail, username, msg); err != nil {
+			if err := s.email.SendVerification(sendCtx, normEmail, username, msg); err != nil {
 				return "", emailDeliveryError(err)
 			}
 		}
@@ -1373,7 +1400,7 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		linkHash := sha256Hex(linkToken)
 
 		if s.useEphemeralStore() {
-			if err := s.storePendingRegistrationTokens(ctx, email, username, passwordHash, map[string]time.Duration{
+			if err := s.storePendingRegistrationTokens(ctx, email, username, passwordHash, locale, map[string]time.Duration{
 				codeHash: ttl,
 				linkHash: time.Hour,
 			}); err != nil {
@@ -1386,7 +1413,7 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.email != nil {
-				if err := s.email.SendVerification(ctx, email, username, msg); err != nil {
+				if err := s.email.SendVerification(sendCtx, email, username, msg); err != nil {
 					return "", emailDeliveryError(err)
 				}
 			} else {
@@ -1406,13 +1433,14 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 	}
 	hash := sha256Hex(token)
 
-	var email, username, passwordHash string
+	var email, username, passwordHash, preferredLocale string
 	if s.useEphemeralStore() {
 		data, ok, err := s.loadPendingRegistration(ctx, hash)
 		if err != nil || !ok {
 			return "", jwt.ErrTokenUnverifiable
 		}
 		email, username, passwordHash = data.Email, data.Username, data.PasswordHash
+		preferredLocale = data.PreferredLocale
 	} else {
 		return "", jwt.ErrTokenUnverifiable
 	}
@@ -1441,6 +1469,11 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 
 	if err != nil {
 		return "", err
+	}
+	if preferredLocale != "" {
+		if err := s.SetPreferredLocale(ctx, uid, preferredLocale, "registration"); err != nil {
+			return "", err
+		}
 	}
 
 	// Personal tenants are an explicit host opt-in. Native-user-only hosts can
@@ -1497,14 +1530,28 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
+	return s.CreatePendingPhoneRegistrationWithLocale(ctx, phone, username, passwordHash, "")
+}
+
+func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, phone, username, passwordHash, preferredLocale string) (string, error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
+	locale, err := NormalizePreferredLocale(preferredLocale)
+	if err != nil {
+		return "", err
+	}
+	sendCtx := contextWithPreferredLocale(ctx, locale)
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
-		_, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
+		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
 		if err != nil {
 			return "", err
+		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
 		}
 		return "", nil
 	case RegistrationVerificationOptional:
@@ -1512,6 +1559,11 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, verified)
 		if err != nil {
 			return "", err
+		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
 		}
 		if verified {
 			return "", nil
@@ -1528,7 +1580,7 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+			if err := s.sms.SendVerification(sendCtx, phone, msg); err != nil {
 				return "", smsDeliveryError(err)
 			}
 		}
@@ -1539,7 +1591,7 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
 		if s.useEphemeralStore() {
-			if err := s.storePendingPhoneRegistrationTokens(ctx, phone, username, passwordHash, map[string]time.Duration{
+			if err := s.storePendingPhoneRegistrationTokens(ctx, phone, username, passwordHash, locale, map[string]time.Duration{
 				codeHash: 15 * time.Minute,
 				linkHash: time.Hour,
 			}); err != nil {
@@ -1552,7 +1604,7 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.sms != nil {
-				if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+				if err := s.sms.SendVerification(sendCtx, phone, msg); err != nil {
 					return "", smsDeliveryError(err)
 				}
 			} else {
@@ -1575,7 +1627,7 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 	}
 	hash := sha256Hex(code)
 
-	var username, passwordHash, pendingPhone string
+	var username, passwordHash, pendingPhone, preferredLocale string
 	if s.useEphemeralStore() {
 		data, ok, err := s.loadPendingPhoneRegistration(ctx, hash)
 		if err != nil || !ok {
@@ -1589,6 +1641,7 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 			return "", jwt.ErrTokenUnverifiable
 		}
 		username, passwordHash = data.Username, data.PasswordHash
+		preferredLocale = data.PreferredLocale
 		phone = pendingPhone
 	} else {
 		return "", jwt.ErrTokenUnverifiable
@@ -1617,6 +1670,11 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 	uid, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
 	if err != nil {
 		return "", err
+	}
+	if preferredLocale != "" {
+		if err := s.SetPreferredLocale(ctx, uid, preferredLocale, "registration"); err != nil {
+			return "", err
+		}
 	}
 
 	// Delete pending registration
@@ -1709,7 +1767,7 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 	}
 
 	if pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone); err == nil && pending != nil {
-		_, err := s.CreatePendingPhoneRegistration(ctx, phone, pending.Username, pending.PasswordHash)
+		_, err := s.CreatePendingPhoneRegistrationWithLocale(ctx, phone, pending.Username, pending.PasswordHash, pending.PreferredLocale)
 		return err
 	}
 	if s.pg == nil {
@@ -1749,7 +1807,8 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 
 	// Send SMS
 	if s.sms != nil {
-		if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.sms.SendVerification(sendCtx, phone, msg); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -1853,7 +1912,8 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		return nil
 	}
 
-	if err := s.sms.SendPasswordResetLink(ctx, phone, token); err != nil {
+	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+	if err := s.sms.SendPasswordResetLink(sendCtx, phone, token); err != nil {
 		return smsDeliveryError(err)
 	}
 
@@ -1914,6 +1974,103 @@ type User struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastLogin       *time.Time
+}
+
+var preferredLocaleRe = regexp.MustCompile(`^[A-Za-z]{2,3}(-([A-Za-z]{2}|[0-9]{3}))?$`)
+
+func NormalizePreferredLocale(locale string) (string, error) {
+	locale = strings.TrimSpace(strings.ReplaceAll(locale, "_", "-"))
+	if locale == "" {
+		return "", nil
+	}
+	if !preferredLocaleRe.MatchString(locale) {
+		return "", fmt.Errorf("invalid_preferred_locale")
+	}
+	parts := strings.Split(locale, "-")
+	parts[0] = strings.ToLower(parts[0])
+	if len(parts) == 2 {
+		if len(parts[1]) == 2 {
+			parts[1] = strings.ToUpper(parts[1])
+		}
+	}
+	return strings.Join(parts, "-"), nil
+}
+
+func normalizePreferredLocaleSource(source string) string {
+	source = strings.TrimSpace(strings.ToLower(source))
+	switch source {
+	case "registration", "explicit", "migration", "import":
+		return source
+	default:
+		return "explicit"
+	}
+}
+
+type PreferredLocale struct {
+	Locale    string
+	Source    string
+	UpdatedAt *time.Time
+}
+
+func (s *Service) SetPreferredLocale(ctx context.Context, userID, locale, source string) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	userID = strings.TrimSpace(userID)
+	normalized, err := NormalizePreferredLocale(locale)
+	if err != nil {
+		return err
+	}
+	if userID == "" || normalized == "" {
+		return fmt.Errorf("invalid_request")
+	}
+	_, err = s.pg.Exec(ctx, `
+		UPDATE profiles.users
+		SET preferred_locale = $2,
+		    preferred_locale_source = $3,
+		    preferred_locale_updated_at = now(),
+		    updated_at = now()
+		WHERE id = $1::uuid
+	`, userID, normalized, normalizePreferredLocaleSource(source))
+	return err
+}
+
+func (s *Service) GetPreferredLocale(ctx context.Context, userID string) (PreferredLocale, error) {
+	if s.pg == nil {
+		return PreferredLocale{}, nil
+	}
+	var out PreferredLocale
+	var updatedAt sql.NullTime
+	err := s.pg.QueryRow(ctx, `
+		SELECT COALESCE(preferred_locale, ''),
+		       COALESCE(preferred_locale_source, ''),
+		       preferred_locale_updated_at
+		FROM profiles.users
+		WHERE id = $1::uuid
+	`, strings.TrimSpace(userID)).Scan(&out.Locale, &out.Source, &updatedAt)
+	if updatedAt.Valid {
+		out.UpdatedAt = &updatedAt.Time
+	}
+	return out, err
+}
+
+func contextWithPreferredLocale(ctx context.Context, locale string) context.Context {
+	if strings.TrimSpace(locale) == "" {
+		return ctx
+	}
+	return authlang.WithLanguage(ctx, locale)
+}
+
+func (s *Service) contextWithUserPreferredLocale(ctx context.Context, userID string) context.Context {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return ctx
+	}
+	preferred, err := s.GetPreferredLocale(ctx, userID)
+	if err != nil || strings.TrimSpace(preferred.Locale) == "" {
+		return ctx
+	}
+	return contextWithPreferredLocale(ctx, preferred.Locale)
 }
 
 type ImportUserInput struct {
@@ -2570,7 +2727,8 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	// Send verification message to NEW email
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	if s.email != nil {
-		if err := s.email.SendVerification(ctx, trimmed, username, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.email.SendVerification(sendCtx, trimmed, username, msg); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -2687,7 +2845,8 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.email != nil {
-		if err := s.email.SendVerification(ctx, pendingEmail, username, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.email.SendVerification(sendCtx, pendingEmail, username, msg); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -3281,7 +3440,8 @@ func (s *Service) SendWelcome(ctx context.Context, userID string) {
 	if u.Username != nil {
 		username = *u.Username
 	}
-	_ = s.email.SendWelcome(ctx, *u.Email, username)
+	sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+	_ = s.email.SendWelcome(sendCtx, *u.Email, username)
 }
 
 // Provider link management
@@ -3490,9 +3650,10 @@ func (s *Service) getDiscordUsername(ctx context.Context, userID string) (string
 
 // PendingRegistration represents an unverified registration
 type PendingRegistration struct {
-	Email        string
-	Username     string
-	PasswordHash string
+	Email           string
+	Username        string
+	PasswordHash    string
+	PreferredLocale string
 }
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.
@@ -3507,9 +3668,10 @@ func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email strin
 			return nil, err
 		}
 		return &PendingRegistration{
-			Email:        data.Email,
-			Username:     data.Username,
-			PasswordHash: data.PasswordHash,
+			Email:           data.Email,
+			Username:        data.Username,
+			PasswordHash:    data.PasswordHash,
+			PreferredLocale: data.PreferredLocale,
 		}, nil
 	}
 	return nil, nil
@@ -3527,9 +3689,10 @@ func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone 
 			return nil, err
 		}
 		return &PendingRegistration{
-			Email:        "",
-			Username:     data.Username,
-			PasswordHash: data.PasswordHash,
+			Email:           data.Email,
+			Username:        data.Username,
+			PasswordHash:    data.PasswordHash,
+			PreferredLocale: data.PreferredLocale,
 		}, nil
 	}
 	return nil, nil
@@ -3696,7 +3859,8 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 
 	if settings.Method == "email" {
 		if s.email != nil {
-			if err := s.email.SendLoginCode(ctx, destination, username, code); err != nil {
+			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			if err := s.email.SendLoginCode(sendCtx, destination, username, code); err != nil {
 				return "", emailDeliveryError(err)
 			}
 		} else {
@@ -3709,7 +3873,8 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 		}
 	} else { // sms
 		if s.sms != nil {
-			if err := s.sms.SendLoginCode(ctx, destination, code); err != nil {
+			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			if err := s.sms.SendLoginCode(sendCtx, destination, code); err != nil {
 				return "", smsDeliveryError(err)
 			}
 		} else {

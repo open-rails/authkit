@@ -27,10 +27,11 @@ const (
 )
 
 type pendingRegistrationData struct {
-	Email        string   `json:"email"`
-	Username     string   `json:"username"`
-	PasswordHash string   `json:"password_hash"`
-	TokenHashes  []string `json:"token_hashes,omitempty"`
+	Email           string   `json:"email"`
+	Username        string   `json:"username"`
+	PasswordHash    string   `json:"password_hash"`
+	PreferredLocale string   `json:"preferred_locale,omitempty"`
+	TokenHashes     []string `json:"token_hashes,omitempty"`
 }
 
 type phoneVerificationData struct {
@@ -113,7 +114,7 @@ func uniqueTokenHashes(primary string, hashes []string) []string {
 	return out
 }
 
-func (s *Service) storePendingRegistrationTokens(ctx context.Context, email, username, passwordHash string, tokenTTLs map[string]time.Duration) error {
+func (s *Service) storePendingRegistrationTokens(ctx context.Context, email, username, passwordHash, preferredLocale string, tokenTTLs map[string]time.Duration) error {
 	email = normalizeEmail(email)
 	userKey := keyPendingRegUser + username
 	emailKey := keyPendingRegEmail + email
@@ -131,10 +132,11 @@ func (s *Service) storePendingRegistrationTokens(ctx context.Context, email, use
 	}
 
 	data := pendingRegistrationData{
-		Email:        email,
-		Username:     username,
-		PasswordHash: passwordHash,
-		TokenHashes:  uniqueTokenHashes(canonicalHash, nil),
+		Email:           email,
+		Username:        username,
+		PasswordHash:    passwordHash,
+		PreferredLocale: preferredLocale,
+		TokenHashes:     uniqueTokenHashes(canonicalHash, nil),
 	}
 	for tokenHash := range normalizedTTLs {
 		data.TokenHashes = uniqueTokenHashes(tokenHash, data.TokenHashes)
@@ -178,7 +180,7 @@ func (s *Service) deletePendingRegistration(ctx context.Context, tokenHash strin
 	}
 }
 
-func (s *Service) storePendingPhoneRegistrationTokens(ctx context.Context, phone, username, passwordHash string, tokenTTLs map[string]time.Duration) error {
+func (s *Service) storePendingPhoneRegistrationTokens(ctx context.Context, phone, username, passwordHash, preferredLocale string, tokenTTLs map[string]time.Duration) error {
 	phoneKey := keyPendingPhonePhone + phone
 	userKey := keyPendingPhoneUser + username
 
@@ -195,10 +197,11 @@ func (s *Service) storePendingPhoneRegistrationTokens(ctx context.Context, phone
 	}
 
 	data := pendingRegistrationData{
-		Email:        phone,
-		Username:     username,
-		PasswordHash: passwordHash,
-		TokenHashes:  uniqueTokenHashes(canonicalHash, nil),
+		Email:           phone,
+		Username:        username,
+		PasswordHash:    passwordHash,
+		PreferredLocale: preferredLocale,
+		TokenHashes:     uniqueTokenHashes(canonicalHash, nil),
 	}
 	for tokenHash := range normalizedTTLs {
 		data.TokenHashes = uniqueTokenHashes(tokenHash, data.TokenHashes)

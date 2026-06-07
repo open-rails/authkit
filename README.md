@@ -261,6 +261,13 @@ Optional Twilio providers
 - The email provider requires a SendGrid/Twilio Email API key and a verified from address. Hosts can provide link builders or full message builders for branded/localized copy.
 - A 2xx response from AuthKit means the message was accepted by the configured sender/provider submission call. It does not prove the recipient mailbox or carrier ultimately delivered, accepted, opened, or displayed the message.
 
+Preferred locale
+- AuthKit stores an optional `preferred_locale` on the user profile. Registration seeds it from the request language, so a user signing up from `/es` or `?lang=es` starts with Spanish as their communication/default locale.
+- Host apps should pass the current site language through AuthKit's language middleware during registration, and should use `PATCH /user/preferred-locale` when the user explicitly changes their account preference.
+- Ordinary login, token refresh, and browsing a different route language must not rewrite `preferred_locale`.
+- AuthKit uses the stored locale for account, security, verification, password reset, login-code, and welcome messages. Built-in Twilio email/SMS defaults fall back to English when a locale is unsupported; host-provided builders can read `lang.LanguageFromContext(ctx)` for custom localized copy.
+- Site/content language remains host-app owned. `preferred_locale` is the communication language and a default only when the host has no stronger route/session/browser choice.
+
 ```go
 emailSender, err := emailtwilio.New(emailtwilio.Config{
     APIKey:    cfg.TwilioEmailAPIKey,

@@ -23,6 +23,12 @@ func TestAPIRoutesGroupSelection(t *testing.T) {
 	requireNoRoute(t, routes, http.MethodPost, "/token")
 }
 
+func TestAPIRoutesIncludePreferredLocaleUserRoute(t *testing.T) {
+	s := newTestService(t)
+
+	requireRoute(t, s.APIRoutes(RouteUser), http.MethodPatch, "/user/preferred-locale")
+}
+
 // (issue 60) Tenant routes are always registered under RouteTenants — no
 // tenant-mode gate; the host controls exposure by mounting the group.
 func TestAPIRoutesTenantRoutesAlwaysRegistered(t *testing.T) {

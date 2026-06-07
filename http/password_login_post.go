@@ -79,10 +79,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			passwordMatches := false
 			var pendingUsername string
 			var pendingPasswordHash string
+			var pendingPreferredLocale string
 			if pending, perr := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), identifier); perr == nil && pending != nil {
 				hasPending = true
 				pendingUsername = pending.Username
 				pendingPasswordHash = pending.PasswordHash
+				pendingPreferredLocale = pending.PreferredLocale
 				if ok, verr := pwhash.VerifyArgon2id(pending.PasswordHash, req.Password); verr == nil && ok {
 					passwordMatches = true
 				}
@@ -92,7 +94,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				passwordMatches,
 				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
-					_, createErr := s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, pendingUsername, pendingPasswordHash)
+					_, createErr := s.svc.CreatePendingPhoneRegistrationWithLocale(r.Context(), identifier, pendingUsername, pendingPasswordHash, pendingPreferredLocale)
 					return createErr
 				},
 				func() (string, error) {
@@ -245,7 +247,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				pendingPasswordMatches,
 				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
-					_, createErr := s.svc.CreatePendingRegistration(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0)
+					_, createErr := s.svc.CreatePendingRegistrationWithLocale(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLocale)
 					return createErr
 				},
 				func() (string, time.Time, error) {

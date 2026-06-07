@@ -1,5 +1,5 @@
 {
-  "next_id": 62,
+  "next_id": 63,
   "issues": [
     {
       "name": "Passkey (WebAuthn/FIDO2) authentication — register, login, manage",
@@ -19,6 +19,24 @@
         "[ ] Version bump + publish; consumer notes (host mounts RoutePasskeys + sets RP config; frontend integrates the WebAuthn JS ceremonies)."
       ],
       "completed": false
+    },
+    {
+      "name": "User preferred locale for auth and communication",
+      "id_number": 62,
+      "description": "Add a canonical AuthKit-owned user preferred locale for auth screens, auth/security emails, SMS/text communication, and host-app communication defaults. This is a communication/auth locale, not a hard override for every host application's current browsing language or content language.\n\nSemantics:\n- Store a nullable BCP-47-ish locale such as `en`, `es`, `de`, `ko`, `zh-CN`.\n- Track source and timestamps so initial registration seeding is distinguishable from explicit user choice.\n- Seed the value at registration from the host app's current site/request language. Example: if a user registers while on Doujins `/es/...`, their initial preferred locale is Spanish.\n- Do not mutate preferred locale merely because the user later visits `/es/...`, `/ko/...`, or changes a temporary site language. Later changes require an explicit account/settings action.\n- Host apps may use the value as a fallback/default site language only when URL/session/cookie/browser signals are absent.\n\nOwnership boundary:\n- AuthKit owns the user communication/auth locale and uses it for verification, password reset, MFA, security alert, and hosted auth UI copy.\n- Host apps own route/content language selection and can decide how to use AuthKit locale as a fallback.",
+      "tasks": [
+        "[x] Add `preferred_locale`, `preferred_locale_source`, and `preferred_locale_updated_at` to the AuthKit user/profile model via a new numbered migration; do not edit already-applied baseline migrations. Done 2026-06-07: added `migrations/postgres/006_user_preferred_locale.up.sql` with nullable locale/source/timestamp columns.",
+        "[x] Define locale validation/normalization for supported BCP-47-style values; preserve case where meaningful for region subtags while normalizing primary language consistently. Done 2026-06-07: `NormalizePreferredLocale` accepts BCP-47-ish language/region values, normalizes primary language lowercase and 2-letter regions uppercase, and rejects invalid input with `invalid_preferred_locale`.",
+        "[x] Extend registration input so host apps can pass an initial locale derived from the active site/request language; store it with source `registration` or equivalent. Done 2026-06-07: AuthKit HTTP registration reads `LanguageMiddleware` request context and passes it into locale-aware email/phone pending registration paths, including resend/recovery preservation.",
+        "[x] Ensure login, token refresh, and ordinary browsing do not change `preferred_locale` automatically. Done 2026-06-07: only registration seeding and the explicit `/user/preferred-locale` update route call `SetPreferredLocale`; login/recovery resend paths preserve pending locale but do not mutate existing users from request language.",
+        "[x] Add authenticated profile/settings endpoints to read and explicitly update `preferred_locale`; explicit updates set source `explicit` and update timestamp. Done 2026-06-07: added authenticated `PATCH /user/preferred-locale`, backed by `SetPreferredLocale(..., source=explicit)`, and `GetPreferredLocale` read support.",
+        "[x] Expose the locale in AuthKit profile APIs and, if useful for consumers, as an optional `locale` access-token claim. Done 2026-06-07: `/user/me` now exposes `preferred_locale`, `preferred_locale_source`, and `preferred_locale_updated_at`; no access-token claim was added because profile API exposure is sufficient for current consumers.",
+        "[x] Update AuthKit email/SMS senders to choose templates/copy by `preferred_locale`, falling back to tenant/app default and then English. Done 2026-06-07: core now passes the stored user locale or registration-seeded locale through sender context; bundled Twilio email/SMS defaults render Spanish copy when `lang=es` and fall back to English for unsupported languages.",
+        "[x] Apply locale-aware rendering to verification email, password reset email, MFA/login code email/SMS, and security/account notification emails. Done 2026-06-07: AuthKit-controlled verification, password reset, phone/email change, 2FA setup/login code, and welcome sends use the preferred-locale context path; host custom builders remain supported.",
+        "[x] Add tests for registration seeding from `es`, explicit update to another locale, no mutation from later request language, invalid locale rejection, API exposure, and email-template fallback. Done 2026-06-07: added locale normalization invalid-value tests, DB-backed Set/Get explicit update test, registration/resend preservation test, preferred-locale route assertion, and Twilio email/SMS language fallback tests.",
+        "[x] Document the contract for host apps: pass current language at registration, use AuthKit locale for communication defaults, keep route/content language app-owned. Done 2026-06-07: README documents registration seeding, explicit updates, no browsing mutation, AuthKit communication usage, and host-owned site/content language."
+      ],
+      "completed": true
     }
   ],
   "completed_features": [

@@ -68,6 +68,7 @@ func ValidationErrorCode(err error) string {
 		ErrCodeUsernameCannotStartWithPlus,
 		ErrCodeUsernameInvalidCharacters,
 		ErrCodeInvalidEmail,
+		"invalid_preferred_locale",
 		ErrCodeInvalidPhoneNumber:
 		return err.Error()
 	default:

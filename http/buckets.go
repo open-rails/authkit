@@ -31,10 +31,11 @@ const (
 	RLOIDCStart    = "auth_oidc_start"
 	RLOIDCCallback = "auth_oidc_callback"
 
-	RLUserPasswordChange = "auth_user_password_change"
-	RLUserMe             = "auth_user_me"
-	RLUserUpdateUsername = "auth_user_update_username"
-	RLUserUpdateEmail    = "auth_user_update_email"
+	RLUserPasswordChange  = "auth_user_password_change"
+	RLUserMe              = "auth_user_me"
+	RLUserUpdateUsername  = "auth_user_update_username"
+	RLUserPreferredLocale = "auth_user_preferred_locale"
+	RLUserUpdateEmail     = "auth_user_update_email"
 
 	RLUserEmailChangeRequest = "auth_user_email_change_request"
 	RLUserEmailChangeConfirm = "auth_user_email_change_confirm"

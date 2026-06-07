@@ -49,6 +49,60 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time_until_rename_available": int64(0)})
 }
 
+func (s *Service) handleUserPreferredLocalePATCH(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RLUserPreferredLocale) {
+		return
+	}
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == "" {
+		unauthorized(w, "unauthorized")
+		return
+	}
+	var body struct {
+		PreferredLocale string `json:"preferred_locale"`
+		Locale          string `json:"locale"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		badRequest(w, "invalid_request")
+		return
+	}
+	locale := strings.TrimSpace(body.PreferredLocale)
+	if locale == "" {
+		locale = strings.TrimSpace(body.Locale)
+	}
+	if locale == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if err := s.svc.SetPreferredLocale(r.Context(), claims.UserID, locale, "explicit"); err != nil {
+		if strings.Contains(err.Error(), "invalid_preferred_locale") {
+			badRequest(w, "invalid_preferred_locale")
+			return
+		}
+		badRequest(w, "failed_to_update_preferred_locale")
+		return
+	}
+	preferred, err := s.svc.GetPreferredLocale(r.Context(), claims.UserID)
+	if err != nil {
+		serverErr(w, "preferred_locale_lookup_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                          true,
+		"preferred_locale":            preferred.Locale,
+		"preferred_locale_source":     preferred.Source,
+		"preferred_locale_updated_at": formatOptionalTime(preferred.UpdatedAt),
+	})
+}
+
+func formatOptionalTime(t *time.Time) *string {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	formatted := t.UTC().Format(time.RFC3339)
+	return &formatted
+}
+
 func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.svc.HasEmailSender() {
 		serverErr(w, "email_verification_unavailable")

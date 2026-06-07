@@ -10,6 +10,7 @@ import (
 	"time"
 
 	core "github.com/open-rails/authkit/core"
+	authlang "github.com/open-rails/authkit/lang"
 )
 
 const messagesURLFormat = "https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json"
@@ -107,7 +108,7 @@ func (s *Sender) SendVerification(ctx context.Context, phone string, msg core.Ve
 		return s.sendMessage(ctx, phone, s.VerificationBuilder(ctx, phone, msg, link))
 	}
 
-	return s.sendMessage(ctx, phone, defaultVerificationBody(s.appLabel(), msg, link))
+	return s.sendMessage(ctx, phone, defaultVerificationBody(ctx, s.appLabel(), msg, link))
 }
 
 func (s *Sender) SendPasswordResetLink(ctx context.Context, phone, token string) error {
@@ -120,7 +121,7 @@ func (s *Sender) SendPasswordResetLink(ctx context.Context, phone, token string)
 	if s.PasswordResetBuilder != nil {
 		return s.sendMessage(ctx, phone, s.PasswordResetBuilder(ctx, phone, token, linkOrToken))
 	}
-	body := fmt.Sprintf("%s password reset: %s", s.appLabel(), linkOrToken)
+	body := defaultPasswordResetBody(ctx, s.appLabel(), linkOrToken)
 	return s.sendMessage(ctx, phone, body)
 }
 
@@ -128,7 +129,7 @@ func (s *Sender) SendLoginCode(ctx context.Context, phone, code string) error {
 	if s.LoginCodeBuilder != nil {
 		return s.sendMessage(ctx, phone, s.LoginCodeBuilder(ctx, phone, code))
 	}
-	body := fmt.Sprintf("%s login code: %s", s.appLabel(), strings.TrimSpace(code))
+	body := defaultLoginCodeBody(ctx, s.appLabel(), strings.TrimSpace(code))
 	return s.sendMessage(ctx, phone, body)
 }
 
@@ -139,15 +140,57 @@ func (s *Sender) appLabel() string {
 	return "Auth"
 }
 
-func defaultVerificationBody(app string, msg core.VerificationMessage, link string) string {
+func contextLanguage(ctx context.Context) string {
+	locale, ok := authlang.LanguageFromContext(ctx)
+	if !ok {
+		return "en"
+	}
+	locale = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(locale, "_", "-")))
+	if locale == "" {
+		return "en"
+	}
+	if i := strings.Index(locale, "-"); i > 0 {
+		locale = locale[:i]
+	}
+	switch locale {
+	case "es":
+		return "es"
+	default:
+		return "en"
+	}
+}
+
+func defaultVerificationBody(ctx context.Context, app string, msg core.VerificationMessage, link string) string {
 	parts := make([]string, 0, 2)
 	if strings.TrimSpace(msg.Code) != "" {
-		parts = append(parts, fmt.Sprintf("%s verification code: %s", app, strings.TrimSpace(msg.Code)))
+		if contextLanguage(ctx) == "es" {
+			parts = append(parts, fmt.Sprintf("%s codigo de verificacion: %s", app, strings.TrimSpace(msg.Code)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s verification code: %s", app, strings.TrimSpace(msg.Code)))
+		}
 	}
 	if strings.TrimSpace(link) != "" {
-		parts = append(parts, "Verify: "+strings.TrimSpace(link))
+		if contextLanguage(ctx) == "es" {
+			parts = append(parts, "Verificar: "+strings.TrimSpace(link))
+		} else {
+			parts = append(parts, "Verify: "+strings.TrimSpace(link))
+		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func defaultPasswordResetBody(ctx context.Context, app, linkOrToken string) string {
+	if contextLanguage(ctx) == "es" {
+		return fmt.Sprintf("%s restablecer contrasena: %s", app, linkOrToken)
+	}
+	return fmt.Sprintf("%s password reset: %s", app, linkOrToken)
+}
+
+func defaultLoginCodeBody(ctx context.Context, app, code string) string {
+	if contextLanguage(ctx) == "es" {
+		return fmt.Sprintf("%s codigo de inicio: %s", app, code)
+	}
+	return fmt.Sprintf("%s login code: %s", app, code)
 }
 
 func (s *Sender) sendMessage(ctx context.Context, to, body string) error {

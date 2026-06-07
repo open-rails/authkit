@@ -22,6 +22,9 @@ type userMeResponse struct {
 	Orgs                              *[]orgMembership `json:"tenants,omitempty"`
 	Entitlements                      []string         `json:"entitlements"`
 	Biography                         *string          `json:"biography,omitempty"`
+	PreferredLocale                   *string          `json:"preferred_locale,omitempty"`
+	PreferredLocaleSource             *string          `json:"preferred_locale_source,omitempty"`
+	PreferredLocaleUpdatedAt          *string          `json:"preferred_locale_updated_at,omitempty"`
 	CreatedAt                         *string          `json:"created_at,omitempty"`
 	LastAuthenticatedAt               *string          `json:"last_authenticated_at,omitempty"`
 	TimeUntilReauthRequired           *int64           `json:"time_until_reauth_required,omitempty"`
@@ -59,6 +62,20 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	if username == "" {
 		serverErr(w, "username_missing")
 		return
+	}
+	var preferredLocale *string
+	var preferredLocaleSource *string
+	var preferredLocaleUpdatedAt *string
+	if preferred, err := s.svc.GetPreferredLocale(r.Context(), adminUser.ID); err == nil {
+		if strings.TrimSpace(preferred.Locale) != "" {
+			locale := preferred.Locale
+			preferredLocale = &locale
+		}
+		if strings.TrimSpace(preferred.Source) != "" {
+			source := preferred.Source
+			preferredLocaleSource = &source
+		}
+		preferredLocaleUpdatedAt = formatOptionalTime(preferred.UpdatedAt)
 	}
 
 	hasPassword := s.svc.HasPassword(r.Context(), adminUser.ID)
@@ -148,6 +165,9 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		Orgs:                              orgsPtr,
 		Entitlements:                      adminUser.Entitlements,
 		Biography:                         adminUser.Biography,
+		PreferredLocale:                   preferredLocale,
+		PreferredLocaleSource:             preferredLocaleSource,
+		PreferredLocaleUpdatedAt:          preferredLocaleUpdatedAt,
 		CreatedAt:                         createdAt,
 		LastAuthenticatedAt:               lastAuthenticatedAt,
 		TimeUntilReauthRequired:           timeUntilReauthRequired,

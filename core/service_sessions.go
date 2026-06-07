@@ -25,7 +25,7 @@ type Session struct {
 	IPAddr              *string
 }
 
-const SensitiveActionFreshAuthWindow = 30 * time.Minute
+const SensitiveActionFreshAuthWindow = 15 * time.Minute
 
 var ErrReauthenticationRequired = errors.New("reauth_required")
 

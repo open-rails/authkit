@@ -10,6 +10,7 @@ import (
 	"time"
 
 	core "github.com/open-rails/authkit/core"
+	authlang "github.com/open-rails/authkit/lang"
 )
 
 const sendGridMailSendURL = "https://api.sendgrid.com/v3/mail/send"
@@ -125,27 +126,94 @@ func (s *Sender) SendVerification(ctx context.Context, email, username string, m
 	if s.VerificationBuilder != nil {
 		return s.sendEmail(ctx, email, s.VerificationBuilder(ctx, email, username, msg, link))
 	}
-	return s.sendEmail(ctx, email, defaultVerificationMessage(s.appLabel(), msg, link))
+	return s.sendEmail(ctx, email, defaultVerificationMessage(ctx, s.appLabel(), msg, link))
 }
 
-func defaultVerificationMessage(app string, msg core.VerificationMessage, link string) Message {
-	subject := fmt.Sprintf("Verify your %s account", app)
-	lines := []string{"Use the following verification details:"}
+type defaultCopy struct {
+	verifySubject   string
+	verifyIntro     string
+	codeLabel       string
+	verifyLinkLabel string
+	resetSubject    string
+	resetIntro      string
+	loginSubject    string
+	loginCodeLabel  string
+	welcomeSubject  string
+	welcomeBody     string
+	welcomeBodyHTML string
+}
+
+func copyForContext(ctx context.Context, app string) defaultCopy {
+	switch contextLanguage(ctx) {
+	case "es":
+		return defaultCopy{
+			verifySubject:   fmt.Sprintf("Verifica tu cuenta de %s", app),
+			verifyIntro:     "Usa los siguientes datos de verificacion:",
+			codeLabel:       "Codigo",
+			verifyLinkLabel: "Enlace de verificacion",
+			resetSubject:    fmt.Sprintf("Restablece tu contrasena de %s", app),
+			resetIntro:      "Usa este enlace para restablecer tu contrasena:",
+			loginSubject:    fmt.Sprintf("Tu codigo de inicio de sesion de %s", app),
+			loginCodeLabel:  "Codigo de inicio de sesion",
+			welcomeSubject:  fmt.Sprintf("Bienvenido a %s", app),
+			welcomeBody:     fmt.Sprintf("Bienvenido a %s.", app),
+			welcomeBodyHTML: fmt.Sprintf("Bienvenido a %s.", app),
+		}
+	default:
+		return defaultCopy{
+			verifySubject:   fmt.Sprintf("Verify your %s account", app),
+			verifyIntro:     "Use the following verification details:",
+			codeLabel:       "Code",
+			verifyLinkLabel: "Verify link",
+			resetSubject:    fmt.Sprintf("Reset your %s password", app),
+			resetIntro:      "Use this link to reset your password:",
+			loginSubject:    fmt.Sprintf("Your %s login code", app),
+			loginCodeLabel:  "Login code",
+			welcomeSubject:  fmt.Sprintf("Welcome to %s", app),
+			welcomeBody:     fmt.Sprintf("Welcome to %s.", app),
+			welcomeBodyHTML: fmt.Sprintf("Welcome to %s.", app),
+		}
+	}
+}
+
+func contextLanguage(ctx context.Context) string {
+	locale, ok := authlang.LanguageFromContext(ctx)
+	if !ok {
+		return "en"
+	}
+	locale = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(locale, "_", "-")))
+	if locale == "" {
+		return "en"
+	}
+	if i := strings.Index(locale, "-"); i > 0 {
+		locale = locale[:i]
+	}
+	switch locale {
+	case "es":
+		return "es"
+	default:
+		return "en"
+	}
+}
+
+func defaultVerificationMessage(ctx context.Context, app string, msg core.VerificationMessage, link string) Message {
+	copy := copyForContext(ctx, app)
+	lines := []string{copy.verifyIntro}
 	if strings.TrimSpace(msg.Code) != "" {
-		lines = append(lines, "Code: "+strings.TrimSpace(msg.Code))
+		lines = append(lines, copy.codeLabel+": "+strings.TrimSpace(msg.Code))
 	}
 	if strings.TrimSpace(link) != "" {
-		lines = append(lines, "Verify link: "+strings.TrimSpace(link))
+		lines = append(lines, copy.verifyLinkLabel+": "+strings.TrimSpace(link))
 	}
-	html := "<p>Use the following verification details:</p><ul>"
+	html := "<p>" + escapeHTML(copy.verifyIntro) + "</p><ul>"
 	if strings.TrimSpace(msg.Code) != "" {
-		html += "<li><strong>Code:</strong> " + escapeHTML(strings.TrimSpace(msg.Code)) + "</li>"
+		html += "<li><strong>" + escapeHTML(copy.codeLabel) + ":</strong> " + escapeHTML(strings.TrimSpace(msg.Code)) + "</li>"
 	}
 	if strings.TrimSpace(link) != "" {
-		html += "<li><strong>Verify link:</strong> " + escapeHTML(strings.TrimSpace(link)) + "</li>"
+		html += "<li><strong>" + escapeHTML(copy.verifyLinkLabel) + ":</strong> " + escapeHTML(strings.TrimSpace(link)) + "</li>"
 	}
 	html += "</ul>"
-	return Message{Subject: subject, TextBody: strings.Join(lines, "\n"), HTMLBody: html, Categories: []string{"auth", "email-verification"}}
+	return Message{Subject: copy.verifySubject, TextBody: strings.Join(lines, "\n"), HTMLBody: html, Categories: []string{"auth", "email-verification"}}
 }
 
 func (s *Sender) SendPasswordResetLink(ctx context.Context, email, username, token string) error {
@@ -159,10 +227,10 @@ func (s *Sender) SendPasswordResetLink(ctx context.Context, email, username, tok
 	if s.PasswordResetBuilder != nil {
 		return s.sendEmail(ctx, email, s.PasswordResetBuilder(ctx, email, username, token, linkOrToken))
 	}
-	subject := fmt.Sprintf("Reset your %s password", app)
-	text := fmt.Sprintf("Use this link to reset your password:\n%s", linkOrToken)
-	html := fmt.Sprintf("<p>Use this link to reset your password:</p><p>%s</p>", escapeHTML(linkOrToken))
-	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "password-reset"}})
+	copy := copyForContext(ctx, app)
+	text := fmt.Sprintf("%s\n%s", copy.resetIntro, linkOrToken)
+	html := fmt.Sprintf("<p>%s</p><p>%s</p>", escapeHTML(copy.resetIntro), escapeHTML(linkOrToken))
+	return s.sendEmail(ctx, email, Message{Subject: copy.resetSubject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "password-reset"}})
 }
 
 func (s *Sender) SendLoginCode(ctx context.Context, email, username, code string) error {
@@ -170,11 +238,11 @@ func (s *Sender) SendLoginCode(ctx context.Context, email, username, code string
 		return s.sendEmail(ctx, email, s.LoginCodeBuilder(ctx, email, username, code))
 	}
 	app := s.appLabel()
-	subject := fmt.Sprintf("Your %s login code", app)
+	copy := copyForContext(ctx, app)
 	trimmedCode := strings.TrimSpace(code)
-	text := fmt.Sprintf("Login code: %s", trimmedCode)
-	html := fmt.Sprintf("<p><strong>Login code:</strong> %s</p>", escapeHTML(trimmedCode))
-	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "2fa-login"}})
+	text := fmt.Sprintf("%s: %s", copy.loginCodeLabel, trimmedCode)
+	html := fmt.Sprintf("<p><strong>%s:</strong> %s</p>", escapeHTML(copy.loginCodeLabel), escapeHTML(trimmedCode))
+	return s.sendEmail(ctx, email, Message{Subject: copy.loginSubject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "2fa-login"}})
 }
 
 func (s *Sender) SendWelcome(ctx context.Context, email, username string) error {
@@ -182,10 +250,9 @@ func (s *Sender) SendWelcome(ctx context.Context, email, username string) error 
 		return s.sendEmail(ctx, email, s.WelcomeBuilder(ctx, email, username))
 	}
 	app := s.appLabel()
-	subject := fmt.Sprintf("Welcome to %s", app)
-	text := fmt.Sprintf("Welcome to %s.", app)
-	html := fmt.Sprintf("<p>Welcome to %s.</p>", escapeHTML(app))
-	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "welcome"}})
+	copy := copyForContext(ctx, app)
+	html := fmt.Sprintf("<p>%s</p>", escapeHTML(copy.welcomeBodyHTML))
+	return s.sendEmail(ctx, email, Message{Subject: copy.welcomeSubject, TextBody: copy.welcomeBody, HTMLBody: html, Categories: []string{"auth", "welcome"}})
 }
 
 func (s *Sender) appLabel() string {
