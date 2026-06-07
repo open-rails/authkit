@@ -56,9 +56,9 @@
         "[x] Coordinate OpenRails and Hentai0 against the new tenant/service-token APIs; validated Hentai0 manifest v2, service-token outputs, delegated JWT verification, and tenant-subject entitlement reads through live compose.",
         "[x] Coordinate Doujins against the new tenant/service-token APIs; validated manifest v2 issuer registration, OpenRails service-token output, and external-subject entitlement reads through direct compose startup.",
         "[x] Coordinate Tensorhub against the new tenant/service-token APIs; bumped Tensorhub to AuthKit v0.12.5, migrated service-token parsing/resolution to `cozy_st_`, switched tenant claim/resolver APIs, and validated `task build`, compile-only `go test ./... -run '^$'`, plus focused identity/authz/API/orchestrator OpenRails tests.",
-        "[ ] Coordinate Cozy Art against the new tenant/service-token APIs."
+        "[x] Coordinate Cozy Art against the new tenant/service-token APIs; bumped Cozy Art to AuthKit v0.12.5 and OpenRails v0.10.8, migrated platform tenant config from `platform.org` to `platform.tenant`, moved Tensorhub registration from `/api/v1/orgs` + `/api/v1/federated-issuers` to `/api/v1/tenants` + `/api/v1/tenant-issuers` with `tenant`/`issuer`/`jwks_uri`, and validated focused platform/config/register tests, compile-only `go test ./... -run '^$'`, and `task build`."
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id_number": 54,
