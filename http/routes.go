@@ -199,7 +199,11 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		})
 	}
 
-	if strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
+	// (issue 60) Tenant routes are always registered under the RouteTenants group;
+	// the host decides exposure by mounting (or not) that group, and mutating
+	// routes are gated by TenantRegistrationMode in their handlers. No tenant-mode
+	// gate.
+	{
 		routes = append(routes,
 			RouteSpec{Method: http.MethodPost, Path: "/token/tenant", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleAuthTokenOrgPOST))},
 			RouteSpec{Method: http.MethodGet, Path: "/tenants", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgsListGET))},

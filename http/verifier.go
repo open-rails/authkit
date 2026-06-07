@@ -24,7 +24,6 @@ import (
 type Verifier struct {
 	skew       time.Duration
 	algorithms []string
-	orgMode    string
 
 	// tokenPrefix is the host application's service token brand prefix (see core.Config
 	// ServiceTokenPrefix). Used to detect Service Tokens in the middleware
@@ -115,11 +114,13 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 	}
 }
 
-// WithTenantMode sets the tenant mode ("single" or "multi") for claim
-// extraction. When "multi" and an tenant claim is present, roles are treated
-// as tenant-scoped roles.
-func WithTenantMode(mode string) VerifierOption {
-	return func(v *Verifier) { v.orgMode = mode }
+// WithTenantMode is a deprecated no-op compatibility shim (authkit issue 60): the
+// global tenant mode was removed. Tenant claims are now parsed whenever present.
+// Kept so existing callers compile; scheduled for deletion.
+//
+// Deprecated: remove the call. Tenant claim handling no longer depends on a mode.
+func WithTenantMode(string) VerifierOption {
+	return func(*Verifier) {}
 }
 
 // WithServiceTokenPrefix sets the host application's Service Token (service token)
@@ -763,13 +764,12 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 		cl.TenantRoles = oroles
 	}
 
-	// Back-compat: in tenant_mode=multi, if tenant is present, the legacy `roles` claim
-	// is tenant-scoped. Delegated tokens keep their roles on Roles (the tenant
-	// principal carries its own roles), so only shuffle for native-user tokens.
-	// Only fall back to deriving TenantRoles from Roles when the explicit `tenant_roles`
-	// claim is absent (older tokens).
+	// (issue 60) Whenever a tenant claim is present, the legacy `roles` claim is
+	// tenant-scoped — derive TenantRoles from it when the explicit `tenant_roles`
+	// claim is absent (older tokens). No tenant-mode gate. Delegated tokens keep
+	// their roles on Roles (the tenant principal carries its own roles), so only
+	// shuffle for native-user tokens.
 	if !cl.IsDelegated() &&
-		strings.EqualFold(strings.TrimSpace(v.orgMode), "multi") &&
 		strings.TrimSpace(cl.Tenant) != "" && len(cl.Roles) > 0 {
 		if len(cl.TenantRoles) == 0 {
 			cl.TenantRoles = cl.Roles

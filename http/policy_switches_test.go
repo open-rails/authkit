@@ -31,7 +31,6 @@ func newTestServiceWithPolicy(t *testing.T, nativeMode, tenantMode core.Registra
 		// so APIHandler's ValidateVerificationConfiguration doesn't panic on the
 		// default "required" policy with no sender configured.
 		RegistrationVerification:   core.RegistrationVerificationNone,
-		TenantMode:                 "multi",
 		NativeUserRegistrationMode: nativeMode,
 		TenantRegistrationMode:     tenantMode,
 	}

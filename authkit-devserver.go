@@ -35,7 +35,6 @@ type config struct {
 	// Tenant/RBAC knobs. Default to authkit's zero values (single-tenant, no
 	// catalog) so existing deployments are unaffected; the e2e suite sets
 	// these to exercise the multi-tenant service token/RBAC surface against a real server.
-	TenantMode                     string
 	ServiceTokenPrefix             string
 	PermissionCatalog              []string
 	TenantManifestPath             string
@@ -89,7 +88,6 @@ func loadConfig() (*config, error) {
 		ExpectedAudiences:              expectedAudiences,
 		Environment:                    envOr("DEVSERVER_ENVIRONMENT", "dev"),
 		RegistrationVerification:       core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
-		TenantMode:                     strings.TrimSpace(envOr("DEVSERVER_ORG_MODE", "")),
 		ServiceTokenPrefix:             strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
 		PermissionCatalog:              parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
 		TenantManifestPath:             strings.TrimSpace(envOr("DEVSERVER_TENANT_MANIFEST_PATH", "")),
@@ -139,7 +137,6 @@ func runServe(cfg *config) error {
 		Keys:                     keySource,
 		Environment:              cfg.Environment,
 		RegistrationVerification: cfg.RegistrationVerification,
-		TenantMode:               cfg.TenantMode,
 		ServiceTokenPrefix:       cfg.ServiceTokenPrefix,
 		PermissionCatalog:        toPermissionDefs(cfg.PermissionCatalog),
 	})
@@ -210,7 +207,6 @@ func runTenantManifestApply(cfg *config) error {
 
 	svc := core.NewService(core.Options{
 		Issuer:             cfg.Issuer,
-		TenantMode:         cfg.TenantMode,
 		ServiceTokenPrefix: cfg.ServiceTokenPrefix,
 		PermissionCatalog:  toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)

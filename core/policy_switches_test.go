@@ -126,7 +126,6 @@ func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(Options{
 				Issuer:                     "https://test",
-				TenantMode:                 "multi",
 				NativeUserRegistrationMode: tt.nativeMode,
 				TenantRegistrationMode:     tt.tenantMode,
 			}, Keyset{})
@@ -163,7 +162,7 @@ func TestPolicySwitches_NativeUsersDoNotCreatePersonalTenantsByDefault(t *testin
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, username)
 	})
 
-	svc := NewService(Options{Issuer: "https://test", TenantMode: "multi"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
 	u, err := svc.CreateUser(ctx, "", username)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -196,7 +195,6 @@ func TestPolicySwitches_AutoCreatePersonalTenantsOptIn(t *testing.T) {
 
 	svc := NewService(Options{
 		Issuer:                    "https://test",
-		TenantMode:                "multi",
 		AutoCreatePersonalTenants: true,
 	}, Keyset{}).WithPostgres(pool)
 	u, err := svc.CreateUser(ctx, "", username)
@@ -239,7 +237,6 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 
 	svc := NewService(Options{
 		Issuer:                     "https://test",
-		TenantMode:                 "multi",
 		NativeUserRegistrationMode: RegistrationModeClosed,
 		TenantRegistrationMode:     RegistrationModeManifestOnly,
 	}, Keyset{}).WithPostgres(pool)

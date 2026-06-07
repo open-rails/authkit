@@ -23,18 +23,15 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	if strings.TrimSpace(body.Tenant) != "" && !strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
-		badRequest(w, "tenant_not_supported")
-		return
-	}
-
 	ua := r.UserAgent()
 	ip := parseIP(clientIP(r))
 	var accessToken string
 	var exp time.Time
 	var newRT string
 	var err error
-	if strings.TrimSpace(body.Tenant) != "" && strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
+	// (issue 60) A tenant request mints a tenant-scoped token whenever the user is
+	// a member; absence mints a normal user token. No global tenant-mode gate.
+	if strings.TrimSpace(body.Tenant) != "" {
 		accessToken, exp, newRT, err = s.svc.ExchangeRefreshTokenWithTenant(r.Context(), body.RefreshToken, ua, ip, body.Tenant)
 	} else {
 		accessToken, exp, newRT, err = s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)

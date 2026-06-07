@@ -41,11 +41,9 @@ type Options struct {
 	// non-blocking, or required.
 	RegistrationVerification RegistrationVerificationPolicy
 
-	// TenantMode controls multi-tenant behavior.
-	// Valid values: "single" or "multi".
-	TenantMode string
-	// AutoCreatePersonalTenants creates a personal tenant for each native user
-	// in TenantMode "multi". False keeps native users tenant-free by default.
+	// AutoCreatePersonalTenants creates a personal tenant for each native user at
+	// signup (direct opt-in; authkit issue 60). False keeps native users
+	// tenant-free by default.
 	AutoCreatePersonalTenants bool
 
 	// NativeUserRegistrationMode controls public native-user self-registration.
@@ -125,9 +123,6 @@ type Service struct {
 }
 
 func NewService(opts Options, keys Keyset) *Service {
-	if strings.TrimSpace(opts.TenantMode) == "" {
-		opts.TenantMode = "single"
-	}
 	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
 		opts.NativeUserRegistrationMode = mode
 	}
@@ -196,15 +191,6 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	}
 	refTTL := cfg.RefreshTokenDuration // 0 or less => indefinite sessions
 
-	orgMode := strings.ToLower(strings.TrimSpace(cfg.TenantMode))
-	if orgMode == "" {
-		orgMode = "single"
-	}
-	switch orgMode {
-	case "single", "multi":
-	default:
-		return nil, fmt.Errorf("authkit: invalid TenantMode %q (want \"single\" or \"multi\")", cfg.TenantMode)
-	}
 	registrationVerification, err := normalizeRegistrationVerification(cfg.RegistrationVerification)
 	if err != nil {
 		return nil, err
@@ -231,7 +217,6 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		BaseURL:                    baseURL,
 		FrontendCallbackPath:       frontendCallbackPath,
 		RegistrationVerification:   registrationVerification,
-		TenantMode:                 orgMode,
 		AutoCreatePersonalTenants:  cfg.AutoCreatePersonalTenants,
 		NativeUserRegistrationMode: nativeUserRegistrationMode,
 		TenantRegistrationMode:     tenantRegistrationMode,
@@ -335,7 +320,7 @@ func (o Options) RegistrationVerificationEnabled() bool {
 }
 
 func (o Options) AutoCreatePersonalTenantsEnabled() bool {
-	return o.AutoCreatePersonalTenants && strings.EqualFold(strings.TrimSpace(o.TenantMode), "multi")
+	return o.AutoCreatePersonalTenants
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user
@@ -441,12 +426,11 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	if s.pg != nil {
 		globalRoles = s.listRoleSlugsByUser(ctx, userID)
 	}
-	// roles is the legacy claim, populated only in single-tenant mode for
-	// back-compat (unchanged behavior).
-	var roles []string
-	if strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "single") {
-		roles = globalRoles
-	}
+	// roles is the legacy claim (authkit issue 60): a user access token always
+	// mirrors global_roles into `roles` as a fixed token-shape compatibility for
+	// consumers that read `roles`. This is independent of tenants — tenant-scoped
+	// service tokens carry tenant roles instead (see IssueServiceToken).
+	roles := globalRoles
 	var ents []string
 	if s.entitlements != nil {
 		if details, err := s.entitlements.ListEntitlements(ctx, userID); err == nil {
@@ -494,12 +478,10 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 		"discord_username": discord,
 		"entitlements":     ents,
 	}
-	// global_roles is emitted in both single and multi-tenant mode (additive).
+	// global_roles is the canonical platform-wide roles claim.
 	claims["global_roles"] = globalRoles
-	// roles (legacy) is emitted only in single-tenant mode, unchanged.
-	if strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "single") {
-		claims["roles"] = roles
-	}
+	// roles (legacy) mirrors global_roles on every user access token (issue 60).
+	claims["roles"] = roles
 	for k, v := range extra {
 		claims[k] = v
 	}
@@ -511,15 +493,12 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	return tok, expiresAt, err
 }
 
-// IssueServiceToken builds and signs an tenant-scoped service token (JWT) for the given user.
-// It is only valid in tenant_mode=multi, and only if the user is a member of the tenant.
-// The token includes:
+// IssueServiceToken builds and signs a tenant-scoped service token (JWT) for the
+// given user. Valid whenever the user is a member of the tenant (issue 60: tenants
+// are always supported; no global mode gate). The token includes:
 // - tenant (canonical slug)
 // - roles (snapshot for that tenant)
 func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
-	if !strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
-		return "", time.Time{}, fmt.Errorf("tenant_mode_not_multi")
-	}
 	if s.pg == nil {
 		return "", time.Time{}, fmt.Errorf("postgres not configured")
 	}
@@ -577,31 +556,8 @@ func (s *Service) isDevEnvironment() bool {
 // WithPostgres attaches a pgx pool to the service.
 func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
 	s.pg = pool
-	if s.pg != nil && strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "single") {
-		// Safeguard: refuse multi->single downgrade when there is more than one tenant with more than one member.
-		// Best-effort: if tenant tables are missing (migrations not applied), allow single mode.
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		var present bool
-		_ = s.pg.QueryRow(ctx, `SELECT to_regclass('profiles.tenants') IS NOT NULL`).Scan(&present)
-		if present {
-			var cnt int
-			err := s.pg.QueryRow(ctx, `
-				SELECT count(*)
-				FROM profiles.tenants o
-				WHERE o.deleted_at IS NULL
-				  AND (
-				    SELECT count(*)
-				    FROM profiles.tenant_memberships m
-				    WHERE m.tenant_id=o.id AND m.deleted_at IS NULL
-				  ) > 1
-			`).Scan(&cnt)
-			if err == nil && cnt > 1 {
-				panic("authkit: tenant_mode single is not allowed when more than one tenant has more than one member")
-			}
-		}
-	}
+	// (issue 60) No tenant-mode downgrade safeguard: tenants are always supported,
+	// so there is no single/multi mode to refuse a downgrade into.
 	return s
 }
 

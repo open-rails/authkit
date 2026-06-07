@@ -26,10 +26,6 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid_request")
 		return
 	}
-	if strings.TrimSpace(req.Tenant) != "" && !strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
-		badRequest(w, "tenant_not_supported")
-		return
-	}
 
 	identifier := strings.TrimSpace(req.Email)
 	if identifier == "" {
@@ -347,7 +343,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			serverErr(w, "token_issue_failed")
 			return
 		}
-		if strings.TrimSpace(req.Tenant) != "" && strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
+		if strings.TrimSpace(req.Tenant) != "" {
 			token, exp, err = s.svc.IssueServiceToken(r.Context(), finalUserID, emailForToken, req.Tenant, map[string]any{"sid": sid})
 			if err != nil {
 				if errors.Is(err, core.ErrNotTenantMember) {

@@ -59,12 +59,12 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 					cl.DiscordUsername = du
 				}
 
-				// Role enrichment (tenant_mode=single only): if token has no roles, supply canonical roles.
-				if strings.EqualFold(strings.TrimSpace(v.orgMode), "single") || v.orgMode == "" {
-					if len(cl.Roles) == 0 {
-						if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
-							cl.Roles = rs
-						}
+				// (issue 60) Role enrichment: if a non-delegated token carries no roles,
+				// supply the user's canonical global roles. No tenant-mode gate; a
+				// tenant-scoped token already carries tenant roles so this won't fire.
+				if len(cl.Roles) == 0 {
+					if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
+						cl.Roles = rs
 					}
 				}
 

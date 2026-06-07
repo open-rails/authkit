@@ -38,7 +38,6 @@ func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicK
 		IssuedAudiences:     []string{"app"},
 		ExpectedAudiences:   []string{"app"},
 		AccessTokenDuration: time.Hour,
-		TenantMode:          orgMode,
 	}, ks)
 	return s, signer.PublicKey()
 }
@@ -67,25 +66,21 @@ func TestIssueAccessToken_GlobalRolesClaim_BothModes(t *testing.T) {
 	}
 }
 
-// Legacy `roles` behavior is unchanged: present in single, absent in multi
-// (for a plain, non-tenant service token).
-func TestIssueAccessToken_LegacyRolesClaim_Unchanged(t *testing.T) {
-	sSingle, pubS := newClaimTestService(t, "single")
-	tokS, _, err := sSingle.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
+// (issue 60) The legacy `roles` claim is now ALWAYS emitted on a user access
+// token (mirrors global_roles) as a fixed token-shape compatibility, independent
+// of tenants. A plain (non-tenant) token still carries no tenant_roles.
+func TestIssueAccessToken_LegacyRolesClaim_AlwaysPresent(t *testing.T) {
+	s, pub := newClaimTestService(t, "")
+	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
 	require.NoError(t, err)
-	clS := parseClaimsNoValidate(t, tokS, pubS)
-	_, ok := clS["roles"]
-	require.True(t, ok, "legacy roles claim must be present in single mode")
+	cl := parseClaimsNoValidate(t, tok, pub)
+	_, ok := cl["roles"]
+	require.True(t, ok, "legacy roles claim must be present on a user access token")
+	_, ok = cl["global_roles"]
+	require.True(t, ok, "global_roles claim must be present")
 	// plain service token (no tenant) carries no tenant_roles
-	_, ok = clS["tenant_roles"]
+	_, ok = cl["tenant_roles"]
 	require.False(t, ok, "plain service token must not carry tenant_roles")
-
-	sMulti, pubM := newClaimTestService(t, "multi")
-	tokM, _, err := sMulti.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
-	require.NoError(t, err)
-	clM := parseClaimsNoValidate(t, tokM, pubM)
-	_, ok = clM["roles"]
-	require.False(t, ok, "legacy roles claim must be absent in multi mode (plain token)")
 }
 
 // An tenant-scoped token (the claim shape IssueServiceToken builds) carries

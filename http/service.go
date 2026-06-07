@@ -172,7 +172,6 @@ func NewService(cfg core.Config) (*Service, error) {
 	opts := coreSvc.Options()
 	ver := NewVerifier(
 		WithSkew(5*time.Second),
-		WithTenantMode(opts.TenantMode),
 		WithServiceTokenPrefix(opts.ServiceTokenPrefix),
 	)
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{

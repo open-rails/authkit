@@ -257,9 +257,8 @@ func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	if !strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
-		return nil
-	}
+	// (issue 60) Gated by AutoCreatePersonalTenantsEnabled at every call site; no
+	// tenant-mode check here.
 	userID = strings.TrimSpace(userID)
 	slug := ownerSlugFromUsername(username)
 	if userID == "" || slug == "" {

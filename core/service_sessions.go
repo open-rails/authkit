@@ -193,7 +193,10 @@ func (s *Service) ExchangeRefreshTokenWithTenant(ctx context.Context, refreshTok
 	}
 
 	claims := map[string]any{"sid": sid}
-	if strings.TrimSpace(tenant) != "" && strings.EqualFold(strings.TrimSpace(s.opts.TenantMode), "multi") {
+	// (issue 60) A tenant request mints a tenant-scoped token whenever the user is
+	// a member (IssueServiceToken enforces membership); absence mints a normal
+	// user token. No global tenant-mode gate.
+	if strings.TrimSpace(tenant) != "" {
 		accessToken, exp, err := s.IssueServiceToken(ctx, uid, email, tenant, claims)
 		if err != nil {
 			return "", time.Time{}, "", err

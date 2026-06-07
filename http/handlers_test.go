@@ -405,7 +405,10 @@ func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/tenants/state?slug=google", nil)
 	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusNotFound, w.Code)
+	// (issue 60) The special public namespace-state route is gone. Tenant routes
+	// are always registered now, so /tenants/state matches the generic
+	// GET /tenants/{tenant} handler, which requires auth -> 401 (not a public 200).
+	require.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {

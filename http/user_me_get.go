@@ -93,27 +93,25 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		enabledProviders = append(enabledProviders, provider)
 	}
 
+	// (issue 60) Always return the user's global roles AND their tenant memberships
+	// (memberships may be empty for tenant-free users). No tenant-mode branch.
 	var rolesPtr *[]string
 	var orgsPtr *[]orgMembership
-	if strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "single") {
-		roles := adminUser.Roles
-		if roles == nil {
-			roles = []string{}
-		}
-		rolesPtr = &roles
-	} else if strings.EqualFold(strings.TrimSpace(s.svc.Options().TenantMode), "multi") {
-		// Multi-mode: return memberships + tenant-scoped roles from server-side DB.
-		mems, mErr := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), adminUser.ID)
-		if mErr != nil {
-			serverErr(w, "tenant_memberships_lookup_failed")
-			return
-		}
-		tenants := make([]orgMembership, 0, len(mems))
-		for _, m := range mems {
-			tenants = append(tenants, orgMembership{Tenant: m.Tenant, Roles: m.Roles})
-		}
-		orgsPtr = &tenants
+	roles := adminUser.Roles
+	if roles == nil {
+		roles = []string{}
 	}
+	rolesPtr = &roles
+	mems, mErr := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), adminUser.ID)
+	if mErr != nil {
+		serverErr(w, "tenant_memberships_lookup_failed")
+		return
+	}
+	tenants := make([]orgMembership, 0, len(mems))
+	for _, m := range mems {
+		tenants = append(tenants, orgMembership{Tenant: m.Tenant, Roles: m.Roles})
+	}
+	orgsPtr = &tenants
 
 	var createdAt *string
 	if !adminUser.CreatedAt.IsZero() {

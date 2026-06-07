@@ -23,13 +23,12 @@ func TestAPIRoutesGroupSelection(t *testing.T) {
 	requireNoRoute(t, routes, http.MethodPost, "/token")
 }
 
-func TestAPIRoutesOrgRoutesOnlyInMultiMode(t *testing.T) {
-	single := newTestServiceWithTenantMode(t, "single")
-	requireNoRoute(t, single.APIRoutes(), http.MethodPost, "/token/tenant")
-
-	multi := newTestServiceWithTenantMode(t, "multi")
-	requireRoute(t, multi.APIRoutes(), http.MethodPost, "/token/tenant")
-	requireRoute(t, multi.APIRoutes(RouteTenants), http.MethodGet, "/tenants/{tenant}/members")
+// (issue 60) Tenant routes are always registered under RouteTenants — no
+// tenant-mode gate; the host controls exposure by mounting the group.
+func TestAPIRoutesTenantRoutesAlwaysRegistered(t *testing.T) {
+	s := newTestServiceWithTenantMode(t, "")
+	requireRoute(t, s.APIRoutes(), http.MethodPost, "/token/tenant")
+	requireRoute(t, s.APIRoutes(RouteTenants), http.MethodGet, "/tenants/{tenant}/members")
 }
 
 func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {

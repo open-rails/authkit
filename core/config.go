@@ -30,13 +30,11 @@ type Config struct {
 	// Empty defaults to "none".
 	RegistrationVerification RegistrationVerificationPolicy
 
-	// TenantMode controls multi-tenant behavior.
-	// Valid values: "single" (default) or "multi".
-	TenantMode string
-
-	// AutoCreatePersonalTenants creates a personal tenant for each native user
-	// in TenantMode "multi". Empty/false means native users can exist without
-	// tenant rows; hosts that want personal/team workspaces must opt in.
+	// AutoCreatePersonalTenants creates a personal tenant for each native user at
+	// signup. Direct host opt-in (authkit issue 60): tenants are always a supported
+	// primitive, so this is no longer gated on a global tenant mode. Empty/false
+	// means native users can exist without tenant rows; hosts that want
+	// personal/team workspaces opt in.
 	AutoCreatePersonalTenants bool
 
 	// NativeUserRegistrationMode controls public native-user self-registration.
