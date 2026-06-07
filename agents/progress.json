@@ -176,7 +176,9 @@
         "[ ] Update verifier claim extraction so tenant claims are parsed whenever present, not only under `WithTenantMode(\"multi\")`; remove `WithTenantMode` or make it a no-op compatibility shim scheduled for deletion.",
         "[ ] Update registration-mode tests to cover host shapes directly: native-user-only app, SaaS user+tenant app, manifest-only relying-party app, and no-public-route embedded app.",
         "[ ] Update README and `agents/api-endpoints.md` to describe route groups plus native-user/tenant registration modes instead of tenant_mode.",
-        "[ ] Add migration/consumer notes for OpenRails, OpenRails SaaS, Doujins, Hentai0, and Tensorhub explaining that tenants are always a supported primitive but exposure is host policy."
+        "[ ] Add migration/consumer notes for OpenRails, OpenRails SaaS, Doujins, Hentai0, and Tensorhub explaining that tenants are always a supported primitive but exposure is host policy.",
+        "[~] DECISION 2026-06-06 (consumer mapping, recorded): hosts expose the two axes as plain bools defaulting to RESTRICTED \u2014 `public_user_registration` -> NativeUserRegistrationMode (open|admin_bootstrap_only), `public_tenant_registration` -> TenantRegistrationMode. Omitting both = closed-registration (the typical self-hosted posture). Route-mounting posture is DERIVED (intentional groups unless both are public), replacing the opaque `locked_down` switch.",
+        "[~] OpenRails consumer side ADOPTED 2026-06-06 (ahead of the core change): OpenRails dropped its `auth.control_plane.tenant_mode` + `locked_down` config; added `public_user_registration` + `public_tenant_registration` (default false) mapping to authkit's existing Native/Tenant RegistrationMode. OpenRails still passes authcore TenantMode=\"multi\" until this issue removes it from core (then OpenRails stops passing it). See openrails commit + #404-area work."
       ],
       "completed": false
     }
