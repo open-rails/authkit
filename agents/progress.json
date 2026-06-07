@@ -1,5 +1,5 @@
 {
-  "next_id": 61,
+  "next_id": 62,
   "issues": [
     {
       "name": "Passkey (WebAuthn/FIDO2) authentication \u2014 register, login, manage",
@@ -179,6 +179,24 @@
         "[ ] Add migration/consumer notes for OpenRails, OpenRails SaaS, Doujins, Hentai0, and Tensorhub explaining that tenants are always a supported primitive but exposure is host policy.",
         "[~] DECISION 2026-06-06 (consumer mapping, recorded): hosts expose the two axes as plain bools defaulting to RESTRICTED \u2014 `public_user_registration` -> NativeUserRegistrationMode (open|admin_bootstrap_only), `public_tenant_registration` -> TenantRegistrationMode. Omitting both = closed-registration (the typical self-hosted posture). Route-mounting posture is DERIVED (intentional groups unless both are public), replacing the opaque `locked_down` switch.",
         "[~] OpenRails consumer side ADOPTED 2026-06-06 (ahead of the core change): OpenRails dropped its `auth.control_plane.tenant_mode` + `locked_down` config; added `public_user_registration` + `public_tenant_registration` (default false) mapping to authkit's existing Native/Tenant RegistrationMode. OpenRails still passes authcore TenantMode=\"multi\" until this issue removes it from core (then OpenRails stops passing it). See openrails commit + #404-area work."
+      ],
+      "completed": false
+    },
+    {
+      "id_number": 61,
+      "name": "OIDC service JWT mint and verify primitives",
+      "description": "Add AuthKit-owned primitives for first-party and federated server-to-server authentication using short-lived JWT bearer tokens signed by the caller's existing AuthKit/OIDC keys and verified by the relying service through registered issuer/JWKS metadata.\n\nThis is for systems like Doujins and Hentai0 calling OpenRails without an OpenRails-minted opaque service token. Doujins/Hentai0 already have AuthKit signing keys and JWKS, so they should be able to mint a short-lived service JWT such as `iss=https://auth.doujins`, `sub=service:doujins-runtime`, `aud=openrails`, `token_use=service`, `scope=openrails:entitlements:read`, `exp=now+15m`. OpenRails verifies the JWT through the registered tenant issuer/JWKS and then applies OpenRails-owned grants/policy. AuthKit owns the reusable token shape, mint helper, verifier helper, claims parsing, route/middleware primitives, and security defaults; host applications own the semantic authorization decision.\n\nThis complements opaque service tokens rather than deleting them. Opaque service tokens remain useful for scripts, third-party clients, bootstrap automation, and callers without their own OIDC issuer/JWKS.",
+      "tasks": [
+        "[ ] Define a canonical AuthKit service-JWT claims type with `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `token_use=service`, optional `scope`, and optional host-defined resource claims.",
+        "[ ] Add a mint helper for hosts to create short-lived service JWTs from their AuthKit signing keyset, with safe defaults such as 5-15 minute expiry, required audience, required service subject, and optional scopes.",
+        "[ ] Add a verifier helper that validates issuer, JWKS signature/key id, audience, time bounds, max token lifetime, token_use, subject shape, and optional replay/jti hooks.",
+        "[ ] Keep AuthKit's verifier generic: it may parse requested scopes/resources, but it must not grant host permissions by itself. Hosts such as OpenRails must intersect requested scopes with server-side grants.",
+        "[ ] Add HTTP middleware/adapters that resolve a service JWT principal separately from native user sessions, delegated browser JWTs, and opaque service tokens.",
+        "[ ] Support registered tenant issuer metadata as the trust source for service JWT verification; disabled issuers must fail closed.",
+        "[ ] Add tests for valid service JWT, wrong audience, expired token, excessive lifetime, missing token_use, wrong token_use, unknown issuer, disabled issuer, bad kid/signature, malformed scope, and replay hook denial.",
+        "[ ] Document the recommended pattern for Doujins/Hentai0 -> OpenRails: caller mints `Authorization: Bearer <service JWT>`, OpenRails verifies via issuer/JWKS, then OpenRails authorizes with its own route grants.",
+        "[ ] Document when to use service JWTs versus opaque service tokens: service JWTs for callers with OIDC/JWKS; opaque tokens for generated API-key-like credentials and non-OIDC clients.",
+        "[ ] Add OpenRails follow-up notes: consume AuthKit service-JWT verifier for server-to-server entitlement reads and stop requiring Doujins/Hentai0 runtime OpenRails service tokens once the OpenRails side is migrated."
       ],
       "completed": false
     }
