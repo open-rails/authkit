@@ -143,8 +143,8 @@ func TestServiceStateCachePersistsWithoutRedis(t *testing.T) {
 func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 	s := newTestService(t)
 	s.oidcProviders = map[string]oidckit.RPConfig{
-		"discord": {ClientID: "discord-client"},
-		"github":  {ClientID: "github-client"},
+		"discord": {ClientID: "discord-client", ClientSecret: "discord-secret"},
+		"github":  {ClientID: "github-client", ClientSecret: "github-secret"},
 	}
 	s.providers = map[string]authprovider.Provider{
 		"custom-oauth": {

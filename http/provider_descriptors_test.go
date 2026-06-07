@@ -1,6 +1,9 @@
 package authhttp
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
@@ -54,11 +57,16 @@ func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 		},
 		ProviderDescriptors: map[string]authprovider.Provider{
 			"custom": {
-				Name:        "custom",
-				Kind:        authprovider.KindOAuth2,
-				Issuer:      "https://custom.example",
-				TokenURL:    "https://custom.example/token",
-				UserInfoURL: "https://custom.example/user",
+				Name:     "custom",
+				Kind:     authprovider.KindOAuth2,
+				Issuer:   "https://custom.example",
+				ClientID: "custom-client",
+				ClientSecret: authprovider.ClientSecret{
+					Value: "custom-secret",
+				},
+				AuthorizeURL: "https://custom.example/auth",
+				TokenURL:     "https://custom.example/token",
+				UserInfoURL:  "https://custom.example/user",
 				UserMapping: authprovider.UserMapping{
 					Subject: authprovider.FieldMapping{Path: "id", Transforms: []string{"string"}},
 				},
@@ -75,4 +83,80 @@ func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 	custom, ok := s.authProvider("custom")
 	require.True(t, ok)
 	require.Equal(t, "https://custom.example/token", custom.TokenURL)
+}
+
+func TestBuildAuthProvidersMapSkipsUnconfiguredProviders(t *testing.T) {
+	providers, err := buildAuthProvidersMap(map[string]oidckit.RPConfig{
+		"google": {ClientSecret: "google-secret"},
+		"discord": {
+			ClientID:     "discord-client",
+			ClientSecret: "discord-secret",
+		},
+	}, map[string]authprovider.Provider{
+		"custom": {
+			Name:         "custom",
+			Kind:         authprovider.KindOAuth2,
+			Issuer:       "https://custom.example",
+			ClientID:     "custom-client",
+			AuthorizeURL: "https://custom.example/auth",
+			TokenURL:     "https://custom.example/token",
+			UserInfoURL:  "https://custom.example/user",
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotContains(t, providers, "google")
+	require.Contains(t, providers, "discord")
+	require.NotContains(t, providers, "custom")
+}
+
+func TestBuildAuthProvidersMapTreatsEmptySecretEnvAsUnavailable(t *testing.T) {
+	t.Setenv("AUTHKIT_EMPTY_PROVIDER_SECRET", "")
+
+	providers, err := buildAuthProvidersMap(nil, map[string]authprovider.Provider{
+		"custom": {
+			Name:         "custom",
+			Kind:         authprovider.KindOAuth2,
+			Issuer:       "https://custom.example",
+			ClientID:     "custom-client",
+			ClientSecret: authprovider.ClientSecret{Env: "AUTHKIT_EMPTY_PROVIDER_SECRET"},
+			AuthorizeURL: "https://custom.example/auth",
+			TokenURL:     "https://custom.example/token",
+			UserInfoURL:  "https://custom.example/user",
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, providers)
+}
+
+func TestProvidersGETReturnsConfiguredProvidersOnly(t *testing.T) {
+	s := &Service{
+		authProvidersByName: map[string]authprovider.Provider{
+			"google": {
+				Name:     "google",
+				Kind:     authprovider.KindOIDC,
+				Issuer:   "https://accounts.google.com",
+				ClientID: "google-client",
+				ClientSecret: authprovider.ClientSecret{
+					Value: "google-secret",
+				},
+			},
+		},
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/providers", nil)
+	s.handleProvidersGET(w, r)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Providers []providerSummary `json:"providers"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Providers, 1)
+	require.Equal(t, "google", body.Providers[0].ID)
+	require.Equal(t, "Google", body.Providers[0].Name)
+	require.True(t, body.Providers[0].SupportsLogin)
+	require.True(t, body.Providers[0].SupportsRegistration)
+	require.True(t, body.Providers[0].SupportsLink)
 }

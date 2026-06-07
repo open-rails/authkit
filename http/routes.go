@@ -91,6 +91,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 
 	routes := []RouteSpec{
 		{Method: http.MethodPost, Path: "/token", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
+		{Method: http.MethodGet, Path: "/providers", Group: RouteCore, Handler: http.HandlerFunc(s.handleProvidersGET)},
 		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		{Method: http.MethodPost, Path: "/reauth/password", Group: RoutePassword, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
