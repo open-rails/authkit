@@ -4,31 +4,34 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/core"
 )
 
 type userMeResponse struct {
-	ID                                string           `json:"id"`
-	Email                             *string          `json:"email"`
-	PhoneNumber                       *string          `json:"phone_number"`
-	Username                          string           `json:"username"`
-	DiscordUsername                   *string          `json:"discord_username,omitempty"`
-	SolanaAddress                     *string          `json:"solana_address,omitempty"`
-	LinkedProviders                   []string         `json:"linked_providers,omitempty"`
-	EnabledProviders                  []string         `json:"enabled_providers,omitempty"`
-	EmailVerified                     bool             `json:"email_verified"`
-	PhoneVerified                     bool             `json:"phone_verified"`
-	HasPassword                       bool             `json:"has_password"`
-	Roles                             *[]string        `json:"roles,omitempty"`
-	Orgs                              *[]orgMembership `json:"tenants,omitempty"`
-	Entitlements                      []string         `json:"entitlements"`
-	Biography                         *string          `json:"biography,omitempty"`
-	PreferredLocale                   *string          `json:"preferred_locale,omitempty"`
-	PreferredLocaleSource             *string          `json:"preferred_locale_source,omitempty"`
-	PreferredLocaleUpdatedAt          *string          `json:"preferred_locale_updated_at,omitempty"`
-	CreatedAt                         *string          `json:"created_at,omitempty"`
-	LastAuthenticatedAt               *string          `json:"last_authenticated_at,omitempty"`
-	TimeUntilReauthRequired           *int64           `json:"time_until_reauth_required,omitempty"`
-	ReauthRequiredForSensitiveActions *bool            `json:"reauth_required_for_sensitive_actions,omitempty"`
+	ID                                string                    `json:"id"`
+	Email                             *string                   `json:"email"`
+	PhoneNumber                       *string                   `json:"phone_number"`
+	Username                          string                    `json:"username"`
+	DiscordUsername                   *string                   `json:"discord_username,omitempty"`
+	SolanaAddress                     *string                   `json:"solana_address,omitempty"`
+	SolanaLinkedAccount               *core.SolanaLinkedAccount `json:"solana_linked_account,omitempty"`
+	LinkedProviders                   []string                  `json:"linked_providers,omitempty"`
+	EnabledProviders                  []string                  `json:"enabled_providers,omitempty"`
+	EmailVerified                     bool                      `json:"email_verified"`
+	PhoneVerified                     bool                      `json:"phone_verified"`
+	HasPassword                       bool                      `json:"has_password"`
+	Roles                             *[]string                 `json:"roles,omitempty"`
+	Orgs                              *[]orgMembership          `json:"tenants,omitempty"`
+	Entitlements                      []string                  `json:"entitlements"`
+	Biography                         *string                   `json:"biography,omitempty"`
+	PreferredLocale                   *string                   `json:"preferred_locale,omitempty"`
+	PreferredLocaleSource             *string                   `json:"preferred_locale_source,omitempty"`
+	PreferredLocaleUpdatedAt          *string                   `json:"preferred_locale_updated_at,omitempty"`
+	CreatedAt                         *string                   `json:"created_at,omitempty"`
+	LastAuthenticatedAt               *string                   `json:"last_authenticated_at,omitempty"`
+	TimeUntilReauthRequired           *int64                    `json:"time_until_reauth_required,omitempty"`
+	ReauthRequiredForSensitiveActions *bool                     `json:"reauth_required_for_sensitive_actions,omitempty"`
 }
 
 type orgMembership struct {
@@ -79,7 +82,13 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hasPassword := s.svc.HasPassword(r.Context(), adminUser.ID)
-	solanaAddress, _ := s.svc.GetSolanaAddress(r.Context(), adminUser.ID)
+	solanaLinkedAccount, _ := s.svc.GetSolanaLinkedAccount(r.Context(), adminUser.ID)
+	solanaAddress := ""
+	if solanaLinkedAccount != nil {
+		solanaAddress = solanaLinkedAccount.Address
+	} else {
+		solanaAddress, _ = s.svc.GetSolanaAddress(r.Context(), adminUser.ID)
+	}
 	var solanaAddressPtr *string
 	if solanaAddress != "" {
 		solanaAddressPtr = &solanaAddress
@@ -156,6 +165,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		Username:                          username,
 		DiscordUsername:                   adminUser.DiscordUsername,
 		SolanaAddress:                     solanaAddressPtr,
+		SolanaLinkedAccount:               solanaLinkedAccount,
 		LinkedProviders:                   linkedProviders,
 		EnabledProviders:                  enabledProviders,
 		EmailVerified:                     adminUser.EmailVerified,

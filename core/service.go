@@ -58,6 +58,14 @@ type Options struct {
 	Environment string
 	// SolanaNetwork is host-provided chain selector for SIWS flows.
 	SolanaNetwork string
+	// SolanaSNSEnabled enables AuthKit-owned Solana Name Service resolution for SIWS-linked wallets.
+	SolanaSNSEnabled bool
+	// SolanaSNSResolver resolves a verified Solana wallet address to its primary .sol name.
+	SolanaSNSResolver SolanaSNSResolver
+	// SolanaSNSLookupTimeout bounds resolver calls. Empty defaults to 3 seconds.
+	SolanaSNSLookupTimeout time.Duration
+	// SolanaSNSCacheTTL controls when cached SNS metadata is considered stale. Empty defaults to 24 hours.
+	SolanaSNSCacheTTL time.Duration
 
 	// ServiceTokenPrefix is the issuing application's brand prefix for Tenant
 	// Service Tokens (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
@@ -225,6 +233,10 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		TenantRegistrationMode:     tenantRegistrationMode,
 		Environment:                strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:              strings.TrimSpace(cfg.SolanaNetwork),
+		SolanaSNSEnabled:           cfg.SolanaSNSEnabled,
+		SolanaSNSResolver:          cfg.SolanaSNSResolver,
+		SolanaSNSLookupTimeout:     cfg.SolanaSNSLookupTimeout,
+		SolanaSNSCacheTTL:          cfg.SolanaSNSCacheTTL,
 		ServiceTokenPrefix:         tokenPrefix,
 		ServiceTokenMaxTTL:         cfg.ServiceTokenMaxTTL,
 		ResourceScopeAuthorizer:    cfg.ResourceScopeAuthorizer,
@@ -3504,7 +3516,13 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 		SET email_at_provider=EXCLUDED.email_at_provider,
 		    provider_slug=COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
 	`, providerID, userID, issuer, providerSlug, subject, email)
-	return err
+	if err != nil {
+		return err
+	}
+	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() {
+		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
+	}
+	return nil
 }
 
 // ListEntitlements returns current entitlements for a user (fresh from provider).

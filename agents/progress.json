@@ -1,5 +1,5 @@
 {
-  "next_id": 63,
+  "next_id": 64,
   "issues": [
     {
       "name": "Passkey (WebAuthn/FIDO2) authentication — register, login, manage",
@@ -35,6 +35,21 @@
         "[x] Apply locale-aware rendering to verification email, password reset email, MFA/login code email/SMS, and security/account notification emails. Done 2026-06-07: AuthKit-controlled verification, password reset, phone/email change, 2FA setup/login code, and welcome sends use the preferred-locale context path; host custom builders remain supported.",
         "[x] Add tests for registration seeding from `es`, explicit update to another locale, no mutation from later request language, invalid locale rejection, API exposure, and email-template fallback. Done 2026-06-07: added locale normalization invalid-value tests, DB-backed Set/Get explicit update test, registration/resend preservation test, preferred-locale route assertion, and Twilio email/SMS language fallback tests.",
         "[x] Document the contract for host apps: pass current language at registration, use AuthKit locale for communication defaults, keep route/content language app-owned. Done 2026-06-07: README documents registration seeding, explicit updates, no browsing mutation, AuthKit communication usage, and host-owned site/content language."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Solana Name Service metadata for linked wallets",
+      "id_number": 63,
+      "description": "Make AuthKit the owner of Solana Name Service metadata for SIWS-linked accounts. Host applications should not resolve or store wallet display names directly; they receive a normalized linked-account object from AuthKit and display `primary_sns_name` when present, with wallet-address fallback in the host UI. Resolution must never block login or wallet linking.",
+      "tasks": [
+        "[x] Add an AuthKit-owned SNS resolver contract and host-configured enable/timeout/cache settings. Done 2026-06-07: added `SolanaSNSResolver`, `SolanaSNSEnabled`, `SolanaSNSLookupTimeout`, and `SolanaSNSCacheTTL` to core config/options.",
+        "[x] Resolve primary `.sol` names after verified SIWS wallet linking and store normalized metadata on the provider link. Done 2026-06-07: `LinkProviderByIssuer` refreshes SNS metadata for Solana links and stores status/name/timestamp/error in `profiles.user_providers.profile`.",
+        "[x] Keep wallet linking/login durable even when SNS resolution fails. Done 2026-06-07: resolver failures are stored as `sns_resolution_status=error` with a stable `resolver_error` code and do not fail the verified wallet link.",
+        "[x] Expose normalized Solana linked-account metadata through AuthKit profile APIs. Done 2026-06-07: `/user/me` returns `solana_linked_account` while preserving the legacy `solana_address` field for current consumers.",
+        "[x] Refresh stale cached SNS metadata without blocking account rendering. Done 2026-06-07: stale metadata is surfaced as `sns_resolution_status=stale` and refreshed asynchronously.",
+        "[x] Document the linked-account metadata contract for host applications. Done 2026-06-07: added `agents/solana-linked-account-metadata.md` with the canonical response shape and behavior.",
+        "[x] Add focused tests for name normalization, resolved names, not-found results, resolver errors, and disabled resolver state. Done 2026-06-07: added `core/service_solana_sns_test.go`."
       ],
       "completed": true
     }

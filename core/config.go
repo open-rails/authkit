@@ -54,6 +54,14 @@ type Config struct {
 	// SolanaNetwork is a host-provided Solana chain selector ("mainnet", "testnet", "devnet").
 	// If empty, AuthKit derives a default from Environment.
 	SolanaNetwork string
+	// SolanaSNSEnabled enables AuthKit-owned Solana Name Service resolution for SIWS-linked wallets.
+	SolanaSNSEnabled bool
+	// SolanaSNSResolver resolves a verified Solana wallet address to its primary .sol name.
+	SolanaSNSResolver SolanaSNSResolver
+	// SolanaSNSLookupTimeout bounds resolver calls. Empty defaults to 3 seconds.
+	SolanaSNSLookupTimeout time.Duration
+	// SolanaSNSCacheTTL controls when cached SNS metadata is considered stale. Empty defaults to 24 hours.
+	SolanaSNSCacheTTL time.Duration
 
 	// Keys can be nil - if nil, authkit auto-discovers keys with this priority:
 	// 1. Environment variables (ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, PUBLIC_KEYS)
