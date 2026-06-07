@@ -55,11 +55,11 @@ Notes:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/password/login` | PUBLIC | Password login (tenant_mode=multi: optional `tenant` in body to mint tenant-scoped service token) |
+| POST | `/password/login` | PUBLIC | Password login (optional `tenant` in body mints a tenant-scoped service token when the user is a member) |
 | POST | `/register` | PUBLIC | Unified registration (email or phone); success returns `next_action`: `none`, `verify_email`, or `verify_phone`; `none` includes access/refresh tokens |
 | POST | `/register/resend-email` | PUBLIC | Resend email verification |
 | POST | `/register/resend-phone` | PUBLIC | Resend phone verification |
-| POST | `/token` | PUBLIC | Refresh service token (tenant_mode=multi: optional `tenant` in body to mint tenant-scoped service token) |
+| POST | `/token` | PUBLIC | Refresh service token (optional `tenant` in body mints a tenant-scoped service token when the user is a member) |
 | POST | `/sessions/current` | PUBLIC | Get current session info |
 
 Reserved slug policy:
@@ -103,7 +103,7 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/user/me` | AUTH | Get current user (tenant_mode=multi: includes `tenants` list with per-tenant roles) |
+| GET | `/user/me` | AUTH | Get current user — includes global roles plus a `tenants` membership list with per-tenant roles (empty for tenant-free users) |
 | GET | `/user/bootstrap` | AUTH | Get canonical personal tenant + tenant memberships/roles for bootstrap |
 | PATCH | `/user/username` | AUTH | Change username |
 | PATCH | `/user/biography` | AUTH | Update biography |
@@ -119,7 +119,7 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 ---
 
-## Tenants (tenant_mode=multi only)
+## Tenants (always registered; mount the tenants route group to expose)
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|

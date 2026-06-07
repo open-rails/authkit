@@ -54,7 +54,8 @@ func main() {
     BaseURL:           "https://myapp.com",
     FrontendCallbackPath: "/login/callback",
     // RegistrationVerification: core.RegistrationVerificationRequired, // none|optional|required
-    // TenantMode: "single" (default) | "multi"
+    // NativeUserRegistrationMode / TenantRegistrationMode: open|invite_only|admin_only|admin_bootstrap_only|... (host policy)
+    // AutoCreatePersonalTenants: true  // opt in to a personal tenant per native user
     // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
 
@@ -117,7 +118,7 @@ login, refresh, logout, password reset/recovery, token verification, and
 sessions all keep working. Embedded bootstrap/admin creation through exported
 core APIs (`CreateUser`, `ImportUser`) still works.
 
-Any non-open tenant mode denies the public tenant-facing mutation routes
+Any non-open tenant *registration* mode denies the public tenant-facing mutation routes
 (tenant creation/rename, invites, member changes, role changes, service token
 management routes) with a stable `tenant_management_disabled` error. Read-only
 tenant routes and the tenant-scoped token exchange (`POST /token/tenant`) stay
@@ -420,7 +421,7 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 | Area | Ownership | Notes |
 | --- | --- | --- |
 | `Issuer`, `IssuedAudiences`, `ExpectedAudiences` | Host config | Required token contract inputs. |
-| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `TenantMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
+| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `AutoCreatePersonalTenants`, `NativeUserRegistrationMode`, `TenantRegistrationMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
 | `Keys` provided (`cfg.Keys != nil`) | Host config | Fully disables library key env/filesystem discovery. |
 | `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `/vault/auth/keys.json`, `.runtime/authkit/*`). |
 
@@ -476,8 +477,8 @@ Roles (global storage)
 - AuthKit does not define app role taxonomy (what roles exist). The embedding application/platform should seed its role catalog.
 - Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
 
-Tenants (tenant_mode)
-- AuthKit supports tenants + tenant-scoped RBAC when `TenantMode: "multi"`:
+Tenants
+- AuthKit **always** supports tenants + tenant-scoped RBAC — there is no global `TenantMode` switch (issue #60). Tenants are a first-class primitive at the core layer; what a host *exposes* is decided by which route groups it mounts and by the two registration modes (`NativeUserRegistrationMode`, `TenantRegistrationMode`), not by a mode flag. Native users may exist with zero tenants; tenants may exist (via manifest/admin/bootstrap) with zero native users.
   - Shared owner namespace: user slugs and tenant slugs should be treated as one namespace (no collisions).
   - Native users do not create tenant rows by default. Hosts that want personal
     workspaces must opt in with `AutoCreatePersonalTenants: true`; those
@@ -488,16 +489,17 @@ Tenants (tenant_mode)
   - Default service tokens do **not** embed tenant membership or tenant roles; apps check membership/roles server-side.
   - `GET /user/me` returns `tenants` (membership list) plus tenant-scoped roles for the user.
   - `GET /user/bootstrap` returns canonical personal tenant + tenant memberships in one call.
-  - Tenant-scoped service tokens include `tenant` + `roles` (single tenant only), and are rejected when the user is not a member.
+  - Tenant-scoped service tokens include `tenant` + `roles` (single tenant only), minted whenever the user is a member (rejected otherwise) — no mode gate.
     - Mint explicitly: `POST /token/tenant`
-    - Or mint at login/refresh by providing `tenant` in the request body.
+    - Or mint at login/refresh by providing `tenant` in the request body (accepted on every deployment; the legacy `tenant_not_supported` rejection is gone).
   - Invitation workflow:
     - Tenant owners create/list/revoke invites with `/tenants/:tenant/invites`.
     - Users list their invites via `GET /me/invites` (cross-tenant).
     - Users accept/decline via `/me/invites/:invite_id/accept|decline`.
   - Tenant management is **permission-based RBAC** (a role = a set of permissions). authkit is the generic engine: it ships **base permissions** in the reserved `tenant:` namespace (`tenant:roles:manage`, `tenant:members:manage`, `tenant:service_tokens:manage`, `tenant:read`) that gate all tenant-management endpoints, stores per-tenant role→permission assignments, computes `EffectivePermissions`, and enforces no-escalation + catalog validation. The embedding app declares its own permission catalog (`Config.PermissionCatalog`) + optional default roles (`Config.DefaultRoles`, e.g. an `admin` = `*` minus `{tenant:roles:manage, tenant:members:manage}`); effective catalog = base ∪ app. The `owner` role is hardcoded and seeded with `*` (all), protected, and cannot be removed as the last owner. Permissions are opaque to authkit — the app owns their meaning and enforces them at its own endpoints via `core.EffectivePermissions`. Introspection endpoints complement the management API: `GET /tenants/:tenant/me` (self-read of `{roles, permissions}`, membership only — no `tenant:read`) and `POST /tenants/:tenant/permissions/check` (a `testIamPermissions`-style "does this principal hold X?" → `{granted[]}`). Roles are RESTful resources: `GET /tenants/:tenant/roles/:role` (detail), `PUT /tenants/:tenant/roles/:role` (idempotent create-or-replace, body `{permissions[]}`), `DELETE /tenants/:tenant/roles/:role`; members likewise (`DELETE /tenants/:tenant/members/:user_id`). Invitee self-routes live at top-level `/me/invites` (cross-tenant — the invitee isn't a member yet).
-- In `TenantMode: "single"` (default), AuthKit behaves like a single-tenant app:
-  - Access tokens include `roles` (string[]) and there are no tenant-related claims/fields.
+- Token claim shape (uniform; no mode):
+  - A user access token always includes `global_roles` (platform-wide) and a legacy `roles` claim that mirrors `global_roles` (fixed token-shape compatibility). Tenant-scoped tokens additionally carry `tenant` + tenant `roles`/`tenant_roles`.
+  - An app with no tenants simply never mints tenant-scoped tokens — its tokens carry `roles`/`global_roles` only.
 
 Service Tokens (opaque machine credentials)
 - Long-lived, revocable bearer credentials **owned by a tenant** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). The standard machine-auth primitive (cf. Docker Hub service tokens, Stripe `sk_` keys) — robots should not replay the human password-login path.
@@ -872,7 +874,7 @@ const linkWallet = async (accessToken: string) => {
 Use the verifier when a service needs to accept service tokens issued by one or more
 AuthKit‑powered APIs (e.g., spacex), without mounting any auth routes.
 
-- Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`, `WithTenantMode`.
+- Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`. (`WithTenantMode` is a deprecated no-op shim kept for back-compat; tenant claims are parsed whenever present.)
 - Add issuers via `verifier.AddIssuer(issuerID, audiences, opts)` — each may specify a JWKS URL (defaults to `/.well-known/jwks.json`), pre-provided PEM keys, or raw `*rsa.PublicKey` maps.
 - Default skew: 60s. Default algorithms: RS256.
 - DB enrichment (recommended):
