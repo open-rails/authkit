@@ -1,5 +1,5 @@
 {
-  "next_id": 58,
+  "next_id": 60,
   "issues": [
     {
       "name": "Passkey (WebAuthn/FIDO2) authentication \u2014 register, login, manage",
@@ -127,6 +127,38 @@
         "[x] Ensure middleware resolves service tokens to service principals and delegated JWTs to delegated principals.",
         "[ ] Add explicit wrong-token-type denial tests for every route class after host APIs migrate.",
         "[ ] Finish docs/examples once OpenRails consumes the hard-cut API."
+      ],
+      "completed": false
+    },
+    {
+      "id_number": 58,
+      "name": "User-owned tenant registration boundary",
+      "description": "Make AuthKit's tenant registration model explicit and enforceable: public tenant registration is always performed by an authenticated native user who becomes the tenant owner/admin. Tenant creation without a registering user is not a public route; it is reserved for privileged admin/bootstrap/programmatic paths such as manifest reconciliation or host-controlled provisioning.\n\nThis supports the OpenRails SaaS model: a human registers as a normal AuthKit user, then creates one or more tenants. The tenant is the workspace/org/account boundary; the creator becomes the initial tenant owner/member. AuthKit should own this identity/membership primitive so embedded hosts such as OpenRails SaaS do not reimplement it.",
+      "tasks": [
+        "[ ] Add or formalize a core API such as `CreateTenantForUser(ctx, CreateTenantForUserRequest{Slug, OwnerUserID})` that transactionally creates the tenant, seeds default roles, adds the registering user as a member, and assigns the owner role.",
+        "[ ] Update `POST /tenants` to call the user-owned core API instead of stitching together `CreateTenant`, `DefineRole`, `AddMember`, and `AssignRole` in the HTTP handler.",
+        "[ ] Ensure `POST /tenants` always requires an authenticated user and cannot create an ownerless tenant.",
+        "[ ] Keep lower-level `CreateTenant` clearly documented as a privileged/internal primitive for bootstrap/admin/programmatic callers, not public self-service tenant registration.",
+        "[ ] Define and test the error contract for duplicate slug, reserved slug, invalid slug, tenant limit exceeded, deleted user, banned user, registration-mode disabled, and parked-tenant claim cases.",
+        "[ ] Ensure tenant creation and owner assignment are atomic; failures must not leave an ownerless or partially initialized public tenant.",
+        "[ ] Add tests proving public tenant registration creates exactly one owner membership, seeds tenant role defaults, and rejects unauthenticated/userless creation.",
+        "[ ] Update docs/API endpoints to state that public tenant registration is user-owned and ownerless tenants are bootstrap/admin-only."
+      ],
+      "completed": false
+    },
+    {
+      "id_number": 59,
+      "name": "Privileged tenant bootstrap API for embedded hosts",
+      "description": "Provide a clean privileged tenant-provisioning path for embedded hosts such as OpenRails and OpenRails SaaS. Public tenant registration should flow through `CreateTenantForUser`; privileged host/bootstrap paths may create tenants without a user, but only through explicit core APIs or manifest reconciliation that are not mounted as public self-service routes.\n\nOpenRails should use AuthKit's programmatic tenant primitives for the AuthKit tenant/membership side, then create/link its own OpenRails tenant row for billing/product namespace state. AuthKit owns users, AuthKit tenants, tenant memberships/roles, tenant issuers, and service-token credential mechanics; OpenRails owns OpenRails tenant records, tenant subjects, catalogs, provider credentials, usage, balances, and subscriptions.",
+      "tasks": [
+        "[ ] Define the stable embedded-host API surface for privileged tenant provisioning: tenant create/resolve, role seeding, membership assignment, tenant issuer upsert/disable, and service-token minting.",
+        "[ ] Clarify how `ReconcileTenantManifest` relates to public registration: manifest-created tenants are privileged/bootstrap tenants and may be ownerless unless the manifest explicitly declares memberships in a later schema.",
+        "[ ] Keep tenant manifest reconciliation additive/upsert by default; missing manifest tenants/issuers/roles/tokens must not delete or disable existing state unless explicit fields say so.",
+        "[ ] Decide whether AuthKit tenant manifests need optional `memberships` for bootstrap-created owner/admin users, or whether hosts should call the privileged core API after manifest reconciliation.",
+        "[ ] Expose a host-implementable token output store contract for Vault/Kubernetes/local-file outputs without forcing API pods to hold broad long-lived Vault write credentials.",
+        "[ ] Add tests proving public registration modes do not affect privileged core/manifest provisioning, and closed/manifest-only modes still allow admin/bootstrap creation.",
+        "[ ] Document the recommended OpenRails SaaS flow: AuthKit user signup, user-owned AuthKit tenant creation, host-created OpenRails tenant linkage, then OpenRails catalog/secrets/service-token setup.",
+        "[ ] Document the recommended closed-registration OpenRails flow: privileged manifest/programmatic AuthKit tenant provisioning, then OpenRails bootstrap applies OpenRails-owned tenant/catalog state."
       ],
       "completed": false
     }
