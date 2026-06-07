@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +22,25 @@ func (r fakeSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, address s
 		return "", r.err
 	}
 	return r.names[address], nil
+}
+
+type mutableSolanaSNSResolver struct {
+	calls atomic.Int64
+	mu    sync.Mutex
+	name  string
+}
+
+func (r *mutableSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, address string) (string, error) {
+	r.calls.Add(1)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.name, nil
+}
+
+func (r *mutableSolanaSNSResolver) setName(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.name = name
 }
 
 func TestNormalizeSolanaSNSName(t *testing.T) {
@@ -80,6 +101,91 @@ func TestSolanaSNSResolveAndStore(t *testing.T) {
 	}
 	if account.SNSResolutionStatus != SolanaSNSStatusResolved || account.SNSStale {
 		t.Fatalf("unexpected SNS status: %+v", account)
+	}
+}
+
+func TestSolanaSNSUsesFreshCache(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
+	address := output.Account.Address
+	resolver := &mutableSolanaSNSResolver{name: "cached.sol"}
+
+	svc := NewService(Options{
+		Issuer:                 "https://test",
+		SolanaSNSEnabled:       true,
+		SolanaSNSResolver:      resolver,
+		SolanaSNSLookupTimeout: time.Second,
+		SolanaSNSCacheTTL:      time.Hour,
+	}, Keyset{}).WithPostgres(pool)
+	user := importSNSUser(t, ctx, svc, pool, "cache")
+	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
+		t.Fatalf("LinkProviderByIssuer: %v", err)
+	}
+	if resolver.calls.Load() != 1 {
+		t.Fatalf("resolver calls after link = %d, want 1", resolver.calls.Load())
+	}
+
+	for i := 0; i < 3; i++ {
+		account, err := svc.GetSolanaLinkedAccount(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("GetSolanaLinkedAccount: %v", err)
+		}
+		if account == nil || account.PrimarySNSName == nil || *account.PrimarySNSName != "cached.sol" {
+			t.Fatalf("unexpected cached account: %+v", account)
+		}
+	}
+	if resolver.calls.Load() != 1 {
+		t.Fatalf("fresh cache should not call resolver again, got %d calls", resolver.calls.Load())
+	}
+}
+
+func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
+	address := output.Account.Address
+	resolver := &mutableSolanaSNSResolver{name: "before.sol"}
+
+	svc := NewService(Options{
+		Issuer:                 "https://test",
+		SolanaSNSEnabled:       true,
+		SolanaSNSResolver:      resolver,
+		SolanaSNSLookupTimeout: time.Second,
+		SolanaSNSCacheTTL:      time.Nanosecond,
+	}, Keyset{}).WithPostgres(pool)
+	user := importSNSUser(t, ctx, svc, pool, "stale")
+	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
+		t.Fatalf("LinkProviderByIssuer: %v", err)
+	}
+
+	resolver.setName("after.sol")
+	account, err := svc.GetSolanaLinkedAccount(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetSolanaLinkedAccount stale: %v", err)
+	}
+	if account == nil || !account.SNSStale || account.SNSResolutionStatus != SolanaSNSStatusStale {
+		t.Fatalf("expected stale account before async refresh, got %+v", account)
+	}
+	waitForSolanaSNSProfileValue(t, ctx, pool, user.ID, svc.solanaIssuer(), "after.sol")
+
+	resolver.setName("")
+	freshSvc := NewService(Options{
+		Issuer:                 "https://test",
+		SolanaSNSEnabled:       true,
+		SolanaSNSResolver:      resolver,
+		SolanaSNSLookupTimeout: time.Second,
+		SolanaSNSCacheTTL:      time.Hour,
+	}, Keyset{}).WithPostgres(pool)
+	if _, err := freshSvc.ResolveAndStoreSolanaSNS(ctx, user.ID, address); err != nil {
+		t.Fatalf("ResolveAndStoreSolanaSNS clear: %v", err)
+	}
+	cleared, err := freshSvc.GetSolanaLinkedAccount(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetSolanaLinkedAccount cleared: %v", err)
+	}
+	if cleared == nil || cleared.PrimarySNSName != nil || cleared.SNSResolutionStatus != SolanaSNSStatusNotFound {
+		t.Fatalf("expected cleared SNS metadata, got %+v", cleared)
 	}
 }
 
@@ -162,4 +268,22 @@ func importSNSUser(t *testing.T, ctx context.Context, svc *Service, pool *pgxpoo
 		t.Fatalf("ImportUser: %v", err)
 	}
 	return user
+}
+
+func waitForSolanaSNSProfileValue(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID, issuer, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var got string
+		err := pool.QueryRow(ctx, `
+			SELECT COALESCE(profile->>$3, '')
+			FROM profiles.user_providers
+			WHERE user_id = $1 AND issuer = $2
+		`, userID, issuer, solanaSNSProfilePrimaryKey).Scan(&got)
+		if err == nil && got == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for SNS profile value %q", want)
 }
