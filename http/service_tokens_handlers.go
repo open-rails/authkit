@@ -81,7 +81,7 @@ func cleanStrings(in []string) []string {
 
 // orgAccessTokenManageGate resolves the tenant and confirms the caller holds
 // tenant:service_tokens:manage (list/revoke). Owner holds `*`; a global admin bypasses.
-func (s *Service) orgAccessTokenManageGate(w http.ResponseWriter, r *http.Request, claims Claims, tenantSlug string) (canonical string, ok bool) {
+func (s *Service) tenantAccessTokenManageGate(w http.ResponseWriter, r *http.Request, claims Claims, tenantSlug string) (canonical string, ok bool) {
 	return s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantTokensManage)
 }
 
@@ -233,7 +233,7 @@ func (s *Service) handleServiceTokensGET(w http.ResponseWriter, r *http.Request)
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, tenantSlug)
+	canonical, gateOK := s.tenantAccessTokenManageGate(w, r, claims, tenantSlug)
 	if !gateOK {
 		return
 	}
@@ -261,7 +261,7 @@ func (s *Service) handleServiceTokenDELETE(w http.ResponseWriter, r *http.Reques
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, tenantSlug)
+	canonical, gateOK := s.tenantAccessTokenManageGate(w, r, claims, tenantSlug)
 	if !gateOK {
 		return
 	}

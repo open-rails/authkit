@@ -17,7 +17,7 @@ const (
 	adminAccountKindUser   = "user"
 )
 
-type ownerNamespaceOrgPublicInfo struct {
+type ownerNamespaceTenantPublicInfo struct {
 	ID          string `json:"id"`
 	Slug        string `json:"slug"`
 	IsPersonal  bool   `json:"is_personal"`
@@ -31,19 +31,19 @@ type ownerNamespaceUserPublicInfo struct {
 }
 
 type ownerNamespaceLookupResponse struct {
-	OK            bool                          `json:"ok"`
-	Slug          string                        `json:"slug"`
-	RequestedSlug string                        `json:"requested_slug"`
-	CanonicalSlug string                        `json:"canonical_slug"`
-	State         string                        `json:"state"`
-	Status        string                        `json:"status"`
-	Claimable     bool                          `json:"claimable"`
-	Exists        bool                          `json:"exists"`
-	EntityKind    string                        `json:"entity_kind"`
-	Renamed       bool                          `json:"renamed"`
-	HoldUntil     *time.Time                    `json:"hold_until,omitempty"`
-	Tenant        *ownerNamespaceOrgPublicInfo  `json:"tenant,omitempty"`
-	User          *ownerNamespaceUserPublicInfo `json:"user,omitempty"`
+	OK            bool                            `json:"ok"`
+	Slug          string                          `json:"slug"`
+	RequestedSlug string                          `json:"requested_slug"`
+	CanonicalSlug string                          `json:"canonical_slug"`
+	State         string                          `json:"state"`
+	Status        string                          `json:"status"`
+	Claimable     bool                            `json:"claimable"`
+	Exists        bool                            `json:"exists"`
+	EntityKind    string                          `json:"entity_kind"`
+	Renamed       bool                            `json:"renamed"`
+	HoldUntil     *time.Time                      `json:"hold_until,omitempty"`
+	Tenant        *ownerNamespaceTenantPublicInfo `json:"tenant,omitempty"`
+	User          *ownerNamespaceUserPublicInfo   `json:"user,omitempty"`
 }
 
 func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Req
 		HoldUntil:     lookup.HoldUntil,
 	}
 	if lookup.Tenant != nil {
-		resp.Tenant = &ownerNamespaceOrgPublicInfo{
+		resp.Tenant = &ownerNamespaceTenantPublicInfo{
 			ID:          strings.TrimSpace(lookup.Tenant.ID),
 			Slug:        strings.TrimSpace(lookup.Tenant.Slug),
 			IsPersonal:  lookup.Tenant.IsPersonal,
@@ -115,7 +115,7 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 	}
 	switch normalizeAdminAccountKind(req.Kind) {
 	case adminAccountKindTenant:
-		tenantID, created, err := s.svc.ParkOrgNamespace(r.Context(), req.Slug)
+		tenantID, created, err := s.svc.ParkTenantNamespace(r.Context(), req.Slug)
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrOwnerSlugTaken):
@@ -192,7 +192,7 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 			badRequest(w, "invalid_request")
 			return
 		}
-		tenantID, created, err := s.svc.ClaimOrgNamespace(r.Context(), req.Slug, req.OwnerUser)
+		tenantID, created, err := s.svc.ClaimTenantNamespace(r.Context(), req.Slug, req.OwnerUser)
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrUserNotFound):

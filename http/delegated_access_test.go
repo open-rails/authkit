@@ -138,7 +138,7 @@ func TestDelegatedAccessRejectsSubPlusDelegatedSub(t *testing.T) {
 	}
 }
 
-func TestDelegatedAccessRejectsOrgClaim(t *testing.T) {
+func TestDelegatedAccessRejectsTenantClaim(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()

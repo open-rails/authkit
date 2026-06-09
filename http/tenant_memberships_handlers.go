@@ -7,7 +7,7 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMembersGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -22,7 +22,7 @@ func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 	if !gateOK {
 		return
 	}
-	members, err := s.svc.ListOrgMembers(r.Context(), canonical)
+	members, err := s.svc.ListTenantMembers(r.Context(), canonical)
 	if err != nil {
 		serverErr(w, "tenant_memberships_lookup_failed")
 		return
@@ -30,7 +30,7 @@ func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"members": members})
 }
 
-func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMembersPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -59,7 +59,7 @@ func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMembersDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")

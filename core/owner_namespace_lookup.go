@@ -12,18 +12,18 @@ import (
 type OwnerNamespaceLookupStatus string
 
 const (
-	OwnerNamespaceStatusRegisteredUser         OwnerNamespaceLookupStatus = "registered_user"
-	OwnerNamespaceStatusRegisteredTenant       OwnerNamespaceLookupStatus = "registered_tenant"
-	OwnerNamespaceStatusParkedUser             OwnerNamespaceLookupStatus = "parked_user"
-	OwnerNamespaceStatusParkedTenant           OwnerNamespaceLookupStatus = "parked_tenant"
-	OwnerNamespaceStatusRestrictedName         OwnerNamespaceLookupStatus = "restricted_name"
-	OwnerNamespaceStatusRenamedUser            OwnerNamespaceLookupStatus = "renamed_user"
-	OwnerNamespaceStatusRenamedTenant          OwnerNamespaceLookupStatus = "renamed_tenant"
-	OwnerNamespaceStatusHeldByDeletedUser      OwnerNamespaceLookupStatus = "held_by_deleted_user"
-	OwnerNamespaceStatusHeldByDeletedTenant    OwnerNamespaceLookupStatus = "held_by_deleted_tenant"
-	OwnerNamespaceStatusHeldByRecentUserRename OwnerNamespaceLookupStatus = "held_by_recent_user_rename"
-	OwnerNamespaceStatusHeldByRecentOrgRename  OwnerNamespaceLookupStatus = "held_by_recent_tenant_rename"
-	OwnerNamespaceStatusUnregistered           OwnerNamespaceLookupStatus = "unregistered"
+	OwnerNamespaceStatusRegisteredUser           OwnerNamespaceLookupStatus = "registered_user"
+	OwnerNamespaceStatusRegisteredTenant         OwnerNamespaceLookupStatus = "registered_tenant"
+	OwnerNamespaceStatusParkedUser               OwnerNamespaceLookupStatus = "parked_user"
+	OwnerNamespaceStatusParkedTenant             OwnerNamespaceLookupStatus = "parked_tenant"
+	OwnerNamespaceStatusRestrictedName           OwnerNamespaceLookupStatus = "restricted_name"
+	OwnerNamespaceStatusRenamedUser              OwnerNamespaceLookupStatus = "renamed_user"
+	OwnerNamespaceStatusRenamedTenant            OwnerNamespaceLookupStatus = "renamed_tenant"
+	OwnerNamespaceStatusHeldByDeletedUser        OwnerNamespaceLookupStatus = "held_by_deleted_user"
+	OwnerNamespaceStatusHeldByDeletedTenant      OwnerNamespaceLookupStatus = "held_by_deleted_tenant"
+	OwnerNamespaceStatusHeldByRecentUserRename   OwnerNamespaceLookupStatus = "held_by_recent_user_rename"
+	OwnerNamespaceStatusHeldByRecentTenantRename OwnerNamespaceLookupStatus = "held_by_recent_tenant_rename"
+	OwnerNamespaceStatusUnregistered             OwnerNamespaceLookupStatus = "unregistered"
 )
 
 type OwnerNamespaceLookupUser struct {
@@ -93,9 +93,9 @@ func (s *Service) LookupOwnerNamespace(ctx context.Context, slug string) (*Owner
 	if userErr != nil {
 		return nil, userErr
 	}
-	tenant, orgErr := s.lookupOwnerNamespaceCurrentTenant(ctx, requested)
-	if orgErr != nil {
-		return nil, orgErr
+	tenant, tenantErr := s.lookupOwnerNamespaceCurrentTenant(ctx, requested)
+	if tenantErr != nil {
+		return nil, tenantErr
 	}
 
 	if user != nil || tenant != nil {
@@ -118,7 +118,7 @@ func (s *Service) LookupOwnerNamespace(ctx context.Context, slug string) (*Owner
 		return renamed, nil
 	}
 
-	if renamed, err := s.lookupOwnerNamespaceOrgRename(ctx, requested); err != nil {
+	if renamed, err := s.lookupOwnerNamespaceTenantRename(ctx, requested); err != nil {
 		return nil, err
 	} else if renamed != nil {
 		return renamed, nil
@@ -287,7 +287,7 @@ func (s *Service) lookupOwnerNamespaceUserRename(ctx context.Context, slug strin
 	return ownerNamespaceLookupFromRename(slug, username, userID, renamedAt, deleted, true), nil
 }
 
-func (s *Service) lookupOwnerNamespaceOrgRename(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
+func (s *Service) lookupOwnerNamespaceTenantRename(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
 	var tenantID, tenantSlug string
 	var isPersonal bool
 	var ownerUserID string
@@ -353,7 +353,7 @@ func ownerNamespaceLookupFromRename(requested, canonical, ownerID string, rename
 			out.CanonicalSlug = strings.TrimSpace(requested)
 			out.HoldUntil = nil
 		} else {
-			out.Status = OwnerNamespaceStatusHeldByRecentOrgRename
+			out.Status = OwnerNamespaceStatusHeldByRecentTenantRename
 		}
 		return out
 	}

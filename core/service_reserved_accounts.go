@@ -43,7 +43,7 @@ func (s *Service) setUserReservedTx(ctx context.Context, tx pgx.Tx, userID strin
 	return err
 }
 
-func (s *Service) setOrgReservedTx(ctx context.Context, tx pgx.Tx, tenantID string, reserved bool) error {
+func (s *Service) setTenantReservedTx(ctx context.Context, tx pgx.Tx, tenantID string, reserved bool) error {
 	if tx == nil {
 		return fmt.Errorf("tx required")
 	}
@@ -141,7 +141,7 @@ func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch ma
 	return nil
 }
 
-func (s *Service) GetOrgMetadata(ctx context.Context, tenantID string) (map[string]any, error) {
+func (s *Service) GetTenantMetadata(ctx context.Context, tenantID string) (map[string]any, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func (s *Service) GetOrgMetadata(ctx context.Context, tenantID string) (map[stri
 	return out, nil
 }
 
-func (s *Service) PatchOrgMetadata(ctx context.Context, tenantID string, patch map[string]any) error {
+func (s *Service) PatchTenantMetadata(ctx context.Context, tenantID string, patch map[string]any) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -194,8 +194,8 @@ func (s *Service) PatchOrgMetadata(ctx context.Context, tenantID string, patch m
 	return nil
 }
 
-func (s *Service) IsOrgReserved(ctx context.Context, tenantID string) (bool, error) {
-	state, err := s.GetOrgNamespaceState(ctx, tenantID)
+func (s *Service) IsTenantReserved(ctx context.Context, tenantID string) (bool, error) {
+	state, err := s.GetTenantNamespaceState(ctx, tenantID)
 	if err != nil {
 		return false, err
 	}
@@ -220,8 +220,8 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
-		existingOrgID       string
-		existingOrgReserved bool
+		existingTenantID       string
+		existingTenantReserved bool
 	)
 	if err := tx.QueryRow(ctx, `
 		SELECT id::text,
@@ -233,9 +233,9 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 		FROM profiles.tenants
 		WHERE slug=$1
 		  AND deleted_at IS NULL
-	`, slug).Scan(&existingOrgID, &existingOrgReserved); err == nil {
-		tenantID = strings.TrimSpace(existingOrgID)
-		if !existingOrgReserved {
+	`, slug).Scan(&existingTenantID, &existingTenantReserved); err == nil {
+		tenantID = strings.TrimSpace(existingTenantID)
+		if !existingTenantReserved {
 			return "", "", false, ErrReservedAccountClaimed
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -282,10 +282,10 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 			WHERE owner_user_id=$1::uuid
 			  AND is_personal=true
 			  AND deleted_at IS NULL
-		`, userID).Scan(&existingOrgID, &existingTenantSlug, &existingOrgReserved); {
+		`, userID).Scan(&existingTenantID, &existingTenantSlug, &existingTenantReserved); {
 		case err == nil:
-			tenantID = strings.TrimSpace(existingOrgID)
-			if !existingOrgReserved {
+			tenantID = strings.TrimSpace(existingTenantID)
+			if !existingTenantReserved {
 				return "", "", false, ErrReservedAccountClaimed
 			}
 		case errors.Is(err, pgx.ErrNoRows):
@@ -314,10 +314,10 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 	}
 
 	if strings.TrimSpace(tenantID) != "" {
-		if err := s.setOrgReservedTx(ctx, tx, tenantID, true); err != nil {
+		if err := s.setTenantReservedTx(ctx, tx, tenantID, true); err != nil {
 			return "", "", false, err
 		}
-		if err := s.setOrgNamespaceStateTx(ctx, tx, tenantID, OwnerNamespaceStateParkedTenant); err != nil {
+		if err := s.setTenantNamespaceStateTx(ctx, tx, tenantID, OwnerNamespaceStateParkedTenant); err != nil {
 			return "", "", false, err
 		}
 	}

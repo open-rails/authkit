@@ -22,7 +22,7 @@ type userMeResponse struct {
 	PhoneVerified                     bool                      `json:"phone_verified"`
 	HasPassword                       bool                      `json:"has_password"`
 	Roles                             *[]string                 `json:"roles,omitempty"`
-	Orgs                              *[]orgMembership          `json:"tenants,omitempty"`
+	Tenants                           *[]tenantMembership       `json:"tenants,omitempty"`
 	Entitlements                      []string                  `json:"entitlements"`
 	Biography                         *string                   `json:"biography,omitempty"`
 	PreferredLocale                   *string                   `json:"preferred_locale,omitempty"`
@@ -34,7 +34,7 @@ type userMeResponse struct {
 	ReauthRequiredForSensitiveActions *bool                     `json:"reauth_required_for_sensitive_actions,omitempty"`
 }
 
-type orgMembership struct {
+type tenantMembership struct {
 	Tenant string   `json:"tenant"`
 	Roles  []string `json:"roles"`
 }
@@ -122,7 +122,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	// (issue 60) Always return the user's global roles AND their tenant memberships
 	// (memberships may be empty for tenant-free users). No tenant-mode branch.
 	var rolesPtr *[]string
-	var orgsPtr *[]orgMembership
+	var tenantsPtr *[]tenantMembership
 	roles := adminUser.Roles
 	if roles == nil {
 		roles = []string{}
@@ -133,11 +133,11 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, "tenant_memberships_lookup_failed")
 		return
 	}
-	tenants := make([]orgMembership, 0, len(mems))
+	tenants := make([]tenantMembership, 0, len(mems))
 	for _, m := range mems {
-		tenants = append(tenants, orgMembership{Tenant: m.Tenant, Roles: m.Roles})
+		tenants = append(tenants, tenantMembership{Tenant: m.Tenant, Roles: m.Roles})
 	}
-	orgsPtr = &tenants
+	tenantsPtr = &tenants
 
 	var createdAt *string
 	if !adminUser.CreatedAt.IsZero() {
@@ -172,7 +172,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		PhoneVerified:                     adminUser.PhoneVerified,
 		HasPassword:                       hasPassword,
 		Roles:                             rolesPtr,
-		Orgs:                              orgsPtr,
+		Tenants:                           tenantsPtr,
 		Entitlements:                      adminUser.Entitlements,
 		Biography:                         adminUser.Biography,
 		PreferredLocale:                   preferredLocale,

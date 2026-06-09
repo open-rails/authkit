@@ -7,7 +7,7 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMemberRolesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -31,7 +31,7 @@ func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"roles": roles})
 }
 
-func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMemberRolesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -77,7 +77,7 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMemberRolesDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")

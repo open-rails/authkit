@@ -6,12 +6,12 @@ import (
 )
 
 type userBootstrapResponse struct {
-	UserID                string          `json:"user_id"`
-	Username              string          `json:"username"`
-	PersonalTenant        string          `json:"personal_org"`
-	Orgs                  []orgMembership `json:"tenants"`
-	UserAliases           []string        `json:"user_aliases,omitempty"`
-	PersonalTenantAliases []string        `json:"personal_tenant_aliases,omitempty"`
+	UserID                string             `json:"user_id"`
+	Username              string             `json:"username"`
+	PersonalTenant        string             `json:"personal_org"`
+	Tenants               []tenantMembership `json:"tenants"`
+	UserAliases           []string           `json:"user_aliases,omitempty"`
+	PersonalTenantAliases []string           `json:"personal_tenant_aliases,omitempty"`
 }
 
 func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +34,7 @@ func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	personalTenant, err := s.svc.GetPersonalOrgForUser(r.Context(), claims.UserID)
+	personalTenant, err := s.svc.GetPersonalTenantForUser(r.Context(), claims.UserID)
 	if err != nil {
 		serverErr(w, "personal_tenant_lookup_failed")
 		return
@@ -44,18 +44,18 @@ func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request)
 		serverErr(w, "tenant_memberships_lookup_failed")
 		return
 	}
-	tenants := make([]orgMembership, 0, len(mems))
+	tenants := make([]tenantMembership, 0, len(mems))
 	for _, m := range mems {
-		tenants = append(tenants, orgMembership{Tenant: m.Tenant, Roles: m.Roles})
+		tenants = append(tenants, tenantMembership{Tenant: m.Tenant, Roles: m.Roles})
 	}
 
 	userAliases, _ := s.svc.ListUserSlugAliases(r.Context(), claims.UserID)
-	personalAliases, _ := s.svc.ListOrgAliases(r.Context(), personalTenant.ID)
+	personalAliases, _ := s.svc.ListTenantAliases(r.Context(), personalTenant.ID)
 	writeJSON(w, http.StatusOK, userBootstrapResponse{
 		UserID:                claims.UserID,
 		Username:              username,
 		PersonalTenant:        personalTenant.Slug,
-		Orgs:                  tenants,
+		Tenants:               tenants,
 		UserAliases:           userAliases,
 		PersonalTenantAliases: personalAliases,
 	})

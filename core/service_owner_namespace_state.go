@@ -143,7 +143,7 @@ func (s *Service) IsUserReserved(ctx context.Context, userID string) (bool, erro
 	return reserved, nil
 }
 
-func (s *Service) GetOrgNamespaceState(ctx context.Context, tenantID string) (OwnerNamespaceState, error) {
+func (s *Service) GetTenantNamespaceState(ctx context.Context, tenantID string) (OwnerNamespaceState, error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
 	}
@@ -177,7 +177,7 @@ func (s *Service) GetOrgNamespaceState(ctx context.Context, tenantID string) (Ow
 	return OwnerNamespaceStateRegistered, nil
 }
 
-func (s *Service) setOrgNamespaceStateTx(ctx context.Context, tx pgx.Tx, tenantID string, state OwnerNamespaceState) error {
+func (s *Service) setTenantNamespaceStateTx(ctx context.Context, tx pgx.Tx, tenantID string, state OwnerNamespaceState) error {
 	if tx == nil {
 		return fmt.Errorf("tx required")
 	}
@@ -204,7 +204,7 @@ func (s *Service) setOrgNamespaceStateTx(ctx context.Context, tx pgx.Tx, tenantI
 	return nil
 }
 
-func (s *Service) SetOrgNamespaceState(ctx context.Context, tenantID string, state OwnerNamespaceState) error {
+func (s *Service) SetTenantNamespaceState(ctx context.Context, tenantID string, state OwnerNamespaceState) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func (s *Service) SetOrgNamespaceState(ctx context.Context, tenantID string, sta
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.setOrgNamespaceStateTx(ctx, tx, tenantID, state); err != nil {
+	if err := s.setTenantNamespaceStateTx(ctx, tx, tenantID, state); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -246,19 +246,19 @@ func (s *Service) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string)
 		}
 		return "", err
 	}
-	state, err := s.GetOrgNamespaceState(ctx, tenant.ID)
+	state, err := s.GetTenantNamespaceState(ctx, tenant.ID)
 	if err != nil {
 		return "", err
 	}
 	return state, nil
 }
 
-// ParkOrgNamespace parks `slug` as a parked_tenant. Works whether or not the slug
+// ParkTenantNamespace parks `slug` as a parked_tenant. Works whether or not the slug
 // is currently in owner_reserved_names — any caller-supplied slug is parkable,
 // even bootstrap-reserved names like 'root' or 'admin'. If a reserved-name row
 // exists it's deleted as part of the transaction. Internal-library API only —
 // not exposed publicly.
-func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (tenantID string, created bool, err error) {
+func (s *Service) ParkTenantNamespace(ctx context.Context, slug string) (tenantID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", false, err
 	}
@@ -284,7 +284,7 @@ func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (tenantID s
 		if isPersonal {
 			return "", false, ErrInvalidOwnerNamespaceTransition
 		}
-		if err := s.setOrgNamespaceStateTx(ctx, tx, existingID, OwnerNamespaceStateParkedTenant); err != nil {
+		if err := s.setTenantNamespaceStateTx(ctx, tx, existingID, OwnerNamespaceStateParkedTenant); err != nil {
 			return "", false, err
 		}
 		if err := s.deleteOwnerReservedNameTx(ctx, tx, slug); err != nil {
@@ -332,7 +332,7 @@ func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (tenantID s
 	return strings.TrimSpace(tenantID), true, nil
 }
 
-func (s *Service) PromoteParkedOrgToRegistered(ctx context.Context, slug, ownerUserID string) (tenantID string, err error) {
+func (s *Service) PromoteParkedTenantToRegistered(ctx context.Context, slug, ownerUserID string) (tenantID string, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
 	}
@@ -344,14 +344,14 @@ func (s *Service) PromoteParkedOrgToRegistered(ctx context.Context, slug, ownerU
 	if err != nil {
 		return "", err
 	}
-	state, err := s.GetOrgNamespaceState(ctx, tenant.ID)
+	state, err := s.GetTenantNamespaceState(ctx, tenant.ID)
 	if err != nil {
 		return "", err
 	}
 	if state != OwnerNamespaceStateParkedTenant {
 		return "", ErrInvalidOwnerNamespaceTransition
 	}
-	return s.claimParkedOrgToRegistered(ctx, tenant, ownerUserID)
+	return s.claimParkedTenantToRegistered(ctx, tenant, ownerUserID)
 }
 
 // PromoteReservedNameToRegistered supports direct handoff in one operation:
@@ -373,17 +373,17 @@ func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, own
 	}
 	switch state {
 	case OwnerNamespaceStateRestrictedName:
-		_, created, err = s.ParkOrgNamespace(ctx, slug)
+		_, created, err = s.ParkTenantNamespace(ctx, slug)
 		if err != nil {
 			return "", false, err
 		}
-		registeredID, err := s.PromoteParkedOrgToRegistered(ctx, slug, ownerUserID)
+		registeredID, err := s.PromoteParkedTenantToRegistered(ctx, slug, ownerUserID)
 		if err != nil {
 			return "", false, err
 		}
 		return strings.TrimSpace(registeredID), created, nil
 	case OwnerNamespaceStateParkedTenant:
-		registeredID, err := s.PromoteParkedOrgToRegistered(ctx, slug, ownerUserID)
+		registeredID, err := s.PromoteParkedTenantToRegistered(ctx, slug, ownerUserID)
 		if err != nil {
 			return "", false, err
 		}
@@ -395,7 +395,7 @@ func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, own
 		}
 		ownerUserID = strings.TrimSpace(ownerUserID)
 		if ownerUserID == "" {
-			ownerCount, err := s.countActiveOrgOwners(ctx, strings.TrimSpace(tenant.ID))
+			ownerCount, err := s.countActiveTenantOwners(ctx, strings.TrimSpace(tenant.ID))
 			if err != nil {
 				return "", false, err
 			}
@@ -410,7 +410,7 @@ func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, own
 		if err := s.AssignRole(ctx, tenant.Slug, ownerUserID, tenantOwnerRole); err != nil {
 			return "", false, err
 		}
-		ownerCount, err := s.countActiveOrgOwners(ctx, strings.TrimSpace(tenant.ID))
+		ownerCount, err := s.countActiveTenantOwners(ctx, strings.TrimSpace(tenant.ID))
 		if err != nil {
 			return "", false, err
 		}
@@ -423,7 +423,7 @@ func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, own
 	}
 }
 
-func (s *Service) claimParkedOrgToRegistered(ctx context.Context, tenant *Tenant, ownerUserID string) (tenantID string, err error) {
+func (s *Service) claimParkedTenantToRegistered(ctx context.Context, tenant *Tenant, ownerUserID string) (tenantID string, err error) {
 	if tenant == nil || strings.TrimSpace(tenant.ID) == "" {
 		return "", ErrTenantNotFound
 	}
@@ -441,7 +441,7 @@ func (s *Service) claimParkedOrgToRegistered(ctx context.Context, tenant *Tenant
 	if ownerUser == nil || ownerUser.DeletedAt != nil {
 		return "", ErrUserNotFound
 	}
-	ownerCount, err := s.countActiveOrgOwners(ctx, strings.TrimSpace(tenant.ID))
+	ownerCount, err := s.countActiveTenantOwners(ctx, strings.TrimSpace(tenant.ID))
 	if err != nil {
 		return "", err
 	}
@@ -465,14 +465,14 @@ func (s *Service) claimParkedOrgToRegistered(ctx context.Context, tenant *Tenant
 	if err := s.AssignRole(ctx, tenant.Slug, ownerUserID, tenantOwnerRole); err != nil {
 		return "", err
 	}
-	ownerCount, err = s.countActiveOrgOwners(ctx, strings.TrimSpace(tenant.ID))
+	ownerCount, err = s.countActiveTenantOwners(ctx, strings.TrimSpace(tenant.ID))
 	if err != nil {
 		return "", err
 	}
 	if ownerCount < 1 {
 		return "", ErrOwnerMembershipRequired
 	}
-	if err := s.SetOrgNamespaceState(ctx, tenant.ID, OwnerNamespaceStateRegistered); err != nil {
+	if err := s.SetTenantNamespaceState(ctx, tenant.ID, OwnerNamespaceStateRegistered); err != nil {
 		return "", err
 	}
 	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug=$1`, normalizeReservedSlug(tenant.Slug))
@@ -585,14 +585,14 @@ func (s *Service) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []str
 	return unrestricted, notRestricted, nil
 }
 
-// ClaimOrgNamespace claims tenant ownership for a specific existing user.
+// ClaimTenantNamespace claims tenant ownership for a specific existing user.
 //
 // Rules:
 //   - parked_tenant -> registered_tenant + owner membership assignment
 //   - already-registered tenants return ErrOwnerNamespaceAlreadyClaimed
 //   - restricted_name (or missing namespace) creates the tenant if needed, then claims it
 //   - owner user must exist and not be soft-deleted
-func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID string) (tenantID string, created bool, err error) {
+func (s *Service) ClaimTenantNamespace(ctx context.Context, slug, ownerUserID string) (tenantID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", false, err
 	}
@@ -622,7 +622,7 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 			if createErr != nil {
 				return "", false, createErr
 			}
-			claimedID, claimErr := s.claimParkedOrgToRegistered(ctx, tenant, ownerUserID)
+			claimedID, claimErr := s.claimParkedTenantToRegistered(ctx, tenant, ownerUserID)
 			if claimErr != nil {
 				return "", false, claimErr
 			}
@@ -637,7 +637,7 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 		if resolveErr != nil {
 			return "", false, resolveErr
 		}
-		claimedID, claimErr := s.claimParkedOrgToRegistered(ctx, tenant, ownerUserID)
+		claimedID, claimErr := s.claimParkedTenantToRegistered(ctx, tenant, ownerUserID)
 		if claimErr != nil {
 			return "", false, claimErr
 		}
@@ -646,7 +646,7 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 		tenant, resolveErr := s.ResolveTenantBySlug(ctx, slug)
 		switch {
 		case resolveErr == nil:
-			ownerCount, countErr := s.countActiveOrgOwners(ctx, strings.TrimSpace(tenant.ID))
+			ownerCount, countErr := s.countActiveTenantOwners(ctx, strings.TrimSpace(tenant.ID))
 			if countErr != nil {
 				return "", false, countErr
 			}
@@ -658,7 +658,7 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 			return "", false, resolveErr
 		}
 
-		parkedID, parkedCreated, parkErr := s.ParkOrgNamespace(ctx, slug)
+		parkedID, parkedCreated, parkErr := s.ParkTenantNamespace(ctx, slug)
 		if parkErr != nil {
 			return "", false, parkErr
 		}
@@ -666,7 +666,7 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 		if resolveErr != nil {
 			return "", false, resolveErr
 		}
-		claimedID, claimErr := s.claimParkedOrgToRegistered(ctx, parkedTenant, ownerUserID)
+		claimedID, claimErr := s.claimParkedTenantToRegistered(ctx, parkedTenant, ownerUserID)
 		if claimErr != nil {
 			return "", false, claimErr
 		}
@@ -730,14 +730,14 @@ func (s *Service) ParkUserNamespace(ctx context.Context, slug string) (userID, t
 		return "", "", false, err
 	}
 
-	reservedUserID, reservedOrgID, _, reserveErr := s.ReserveAccount(ctx, slug)
+	reservedUserID, reservedTenantID, _, reserveErr := s.ReserveAccount(ctx, slug)
 	if reserveErr != nil {
 		return "", "", false, reserveErr
 	}
 	if strings.TrimSpace(userID) == "" {
 		userID = strings.TrimSpace(reservedUserID)
 	}
-	tenantID = strings.TrimSpace(reservedOrgID)
+	tenantID = strings.TrimSpace(reservedTenantID)
 	return strings.TrimSpace(userID), strings.TrimSpace(tenantID), created, nil
 }
 
@@ -797,19 +797,19 @@ func (s *Service) ClaimUserNamespace(ctx context.Context, slug string) (userID, 
 	if _, _, err := s.UnrestrictOwnerNamespaceSlugs(ctx, []string{slug}); err != nil {
 		return "", "", false, err
 	}
-	if personalTenant, err := s.GetPersonalOrgForUser(ctx, userID); err == nil && personalTenant != nil && strings.TrimSpace(personalTenant.ID) != "" {
-		if err := s.SetOrgNamespaceState(ctx, strings.TrimSpace(personalTenant.ID), OwnerNamespaceStateRegistered); err != nil {
+	if personalTenant, err := s.GetPersonalTenantForUser(ctx, userID); err == nil && personalTenant != nil && strings.TrimSpace(personalTenant.ID) != "" {
+		if err := s.SetTenantNamespaceState(ctx, strings.TrimSpace(personalTenant.ID), OwnerNamespaceStateRegistered); err != nil {
 			return "", "", false, err
 		}
 		tenantID = strings.TrimSpace(personalTenant.ID)
-	} else if err != nil && !errors.Is(err, ErrPersonalOrgNotFound) {
+	} else if err != nil && !errors.Is(err, ErrPersonalTenantNotFound) {
 		return "", "", false, err
 	}
 
 	return strings.TrimSpace(userID), strings.TrimSpace(tenantID), created, nil
 }
 
-func (s *Service) countActiveOrgOwners(ctx context.Context, tenantID string) (int, error) {
+func (s *Service) countActiveTenantOwners(ctx context.Context, tenantID string) (int, error) {
 	if err := s.requirePG(); err != nil {
 		return 0, err
 	}

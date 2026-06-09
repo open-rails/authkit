@@ -22,7 +22,7 @@ func (s *Service) handleTenantRolesGET(w http.ResponseWriter, r *http.Request) {
 	if !gateOK {
 		return
 	}
-	roles, err := s.svc.ListOrgDefinedRoles(r.Context(), canonical)
+	roles, err := s.svc.ListTenantDefinedRoles(r.Context(), canonical)
 	if err != nil {
 		serverErr(w, "tenant_roles_lookup_failed")
 		return

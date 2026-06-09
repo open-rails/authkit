@@ -46,9 +46,9 @@ func TestCreateTenantForUserCreatesOwnerAtomically(t *testing.T) {
 	if len(perms) != 1 || perms[0] != PermWildcard {
 		t.Fatalf("owner perms=%v, want *", perms)
 	}
-	defined, err := svc.ListOrgDefinedRoles(ctx, slug)
+	defined, err := svc.ListTenantDefinedRoles(ctx, slug)
 	if err != nil {
-		t.Fatalf("ListOrgDefinedRoles: %v", err)
+		t.Fatalf("ListTenantDefinedRoles: %v", err)
 	}
 	if !stringSliceContains(defined, tenantMemberRole) {
 		t.Fatalf("defined roles=%v, want member role", defined)
@@ -134,7 +134,7 @@ func TestCreateTenantForUserRejectsTenantLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	for i := 0; i < maxOrgsPerUser; i++ {
+	for i := 0; i < maxTenantsPerUser; i++ {
 		tenantID, err := newUUIDV7String()
 		if err != nil {
 			t.Fatalf("newUUIDV7String: %v", err)
@@ -198,8 +198,8 @@ func TestCreateTenantForUserRejectsReservedAndParkedNamespace(t *testing.T) {
 		t.Fatalf("reserved slug err=%v, want ErrOwnerSlugTaken", err)
 	}
 
-	if _, _, err := svc.ParkOrgNamespace(ctx, parkedSlug); err != nil {
-		t.Fatalf("ParkOrgNamespace: %v", err)
+	if _, _, err := svc.ParkTenantNamespace(ctx, parkedSlug); err != nil {
+		t.Fatalf("ParkTenantNamespace: %v", err)
 	}
 	state, err := svc.GetOwnerNamespaceStateBySlug(ctx, parkedSlug)
 	if err != nil {

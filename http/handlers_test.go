@@ -467,7 +467,7 @@ func TestAPIHandler_AdminAccountClaimRoute_RequiresAuth(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
 }
 
-func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {
+func TestAPIHandler_AdminTenantParkClaimLegacyRoutes_Removed(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
@@ -484,7 +484,7 @@ func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w2.Code)
 }
 
-func TestAPIHandler_AdminAccountsOrgLegacyRoutes_Removed(t *testing.T) {
+func TestAPIHandler_AdminAccountsTenantLegacyRoutes_Removed(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 

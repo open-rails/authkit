@@ -12,9 +12,9 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-func newClaimVerifier(t *testing.T, orgMode string, signer *jwtkit.RSASigner) *Verifier {
+func newClaimVerifier(t *testing.T, tenantMode string, signer *jwtkit.RSASigner) *Verifier {
 	t.Helper()
-	v := NewVerifier(WithTenantMode(orgMode))
+	v := NewVerifier(WithTenantMode(tenantMode))
 	err := v.AddIssuer("https://example.com", []string{"test-app"}, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	})
@@ -56,7 +56,7 @@ func TestVerify_GlobalRolesClaim_SingleMode(t *testing.T) {
 
 // An tenant-scoped multi-mode token carries both global_roles and tenant_roles, and
 // the legacy `roles` claim is consumed into TenantRoles (cleared from Roles).
-func TestVerify_OrgScoped_GlobalAndTenantRoles(t *testing.T) {
+func TestVerify_TenantScoped_GlobalAndTenantRoles(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 	v := newClaimVerifier(t, "multi", signer)

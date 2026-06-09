@@ -22,8 +22,8 @@ func NewStore(pg *pgxpool.Pool, schema string) *Store {
 	return &Store{pg: pg, schema: s}
 }
 
-func (s *Store) usersTable() string { return s.schema + ".users" }
-func (s *Store) orgsTable() string  { return s.schema + ".tenants" }
+func (s *Store) usersTable() string   { return s.schema + ".users" }
+func (s *Store) tenantsTable() string { return s.schema + ".tenants" }
 
 // GetEmailsByIDs returns user_id -> email.
 func (s *Store) GetEmailsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {

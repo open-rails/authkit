@@ -8,7 +8,7 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleOrgsListGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantsListGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -19,18 +19,18 @@ func (s *Service) handleOrgsListGET(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, "orgs_lookup_failed")
 		return
 	}
-	type orgItem struct {
+	type tenantItem struct {
 		Tenant string   `json:"tenant"`
 		Roles  []string `json:"roles"`
 	}
-	out := make([]orgItem, 0, len(mems))
+	out := make([]tenantItem, 0, len(mems))
 	for _, m := range mems {
-		out = append(out, orgItem{Tenant: m.Tenant, Roles: m.Roles})
+		out = append(out, tenantItem{Tenant: m.Tenant, Roles: m.Roles})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tenants": out})
 }
 
-func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request) {
 	if s.publicTenantManagementDisabled() {
 		tenantManagementDisabled(w)
 		return
@@ -75,7 +75,7 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant.Slug})
 }
 
-func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantsGetGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -116,7 +116,7 @@ func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tenant": canonical})
 }
 
-func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantsRenamePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -162,7 +162,7 @@ func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == core.ErrRenameRateLimited {
-			seconds, _ := s.svc.TimeUntilOrgRenameAvailable(r.Context(), tenant.ID, time.Now())
+			seconds, _ := s.svc.TimeUntilTenantRenameAvailable(r.Context(), tenant.ID, time.Now())
 			availability := cooldownAvailability("rename_org", seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
 			data["error"] = core.ErrCodeRenameRateLimited

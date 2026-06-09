@@ -24,11 +24,11 @@ func (s *Service) callerEffectivePermissions(r *http.Request, claims Claims, can
 	return s.svc.EffectivePermissions(r.Context(), canonicalTenant, claims.UserID)
 }
 
-// handleOrgMeGET returns the caller's OWN membership view in the tenant — roles +
+// handleTenantMeGET returns the caller's OWN membership view in the tenant — roles +
 // effective permissions in one call. Requires membership only: a member may
 // always introspect itself without holding tenant:read. A global admin gets the
 // full catalog (and no roles, since membership is not required).
-func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -80,13 +80,13 @@ func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tenant": canonical, "roles": roles, "permissions": perms})
 }
 
-// handleOrgPermissionCheckPOST answers "does the principal hold these
+// handleTenantPermissionCheckPOST answers "does the principal hold these
 // permissions?" (GCP testIamPermissions / AWS SimulatePrincipalPolicy shape).
 // Body: {"permissions":[...]}; returns {"granted":[...]} — the requested subset
 // the principal holds. By default the principal is the caller (a member may
 // always check itself). An optional "user_id" checks another member and
 // requires tenant:read. A global admin holds everything.
-func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantPermissionCheckPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || (strings.TrimSpace(claims.UserID) == "" && !claims.IsService()) {
 		unauthorized(w, "unauthorized")
@@ -176,7 +176,7 @@ func (s *Service) handleTenantRoleGET(w http.ResponseWriter, r *http.Request) {
 	if !gateOK {
 		return
 	}
-	defined, err := s.svc.ListOrgDefinedRoles(r.Context(), canonical)
+	defined, err := s.svc.ListTenantDefinedRoles(r.Context(), canonical)
 	if err != nil {
 		serverErr(w, "tenant_roles_lookup_failed")
 		return

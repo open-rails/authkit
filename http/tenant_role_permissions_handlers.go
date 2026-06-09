@@ -84,7 +84,7 @@ func (s *Service) handleTenantRolePUT(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-func (s *Service) handleOrgMemberPermissionsGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleTenantMemberPermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
 		unauthorized(w, "unauthorized")

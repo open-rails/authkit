@@ -43,7 +43,7 @@ func newTestServiceWithTenantMode(t *testing.T, mode string) *Service {
 
 // (issue 60) Tenant routes are always registered (no tenant-mode gate); the host
 // controls exposure by mounting the RouteTenants group. They require auth.
-func TestAPIHandler_TokenOrg_RouteAlwaysRegistered(t *testing.T) {
+func TestAPIHandler_TokenTenant_RouteAlwaysRegistered(t *testing.T) {
 	s := newTestServiceWithTenantMode(t, "")
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
@@ -53,7 +53,7 @@ func TestAPIHandler_TokenOrg_RouteAlwaysRegistered(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
 }
 
-func TestAPIHandler_OrgInviteRoutes_AlwaysRegistered(t *testing.T) {
+func TestAPIHandler_TenantInviteRoutes_AlwaysRegistered(t *testing.T) {
 	s := newTestServiceWithTenantMode(t, "")
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
@@ -63,7 +63,7 @@ func TestAPIHandler_OrgInviteRoutes_AlwaysRegistered(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
 }
 
-func TestAPIHandler_TokenOrg_InvalidRequest(t *testing.T) {
+func TestAPIHandler_TokenTenant_InvalidRequest(t *testing.T) {
 	s := newTestServiceWithTenantMode(t, "multi")
 	h := s.APIHandler()
 

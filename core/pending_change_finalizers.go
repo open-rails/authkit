@@ -40,7 +40,7 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 		}
 	}
 	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
+		if err := s.ensurePersonalTenantForUser(ctx, uid, username); err != nil {
 			return "", err
 		}
 	}

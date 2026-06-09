@@ -9,7 +9,7 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleAuthTokenOrgPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleAuthTokenTenantPOST(w http.ResponseWriter, r *http.Request) {
 	// Reuse auth token rate limit bucket.
 	if s.rateLimited(w, r, RLAuthToken) {
 		return

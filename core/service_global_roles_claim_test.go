@@ -28,7 +28,7 @@ func parseHeaderNoValidate(t *testing.T, token string) map[string]any {
 	return parsed.Header
 }
 
-func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicKey) {
+func newClaimTestService(t *testing.T, tenantMode string) (*Service, crypto.PublicKey) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestIssueAccessToken_LegacyRolesClaim_AlwaysPresent(t *testing.T) {
 
 // An tenant-scoped token (the claim shape IssueServiceToken builds) carries
 // global_roles AND tenant_roles, and keeps the legacy `roles` claim populated.
-func TestIssueAccessToken_OrgScoped_CarriesGlobalAndTenantRoles(t *testing.T) {
+func TestIssueAccessToken_TenantScoped_CarriesGlobalAndTenantRoles(t *testing.T) {
 	s, pub := newClaimTestService(t, "multi")
 	// Mirror the extra map IssueServiceToken assembles for an tenant-scoped token.
 	extra := map[string]any{
@@ -100,10 +100,10 @@ func TestIssueAccessToken_OrgScoped_CarriesGlobalAndTenantRoles(t *testing.T) {
 	_, ok := cl["global_roles"]
 	require.True(t, ok, "tenant-scoped token must carry global_roles")
 
-	orgRoles, ok := cl["tenant_roles"].([]any)
+	tenantRoles, ok := cl["tenant_roles"].([]any)
 	require.True(t, ok, "tenant-scoped token must carry tenant_roles")
-	require.Len(t, orgRoles, 1)
-	require.Equal(t, "editor", orgRoles[0])
+	require.Len(t, tenantRoles, 1)
+	require.Equal(t, "editor", tenantRoles[0])
 
 	// legacy roles claim still populated for back-compat
 	legacy, ok := cl["roles"].([]any)

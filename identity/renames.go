@@ -17,7 +17,7 @@ import (
 //                          slug of the tenant that holds it. Single-hop;
 //                          rename rows always carry the immutable tenant_id
 //                          so we never need to walk a chain.
-//   ListOrgRenameHistory — historical rename rows ordered by renamed_at.
+//   ListTenantRenameHistory — historical rename rows ordered by renamed_at.
 //                          The first row's from_slug is the first known
 //                          historical slug, and the final row's to_slug is
 //                          the current slug unless another rename has since
@@ -32,8 +32,8 @@ import (
 // rename history contains the requested slug.
 var ErrSlugNotFound = errors.New("slug_not_found")
 
-func (s *Store) orgRenamesTable() string  { return s.schema + ".tenant_renames" }
-func (s *Store) userRenamesTable() string { return s.schema + ".user_renames" }
+func (s *Store) tenantRenamesTable() string { return s.schema + ".tenant_renames" }
+func (s *Store) userRenamesTable() string   { return s.schema + ".user_renames" }
 
 // RenameHop is one entry in a row's rename history.
 type RenameHop struct {
@@ -58,7 +58,7 @@ func (s *Store) ForwardTenantSlug(ctx context.Context, slug string) (string, err
 	}
 	var current string
 	err := s.pg.QueryRow(ctx, `
-		SELECT slug FROM `+s.orgsTable()+`
+		SELECT slug FROM `+s.tenantsTable()+`
 		WHERE lower(slug) = $1 AND deleted_at IS NULL
 		LIMIT 1
 	`, slug).Scan(&current)
@@ -70,8 +70,8 @@ func (s *Store) ForwardTenantSlug(ctx context.Context, slug string) (string, err
 	}
 	err = s.pg.QueryRow(ctx, `
 		SELECT o.slug
-		FROM `+s.orgRenamesTable()+` r
-		JOIN `+s.orgsTable()+` o ON o.id = r.tenant_id AND o.deleted_at IS NULL
+		FROM `+s.tenantRenamesTable()+` r
+		JOIN `+s.tenantsTable()+` o ON o.id = r.tenant_id AND o.deleted_at IS NULL
 		WHERE r.from_slug = $1
 		ORDER BY r.renamed_at DESC
 		LIMIT 1
@@ -120,16 +120,16 @@ func (s *Store) ForwardUserUsername(ctx context.Context, username string) (strin
 	return current, nil
 }
 
-// ListOrgRenameHistory returns the recorded tenant slug rename rows in
-// chronological order. Orgs with no renames return an empty slice.
-func (s *Store) ListOrgRenameHistory(ctx context.Context, tenantID string) ([]RenameHop, error) {
+// ListTenantRenameHistory returns the recorded tenant slug rename rows in
+// chronological order. Tenants with no renames return an empty slice.
+func (s *Store) ListTenantRenameHistory(ctx context.Context, tenantID string) ([]RenameHop, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	if s.pg == nil || tenantID == "" {
 		return nil, nil
 	}
 	rows, err := s.pg.Query(ctx, `
 		SELECT from_slug, to_slug, renamed_at, COALESCE(renamed_by::text, '')
-		FROM `+s.orgRenamesTable()+`
+		FROM `+s.tenantRenamesTable()+`
 		WHERE tenant_id = $1::uuid
 		ORDER BY renamed_at ASC
 	`, tenantID)

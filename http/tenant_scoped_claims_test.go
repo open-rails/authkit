@@ -12,7 +12,7 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-func TestRequired_OrgScopedRoles_UsesRolesWhenOrgPresent(t *testing.T) {
+func TestRequired_TenantScopedRoles_UsesRolesWhenTenantPresent(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 

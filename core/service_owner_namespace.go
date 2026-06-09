@@ -9,13 +9,13 @@ import (
 )
 
 var (
-	ErrOwnerSlugTaken       = errors.New("owner_slug_taken")
-	ErrPersonalTenantLocked = errors.New("personal_tenant_locked")
-	ErrInviteNotFound       = errors.New("tenant_invite_not_found")
-	ErrInviteNotPending     = errors.New("tenant_invite_not_pending")
-	ErrInviteNotForUser     = errors.New("tenant_invite_not_for_user")
-	ErrInviteExpired        = errors.New("tenant_invite_expired")
-	ErrPersonalOrgNotFound  = errors.New("personal_tenant_not_found")
+	ErrOwnerSlugTaken         = errors.New("owner_slug_taken")
+	ErrPersonalTenantLocked   = errors.New("personal_tenant_locked")
+	ErrInviteNotFound         = errors.New("tenant_invite_not_found")
+	ErrInviteNotPending       = errors.New("tenant_invite_not_pending")
+	ErrInviteNotForUser       = errors.New("tenant_invite_not_for_user")
+	ErrInviteExpired          = errors.New("tenant_invite_expired")
+	ErrPersonalTenantNotFound = errors.New("personal_tenant_not_found")
 )
 
 func ownerSlugFromUsername(username string) string {
@@ -46,7 +46,7 @@ func ownerSlugFromUsername(username string) string {
 	return out
 }
 
-func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeOrgID string) (bool, error) {
+func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeTenantID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
@@ -109,7 +109,7 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 			WHERE o.slug=$1
 			  AND ($2::text = '' OR o.id::text <> $2::text)
 		)
-	`, slug, strings.TrimSpace(excludeOrgID)).Scan(&exists); err != nil {
+	`, slug, strings.TrimSpace(excludeTenantID)).Scan(&exists); err != nil {
 		return false, err
 	}
 	if exists {
@@ -124,14 +124,14 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 			  AND r.renamed_at >= $3
 			  AND ($2::text = '' OR r.tenant_id::text <> $2::text)
 		)
-	`, slug, strings.TrimSpace(excludeOrgID), reuseCutoff).Scan(&exists); err != nil {
+	`, slug, strings.TrimSpace(excludeTenantID), reuseCutoff).Scan(&exists); err != nil {
 		return false, err
 	}
 	return !exists, nil
 }
 
-func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeOrgID string) error {
-	ok, err := s.ownerSlugAvailable(ctx, slug, excludeUserID, excludeOrgID)
+func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeTenantID string) error {
+	ok, err := s.ownerSlugAvailable(ctx, slug, excludeUserID, excludeTenantID)
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUse
 	return nil
 }
 
-func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Tenant, error) {
+func (s *Service) GetPersonalTenantForUser(ctx context.Context, userID string) (*Tenant, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Te
 		FROM profiles.tenants
 		WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
 	`, userID).Scan(&out.ID, &out.Slug, &out.IsPersonal, &out.OwnerUserID); err != nil {
-		return nil, ErrPersonalOrgNotFound
+		return nil, ErrPersonalTenantNotFound
 	}
 	return &out, nil
 }
@@ -222,10 +222,10 @@ func (s *Service) ResolveUserBySlug(ctx context.Context, slug string) (userID st
 	return userID, username, nil
 }
 
-// ListOrgAliases returns every historical slug this tenant has held
+// ListTenantAliases returns every historical slug this tenant has held
 // (excluding the current one). Source: `tenant_renames.from_slug` (issue
 // #58). Distinct values.
-func (s *Service) ListOrgAliases(ctx context.Context, tenantID string) ([]string, error) {
+func (s *Service) ListTenantAliases(ctx context.Context, tenantID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -253,7 +253,7 @@ func (s *Service) ListOrgAliases(ctx context.Context, tenantID string) ([]string
 	return out, rows.Err()
 }
 
-func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username string) error {
+func (s *Service) ensurePersonalTenantForUser(ctx context.Context, userID, username string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

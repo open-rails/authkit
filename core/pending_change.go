@@ -30,7 +30,7 @@ const (
 	keyPendingChangeToken  = "auth:pending_change:token:"  // +<tokenHash> -> pendingChange JSON
 	keyPendingChangeTarget = "auth:pending_change:target:" // +<kind>:<target> -> canonical tokenHash
 	keyPendingChangeUser   = "auth:pending_change:user:"   // +<kind>:<username> -> canonical tokenHash (register kinds)
-	keyPendingChangeUID    = "auth:pending_change:uid:"     // +<kind>:<userID> -> canonical tokenHash (change kinds)
+	keyPendingChangeUID    = "auth:pending_change:uid:"    // +<kind>:<userID> -> canonical tokenHash (change kinds)
 )
 
 // pendingChange is the unified record backing all four flows. Register kinds

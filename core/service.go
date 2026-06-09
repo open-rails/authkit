@@ -539,7 +539,7 @@ func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSl
 	if !member {
 		return "", time.Time{}, ErrNotTenantMember
 	}
-	orgRoles, err := s.ReadMemberRoles(ctx, tenant.Slug, userID)
+	tenantRoles, err := s.ReadMemberRoles(ctx, tenant.Slug, userID)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -547,8 +547,8 @@ func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSl
 	// explicit tenant-scoped claim. global_roles is added by IssueAccessToken.
 	claims := map[string]any{
 		"tenant":       tenant.Slug,
-		"roles":        orgRoles,
-		"tenant_roles": orgRoles,
+		"roles":        tenantRoles,
+		"tenant_roles": tenantRoles,
 	}
 	if extra == nil {
 		extra = map[string]any{}
@@ -2212,7 +2212,7 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	}
 
 	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, u.ID, username); err != nil {
+		if err := s.ensurePersonalTenantForUser(ctx, u.ID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2290,7 +2290,7 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 		return nil, err
 	}
 	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
+		if err := s.ensurePersonalTenantForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2338,7 +2338,7 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 		return nil, err
 	}
 	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
+		if err := s.ensurePersonalTenantForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2539,7 +2539,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return nil
 	}
 	newUsername := strings.TrimSpace(username)
-	newSlug, excludeOrgID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
+	newSlug, excludeTenantID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
 	if err != nil {
 		return err
 	}
@@ -2556,7 +2556,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
 		return nil
 	}
-	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeOrgID); err != nil {
+	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeTenantID); err != nil {
 		return err
 	}
 
@@ -2603,14 +2603,14 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 			return err
 		}
 		if strings.TrimSpace(tenantID) == "" {
-			derivedOrgID, err := newUUIDV7String()
+			derivedTenantID, err := newUUIDV7String()
 			if err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO profiles.tenants (id, slug, is_personal, owner_user_id)
 				VALUES ($1::uuid, $2, true, $3::uuid)
-			`, derivedOrgID, newSlug, id); err != nil {
+			`, derivedTenantID, newSlug, id); err != nil {
 				return err
 			}
 			if err := tx.QueryRow(ctx, `

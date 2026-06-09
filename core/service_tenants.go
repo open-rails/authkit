@@ -55,7 +55,7 @@ const (
 	tenantRoleMaxLen = 64
 
 	// These guardrails are hardcoded and intentionally not configurable.
-	maxOrgsPerUser = 200
+	maxTenantsPerUser = 200
 
 	// Reserved tenant role names. `owner` is the ONLY role authkit hardcodes — it is
 	// the tenant's root authority (seeded at creation, undeletable). Every other
@@ -232,7 +232,7 @@ func (s *Service) CreateTenantForUser(ctx context.Context, req CreateTenantForUs
 	if err != nil {
 		return nil, err
 	}
-	if len(tenants) >= maxOrgsPerUser {
+	if len(tenants) >= maxTenantsPerUser {
 		return nil, ErrTenantLimitExceeded
 	}
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
@@ -398,7 +398,7 @@ func (s *Service) ListTenantMembershipsForUser(ctx context.Context, userID strin
 			return nil, err
 		}
 		out = append(out, slug)
-		if len(out) > maxOrgsPerUser {
+		if len(out) > maxTenantsPerUser {
 			return nil, fmt.Errorf("tenant_membership_limit_exceeded")
 		}
 	}
@@ -436,7 +436,7 @@ func (s *Service) AddMember(ctx context.Context, tenantSlug, userID string) erro
 		return fmt.Errorf("invalid_user")
 	}
 	// Guardrail.
-	if tenants, e := s.ListTenantMembershipsForUser(ctx, userID); e == nil && len(tenants) >= maxOrgsPerUser {
+	if tenants, e := s.ListTenantMembershipsForUser(ctx, userID); e == nil && len(tenants) >= maxTenantsPerUser {
 		return fmt.Errorf("tenant_membership_limit_exceeded")
 	}
 	_, err = s.pg.Exec(ctx, `
@@ -621,7 +621,7 @@ func (s *Service) IsTenantMember(ctx context.Context, tenantSlug, userID string)
 	return ok, nil
 }
 
-func (s *Service) ListOrgMembers(ctx context.Context, tenantSlug string) ([]string, error) {
+func (s *Service) ListTenantMembers(ctx context.Context, tenantSlug string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -650,7 +650,7 @@ func (s *Service) ListOrgMembers(ctx context.Context, tenantSlug string) ([]stri
 	return out, rows.Err()
 }
 
-func (s *Service) ListOrgDefinedRoles(ctx context.Context, tenantSlug string) ([]string, error) {
+func (s *Service) ListTenantDefinedRoles(ctx context.Context, tenantSlug string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}

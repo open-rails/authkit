@@ -192,7 +192,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// members can still authenticate and inspect their tenants. Embedded
 	// bootstrap/admin core APIs are unaffected (they never traverse these HTTP
 	// handlers).
-	orgMgmt := func(method, path string, h http.Handler) http.Handler {
+	tenantMgmt := func(method, path string, h http.Handler) http.Handler {
 		if !s.publicTenantManagementDisabled() {
 			return h
 		}
@@ -210,14 +210,14 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// gate.
 	{
 		routes = append(routes,
-			RouteSpec{Method: http.MethodPost, Path: "/token/tenant", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleAuthTokenOrgPOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/tenants", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgsListGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/tenants", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgsCreatePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgsGetGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/rename", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgsRenamePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMembersGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/members", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMembersPOST))},
-			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/members/{user_id}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMembersDELETE))},
+			RouteSpec{Method: http.MethodPost, Path: "/token/tenant", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleAuthTokenTenantPOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsListGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsCreatePOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsGetGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/rename", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsRenamePOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMembersGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/members", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMembersPOST))},
+			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/members/{user_id}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMembersDELETE))},
 			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/invites", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInvitesGET))},
 			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/invites", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInvitesPOST))},
 			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/invites/{invite_id}/revoke", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInviteRevokePOST))},
@@ -232,13 +232,13 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/service-tokens", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleServiceTokensGET))},
 			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/service-tokens/{token_id}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleServiceTokenDELETE))},
 			RouteSpec{Method: http.MethodGet, Path: "/permissions", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handlePermissionCatalogGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members/{user_id}/permissions", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMemberPermissionsGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesPOST))},
-			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesDELETE))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members/{user_id}/permissions", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberPermissionsGET))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberRolesGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberRolesPOST))},
+			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberRolesDELETE))},
 			// Introspection (#46 follow-up): self (/me) + permission check.
-			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/me", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgMeGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/permissions/check", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleOrgPermissionCheckPOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/me", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMeGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/permissions/check", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantPermissionCheckPOST))},
 		)
 	}
 
@@ -248,7 +248,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 			continue
 		}
 		if route.Group == RouteTenants {
-			route.Handler = orgMgmt(route.Method, route.Path, route.Handler)
+			route.Handler = tenantMgmt(route.Method, route.Path, route.Handler)
 		}
 		route.Handler = lang(route.Handler)
 		out = append(out, route)
