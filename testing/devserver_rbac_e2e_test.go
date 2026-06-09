@@ -169,14 +169,16 @@ func TestDevserverRBACE2E(t *testing.T) {
 	}
 	addMember := func(t *testing.T, tenantID, userID string, roles ...string) {
 		t.Helper()
-		sql := fmt.Sprintf(
-			"INSERT INTO profiles.tenant_memberships (tenant_id, user_id) VALUES (%s::uuid, %s::uuid) ON CONFLICT DO NOTHING;",
-			sqlStr(tenantID), sqlStr(userID))
-		for _, role := range roles {
-			sql += fmt.Sprintf(
-				" INSERT INTO profiles.tenant_membership_roles (tenant_id, user_id, role) VALUES (%s::uuid, %s::uuid, %s) ON CONFLICT DO NOTHING;",
-				sqlStr(tenantID), sqlStr(userID), sqlStr(role))
+		role := "member"
+		for _, candidate := range roles {
+			if candidate = strings.TrimSpace(candidate); candidate != "" {
+				role = candidate
+				break
+			}
 		}
+		sql := fmt.Sprintf(
+			"INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role) VALUES (%s::uuid, %s::uuid, %s) ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role, updated_at = now();",
+			sqlStr(tenantID), sqlStr(userID), sqlStr(role))
 		execSQL(t, sql)
 	}
 	// newTenant creates a fresh tenant and seeds the standard role set used across the
@@ -312,7 +314,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 	})
 
 	// ---------------------------------------------------------------------
-	// Ported from http/tenant_membership_roles_db_test.go
+	// Ported from the former tenant membership roles DB tests.
 	// ---------------------------------------------------------------------
 
 	t.Run("member_roles_gating_and_no_escalation", func(t *testing.T) {

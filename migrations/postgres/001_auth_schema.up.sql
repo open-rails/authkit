@@ -27,8 +27,15 @@ CREATE TABLE IF NOT EXISTS profiles.users (
   metadata          jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now(),
-  last_login        timestamptz
+  last_login        timestamptz,
+  preferred_locale  text,
+  preferred_locale_source text,
+  preferred_locale_updated_at timestamptz
 );
+ALTER TABLE profiles.users
+  ADD COLUMN IF NOT EXISTS preferred_locale text,
+  ADD COLUMN IF NOT EXISTS preferred_locale_source text,
+  ADD COLUMN IF NOT EXISTS preferred_locale_updated_at timestamptz;
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_uidx
   ON profiles.users (email)
   WHERE email IS NOT NULL;
@@ -39,6 +46,9 @@ COMMENT ON COLUMN profiles.users.banned_until IS 'When a temporary ban expires (
 COMMENT ON COLUMN profiles.users.ban_reason IS 'Reason for ban';
 COMMENT ON COLUMN profiles.users.banned_by IS 'User ID of admin who imposed ban';
 COMMENT ON COLUMN profiles.users.metadata IS 'Arbitrary user metadata (internal/admin flags such as reserved)';
+COMMENT ON COLUMN profiles.users.preferred_locale IS 'User communication/auth locale, e.g. en, es, de, ko, zh-CN';
+COMMENT ON COLUMN profiles.users.preferred_locale_source IS 'Source of preferred_locale, e.g. registration or explicit';
+COMMENT ON COLUMN profiles.users.preferred_locale_updated_at IS 'When preferred_locale was last set';
 
 CREATE TABLE IF NOT EXISTS profiles.user_passwords (
   user_id             uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
@@ -233,6 +243,24 @@ CREATE TABLE IF NOT EXISTS profiles.tenant_roles (
   )
 );
 
+-- Tenant RBAC: role -> permission assignments. Permissions are opaque to
+-- authkit; the embedding app defines and enforces their meaning.
+CREATE TABLE IF NOT EXISTS profiles.tenant_role_permissions (
+  tenant_id     uuid NOT NULL,
+  role       text NOT NULL,
+  permission text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, role, permission),
+  FOREIGN KEY (tenant_id, role) REFERENCES profiles.tenant_roles(tenant_id, role) ON DELETE CASCADE,
+  CONSTRAINT tenant_role_permissions_perm_len_chk CHECK (char_length(permission) BETWEEN 1 AND 128)
+);
+CREATE INDEX IF NOT EXISTS tenant_role_permissions_role_idx
+  ON profiles.tenant_role_permissions (tenant_id, role);
+
+INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission)
+SELECT tenant_id, role, '*' FROM profiles.tenant_roles WHERE role = 'owner'
+ON CONFLICT (tenant_id, role, permission) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS profiles.tenant_memberships (
   tenant_id  uuid NOT NULL REFERENCES profiles.tenants(id) ON DELETE CASCADE,
   user_id    uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
@@ -241,7 +269,6 @@ CREATE TABLE IF NOT EXISTS profiles.tenant_memberships (
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
   UNIQUE (tenant_id, user_id),
-  FOREIGN KEY (tenant_id, role) REFERENCES profiles.tenant_roles(tenant_id, role) ON DELETE CASCADE,
   CONSTRAINT tenant_memberships_role_format_chk CHECK (
     char_length(role) BETWEEN 1 AND 64
     AND role ~ '^[a-zA-Z0-9:_-]+$'
@@ -250,9 +277,71 @@ CREATE TABLE IF NOT EXISTS profiles.tenant_memberships (
 CREATE INDEX IF NOT EXISTS tenant_memberships_user_id_idx
   ON profiles.tenant_memberships (user_id)
   WHERE deleted_at IS NULL;
+
+INSERT INTO profiles.tenant_roles (tenant_id, role)
+SELECT DISTINCT tenant_id, 'member'
+FROM profiles.tenant_memberships
+ON CONFLICT (tenant_id, role) DO NOTHING;
+
+ALTER TABLE profiles.tenant_memberships
+  ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'member';
+
+DO $$
+BEGIN
+  IF to_regclass('profiles.tenant_membership_roles') IS NOT NULL THEN
+    EXECUTE $sql$
+      INSERT INTO profiles.tenant_roles (tenant_id, role)
+      SELECT DISTINCT tenant_id, role
+      FROM profiles.tenant_membership_roles
+      ON CONFLICT (tenant_id, role) DO NOTHING
+    $sql$;
+
+    EXECUTE $sql$
+      UPDATE profiles.tenant_memberships m
+      SET role = COALESCE(
+        (
+          SELECT r.role
+          FROM profiles.tenant_membership_roles r
+          WHERE r.tenant_id = m.tenant_id
+            AND r.user_id = m.user_id
+          ORDER BY (r.role = 'owner') DESC, r.created_at ASC, r.role ASC
+          LIMIT 1
+        ),
+        'member'
+      )
+    $sql$;
+  END IF;
+END $$;
+
+ALTER TABLE profiles.tenant_memberships
+  DROP CONSTRAINT IF EXISTS tenant_memberships_role_format_chk;
+
+ALTER TABLE profiles.tenant_memberships
+  DROP CONSTRAINT IF EXISTS tenant_memberships_role_fk;
+
+ALTER TABLE profiles.tenant_memberships
+  DROP CONSTRAINT IF EXISTS tenant_memberships_tenant_id_role_fkey;
+
+ALTER TABLE profiles.tenant_memberships
+  ADD CONSTRAINT tenant_memberships_role_format_chk CHECK (
+    char_length(role) BETWEEN 1 AND 64
+    AND role ~ '^[a-zA-Z0-9:_-]+$'
+  ) NOT VALID;
+
+ALTER TABLE profiles.tenant_memberships
+  VALIDATE CONSTRAINT tenant_memberships_role_format_chk;
+
+ALTER TABLE profiles.tenant_memberships
+  ADD CONSTRAINT tenant_memberships_role_fk
+  FOREIGN KEY (tenant_id, role)
+  REFERENCES profiles.tenant_roles(tenant_id, role)
+  ON DELETE CASCADE;
+
 CREATE INDEX IF NOT EXISTS tenant_memberships_tenant_role_idx
   ON profiles.tenant_memberships (tenant_id, role)
   WHERE deleted_at IS NULL;
+
+DROP TABLE IF EXISTS profiles.tenant_membership_roles;
 
 -- Service Tokens (service tokens): long-lived, revocable bearer credentials
 -- OWNED BY AN TENANT (not a person), for machine/automation callers. The token is
@@ -278,6 +367,21 @@ CREATE TABLE IF NOT EXISTS profiles.service_tokens (
 CREATE INDEX IF NOT EXISTS service_tokens_tenant_idx
   ON profiles.service_tokens (tenant_id);
 
+-- Resource scopes are opaque host-defined Kind/ID pairs. AuthKit stores and
+-- resolves them beside the service token but does not interpret their semantics.
+CREATE TABLE IF NOT EXISTS profiles.service_token_resources (
+  token_id    uuid NOT NULL REFERENCES profiles.service_tokens(id) ON DELETE CASCADE,
+  kind        text NOT NULL,
+  resource_id text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (token_id, kind, resource_id),
+  CONSTRAINT service_token_resources_kind_len_chk CHECK (char_length(kind) BETWEEN 1 AND 128),
+  CONSTRAINT service_token_resources_resource_id_len_chk CHECK (char_length(resource_id) BETWEEN 1 AND 128)
+);
+
+CREATE INDEX IF NOT EXISTS service_token_resources_token_idx
+  ON profiles.service_token_resources (token_id);
+
 CREATE TABLE IF NOT EXISTS profiles.service_token_permissions (
   service_token_id uuid NOT NULL REFERENCES profiles.service_tokens(id) ON DELETE CASCADE,
   permission       text NOT NULL,
@@ -287,6 +391,27 @@ CREATE TABLE IF NOT EXISTS profiles.service_token_permissions (
 );
 CREATE INDEX IF NOT EXISTS service_token_permissions_token_idx
   ON profiles.service_token_permissions (service_token_id);
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'profiles'
+      AND table_name = 'service_tokens'
+      AND column_name = 'permissions'
+  ) THEN
+    EXECUTE '
+      INSERT INTO profiles.service_token_permissions (service_token_id, permission)
+      SELECT id, unnest(permissions)
+      FROM profiles.service_tokens
+      ON CONFLICT DO NOTHING
+    ';
+  END IF;
+END $$;
+
+ALTER TABLE profiles.service_tokens
+  DROP COLUMN IF EXISTS permissions;
 
 CREATE TABLE IF NOT EXISTS profiles.tenant_invites (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
