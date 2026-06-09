@@ -37,6 +37,15 @@ func TestValidateVerificationConfiguration(t *testing.T) {
 	}
 }
 
+func TestDefaultVerificationTTLs(t *testing.T) {
+	if defaultEmailVerificationTTL != time.Hour {
+		t.Fatalf("defaultEmailVerificationTTL=%s, want %s", defaultEmailVerificationTTL, time.Hour)
+	}
+	if defaultPhoneVerificationTTL != 15*time.Minute {
+		t.Fatalf("defaultPhoneVerificationTTL=%s, want %s", defaultPhoneVerificationTTL, 15*time.Minute)
+	}
+}
+
 func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
 	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)

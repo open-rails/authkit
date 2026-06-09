@@ -79,6 +79,9 @@ func handleVerificationRequestError(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, core.ErrPhoneAlreadyVerified):
 		sendErr(w, http.StatusConflict, "phone_already_verified")
 		return true
+	case errors.Is(err, core.ErrVerificationLinkExpired):
+		sendErr(w, http.StatusGone, "verification_link_expired")
+		return true
 	default:
 		return false
 	}

@@ -10,6 +10,9 @@ import (
 )
 
 const (
+	defaultEmailVerificationTTL = time.Hour
+	defaultPhoneVerificationTTL = 15 * time.Minute
+
 	keyPendingRegToken      = "auth:pending_reg:token:"
 	keyPendingRegEmail      = "auth:pending_reg:email:"
 	keyPendingRegUser       = "auth:pending_reg:user:"
@@ -119,7 +122,7 @@ func (s *Service) storePendingRegistrationTokens(ctx context.Context, email, use
 	userKey := keyPendingRegUser + username
 	emailKey := keyPendingRegEmail + email
 
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, 15*time.Minute)
+	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultEmailVerificationTTL)
 	if err != nil {
 		return err
 	}
@@ -180,11 +183,45 @@ func (s *Service) deletePendingRegistration(ctx context.Context, tokenHash strin
 	}
 }
 
+// DeletePendingRegistrationByEmail removes a pending email registration (and all
+// its verification tokens) for the given email, if one exists. Used to abandon a
+// pending registration the user explicitly cancelled. No-op when none exists.
+func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email string) error {
+	if !s.useEphemeralStore() {
+		return nil
+	}
+	token, ok, err := s.ephemGetString(ctx, keyPendingRegEmail+normalizeEmail(email))
+	if err != nil {
+		return err
+	}
+	if ok && token != "" {
+		s.deletePendingRegistrationByToken(ctx, token)
+	}
+	return nil
+}
+
+// DeletePendingPhoneRegistrationByPhone removes a pending phone registration (and
+// all its verification tokens) for the given phone, if one exists. No-op when
+// none exists.
+func (s *Service) DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error {
+	if !s.useEphemeralStore() {
+		return nil
+	}
+	token, ok, err := s.ephemGetString(ctx, keyPendingPhonePhone+phone)
+	if err != nil {
+		return err
+	}
+	if ok && token != "" {
+		s.deletePendingPhoneRegistrationByToken(ctx, token)
+	}
+	return nil
+}
+
 func (s *Service) storePendingPhoneRegistrationTokens(ctx context.Context, phone, username, passwordHash, preferredLocale string, tokenTTLs map[string]time.Duration) error {
 	phoneKey := keyPendingPhonePhone + phone
 	userKey := keyPendingPhoneUser + username
 
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, 15*time.Minute)
+	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultPhoneVerificationTTL)
 	if err != nil {
 		return err
 	}
@@ -271,7 +308,7 @@ func (s *Service) storePhoneVerificationTokens(ctx context.Context, purpose, pho
 	purpose = normalizePhoneVerificationPurpose(purpose)
 	indexKey := s.phoneVerificationIndexKey(purpose, phone)
 
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, 15*time.Minute)
+	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultPhoneVerificationTTL)
 	if err != nil {
 		return err
 	}
@@ -370,7 +407,7 @@ func (s *Service) getPhoneVerification(ctx context.Context, purpose, phone strin
 func (s *Service) storeEmailVerificationTokens(ctx context.Context, userID string, email *string, tokenTTLs map[string]time.Duration) error {
 	userKey := keyEmailVerifyUser + userID
 
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, 15*time.Minute)
+	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultEmailVerificationTTL)
 	if err != nil {
 		return err
 	}

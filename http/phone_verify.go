@@ -27,7 +27,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 	phone = core.NormalizePhone(phone)
 
-	if !s.svc.HasSMSSender() {
+	if !s.svc.SMSAvailable() {
 		serverErr(w, "phone_verification_unavailable")
 		return
 	}

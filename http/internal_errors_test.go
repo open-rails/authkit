@@ -63,6 +63,7 @@ func TestHandleVerificationRequestErrorMapsHonestTargetErrors(t *testing.T) {
 		{name: "pending_registration_not_found", err: core.ErrPendingRegistrationNotFound, status: http.StatusNotFound, body: `{"error":"pending_registration_not_found"}`},
 		{name: "email_already_verified", err: core.ErrEmailAlreadyVerified, status: http.StatusConflict, body: `{"error":"email_already_verified"}`},
 		{name: "phone_already_verified", err: core.ErrPhoneAlreadyVerified, status: http.StatusConflict, body: `{"error":"phone_already_verified"}`},
+		{name: "verification_link_expired", err: core.ErrVerificationLinkExpired, status: http.StatusGone, body: `{"error":"verification_link_expired"}`},
 	}
 
 	for _, tt := range tests {

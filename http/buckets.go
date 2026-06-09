@@ -14,6 +14,7 @@ const (
 	RLAuthRegisterAvailability = "auth_register_availability"
 	RLAuthRegisterResendEmail  = "auth_register_resend_email"
 	RLAuthRegisterResendPhone  = "auth_register_resend_phone"
+	RLAuthRegisterAbandon      = "auth_register_abandon"
 	RLPasswordLogin            = "auth_password_login"
 	RLAuthLogout               = "auth_logout"
 	RLAuthSessionsCurrent      = "auth_sessions_current"

@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -109,6 +110,8 @@ var (
 	// authentication is unaffected; only NEW account creation through
 	// public/auto-registration is blocked.
 	ErrRegistrationDisabled = errors.New("registration_disabled")
+	// ErrVerificationLinkExpired indicates a verification link/token no longer has a pending verification record.
+	ErrVerificationLinkExpired = errors.New("verification_link_expired")
 	// ErrTenantManagementDisabled indicates a public tenant onboarding/management path
 	// was attempted while tenant registration is bootstrap-only. Embedded
 	// bootstrap/admin core APIs remain available.
@@ -131,6 +134,13 @@ type Service struct {
 	ephemeralStore EphemeralStore
 	ephemeralMode  EphemeralMode
 	verifyWarnOnce sync.Once
+
+	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
+	// run, SMS is considered available whenever a sender is configured (legacy
+	// behavior). Once a check runs, phone flows gate on the result.
+	smsHealthChecked atomic.Bool
+	smsHealthy       atomic.Bool
+	smsHealthReason  atomic.Value // string
 }
 
 func NewService(opts Options, keys Keyset) *Service {
@@ -642,8 +652,8 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 	// Store phone verification with split TTLs.
 	if err := s.storePhoneVerificationTokens(ctx, "change_phone", trimmed, userID, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+		codeHash: defaultPhoneVerificationTTL,
+		linkHash: defaultPhoneVerificationTTL,
 	}); err != nil {
 		return err
 	}
@@ -746,8 +756,8 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 
 	// Store new phone verification (by userID)
 	if err := s.storePhoneVerificationTokens(ctx, "change_phone", phone, userID, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+		codeHash: defaultPhoneVerificationTTL,
+		linkHash: defaultPhoneVerificationTTL,
 	}); err != nil {
 		return err
 	}
@@ -1097,6 +1107,16 @@ type SMSSender interface {
 	SendLoginCode(ctx context.Context, phone, code string) error
 }
 
+// SMSHealthChecker is an optional capability for SMS senders that can verify,
+// without sending a message, that they are configured to actually deliver
+// (valid credentials, an attached sender, and a verified/registered number).
+// CheckHealth returns nil when delivery is expected to succeed, or a
+// descriptive error explaining why it will not (e.g. an unverified toll-free
+// sender that would otherwise fail silently with Twilio error 30032).
+type SMSHealthChecker interface {
+	CheckHealth(ctx context.Context) error
+}
+
 // WithEmailSender sets the email sender dependency.
 func (s *Service) WithEmailSender(sender EmailSender) *Service { s.email = sender; return s }
 
@@ -1108,6 +1128,64 @@ func (s *Service) HasEmailSender() bool { return s.email != nil }
 
 // HasSMSSender returns true if an SMS sender is configured.
 func (s *Service) HasSMSSender() bool { return s.sms != nil }
+
+// CheckSMSHealth probes whether the configured SMS sender can actually deliver,
+// without sending a message, when the sender implements SMSHealthChecker. The
+// result is cached and gates phone-based flows via SMSAvailable. It returns the
+// probe error (nil = healthy) so callers can log it. When no sender is
+// configured or the sender cannot self-check, it records healthy=true (delivery
+// readiness is then governed solely by sender presence, as before).
+func (s *Service) CheckSMSHealth(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	checker, ok := s.sms.(SMSHealthChecker)
+	if s.sms == nil || !ok {
+		s.smsHealthy.Store(true)
+		s.smsHealthReason.Store("")
+		s.smsHealthChecked.Store(true)
+		return nil
+	}
+	err := checker.CheckHealth(ctx)
+	if err != nil {
+		s.smsHealthy.Store(false)
+		s.smsHealthReason.Store(err.Error())
+	} else {
+		s.smsHealthy.Store(true)
+		s.smsHealthReason.Store("")
+	}
+	s.smsHealthChecked.Store(true)
+	return err
+}
+
+// SMSHealthy reports the last CheckSMSHealth result. It is true until a check
+// has run (legacy behavior: assume healthy when a sender is present).
+func (s *Service) SMSHealthy() bool {
+	if s == nil {
+		return false
+	}
+	if !s.smsHealthChecked.Load() {
+		return true
+	}
+	return s.smsHealthy.Load()
+}
+
+// SMSHealthReason returns the reason SMS was last found unhealthy, if any.
+func (s *Service) SMSHealthReason() string {
+	if s == nil {
+		return ""
+	}
+	if r, ok := s.smsHealthReason.Load().(string); ok {
+		return r
+	}
+	return ""
+}
+
+// SMSAvailable reports whether phone-based flows should be offered: a sender is
+// configured and (if a health check has run) it was found able to deliver.
+func (s *Service) SMSAvailable() bool {
+	return s.HasSMSSender() && s.SMSHealthy()
+}
 
 func emailDeliveryError(err error) error {
 	if err == nil {
@@ -1277,7 +1355,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		return ErrEmailAlreadyVerified
 	}
 	if ttl <= 0 {
-		ttl = 15 * time.Minute
+		ttl = defaultEmailVerificationTTL
 	}
 	if u.Email == nil {
 		return ErrUserNotFound
@@ -1288,7 +1366,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 	linkTokenHash := sha256Hex(linkToken)
 	if err := s.storeEmailVerificationTokens(ctx, u.ID, u.Email, map[string]time.Duration{
 		codeHash:      ttl,
-		linkTokenHash: time.Hour,
+		linkTokenHash: defaultEmailVerificationTTL,
 	}); err != nil {
 		return nil
 	}
@@ -1382,7 +1460,7 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 			return "", nil
 		}
 		if ttl <= 0 {
-			ttl = 15 * time.Minute
+			ttl = defaultEmailVerificationTTL
 		}
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
@@ -1391,7 +1469,7 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 		normEmail := normalizeEmail(email)
 		if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
 			codeHash: ttl,
-			linkHash: time.Hour,
+			linkHash: defaultEmailVerificationTTL,
 		}); err != nil {
 			return "", err
 		}
@@ -1404,7 +1482,7 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 		return code, nil
 	default:
 		if ttl <= 0 {
-			ttl = 15 * time.Minute
+			ttl = defaultEmailVerificationTTL
 		}
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
@@ -1414,7 +1492,7 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 		if s.useEphemeralStore() {
 			if err := s.storePendingRegistrationTokens(ctx, email, username, passwordHash, locale, map[string]time.Duration{
 				codeHash: ttl,
-				linkHash: time.Hour,
+				linkHash: defaultEmailVerificationTTL,
 			}); err != nil {
 				return "", err
 			}
@@ -1585,8 +1663,8 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
 		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
-			codeHash: 15 * time.Minute,
-			linkHash: time.Hour,
+			codeHash: defaultPhoneVerificationTTL,
+			linkHash: defaultPhoneVerificationTTL,
 		}); err != nil {
 			return "", err
 		}
@@ -1604,8 +1682,8 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 		linkHash := sha256Hex(linkToken)
 		if s.useEphemeralStore() {
 			if err := s.storePendingPhoneRegistrationTokens(ctx, phone, username, passwordHash, locale, map[string]time.Duration{
-				codeHash: 15 * time.Minute,
-				linkHash: time.Hour,
+				codeHash: defaultPhoneVerificationTTL,
+				linkHash: defaultPhoneVerificationTTL,
 			}); err != nil {
 				return "", err
 			}
@@ -1793,7 +1871,7 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 // Always returns nil for security.
 func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
 	if ttl <= 0 {
-		ttl = 15 * time.Minute
+		ttl = defaultPhoneVerificationTTL
 	}
 
 	// Generate a numeric code for manual entry + a high-entropy link token.
@@ -1804,7 +1882,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 	if s.useEphemeralStore() {
 		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
 			codeHash: ttl,
-			linkHash: time.Hour,
+			linkHash: defaultPhoneVerificationTTL,
 		}); err != nil {
 			return nil
 		}
@@ -2725,8 +2803,8 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	// Create verification tokens with split TTLs for the NEW email address.
 	normEmail := normalizeEmail(trimmed)
 	if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+		codeHash: defaultEmailVerificationTTL,
+		linkHash: defaultEmailVerificationTTL,
 	}); err != nil {
 		return err
 	}
@@ -2843,8 +2921,8 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 	// Create new verification tokens.
 	normPending := normalizeEmail(pendingEmail)
 	if err := s.storeEmailVerificationTokens(ctx, userID, &normPending, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+		codeHash: defaultEmailVerificationTTL,
+		linkHash: defaultEmailVerificationTTL,
 	}); err != nil {
 		return err
 	}
@@ -3725,6 +3803,17 @@ func (s *Service) VerifyPendingPassword(ctx context.Context, email, pass string)
 	}
 
 	// Pending registrations always use argon2id (from CreatePendingRegistration)
+	ok, err := password.VerifyArgon2id(pr.PasswordHash, pass)
+	return err == nil && ok
+}
+
+// VerifyPendingPhonePassword checks if the provided password matches the pending
+// phone registration's hash. Returns true if password is correct, false otherwise.
+func (s *Service) VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool {
+	pr, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
+	if err != nil || pr == nil {
+		return false
+	}
 	ok, err := password.VerifyArgon2id(pr.PasswordHash, pass)
 	return err == nil && ok
 }

@@ -131,7 +131,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 
 	if isPhone {
 		identifier = core.NormalizePhone(identifier)
-		if requiresVerification && !s.svc.HasSMSSender() {
+		if requiresVerification && !s.svc.SMSAvailable() {
 			serverErr(w, "phone_registration_unavailable")
 			return
 		}
@@ -295,6 +295,70 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
+// handlePendingRegistrationAbandonPOST lets a user cancel/abandon a pending
+// (unverified) registration they created — e.g. after mistyping their email or
+// phone. Ownership is proven by the password set during registration (the only
+// secret the user still has when they never received the verification code).
+// Responds 200 {ok:true} whether or not a matching pending registration existed,
+// so the endpoint never reveals whether a given identifier is mid-signup.
+func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r *http.Request) {
+	if s.publicRegistrationDisabled() {
+		registrationDisabled(w)
+		return
+	}
+	if s.rateLimited(w, r, RLAuthRegisterAbandon) {
+		return
+	}
+
+	var req struct {
+		Identifier string `json:"identifier"`
+		Email      string `json:"email"`
+		Password   string `json:"password"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, "invalid_request")
+		return
+	}
+	identifier := strings.TrimSpace(req.Identifier)
+	if identifier == "" {
+		identifier = strings.TrimSpace(req.Email)
+	}
+	if identifier == "" || req.Password == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterAbandon, identifier) {
+		return
+	}
+
+	ok := map[string]any{"ok": true}
+
+	if strings.HasPrefix(identifier, "+") {
+		phone := core.NormalizePhone(identifier)
+		// Only delete when the password matches; otherwise respond ok without
+		// revealing whether a pending registration exists (anti-enumeration).
+		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
+			if err := s.svc.DeletePendingPhoneRegistrationByPhone(r.Context(), phone); err != nil {
+				s.logInternalError(r, "register_abandon", "delete_pending_phone_registration", "abandon_failed", err)
+				serverErr(w, "abandon_failed")
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, ok)
+		return
+	}
+
+	email := strings.TrimSpace(identifier)
+	if s.svc.VerifyPendingPassword(r.Context(), email, req.Password) {
+		if err := s.svc.DeletePendingRegistrationByEmail(r.Context(), email); err != nil {
+			s.logInternalError(r, "register_abandon", "delete_pending_registration", "abandon_failed", err)
+			serverErr(w, "abandon_failed")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, ok)
+}
+
 func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.Request) {
 	if s.publicRegistrationDisabled() {
 		registrationDisabled(w)
@@ -322,7 +386,7 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 	}
 	phone = core.NormalizePhone(phone)
 
-	if !s.svc.HasSMSSender() {
+	if !s.svc.SMSAvailable() {
 		serverErr(w, "phone_unavailable")
 		return
 	}

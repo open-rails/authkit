@@ -110,6 +110,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			)
 			if handled {
 				if recoveryErr != "" {
+					if recoveryErr == "phone_not_verified" {
+						writeVerificationRequired(w, identifier, "phone")
+						return
+					}
 					if recoveryErr == "invalid_credentials" {
 						logLoginFailed(s, r, "", "invalid_credentials")
 					}
@@ -192,11 +196,11 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					return
 				}
 				logLoginFailed(s, r, userID, "email_not_verified")
-				unauthorized(w, "email_not_verified")
+				writeVerificationRequired(w, *fetchedUser.Email, "email")
 				return
 			}
 
-			if needsPhoneVerify && s.svc.HasSMSSender() {
+			if needsPhoneVerify && s.svc.SMSAvailable() {
 				if err := s.svc.SendPhoneVerificationToUser(r.Context(), *fetchedUser.PhoneNumber, userID, 0); err != nil {
 					if s.handleDeliveryError(w, r, "password_login", "send_phone_verification", err) {
 						return
@@ -205,7 +209,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					return
 				}
 				logLoginFailed(s, r, userID, "phone_not_verified")
-				unauthorized(w, "phone_not_verified")
+				writeVerificationRequired(w, *fetchedUser.PhoneNumber, "phone")
 				return
 			}
 		}
@@ -256,6 +260,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			)
 			if handled {
 				if recoveryErr != "" {
+					if recoveryErr == "email_not_verified" {
+						writeVerificationRequired(w, loginEmail, "email")
+						return
+					}
 					if recoveryErr == "invalid_credentials" {
 						logLoginFailed(s, r, "", "invalid_credentials")
 					}
@@ -374,6 +382,18 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		"access_token": token,
 		"token_type":   "Bearer",
 		"expires_in":   int64(time.Until(exp).Seconds()),
+	})
+}
+
+// writeVerificationRequired emits the structured "registration verification
+// required" handoff, parallel to the requires_2fa response. By the time this is
+// called the caller has already (re)sent a fresh verification code; the
+// frontend routes the user to the OTP verify page using identifier + channel.
+func writeVerificationRequired(w http.ResponseWriter, identifier, channel string) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"requires_verification": true,
+		"identifier":            identifier,
+		"channel":               channel,
 	})
 }
 
