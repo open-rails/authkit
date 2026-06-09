@@ -58,9 +58,11 @@ func DefaultRateLimits() map[string]Limit {
 		RLUserEmailChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserEmailChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
 		RLUserEmailChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLUserEmailChangeCancel:  {Limit: 12, Window: time.Hour},
 		RLUserPhoneChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserPhoneChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
 		RLUserPhoneChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLUserPhoneChangeCancel:  {Limit: 12, Window: time.Hour},
 		RLUserDelete:             {Limit: 6, Window: time.Hour},
 		RLUserUnlinkProvider:     {Limit: 12, Window: time.Hour},
 

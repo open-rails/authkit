@@ -13,12 +13,6 @@ const (
 	defaultEmailVerificationTTL = time.Hour
 	defaultPhoneVerificationTTL = 15 * time.Minute
 
-	keyPendingRegToken      = "auth:pending_reg:token:"
-	keyPendingRegEmail      = "auth:pending_reg:email:"
-	keyPendingRegUser       = "auth:pending_reg:user:"
-	keyPendingPhoneToken    = "auth:pending_phone:token:"
-	keyPendingPhonePhone    = "auth:pending_phone:phone:"
-	keyPendingPhoneUser     = "auth:pending_phone:user:"
 	keyPhoneVerifyToken     = "auth:phone_verify:token:"
 	keyPhoneVerifyIndex     = "auth:phone_verify:index:"
 	keyEmailVerifyToken     = "auth:email_verify:token:"
@@ -28,14 +22,6 @@ const (
 	keyTwoFactor            = "auth:2fa:code:"
 	keyTwoFactorChallenge   = "auth:2fa:challenge:"
 )
-
-type pendingRegistrationData struct {
-	Email           string   `json:"email"`
-	Username        string   `json:"username"`
-	PasswordHash    string   `json:"password_hash"`
-	PreferredLocale string   `json:"preferred_locale,omitempty"`
-	TokenHashes     []string `json:"token_hashes,omitempty"`
-}
 
 type phoneVerificationData struct {
 	UserID      string   `json:"user_id"`
@@ -117,72 +103,6 @@ func uniqueTokenHashes(primary string, hashes []string) []string {
 	return out
 }
 
-func (s *Service) storePendingRegistrationTokens(ctx context.Context, email, username, passwordHash, preferredLocale string, tokenTTLs map[string]time.Duration) error {
-	email = normalizeEmail(email)
-	userKey := keyPendingRegUser + username
-	emailKey := keyPendingRegEmail + email
-
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultEmailVerificationTTL)
-	if err != nil {
-		return err
-	}
-
-	if old, ok, _ := s.ephemGetString(ctx, emailKey); ok && old != "" {
-		s.deletePendingRegistrationByToken(ctx, old)
-	}
-	if old, ok, _ := s.ephemGetString(ctx, userKey); ok && old != "" {
-		s.deletePendingRegistrationByToken(ctx, old)
-	}
-
-	data := pendingRegistrationData{
-		Email:           email,
-		Username:        username,
-		PasswordHash:    passwordHash,
-		PreferredLocale: preferredLocale,
-		TokenHashes:     uniqueTokenHashes(canonicalHash, nil),
-	}
-	for tokenHash := range normalizedTTLs {
-		data.TokenHashes = uniqueTokenHashes(tokenHash, data.TokenHashes)
-	}
-
-	for tokenHash, ttl := range normalizedTTLs {
-		if err := s.ephemSetJSON(ctx, keyPendingRegToken+tokenHash, data, ttl); err != nil {
-			return err
-		}
-	}
-
-	_ = s.ephemSetString(ctx, emailKey, canonicalHash, maxTTL)
-	_ = s.ephemSetString(ctx, userKey, canonicalHash, maxTTL)
-	return nil
-}
-
-func (s *Service) loadPendingRegistration(ctx context.Context, tokenHash string) (pendingRegistrationData, bool, error) {
-	var data pendingRegistrationData
-	ok, err := s.ephemGetJSON(ctx, keyPendingRegToken+tokenHash, &data)
-	return data, ok, err
-}
-
-func (s *Service) deletePendingRegistrationByToken(ctx context.Context, tokenHash string) {
-	var data pendingRegistrationData
-	if ok, _ := s.ephemGetJSON(ctx, keyPendingRegToken+tokenHash, &data); ok {
-		s.deletePendingRegistration(ctx, tokenHash, data)
-		return
-	}
-	_ = s.ephemDel(ctx, keyPendingRegToken+tokenHash)
-}
-
-func (s *Service) deletePendingRegistration(ctx context.Context, tokenHash string, data pendingRegistrationData) {
-	for _, h := range uniqueTokenHashes(tokenHash, data.TokenHashes) {
-		_ = s.ephemDel(ctx, keyPendingRegToken+h)
-	}
-	if data.Email != "" {
-		_ = s.ephemDel(ctx, keyPendingRegEmail+normalizeEmail(data.Email))
-	}
-	if data.Username != "" {
-		_ = s.ephemDel(ctx, keyPendingRegUser+data.Username)
-	}
-}
-
 // DeletePendingRegistrationByEmail removes a pending email registration (and all
 // its verification tokens) for the given email, if one exists. Used to abandon a
 // pending registration the user explicitly cancelled. No-op when none exists.
@@ -190,13 +110,7 @@ func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email st
 	if !s.useEphemeralStore() {
 		return nil
 	}
-	token, ok, err := s.ephemGetString(ctx, keyPendingRegEmail+normalizeEmail(email))
-	if err != nil {
-		return err
-	}
-	if ok && token != "" {
-		s.deletePendingRegistrationByToken(ctx, token)
-	}
+	s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
 	return nil
 }
 
@@ -207,79 +121,8 @@ func (s *Service) DeletePendingPhoneRegistrationByPhone(ctx context.Context, pho
 	if !s.useEphemeralStore() {
 		return nil
 	}
-	token, ok, err := s.ephemGetString(ctx, keyPendingPhonePhone+phone)
-	if err != nil {
-		return err
-	}
-	if ok && token != "" {
-		s.deletePendingPhoneRegistrationByToken(ctx, token)
-	}
+	s.deletePendingChangeByTarget(ctx, KindRegisterPhone, phone)
 	return nil
-}
-
-func (s *Service) storePendingPhoneRegistrationTokens(ctx context.Context, phone, username, passwordHash, preferredLocale string, tokenTTLs map[string]time.Duration) error {
-	phoneKey := keyPendingPhonePhone + phone
-	userKey := keyPendingPhoneUser + username
-
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultPhoneVerificationTTL)
-	if err != nil {
-		return err
-	}
-
-	if old, ok, _ := s.ephemGetString(ctx, phoneKey); ok && old != "" {
-		s.deletePendingPhoneRegistrationByToken(ctx, old)
-	}
-	if old, ok, _ := s.ephemGetString(ctx, userKey); ok && old != "" {
-		s.deletePendingPhoneRegistrationByToken(ctx, old)
-	}
-
-	data := pendingRegistrationData{
-		Email:           phone,
-		Username:        username,
-		PasswordHash:    passwordHash,
-		PreferredLocale: preferredLocale,
-		TokenHashes:     uniqueTokenHashes(canonicalHash, nil),
-	}
-	for tokenHash := range normalizedTTLs {
-		data.TokenHashes = uniqueTokenHashes(tokenHash, data.TokenHashes)
-	}
-
-	for tokenHash, ttl := range normalizedTTLs {
-		if err := s.ephemSetJSON(ctx, keyPendingPhoneToken+tokenHash, data, ttl); err != nil {
-			return err
-		}
-	}
-
-	_ = s.ephemSetString(ctx, phoneKey, canonicalHash, maxTTL)
-	_ = s.ephemSetString(ctx, userKey, canonicalHash, maxTTL)
-	return nil
-}
-
-func (s *Service) loadPendingPhoneRegistration(ctx context.Context, tokenHash string) (pendingRegistrationData, bool, error) {
-	var data pendingRegistrationData
-	ok, err := s.ephemGetJSON(ctx, keyPendingPhoneToken+tokenHash, &data)
-	return data, ok, err
-}
-
-func (s *Service) deletePendingPhoneRegistrationByToken(ctx context.Context, tokenHash string) {
-	var data pendingRegistrationData
-	if ok, _ := s.ephemGetJSON(ctx, keyPendingPhoneToken+tokenHash, &data); ok {
-		s.deletePendingPhoneRegistration(ctx, tokenHash, data)
-		return
-	}
-	_ = s.ephemDel(ctx, keyPendingPhoneToken+tokenHash)
-}
-
-func (s *Service) deletePendingPhoneRegistration(ctx context.Context, tokenHash string, data pendingRegistrationData) {
-	for _, h := range uniqueTokenHashes(tokenHash, data.TokenHashes) {
-		_ = s.ephemDel(ctx, keyPendingPhoneToken+h)
-	}
-	if data.Email != "" {
-		_ = s.ephemDel(ctx, keyPendingPhonePhone+data.Email)
-	}
-	if data.Username != "" {
-		_ = s.ephemDel(ctx, keyPendingPhoneUser+data.Username)
-	}
 }
 
 func normalizePhoneVerificationPurpose(purpose string) string {

@@ -547,9 +547,10 @@ func (v *Verifier) VerifyClaims(tokenStr string) (jwt.MapClaims, error) {
 		// Resilience: a verification failure can mean our cached signing key is
 		// stale/rotated (same kid, new key material) or the JWKS was never
 		// fetched (peer was starting on first use). If the token names a KNOWN
-		// issuer, force ONE inline JWKS refetch and retry the verification before
-		// rejecting. (refreshIssuerKeys is itself bounded-retry + the refetch is
-		// once-per-verify, so this cannot hammer the JWKS endpoint.)
+		// issuer, force an inline JWKS refetch and retry the verification before
+		// rejecting. The refetch goes through the per-issuer min-interval +
+		// single-flight guard, so a storm of bad tokens coalesces to at most one
+		// fetch per kidRefetchMin and cannot hammer the JWKS endpoint.
 		if v.forceRefreshForToken(tokenStr) {
 			mapClaims = jwt.MapClaims{}
 			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
@@ -1043,7 +1044,12 @@ func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
 	if maxStale == 0 {
 		maxStale = time.Hour
 	}
-	return v.refreshIssuerKeys(context.Background(), iss, entry, cacheTTL, maxStale) == nil
+	// Route through the throttled, single-flighted unknown-kid refetch path rather
+	// than calling refreshIssuerKeys directly. Otherwise a storm of bad tokens
+	// hammers the JWKS endpoint: each verify failure would force its own fetch with
+	// no min-interval or coalescing. refetchForUnknownKID caps this at one fetch
+	// per issuer per kidRefetchMin and coalesces concurrent callers onto it.
+	return v.refetchForUnknownKID(context.Background(), iss, entry, cacheTTL, maxStale)
 }
 
 func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) error {

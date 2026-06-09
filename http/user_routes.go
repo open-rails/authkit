@@ -245,6 +245,14 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// Gate on real SMS deliverability up front (parity with signup / phone
+	// verification), so an undeliverable sender fails fast instead of silently
+	// stranding the user on the OTP screen.
+	if !s.svc.SMSAvailable() {
+		serverErr(w, "phone_change_unavailable")
+		return
+	}
+
 	if err := s.svc.RequestPhoneChange(r.Context(), claims.UserID, body.NewPhone); err != nil {
 		if s.handleDeliveryError(w, r, "user_phone_change_request", "send_phone_verification", err) {
 			return
@@ -336,6 +344,54 @@ func (s *Service) handleUserPhoneChangeResendPOST(w http.ResponseWriter, r *http
 		"ok":      true,
 		"message": "Verification code resent",
 	})
+}
+
+// handleUserEmailChangeCancelPOST cancels a pending email change for the
+// authenticated user, clearing the server-side pending verification token so no
+// stale pending state lingers after the user dismisses the change. Idempotent:
+// responds 200 {ok:true} whether or not a pending change existed.
+func (s *Service) handleUserEmailChangeCancelPOST(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RLUserEmailChangeCancel) {
+		return
+	}
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == "" {
+		unauthorized(w, "not_authenticated")
+		return
+	}
+	if err := s.svc.CancelEmailChange(r.Context(), claims.UserID); err != nil {
+		s.logInternalError(r, "user_email_change_cancel", "cancel_email_change", "cancel_failed", err)
+		serverErr(w, "cancel_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleUserPhoneChangeCancelPOST cancels a pending phone change for the
+// authenticated user, clearing the server-side pending verification record.
+// Idempotent: responds 200 {ok:true} whether or not a pending change existed.
+func (s *Service) handleUserPhoneChangeCancelPOST(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RLUserPhoneChangeCancel) {
+		return
+	}
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == "" {
+		unauthorized(w, "not_authenticated")
+		return
+	}
+	var body struct {
+		Phone string `json:"phone_number"`
+	}
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Phone) == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if err := s.svc.CancelPhoneChange(r.Context(), claims.UserID, strings.TrimSpace(body.Phone)); err != nil {
+		s.logInternalError(r, "user_phone_change_cancel", "cancel_phone_change", "cancel_failed", err)
+		serverErr(w, "cancel_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Request) {

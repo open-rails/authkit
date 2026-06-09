@@ -41,10 +41,12 @@ const (
 	RLUserEmailChangeRequest = "auth_user_email_change_request"
 	RLUserEmailChangeConfirm = "auth_user_email_change_confirm"
 	RLUserEmailChangeResend  = "auth_user_email_change_resend"
+	RLUserEmailChangeCancel  = "auth_user_email_change_cancel"
 
 	RLUserPhoneChangeRequest = "auth_user_phone_change_request"
 	RLUserPhoneChangeConfirm = "auth_user_phone_change_confirm"
 	RLUserPhoneChangeResend  = "auth_user_phone_change_resend"
+	RLUserPhoneChangeCancel  = "auth_user_phone_change_cancel"
 
 	RLUserDelete         = "auth_user_delete"
 	RLUserUnlinkProvider = "auth_user_unlink_provider"
