@@ -233,20 +233,6 @@ func (s *Service) consumePhoneVerificationByToken(ctx context.Context, purpose, 
 	return userID, phone, nil
 }
 
-func (s *Service) getPhoneVerification(ctx context.Context, purpose, phone string) (*phoneVerificationData, error) {
-	purpose = normalizePhoneVerificationPurpose(purpose)
-	tokenHash, ok, err := s.ephemGetString(ctx, s.phoneVerificationIndexKey(purpose, phone))
-	if err != nil || !ok || tokenHash == "" {
-		return nil, fmt.Errorf("not found")
-	}
-	var data phoneVerificationData
-	ok, err = s.ephemGetJSON(ctx, s.phoneVerificationTokenKey(purpose, tokenHash), &data)
-	if err != nil || !ok {
-		return nil, fmt.Errorf("not found")
-	}
-	return &data, nil
-}
-
 func (s *Service) storeEmailVerificationTokens(ctx context.Context, userID string, email *string, tokenTTLs map[string]time.Duration) error {
 	userKey := keyEmailVerifyUser + userID
 
@@ -302,20 +288,6 @@ func (s *Service) consumeEmailVerification(ctx context.Context, tokenHash string
 		return nil, jwt.ErrTokenUnverifiable
 	}
 	s.deleteEmailVerificationByToken(ctx, tokenHash)
-	return &emailVerifyToken{UserID: data.UserID, Email: data.Email}, nil
-}
-
-func (s *Service) getEmailVerificationByUser(ctx context.Context, userID string) (*emailVerifyToken, error) {
-	userKey := keyEmailVerifyUser + userID
-	tokenHash, ok, err := s.ephemGetString(ctx, userKey)
-	if err != nil || !ok || tokenHash == "" {
-		return nil, fmt.Errorf("no pending email change found")
-	}
-	var data emailVerifyData
-	ok, err = s.ephemGetJSON(ctx, keyEmailVerifyToken+tokenHash, &data)
-	if err != nil || !ok {
-		return nil, fmt.Errorf("no pending email change found")
-	}
 	return &emailVerifyToken{UserID: data.UserID, Email: data.Email}, nil
 }
 
