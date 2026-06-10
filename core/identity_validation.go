@@ -76,12 +76,19 @@ func ValidationErrorCode(err error) string {
 	}
 }
 
+// Username length bounds shared by ValidateUsername and the automatic
+// derivation in cleanUsername, so derived usernames always pass validation.
+const (
+	usernameMinLen = 4
+	usernameMaxLen = 30
+)
+
 func ValidateUsername(username string) error {
 	username = strings.TrimSpace(username)
-	if len(username) < 4 {
+	if len(username) < usernameMinLen {
 		return newValidationError(ErrCodeUsernameTooShort)
 	}
-	if len(username) > 30 {
+	if len(username) > usernameMaxLen {
 		return newValidationError(ErrCodeUsernameTooLong)
 	}
 	first := username[0]

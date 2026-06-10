@@ -3529,15 +3529,19 @@ func deriveUsername(email string) string {
 		}
 	}
 	if len(clean) == 0 {
-		clean = []rune{'u', 's', 'r'}
+		clean = []rune{'u', 's', 'e', 'r'}
 	}
 	if clean[0] < 'a' || clean[0] > 'z' {
 		clean = append([]rune{'u'}, clean...)
 	}
-	if len(clean) > 32 {
-		clean = clean[:32]
+	if len(clean) > usernameMaxLen {
+		clean = clean[:usernameMaxLen]
 	}
-	return string(clean)
+	out := string(clean)
+	if len(out) < usernameMinLen {
+		out += "_user"
+	}
+	return out
 }
 
 // getDiscordUsername retrieves the discord username for a user, preferring the
