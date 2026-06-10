@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 // TenantIssuersClient publishes THIS tenant's issuer registration to a resource
@@ -58,8 +60,12 @@ type TenantIssuersRegistration struct {
 	Tenant string
 	// Issuer is THIS platform's issuer URL (the `iss` of delegated tokens).
 	Issuer string
-	// JWKSURI is where the resource server fetches THIS platform's public keys.
+	// JWKSURI is where the resource server fetches THIS platform's public keys
+	// (jwks mode — preferred). Mutually exclusive with PublicKeys.
 	JWKSURI string
+	// PublicKeys is the static-mode key list for platforms without a JWKS
+	// endpoint (#465). Mutually exclusive with JWKSURI.
+	PublicKeys []core.TenantIssuerKey
 }
 
 // RegisterIssuer POSTs this tenant's issuer registration to the resource server's
@@ -71,14 +77,18 @@ func (fc *TenantIssuersClient) RegisterIssuer(ctx context.Context, acceptURL str
 	if acceptURL == "" {
 		return errors.New("accept URL required")
 	}
-	if strings.TrimSpace(reg.Tenant) == "" || strings.TrimSpace(reg.Issuer) == "" || strings.TrimSpace(reg.JWKSURI) == "" {
-		return errors.New("tenant, issuer and jwks_uri are required")
+	if strings.TrimSpace(reg.Tenant) == "" || strings.TrimSpace(reg.Issuer) == "" {
+		return errors.New("tenant and issuer are required")
+	}
+	if _, err := core.NormalizeTenantIssuerTrustSource(reg.JWKSURI, "", reg.PublicKeys); err != nil {
+		return err
 	}
 
 	payload := tenantIssuerRegistration{
-		Tenant:  strings.TrimSpace(reg.Tenant),
-		Issuer:  strings.TrimSpace(reg.Issuer),
-		JWKSURI: strings.TrimSpace(reg.JWKSURI),
+		Tenant:     strings.TrimSpace(reg.Tenant),
+		Issuer:     strings.TrimSpace(reg.Issuer),
+		JWKSURI:    strings.TrimSpace(reg.JWKSURI),
+		PublicKeys: reg.PublicKeys,
 	}
 	buf, err := json.Marshal(payload)
 	if err != nil {

@@ -12,19 +12,27 @@ import (
 // (the outbound client) to this resource server's accept endpoint. It is also
 // the response shape returned by GET listings.
 type tenantIssuerRegistration struct {
-	Tenant    string   `json:"tenant"`
-	Issuer    string   `json:"issuer"`
-	JWKSURI   string   `json:"jwks_uri"`
-	Audiences []string `json:"audiences,omitempty"`
-	Enabled   *bool    `json:"enabled,omitempty"`
+	Tenant  string `json:"tenant"`
+	Issuer  string `json:"issuer"`
+	JWKSURI string `json:"jwks_uri,omitempty"`
+	// Mode selects the trust source (#465): "jwks" (fetch keys from jwks_uri;
+	// preferred) XOR "static" (human-managed public_keys list). Empty infers
+	// from which field is set. Setting BOTH jwks_uri and public_keys is
+	// rejected — one trust source per issuer, always.
+	Mode       string                 `json:"mode,omitempty"`
+	PublicKeys []core.TenantIssuerKey `json:"public_keys,omitempty"`
+	Audiences  []string               `json:"audiences,omitempty"`
+	Enabled    *bool                  `json:"enabled,omitempty"`
 }
 
 type tenantIssuerResponse struct {
-	Tenant    string   `json:"tenant"`
-	Issuer    string   `json:"issuer"`
-	JWKSURI   string   `json:"jwks_uri"`
-	Audiences []string `json:"audiences"`
-	Enabled   bool     `json:"enabled"`
+	Tenant     string                 `json:"tenant"`
+	Issuer     string                 `json:"issuer"`
+	JWKSURI    string                 `json:"jwks_uri,omitempty"`
+	Mode       string                 `json:"mode"`
+	PublicKeys []core.TenantIssuerKey `json:"public_keys,omitempty"`
+	Audiences  []string               `json:"audiences"`
+	Enabled    bool                   `json:"enabled"`
 }
 
 func tenantIssuerView(fi core.TenantIssuer) tenantIssuerResponse {
@@ -33,11 +41,13 @@ func tenantIssuerView(fi core.TenantIssuer) tenantIssuerResponse {
 		audiences = []string{}
 	}
 	return tenantIssuerResponse{
-		Tenant:    fi.TenantSlug,
-		Issuer:    fi.Issuer,
-		JWKSURI:   fi.JWKSURI,
-		Audiences: audiences,
-		Enabled:   fi.Enabled,
+		Tenant:     fi.TenantSlug,
+		Issuer:     fi.Issuer,
+		JWKSURI:    fi.JWKSURI,
+		Mode:       fi.Mode,
+		PublicKeys: fi.PublicKeys,
+		Audiences:  audiences,
+		Enabled:    fi.Enabled,
 	}
 }
 
@@ -64,8 +74,14 @@ func (s *Service) handleTenantIssuerRegisterPOST(w http.ResponseWriter, r *http.
 	if tenantSlug == "" {
 		tenantSlug = strings.TrimSpace(r.PathValue("tenant"))
 	}
-	if tenantSlug == "" || strings.TrimSpace(body.Issuer) == "" || strings.TrimSpace(body.JWKSURI) == "" {
+	if tenantSlug == "" || strings.TrimSpace(body.Issuer) == "" {
 		badRequest(w, "invalid_request")
+		return
+	}
+	// One trust source, never both (#465). Validated again in core; checked
+	// here too so the error surfaces as a 400 with a stable code.
+	if _, err := core.NormalizeTenantIssuerTrustSource(body.JWKSURI, body.Mode, body.PublicKeys); err != nil {
+		badRequest(w, "invalid_trust_source")
 		return
 	}
 
@@ -91,6 +107,8 @@ func (s *Service) handleTenantIssuerRegisterPOST(w http.ResponseWriter, r *http.
 		TenantSlug: canonical,
 		Issuer:     body.Issuer,
 		JWKSURI:    body.JWKSURI,
+		Mode:       body.Mode,
+		PublicKeys: body.PublicKeys,
 		Audiences:  body.Audiences,
 		Enabled:    enabled,
 	})
@@ -106,7 +124,7 @@ func (s *Service) handleTenantIssuerRegisterPOST(w http.ResponseWriter, r *http.
 	// Make the newly-trusted issuer immediately usable without waiting for the
 	// next store-load: register it with this service's Verifier.
 	if s.verifier != nil && fi.Enabled {
-		_ = s.verifier.AddIssuer(fi.Issuer, nil, IssuerOptions{JWKSURI: fi.JWKSURI, TrustedResourceAccount: fi.TenantSlug})
+		_ = s.verifier.AddIssuer(fi.Issuer, nil, tenantIssuerOptions(*fi))
 	}
 
 	writeJSON(w, http.StatusOK, tenantIssuerView(*fi))
