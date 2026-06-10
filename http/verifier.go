@@ -641,9 +641,6 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		if tenant == "" {
 			return Claims{}, errors.New("missing_tenant")
 		}
-		if strings.TrimSpace(strClaim(mapClaims, "org")) != "" {
-			return Claims{}, errors.New("delegated_access_has_org")
-		}
 		if strClaim(mapClaims, "user_tier") != "" {
 			return Claims{}, errors.New("delegated_access_has_user_tier")
 		}

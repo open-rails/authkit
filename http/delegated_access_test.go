@@ -138,25 +138,6 @@ func TestDelegatedAccessRejectsSubPlusDelegatedSub(t *testing.T) {
 	}
 }
 
-func TestDelegatedAccessRejectsTenantClaim(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	iss := "https://cozy.example"
-	now := time.Now()
-	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
-		"iss":           iss,
-		"aud":           []string{"openrails"},
-		"iat":           now.Unix(),
-		"exp":           now.Add(time.Minute).Unix(),
-		"tenant":        "cozy-art",
-		"org":           "cozy-art",
-		"delegated_sub": "ext-1",
-	}, map[string]any{"typ": DelegatedAccessTokenType})
-	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err == nil || err.Error() != "delegated_access_has_org" {
-		t.Fatalf("expected delegated_access_has_org, got %v", err)
-	}
-}
-
 func TestDelegatedAccessRejectsIssuerTenantMismatch(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://doujins.example"
