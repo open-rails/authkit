@@ -352,7 +352,26 @@ svc = svc.
     WithEntitlements(&BillingEntitlementsProvider{pg: pg})
 ```
 
-Entitlements are snapshotted into the JWT at token issuance time. For fresh entitlements, re-issue the token.
+**Lifecycle enforcement.** AuthKit treats the `RevokedAt` and `ExpiresAt`
+fields on each returned `Entitlement` as authoritative: a grant whose
+`RevokedAt` or `ExpiresAt` is set and not in the future is dropped before it is
+flattened into the JWT or returned by `ListEntitlements`/`ListEntitlementsDetailed`.
+Providers should still filter at the source (as the SQL above does) for
+efficiency; the in-library check is defense-in-depth so a provider that returns a
+revoked/expired row never accidentally grants it. Names are trimmed and
+de-duplicated (case-insensitive).
+
+**Gating requests.** Use `Claims.HasEntitlement(name)` for ad-hoc checks, or the
+`RequireEntitlement("premium")` / `RequireAnyEntitlement("pro", "premium")`
+middleware (mount after `Required`) to gate routes; both deny service-principal
+(OAT) and delegated tokens, which carry no entitlements.
+
+**Snapshot semantics & revocation lag.** Entitlements are snapshotted into the
+JWT at issuance time. Unlike account bans (re-checked live on every request),
+entitlements are NOT re-validated per request, so a revocation only takes effect
+once the access token expires or is re-issued. Size your access-token TTL
+(`AccessTokenDuration`) to your acceptable entitlement-revocation lag, or
+re-issue the token when a grant changes.
 
 ---
 

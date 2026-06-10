@@ -403,12 +403,15 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
 		roles = globalRoles
 	}
-	var ents []string
+	ents := []string{}
 	if s.entitlements != nil {
 		if details, err := s.entitlements.ListEntitlements(ctx, userID); err == nil {
-			for _, d := range details {
-				ents = append(ents, d.Name)
-			}
+			ents = activeEntitlementNames(details, time.Now().UTC())
+		} else {
+			// Fail closed (no entitlements minted) but surface the failure: a
+			// silent provider outage would otherwise strip grants from every
+			// freshly issued token with no signal.
+			stdlog.Printf("[authkit/entitlements] provider error for user %s during token issuance: %v", userID, err)
 		}
 	}
 	// Attempt to fetch username/email fresh from DB if possible
@@ -3355,32 +3358,32 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 	return err
 }
 
-// ListEntitlements returns current entitlements for a user (fresh from provider).
+// ListEntitlements returns the active entitlement names for a user (fresh from
+// provider). Revoked and expired grants are excluded; names are de-duplicated.
 func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
 	if s.entitlements == nil {
 		return nil
 	}
 	details, err := s.entitlements.ListEntitlements(ctx, userID)
 	if err != nil {
+		stdlog.Printf("[authkit/entitlements] provider error listing entitlements for user %s: %v", userID, err)
 		return nil
 	}
-	out := make([]string, 0, len(details))
-	for _, d := range details {
-		out = append(out, d.Name)
-	}
-	return out
+	return activeEntitlementNames(details, time.Now().UTC())
 }
 
-// ListEntitlementsDetailed returns detailed entitlements (name + metadata).
+// ListEntitlementsDetailed returns the active entitlements (name + metadata) for
+// a user. Revoked and expired grants are excluded.
 func (s *Service) ListEntitlementsDetailed(ctx context.Context, userID string) []entpg.Entitlement {
 	if s.entitlements == nil {
 		return nil
 	}
 	details, err := s.entitlements.ListEntitlements(ctx, userID)
 	if err != nil {
+		stdlog.Printf("[authkit/entitlements] provider error listing detailed entitlements for user %s: %v", userID, err)
 		return nil
 	}
-	return details
+	return activeEntitlements(details, time.Now().UTC())
 }
 
 func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {

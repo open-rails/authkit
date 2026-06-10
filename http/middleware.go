@@ -120,6 +120,36 @@ func RequireAdmin(pg *pgxpool.Pool) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireEntitlement gates a handler on the presence of a single entitlement in
+// the verified claims (case-insensitive, see Claims.HasEntitlement). It must run
+// after Required so claims are present. Service principals (OATs) and delegated
+// tokens carry no entitlements and are therefore denied.
+func RequireEntitlement(ent string) func(http.Handler) http.Handler {
+	return RequireAnyEntitlement(ent)
+}
+
+// RequireAnyEntitlement gates a handler on the presence of at least one of the
+// given entitlements. With no entitlements listed it denies all requests
+// (fail-closed). It must run after Required.
+func RequireAnyEntitlement(ents ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl, err := getClaims(r.Context())
+			if err != nil {
+				forbidden(w, "forbidden")
+				return
+			}
+			for _, ent := range ents {
+				if strings.TrimSpace(ent) != "" && cl.HasEntitlement(ent) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			forbidden(w, "forbidden")
+		})
+	}
+}
+
 func toUnix(v any) (int64, bool) {
 	switch t := v.(type) {
 	case float64:
