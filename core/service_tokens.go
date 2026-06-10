@@ -12,6 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // Service Tokens (service tokens): long-lived, revocable bearer credentials
@@ -249,9 +251,9 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug st
 	}
 	secretHash := sha256Raw(secret)
 
-	var createdByArg any
-	if strings.TrimSpace(opts.CreatedBy) != "" {
-		createdByArg = strings.TrimSpace(opts.CreatedBy)
+	var createdByArg *string
+	if v := strings.TrimSpace(opts.CreatedBy); v != "" {
+		createdByArg = &v
 	}
 
 	// key_id is unique; retry a few times on the (astronomically unlikely)
@@ -262,18 +264,19 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug st
 		if err != nil {
 			return ServiceToken{}, "", err
 		}
-		var id string
-		var createdAt time.Time
 		tx, err := s.pg.Begin(ctx)
 		if err != nil {
 			return ServiceToken{}, "", err
 		}
-		err = tx.QueryRow(ctx, `
-			INSERT INTO profiles.service_tokens
-			  (tenant_id, key_id, secret_hash, name, created_by, expires_at)
-			VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6)
-			RETURNING id::text, created_at
-		`, tenant.ID, keyID, secretHash, name, createdByArg, expiresAt).Scan(&id, &createdAt)
+		qtx := s.q.WithTx(tx)
+		ins, err := qtx.ServiceTokenInsert(ctx, db.ServiceTokenInsertParams{
+			TenantID:   tenant.ID,
+			KeyID:      keyID,
+			SecretHash: secretHash,
+			Name:       name,
+			CreatedBy:  createdByArg,
+			ExpiresAt:  expiresAt,
+		})
 		if err != nil {
 			_ = tx.Rollback(ctx)
 			var pgErr *pgconn.PgError
@@ -282,20 +285,15 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug st
 			}
 			return ServiceToken{}, "", err
 		}
+		id := ins.ID
 		for _, permission := range dedupeStrings(permissions) {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.service_token_permissions (service_token_id, permission)
-				VALUES ($1::uuid, $2)
-			`, id, permission); err != nil {
+			if err := qtx.ServiceTokenPermissionInsert(ctx, db.ServiceTokenPermissionInsertParams{ServiceTokenID: id, Permission: permission}); err != nil {
 				_ = tx.Rollback(ctx)
 				return ServiceToken{}, "", err
 			}
 		}
 		for _, r := range resources {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.service_token_resources (token_id, kind, resource_id)
-				VALUES ($1::uuid, $2, $3)
-			`, id, r.Kind, r.ID); err != nil {
+			if err := qtx.ServiceTokenResourceInsert(ctx, db.ServiceTokenResourceInsertParams{TokenID: id, Kind: r.Kind, ResourceID: r.ID}); err != nil {
 				_ = tx.Rollback(ctx)
 				return ServiceToken{}, "", err
 			}
@@ -310,7 +308,7 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug st
 			Permissions: permissions,
 			Resources:   resources,
 			CreatedBy:   strings.TrimSpace(opts.CreatedBy),
-			CreatedAt:   createdAt,
+			CreatedAt:   ins.CreatedAt,
 			ExpiresAt:   expiresAt,
 		}
 		return out, FormatServiceToken(s.opts.ServiceTokenPrefix, keyID, secret), nil
@@ -329,28 +327,22 @@ func (s *Service) ListServiceTokens(ctx context.Context, tenantSlug string) ([]S
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT id::text, key_id, name, COALESCE(created_by::text, ''),
-		       created_at, last_used_at, expires_at, revoked_at
-		FROM profiles.service_tokens
-		WHERE tenant_id=$1::uuid
-		ORDER BY created_at DESC
-	`, tenant.ID)
+	rows, err := s.q.ServiceTokensByTenant(ctx, tenant.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []ServiceToken
-	for rows.Next() {
-		var t ServiceToken
-		if err := rows.Scan(&t.ID, &t.KeyID, &t.Name, &t.CreatedBy,
-			&t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt, &t.RevokedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	for _, r := range rows {
+		out = append(out, ServiceToken{
+			ID:         r.ID,
+			KeyID:      r.KeyID,
+			Name:       r.Name,
+			CreatedBy:  r.CreatedBy,
+			CreatedAt:  r.CreatedAt,
+			LastUsedAt: r.LastUsedAt,
+			ExpiresAt:  r.ExpiresAt,
+			RevokedAt:  r.RevokedAt,
+		})
 	}
 	if err := s.loadServiceTokenPermissions(ctx, out); err != nil {
 		return nil, err
@@ -372,15 +364,11 @@ func (s *Service) RevokeServiceToken(ctx context.Context, tenantSlug, tokenID st
 	if err != nil {
 		return false, err
 	}
-	tag, err := s.pg.Exec(ctx, `
-		UPDATE profiles.service_tokens
-		SET revoked_at=now()
-		WHERE id=$1::uuid AND tenant_id=$2::uuid AND revoked_at IS NULL
-	`, strings.TrimSpace(tokenID), tenant.ID)
+	n, err := s.q.ServiceTokenRevoke(ctx, db.ServiceTokenRevokeParams{ID: strings.TrimSpace(tokenID), TenantID: tenant.ID})
 	if err != nil {
 		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	return n > 0, nil
 }
 
 // ResolveServiceToken validates a presented service token (key_id + secret) and returns
@@ -403,22 +391,7 @@ func (s *Service) ResolveServiceTokenWithResources(ctx context.Context, keyID, s
 	if err := s.requirePG(); err != nil {
 		return ResolvedServiceToken{}, err
 	}
-	var (
-		err           error
-		id            string
-		secretHash    []byte
-		expiresAt     *time.Time
-		revokedAt     *time.Time
-		slug          string
-		tenantDeleted *time.Time
-	)
-	err = s.pg.QueryRow(ctx, `
-		SELECT t.id::text, t.secret_hash, t.expires_at, t.revoked_at,
-		       o.slug, o.deleted_at
-		FROM profiles.service_tokens t
-		JOIN profiles.tenants o ON o.id = t.tenant_id
-		WHERE t.key_id = $1
-	`, keyID).Scan(&id, &secretHash, &expiresAt, &revokedAt, &slug, &tenantDeleted)
+	row, err := s.q.ServiceTokenByKeyID(ctx, keyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ResolvedServiceToken{}, ErrInvalidAccessToken
@@ -427,32 +400,32 @@ func (s *Service) ResolveServiceTokenWithResources(ctx context.Context, keyID, s
 	}
 
 	// Constant-time secret comparison.
-	if subtle.ConstantTimeCompare(secretHash, sha256Raw(secret)) != 1 {
+	if subtle.ConstantTimeCompare(row.SecretHash, sha256Raw(secret)) != 1 {
 		return ResolvedServiceToken{}, ErrInvalidAccessToken
 	}
-	if revokedAt != nil {
+	if row.RevokedAt != nil {
 		return ResolvedServiceToken{}, ErrAccessTokenRevoked
 	}
-	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
+	if row.ExpiresAt != nil && !row.ExpiresAt.After(time.Now().UTC()) {
 		return ResolvedServiceToken{}, ErrAccessTokenExpired
 	}
-	if tenantDeleted != nil {
+	if row.TenantDeletedAt != nil {
 		return ResolvedServiceToken{}, ErrInvalidAccessToken
 	}
 
-	s.touchAccessTokenAsync(id)
-	gotPerms, err := s.listServiceTokenPermissions(ctx, id)
+	s.touchAccessTokenAsync(row.ID)
+	gotPerms, err := s.listServiceTokenPermissions(ctx, row.ID)
 	if err != nil {
 		return ResolvedServiceToken{}, err
 	}
-	resources, err := s.listServiceTokenResources(ctx, id)
+	resources, err := s.listServiceTokenResources(ctx, row.ID)
 	if err != nil {
 		return ResolvedServiceToken{}, err
 	}
 	return ResolvedServiceToken{
-		TokenID:     id,
+		TokenID:     row.ID,
 		KeyID:       keyID,
-		TenantSlug:  slug,
+		TenantSlug:  row.Slug,
 		Permissions: gotPerms,
 		Resources:   resources,
 	}, nil
@@ -464,7 +437,7 @@ func (s *Service) touchAccessTokenAsync(id string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _ = s.pg.Exec(ctx, `UPDATE profiles.service_tokens SET last_used_at=now() WHERE id=$1::uuid`, id)
+		_ = s.q.ServiceTokenTouchLastUsed(ctx, id)
 	}()
 }
 
@@ -479,48 +452,27 @@ func (s *Service) loadServiceTokenPermissions(ctx context.Context, tokens []Serv
 		ids = append(ids, tokens[i].ID)
 		byID[tokens[i].ID] = i
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT service_token_id::text, permission
-		FROM profiles.service_token_permissions
-		WHERE service_token_id = ANY($1::uuid[])
-		ORDER BY service_token_id::text, permission
-	`, ids)
+	rows, err := s.q.ServiceTokenPermissionsByTokenIDs(ctx, ids)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var tokenID, permission string
-		if err := rows.Scan(&tokenID, &permission); err != nil {
-			return err
-		}
-		if i, ok := byID[tokenID]; ok {
-			tokens[i].Permissions = append(tokens[i].Permissions, permission)
+	for _, r := range rows {
+		if i, ok := byID[r.ServiceTokenID]; ok {
+			tokens[i].Permissions = append(tokens[i].Permissions, r.Permission)
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func (s *Service) listServiceTokenPermissions(ctx context.Context, tokenID string) ([]string, error) {
-	rows, err := s.pg.Query(ctx, `
-		SELECT permission
-		FROM profiles.service_token_permissions
-		WHERE service_token_id=$1::uuid
-		ORDER BY permission
-	`, strings.TrimSpace(tokenID))
+	perms, err := s.q.ServiceTokenPermissionsByTokenID(ctx, strings.TrimSpace(tokenID))
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []string{}
-	for rows.Next() {
-		var permission string
-		if err := rows.Scan(&permission); err != nil {
-			return nil, err
-		}
-		out = append(out, permission)
+	if perms == nil {
+		perms = []string{}
 	}
-	return out, rows.Err()
+	return perms, nil
 }
 
 func (s *Service) loadServiceTokenResources(ctx context.Context, tokens []ServiceToken) error {
@@ -534,46 +486,26 @@ func (s *Service) loadServiceTokenResources(ctx context.Context, tokens []Servic
 		ids = append(ids, tokens[i].ID)
 		byID[tokens[i].ID] = i
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT token_id::text, kind, resource_id
-		FROM profiles.service_token_resources
-		WHERE token_id = ANY($1::uuid[])
-		ORDER BY token_id::text, kind, resource_id
-	`, ids)
+	rows, err := s.q.ServiceTokenResourcesByTokenIDs(ctx, ids)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var tokenID, kind, resourceID string
-		if err := rows.Scan(&tokenID, &kind, &resourceID); err != nil {
-			return err
-		}
-		if i, ok := byID[tokenID]; ok {
-			tokens[i].Resources = append(tokens[i].Resources, ServiceTokenResource{Kind: kind, ID: resourceID})
+	for _, r := range rows {
+		if i, ok := byID[r.TokenID]; ok {
+			tokens[i].Resources = append(tokens[i].Resources, ServiceTokenResource{Kind: r.Kind, ID: r.ResourceID})
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func (s *Service) listServiceTokenResources(ctx context.Context, tokenID string) ([]ServiceTokenResource, error) {
-	rows, err := s.pg.Query(ctx, `
-		SELECT kind, resource_id
-		FROM profiles.service_token_resources
-		WHERE token_id=$1::uuid
-		ORDER BY kind, resource_id
-	`, strings.TrimSpace(tokenID))
+	rows, err := s.q.ServiceTokenResourcesByTokenID(ctx, strings.TrimSpace(tokenID))
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []ServiceTokenResource{}
-	for rows.Next() {
-		var r ServiceTokenResource
-		if err := rows.Scan(&r.Kind, &r.ID); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
+	out := make([]ServiceTokenResource, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ServiceTokenResource{Kind: r.Kind, ID: r.ResourceID})
 	}
-	return out, rows.Err()
+	return out, nil
 }

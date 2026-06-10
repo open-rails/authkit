@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
+	"github.com/open-rails/migratekit"
 )
 
 type config struct {
@@ -251,38 +251,16 @@ func runMigrations(ctx context.Context, dbURL string) error {
 		return fmt.Errorf("enable pgcrypto: %w", err)
 	}
 
-	files, err := fs.Glob(pgmigrations.FS, "*.up.sql")
+	// Same runner host applications use: migratekit, name-tracked per app in
+	// public.migrations.
+	ms, err := migratekit.LoadFromFS(pgmigrations.FS)
 	if err != nil {
-		return fmt.Errorf("list migrations: %w", err)
+		return fmt.Errorf("load migrations: %w", err)
 	}
-	if len(files) == 0 {
-		return fmt.Errorf("no postgres migrations found")
-	}
-	sortStrings(files)
-
-	for _, name := range files {
-		sqlBytes, err := pgmigrations.FS.ReadFile(name)
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
-		}
-		if strings.TrimSpace(string(sqlBytes)) == "" {
-			continue
-		}
-		if _, err := sqlDB.ExecContext(ctx, string(sqlBytes)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", name, err)
-		}
+	if err := migratekit.NewPostgres(sqlDB, "authkit").ApplyMigrations(ctx, ms); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
 	}
 	return nil
-}
-
-func sortStrings(v []string) {
-	for i := 0; i < len(v); i++ {
-		for j := i + 1; j < len(v); j++ {
-			if v[j] < v[i] {
-				v[i], v[j] = v[j], v[i]
-			}
-		}
-	}
 }
 
 type mintRequest struct {

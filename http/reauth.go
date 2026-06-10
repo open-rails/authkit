@@ -8,8 +8,11 @@ import (
 	"time"
 
 	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/internal/db"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
+
+func ptr(s string) *string { return &s }
 
 func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
@@ -108,16 +111,11 @@ func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, p
 	if pg == nil {
 		return false
 	}
-	var exists bool
-	err := pg.QueryRow(r.Context(), `
-		SELECT EXISTS (
-			SELECT 1
-			FROM profiles.user_providers
-			WHERE user_id = $1::uuid
-			  AND issuer = $2
-			  AND provider_slug = $3
-		)
-	`, strings.TrimSpace(userID), strings.TrimSpace(issuer), strings.TrimSpace(provider)).Scan(&exists)
+	exists, err := db.New(pg).UserProviderLinkExists(r.Context(), db.UserProviderLinkExistsParams{
+		UserID:       strings.TrimSpace(userID),
+		Issuer:       strings.TrimSpace(issuer),
+		ProviderSlug: ptr(strings.TrimSpace(provider)),
+	})
 	return err == nil && exists
 }
 
@@ -183,22 +181,11 @@ func (s *Service) reauthMethods(r *http.Request, userID string) []string {
 	if pg == nil {
 		return methods
 	}
-	rows, err := pg.Query(r.Context(), `
-		SELECT DISTINCT provider_slug
-		FROM profiles.user_providers
-		WHERE user_id = $1::uuid
-		  AND provider_slug IS NOT NULL
-		ORDER BY provider_slug
-	`, strings.TrimSpace(userID))
+	providers, err := db.New(pg).UserProviderSlugsDistinct(r.Context(), strings.TrimSpace(userID))
 	if err != nil {
 		return methods
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var provider string
-		if err := rows.Scan(&provider); err != nil {
-			continue
-		}
+	for _, provider := range providers {
 		if _, ok := s.oidcManager().IssuerFor(provider); ok {
 			methods = append(methods, provider)
 		}

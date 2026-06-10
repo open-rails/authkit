@@ -228,17 +228,13 @@ func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID s
 		return 0, nil
 	}
 	var lastRenamedAt *time.Time
-	if err := s.pg.QueryRow(ctx, `
-		SELECT renamed_at
-		FROM   profiles.user_renames
-		WHERE  user_id = $1::uuid
-		ORDER  BY renamed_at DESC
-		LIMIT  1
-	`, strings.TrimSpace(userID)).Scan(&lastRenamedAt); err != nil {
+	if v, err := s.q.UserLastRenamedAt(ctx, strings.TrimSpace(userID)); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err
+	} else {
+		lastRenamedAt = &v
 	}
 	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
 		return 0, nil
@@ -256,17 +252,13 @@ func (s *Service) TimeUntilTenantRenameAvailable(ctx context.Context, tenantID s
 		return 0, nil
 	}
 	var lastRenamedAt *time.Time
-	if err := s.pg.QueryRow(ctx, `
-		SELECT renamed_at
-		FROM   profiles.tenant_renames
-		WHERE  tenant_id = $1::uuid
-		ORDER  BY renamed_at DESC
-		LIMIT  1
-	`, strings.TrimSpace(tenantID)).Scan(&lastRenamedAt); err != nil {
+	if v, err := s.q.TenantLastRenamedAt(ctx, strings.TrimSpace(tenantID)); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err
+	} else {
+		lastRenamedAt = &v
 	}
 	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
 		return 0, nil

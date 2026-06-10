@@ -14,13 +14,5 @@ func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
 		return err
 	}
 
-	if _, err := s.pg.Exec(ctx, `
-		DELETE FROM profiles.refresh_sessions
-		WHERE revoked_at IS NOT NULL
-		   OR (expires_at IS NOT NULL AND expires_at <= NOW())
-	`); err != nil {
-		return err
-	}
-
-	return nil
+	return s.q.SessionsDeleteRevokedOrExpired(ctx)
 }

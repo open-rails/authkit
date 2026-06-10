@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // IsAdmin checks whether the given user has the admin role in Postgres.
@@ -25,21 +27,5 @@ func HasRoleDBCheck(ctx context.Context, pg *pgxpool.Pool, userID, role string) 
 	if strings.TrimSpace(role) == "" {
 		return false, errors.New("missing_role")
 	}
-	var hasRole bool
-	err := pg.QueryRow(ctx, `
-            SELECT EXISTS (
-              SELECT 1 FROM profiles.global_user_roles ur
-              JOIN profiles.global_roles r ON ur.role_id = r.id
-              WHERE ur.user_id = $1 AND r.slug = $2
-                AND r.deleted_at IS NULL
-                AND EXISTS (
-                  SELECT 1 FROM profiles.users u
-                  WHERE u.id = $1 AND u.deleted_at IS NULL AND u.banned_at IS NULL
-                )
-            )
-        `, userID, role).Scan(&hasRole)
-	if err != nil {
-		return false, err
-	}
-	return hasRole, nil
+	return db.New(pg).GlobalUserHasActiveRole(ctx, db.GlobalUserHasActiveRoleParams{UserID: userID, Slug: role})
 }

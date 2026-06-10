@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 type TenantInvite struct {
@@ -43,16 +45,28 @@ func (s *Service) CreateTenantInvite(ctx context.Context, tenantSlug, userID, in
 	if err != nil {
 		return nil, err
 	}
-	var out TenantInvite
-	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.tenant_invites (id, tenant_id, user_id, invited_by, role, status, expires_at)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, 'pending', $6)
-		RETURNING id::text, $7, user_id::text, invited_by::text, role, status, expires_at, acted_at, created_at
-	`, inviteID, tenant.ID, userID, invitedBy, role, expiresAt, tenant.Slug).Scan(&out.ID, &out.Tenant, &out.UserID, &out.InvitedBy, &out.Role, &out.Status, &out.ExpiresAt, &out.ActedAt, &out.CreatedAt)
+	row, err := s.q.TenantInviteInsert(ctx, db.TenantInviteInsertParams{
+		ID:        inviteID,
+		TenantID:  tenant.ID,
+		UserID:    userID,
+		InvitedBy: invitedBy,
+		Role:      role,
+		ExpiresAt: expiresAt,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &TenantInvite{
+		ID:        row.ID,
+		Tenant:    tenant.Slug,
+		UserID:    row.UserID,
+		InvitedBy: row.InvitedBy,
+		Role:      row.Role,
+		Status:    row.Status,
+		ExpiresAt: row.ExpiresAt,
+		ActedAt:   row.ActedAt,
+		CreatedAt: row.CreatedAt,
+	}, nil
 }
 
 func (s *Service) ListTenantInvites(ctx context.Context, tenantSlug, status string) ([]TenantInvite, error) {
@@ -64,35 +78,25 @@ func (s *Service) ListTenantInvites(ctx context.Context, tenantSlug, status stri
 		return nil, err
 	}
 	status = strings.TrimSpace(status)
-	var rows pgx.Rows
+	out := make([]TenantInvite, 0, 8)
 	if status == "" {
-		rows, err = s.pg.Query(ctx, `
-			SELECT id::text, $2, user_id::text, invited_by::text, role, status, expires_at, acted_at, created_at
-			FROM profiles.tenant_invites
-			WHERE tenant_id=$1::uuid AND deleted_at IS NULL
-			ORDER BY created_at DESC
-		`, tenant.ID, tenant.Slug)
-	} else {
-		rows, err = s.pg.Query(ctx, `
-			SELECT id::text, $3, user_id::text, invited_by::text, role, status, expires_at, acted_at, created_at
-			FROM profiles.tenant_invites
-			WHERE tenant_id=$1::uuid AND status=$2 AND deleted_at IS NULL
-			ORDER BY created_at DESC
-		`, tenant.ID, status, tenant.Slug)
+		rows, err := s.q.TenantInvitesByTenant(ctx, tenant.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			out = append(out, TenantInvite{ID: r.ID, Tenant: tenant.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
+		}
+		return out, nil
 	}
+	rows, err := s.q.TenantInvitesByTenantStatus(ctx, db.TenantInvitesByTenantStatusParams{TenantID: tenant.ID, Status: status})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]TenantInvite, 0, 8)
-	for rows.Next() {
-		var item TenantInvite
-		if err := rows.Scan(&item.ID, &item.Tenant, &item.UserID, &item.InvitedBy, &item.Role, &item.Status, &item.ExpiresAt, &item.ActedAt, &item.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
+	for _, r := range rows {
+		out = append(out, TenantInvite{ID: r.ID, Tenant: tenant.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([]TenantInvite, error) {
@@ -104,38 +108,25 @@ func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([
 		return nil, fmt.Errorf("invalid_user")
 	}
 	status = strings.TrimSpace(status)
-	var rows pgx.Rows
-	var err error
+	out := make([]TenantInvite, 0, 8)
 	if status == "" {
-		rows, err = s.pg.Query(ctx, `
-			SELECT i.id::text, o.slug, i.user_id::text, i.invited_by::text, i.role, i.status, i.expires_at, i.acted_at, i.created_at
-			FROM profiles.tenant_invites i
-			JOIN profiles.tenants o ON o.id=i.tenant_id
-			WHERE i.user_id=$1::uuid AND i.deleted_at IS NULL AND o.deleted_at IS NULL
-			ORDER BY i.created_at DESC
-		`, userID)
-	} else {
-		rows, err = s.pg.Query(ctx, `
-			SELECT i.id::text, o.slug, i.user_id::text, i.invited_by::text, i.role, i.status, i.expires_at, i.acted_at, i.created_at
-			FROM profiles.tenant_invites i
-			JOIN profiles.tenants o ON o.id=i.tenant_id
-			WHERE i.user_id=$1::uuid AND i.status=$2 AND i.deleted_at IS NULL AND o.deleted_at IS NULL
-			ORDER BY i.created_at DESC
-		`, userID, status)
+		rows, err := s.q.TenantInvitesByUser(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			out = append(out, TenantInvite{ID: r.ID, Tenant: r.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
+		}
+		return out, nil
 	}
+	rows, err := s.q.TenantInvitesByUserStatus(ctx, db.TenantInvitesByUserStatusParams{UserID: userID, Status: status})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]TenantInvite, 0, 8)
-	for rows.Next() {
-		var item TenantInvite
-		if err := rows.Scan(&item.ID, &item.Tenant, &item.UserID, &item.InvitedBy, &item.Role, &item.Status, &item.ExpiresAt, &item.ActedAt, &item.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
+	for _, r := range rows {
+		out = append(out, TenantInvite{ID: r.ID, Tenant: r.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) RevokeTenantInvite(ctx context.Context, tenantSlug, inviteID string) error {
@@ -146,15 +137,11 @@ func (s *Service) RevokeTenantInvite(ctx context.Context, tenantSlug, inviteID s
 	if err != nil {
 		return err
 	}
-	tag, err := s.pg.Exec(ctx, `
-		UPDATE profiles.tenant_invites
-		SET status='revoked', acted_at=now(), updated_at=now()
-		WHERE id=$1::uuid AND tenant_id=$2::uuid AND status='pending' AND deleted_at IS NULL
-	`, strings.TrimSpace(inviteID), tenant.ID)
+	n, err := s.q.TenantInviteRevoke(ctx, db.TenantInviteRevokeParams{ID: strings.TrimSpace(inviteID), TenantID: tenant.ID})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrInviteNotFound
 	}
 	return nil
@@ -182,49 +169,33 @@ func (s *Service) transitionTenantInvite(ctx context.Context, inviteID, userID, 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
 
-	var tenantID, invitee, role, status string
-	var expiresAt *time.Time
-	if err := tx.QueryRow(ctx, `
-		SELECT tenant_id::text, user_id::text, role, status, expires_at
-		FROM profiles.tenant_invites
-		WHERE id=$1::uuid AND deleted_at IS NULL
-	`, inviteID).Scan(&tenantID, &invitee, &role, &status, &expiresAt); err != nil {
+	inv, err := qtx.TenantInviteForUpdate(ctx, inviteID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInviteNotFound
 		}
 		return err
 	}
-	if !strings.EqualFold(invitee, userID) {
+	if !strings.EqualFold(inv.UserID, userID) {
 		return ErrInviteNotForUser
 	}
-	if status != "pending" {
+	if inv.Status != "pending" {
 		return ErrInviteNotPending
 	}
-	if expiresAt != nil && expiresAt.Before(time.Now().UTC()) {
-		_, _ = tx.Exec(ctx, `
-			UPDATE profiles.tenant_invites
-			SET status='expired', acted_at=now(), updated_at=now()
-			WHERE id=$1::uuid
-		`, inviteID)
+	if inv.ExpiresAt != nil && inv.ExpiresAt.Before(time.Now().UTC()) {
+		_ = qtx.TenantInviteMarkExpired(ctx, inviteID)
 		return ErrInviteExpired
 	}
 
 	if target == "accepted" {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-			VALUES ($1::uuid, $2::uuid, $3)
-			ON CONFLICT (tenant_id, user_id) DO UPDATE SET role=EXCLUDED.role, deleted_at=NULL, updated_at=now()
-		`, tenantID, userID, role); err != nil {
+		if err := qtx.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: inv.TenantID, UserID: userID, Role: inv.Role}); err != nil {
 			return err
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `
-		UPDATE profiles.tenant_invites
-		SET status=$2, acted_at=now(), updated_at=now()
-		WHERE id=$1::uuid
-	`, inviteID, target); err != nil {
+	if err := qtx.TenantInviteSetStatus(ctx, db.TenantInviteSetStatusParams{ID: inviteID, Status: target}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 var (
@@ -19,14 +21,6 @@ func normalizeReservedSlug(slug string) string {
 	return strings.ToLower(strings.TrimSpace(slug))
 }
 
-func (s *Service) reservedUserFlagExpr() string {
-	return `CASE
-		WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		ELSE false
-	END`
-}
-
 func (s *Service) setUserReservedTx(ctx context.Context, tx pgx.Tx, userID string, reserved bool) error {
 	if tx == nil {
 		return fmt.Errorf("tx required")
@@ -34,13 +28,7 @@ func (s *Service) setUserReservedTx(ctx context.Context, tx pgx.Tx, userID strin
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	_, err := tx.Exec(ctx, `
-		UPDATE profiles.users
-		SET metadata=jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb($2::boolean), true),
-			updated_at=now()
-		WHERE id=$1::uuid
-	`, userID, reserved)
-	return err
+	return s.q.WithTx(tx).UserSetReserved(ctx, db.UserSetReservedParams{ID: userID, Reserved: reserved})
 }
 
 func (s *Service) setTenantReservedTx(ctx context.Context, tx pgx.Tx, tenantID string, reserved bool) error {
@@ -50,13 +38,7 @@ func (s *Service) setTenantReservedTx(ctx context.Context, tx pgx.Tx, tenantID s
 	if strings.TrimSpace(tenantID) == "" {
 		return fmt.Errorf("invalid_tenant")
 	}
-	_, err := tx.Exec(ctx, `
-		UPDATE profiles.tenants
-		SET metadata=jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb($2::boolean), true),
-			updated_at=now()
-		WHERE id=$1::uuid
-	`, tenantID, reserved)
-	return err
+	return s.q.WithTx(tx).TenantSetReserved(ctx, db.TenantSetReservedParams{ID: tenantID, Reserved: reserved})
 }
 
 // enforceReservedPlaceholderCredentialInvariantTx ensures reserved placeholders
@@ -68,24 +50,14 @@ func (s *Service) enforceReservedPlaceholderCredentialInvariantTx(ctx context.Co
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM profiles.user_passwords WHERE user_id=$1::uuid`, userID); err != nil {
+	qtx := s.q.WithTx(tx)
+	if err := qtx.UserPasswordDelete(ctx, userID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM profiles.user_providers WHERE user_id=$1::uuid`, userID); err != nil {
+	if err := qtx.UserProvidersDeleteByUser(ctx, userID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE profiles.users
-		SET email=NULL,
-			email_verified=false,
-			phone_number=NULL,
-			phone_verified=false,
-			updated_at=now()
-		WHERE id=$1::uuid
-	`, userID); err != nil {
-		return err
-	}
-	return nil
+	return qtx.UserClearLoginIdentifiers(ctx, userID)
 }
 
 func (s *Service) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
@@ -95,8 +67,8 @@ func (s *Service) GetUserMetadata(ctx context.Context, userID string) (map[strin
 	if strings.TrimSpace(userID) == "" {
 		return nil, fmt.Errorf("invalid_user")
 	}
-	var raw []byte
-	if err := s.pg.QueryRow(ctx, `SELECT COALESCE(metadata, '{}'::jsonb) FROM profiles.users WHERE id=$1::uuid`, userID).Scan(&raw); err != nil {
+	raw, err := s.q.UserMetadata(ctx, userID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
@@ -126,16 +98,11 @@ func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch ma
 	if err != nil {
 		return err
 	}
-	tag, err := s.pg.Exec(ctx, `
-		UPDATE profiles.users
-		SET metadata=COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
-			updated_at=now()
-		WHERE id=$1::uuid
-	`, userID, raw)
+	n, err := s.q.UserMetadataPatch(ctx, db.UserMetadataPatchParams{ID: userID, Patch: raw})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrUserNotFound
 	}
 	return nil
@@ -148,8 +115,8 @@ func (s *Service) GetTenantMetadata(ctx context.Context, tenantID string) (map[s
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, fmt.Errorf("invalid_tenant")
 	}
-	var raw []byte
-	if err := s.pg.QueryRow(ctx, `SELECT COALESCE(metadata, '{}'::jsonb) FROM profiles.tenants WHERE id=$1::uuid AND deleted_at IS NULL`, tenantID).Scan(&raw); err != nil {
+	raw, err := s.q.TenantMetadata(ctx, tenantID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTenantNotFound
 		}
@@ -179,16 +146,11 @@ func (s *Service) PatchTenantMetadata(ctx context.Context, tenantID string, patc
 	if err != nil {
 		return err
 	}
-	tag, err := s.pg.Exec(ctx, `
-		UPDATE profiles.tenants
-		SET metadata=COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
-			updated_at=now()
-		WHERE id=$1::uuid AND deleted_at IS NULL
-	`, tenantID, raw)
+	n, err := s.q.TenantMetadataPatch(ctx, db.TenantMetadataPatchParams{ID: tenantID, Patch: raw})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrTenantNotFound
 	}
 	return nil
@@ -219,48 +181,20 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var (
-		existingTenantID       string
-		existingTenantReserved bool
-	)
-	if err := tx.QueryRow(ctx, `
-		SELECT id::text,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-		       END
-		FROM profiles.tenants
-		WHERE slug=$1
-		  AND deleted_at IS NULL
-	`, slug).Scan(&existingTenantID, &existingTenantReserved); err == nil {
-		tenantID = strings.TrimSpace(existingTenantID)
-		if !existingTenantReserved {
+	qtx := s.q.WithTx(tx)
+	if row, err := qtx.TenantIDReservedBySlug(ctx, slug); err == nil {
+		tenantID = strings.TrimSpace(row.ID)
+		if !row.Reserved {
 			return "", "", false, ErrReservedAccountClaimed
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", false, err
 	}
 
-	var (
-		existingUserID   string
-		existingReserved bool
-	)
-	userReservedQuery := `
-		SELECT id::text,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-	       END
-		FROM profiles.users
-		WHERE username=$1
-		  AND deleted_at IS NULL
-	`
-	switch err := tx.QueryRow(ctx, userReservedQuery, slug).Scan(&existingUserID, &existingReserved); {
+	switch row, err := qtx.UserIDReservedByUsername(ctx, &slug); {
 	case err == nil:
-		userID = strings.TrimSpace(existingUserID)
-		if !existingReserved {
+		userID = strings.TrimSpace(row.ID)
+		if !row.Reserved {
 			return "", "", false, ErrReservedAccountClaimed
 		}
 	case errors.Is(err, pgx.ErrNoRows):
@@ -269,23 +203,10 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 	}
 
 	if strings.TrimSpace(userID) != "" && strings.TrimSpace(tenantID) == "" {
-		var existingTenantSlug string
-		switch err := tx.QueryRow(ctx, `
-			SELECT id::text,
-			       slug,
-			       CASE
-			         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-			         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-			         ELSE false
-			       END
-			FROM profiles.tenants
-			WHERE owner_user_id=$1::uuid
-			  AND is_personal=true
-			  AND deleted_at IS NULL
-		`, userID).Scan(&existingTenantID, &existingTenantSlug, &existingTenantReserved); {
+		switch row, err := qtx.PersonalTenantIDSlugReservedByOwner(ctx, userID); {
 		case err == nil:
-			tenantID = strings.TrimSpace(existingTenantID)
-			if !existingTenantReserved {
+			tenantID = strings.TrimSpace(row.ID)
+			if !row.Reserved {
 				return "", "", false, ErrReservedAccountClaimed
 			}
 		case errors.Is(err, pgx.ErrNoRows):

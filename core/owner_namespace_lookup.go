@@ -201,54 +201,34 @@ func (s *Service) ownerNamespaceLookupFromCurrent(out *OwnerNamespaceLookup, use
 }
 
 func (s *Service) lookupOwnerNamespaceCurrentUser(ctx context.Context, slug string) (*ownerNamespaceCurrentUser, error) {
-	var user ownerNamespaceCurrentUser
-	if err := s.pg.QueryRow(ctx, `
-		SELECT id::text,
-		       username::text,
-		       deleted_at IS NOT NULL,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-		       END
-		FROM profiles.users
-		WHERE username=$1
-	`, slug).Scan(&user.id, &user.username, &user.deleted, &user.reserved); err != nil {
+	row, err := s.q.NamespaceUserBySlug(ctx, &slug)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return &user, nil
+	return &ownerNamespaceCurrentUser{id: row.ID, username: row.Username, deleted: row.Deleted, reserved: row.Reserved}, nil
 }
 
 func (s *Service) lookupOwnerNamespaceCurrentTenant(ctx context.Context, slug string) (*ownerNamespaceCurrentTenant, error) {
-	var tenant ownerNamespaceCurrentTenant
-	var stateRaw string
-	var reserved bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT id::text,
-		       slug,
-		       is_personal,
-		       COALESCE(owner_user_id::text, ''),
-		       deleted_at IS NOT NULL,
-		       COALESCE(COALESCE(metadata, '{}'::jsonb)->>'namespace_state', '') AS state_raw,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-		       END AS reserved
-		FROM profiles.tenants
-		WHERE slug=$1
-	`, slug).Scan(&tenant.id, &tenant.slug, &tenant.isPersonal, &tenant.ownerUserID, &tenant.deleted, &stateRaw, &reserved); err != nil {
+	row, err := s.q.NamespaceTenantBySlug(ctx, slug)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	tenant.state = normalizeOwnerNamespaceState(OwnerNamespaceState(stateRaw))
+	tenant := ownerNamespaceCurrentTenant{
+		id:          row.ID,
+		slug:        row.Slug,
+		isPersonal:  row.IsPersonal,
+		ownerUserID: row.OwnerUserID,
+		deleted:     row.Deleted,
+	}
+	tenant.state = normalizeOwnerNamespaceState(OwnerNamespaceState(row.StateRaw))
 	if tenant.state == "" {
-		if reserved {
+		if row.Reserved {
 			tenant.state = OwnerNamespaceStateParkedTenant
 		} else {
 			tenant.state = OwnerNamespaceStateRegistered
@@ -258,61 +238,35 @@ func (s *Service) lookupOwnerNamespaceCurrentTenant(ctx context.Context, slug st
 }
 
 func (s *Service) ownerNamespaceRestrictedNameExists(ctx context.Context, slug string) (bool, error) {
-	var exists bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM profiles.owner_reserved_names WHERE slug=$1)
-	`, slug).Scan(&exists); err != nil {
-		return false, err
-	}
-	return exists, nil
+	return s.q.OwnerReservedNameExists(ctx, slug)
 }
 
 func (s *Service) lookupOwnerNamespaceUserRename(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
-	var userID, username string
-	var deleted bool
-	var renamedAt time.Time
-	if err := s.pg.QueryRow(ctx, `
-		SELECT u.id::text, u.username::text, u.deleted_at IS NOT NULL, r.renamed_at
-		FROM profiles.user_renames r
-		JOIN profiles.users u ON u.id=r.user_id
-		WHERE r.from_slug=$1
-		ORDER BY r.renamed_at DESC
-		LIMIT 1
-	`, slug).Scan(&userID, &username, &deleted, &renamedAt); err != nil {
+	row, err := s.q.NamespaceUserRenameBySlug(ctx, slug)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return ownerNamespaceLookupFromRename(slug, username, userID, renamedAt, deleted, true), nil
+	return ownerNamespaceLookupFromRename(slug, row.Username, row.ID, row.RenamedAt, row.Deleted, true), nil
 }
 
 func (s *Service) lookupOwnerNamespaceTenantRename(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
-	var tenantID, tenantSlug string
-	var isPersonal bool
-	var ownerUserID string
-	var deleted bool
-	var renamedAt time.Time
-	if err := s.pg.QueryRow(ctx, `
-		SELECT o.id::text, o.slug, o.is_personal, COALESCE(o.owner_user_id::text, ''), o.deleted_at IS NOT NULL, r.renamed_at
-		FROM profiles.tenant_renames r
-		JOIN profiles.tenants o ON o.id=r.tenant_id
-		WHERE r.from_slug=$1
-		ORDER BY r.renamed_at DESC
-		LIMIT 1
-	`, slug).Scan(&tenantID, &tenantSlug, &isPersonal, &ownerUserID, &deleted, &renamedAt); err != nil {
+	row, err := s.q.NamespaceTenantRenameBySlug(ctx, slug)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	out := ownerNamespaceLookupFromRename(slug, tenantSlug, tenantID, renamedAt, deleted, false)
-	if !deleted {
+	out := ownerNamespaceLookupFromRename(slug, row.Slug, row.ID, row.RenamedAt, row.Deleted, false)
+	if !row.Deleted {
 		out.Tenant = &OwnerNamespaceLookupTenant{
-			ID:          strings.TrimSpace(tenantID),
-			Slug:        strings.TrimSpace(tenantSlug),
-			IsPersonal:  isPersonal,
-			OwnerUserID: strings.TrimSpace(ownerUserID),
+			ID:          strings.TrimSpace(row.ID),
+			Slug:        strings.TrimSpace(row.Slug),
+			IsPersonal:  row.IsPersonal,
+			OwnerUserID: strings.TrimSpace(row.OwnerUserID),
 			State:       OwnerNamespaceStateRegistered,
 		}
 	}

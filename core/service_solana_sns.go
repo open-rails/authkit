@@ -2,13 +2,14 @@ package core
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 const (
@@ -146,11 +147,7 @@ func (s *Service) ResolveAndStoreSolanaSNS(ctx context.Context, userID, address 
 	if err != nil {
 		return account, err
 	}
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.user_providers
-		SET profile = COALESCE(profile, '{}'::jsonb) || $4::jsonb
-		WHERE user_id = $1 AND issuer = $2 AND subject = $3
-	`, userID, s.solanaIssuer(), address, string(body))
+	err = s.q.UserProviderMergeProfile(ctx, db.UserProviderMergeProfileParams{UserID: userID, Issuer: s.solanaIssuer(), Subject: address, Patch: body})
 	return account, err
 }
 
@@ -160,27 +157,21 @@ func (s *Service) GetSolanaLinkedAccount(ctx context.Context, userID string) (*S
 		return nil, nil
 	}
 
-	var address string
-	var createdAt time.Time
-	var rawProfile sql.NullString
-	err := s.pg.QueryRow(ctx, `
-		SELECT subject, created_at, COALESCE(profile, '{}'::jsonb)::text
-		FROM profiles.user_providers
-		WHERE user_id = $1 AND issuer = $2
-	`, userID, s.solanaIssuer()).Scan(&address, &createdAt, &rawProfile)
+	row, err := s.q.UserProviderSubjectProfileByIssuer(ctx, db.UserProviderSubjectProfileByIssuerParams{UserID: userID, Issuer: s.solanaIssuer()})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	address := row.Subject
 
 	var profile solanaSNSProfile
-	if rawProfile.Valid && strings.TrimSpace(rawProfile.String) != "" {
-		_ = json.Unmarshal([]byte(rawProfile.String), &profile)
+	if strings.TrimSpace(row.Profile) != "" {
+		_ = json.Unmarshal([]byte(row.Profile), &profile)
 	}
 
-	verifiedAt := createdAt.UTC()
+	verifiedAt := row.CreatedAt.UTC()
 	status := strings.TrimSpace(profile.ResolutionStatus)
 	if !s.solanaSNSEnabled() {
 		status = SolanaSNSStatusDisabled

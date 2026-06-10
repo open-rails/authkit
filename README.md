@@ -28,8 +28,22 @@ Packages
 
 Migrations
 - Postgres SQL migrations live in `migrations/postgres/` and are embedded via `go:embed`.
-- Import `github.com/open-rails/authkit/migrations/postgres` and register `Migrations` with your runner, or use `FS`.
+- Run them with [migratekit](https://github.com/open-rails/migratekit), name-tracked per app in `public.migrations` so a recorded migration is never re-applied:
+
+  ```go
+  ms, _ := migratekit.LoadFromFS(pgmigrations.FS)
+  m := migratekit.NewPostgres(sqlDB, "authkit")
+  _ = m.ApplyMigrations(ctx, ms)
+  ```
+
+  The bundled devserver uses this exact path. `FS` remains available for custom runners.
 - PostgreSQL-backed storage requires PostgreSQL 18 or newer. Older PostgreSQL versions are not supported. AuthKit migrations use native `uuidv7()` defaults for AuthKit-owned UUID identifiers; PostgreSQL 17 can store UUIDv7 values but does not provide the required `uuidv7()` function.
+
+Database queries (sqlc)
+- All static Postgres queries are written as raw SQL in `internal/db/queries/*.sql` (one file per domain) and compiled to type-safe Go by [sqlc](https://docs.sqlc.dev) into the `internal/db` package (committed, never hand-edited).
+- To add or change a query: edit the `.sql` file, run `make sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose -f docker-compose.devserver.yaml up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`.
+- The schema source of truth for sqlc is `migrations/postgres/` — generated code is always type-checked against the real migrations. CI fails if `internal/db` drifts from the query files (`make sqlc-check`).
+- Escape hatch: queries whose SQL is assembled at runtime stay on raw pgx with a comment explaining why (currently `core.AdminListUsers` and the advisory-lock path in `core.ReconcileTenantManifest`). ClickHouse queries are out of sqlc's scope.
 
 ---
 

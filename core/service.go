@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	entpg "github.com/open-rails/authkit/entitlements"
+	"github.com/open-rails/authkit/internal/db"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	authlang "github.com/open-rails/authkit/lang"
 	"github.com/open-rails/authkit/password"
@@ -129,6 +129,7 @@ type Service struct {
 	email          EmailSender
 	sms            SMSSender
 	pg             *pgxpool.Pool
+	q              *db.Queries
 	entitlements   EntitlementsProvider
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
@@ -532,8 +533,8 @@ func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSl
 		return "", time.Time{}, err
 	}
 	// Membership check + roles snapshot.
-	var member bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.tenant_memberships WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL)`, tenant.ID, userID).Scan(&member); err != nil {
+	member, err := s.q.TenantMembershipExists(ctx, db.TenantMembershipExistsParams{TenantID: tenant.ID, UserID: userID})
+	if err != nil {
 		return "", time.Time{}, err
 	}
 	if !member {
@@ -581,6 +582,7 @@ func (s *Service) isDevEnvironment() bool {
 // WithPostgres attaches a pgx pool to the service.
 func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
 	s.pg = pool
+	s.q = db.New(pool)
 	// (issue 60) No tenant-mode downgrade safeguard: tenants are always supported,
 	// so there is no single/multi mode to refuse a downgrade into.
 	return s
@@ -787,12 +789,11 @@ func (s *Service) getUserByPhone(ctx context.Context, phone string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE phone_number=$1`, phone)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByPhone(ctx, &phone)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByPhoneRow(r), nil
 }
 
 // setPhoneVerified sets the phone_verified flag for a user.
@@ -800,8 +801,7 @@ func (s *Service) setPhoneVerified(ctx context.Context, id string, v bool) error
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET phone_verified=$2, updated_at=NOW() WHERE id=$1`, id, v)
-	return err
+	return s.q.UserSetPhoneVerifiedByID(ctx, db.UserSetPhoneVerifiedByIDParams{ID: id, PhoneVerified: &v})
 }
 
 // SendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
@@ -1544,14 +1544,11 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 	email = NormalizeEmail(email)
 	username = strings.TrimSpace(username)
 	if s.pg != nil {
-		err := s.pg.QueryRow(ctx, `
-			SELECT
-				EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1)),
-				EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
-		`, email, username).Scan(&emailTaken, &usernameTaken)
+		taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username})
 		if err != nil {
 			return false, false, err
 		}
+		emailTaken, usernameTaken = taken.EmailTaken, taken.UsernameTaken
 	}
 
 	if emailTaken || usernameTaken {
@@ -1711,14 +1708,11 @@ func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, use
 	username = strings.TrimSpace(username)
 
 	if s.pg != nil {
-		err := s.pg.QueryRow(ctx, `
-			SELECT
-				EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1),
-				EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
-		`, phone, username).Scan(&phoneTaken, &usernameTaken)
+		taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{Phone: phone, Username: username})
 		if err != nil {
 			return false, false, err
 		}
+		phoneTaken, usernameTaken = taken.PhoneTaken, taken.UsernameTaken
 	}
 
 	if phoneTaken || usernameTaken {
@@ -1742,15 +1736,15 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `
-		SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, deleted_at, biography, created_at, updated_at, last_login
-		FROM profiles.users WHERE phone_number = $1
-	`, phone)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByPhone(ctx, &phone)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	u := userFromByPhoneRow(r)
+	// Match the historical narrow projection of this lookup: banned_until,
+	// ban_reason, and banned_by were not selected here.
+	u.BannedUntil, u.BanReason, u.BannedBy = nil, nil, nil
+	return u, nil
 }
 
 // --- Phone Verification (for existing users with unverified phones) ---
@@ -1846,7 +1840,6 @@ func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, cod
 	hash := sha256Hex(code)
 
 	var userID string
-	var err error
 	if s.useEphemeralStore() {
 		uid, err := s.consumePhoneVerification(ctx, "verify_phone", phone, hash)
 		if err != nil {
@@ -1858,13 +1851,7 @@ func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, cod
 	}
 
 	// Mark phone as verified
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.users 
-		SET phone_verified = true 
-		WHERE id = $1 AND phone_number = $2
-	`, userID, phone)
-
-	if err != nil {
+	if err := s.q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: &phone}); err != nil {
 		return "", err
 	}
 	return userID, nil
@@ -1884,12 +1871,7 @@ func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, tok
 		return "", err
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.users
-		SET phone_verified = true
-		WHERE id = $1 AND phone_number = $2
-	`, userID, phone)
-	if err != nil {
+	if err := s.q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: &phone}); err != nil {
 		return "", err
 	}
 	return userID, nil
@@ -1988,6 +1970,22 @@ type User struct {
 	LastLogin       *time.Time
 }
 
+func userFromByIDRow(r db.UserByIDRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByEmailRow(r db.UserByEmailRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByUsernameRow(r db.UserByUsernameRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByPhoneRow(r db.UserByPhoneRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
 var preferredLocaleRe = regexp.MustCompile(`^[A-Za-z]{2,3}(-([A-Za-z]{2}|[0-9]{3}))?$`)
 
 func NormalizePreferredLocale(locale string) (string, error) {
@@ -2036,34 +2034,16 @@ func (s *Service) SetPreferredLocale(ctx context.Context, userID, locale, source
 	if userID == "" || normalized == "" {
 		return fmt.Errorf("invalid_request")
 	}
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.users
-		SET preferred_locale = $2,
-		    preferred_locale_source = $3,
-		    preferred_locale_updated_at = now(),
-		    updated_at = now()
-		WHERE id = $1::uuid
-	`, userID, normalized, normalizePreferredLocaleSource(source))
-	return err
+	src := normalizePreferredLocaleSource(source)
+	return s.q.UserSetPreferredLocale(ctx, db.UserSetPreferredLocaleParams{ID: userID, PreferredLocale: &normalized, PreferredLocaleSource: &src})
 }
 
 func (s *Service) GetPreferredLocale(ctx context.Context, userID string) (PreferredLocale, error) {
 	if s.pg == nil {
 		return PreferredLocale{}, nil
 	}
-	var out PreferredLocale
-	var updatedAt sql.NullTime
-	err := s.pg.QueryRow(ctx, `
-		SELECT COALESCE(preferred_locale, ''),
-		       COALESCE(preferred_locale_source, ''),
-		       preferred_locale_updated_at
-		FROM profiles.users
-		WHERE id = $1::uuid
-	`, strings.TrimSpace(userID)).Scan(&out.Locale, &out.Source, &updatedAt)
-	if updatedAt.Valid {
-		out.UpdatedAt = &updatedAt.Time
-	}
-	return out, err
+	row, err := s.q.UserPreferredLocale(ctx, strings.TrimSpace(userID))
+	return PreferredLocale{Locale: row.Locale, Source: row.Source, UpdatedAt: row.PreferredLocaleUpdatedAt}, err
 }
 
 func contextWithPreferredLocale(ctx context.Context, locale string) context.Context {
@@ -2104,36 +2084,33 @@ func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE lower(email)=lower($1)`, email)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByEmail(ctx, email)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByEmailRow(r), nil
 }
 
 func (s *Service) getUserByUsername(ctx context.Context, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE username=$1`, username)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByUsername(ctx, &username)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByUsernameRow(r), nil
 }
 
 func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE id=$1`, id)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByID(ctx, id)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByIDRow(r), nil
 }
 
 func (s *Service) ensureUserAccess(ctx context.Context, u *User) error {
@@ -2205,11 +2182,11 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if err != nil {
 		return nil, err
 	}
-	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (id, email, username) VALUES ($1::uuid, NULLIF(lower($2), ''), $3) RETURNING id, email, username, email_verified, banned_at, deleted_at`, userID, email, username)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.BannedAt, &u.DeletedAt); err != nil {
+	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username})
+	if err != nil {
 		return nil, err
 	}
+	u := User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 
 	if s.opts.AutoCreatePersonalTenantsEnabled() {
 		if err := s.ensurePersonalTenantForUser(ctx, u.ID, username); err != nil {
@@ -2219,18 +2196,20 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	return &u, nil
 }
 
-func normalizeImportUserInput(input ImportUserInput) (email any, phone any, username string, bannedBy any, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
+func normalizeImportUserInput(input ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
 	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
 		if err := ValidateEmail(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 		}
-		email = NormalizeEmail(trimmed)
+		v := NormalizeEmail(trimmed)
+		email = &v
 	}
 	if trimmed := strings.TrimSpace(input.PhoneNumber); trimmed != "" {
 		if err := ValidatePhone(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 		}
-		phone = NormalizePhone(trimmed)
+		v := NormalizePhone(trimmed)
+		phone = &v
 	}
 	username = strings.TrimSpace(input.Username)
 	slug := ownerSlugFromUsername(username)
@@ -2238,7 +2217,8 @@ func normalizeImportUserInput(input ImportUserInput) (email any, phone any, user
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, fmt.Errorf("invalid_username_for_owner_namespace")
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
-		bannedBy = strings.TrimSpace(*input.BannedBy)
+		v := strings.TrimSpace(*input.BannedBy)
+		bannedBy = &v
 	}
 	rawMetadata := input.Metadata
 	if rawMetadata == nil {
@@ -2276,16 +2256,21 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.users (
-			id, email, phone_number, username, email_verified, phone_verified,
-			banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
-		)
-		VALUES (
-			$1::uuid, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10::uuid, $11::jsonb, $12, $13
-		)
-	`, userID, email, phone, username, input.EmailVerified, input.PhoneVerified, input.BannedAt, input.BannedUntil, input.BanReason, bannedBy, metadata, createdAt, updatedAt)
+	err = s.q.UserImportInsert(ctx, db.UserImportInsertParams{
+		ID:            userID,
+		Email:         email,
+		PhoneNumber:   phone,
+		Username:      &username,
+		EmailVerified: input.EmailVerified,
+		PhoneVerified: &input.PhoneVerified,
+		BannedAt:      input.BannedAt,
+		BannedUntil:   input.BannedUntil,
+		BanReason:     input.BanReason,
+		BannedBy:      bannedBy,
+		Metadata:      []byte(metadata),
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2313,24 +2298,21 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
 		return nil, err
 	}
-	var updatedID string
-	err = s.pg.QueryRow(ctx, `
-		UPDATE profiles.users
-		SET email = COALESCE($2, email),
-		    phone_number = COALESCE($3, phone_number),
-		    username = $4,
-		    email_verified = $5,
-		    phone_verified = $6,
-		    banned_at = $7,
-		    banned_until = $8,
-		    ban_reason = $9,
-		    banned_by = $10::uuid,
-		    metadata = COALESCE(metadata, '{}'::jsonb) || $11::jsonb,
-		    created_at = CASE WHEN $12 < created_at THEN $12 ELSE created_at END,
-		    updated_at = $13
-		WHERE id = $1::uuid
-		RETURNING id::text
-	`, userID, email, phone, username, input.EmailVerified, input.PhoneVerified, input.BannedAt, input.BannedUntil, input.BanReason, bannedBy, metadata, createdAt, updatedAt).Scan(&updatedID)
+	updatedID, err := s.q.UserImportUpdate(ctx, db.UserImportUpdateParams{
+		ID:            userID,
+		Email:         email,
+		PhoneNumber:   phone,
+		Username:      &username,
+		EmailVerified: input.EmailVerified,
+		PhoneVerified: &input.PhoneVerified,
+		BannedAt:      input.BannedAt,
+		BannedUntil:   input.BannedUntil,
+		BanReason:     input.BanReason,
+		BannedBy:      bannedBy,
+		Metadata:      []byte(metadata),
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
@@ -2349,8 +2331,7 @@ func (s *Service) setEmailVerified(ctx context.Context, id string, v bool) error
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET email_verified=$2, updated_at=NOW() WHERE id=$1`, id, v)
-	return err
+	return s.q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: id, EmailVerified: v})
 }
 
 func (s *Service) createVerifiedRegistrationUser(ctx context.Context, email, username, passwordHash string) (string, error) {
@@ -2378,11 +2359,7 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 		return "", fmt.Errorf("failed to create user")
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
-		VALUES ($1, $2, 'argon2id')
-	`, u.ID, passwordHash)
-	if err != nil {
+	if err := s.q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: u.ID, PasswordHash: passwordHash}); err != nil {
 		return "", err
 	}
 
@@ -2414,20 +2391,11 @@ func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, userna
 		return "", fmt.Errorf("failed to create user")
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
-		VALUES ($1, $2, 'argon2id')
-	`, u.ID, passwordHash)
-	if err != nil {
+	if err := s.q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: u.ID, PasswordHash: passwordHash}); err != nil {
 		return "", err
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.users
-		SET phone_number=$2, phone_verified=$3, updated_at=NOW()
-		WHERE id=$1
-	`, u.ID, phone, phoneVerified)
-	if err != nil {
+	if err := s.q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: u.ID, PhoneNumber: &phone, PhoneVerified: &phoneVerified}); err != nil {
 		return "", err
 	}
 
@@ -2438,8 +2406,7 @@ func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) erro
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET last_login=$2, updated_at=NOW() WHERE id=$1`, id, t)
-	return err
+	return s.q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: id, LastLogin: &t})
 }
 
 func (s *Service) clearUserBan(ctx context.Context, userID string) error {
@@ -2449,8 +2416,7 @@ func (s *Service) clearUserBan(ctx context.Context, userID string) error {
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=NULL, banned_until=NULL, ban_reason=NULL, banned_by=NULL, updated_at=NOW() WHERE id=$1`, userID)
-	return err
+	return s.q.UserClearBan(ctx, userID)
 }
 
 // BanUser disables a user account and stores ban metadata.
@@ -2478,8 +2444,7 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 		t := until.UTC()
 		untilPtr = &t
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=$2, banned_until=$3, ban_reason=$4, banned_by=$5, updated_at=NOW() WHERE id=$1`, userID, now, untilPtr, reasonPtr, bannedByPtr)
-	if err != nil {
+	if err := s.q.UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: bannedByPtr}); err != nil {
 		return err
 	}
 	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonBanned), userID, nil)
@@ -2500,8 +2465,7 @@ func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	// Revoke sessions first
 	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonSoftDeleted), id, nil)
 	// Soft-delete user
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET deleted_at=now(), updated_at=now() WHERE id=$1`, id)
-	return err
+	return s.q.UserSoftDelete(ctx, id)
 }
 
 // RestoreUser clears deleted_at and re-enables the account.
@@ -2509,8 +2473,7 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET deleted_at=NULL, updated_at=now() WHERE id=$1`, id)
-	return err
+	return s.q.UserRestore(ctx, id)
 }
 
 // HostDeleteUser performs deletion on behalf of the host application.
@@ -2548,9 +2511,10 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
 
-	var oldUsername string
-	if err := tx.QueryRow(ctx, `SELECT username::text FROM profiles.users WHERE id=$1::uuid`, id).Scan(&oldUsername); err != nil {
+	oldUsername, err := qtx.UserUsernameByID(ctx, id)
+	if err != nil {
 		return err
 	}
 	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
@@ -2565,89 +2529,62 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	// by-product, not separately rate-limited. Walks the
 	// `(user_id, renamed_at DESC)` index to grab the most recent rename.
 	if !bypassCooldown {
-		var lastRenamedAt *time.Time
-		if err := tx.QueryRow(ctx, `
-			SELECT renamed_at
-			FROM   profiles.user_renames
-			WHERE  user_id = $1::uuid
-			ORDER  BY renamed_at DESC
-			LIMIT  1
-		`, id).Scan(&lastRenamedAt); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		lastRenamedAt, err := qtx.UserLastRenamedAt(ctx, id)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if lastRenamedAt != nil && time.Since(*lastRenamedAt) < renameCooldown {
+		if err == nil && time.Since(lastRenamedAt) < renameCooldown {
 			return ErrRenameRateLimited
 		}
 	}
 
-	_, err = tx.Exec(ctx, `UPDATE profiles.users SET username=$2, updated_at=NOW() WHERE id=$1`, id, newUsername)
-	if err != nil {
+	if err := qtx.UserSetUsername(ctx, db.UserSetUsernameParams{ID: id, Username: &newUsername}); err != nil {
 		return err
 	}
 	// Audit row for the user rename.
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.user_renames (user_id, from_slug)
-		VALUES ($1::uuid, $2)
-	`, id, strings.ToLower(strings.TrimSpace(oldUsername))); err != nil {
+	if err := qtx.UserRenameInsert(ctx, db.UserRenameInsertParams{UserID: id, FromSlug: strings.ToLower(strings.TrimSpace(oldUsername))}); err != nil {
 		return err
 	}
 
 	if s.opts.AutoCreatePersonalTenantsEnabled() {
 		var tenantID, oldTenantSlug string
-		err := tx.QueryRow(ctx, `
-			SELECT id::text, slug
-			FROM profiles.tenants
-			WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
-		`, id).Scan(&tenantID, &oldTenantSlug)
+		pt, err := qtx.PersonalTenantIDSlugByOwner(ctx, id)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
+		}
+		if err == nil {
+			tenantID, oldTenantSlug = pt.ID, pt.Slug
 		}
 		if strings.TrimSpace(tenantID) == "" {
 			derivedTenantID, err := newUUIDV7String()
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.tenants (id, slug, is_personal, owner_user_id)
-				VALUES ($1::uuid, $2, true, $3::uuid)
-			`, derivedTenantID, newSlug, id); err != nil {
+			if err := qtx.PersonalTenantInsertBasic(ctx, db.PersonalTenantInsertBasicParams{ID: derivedTenantID, Slug: newSlug, OwnerUserID: id}); err != nil {
 				return err
 			}
-			if err := tx.QueryRow(ctx, `
-				SELECT id::text
-				FROM profiles.tenants
-				WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
-			`, id).Scan(&tenantID); err != nil {
+			pt, err := qtx.PersonalTenantIDSlugByOwner(ctx, id)
+			if err != nil {
 				return err
 			}
+			tenantID = pt.ID
 		} else if !strings.EqualFold(oldTenantSlug, newSlug) {
 			// Personal-tenant rename rides the user-rename intent — write
 			// the tenant_renames audit row in the same tx. Cooldown was
 			// already checked against user_renames above; we don't
 			// re-gate here.
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.tenant_renames (tenant_id, from_slug)
-				VALUES ($1::uuid, $2)
-			`, tenantID, strings.ToLower(strings.TrimSpace(oldTenantSlug))); err != nil {
+			if err := qtx.TenantRenameInsert(ctx, db.TenantRenameInsertParams{TenantID: tenantID, FromSlug: strings.ToLower(strings.TrimSpace(oldTenantSlug))}); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE profiles.tenants SET slug=$1, updated_at=now() WHERE id=$2::uuid`, newSlug, tenantID); err != nil {
+			if err := qtx.TenantUpdateSlugUnconditional(ctx, db.TenantUpdateSlugUnconditionalParams{Slug: newSlug, ID: tenantID}); err != nil {
 				return err
 			}
 		}
 		if strings.TrimSpace(tenantID) != "" {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.tenant_roles (tenant_id, role)
-				VALUES ($1::uuid, 'owner'), ($1::uuid, 'member')
-				ON CONFLICT (tenant_id, role) DO NOTHING
-			`, tenantID); err != nil {
+			if err := qtx.TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-				VALUES ($1::uuid, $2::uuid, 'owner')
-				ON CONFLICT (tenant_id, user_id) DO UPDATE SET role='owner', deleted_at=NULL, updated_at=now()
-			`, tenantID, id); err != nil {
+			if err := qtx.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: tenantID, UserID: id, Role: tenantOwnerRole}); err != nil {
 				return err
 			}
 		}
@@ -2676,7 +2613,7 @@ func (s *Service) updateEmail(ctx context.Context, id, email string) error {
 		return nil
 	}
 
-	if _, err := s.pg.Exec(ctx, `UPDATE profiles.users SET email=lower($2), email_verified=false, updated_at=NOW() WHERE id=$1`, id, trimmed); err != nil {
+	if err := s.q.UserSetEmailAndUnverify(ctx, db.UserSetEmailAndUnverifyParams{ID: id, Email: trimmed}); err != nil {
 		return err
 	}
 
@@ -2865,8 +2802,7 @@ func (s *Service) updateBiography(ctx context.Context, id string, bio *string) e
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET biography=$2, updated_at=NOW() WHERE id=$1`, id, bio)
-	return err
+	return s.q.UserSetBiography(ctx, db.UserSetBiographyParams{ID: id, Biography: bio})
 }
 
 // setPasswordSet removed; presence of password is inferred from profiles.user_passwords
@@ -2875,19 +2811,15 @@ func (s *Service) getPasswordHash(ctx context.Context, userID string) (hash, alg
 	if s.pg == nil {
 		return "", "", nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT password_hash, hash_algo, COALESCE(hash_params,'{}'::jsonb) FROM profiles.user_passwords WHERE user_id=$1`, userID)
-	err = row.Scan(&hash, &algo, &params)
-	return
+	row, err := s.q.UserPasswordRow(ctx, userID)
+	return row.PasswordHash, row.HashAlgo, row.HashParams, err
 }
 
 func (s *Service) upsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo, hash_params)
-VALUES ($1,$2,$3,$4)
-ON CONFLICT (user_id) DO UPDATE SET password_hash=EXCLUDED.password_hash, hash_algo=EXCLUDED.hash_algo, hash_params=EXCLUDED.hash_params, password_updated_at=NOW()`, userID, hash, algo, params)
-	return err
+	return s.q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo, HashParams: params})
 }
 
 // email verification tokens
@@ -2926,20 +2858,16 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 	if s.pg == nil {
 		return nil
 	}
-	rows, err := s.pg.Query(ctx, `SELECT r.slug FROM profiles.global_user_roles ur JOIN profiles.global_roles r ON ur.role_id=r.id WHERE ur.user_id=$1 AND r.deleted_at IS NULL`, userID)
+	slugs, err := s.q.GlobalRoleSlugsByUser(ctx, userID)
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
 	var out []string
-	for rows.Next() {
-		var slug string
-		if rows.Scan(&slug) == nil {
-			if strings.EqualFold(strings.TrimSpace(slug), "owner") {
-				continue
-			}
-			out = append(out, slug)
+	for _, slug := range slugs {
+		if strings.EqualFold(strings.TrimSpace(slug), "owner") {
+			continue
 		}
+		out = append(out, slug)
 	}
 	return out
 }
@@ -2955,16 +2883,15 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 	if s.pg == nil {
 		return nil
 	}
-	var roleID string
-	if err := s.pg.QueryRow(ctx, `SELECT id FROM profiles.global_roles WHERE slug=$1`, slug).Scan(&roleID); err != nil {
+	roleID, err := s.q.GlobalRoleIDBySlug(ctx, slug)
+	if err != nil {
 		return err
 	}
 	userRoleID, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.global_user_roles (id, user_id, role_id) VALUES ($1,$2,$3) ON CONFLICT (user_id, role_id) DO NOTHING`, userRoleID, userID, roleID)
-	return err
+	return s.q.GlobalUserRoleInsert(ctx, db.GlobalUserRoleInsertParams{ID: userRoleID, UserID: userID, RoleID: roleID})
 }
 
 func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
@@ -2982,16 +2909,7 @@ func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, descr
 	if name == "" {
 		name = slug
 	}
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.global_roles (name, slug, description)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (slug) DO UPDATE SET
-			name = EXCLUDED.name,
-			description = EXCLUDED.description,
-			updated_at = NOW(),
-			deleted_at = NULL
-	`, name, slug, description)
-	return err
+	return s.q.GlobalRoleUpsert(ctx, db.GlobalRoleUpsertParams{Name: name, Slug: slug, Description: description})
 }
 
 func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) error {
@@ -3002,11 +2920,11 @@ func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) err
 	if roleSlug == "admin" {
 		return s.removeAdminRoleIfNotLast(ctx, userID)
 	}
-	tag, err := s.pg.Exec(ctx, `DELETE FROM profiles.global_user_roles ur USING profiles.global_roles r WHERE ur.role_id=r.id AND ur.user_id=$1 AND r.slug=$2 AND r.deleted_at IS NULL`, userID, roleSlug)
+	n, err := s.q.GlobalUserRoleDeleteBySlug(ctx, db.GlobalUserRoleDeleteBySlugParams{UserID: userID, Slug: roleSlug})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrUserRoleNotFound
 	}
 	return nil
@@ -3018,43 +2936,37 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 		return err
 	}
 	defer tx.Rollback(ctx)
+	qtx := s.q.WithTx(tx)
 
-	var roleID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM profiles.global_roles WHERE slug='admin' AND deleted_at IS NULL FOR UPDATE`).Scan(&roleID); err != nil {
+	roleID, err := qtx.GlobalAdminRoleIDForUpdate(ctx)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrUserRoleNotFound
 		}
 		return err
 	}
 
-	var hasRole bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.global_user_roles WHERE user_id=$1 AND role_id=$2)`, userID, roleID).Scan(&hasRole); err != nil {
+	hasRole, err := qtx.GlobalUserRoleExists(ctx, db.GlobalUserRoleExistsParams{UserID: userID, RoleID: roleID})
+	if err != nil {
 		return err
 	}
 	if !hasRole {
 		return ErrUserRoleNotFound
 	}
 
-	var activeAdminCount int64
-	if err := tx.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM profiles.global_user_roles ur
-		JOIN profiles.users u ON u.id=ur.user_id
-		WHERE ur.role_id=$1
-		  AND u.deleted_at IS NULL
-		  AND u.banned_at IS NULL
-	`, roleID).Scan(&activeAdminCount); err != nil {
+	activeAdminCount, err := qtx.GlobalActiveAdminCount(ctx, roleID)
+	if err != nil {
 		return err
 	}
 	if activeAdminCount <= 1 {
 		return ErrCannotRemoveLastAdminRole
 	}
 
-	tag, err := tx.Exec(ctx, `DELETE FROM profiles.global_user_roles WHERE user_id=$1 AND role_id=$2`, userID, roleID)
+	n, err := qtx.GlobalUserRoleDelete(ctx, db.GlobalUserRoleDeleteParams{UserID: userID, RoleID: roleID})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrUserRoleNotFound
 	}
 	return tx.Commit(ctx)
@@ -3201,6 +3113,8 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 		argIdx++
 	}
 
+	// Intentionally raw pgx (not sqlc): the filter/search/pagination clauses
+	// are assembled at runtime, which sqlc's static compilation cannot express.
 	countQuery := "SELECT COUNT(DISTINCT u.id) FROM " + from + " WHERE " + strings.Join(where, " AND ")
 	var total int64
 	if err := s.pg.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
@@ -3258,10 +3172,9 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 		return nil
 	}
 	// Revoke all sessions
-	_, _ = s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE user_id=$1 AND issuer=$2`, id, s.opts.Issuer)
+	_ = s.q.SessionsRevokeAllQuiet(ctx, db.SessionsRevokeAllQuietParams{UserID: id, Issuer: s.opts.Issuer})
 	// Delete user
-	_, err := s.pg.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, id)
-	return err
+	return s.q.UserDeleteHard(ctx, id)
 }
 
 // Additional public helpers used by OIDC flow
@@ -3423,24 +3336,21 @@ func (s *Service) countProviderLinks(ctx context.Context, userID string) int {
 	if s.pg == nil {
 		return 0
 	}
-	var n int
-	_ = s.pg.QueryRow(ctx, `SELECT count(*) FROM profiles.user_providers WHERE user_id=$1`, userID).Scan(&n)
-	return n
+	n, _ := s.q.UserProvidersCount(ctx, userID)
+	return int(n)
 }
 func (s *Service) hasPassword(ctx context.Context, userID string) bool {
 	if s.pg == nil {
 		return false
 	}
-	var exists bool
-	_ = s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.user_passwords WHERE user_id=$1)`, userID).Scan(&exists)
+	exists, _ := s.q.UserHasPassword(ctx, userID)
 	return exists
 }
 func (s *Service) unlinkProvider(ctx context.Context, userID, provider string) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `DELETE FROM profiles.user_providers WHERE user_id=$1 AND provider_slug=$2`, userID, provider)
-	return err
+	return s.q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider})
 }
 
 // Public wrappers
@@ -3465,20 +3375,20 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 		return nil
 	}
 	// First delete old Discord link if user is switching to a different Discord account
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.user_providers WHERE user_id=$1 AND issuer=$2 AND subject != $3`, userID, issuer, subject)
+	_ = s.q.UserProviderDeleteOtherSubjects(ctx, db.UserProviderDeleteOtherSubjectsParams{UserID: userID, Issuer: issuer, Subject: subject})
 	// Then insert/update the new link
 	providerID, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
-		VALUES ($1,$2,$3,$4,$5,$6)
-		ON CONFLICT (issuer, subject) DO UPDATE
-		SET email_at_provider=EXCLUDED.email_at_provider,
-		    provider_slug=COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
-	`, providerID, userID, issuer, providerSlug, subject, email)
-	if err != nil {
+	if err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+		ID:              providerID,
+		UserID:          userID,
+		Issuer:          issuer,
+		ProviderSlug:    &providerSlug,
+		Subject:         subject,
+		EmailAtProvider: email,
+	}); err != nil {
 		return err
 	}
 	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() {
@@ -3519,26 +3429,22 @@ func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, s
 	if s.pg == nil {
 		return "", nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT user_id, email_at_provider FROM profiles.user_providers WHERE issuer=$1 AND subject=$2`, issuer, subject)
-	var uid string
-	var e *string
-	if err := row.Scan(&uid, &e); err != nil {
+	row, err := s.q.ProviderLinkByIssuer(ctx, db.ProviderLinkByIssuerParams{Issuer: issuer, Subject: subject})
+	if err != nil {
 		return "", nil, err
 	}
-	return uid, e, nil
+	return row.UserID, row.EmailAtProvider, nil
 }
 
 func (s *Service) getProviderLinkBySlug(ctx context.Context, providerSlug, subject string) (userID string, email *string, err error) {
 	if s.pg == nil {
 		return "", nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT user_id, email_at_provider FROM profiles.user_providers WHERE provider_slug=$1 AND subject=$2`, providerSlug, subject)
-	var uid string
-	var e *string
-	if err := row.Scan(&uid, &e); err != nil {
+	row, err := s.q.ProviderLinkBySlug(ctx, db.ProviderLinkBySlugParams{ProviderSlug: &providerSlug, Subject: subject})
+	if err != nil {
 		return "", nil, err
 	}
-	return uid, e, nil
+	return row.UserID, row.EmailAtProvider, nil
 }
 
 func (s *Service) linkProvider(ctx context.Context, userID, issuer, subject string, email *string) error {
@@ -3549,10 +3455,7 @@ func (s *Service) linkProvider(ctx context.Context, userID, issuer, subject stri
 	if err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.user_providers (id, user_id, issuer, subject, email_at_provider)
-        VALUES ($1,$2,$3,$4,$5)
-        ON CONFLICT (issuer, subject) DO UPDATE SET email_at_provider=EXCLUDED.email_at_provider`, providerID, userID, issuer, subject, email)
-	return err
+	return s.q.UserProviderInsertSimple(ctx, db.UserProviderInsertSimpleParams{ID: providerID, UserID: userID, Issuer: issuer, Subject: subject, EmailAtProvider: email})
 }
 
 // setProviderUsername stores a provider-specific username into profile jsonb as {"username": <value>}.
@@ -3560,9 +3463,7 @@ func (s *Service) setProviderUsername(ctx context.Context, userID, issuer, subje
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.user_providers SET profile = jsonb_build_object('username', $4)
-        WHERE user_id=$1 AND issuer=$2 AND subject=$3`, userID, issuer, subject, username)
-	return err
+	return s.q.UserProviderSetUsername(ctx, db.UserProviderSetUsernameParams{UserID: userID, Issuer: issuer, Subject: subject, Username: username})
 }
 
 // getProviderUsername fetches provider profile->>'username' for the given user (first match by provider).
@@ -3570,8 +3471,7 @@ func (s *Service) getProviderUsername(ctx context.Context, userID, provider stri
 	if s.pg == nil {
 		return "", nil
 	}
-	var uname *string
-	err := s.pg.QueryRow(ctx, `SELECT profile->>'username' FROM profiles.user_providers WHERE user_id=$1 AND provider_slug=$2 ORDER BY created_at DESC LIMIT 1`, userID, provider).Scan(&uname)
+	uname, err := s.q.UserProviderUsername(ctx, db.UserProviderUsernameParams{UserID: userID, ProviderSlug: &provider})
 	if err != nil {
 		return "", err
 	}
@@ -3614,8 +3514,7 @@ func (s *Service) getDiscordUsername(ctx context.Context, userID string) (string
 		return "", nil
 	}
 	// Prefer stored column
-	var uname *string
-	if err := s.pg.QueryRow(ctx, `SELECT discord_username FROM profiles.users WHERE id=$1`, userID).Scan(&uname); err == nil {
+	if uname, err := s.q.UserDiscordUsername(ctx, userID); err == nil {
 		if uname != nil {
 			return *uname, nil
 		}
@@ -3735,17 +3634,7 @@ func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNum
 	}
 
 	// Insert or update 2FA settings
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.two_factor_settings (user_id, enabled, method, phone_number, backup_codes, updated_at)
-		VALUES ($1, true, $2, $3, $4, NOW())
-		ON CONFLICT (user_id) DO UPDATE SET
-			enabled = true,
-			method = $2,
-			phone_number = $3,
-			backup_codes = $4,
-			updated_at = NOW()
-	`, userID, method, phoneNumber, hashedCodes)
-	if err != nil {
+	if err := s.q.TwoFactorEnable(ctx, db.TwoFactorEnableParams{UserID: userID, Method: method, PhoneNumber: phoneNumber, BackupCodes: hashedCodes}); err != nil {
 		return nil, err
 	}
 
@@ -3758,12 +3647,7 @@ func (s *Service) Disable2FA(ctx context.Context, userID string) error {
 		return fmt.Errorf("postgres not configured")
 	}
 
-	_, err := s.pg.Exec(ctx, `
-		UPDATE profiles.two_factor_settings
-		SET enabled = false, updated_at = NOW()
-		WHERE user_id = $1
-	`, userID)
-	return err
+	return s.q.TwoFactorDisable(ctx, userID)
 }
 
 // Get2FASettings retrieves a user's 2FA settings
@@ -3772,21 +3656,19 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 		return nil, fmt.Errorf("postgres not configured")
 	}
 
-	row := s.pg.QueryRow(ctx, `
-		SELECT user_id, enabled, method, phone_number, backup_codes, created_at, updated_at
-		FROM profiles.two_factor_settings
-		WHERE user_id = $1
-	`, userID)
-
-	var settings TwoFactorSettings
-	var backupCodes []string
-	err := row.Scan(&settings.UserID, &settings.Enabled, &settings.Method, &settings.PhoneNumber, &backupCodes, &settings.CreatedAt, &settings.UpdatedAt)
+	row, err := s.q.TwoFactorSettingsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	settings.BackupCodes = backupCodes
-
-	return &settings, nil
+	return &TwoFactorSettings{
+		UserID:      row.UserID,
+		Enabled:     row.Enabled,
+		Method:      row.Method,
+		PhoneNumber: row.PhoneNumber,
+		BackupCodes: row.BackupCodes,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
+	}, nil
 }
 
 // Require2FAForLogin sends a 2FA code to the user's configured method.
@@ -3956,12 +3838,7 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 		}
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.two_factor_settings
-		SET backup_codes = $1, updated_at = NOW()
-		WHERE user_id = $2
-	`, newCodes, userID)
-	if err != nil {
+	if err := s.q.TwoFactorSetBackupCodes(ctx, db.TwoFactorSetBackupCodesParams{BackupCodes: newCodes, UserID: userID}); err != nil {
 		return false, err
 	}
 
@@ -3990,12 +3867,7 @@ func (s *Service) RegenerateBackupCodes(ctx context.Context, userID string) ([]s
 		hashedCodes[i] = sha256Hex(code)
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.two_factor_settings
-		SET backup_codes = $1, updated_at = NOW()
-		WHERE user_id = $2
-	`, hashedCodes, userID)
-	if err != nil {
+	if err := s.q.TwoFactorSetBackupCodes(ctx, db.TwoFactorSetBackupCodesParams{BackupCodes: hashedCodes, UserID: userID}); err != nil {
 		return nil, err
 	}
 

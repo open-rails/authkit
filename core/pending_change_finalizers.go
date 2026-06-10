@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // finalizeRegisterEmail completes an email+password signup: it enforces
@@ -15,13 +17,8 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 	email := rec.Target
 	username := rec.Username
 
-	var exists bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM profiles.users
-			WHERE email = lower($1) OR username = $2
-		)
-	`, email, username).Scan(&exists); err != nil {
+	exists, err := s.q.UserEmailOrUsernameExists(ctx, db.UserEmailOrUsernameExistsParams{Email: email, Username: username})
+	if err != nil {
 		return "", err
 	}
 	if exists {
@@ -54,13 +51,8 @@ func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) 
 	phone := rec.Target
 	username := rec.Username
 
-	var exists bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM profiles.users
-			WHERE phone_number = $1 OR username = $2
-		)
-	`, phone, username).Scan(&exists); err != nil {
+	exists, err := s.q.UserPhoneOrUsernameExists(ctx, db.UserPhoneOrUsernameExistsParams{Phone: phone, Username: username})
+	if err != nil {
 		return "", err
 	}
 	if exists {
@@ -98,7 +90,7 @@ func (s *Service) finalizeChangeEmail(ctx context.Context, rec pendingChange) (s
 		return "", fmt.Errorf("email already in use")
 	}
 
-	if _, err := s.pg.Exec(ctx, `UPDATE profiles.users SET email=lower($2), email_verified=true, updated_at=NOW() WHERE id=$1`, rec.UserID, rec.Target); err != nil {
+	if err := s.q.UserApplyEmailChange(ctx, db.UserApplyEmailChangeParams{ID: rec.UserID, Email: rec.Target}); err != nil {
 		return "", err
 	}
 	return rec.UserID, nil
@@ -121,7 +113,7 @@ func (s *Service) finalizeChangePhone(ctx context.Context, rec pendingChange) (s
 		return "", fmt.Errorf("phone already in use")
 	}
 
-	if _, err := s.pg.Exec(ctx, `UPDATE profiles.users SET phone_number=$2, phone_verified=true, updated_at=NOW() WHERE id=$1`, rec.UserID, rec.Target); err != nil {
+	if err := s.q.UserApplyPhoneChange(ctx, db.UserApplyPhoneChangeParams{ID: rec.UserID, PhoneNumber: &rec.Target}); err != nil {
 		return "", err
 	}
 	return rec.UserID, nil

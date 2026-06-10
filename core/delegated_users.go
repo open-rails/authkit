@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 var ErrInvalidDelegatedUser = errors.New("invalid_delegated_user")
@@ -41,18 +43,9 @@ func (s *Service) TouchDelegatedUser(ctx context.Context, tenantSlug, issuer, su
 		return nil, err
 	}
 
-	var out DelegatedUser
-	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.delegated_users (tenant_id, issuer, subject)
-		VALUES ($1::uuid, $2, $3)
-		ON CONFLICT (tenant_id, issuer, subject) DO UPDATE
-		  SET last_seen_at = now()
-		RETURNING id::text, $4::text, issuer, subject, created_at, last_seen_at
-	`, tenant.ID, issuer, subject, tenant.Slug).Scan(
-		&out.ID, &out.TenantSlug, &out.Issuer, &out.Subject, &out.CreatedAt, &out.LastSeenAt,
-	)
+	row, err := s.q.DelegatedUserTouch(ctx, db.DelegatedUserTouchParams{TenantID: tenant.ID, Issuer: issuer, Subject: subject})
 	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &DelegatedUser{ID: row.ID, TenantSlug: tenant.Slug, Issuer: row.Issuer, Subject: row.Subject, CreatedAt: row.CreatedAt, LastSeenAt: row.LastSeenAt}, nil
 }

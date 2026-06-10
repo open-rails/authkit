@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 var (
@@ -131,17 +133,10 @@ func (s *Service) ResolveTenantBySlug(ctx context.Context, slug string) (*Tenant
 	if err := validateTenantSlug(slug); err != nil {
 		return nil, err
 	}
-	var id, canonical string
-	var isPersonal bool
-	var ownerUserID string
 	// Prefer current slug.
-	err := s.pg.QueryRow(ctx, `
-		SELECT id::text, slug, is_personal, COALESCE(owner_user_id::text, '')
-		FROM profiles.tenants
-		WHERE slug=$1 AND deleted_at IS NULL
-	`, slug).Scan(&id, &canonical, &isPersonal, &ownerUserID)
+	row, err := s.q.TenantBySlug(ctx, slug)
 	if err == nil {
-		return &Tenant{ID: id, Slug: canonical, IsPersonal: isPersonal, OwnerUserID: ownerUserID}, nil
+		return &Tenant{ID: row.ID, Slug: row.Slug, IsPersonal: row.IsPersonal, OwnerUserID: row.OwnerUserID}, nil
 	}
 	// Fallback to renames table (issue #58). The tenant_renames row's
 	// `tenant_id` always points at the live owner — every rename row of
@@ -149,18 +144,11 @@ func (s *Service) ResolveTenantBySlug(ctx context.Context, slug string) (*Tenant
 	// resolves to the tenant currently holding it. Take the most recent
 	// row to handle the rare case where two different tenants have used
 	// this slug at different times (e.g. after hard-delete + reuse).
-	err = s.pg.QueryRow(ctx, `
-		SELECT o.id::text, o.slug, o.is_personal, COALESCE(o.owner_user_id::text, '')
-		FROM profiles.tenant_renames r
-		JOIN profiles.tenants o ON o.id=r.tenant_id AND o.deleted_at IS NULL
-		WHERE r.from_slug=$1
-		ORDER BY r.renamed_at DESC
-		LIMIT 1
-	`, slug).Scan(&id, &canonical, &isPersonal, &ownerUserID)
+	ren, err := s.q.TenantBySlugViaRename(ctx, slug)
 	if err != nil {
 		return nil, ErrTenantNotFound
 	}
-	return &Tenant{ID: id, Slug: canonical, IsPersonal: isPersonal, OwnerUserID: ownerUserID}, nil
+	return &Tenant{ID: ren.ID, Slug: ren.Slug, IsPersonal: ren.IsPersonal, OwnerUserID: ren.OwnerUserID}, nil
 }
 
 // CreateTenant creates an ownerless tenant for privileged bootstrap/admin
@@ -181,28 +169,19 @@ func (s *Service) CreateTenant(ctx context.Context, slug string) (*Tenant, error
 	if err != nil {
 		return nil, err
 	}
-	var id, canonical string
-	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.tenants (id, slug, metadata)
-		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
-		RETURNING id::text, slug
-	`, tenantID, slug).Scan(&id, &canonical)
+	created, err := s.q.TenantInsert(ctx, db.TenantInsertParams{ID: tenantID, Slug: slug})
 	if err != nil {
 		return nil, err
 	}
 	// Ensure the baseline owner/member roles always exist for every tenant.
-	if _, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.tenant_roles (tenant_id, role)
-		VALUES ($1::uuid, $2), ($1::uuid, $3)
-		ON CONFLICT (tenant_id, role) DO NOTHING
-	`, id, tenantOwnerRole, tenantMemberRole); err != nil {
+	if err := s.q.TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: created.ID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
 		return nil, err
 	}
 	// Seed owner=`*` + any app-declared default roles (e.g. admin).
-	if err := s.seedRolePermissionDefaults(ctx, id); err != nil {
+	if err := s.seedRolePermissionDefaults(ctx, created.ID); err != nil {
 		return nil, err
 	}
-	return &Tenant{ID: id, Slug: canonical}, nil
+	return &Tenant{ID: created.ID, Slug: created.Slug}, nil
 }
 
 // CreateTenantForUser transactionally creates a tenant and assigns the
@@ -248,45 +227,29 @@ func (s *Service) CreateTenantForUser(ctx context.Context, req CreateTenantForUs
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
 
-	var id, canonical string
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO profiles.tenants (id, slug, metadata)
-		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
-		RETURNING id::text, slug
-	`, tenantID, slug).Scan(&id, &canonical); err != nil {
+	created, err := qtx.TenantInsert(ctx, db.TenantInsertParams{ID: tenantID, Slug: slug})
+	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return nil, ErrOwnerSlugTaken
 		}
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.tenant_roles (tenant_id, role)
-		VALUES ($1::uuid, $2), ($1::uuid, $3)
-		ON CONFLICT (tenant_id, role) DO NOTHING
-	`, id, tenantOwnerRole, tenantMemberRole); err != nil {
+	if err := qtx.TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: created.ID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission)
-		VALUES ($1::uuid, $2, $3)
-		ON CONFLICT DO NOTHING
-	`, id, tenantOwnerRole, PermWildcard); err != nil {
+	if err := qtx.TenantRolePermissionInsert(ctx, db.TenantRolePermissionInsertParams{TenantID: created.ID, Role: tenantOwnerRole, Permission: PermWildcard}); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-		VALUES ($1::uuid, $2::uuid, $3)
-		ON CONFLICT (tenant_id, user_id)
-		DO UPDATE SET role=EXCLUDED.role, deleted_at=NULL, updated_at=now()
-	`, id, ownerUserID, tenantOwnerRole); err != nil {
+	if err := qtx.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: created.ID, UserID: ownerUserID, Role: tenantOwnerRole}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return &Tenant{ID: id, Slug: canonical, OwnerUserID: ownerUserID}, nil
+	return &Tenant{ID: created.ID, Slug: created.Slug, OwnerUserID: ownerUserID}, nil
 }
 
 // RenameTenantSlug renames a non-personal tenant. Subject to the 72h
@@ -321,13 +284,14 @@ func (s *Service) renameTenantSlugImpl(ctx context.Context, tenantID, newSlug, a
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
 
-	var oldSlug string
-	var isPersonal bool
-	if err := tx.QueryRow(ctx, `SELECT slug, is_personal FROM profiles.tenants WHERE id=$1::uuid AND deleted_at IS NULL`, tenantID).Scan(&oldSlug, &isPersonal); err != nil {
+	cur, err := qtx.TenantSlugAndPersonalByID(ctx, tenantID)
+	if err != nil {
 		return ErrTenantNotFound
 	}
-	if isPersonal {
+	oldSlug := cur.Slug
+	if cur.IsPersonal {
 		return ErrPersonalTenantLocked
 	}
 	if strings.EqualFold(oldSlug, newSlug) {
@@ -338,17 +302,11 @@ func (s *Service) renameTenantSlugImpl(ctx context.Context, tenantID, newSlug, a
 	// index to grab the most recent rename for this tenant and rejects if
 	// it's within the renameCooldown window.
 	if !bypassCooldown {
-		var lastRenamedAt *time.Time
-		if err := tx.QueryRow(ctx, `
-			SELECT renamed_at
-			FROM   profiles.tenant_renames
-			WHERE  tenant_id = $1::uuid
-			ORDER  BY renamed_at DESC
-			LIMIT  1
-		`, tenantID).Scan(&lastRenamedAt); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		lastRenamedAt, err := qtx.TenantLastRenamedAt(ctx, tenantID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if lastRenamedAt != nil && time.Since(*lastRenamedAt) < renameCooldown {
+		if err == nil && time.Since(lastRenamedAt) < renameCooldown {
 			return ErrRenameRateLimited
 		}
 	}
@@ -360,14 +318,11 @@ func (s *Service) renameTenantSlugImpl(ctx context.Context, tenantID, newSlug, a
 	// Audit row in tenant_renames. Source of truth for both forwarding
 	// (from_slug → current owner) and reverse history (tenant_id → all
 	// historical slugs in order).
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.tenant_renames (tenant_id, from_slug)
-		VALUES ($1::uuid, $2)
-	`, tenantID, strings.ToLower(strings.TrimSpace(oldSlug))); err != nil {
+	if err := qtx.TenantRenameInsert(ctx, db.TenantRenameInsertParams{TenantID: tenantID, FromSlug: strings.ToLower(strings.TrimSpace(oldSlug))}); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE profiles.tenants SET slug=$1, updated_at=now() WHERE id=$2::uuid AND deleted_at IS NULL`, newSlug, tenantID); err != nil {
+	if err := qtx.TenantUpdateSlug(ctx, db.TenantUpdateSlugParams{Slug: newSlug, ID: tenantID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -380,29 +335,14 @@ func (s *Service) ListTenantMembershipsForUser(ctx context.Context, userID strin
 	if strings.TrimSpace(userID) == "" {
 		return nil, fmt.Errorf("invalid_user")
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT o.slug
-		FROM profiles.tenant_memberships m
-		JOIN profiles.tenants o ON o.id=m.tenant_id
-		WHERE m.user_id=$1::uuid AND m.deleted_at IS NULL AND o.deleted_at IS NULL
-		ORDER BY o.slug ASC
-	`, userID)
+	slugs, err := s.q.TenantSlugsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var slug string
-		if err := rows.Scan(&slug); err != nil {
-			return nil, err
-		}
-		out = append(out, slug)
-		if len(out) > maxTenantsPerUser {
-			return nil, fmt.Errorf("tenant_membership_limit_exceeded")
-		}
+	if len(slugs) > maxTenantsPerUser {
+		return nil, fmt.Errorf("tenant_membership_limit_exceeded")
 	}
-	return out, rows.Err()
+	return slugs, nil
 }
 
 func (s *Service) ListUserTenantMembershipsAndRoles(ctx context.Context, userID string) ([]TenantMembership, error) {
@@ -439,12 +379,7 @@ func (s *Service) AddMember(ctx context.Context, tenantSlug, userID string) erro
 	if tenants, e := s.ListTenantMembershipsForUser(ctx, userID); e == nil && len(tenants) >= maxTenantsPerUser {
 		return fmt.Errorf("tenant_membership_limit_exceeded")
 	}
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-		VALUES ($1::uuid, $2::uuid, 'member')
-		ON CONFLICT (tenant_id, user_id) DO UPDATE SET deleted_at=NULL, updated_at=now()
-	`, tenant.ID, userID)
-	return err
+	return s.q.TenantMemberAdd(ctx, db.TenantMemberAddParams{TenantID: tenant.ID, UserID: userID})
 }
 
 func (s *Service) RemoveMember(ctx context.Context, tenantSlug, userID string) error {
@@ -459,31 +394,20 @@ func (s *Service) RemoveMember(ctx context.Context, tenantSlug, userID string) e
 		return ErrPersonalTenantOwner
 	}
 	// Prevent removing the last owner from the tenant.
-	var isOwner bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM profiles.tenant_memberships
-			WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND role=$3 AND deleted_at IS NULL
-		)
-	`, tenant.ID, userID, tenantOwnerRole).Scan(&isOwner); err != nil {
+	isOwner, err := s.q.TenantMemberHasRole(ctx, db.TenantMemberHasRoleParams{TenantID: tenant.ID, UserID: userID, Role: tenantOwnerRole})
+	if err != nil {
 		return err
 	}
 	if isOwner {
-		var ownerCount int
-		if err := s.pg.QueryRow(ctx, `
-			SELECT COUNT(*)
-			FROM profiles.tenant_memberships
-			WHERE tenant_id=$1::uuid AND role=$2 AND deleted_at IS NULL
-		`, tenant.ID, tenantOwnerRole).Scan(&ownerCount); err != nil {
+		ownerCount, err := s.q.TenantRoleMemberCount(ctx, db.TenantRoleMemberCountParams{TenantID: tenant.ID, Role: tenantOwnerRole})
+		if err != nil {
 			return err
 		}
 		if ownerCount <= 1 {
 			return ErrLastTenantOwner
 		}
 	}
-	_, err = s.pg.Exec(ctx, `UPDATE profiles.tenant_memberships SET deleted_at=now(), updated_at=now() WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL`, tenant.ID, userID)
-	return err
+	return s.q.TenantMemberSoftDelete(ctx, db.TenantMemberSoftDeleteParams{TenantID: tenant.ID, UserID: userID})
 }
 
 func (s *Service) DefineRole(ctx context.Context, tenantSlug, role string) error {
@@ -498,8 +422,7 @@ func (s *Service) DefineRole(ctx context.Context, tenantSlug, role string) error
 	if err := validateTenantRole(role); err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.tenant_roles (tenant_id, role) VALUES ($1::uuid,$2) ON CONFLICT (tenant_id, role) DO NOTHING`, tenant.ID, role)
-	return err
+	return s.q.TenantRoleDefine(ctx, db.TenantRoleDefineParams{TenantID: tenant.ID, Role: role})
 }
 
 func (s *Service) DeleteRole(ctx context.Context, tenantSlug, role string) error {
@@ -517,8 +440,7 @@ func (s *Service) DeleteRole(ctx context.Context, tenantSlug, role string) error
 	if role == tenantOwnerRole {
 		return ErrProtectedTenantRole
 	}
-	_, err = s.pg.Exec(ctx, `DELETE FROM profiles.tenant_roles WHERE tenant_id=$1::uuid AND role=$2`, tenant.ID, role)
-	return err
+	return s.q.TenantRoleDelete(ctx, db.TenantRoleDeleteParams{TenantID: tenant.ID, Role: role})
 }
 
 func (s *Service) AssignRole(ctx context.Context, tenantSlug, userID, role string) error {
@@ -539,15 +461,7 @@ func (s *Service) AssignRole(ctx context.Context, tenantSlug, userID, role strin
 	if err := s.materializeDefaultRole(ctx, tenant.ID, role); err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.tenant_memberships
-		SET role=$3, updated_at=now()
-		WHERE tenant_id=$1::uuid
-		  AND user_id=$2::uuid
-		  AND deleted_at IS NULL
-		  AND EXISTS (SELECT 1 FROM profiles.tenant_roles WHERE tenant_id=$1::uuid AND role=$3)
-	`, tenant.ID, userID, role)
-	return err
+	return s.q.TenantMembershipSetRole(ctx, db.TenantMembershipSetRoleParams{TenantID: tenant.ID, UserID: userID, Role: role})
 }
 
 func (s *Service) UnassignRole(ctx context.Context, tenantSlug, userID, role string) error {
@@ -563,24 +477,15 @@ func (s *Service) UnassignRole(ctx context.Context, tenantSlug, userID, role str
 		return err
 	}
 	if role == tenantOwnerRole {
-		var ownerCount int
-		if err := s.pg.QueryRow(ctx, `
-			SELECT COUNT(*)
-			FROM profiles.tenant_memberships
-			WHERE tenant_id=$1::uuid AND role=$2 AND deleted_at IS NULL
-		`, tenant.ID, tenantOwnerRole).Scan(&ownerCount); err != nil {
+		ownerCount, err := s.q.TenantRoleMemberCount(ctx, db.TenantRoleMemberCountParams{TenantID: tenant.ID, Role: tenantOwnerRole})
+		if err != nil {
 			return err
 		}
 		if ownerCount <= 1 {
 			return ErrLastTenantOwner
 		}
 	}
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.tenant_memberships
-		SET role='member', updated_at=now()
-		WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND role=$3 AND deleted_at IS NULL
-	`, tenant.ID, userID, role)
-	return err
+	return s.q.TenantMembershipResetRole(ctx, db.TenantMembershipResetRoleParams{TenantID: tenant.ID, UserID: userID, Role: role})
 }
 
 func (s *Service) ReadMemberRoles(ctx context.Context, tenantSlug, userID string) ([]string, error) {
@@ -591,12 +496,7 @@ func (s *Service) ReadMemberRoles(ctx context.Context, tenantSlug, userID string
 	if err != nil {
 		return nil, err
 	}
-	var role string
-	err = s.pg.QueryRow(ctx, `
-		SELECT role
-		FROM profiles.tenant_memberships
-		WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL
-	`, tenant.ID, userID).Scan(&role)
+	role, err := s.q.TenantMemberRole(ctx, db.TenantMemberRoleParams{TenantID: tenant.ID, UserID: userID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -614,11 +514,7 @@ func (s *Service) IsTenantMember(ctx context.Context, tenantSlug, userID string)
 	if err != nil {
 		return false, err
 	}
-	var ok bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.tenant_memberships WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL)`, tenant.ID, userID).Scan(&ok); err != nil {
-		return false, err
-	}
-	return ok, nil
+	return s.q.TenantMembershipExists(ctx, db.TenantMembershipExistsParams{TenantID: tenant.ID, UserID: userID})
 }
 
 func (s *Service) ListTenantMembers(ctx context.Context, tenantSlug string) ([]string, error) {
@@ -629,25 +525,7 @@ func (s *Service) ListTenantMembers(ctx context.Context, tenantSlug string) ([]s
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT user_id::text
-		FROM profiles.tenant_memberships
-		WHERE tenant_id=$1::uuid AND deleted_at IS NULL
-		ORDER BY user_id::text ASC
-	`, tenant.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
+	return s.q.TenantMemberIDs(ctx, tenant.ID)
 }
 
 func (s *Service) ListTenantDefinedRoles(ctx context.Context, tenantSlug string) ([]string, error) {
@@ -658,23 +536,5 @@ func (s *Service) ListTenantDefinedRoles(ctx context.Context, tenantSlug string)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT role
-		FROM profiles.tenant_roles
-		WHERE tenant_id=$1::uuid
-		ORDER BY role ASC
-	`, tenant.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
-			return nil, err
-		}
-		out = append(out, role)
-	}
-	return out, rows.Err()
+	return s.q.TenantDefinedRoles(ctx, tenant.ID)
 }

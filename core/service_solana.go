@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/siws"
 )
 
@@ -249,11 +250,7 @@ func (s *Service) GetSolanaAddress(ctx context.Context, userID string) (string, 
 	}
 
 	var address string
-	err := s.pg.QueryRow(ctx, `
-		SELECT subject FROM profiles.user_providers
-		WHERE user_id = $1 AND issuer = $2
-	`, userID, s.solanaIssuer()).Scan(&address)
-
+	address, err := s.q.UserProviderSubjectByIssuer(ctx, db.UserProviderSubjectByIssuerParams{UserID: userID, Issuer: s.solanaIssuer()})
 	if err != nil {
 		return "", nil // No wallet linked
 	}
@@ -352,7 +349,5 @@ func (s *Service) usernameExists(ctx context.Context, username string) (bool, er
 	if s.pg == nil {
 		return false, nil
 	}
-	var exists bool
-	err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.users WHERE username = $1)`, username).Scan(&exists)
-	return exists, err
+	return s.q.UserUsernameExists(ctx, &username)
 }

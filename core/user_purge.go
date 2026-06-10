@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"time"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // ListUsersDeletedBefore returns user IDs for users soft-deleted before the cutoff.
@@ -14,26 +16,11 @@ func (s *Service) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, 
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT id::text
-		FROM profiles.users
-		WHERE deleted_at IS NOT NULL AND deleted_at < $1
-		ORDER BY deleted_at ASC
-		LIMIT $2
-	`, cutoff, limit)
+	out, err := s.q.UsersPurgeCandidates(ctx, db.UsersPurgeCandidatesParams{Cutoff: &cutoff, MaxRows: int64(limit)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // HardDeleteUser permanently deletes the user row and dependent AuthKit rows via ON DELETE CASCADE.

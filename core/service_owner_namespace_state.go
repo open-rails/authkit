@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 type OwnerNamespaceState string
@@ -57,15 +59,7 @@ func (s *Service) ownerReservedNameExistsTx(ctx context.Context, tx pgx.Tx, slug
 		return false, fmt.Errorf("tx required")
 	}
 	slug = normalizeReservedSlug(slug)
-	var exists bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM profiles.owner_reserved_names WHERE slug=$1
-		)
-	`, slug).Scan(&exists); err != nil {
-		return false, err
-	}
-	return exists, nil
+	return s.q.WithTx(tx).OwnerReservedNameExists(ctx, slug)
 }
 
 func (s *Service) upsertOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug string) error {
@@ -73,12 +67,7 @@ func (s *Service) upsertOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug
 		return fmt.Errorf("tx required")
 	}
 	slug = normalizeReservedSlug(slug)
-	_, err := tx.Exec(ctx, `
-		INSERT INTO profiles.owner_reserved_names (slug)
-		VALUES ($1)
-		ON CONFLICT (slug) DO UPDATE SET updated_at=now()
-	`, slug)
-	return err
+	return s.q.WithTx(tx).OwnerReservedNameUpsert(ctx, slug)
 }
 
 func (s *Service) deleteOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug string) error {
@@ -86,7 +75,7 @@ func (s *Service) deleteOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug
 		return fmt.Errorf("tx required")
 	}
 	slug = normalizeReservedSlug(slug)
-	_, err := tx.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug=$1`, slug)
+	_, err := s.q.WithTx(tx).OwnerReservedNameDelete(ctx, slug)
 	return err
 }
 
@@ -96,30 +85,7 @@ func (s *Service) ownerSlugConflictExistsTx(ctx context.Context, tx pgx.Tx, slug
 	}
 	slug = strings.ToLower(strings.TrimSpace(slug))
 	reuseCutoff := time.Now().UTC().Add(-renameReuseHold)
-	var exists bool
-	// Recent rename history blocks reuse without a separate hold table. Joins
-	// to owner rows without filtering soft deletes: soft deletion keeps the
-	// namespace held, while hard deletion removes/cascades the owner row and
-	// allows eventual reuse.
-	if err := tx.QueryRow(ctx, `
-		SELECT (
-			EXISTS(SELECT 1 FROM profiles.users u WHERE u.username=$1)
-			OR EXISTS(
-				SELECT 1 FROM profiles.user_renames r
-				JOIN profiles.users u ON u.id=r.user_id
-				WHERE r.from_slug=$1 AND r.renamed_at >= $2
-			)
-			OR EXISTS(SELECT 1 FROM profiles.tenants o WHERE o.slug=$1)
-			OR EXISTS(
-				SELECT 1 FROM profiles.tenant_renames r
-				JOIN profiles.tenants o ON o.id=r.tenant_id
-				WHERE r.from_slug=$1 AND r.renamed_at >= $2
-			)
-		)
-	`, slug, reuseCutoff).Scan(&exists); err != nil {
-		return false, err
-	}
-	return exists, nil
+	return s.q.WithTx(tx).OwnerSlugConflictExists(ctx, db.OwnerSlugConflictExistsParams{Slug: slug, ReuseCutoff: reuseCutoff})
 }
 
 func (s *Service) IsUserReserved(ctx context.Context, userID string) (bool, error) {
@@ -129,12 +95,8 @@ func (s *Service) IsUserReserved(ctx context.Context, userID string) (bool, erro
 	if strings.TrimSpace(userID) == "" {
 		return false, fmt.Errorf("invalid_user")
 	}
-	var reserved bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT `+s.reservedUserFlagExpr()+`
-		FROM profiles.users
-		WHERE id=$1::uuid
-	`, userID).Scan(&reserved); err != nil {
+	reserved, err := s.q.UserIsReserved(ctx, userID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, ErrUserNotFound
 		}
@@ -150,28 +112,18 @@ func (s *Service) GetTenantNamespaceState(ctx context.Context, tenantID string) 
 	if strings.TrimSpace(tenantID) == "" {
 		return "", fmt.Errorf("invalid_tenant")
 	}
-	var stateRaw string
-	var reserved bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT COALESCE(COALESCE(metadata, '{}'::jsonb)->>'namespace_state', '') AS state_raw,
-		       CASE
-		         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-		         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-		         ELSE false
-		       END AS reserved
-		FROM profiles.tenants
-		WHERE id=$1::uuid AND deleted_at IS NULL
-	`, tenantID).Scan(&stateRaw, &reserved); err != nil {
+	row, err := s.q.TenantNamespaceStateByID(ctx, tenantID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrTenantNotFound
 		}
 		return "", err
 	}
-	state := normalizeOwnerNamespaceState(OwnerNamespaceState(stateRaw))
+	state := normalizeOwnerNamespaceState(OwnerNamespaceState(row.StateRaw))
 	if state != "" {
 		return state, nil
 	}
-	if reserved {
+	if row.Reserved {
 		return OwnerNamespaceStateParkedTenant, nil
 	}
 	return OwnerNamespaceStateRegistered, nil
@@ -186,19 +138,11 @@ func (s *Service) setTenantNamespaceStateTx(ctx context.Context, tx pgx.Tx, tena
 		return err
 	}
 	reserved := state == OwnerNamespaceStateParkedTenant
-	tag, err := tx.Exec(ctx, `
-		UPDATE profiles.tenants
-		SET metadata=jsonb_set(
-				jsonb_set(COALESCE(metadata, '{}'::jsonb), '{namespace_state}', to_jsonb($2::text), true),
-				'{reserved}', to_jsonb($3::boolean), true
-			),
-			updated_at=now()
-		WHERE id=$1::uuid AND deleted_at IS NULL
-	`, tenantID, string(state), reserved)
+	n, err := s.q.WithTx(tx).TenantSetNamespaceState(ctx, db.TenantSetNamespaceStateParams{ID: tenantID, State: string(state), Reserved: reserved})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrTenantNotFound
 	}
 	return nil
@@ -230,10 +174,8 @@ func (s *Service) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string)
 	if err := validateTenantSlug(slug); err != nil {
 		return "", err
 	}
-	var exists bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM profiles.owner_reserved_names WHERE slug=$1)
-	`, slug).Scan(&exists); err != nil {
+	exists, err := s.q.OwnerReservedNameExists(ctx, slug)
+	if err != nil {
 		return "", err
 	}
 	if exists {
@@ -272,16 +214,11 @@ func (s *Service) ParkTenantNamespace(ctx context.Context, slug string) (tenantI
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var existingID string
-	var isPersonal bool
-	err = tx.QueryRow(ctx, `
-		SELECT id::text, is_personal
-		FROM profiles.tenants
-		WHERE slug=$1 AND deleted_at IS NULL
-	`, slug).Scan(&existingID, &isPersonal)
+	existing, err := s.q.WithTx(tx).TenantIDPersonalBySlug(ctx, slug)
+	existingID := existing.ID
 	switch {
 	case err == nil:
-		if isPersonal {
+		if existing.IsPersonal {
 			return "", false, ErrInvalidOwnerNamespaceTransition
 		}
 		if err := s.setTenantNamespaceStateTx(ctx, tx, existingID, OwnerNamespaceStateParkedTenant); err != nil {
@@ -309,18 +246,11 @@ func (s *Service) ParkTenantNamespace(ctx context.Context, slug string) (tenantI
 	if err != nil {
 		return "", false, err
 	}
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO profiles.tenants (id, slug, metadata)
-		VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', $3::text, 'reserved', to_jsonb(true)))
-		RETURNING id::text
-	`, tenantIDToInsert, slug, string(OwnerNamespaceStateParkedTenant)).Scan(&tenantID); err != nil {
+	tenantID, err = s.q.WithTx(tx).TenantInsertWithState(ctx, db.TenantInsertWithStateParams{ID: tenantIDToInsert, Slug: slug, State: string(OwnerNamespaceStateParkedTenant)})
+	if err != nil {
 		return "", false, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.tenant_roles (tenant_id, role)
-		VALUES ($1::uuid, 'owner'), ($1::uuid, 'member')
-		ON CONFLICT (tenant_id, role) DO NOTHING
-	`, tenantID); err != nil {
+	if err := s.q.WithTx(tx).TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
 		return "", false, err
 	}
 	if err := s.deleteOwnerReservedNameTx(ctx, tx, slug); err != nil {
@@ -453,7 +383,7 @@ func (s *Service) claimParkedTenantToRegistered(ctx context.Context, tenant *Ten
 	// reserved namespace like tensorhub's `root`) has NO role-permissions — not
 	// even owner=* — so its owner holds nothing and only a global-admin bypass
 	// works. App DefaultRoles stay lazy (materialized on first grant).
-	if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.tenant_roles (tenant_id, role) VALUES ($1::uuid,$2) ON CONFLICT (tenant_id, role) DO NOTHING`, tenant.ID, tenantOwnerRole); err != nil {
+	if err := s.q.TenantRoleDefine(ctx, db.TenantRoleDefineParams{TenantID: tenant.ID, Role: tenantOwnerRole}); err != nil {
 		return "", err
 	}
 	if err := s.seedRolePermissionDefaults(ctx, tenant.ID); err != nil {
@@ -475,7 +405,7 @@ func (s *Service) claimParkedTenantToRegistered(ctx context.Context, tenant *Ten
 	if err := s.SetTenantNamespaceState(ctx, tenant.ID, OwnerNamespaceStateRegistered); err != nil {
 		return "", err
 	}
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug=$1`, normalizeReservedSlug(tenant.Slug))
+	_, _ = s.q.OwnerReservedNameDelete(ctx, normalizeReservedSlug(tenant.Slug))
 	return strings.TrimSpace(tenant.ID), nil
 }
 
@@ -568,11 +498,11 @@ func (s *Service) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []str
 	unrestricted = make([]string, 0, len(slugs))
 	notRestricted = make([]string, 0)
 	for _, slug := range slugs {
-		tag, err := tx.Exec(ctx, `DELETE FROM profiles.owner_reserved_names WHERE slug=$1`, slug)
+		n, err := s.q.WithTx(tx).OwnerReservedNameDelete(ctx, slug)
 		if err != nil {
 			return nil, nil, err
 		}
-		if tag.RowsAffected() == 0 {
+		if n == 0 {
 			notRestricted = append(notRestricted, slug)
 			continue
 		}
@@ -816,15 +746,9 @@ func (s *Service) countActiveTenantOwners(ctx context.Context, tenantID string) 
 	if strings.TrimSpace(tenantID) == "" {
 		return 0, fmt.Errorf("invalid_tenant")
 	}
-	var n int
-	if err := s.pg.QueryRow(ctx, `
-		SELECT COUNT(*)::int
-		FROM profiles.tenant_memberships
-		WHERE tenant_id=$1::uuid
-		  AND role='owner'
-		  AND deleted_at IS NULL
-	`, tenantID).Scan(&n); err != nil {
+	n, err := s.q.TenantRoleMemberCount(ctx, db.TenantRoleMemberCountParams{TenantID: tenantID, Role: tenantOwnerRole})
+	if err != nil {
 		return 0, err
 	}
-	return n, nil
+	return int(n), nil
 }

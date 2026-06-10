@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/internal/db"
 )
 
 type userMeResponse struct {
@@ -96,20 +97,11 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	// TODO - Move to service layer. This is currently the only place we need to know about linked providers, but if we add more endpoints that surface this info, it may make sense to return it from the service directly instead of doing a separate DB query here.
 	linkedProviders := []string{}
 	if pg := s.svc.Postgres(); pg != nil {
-		rows, err := pg.Query(r.Context(), `
-			SELECT provider_slug
-			FROM profiles.user_providers
-			WHERE user_id = $1 AND provider_slug IS NOT NULL
-		`, adminUser.ID)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var provider string
-				if err := rows.Scan(&provider); err == nil {
-					provider = strings.TrimSpace(provider)
-					if provider != "" {
-						linkedProviders = append(linkedProviders, provider)
-					}
+		if providers, err := db.New(pg).UserProviderSlugs(r.Context(), adminUser.ID); err == nil {
+			for _, provider := range providers {
+				provider = strings.TrimSpace(provider)
+				if provider != "" {
+					linkedProviders = append(linkedProviders, provider)
 				}
 			}
 		}

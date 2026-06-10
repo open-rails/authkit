@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 var (
@@ -53,23 +55,26 @@ func (s *Service) UpsertTenantIssuer(ctx context.Context, in TenantIssuer) (*Ten
 	}
 	audiences := dedupeStrings(in.Audiences)
 
-	var out TenantIssuer
-	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.tenant_issuers (tenant_id, issuer, jwks_uri, audiences, enabled)
-		VALUES ($1::uuid, $2, $3, $4, $5)
-		ON CONFLICT (tenant_id, issuer) DO UPDATE
-		  SET jwks_uri   = EXCLUDED.jwks_uri,
-		      audiences  = EXCLUDED.audiences,
-		      enabled    = EXCLUDED.enabled,
-		      updated_at = now()
-		RETURNING id::text, $6::text, issuer, jwks_uri, audiences, enabled, created_at, updated_at
-	`, tenant.ID, issuer, jwksURI, audiences, in.Enabled, tenant.Slug).Scan(
-		&out.ID, &out.TenantSlug, &out.Issuer, &out.JWKSURI, &out.Audiences, &out.Enabled, &out.CreatedAt, &out.UpdatedAt,
-	)
+	row, err := s.q.TenantIssuerUpsert(ctx, db.TenantIssuerUpsertParams{
+		TenantID:  tenant.ID,
+		Issuer:    issuer,
+		JwksUri:   jwksURI,
+		Audiences: audiences,
+		Enabled:   in.Enabled,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &TenantIssuer{
+		ID:         row.ID,
+		TenantSlug: tenant.Slug,
+		Issuer:     row.Issuer,
+		JWKSURI:    row.JwksUri,
+		Audiences:  row.Audiences,
+		Enabled:    row.Enabled,
+		CreatedAt:  row.CreatedAt,
+		UpdatedAt:  row.UpdatedAt,
+	}, nil
 }
 
 // GetTenantIssuer returns a tenant issuer by OIDC issuer URL.
@@ -81,24 +86,14 @@ func (s *Service) GetTenantIssuer(ctx context.Context, issuer string) (*TenantIs
 	if issuer == "" {
 		return nil, ErrInvalidTenantIssuer
 	}
-	var out TenantIssuer
-	err := s.pg.QueryRow(ctx, `
-		SELECT ti.id::text, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
-		FROM profiles.tenant_issuers ti
-		JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-		WHERE ti.issuer = $1
-		ORDER BY ti.created_at ASC
-		LIMIT 1
-	`, issuer).Scan(
-		&out.ID, &out.TenantSlug, &out.Issuer, &out.JWKSURI, &out.Audiences, &out.Enabled, &out.CreatedAt, &out.UpdatedAt,
-	)
+	row, err := s.q.TenantIssuerByIssuer(ctx, issuer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTenantIssuerNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &TenantIssuer{ID: row.ID, TenantSlug: row.Slug, Issuer: row.Issuer, JWKSURI: row.JwksUri, Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // ListTenantIssuers returns registered tenant issuers. When activeOnly is true,
@@ -107,29 +102,25 @@ func (s *Service) ListTenantIssuers(ctx context.Context, activeOnly bool) ([]Ten
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	q := `
-		SELECT ti.id::text, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
-		FROM profiles.tenant_issuers ti
-		JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-	`
+	var out []TenantIssuer
 	if activeOnly {
-		q += ` WHERE ti.enabled = true`
+		rows, err := s.q.TenantIssuersEnabled(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			out = append(out, TenantIssuer{ID: r.ID, TenantSlug: r.Slug, Issuer: r.Issuer, JWKSURI: r.JwksUri, Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+		}
+		return out, nil
 	}
-	q += ` ORDER BY t.slug ASC, ti.issuer ASC`
-	rows, err := s.pg.Query(ctx, q)
+	rows, err := s.q.TenantIssuersAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []TenantIssuer
-	for rows.Next() {
-		var ti TenantIssuer
-		if err := rows.Scan(&ti.ID, &ti.TenantSlug, &ti.Issuer, &ti.JWKSURI, &ti.Audiences, &ti.Enabled, &ti.CreatedAt, &ti.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, ti)
+	for _, r := range rows {
+		out = append(out, TenantIssuer{ID: r.ID, TenantSlug: r.Slug, Issuer: r.Issuer, JWKSURI: r.JwksUri, Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // DeleteTenantIssuer removes a tenant issuer registration by OIDC issuer URL.
@@ -141,11 +132,11 @@ func (s *Service) DeleteTenantIssuer(ctx context.Context, issuer string) error {
 	if issuer == "" {
 		return ErrInvalidTenantIssuer
 	}
-	tag, err := s.pg.Exec(ctx, `DELETE FROM profiles.tenant_issuers WHERE issuer = $1`, issuer)
+	n, err := s.q.TenantIssuerDelete(ctx, issuer)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrTenantIssuerNotFound
 	}
 	return nil

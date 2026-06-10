@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sort"
 	"strings"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // Tenant RBAC (authkit #46): roles are NAMES (profiles.tenant_roles) plus a set of
@@ -147,23 +149,7 @@ func (s *Service) GetRolePermissions(ctx context.Context, tenantSlug, role strin
 		return nil, err
 	}
 	role = canonicalizeTenantRole(role)
-	rows, err := s.pg.Query(ctx, `
-		SELECT permission FROM profiles.tenant_role_permissions
-		WHERE tenant_id=$1::uuid AND role=$2 ORDER BY permission ASC
-	`, tenant.ID, role)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, err
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
+	return s.q.TenantRolePermissions(ctx, db.TenantRolePermissionsParams{TenantID: tenant.ID, Role: role})
 }
 
 // SetRolePermissions replaces a role's permission set (idempotent). The role
@@ -178,8 +164,8 @@ func (s *Service) SetRolePermissions(ctx context.Context, tenantSlug, role strin
 		return err
 	}
 	role = canonicalizeTenantRole(role)
-	var exists bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.tenant_roles WHERE tenant_id=$1::uuid AND role=$2)`, tenant.ID, role).Scan(&exists); err != nil {
+	exists, err := s.q.TenantRoleExists(ctx, db.TenantRoleExistsParams{TenantID: tenant.ID, Role: role})
+	if err != nil {
 		return err
 	}
 	if !exists {
@@ -191,11 +177,12 @@ func (s *Service) SetRolePermissions(ctx context.Context, tenantSlug, role strin
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `DELETE FROM profiles.tenant_role_permissions WHERE tenant_id=$1::uuid AND role=$2`, tenant.ID, role); err != nil {
+	qtx := s.q.WithTx(tx)
+	if err := qtx.TenantRolePermissionsDelete(ctx, db.TenantRolePermissionsDeleteParams{TenantID: tenant.ID, Role: role}); err != nil {
 		return err
 	}
 	for _, p := range clean {
-		if _, err := tx.Exec(ctx, `INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, tenant.ID, role, p); err != nil {
+		if err := qtx.TenantRolePermissionInsert(ctx, db.TenantRolePermissionInsertParams{TenantID: tenant.ID, Role: role, Permission: p}); err != nil {
 			return err
 		}
 	}
@@ -342,11 +329,7 @@ func dedupeStrings(in []string) []string {
 // materializeDefaultRole), so a solo tenant carries no dormant app-role
 // scaffolding. Idempotent.
 func (s *Service) seedRolePermissionDefaults(ctx context.Context, tenantID string) error {
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission)
-		VALUES ($1::uuid, $2, $3) ON CONFLICT DO NOTHING
-	`, tenantID, tenantOwnerRole, PermWildcard)
-	return err
+	return s.q.TenantRolePermissionInsert(ctx, db.TenantRolePermissionInsertParams{TenantID: tenantID, Role: tenantOwnerRole, Permission: PermWildcard})
 }
 
 // materializeDefaultRole lazily seeds an app-declared DefaultRole's permission
@@ -369,18 +352,18 @@ func (s *Service) materializeDefaultRole(ctx context.Context, tenantID, role str
 		return nil // not an app default role; nothing to materialize
 	}
 	// Already materialized?
-	var exists bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.tenant_role_permissions WHERE tenant_id=$1::uuid AND role=$2)`, tenantID, role).Scan(&exists); err != nil {
+	exists, err := s.q.TenantRoleHasPermissions(ctx, db.TenantRoleHasPermissionsParams{TenantID: tenantID, Role: role})
+	if err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
-	if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.tenant_roles (tenant_id, role) VALUES ($1::uuid,$2) ON CONFLICT (tenant_id, role) DO NOTHING`, tenantID, role); err != nil {
+	if err := s.q.TenantRoleDefine(ctx, db.TenantRoleDefineParams{TenantID: tenantID, Role: role}); err != nil {
 		return err
 	}
 	for _, p := range dedupeStrings(tmpl.Permissions) {
-		if _, err := s.pg.Exec(ctx, `INSERT INTO profiles.tenant_role_permissions (tenant_id, role, permission) VALUES ($1::uuid,$2,$3) ON CONFLICT DO NOTHING`, tenantID, role, p); err != nil {
+		if err := s.q.TenantRolePermissionInsert(ctx, db.TenantRolePermissionInsertParams{TenantID: tenantID, Role: role, Permission: p}); err != nil {
 			return err
 		}
 	}
