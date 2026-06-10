@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/mr-tron/base58 v1.2.0
-	github.com/open-rails/migratekit v0.7.15
+	github.com/open-rails/migratekit v1.0.0
 	github.com/redis/go-redis/v9 v9.6.3
 	github.com/riverqueue/river v0.23.1
 	github.com/robfig/cron/v3 v3.0.1
