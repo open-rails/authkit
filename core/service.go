@@ -45,6 +45,12 @@ type Options struct {
 	// non-blocking, or required.
 	RegistrationVerification RegistrationVerificationPolicy
 
+	// VerificationSendTimeout bounds each in-line email/SMS provider send
+	// (verification codes, password-reset links, login codes) so a configured
+	// but misconfigured/unreachable provider cannot hang the request that
+	// triggered it (e.g. registration). Empty/<=0 defaults to 15 seconds.
+	VerificationSendTimeout time.Duration
+
 	// AutoCreatePersonalTenants creates a personal tenant for each native user at
 	// signup (direct opt-in; authkit issue 60). False keeps native users
 	// tenant-free by default.
@@ -676,7 +682,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 	// Send verification message to new phone
 	if s.sms != nil {
 		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-		if err := s.sms.SendVerification(sendCtx, trimmed, msg); err != nil {
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, trimmed, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -760,7 +766,7 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	// Send new credentials.
 	if s.sms != nil {
 		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-		if err := s.sms.SendVerification(sendCtx, pendingPhone, msg); err != nil {
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, pendingPhone, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -819,7 +825,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 	if s.sms != nil {
 		msg := VerificationMessage{Code: code}
 		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-		return smsDeliveryError(s.sms.SendVerification(sendCtx, phone, msg))
+		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }))
 	}
 	// In production, require SMS to be configured
 	if !s.isDevEnvironment() {
@@ -1261,7 +1267,9 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 	}
 
 	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
-	if err := s.email.SendPasswordResetLink(sendCtx, *u.Email, username, token); err != nil {
+	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+		return s.email.SendPasswordResetLink(sendCtx, *u.Email, username, token)
+	}); err != nil {
 		return emailDeliveryError(err)
 	}
 
@@ -1381,7 +1389,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 	}
 	if s.email != nil {
 		sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
-		if err := s.email.SendVerification(sendCtx, *u.Email, username, msg); err != nil {
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, *u.Email, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -1476,7 +1484,9 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			if err := s.email.SendVerification(sendCtx, normEmail, username, msg); err != nil {
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+				return s.email.SendVerification(sendCtx, normEmail, username, msg)
+			}); err != nil {
 				return "", emailDeliveryError(err)
 			}
 		}
@@ -1510,7 +1520,7 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.email != nil {
-				if err := s.email.SendVerification(sendCtx, email, username, msg); err != nil {
+				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
 					return "", emailDeliveryError(err)
 				}
 			} else {
@@ -1624,7 +1634,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			if err := s.sms.SendVerification(sendCtx, phone, msg); err != nil {
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 				return "", smsDeliveryError(err)
 			}
 		}
@@ -1654,7 +1664,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.sms != nil {
-				if err := s.sms.SendVerification(sendCtx, phone, msg); err != nil {
+				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 					return "", smsDeliveryError(err)
 				}
 			} else {
@@ -1820,7 +1830,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 	// Send SMS
 	if s.sms != nil {
 		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-		if err := s.sms.SendVerification(sendCtx, phone, msg); err != nil {
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -1925,7 +1935,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 	}
 
 	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
-	if err := s.sms.SendPasswordResetLink(sendCtx, phone, token); err != nil {
+	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendPasswordResetLink(sendCtx, phone, token) }); err != nil {
 		return smsDeliveryError(err)
 	}
 
@@ -2083,6 +2093,27 @@ func (s *Service) contextWithUserPreferredLocale(ctx context.Context, userID str
 		return ctx
 	}
 	return contextWithPreferredLocale(ctx, preferred.Locale)
+}
+
+// verificationSendTimeout is the per-send deadline for in-line email/SMS
+// provider calls. Configurable via Options.VerificationSendTimeout; defaults to
+// 15s when unset.
+func (s *Service) verificationSendTimeout() time.Duration {
+	if s != nil && s.opts.VerificationSendTimeout > 0 {
+		return s.opts.VerificationSendTimeout
+	}
+	return 15 * time.Second
+}
+
+// withSendTimeout runs a single email/SMS provider send under a bounded context
+// so a configured-but-misconfigured/unreachable provider cannot hang the
+// request that triggered it (e.g. registration verification). It is loop-safe:
+// the deadline is cancelled as soon as the send returns, not at the end of the
+// calling function.
+func (s *Service) withSendTimeout(ctx context.Context, send func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, s.verificationSendTimeout())
+	defer cancel()
+	return send(ctx)
 }
 
 type ImportUserInput struct {
@@ -2744,7 +2775,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	if s.email != nil {
 		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-		if err := s.email.SendVerification(sendCtx, trimmed, username, msg); err != nil {
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, trimmed, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -2826,7 +2857,9 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 	// Send new credentials.
 	if s.email != nil {
 		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-		if err := s.email.SendVerification(sendCtx, pendingEmail, username, msg); err != nil {
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+			return s.email.SendVerification(sendCtx, pendingEmail, username, msg)
+		}); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -3844,7 +3877,9 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 	if settings.Method == "email" {
 		if s.email != nil {
 			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-			if err := s.email.SendLoginCode(sendCtx, destination, username, code); err != nil {
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+				return s.email.SendLoginCode(sendCtx, destination, username, code)
+			}); err != nil {
 				return "", emailDeliveryError(err)
 			}
 		} else {
@@ -3858,7 +3893,7 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 	} else { // sms
 		if s.sms != nil {
 			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-			if err := s.sms.SendLoginCode(sendCtx, destination, code); err != nil {
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendLoginCode(sendCtx, destination, code) }); err != nil {
 				return "", smsDeliveryError(err)
 			}
 		} else {
