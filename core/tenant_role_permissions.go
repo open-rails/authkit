@@ -369,3 +369,43 @@ func (s *Service) materializeDefaultRole(ctx context.Context, tenantID, role str
 	}
 	return nil
 }
+
+// EffectivePermsForTokens is the EXPORTED token evaluator: it expands one
+// role's stored tokens against a catalog exactly the way authkit resolves
+// permissions at request time (`*` => every catalog permission; `!p` =>
+// remove p; otherwise the literal permission).
+//
+// Hosts should use THIS function in security tests that lock their seeded
+// role definitions, instead of replicating the semantics: a replicated
+// evaluator drifts, and drift in permission semantics fails silently (the
+// 2026-06-10 incident: a host's admin role excluded org-era names that no
+// longer matched anything, silently expanding admin to ALL permissions).
+func EffectivePermsForTokens(tokens []string, catalog map[string]bool) map[string]bool {
+	return effectivePermsForTokens(tokens, catalog)
+}
+
+// UnknownRoleTokenNames returns every concrete name referenced by tokens
+// (inclusions AND `!p` exclusions) that is absent from catalog. Unknown
+// EXCLUSIONS are the dangerous case: they subtract nothing, so a role meant
+// to be narrowed silently keeps the permission — validate seeds with this at
+// startup or in tests and treat a non-empty result as a hard error.
+func UnknownRoleTokenNames(tokens []string, catalog map[string]bool) []string {
+	var unknown []string
+	for _, t := range tokens {
+		t = strings.TrimSpace(t)
+		if t == "" || t == PermWildcard {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(t, permExcludePrefix))
+		if !catalog[name] {
+			unknown = append(unknown, t)
+		}
+	}
+	return unknown
+}
+
+// BaseReservedPermissions lists authkit's own reserved base permissions —
+// the names hosts must include in the catalog they validate seeds against.
+func BaseReservedPermissions() []string {
+	return []string{PermTenantRolesManage, PermTenantMembersManage, PermTenantTokensManage, PermTenantRead}
+}
