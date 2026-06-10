@@ -48,7 +48,7 @@ func (s *Service) setTenantReservedTx(ctx context.Context, tx pgx.Tx, tenantID s
 		return fmt.Errorf("tx required")
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return fmt.Errorf("invalid_org")
+		return fmt.Errorf("invalid_tenant")
 	}
 	_, err := tx.Exec(ctx, `
 		UPDATE profiles.tenants
@@ -146,7 +146,7 @@ func (s *Service) GetTenantMetadata(ctx context.Context, tenantID string) (map[s
 		return nil, err
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, fmt.Errorf("invalid_org")
+		return nil, fmt.Errorf("invalid_tenant")
 	}
 	var raw []byte
 	if err := s.pg.QueryRow(ctx, `SELECT COALESCE(metadata, '{}'::jsonb) FROM profiles.tenants WHERE id=$1::uuid AND deleted_at IS NULL`, tenantID).Scan(&raw); err != nil {
@@ -170,7 +170,7 @@ func (s *Service) PatchTenantMetadata(ctx context.Context, tenantID string, patc
 		return err
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return fmt.Errorf("invalid_org")
+		return fmt.Errorf("invalid_tenant")
 	}
 	if len(patch) == 0 {
 		return nil

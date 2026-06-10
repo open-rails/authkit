@@ -16,7 +16,7 @@ func (s *Service) handleTenantsListGET(w http.ResponseWriter, r *http.Request) {
 	}
 	mems, err := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "orgs_lookup_failed")
+		serverErr(w, "tenants_lookup_failed")
 		return
 	}
 	type tenantItem struct {
@@ -163,7 +163,7 @@ func (s *Service) handleTenantsRenamePOST(w http.ResponseWriter, r *http.Request
 		}
 		if err == core.ErrRenameRateLimited {
 			seconds, _ := s.svc.TimeUntilTenantRenameAvailable(r.Context(), tenant.ID, time.Now())
-			availability := cooldownAvailability("rename_org", seconds, 72*time.Hour, time.Now())
+			availability := cooldownAvailability("rename_tenant", seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
 			data["error"] = core.ErrCodeRenameRateLimited
 			writeJSON(w, http.StatusTooManyRequests, data)

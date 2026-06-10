@@ -148,7 +148,7 @@ func (s *Service) GetTenantNamespaceState(ctx context.Context, tenantID string) 
 		return "", err
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return "", fmt.Errorf("invalid_org")
+		return "", fmt.Errorf("invalid_tenant")
 	}
 	var stateRaw string
 	var reserved bool
@@ -209,7 +209,7 @@ func (s *Service) SetTenantNamespaceState(ctx context.Context, tenantID string, 
 		return err
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return fmt.Errorf("invalid_org")
+		return fmt.Errorf("invalid_tenant")
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
@@ -814,7 +814,7 @@ func (s *Service) countActiveTenantOwners(ctx context.Context, tenantID string) 
 		return 0, err
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return 0, fmt.Errorf("invalid_org")
+		return 0, fmt.Errorf("invalid_tenant")
 	}
 	var n int
 	if err := s.pg.QueryRow(ctx, `

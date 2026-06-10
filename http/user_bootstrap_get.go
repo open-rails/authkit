@@ -8,7 +8,7 @@ import (
 type userBootstrapResponse struct {
 	UserID                string             `json:"user_id"`
 	Username              string             `json:"username"`
-	PersonalTenant        string             `json:"personal_org"`
+	PersonalTenant        string             `json:"personal_tenant"`
 	Tenants               []tenantMembership `json:"tenants"`
 	UserAliases           []string           `json:"user_aliases,omitempty"`
 	PersonalTenantAliases []string           `json:"personal_tenant_aliases,omitempty"`

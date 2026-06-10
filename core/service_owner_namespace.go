@@ -230,7 +230,7 @@ func (s *Service) ListTenantAliases(ctx context.Context, tenantID string) ([]str
 		return nil, err
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, fmt.Errorf("invalid_org")
+		return nil, fmt.Errorf("invalid_tenant")
 	}
 	rows, err := s.pg.Query(ctx, `
 		SELECT DISTINCT from_slug
@@ -262,7 +262,7 @@ func (s *Service) ensurePersonalTenantForUser(ctx context.Context, userID, usern
 	userID = strings.TrimSpace(userID)
 	slug := ownerSlugFromUsername(username)
 	if userID == "" || slug == "" {
-		return fmt.Errorf("invalid_personal_org")
+		return fmt.Errorf("invalid_personal_tenant")
 	}
 	if err := validateTenantSlug(slug); err != nil {
 		return err
