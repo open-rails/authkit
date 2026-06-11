@@ -22,7 +22,6 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	entpg "github.com/open-rails/authkit/entitlements"
 	"github.com/open-rails/authkit/internal/db"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	authlang "github.com/open-rails/authkit/lang"
@@ -95,9 +94,14 @@ type Keyset struct {
 	PublicKeys map[string]crypto.PublicKey // kid -> pub
 }
 
-// EntitlementsProvider returns application entitlements for a user (e.g., billing tiers).
+// EntitlementsProvider returns the names of a user's currently active
+// application entitlements (e.g., billing tiers). Names are the ONLY shape
+// AuthKit consumes — they are baked verbatim into the `entitlements` claim of
+// access tokens and surfaced on admin user views. Providers should return
+// active grants only; expired/revoked entitlements are the provider's concern,
+// not AuthKit's.
 type EntitlementsProvider interface {
-	ListEntitlements(ctx context.Context, userID string) ([]entpg.Entitlement, error)
+	ListEntitlements(ctx context.Context, userID string) ([]string, error)
 }
 
 var (
@@ -465,10 +469,15 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	roles := globalRoles
 	var ents []string
 	if s.entitlements != nil {
-		if details, err := s.entitlements.ListEntitlements(ctx, userID); err == nil {
-			for _, d := range details {
-				ents = append(ents, d.Name)
-			}
+		var entErr error
+		ents, entErr = s.entitlements.ListEntitlements(ctx, userID)
+		if entErr != nil {
+			// Deliberate availability-over-consistency: a failing entitlements
+			// provider must not block login, but it must be LOUD — the user is
+			// getting a token without entitlement claims (no premium access)
+			// until the next refresh.
+			stdlog.Printf("authkit: error: entitlements provider failed during access-token issuance for user %s; token issued WITHOUT entitlement claims: %v", userID, entErr)
+			ents = nil
 		}
 	}
 	// Attempt to fetch username/email fresh from DB if possible
@@ -3432,32 +3441,19 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 	return nil
 }
 
-// ListEntitlements returns current entitlements for a user (fresh from provider).
+// ListEntitlements returns current entitlement names for a user (fresh from
+// the provider). A provider failure is logged and returned as none — callers
+// (admin user views) degrade rather than fail.
 func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
 	if s.entitlements == nil {
 		return nil
 	}
-	details, err := s.entitlements.ListEntitlements(ctx, userID)
+	ents, err := s.entitlements.ListEntitlements(ctx, userID)
 	if err != nil {
+		stdlog.Printf("authkit: error: entitlements provider failed for user %s; reporting no entitlements: %v", userID, err)
 		return nil
 	}
-	out := make([]string, 0, len(details))
-	for _, d := range details {
-		out = append(out, d.Name)
-	}
-	return out
-}
-
-// ListEntitlementsDetailed returns detailed entitlements (name + metadata).
-func (s *Service) ListEntitlementsDetailed(ctx context.Context, userID string) []entpg.Entitlement {
-	if s.entitlements == nil {
-		return nil
-	}
-	details, err := s.entitlements.ListEntitlements(ctx, userID)
-	if err != nil {
-		return nil
-	}
-	return details
+	return ents
 }
 
 func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {
