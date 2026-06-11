@@ -42,10 +42,29 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 	}
 	var body struct {
 		Slug string `json:"slug"`
+		// Federation optionally binds the tenant's delegated-token issuer at
+		// creation (#465): the human plants the trust anchor exactly once, when
+		// registering the tenant; everything after is self-signed. The block is
+		// {issuer + jwks_uri} XOR {issuer + public_keys} — one trust source,
+		// never both. Trust-config changes after creation stay human-only via
+		// the tenant-issuers routes.
+		Federation *tenantIssuerRegistration `json:"federation,omitempty"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Slug) == "" {
 		badRequest(w, "invalid_request")
 		return
+	}
+	// Validate the federation block BEFORE creating anything, so an invalid
+	// block rejects the whole registration (no tenant created).
+	if body.Federation != nil {
+		if strings.TrimSpace(body.Federation.Issuer) == "" {
+			badRequest(w, "invalid_federation_issuer")
+			return
+		}
+		if _, err := core.NormalizeTenantIssuerTrustSource(body.Federation.JWKSURI, body.Federation.Mode, body.Federation.PublicKeys); err != nil {
+			badRequest(w, "invalid_federation_trust_source")
+			return
+		}
 	}
 	tenant, err := s.svc.CreateTenantForUser(r.Context(), core.CreateTenantForUserRequest{
 		Slug:        body.Slug,
@@ -72,7 +91,34 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant.Slug})
+	resp := map[string]any{"tenant": tenant.Slug}
+	if body.Federation != nil {
+		fi, err := s.svc.UpsertTenantIssuer(r.Context(), core.TenantIssuer{
+			TenantSlug: tenant.Slug,
+			Issuer:     body.Federation.Issuer,
+			JWKSURI:    body.Federation.JWKSURI,
+			Mode:       body.Federation.Mode,
+			PublicKeys: body.Federation.PublicKeys,
+			Audiences:  body.Federation.Audiences,
+			Enabled:    true,
+		})
+		if err != nil {
+			// The block was pre-validated, so this is unexpected; the tenant
+			// exists but is unfederated. Surface that honestly — the caller can
+			// bind via POST /tenant-issuers (same human credential).
+			s.logInternalError(r, "tenants_create", "federation_bind", "tenant_created_federation_failed", err)
+			writeJSON(w, http.StatusCreated, map[string]any{
+				"tenant":           tenant.Slug,
+				"federation_error": "tenant_created_federation_failed",
+			})
+			return
+		}
+		if s.verifier != nil {
+			_ = s.verifier.AddIssuer(fi.Issuer, nil, tenantIssuerOptions(*fi))
+		}
+		resp["federation"] = tenantIssuerView(*fi)
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Service) handleTenantsGetGET(w http.ResponseWriter, r *http.Request) {

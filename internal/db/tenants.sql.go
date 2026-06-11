@@ -120,7 +120,7 @@ func (q *Queries) TenantInsert(ctx context.Context, arg TenantInsertParams) (Ten
 }
 
 const tenantIssuerByIssuer = `-- name: TenantIssuerByIssuer :one
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
+SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
 FROM profiles.tenant_issuers ti
 JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
 WHERE ti.issuer = $1
@@ -129,14 +129,16 @@ LIMIT 1
 `
 
 type TenantIssuerByIssuerRow struct {
-	ID        string
-	Slug      string
-	Issuer    string
-	JwksUri   string
-	Audiences []string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         string
+	Slug       string
+	Issuer     string
+	JwksUri    string
+	Audiences  []string
+	Enabled    bool
+	Mode       string
+	PublicKeys []byte
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 func (q *Queries) TenantIssuerByIssuer(ctx context.Context, issuer string) (TenantIssuerByIssuerRow, error) {
@@ -149,6 +151,8 @@ func (q *Queries) TenantIssuerByIssuer(ctx context.Context, issuer string) (Tena
 		&i.JwksUri,
 		&i.Audiences,
 		&i.Enabled,
+		&i.Mode,
+		&i.PublicKeys,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -169,32 +173,38 @@ func (q *Queries) TenantIssuerDelete(ctx context.Context, issuer string) (int64,
 
 const tenantIssuerUpsert = `-- name: TenantIssuerUpsert :one
 
-INSERT INTO profiles.tenant_issuers (tenant_id, issuer, jwks_uri, audiences, enabled)
-VALUES ($1::uuid, $2, $3, $4, $5)
+INSERT INTO profiles.tenant_issuers (tenant_id, issuer, jwks_uri, audiences, enabled, mode, public_keys)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (tenant_id, issuer) DO UPDATE
-  SET jwks_uri   = EXCLUDED.jwks_uri,
-      audiences  = EXCLUDED.audiences,
-      enabled    = EXCLUDED.enabled,
-      updated_at = now()
-RETURNING id::text, issuer, jwks_uri, audiences, enabled, created_at, updated_at
+  SET jwks_uri    = EXCLUDED.jwks_uri,
+      audiences   = EXCLUDED.audiences,
+      enabled     = EXCLUDED.enabled,
+      mode        = EXCLUDED.mode,
+      public_keys = EXCLUDED.public_keys,
+      updated_at  = now()
+RETURNING id::text, issuer, jwks_uri, audiences, enabled, mode, public_keys, created_at, updated_at
 `
 
 type TenantIssuerUpsertParams struct {
-	TenantID  string
-	Issuer    string
-	JwksUri   string
-	Audiences []string
-	Enabled   bool
+	TenantID   string
+	Issuer     string
+	JwksUri    string
+	Audiences  []string
+	Enabled    bool
+	Mode       string
+	PublicKeys []byte
 }
 
 type TenantIssuerUpsertRow struct {
-	ID        string
-	Issuer    string
-	JwksUri   string
-	Audiences []string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         string
+	Issuer     string
+	JwksUri    string
+	Audiences  []string
+	Enabled    bool
+	Mode       string
+	PublicKeys []byte
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // Tenant issuer registry (core/service_tenant_issuers.go).
@@ -205,6 +215,8 @@ func (q *Queries) TenantIssuerUpsert(ctx context.Context, arg TenantIssuerUpsert
 		arg.JwksUri,
 		arg.Audiences,
 		arg.Enabled,
+		arg.Mode,
+		arg.PublicKeys,
 	)
 	var i TenantIssuerUpsertRow
 	err := row.Scan(
@@ -213,6 +225,8 @@ func (q *Queries) TenantIssuerUpsert(ctx context.Context, arg TenantIssuerUpsert
 		&i.JwksUri,
 		&i.Audiences,
 		&i.Enabled,
+		&i.Mode,
+		&i.PublicKeys,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -220,21 +234,23 @@ func (q *Queries) TenantIssuerUpsert(ctx context.Context, arg TenantIssuerUpsert
 }
 
 const tenantIssuersAll = `-- name: TenantIssuersAll :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
+SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
 FROM profiles.tenant_issuers ti
 JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
 ORDER BY t.slug ASC, ti.issuer ASC
 `
 
 type TenantIssuersAllRow struct {
-	ID        string
-	Slug      string
-	Issuer    string
-	JwksUri   string
-	Audiences []string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         string
+	Slug       string
+	Issuer     string
+	JwksUri    string
+	Audiences  []string
+	Enabled    bool
+	Mode       string
+	PublicKeys []byte
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 func (q *Queries) TenantIssuersAll(ctx context.Context) ([]TenantIssuersAllRow, error) {
@@ -253,6 +269,8 @@ func (q *Queries) TenantIssuersAll(ctx context.Context) ([]TenantIssuersAllRow, 
 			&i.JwksUri,
 			&i.Audiences,
 			&i.Enabled,
+			&i.Mode,
+			&i.PublicKeys,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -267,7 +285,7 @@ func (q *Queries) TenantIssuersAll(ctx context.Context) ([]TenantIssuersAllRow, 
 }
 
 const tenantIssuersEnabled = `-- name: TenantIssuersEnabled :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
+SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
 FROM profiles.tenant_issuers ti
 JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
 WHERE ti.enabled = true
@@ -275,14 +293,16 @@ ORDER BY t.slug ASC, ti.issuer ASC
 `
 
 type TenantIssuersEnabledRow struct {
-	ID        string
-	Slug      string
-	Issuer    string
-	JwksUri   string
-	Audiences []string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         string
+	Slug       string
+	Issuer     string
+	JwksUri    string
+	Audiences  []string
+	Enabled    bool
+	Mode       string
+	PublicKeys []byte
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 func (q *Queries) TenantIssuersEnabled(ctx context.Context) ([]TenantIssuersEnabledRow, error) {
@@ -301,6 +321,8 @@ func (q *Queries) TenantIssuersEnabled(ctx context.Context) ([]TenantIssuersEnab
 			&i.JwksUri,
 			&i.Audiences,
 			&i.Enabled,
+			&i.Mode,
+			&i.PublicKeys,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

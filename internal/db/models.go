@@ -110,6 +110,10 @@ type ProfilesTenantIssuer struct {
 	Enabled   bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// Trust source: jwks (fetch from jwks_uri) XOR static (human-managed public_keys list).
+	Mode string
+	// static mode only: JSON array of {kid, public_key_pem} entries, edited by humans like an authorized_keys file.
+	PublicKeys []byte
 }
 
 type ProfilesTenantMembership struct {

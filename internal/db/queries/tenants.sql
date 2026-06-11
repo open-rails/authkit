@@ -152,17 +152,19 @@ SELECT EXISTS(SELECT 1 FROM profiles.tenant_role_permissions WHERE tenant_id = s
 -- Tenant issuer registry (core/service_tenant_issuers.go).
 
 -- name: TenantIssuerUpsert :one
-INSERT INTO profiles.tenant_issuers (tenant_id, issuer, jwks_uri, audiences, enabled)
-VALUES (sqlc.arg(tenant_id)::uuid, $2, $3, $4, $5)
+INSERT INTO profiles.tenant_issuers (tenant_id, issuer, jwks_uri, audiences, enabled, mode, public_keys)
+VALUES (sqlc.arg(tenant_id)::uuid, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (tenant_id, issuer) DO UPDATE
-  SET jwks_uri   = EXCLUDED.jwks_uri,
-      audiences  = EXCLUDED.audiences,
-      enabled    = EXCLUDED.enabled,
-      updated_at = now()
-RETURNING id::text, issuer, jwks_uri, audiences, enabled, created_at, updated_at;
+  SET jwks_uri    = EXCLUDED.jwks_uri,
+      audiences   = EXCLUDED.audiences,
+      enabled     = EXCLUDED.enabled,
+      mode        = EXCLUDED.mode,
+      public_keys = EXCLUDED.public_keys,
+      updated_at  = now()
+RETURNING id::text, issuer, jwks_uri, audiences, enabled, mode, public_keys, created_at, updated_at;
 
 -- name: TenantIssuerByIssuer :one
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
+SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
 FROM profiles.tenant_issuers ti
 JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
 WHERE ti.issuer = $1
@@ -170,13 +172,13 @@ ORDER BY ti.created_at ASC
 LIMIT 1;
 
 -- name: TenantIssuersAll :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
+SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
 FROM profiles.tenant_issuers ti
 JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
 ORDER BY t.slug ASC, ti.issuer ASC;
 
 -- name: TenantIssuersEnabled :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.created_at, ti.updated_at
+SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
 FROM profiles.tenant_issuers ti
 JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
 WHERE ti.enabled = true

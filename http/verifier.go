@@ -366,6 +366,21 @@ func (v *Verifier) WithService(svc *core.Service) *Verifier {
 // Federated-tenant issuers (in-house store, no external push/sync)
 // ---------------------------------------------------------------------------
 
+// tenantIssuerOptions maps a stored tenant-issuer row to verifier options for
+// its trust mode (#465): jwks mode fetches+refreshes from the URI; static mode
+// seeds the human-managed PEM list (no URL fetching ever for static bindings).
+func tenantIssuerOptions(fi core.TenantIssuer) IssuerOptions {
+	opts := IssuerOptions{TrustedResourceAccount: fi.TenantSlug}
+	if fi.Mode == core.TenantIssuerModeStatic {
+		for _, k := range fi.PublicKeys {
+			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
+		}
+		return opts
+	}
+	opts.JWKSURI = fi.JWKSURI
+	return opts
+}
+
 // TenantIssuerSource is the minimal store contract the Verifier needs to
 // load tenant-tenant issuers. *core.Service satisfies it. An embedding app may
 // supply its own implementation in tests or to source issuers from elsewhere.
@@ -417,7 +432,7 @@ func (v *Verifier) LoadTenantIssuers(ctx context.Context, src TenantIssuerSource
 			continue
 		}
 		enabled[issuerID] = true
-		if err := v.AddIssuer(issuerID, audiences, IssuerOptions{JWKSURI: fi.JWKSURI, TrustedResourceAccount: fi.TenantSlug}); err != nil {
+		if err := v.AddIssuer(issuerID, audiences, tenantIssuerOptions(fi)); err != nil {
 			return err
 		}
 		v.mu.Lock()
@@ -504,7 +519,7 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 		return false
 	}
 
-	if err := v.AddIssuer(fi.Issuer, aud, IssuerOptions{JWKSURI: fi.JWKSURI, TrustedResourceAccount: fi.TenantSlug}); err != nil {
+	if err := v.AddIssuer(fi.Issuer, aud, tenantIssuerOptions(*fi)); err != nil {
 		v.mu.Lock()
 		v.negCache[issuer] = time.Now()
 		v.mu.Unlock()
