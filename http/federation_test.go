@@ -145,6 +145,7 @@ func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 		Audiences:        aud,
 		DelegatedSubject: "ext-user-1",
 		Tenant:           "cozy-art",
+		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		Attributes:       map[string]any{"tier": "cozy_pro"},
 		TTL:              time.Minute,
 	})
@@ -194,6 +195,7 @@ func TestVerifierRejectsTenantIssuerMismatch(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		Tenant:           "hentai0",
+		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		DelegatedSubject: "paul-fidika",
 		Permissions:      []string{"openrails:tenant:admin"},
 		TTL:              time.Minute,
@@ -236,6 +238,7 @@ func TestVerifierRejectsLazyLoadedTenantIssuerMismatch(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		Tenant:           "hentai0",
+		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		DelegatedSubject: "paul-fidika",
 		Permissions:      []string{"openrails:tenant:admin"},
 		TTL:              time.Minute,

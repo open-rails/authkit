@@ -252,7 +252,11 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 	}); err != nil {
 		t.Fatalf("UpsertTenantIssuer: %v", err)
 	}
-	if _, err := svc.TouchTenantSubject(ctx, "", slug, issuer, subject); err != nil {
+	tenant, err := svc.ResolveTenantBySlug(ctx, slug)
+	if err != nil {
+		t.Fatalf("ResolveTenantBySlug: %v", err)
+	}
+	if _, err := svc.TouchTenantSubject(ctx, tenant.ID, issuer, subject); err != nil {
 		t.Fatalf("TouchTenantSubject: %v", err)
 	}
 	if _, err := svc.CreatePendingRegistration(ctx, "blocked@example.com", "blockeduser", "hash", 0); err != ErrRegistrationDisabled {

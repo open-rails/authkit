@@ -41,8 +41,7 @@ type DelegatedAccessParams struct {
 	Tenant string
 	// TenantID becomes the `tenant_id` claim: the immutable uuid of the target
 	// resource-service account. This is the canonical identifier receiving
-	// services persist and authorize against. Optional during the migration
-	// window; mint with both.
+	// services persist and authorize against. Required.
 	TenantID string
 	// DelegatedSubject becomes `delegated_sub`: the issuer-side user/actor id.
 	// Required. No local account is implied in the receiving service.
@@ -80,6 +79,9 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	}
 	if strings.TrimSpace(p.DelegatedSubject) == "" {
 		return "", errors.New("delegated_sub required")
+	}
+	if strings.TrimSpace(p.TenantID) == "" {
+		return "", errors.New("tenant_id required")
 	}
 
 	ttl := p.TTL

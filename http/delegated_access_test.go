@@ -25,6 +25,7 @@ func TestMintAndVerifyDelegatedAccessToken(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		Tenant:           "cozy-art",
+		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		DelegatedSubject: "user-123",
 		Permissions:      []string{"openrails:self:billing:read", "openrails:self:checkout:create"},
 		Attributes:       map[string]any{"tier": "cozy_free", "budget": 42},
@@ -155,6 +156,7 @@ func TestDelegatedAccessRejectsIssuerTenantMismatch(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		Tenant:           "hentai0",
+		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		DelegatedSubject: "paul-fidika",
 		Permissions:      []string{"openrails:tenant:admin"},
 		TTL:              time.Minute,
@@ -202,6 +204,7 @@ func TestDelegatedAccessRoundTripsArbitraryAttributes(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		Tenant:           "cozy-art",
+		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		DelegatedSubject: "u1",
 		Attributes:       attrs,
 		TTL:              time.Minute,
@@ -242,6 +245,7 @@ func TestDelegatedAccessRejectsTopLevelUserTier(t *testing.T) {
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
 		"tenant":        "cozy-art",
+		"tenant_id":     "0190dead-beef-7000-8000-000000000001",
 		"delegated_sub": "u1",
 		"user_tier":     "legacy_free",
 		"attributes":    map[string]any{"tier": "canonical_pro"},
@@ -262,6 +266,7 @@ func TestDelegatedAccessRejectsRolesClaim(t *testing.T) {
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
 		"tenant":        "cozy-art",
+		"tenant_id":     "0190dead-beef-7000-8000-000000000001",
 		"delegated_sub": "u1",
 		"roles":         []string{"admin", "superuser"},
 	}, map[string]any{"typ": DelegatedAccessTokenType})
@@ -293,7 +298,7 @@ func TestPermissionCatalogValidator(t *testing.T) {
 
 	// Good token: only catalog perms.
 	good, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u",
+		Issuer: iss, Audiences: aud, Tenant: "t", TenantID: "0190dead-beef-7000-8000-000000000001", DelegatedSubject: "u",
 		Permissions: []string{"openrails:self:billing:read"}, TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(good); err != nil {
@@ -302,7 +307,7 @@ func TestPermissionCatalogValidator(t *testing.T) {
 
 	// Bad token: a permission not in the catalog.
 	bad, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u",
+		Issuer: iss, Audiences: aud, Tenant: "t", TenantID: "0190dead-beef-7000-8000-000000000001", DelegatedSubject: "u",
 		Permissions: []string{"openrails:tenant:admin"}, TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(bad); err == nil {
@@ -327,13 +332,13 @@ func TestAttributesPolicyValidator(t *testing.T) {
 		t.Fatal(err)
 	}
 	bad, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u", TTL: time.Minute,
+		Issuer: iss, Audiences: aud, Tenant: "t", TenantID: "0190dead-beef-7000-8000-000000000001", DelegatedSubject: "u", TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(bad); err == nil {
 		t.Fatal("expected tier_required rejection")
 	}
 	good, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u",
+		Issuer: iss, Audiences: aud, Tenant: "t", TenantID: "0190dead-beef-7000-8000-000000000001", DelegatedSubject: "u",
 		Attributes: map[string]any{"tier": "cozy_free"}, TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(good); err != nil {

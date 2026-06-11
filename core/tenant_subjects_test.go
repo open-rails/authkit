@@ -19,16 +19,14 @@ func TestTouchTenantSubjectPersistsOIDCTuple(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE id=$1::uuid`, tenantID) })
 
-	// uuid-keyed touch (canonical path: tenant_id claim present).
-	first, err := svc.TouchTenantSubject(ctx, tenantID, "", "https://issuer-a.example", "same-sub")
+	first, err := svc.TouchTenantSubject(ctx, tenantID, "https://issuer-a.example", "same-sub")
 	if err != nil {
 		t.Fatalf("touch first: %v", err)
 	}
 	if first.TenantID != tenantID {
 		t.Fatalf("TenantID=%q, want %q", first.TenantID, tenantID)
 	}
-	// slug-keyed touch (legacy fallback) must hit the same row.
-	second, err := svc.TouchTenantSubject(ctx, "", slug, "https://issuer-a.example", "same-sub")
+	second, err := svc.TouchTenantSubject(ctx, tenantID, "https://issuer-a.example", "same-sub")
 	if err != nil {
 		t.Fatalf("touch second: %v", err)
 	}
@@ -39,7 +37,7 @@ func TestTouchTenantSubjectPersistsOIDCTuple(t *testing.T) {
 		t.Fatalf("last_seen_at moved backwards: first=%s second=%s", first.LastSeenAt, second.LastSeenAt)
 	}
 
-	otherIssuer, err := svc.TouchTenantSubject(ctx, tenantID, "", "https://issuer-b.example", "same-sub")
+	otherIssuer, err := svc.TouchTenantSubject(ctx, tenantID, "https://issuer-b.example", "same-sub")
 	if err != nil {
 		t.Fatalf("touch other issuer: %v", err)
 	}
@@ -60,33 +58,26 @@ func TestTouchTenantSubjectPersistsOIDCTuple(t *testing.T) {
 		t.Fatalf("tenant subject count=%d, want 2", count)
 	}
 
-	// Deprecated wrapper still works and lands on the same row.
-	viaWrapper, err := svc.TouchDelegatedUser(ctx, slug, "https://issuer-a.example", "same-sub")
-	if err != nil {
-		t.Fatalf("deprecated wrapper: %v", err)
-	}
-	if viaWrapper.ID != first.ID {
-		t.Fatalf("wrapper diverged from canonical row: %q != %q", viaWrapper.ID, first.ID)
-	}
 }
 
 func TestTouchTenantSubjectValidation(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{})
-	if _, err := svc.TouchTenantSubject(context.Background(), "", "", "https://issuer.example", "sub"); err == nil {
+	if _, err := svc.TouchTenantSubject(context.Background(), "", "https://issuer.example", "sub"); err == nil {
 		t.Fatal("expected validation error")
 	}
 
 	pool := testPG(t)
 	svc = svc.WithPostgres(pool)
-	if _, err := svc.TouchTenantSubject(context.Background(), "", "missing-tenant", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
-		t.Fatalf("missing tenant err=%v, want ErrInvalidTenantSubject", err)
+	// Empty tenant uuid is rejected outright (hard cut: no slug fallback).
+	if _, err := svc.TouchTenantSubject(context.Background(), "", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
+		t.Fatalf("empty tenant uuid err=%v, want ErrInvalidTenantSubject", err)
 	}
 	// uuid that points at no tenant: FK violation maps to the credential error.
-	if _, err := svc.TouchTenantSubject(context.Background(), "00000000-0000-7000-8000-000000000000", "", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
+	if _, err := svc.TouchTenantSubject(context.Background(), "00000000-0000-7000-8000-000000000000", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
 		t.Fatalf("unknown tenant uuid err=%v, want ErrInvalidTenantSubject", err)
 	}
 	// Malformed uuid maps to the credential error, not an internal failure.
-	if _, err := svc.TouchTenantSubject(context.Background(), "not-a-uuid", "", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
+	if _, err := svc.TouchTenantSubject(context.Background(), "not-a-uuid", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
 		t.Fatalf("malformed tenant uuid err=%v, want ErrInvalidTenantSubject", err)
 	}
 }

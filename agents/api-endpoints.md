@@ -351,8 +351,8 @@ Go `authhttp.TenantIssuersClient` (no route).
 Delegated access JWTs are minted with `authhttp.MintDelegatedAccessToken`.
 They carry `typ=delegated-access+jwt`, required `tenant` (mutable resource-account
 slug — presentation/logging only), `tenant_id` (immutable resource-account uuid —
-the canonical identifier receiving services persist and key on; optional only
-for tokens minted by pre-`tenant_id` authkit versions), `delegated_sub`,
+the canonical identifier receiving services persist and key on; REQUIRED —
+mint and verification both reject tokens without it), `delegated_sub`,
 resource-defined `permissions`, optional JSON `attributes`, and no normal
 `sub`. `delegated_sub` must be the issuer's **immutable, never-reassigned**
 subject identifier (OIDC `sub` semantics) — never a username, slug, or email.

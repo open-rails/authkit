@@ -657,6 +657,9 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		if tenant == "" {
 			return Claims{}, errors.New("missing_tenant")
 		}
+		if strClaim(mapClaims, "tenant_id") == "" {
+			return Claims{}, errors.New("missing_tenant_id")
+		}
 		if strClaim(mapClaims, "user_tier") != "" {
 			return Claims{}, errors.New("delegated_access_has_user_tier")
 		}
