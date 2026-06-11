@@ -104,6 +104,15 @@ type EntitlementsProvider interface {
 	ListEntitlements(ctx context.Context, userID string) ([]string, error)
 }
 
+// BatchEntitlementsProvider is an optional upgrade of EntitlementsProvider:
+// one call answers many users, so list renders (AdminListUsers) cost one
+// provider round trip instead of one per row. Detected by type assertion;
+// providers without it get the per-user fallback. Unknown user ids may be
+// absent from the result.
+type BatchEntitlementsProvider interface {
+	ListEntitlementsBatch(ctx context.Context, userIDs []string) (map[string][]string, error)
+}
+
 var (
 	// ErrUserBanned indicates the account is blocked from authenticating.
 	ErrUserBanned = errors.New("user_banned")
@@ -3186,13 +3195,40 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 			return nil, err
 		}
 		a.Roles = s.listRoleSlugsByUser(ctx, a.ID)
-		a.Entitlements = s.ListEntitlements(ctx, a.ID)
 		out = append(out, a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	s.enrichEntitlements(ctx, out)
 	return &AdminListUsersResult{Users: out, Total: total, Limit: pageSize, Offset: offset}, nil
+}
+
+// enrichEntitlements fills Entitlements for a page of users: one provider call
+// when the provider implements BatchEntitlementsProvider, per-user otherwise.
+// Provider failures log and degrade to no entitlements.
+func (s *Service) enrichEntitlements(ctx context.Context, users []AdminUser) {
+	if s.entitlements == nil || len(users) == 0 {
+		return
+	}
+	if bp, ok := s.entitlements.(BatchEntitlementsProvider); ok {
+		ids := make([]string, 0, len(users))
+		for i := range users {
+			ids = append(ids, users[i].ID)
+		}
+		ents, err := bp.ListEntitlementsBatch(ctx, ids)
+		if err != nil {
+			stdlog.Printf("authkit: error: batch entitlements provider failed for %d users; reporting no entitlements: %v", len(users), err)
+			return
+		}
+		for i := range users {
+			users[i].Entitlements = ents[users[i].ID]
+		}
+		return
+	}
+	for i := range users {
+		users[i].Entitlements = s.ListEntitlements(ctx, users[i].ID)
+	}
 }
 
 func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, error) {
