@@ -1,5 +1,5 @@
 {
-  "next_id": 66,
+  "next_id": 67,
   "issues": [
     {
       "name": "Passkey (WebAuthn/FIDO2) authentication \u2014 register, login, manage",
@@ -37,6 +37,20 @@
         "[x] DONE: a timed-out send returns context.DeadlineExceeded, which the EXISTING smsDeliveryError / emailDeliveryError mappers (ErrSMSDeliveryFailed / ErrEmailDeliveryFailed) already wrap and surface to callers \u2014 no new mapping needed.",
         "[x] DONE: core/send_timeout_test.go \u2014 TestWithSendTimeout_BoundsBlockingSend proves a blocking send returns DeadlineExceeded in ~50ms (no hang); plus default/configurable timeout + success/error pass-through. All pass; go build ./... + ./core/... clean.",
         "[ ] (Optional, deferred) Add a CheckEmailHealth() probe mirroring CheckSMSHealth() so hosts can gate the email-signup path on deliverability at startup. Not required for the hang fix; left as a follow-up."
+      ],
+      "completed": true
+    },
+    {
+      "name": "Entitlements: names-only provider contract + loud failure during token issuance (v0.20.0)",
+      "id_number": 66,
+      "description": "Owner-requested fix of two issues in the mint-time entitlement enrichment. (1) SILENT SWALLOW: IssueAccessToken and Service.ListEntitlements discarded EntitlementsProvider errors via a bare err==nil guard — a user logging in during a billing outage silently got a token without entitlement claims (no premium) until refresh, with zero signal at the authkit layer. The availability-over-consistency behavior is KEPT (a billing outage must never block login) but failures now log loudly via the stdlog convention: 'token issued WITHOUT entitlement claims'. (2) SHAPE CEREMONY: the provider contract returned []entitlements.Entitlement (Name/ExpiresAt/RevokedAt/Source/Metadata) but authkit only ever consumed .Name — the JWT entitlements claim and admin user views — and ListEntitlementsDetailed had ZERO callers. Hard cut: EntitlementsProvider.ListEntitlements now returns ([]string, error) of ACTIVE entitlement names, the entitlements package (one type) and ListEntitlementsDetailed are deleted. Hosts map their billing wire records straight to names (wire shape -> claim string, two shapes total). BREAKING for provider implementers; consumers doujins #390 + hentai0 #168 updated in lockstep.",
+      "tasks": [
+        "[x] EntitlementsProvider -> ListEntitlements(ctx, userID) ([]string, error); doc: active grants only, names baked verbatim into the entitlements claim",
+        "[x] IssueAccessToken: log provider failure (token still mints, claims empty)",
+        "[x] Service.ListEntitlements: forward + log failure (admin views degrade)",
+        "[x] Delete ListEntitlementsDetailed (no callers) + the entitlements package",
+        "[x] Tests: claim emission + issue-despite-provider-failure semantics (service_entitlements_claim_test.go)",
+        "[x] go build/vet/test ./... green; tagged v0.20.0 + pushed; doujins/hentai0 bumped and their suites green (doujins auth integration against real OpenRails)"
       ],
       "completed": true
     }
