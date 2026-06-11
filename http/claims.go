@@ -31,10 +31,14 @@ type Claims struct {
 	JTI          string
 
 	// Delegated/tenant fields. A delegated service token carries the external
-	// actor in DelegatedSubject (claim `delegated_sub`) and the canonical target
-	// resource account in Tenant (claim `tenant`). It never carries
-	// `sub` (UserID stays empty), so the local-user gate does not apply.
+	// actor in DelegatedSubject (claim `delegated_sub`) and the target resource
+	// account in TenantID (claim `tenant_id`, immutable uuid — the canonical
+	// key) and Tenant (claim `tenant`, mutable slug — presentation/logging
+	// only). It never carries `sub` (UserID stays empty), so the local-user
+	// gate does not apply. TenantID is empty on tokens minted before the
+	// tenant_id claim existed; fall back to resolving Tenant.
 	Tenant           string
+	TenantID         string
 	DelegatedSubject string
 
 	// Attributes is the `attributes` claim of a delegated service token: an
@@ -82,8 +86,12 @@ func (c Claims) IsService() bool {
 // validating service — authorization is by issuer/resource-account trust plus
 // Permissions, not local-user lookup.
 type DelegatedPrincipal struct {
-	Issuer           string
+	Issuer string
+	// Tenant is the mutable resource-account slug (claim `tenant`);
+	// TenantID is the immutable uuid (claim `tenant_id`) and is the
+	// identifier to persist. TenantID is empty on legacy tokens.
 	Tenant           string
+	TenantID         string
 	DelegatedSubject string
 	// Permissions are the resource-defined permission strings the receiving
 	// service authorizes against its own catalog. This is the authority source.
@@ -119,6 +127,7 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	return DelegatedPrincipal{
 		Issuer:           c.Issuer,
 		Tenant:           strings.TrimSpace(c.Tenant),
+		TenantID:         strings.TrimSpace(c.TenantID),
 		DelegatedSubject: c.DelegatedSubject,
 		Permissions:      c.Permissions,
 		Attributes:       c.Attributes,

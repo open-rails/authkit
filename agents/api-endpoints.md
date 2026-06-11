@@ -172,7 +172,9 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 Long-lived, revocable bearer credentials **owned by a tenant** (not a person), for
 machine/automation callers (CI, the e2e operator CLI, service-to-service). An
-opaque service token acts **as the tenant**: middleware sets `Claims.Tenant` + `Claims.Permissions`
+opaque service token acts **as the tenant**: middleware sets `Claims.TenantID`
+(immutable tenant uuid — the canonical identifier to persist) + `Claims.Tenant`
+(mutable slug, presentation/logging only) + `Claims.Permissions`
 (the token's app-defined permission strings) and a service marker
 (`Claims.IsService()`), with **no** `UserID`, mirroring the delegated-principal
 pattern. Permissions are opaque to authkit — the embedding app owns the
@@ -244,11 +246,15 @@ Example:
   "name": "cozy-spend",
   "permissions": ["openrails:credits:spend"],
   "resources": [
-    {"kind": "openrails.tenant", "id": "tensorhub"},
-    {"kind": "openrails.tenant_subject", "id": "cozy-art"}
+    {"kind": "openrails.tenant", "id": "0190a1b2-c3d4-7e5f-8a6b-9c0d1e2f3a4b"},
+    {"kind": "openrails.tenant_subject", "id": "0190a1b2-c3d4-7e5f-8a6b-9c0d1e2f3a4c"}
   ]
 }
 ```
+
+Resource IDs are opaque to authkit, but hosts must use **durable identifiers**
+(uuids), never mutable slugs — a slug-keyed resource scope silently detaches
+from its target on rename.
 
 **Lifetime.** Optional `expires_at` (null = non-expiring). A host may set a max
 TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
@@ -343,9 +349,15 @@ in-house JWKS fetch/refresh (no external push/sync). The outbound side is the
 Go `authhttp.TenantIssuersClient` (no route).
 
 Delegated access JWTs are minted with `authhttp.MintDelegatedAccessToken`.
-They carry `typ=delegated-access+jwt`, required `tenant`, `delegated_sub`,
+They carry `typ=delegated-access+jwt`, required `tenant` (mutable resource-account
+slug — presentation/logging only), `tenant_id` (immutable resource-account uuid —
+the canonical identifier receiving services persist and key on; optional only
+for tokens minted by pre-`tenant_id` authkit versions), `delegated_sub`,
 resource-defined `permissions`, optional JSON `attributes`, and no normal
-`sub`. Ordinary AuthKit access JWTs carry `typ=access+jwt`; resource servers
+`sub`. `delegated_sub` must be the issuer's **immutable, never-reassigned**
+subject identifier (OIDC `sub` semantics) — never a username, slug, or email.
+All authkit identifiers are opaque strings that happen to be uuidv7; consumers
+must not parse them or branch on their format. Ordinary AuthKit access JWTs carry `typ=access+jwt`; resource servers
 reject missing, unknown, or cross-profile `typ` values. Delegated access JWTs
 must not carry legacy claims such as `org`, `roles`, or
 top-level `user_tier`; those are rejected. Resource servers should validate them

@@ -528,7 +528,8 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 // IssueServiceToken builds and signs a tenant-scoped service token (JWT) for the
 // given user. Valid whenever the user is a member of the tenant (issue 60: tenants
 // are always supported; no global mode gate). The token includes:
-// - tenant (canonical slug)
+// - tenant_id (immutable tenant uuid — the canonical identifier)
+// - tenant (mutable slug, presentation/logging only)
 // - roles (snapshot for that tenant)
 func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	if s.pg == nil {
@@ -553,6 +554,7 @@ func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSl
 	// tenant + roles (legacy) preserve existing behavior; tenant_roles is the new
 	// explicit tenant-scoped claim. global_roles is added by IssueAccessToken.
 	claims := map[string]any{
+		"tenant_id":    tenant.ID,
 		"tenant":       tenant.Slug,
 		"roles":        tenantRoles,
 		"tenant_roles": tenantRoles,

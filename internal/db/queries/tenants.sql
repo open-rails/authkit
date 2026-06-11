@@ -185,9 +185,9 @@ ORDER BY t.slug ASC, ti.issuer ASC;
 -- name: TenantIssuerDelete :execrows
 DELETE FROM profiles.tenant_issuers WHERE issuer = $1;
 
--- name: DelegatedUserTouch :one
-INSERT INTO profiles.delegated_users (tenant_id, issuer, subject)
+-- name: TenantSubjectTouch :one
+INSERT INTO profiles.tenant_subjects (tenant_id, issuer, subject)
 VALUES (sqlc.arg(tenant_id)::uuid, $2, $3)
 ON CONFLICT (tenant_id, issuer, subject) DO UPDATE
   SET last_seen_at = now()
-RETURNING id::text, issuer, subject, created_at, last_seen_at;
+RETURNING id::text, tenant_id::text AS tenant_id, issuer, subject, created_at, last_seen_at;

@@ -41,7 +41,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 			if v.enrich != nil && cl.IsDelegated() {
-				if _, err := v.enrich.TouchDelegatedUser(r.Context(), cl.Tenant, cl.Issuer, cl.DelegatedSubject); err != nil {
+				if _, err := v.enrich.TouchTenantSubject(r.Context(), cl.TenantID, cl.Tenant, cl.Issuer, cl.DelegatedSubject); err != nil {
 					unauthorized(w, "invalid_token")
 					return
 				}

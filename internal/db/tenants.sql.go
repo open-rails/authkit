@@ -10,41 +10,6 @@ import (
 	"time"
 )
 
-const delegatedUserTouch = `-- name: DelegatedUserTouch :one
-INSERT INTO profiles.delegated_users (tenant_id, issuer, subject)
-VALUES ($1::uuid, $2, $3)
-ON CONFLICT (tenant_id, issuer, subject) DO UPDATE
-  SET last_seen_at = now()
-RETURNING id::text, issuer, subject, created_at, last_seen_at
-`
-
-type DelegatedUserTouchParams struct {
-	TenantID string
-	Issuer   string
-	Subject  string
-}
-
-type DelegatedUserTouchRow struct {
-	ID         string
-	Issuer     string
-	Subject    string
-	CreatedAt  time.Time
-	LastSeenAt time.Time
-}
-
-func (q *Queries) DelegatedUserTouch(ctx context.Context, arg DelegatedUserTouchParams) (DelegatedUserTouchRow, error) {
-	row := q.db.QueryRow(ctx, delegatedUserTouch, arg.TenantID, arg.Issuer, arg.Subject)
-	var i DelegatedUserTouchRow
-	err := row.Scan(
-		&i.ID,
-		&i.Issuer,
-		&i.Subject,
-		&i.CreatedAt,
-		&i.LastSeenAt,
-	)
-	return i, err
-}
-
 const tenantBySlug = `-- name: TenantBySlug :one
 
 SELECT id::text, slug, is_personal, COALESCE(owner_user_id::text, '')::text AS owner_user_id
@@ -758,6 +723,43 @@ func (q *Queries) TenantSlugsByUser(ctx context.Context, userID string) ([]strin
 		return nil, err
 	}
 	return items, nil
+}
+
+const tenantSubjectTouch = `-- name: TenantSubjectTouch :one
+INSERT INTO profiles.tenant_subjects (tenant_id, issuer, subject)
+VALUES ($1::uuid, $2, $3)
+ON CONFLICT (tenant_id, issuer, subject) DO UPDATE
+  SET last_seen_at = now()
+RETURNING id::text, tenant_id::text AS tenant_id, issuer, subject, created_at, last_seen_at
+`
+
+type TenantSubjectTouchParams struct {
+	TenantID string
+	Issuer   string
+	Subject  string
+}
+
+type TenantSubjectTouchRow struct {
+	ID         string
+	TenantID   string
+	Issuer     string
+	Subject    string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+}
+
+func (q *Queries) TenantSubjectTouch(ctx context.Context, arg TenantSubjectTouchParams) (TenantSubjectTouchRow, error) {
+	row := q.db.QueryRow(ctx, tenantSubjectTouch, arg.TenantID, arg.Issuer, arg.Subject)
+	var i TenantSubjectTouchRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Issuer,
+		&i.Subject,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+	)
+	return i, err
 }
 
 const tenantUpdateSlug = `-- name: TenantUpdateSlug :exec

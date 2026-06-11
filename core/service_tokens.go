@@ -126,8 +126,12 @@ type ServiceTokenResource struct {
 
 // ResolvedServiceToken is the resource-aware service token resolution result.
 type ResolvedServiceToken struct {
-	TokenID     string
-	KeyID       string
+	TokenID string
+	KeyID   string
+	// TenantID is the immutable tenant uuid — the canonical identifier for
+	// persistence and cross-service references. TenantSlug is the mutable
+	// human-readable name, for presentation/logging only.
+	TenantID    string
 	TenantSlug  string
 	Permissions []string
 	Resources   []ServiceTokenResource
@@ -425,6 +429,7 @@ func (s *Service) ResolveServiceTokenWithResources(ctx context.Context, keyID, s
 	return ResolvedServiceToken{
 		TokenID:     row.ID,
 		KeyID:       keyID,
+		TenantID:    row.TenantID,
 		TenantSlug:  row.Slug,
 		Permissions: gotPerms,
 		Resources:   resources,

@@ -186,6 +186,7 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 	}
 	return Claims{
 		Tenant:      resolved.TenantSlug,
+		TenantID:    resolved.TenantID,
 		Permissions: resolved.Permissions,
 		Resources:   resolved.Resources,
 		TokenType:   ServiceTokenType,
@@ -671,8 +672,12 @@ func (v *Verifier) validateDelegatedIssuerResourceAccount(mapClaims jwt.MapClaim
 	if match == nil || strings.TrimSpace(match.trustedResourceAccount) == "" {
 		return nil
 	}
+	trusted := strings.ToLower(strings.TrimSpace(match.trustedResourceAccount))
 	resourceAccount := strings.ToLower(strings.TrimSpace(tenant))
-	if resourceAccount == "" || resourceAccount != strings.ToLower(strings.TrimSpace(match.trustedResourceAccount)) {
+	// The registered account may be the mutable slug (legacy) or the immutable
+	// tenant uuid; accept a match on either the `tenant` or `tenant_id` claim.
+	tenantID := strings.ToLower(strings.TrimSpace(strClaim(mapClaims, "tenant_id")))
+	if (resourceAccount == "" || resourceAccount != trusted) && (tenantID == "" || tenantID != trusted) {
 		return errors.New("resource_account_issuer_mismatch")
 	}
 	return nil
@@ -731,6 +736,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.UserID = strClaim(mc, "sub")
 	cl.DelegatedSubject = strClaim(mc, "delegated_sub")
 	cl.Tenant = strClaim(mc, "tenant")
+	cl.TenantID = strClaim(mc, "tenant_id")
 	cl.Email = strClaim(mc, "email")
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.Username = strClaim(mc, "username")

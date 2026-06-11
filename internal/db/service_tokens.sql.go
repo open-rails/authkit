@@ -12,7 +12,7 @@ import (
 
 const serviceTokenByKeyID = `-- name: ServiceTokenByKeyID :one
 SELECT t.id::text AS id, t.secret_hash, t.expires_at, t.revoked_at,
-       o.slug, o.deleted_at AS tenant_deleted_at
+       o.id::text AS tenant_id, o.slug, o.deleted_at AS tenant_deleted_at
 FROM profiles.service_tokens t
 JOIN profiles.tenants o ON o.id = t.tenant_id
 WHERE t.key_id = $1
@@ -23,6 +23,7 @@ type ServiceTokenByKeyIDRow struct {
 	SecretHash      []byte
 	ExpiresAt       *time.Time
 	RevokedAt       *time.Time
+	TenantID        string
 	Slug            string
 	TenantDeletedAt *time.Time
 }
@@ -35,6 +36,7 @@ func (q *Queries) ServiceTokenByKeyID(ctx context.Context, keyID string) (Servic
 		&i.SecretHash,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.TenantID,
 		&i.Slug,
 		&i.TenantDeletedAt,
 	)

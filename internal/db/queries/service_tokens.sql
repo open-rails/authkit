@@ -28,7 +28,7 @@ WHERE id = sqlc.arg(id)::uuid AND tenant_id = sqlc.arg(tenant_id)::uuid AND revo
 
 -- name: ServiceTokenByKeyID :one
 SELECT t.id::text AS id, t.secret_hash, t.expires_at, t.revoked_at,
-       o.slug, o.deleted_at AS tenant_deleted_at
+       o.id::text AS tenant_id, o.slug, o.deleted_at AS tenant_deleted_at
 FROM profiles.service_tokens t
 JOIN profiles.tenants o ON o.id = t.tenant_id
 WHERE t.key_id = $1;

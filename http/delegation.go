@@ -35,9 +35,15 @@ type DelegatedAccessParams struct {
 	// Audiences becomes the `aud` claim: the target resource API(s), e.g.
 	// "openrails", "tensorhub", or "gen-orchestrator".
 	Audiences []string
-	// Tenant becomes the `tenant` claim: the target resource-service account
-	// slug or identifier, e.g. "doujins" for OpenRails.
+	// Tenant becomes the `tenant` claim: the target resource-service account's
+	// mutable slug, e.g. "doujins" for OpenRails. Presentation/logging only —
+	// receiving services must key on TenantID.
 	Tenant string
+	// TenantID becomes the `tenant_id` claim: the immutable uuid of the target
+	// resource-service account. This is the canonical identifier receiving
+	// services persist and authorize against. Optional during the migration
+	// window; mint with both.
+	TenantID string
 	// DelegatedSubject becomes `delegated_sub`: the issuer-side user/actor id.
 	// Required. No local account is implied in the receiving service.
 	DelegatedSubject string
@@ -93,6 +99,9 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	}
 	if t := strings.TrimSpace(p.Tenant); t != "" {
 		claims["tenant"] = t
+	}
+	if t := strings.TrimSpace(p.TenantID); t != "" {
+		claims["tenant_id"] = t
 	}
 	if len(p.Permissions) > 0 {
 		// Copy + drop empties so callers can't smuggle blank permission strings.

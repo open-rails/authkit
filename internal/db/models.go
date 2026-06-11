@@ -8,15 +8,6 @@ import (
 	"time"
 )
 
-type ProfilesDelegatedUser struct {
-	ID         string
-	TenantID   string
-	Issuer     string
-	Subject    string
-	CreatedAt  time.Time
-	LastSeenAt time.Time
-}
-
 type ProfilesGlobalRole struct {
 	ID          string
 	Name        string
@@ -148,6 +139,16 @@ type ProfilesTenantRolePermission struct {
 	Role       string
 	Permission string
 	CreatedAt  time.Time
+}
+
+// Delegated OIDC subjects accepted per tenant: opaque (tenant_id, issuer, subject) tuples with first/last-seen timestamps. Not local users.
+type ProfilesTenantSubject struct {
+	ID         string
+	TenantID   string
+	Issuer     string
+	Subject    string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
 }
 
 // Two-factor authentication settings per user (admin accounts)
