@@ -110,7 +110,7 @@ func waitForHTTP200(t *testing.T, url string, timeout time.Duration) {
 			if resp.StatusCode == http.StatusOK {
 				return
 			}
-			lastErr = fmt.Errorf("status=%d", resp.StatusCode)
+			lastErr = fmt.Errorf("Status=%d", resp.StatusCode)
 		} else {
 			lastErr = err
 		}
@@ -172,7 +172,6 @@ func TestDevserverE2E(t *testing.T) {
 	}
 	repoRoot := filepath.Dir(wd)
 
-	useAllInOne := strings.TrimSpace(os.Getenv("AUTHKIT_E2E_ALL_IN_ONE")) == "1"
 	dbService := "postgres"
 
 	composeFile := filepath.Join(repoRoot, "docker-compose.devserver.yaml")
@@ -190,33 +189,6 @@ func TestDevserverE2E(t *testing.T) {
     environment:
       DEVSERVER_DEV_MINT_SECRET: %q
 `, mintSecret)
-	if useAllInOne {
-		// Test the all-in-one image (embedded Postgres) via a local build.
-		// This avoids requiring any published image and ensures the Dockerfile remains functional.
-		dbService = "issuer"
-		composeFile = filepath.Join(t.TempDir(), "docker-compose.all-in-one.yaml")
-		override = fmt.Sprintf(`services:
-  issuer:
-    build:
-      context: %s
-      dockerfile: Dockerfile.devserver-all-in-one
-    ports:
-      - "8080"
-    environment:
-      ENV: dev
-      DEVSERVER_LISTEN_ADDR: ":8080"
-      DEVSERVER_ISSUER: "http://issuer:8080"
-      DEVSERVER_ISSUED_AUDIENCES: %q
-      DEVSERVER_EXPECTED_AUDIENCES: %q
-      DEVSERVER_DEV_MODE: "true"
-      DEVSERVER_DEV_MINT_SECRET: %q
-`, repoRoot, aud, aud, mintSecret)
-		if err := os.WriteFile(composeFile, []byte(override), 0600); err != nil {
-			t.Fatalf("write all-in-one compose: %v", err)
-		}
-		// We already wrote the full compose content; don't write an override file.
-		overridePath = ""
-	}
 	if overridePath != "" {
 		if err := os.WriteFile(overridePath, []byte(override), 0600); err != nil {
 			t.Fatalf("write override: %v", err)
@@ -334,7 +306,7 @@ func TestDevserverE2E(t *testing.T) {
 			authhttp.WithSkew(1*time.Millisecond),
 		)
 		_ = ver.AddIssuer(issuer, []string{aud}, authhttp.IssuerOptions{
-			JWKSURL: baseURL + "/.well-known/jwks.json",
+			JWKSURI: baseURL + "/.well-known/jwks.json",
 		})
 
 		claims, err := ver.Verify(token)
@@ -476,7 +448,7 @@ func TestDevserverE2E(t *testing.T) {
 	})
 
 	// loginAndRefreshSession logs a user in with email+password and returns their
-	// access token and refresh token (a live refresh session).
+	// service token and refresh token (a live refresh session).
 	loginAndRefreshSession := func(t *testing.T, email, pass string) (accessToken, refreshToken string) {
 		t.Helper()
 		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
@@ -704,7 +676,7 @@ func TestDevserverE2E(t *testing.T) {
 			Slug          string `json:"slug"`
 			RequestedSlug string `json:"requested_slug"`
 			CanonicalSlug string `json:"canonical_slug"`
-			Status        string `json:"status"`
+			Status        string `json:"Status"`
 			Claimable     bool   `json:"claimable"`
 			EntityKind    string `json:"entity_kind"`
 			Renamed       bool   `json:"renamed"`
@@ -761,7 +733,7 @@ func TestDevserverE2E(t *testing.T) {
 			ownersOut.User == nil ||
 			ownersOut.User.ID != ownerID ||
 			ownersOut.User.Username != cSlug {
-			t.Fatalf("historical username %q should resolve by owner id to current username %q with rename status, got: %+v", a, cSlug, ownersOut)
+			t.Fatalf("historical username %q should resolve by owner id to current username %q with rename Status, got: %+v", a, cSlug, ownersOut)
 		}
 
 		body := renameUser(t, claimantToken, a, http.StatusBadRequest)
@@ -807,7 +779,7 @@ func TestDevserverE2E(t *testing.T) {
 		// /admin/accounts/unrestrict), which manage the profiles.owner_reserved_names
 		// blocklist. There is no /admin/accounts/reserve or /admin/accounts/claim
 		// route (the old placeholder-user "reserve+password-claim" flow was never
-		// shipped as HTTP routes and assumed multi-org mode the devserver does not
+		// shipped as HTTP routes and assumed multi-tenant mode the devserver does not
 		// run). This exercises the real, route-backed reserved-name feature.
 		adminUserID := "11111111-1111-1111-1111-111111111111"
 		adminEmail := "admin@example.com"

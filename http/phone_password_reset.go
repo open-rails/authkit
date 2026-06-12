@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
-	if !s.svc.HasSMSSender() {
+	if !s.svc.SMSAvailable() {
 		serverErr(w, "sms_unavailable")
 		return
 	}

@@ -20,26 +20,6 @@ This starts:
 
 Generated dev signing keys are persisted via a docker volume mounted at `/.runtime/authkit`.
 
-## All-in-one image (embedded Postgres)
-
-For downstream E2E testing, it can be convenient to run **a single container** that bundles:
-- Postgres 17
-- AuthKit devserver
-
-This is published as an image (no `../authkit` checkout required) and is intended for local/E2E use only:
-- Docker Hub: `openrails/authkit-test-issuer` (tags: `latest`, `v*`)
-
-```bash
-docker compose -f docker-compose.devserver.all-in-one.yaml up
-```
-
-Notes:
-- The all-in-one image enables the dev mint endpoint by default with `DEVSERVER_DEV_MINT_SECRET=change-me` to stay zero-config for E2E.
-- Postgres is bound to `127.0.0.1` inside the container (not exposed to other containers).
-- Persisted volumes:
-  - Postgres data: `/var/lib/postgresql/data`
-  - Dev signing keys: `/.runtime/authkit` (JWKS stability across restarts)
-
 ## Environment variables
 
 Required:
@@ -52,6 +32,28 @@ Dev minting (optional, but required for billing E2E):
 
 Registration behavior:
 - `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
+
+Tenant manifest bootstrap:
+- `DEVSERVER_TENANT_MANIFEST_PATH=/path/to/tenants.yaml` - strict YAML manifest declaring tenants, trusted tenant issuers, roles, and optional service token outputs.
+- `DEVSERVER_RECONCILE_TENANT_MANIFEST_ON_START=true` - opt-in startup hook. When enabled, the devserver applies the manifest after migrations and before serving traffic.
+- `DEVSERVER_PERMISSION_CATALOG=repo:read,endpoint:deploy` - app permission catalog used when manifest roles include host-defined permissions.
+- `DEVSERVER_TOKEN_PREFIX=cozy` - brand prefix for opaque service tokens minted by the manifest reconciler.
+
+For production-style deploys, prefer the one-shot command below as a Kubernetes
+Job or release step, using a deploy identity with DB write access and secret
+output access:
+
+```bash
+DEVSERVER_ISSUER=https://auth.example \
+DB_URL=postgres://... \
+DEVSERVER_TENANT_MANIFEST_PATH=/manifests/tenants.yaml \
+/authkit-devserver tenant-manifest apply
+```
+
+The bundled command supports local file token outputs through AuthKit's
+`FileTenantManifestTokenStore`. Hosts that write to Vault, Kubernetes Secrets,
+or another backend should call `core.ReconcileTenantManifest` with their own
+`TenantManifestTokenStore` implementation.
 
 ## Mint a JWT
 

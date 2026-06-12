@@ -13,6 +13,12 @@ on:
 permissions:
   contents: read
 
+# Run the JavaScript-based actions (checkout, setup-go, harden-runner, upload-sarif)
+# on Node.js 24. The pinned action versions still declare Node 20, which GitHub
+# deprecates on 2026-06-16; this opts into the new runtime ahead of the cutover.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: go-sast-${{ github.ref }}
   cancel-in-progress: true

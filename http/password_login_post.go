@@ -20,14 +20,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		Email    string `json:"email"`
 		Login    string `json:"login"` // email or username
 		Password string `json:"password"`
-		Org      string `json:"org"`
+		Tenant   string `json:"tenant"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
 		badRequest(w, "invalid_request")
-		return
-	}
-	if strings.TrimSpace(req.Org) != "" && !strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
-		badRequest(w, "org_not_supported")
 		return
 	}
 
@@ -83,10 +79,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			passwordMatches := false
 			var pendingUsername string
 			var pendingPasswordHash string
+			var pendingPreferredLocale string
 			if pending, perr := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), identifier); perr == nil && pending != nil {
 				hasPending = true
 				pendingUsername = pending.Username
 				pendingPasswordHash = pending.PasswordHash
+				pendingPreferredLocale = pending.PreferredLocale
 				if ok, verr := pwhash.VerifyArgon2id(pending.PasswordHash, req.Password); verr == nil && ok {
 					passwordMatches = true
 				}
@@ -96,7 +94,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				passwordMatches,
 				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
-					_, createErr := s.svc.CreatePendingPhoneRegistration(r.Context(), identifier, pendingUsername, pendingPasswordHash)
+					_, createErr := s.svc.CreatePendingPhoneRegistrationWithLocale(r.Context(), identifier, pendingUsername, pendingPasswordHash, pendingPreferredLocale)
 					return createErr
 				},
 				func() (string, error) {
@@ -112,6 +110,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			)
 			if handled {
 				if recoveryErr != "" {
+					if recoveryErr == "phone_not_verified" {
+						writeVerificationRequired(w, identifier, "phone")
+						return
+					}
 					if recoveryErr == "invalid_credentials" {
 						logLoginFailed(s, r, "", "invalid_credentials")
 					}
@@ -194,11 +196,11 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					return
 				}
 				logLoginFailed(s, r, userID, "email_not_verified")
-				unauthorized(w, "email_not_verified")
+				writeVerificationRequired(w, *fetchedUser.Email, "email")
 				return
 			}
 
-			if needsPhoneVerify && s.svc.HasSMSSender() {
+			if needsPhoneVerify && s.svc.SMSAvailable() {
 				if err := s.svc.SendPhoneVerificationToUser(r.Context(), *fetchedUser.PhoneNumber, userID, 0); err != nil {
 					if s.handleDeliveryError(w, r, "password_login", "send_phone_verification", err) {
 						return
@@ -207,7 +209,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					return
 				}
 				logLoginFailed(s, r, userID, "phone_not_verified")
-				unauthorized(w, "phone_not_verified")
+				writeVerificationRequired(w, *fetchedUser.PhoneNumber, "phone")
 				return
 			}
 		}
@@ -249,7 +251,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				pendingPasswordMatches,
 				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
-					_, createErr := s.svc.CreatePendingRegistration(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0)
+					_, createErr := s.svc.CreatePendingRegistrationWithLocale(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLocale)
 					return createErr
 				},
 				func() (string, time.Time, error) {
@@ -258,6 +260,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			)
 			if handled {
 				if recoveryErr != "" {
+					if recoveryErr == "email_not_verified" {
+						writeVerificationRequired(w, loginEmail, "email")
+						return
+					}
 					if recoveryErr == "invalid_credentials" {
 						logLoginFailed(s, r, "", "invalid_credentials")
 					}
@@ -347,15 +353,15 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			serverErr(w, "token_issue_failed")
 			return
 		}
-		if strings.TrimSpace(req.Org) != "" && strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
-			token, exp, err = s.svc.IssueOrgAccessToken(r.Context(), finalUserID, emailForToken, req.Org, map[string]any{"sid": sid})
+		if strings.TrimSpace(req.Tenant) != "" {
+			token, exp, err = s.svc.IssueServiceToken(r.Context(), finalUserID, emailForToken, req.Tenant, map[string]any{"sid": sid})
 			if err != nil {
-				if errors.Is(err, core.ErrNotOrgMember) {
-					forbidden(w, "not_org_member")
+				if errors.Is(err, core.ErrNotTenantMember) {
+					forbidden(w, "not_tenant_member")
 					return
 				}
-				if errors.Is(err, core.ErrOrgNotFound) {
-					notFound(w, "org_not_found")
+				if errors.Is(err, core.ErrTenantNotFound) {
+					notFound(w, "tenant_not_found")
 					return
 				}
 				serverErr(w, "token_issue_failed")
@@ -376,6 +382,18 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		"access_token": token,
 		"token_type":   "Bearer",
 		"expires_in":   int64(time.Until(exp).Seconds()),
+	})
+}
+
+// writeVerificationRequired emits the structured "registration verification
+// required" handoff, parallel to the requires_2fa response. By the time this is
+// called the caller has already (re)sent a fresh verification code; the
+// frontend routes the user to the OTP verify page using identifier + channel.
+func writeVerificationRequired(w http.ResponseWriter, identifier, channel string) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"requires_verification": true,
+		"identifier":            identifier,
+		"channel":               channel,
 	})
 }
 

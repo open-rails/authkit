@@ -37,6 +37,15 @@ func TestValidateVerificationConfiguration(t *testing.T) {
 	}
 }
 
+func TestDefaultVerificationTTLs(t *testing.T) {
+	if defaultEmailVerificationTTL != time.Hour {
+		t.Fatalf("defaultEmailVerificationTTL=%s, want %s", defaultEmailVerificationTTL, time.Hour)
+	}
+	if defaultPhoneVerificationTTL != 15*time.Minute {
+		t.Fatalf("defaultPhoneVerificationTTL=%s, want %s", defaultPhoneVerificationTTL, 15*time.Minute)
+	}
+}
+
 func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
 	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
@@ -50,9 +59,12 @@ func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 		t.Fatalf("expected 6-digit code, got %q", code)
 	}
 
-	data, ok, err := svc.loadPendingRegistration(ctx, sha256Hex(code))
+	data, ok, err := svc.loadPendingChangeByToken(ctx, sha256Hex(code))
 	if err != nil || !ok {
 		t.Fatalf("pending registration not stored by code hash: ok=%v err=%v", ok, err)
+	}
+	if data.Kind != KindRegisterEmail {
+		t.Fatalf("expected kind register_email, got %q", data.Kind)
 	}
 	if len(data.TokenHashes) < 2 {
 		t.Fatalf("expected both code+link token hashes, got %d", len(data.TokenHashes))
@@ -63,7 +75,7 @@ func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 		if h == sha256Hex(code) {
 			continue
 		}
-		if _, ok, err := svc.loadPendingRegistration(ctx, h); err == nil && ok {
+		if _, ok, err := svc.loadPendingChangeByToken(ctx, h); err == nil && ok {
 			foundLink = true
 			break
 		}
@@ -86,9 +98,12 @@ func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 		t.Fatalf("expected 6-digit code, got %q", code)
 	}
 
-	data, ok, err := svc.loadPendingPhoneRegistration(ctx, sha256Hex(code))
+	data, ok, err := svc.loadPendingChangeByToken(ctx, sha256Hex(code))
 	if err != nil || !ok {
 		t.Fatalf("pending phone registration not stored by code hash: ok=%v err=%v", ok, err)
+	}
+	if data.Kind != KindRegisterPhone {
+		t.Fatalf("expected kind register_phone, got %q", data.Kind)
 	}
 	if len(data.TokenHashes) < 2 {
 		t.Fatalf("expected both code+link token hashes, got %d", len(data.TokenHashes))

@@ -28,6 +28,7 @@ func DefaultRateLimits() map[string]Limit {
 		RLAuthRegisterAvailability: {Limit: 120, Window: time.Minute},
 		RLAuthRegisterResendEmail:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLAuthRegisterResendPhone:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLAuthRegisterAbandon:      {Limit: 10, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordLogin:            {Limit: 20, Window: time.Hour},
 
 		// Logout + sessions
@@ -52,13 +53,16 @@ func DefaultRateLimits() map[string]Limit {
 		RLUserPasswordChange:     {Limit: 6, Window: time.Hour},
 		RLUserMe:                 {Limit: 120, Window: time.Minute},
 		RLUserUpdateUsername:     {Limit: 12, Window: time.Hour},
+		RLUserPreferredLocale:    {Limit: 24, Window: time.Hour},
 		RLUserUpdateEmail:        {Limit: 12, Window: time.Hour},
 		RLUserEmailChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserEmailChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
 		RLUserEmailChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLUserEmailChangeCancel:  {Limit: 12, Window: time.Hour},
 		RLUserPhoneChangeRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLUserPhoneChangeConfirm: {Limit: 10, Window: 10 * time.Minute},
 		RLUserPhoneChangeResend:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
+		RLUserPhoneChangeCancel:  {Limit: 12, Window: time.Hour},
 		RLUserDelete:             {Limit: 6, Window: time.Hour},
 		RLUserUnlinkProvider:     {Limit: 12, Window: time.Hour},
 

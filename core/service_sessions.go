@@ -10,6 +10,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 // Session represents a sanitized session view (no tokens).
@@ -25,7 +27,7 @@ type Session struct {
 	IPAddr              *string
 }
 
-const SensitiveActionFreshAuthWindow = 30 * time.Minute
+const SensitiveActionFreshAuthWindow = 15 * time.Minute
 
 var ErrReauthenticationRequired = errors.New("reauth_required")
 
@@ -58,11 +60,6 @@ func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent str
 		expPtr = &exp
 	}
 	var sid, fam string
-	var ipstr *string
-	if ip != nil {
-		v := ip.String()
-		ipstr = &v
-	}
 	sid, err = newUUIDV7String()
 	if err != nil {
 		return "", "", nil, err
@@ -72,13 +69,20 @@ func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent str
 		return "", "", nil, err
 	}
 	// Insert row
-	q := `INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
-          RETURNING id::text, family_id::text`
-	if err = s.pg.QueryRow(ctx, q, sid, fam, userID, s.opts.Issuer, hash, expPtr, nullable(userAgent), ipstr).Scan(&sid, &fam); err != nil {
+	row, err := s.q.SessionInsert(ctx, db.SessionInsertParams{
+		ID:               sid,
+		FamilyID:         fam,
+		UserID:           userID,
+		Issuer:           s.opts.Issuer,
+		CurrentTokenHash: hash,
+		ExpiresAt:        expPtr,
+		UserAgent:        nullable(userAgent),
+		IpAddr:           ipText(ip),
+	})
+	if err != nil {
 		return "", "", nil, err
 	}
-	return sid, rt, expPtr, nil
+	return row.ID, rt, expPtr, nil
 }
 
 // ExchangeRefreshToken rotates a refresh token and returns a new ID token + refresh token.
@@ -92,29 +96,24 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	h := s.hashRefresh(refreshToken)
 
 	// Try current hash
-	var sid, uid, email string
-	var fam string
-	sel := `SELECT id::text, user_id, family_id::text FROM profiles.refresh_sessions
-            WHERE current_token_hash=$1 AND issuer=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())`
-	row := s.pg.QueryRow(ctx, sel, h, s.opts.Issuer)
-	if err = row.Scan(&sid, &uid, &fam); err != nil {
+	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.opts.Issuer})
+	if err != nil {
 		// Maybe reuse of previous token -> revoke family
-		var sidPrev, uidPrev, famPrev string
-		selPrev := `SELECT id::text, user_id, family_id::text FROM profiles.refresh_sessions
-                    WHERE previous_token_hash=$1 AND issuer=$2 AND revoked_at IS NULL`
-		if e2 := s.pg.QueryRow(ctx, selPrev, h, s.opts.Issuer).Scan(&sidPrev, &uidPrev, &famPrev); e2 == nil {
-			_ = s.revokeFamily(ctx, famPrev)
+		if prev, e2 := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.opts.Issuer}); e2 == nil {
+			_ = s.revokeFamily(ctx, prev.FamilyID)
 			return "", time.Time{}, "", errors.New("refresh token reuse detected")
 		}
 		return "", time.Time{}, "", errors.New("invalid refresh token")
 	}
+	sid, uid := cur.ID, cur.UserID
 	if err := s.ensureUserAccessByID(ctx, uid); err != nil {
 		return "", time.Time{}, "", err
 	}
 
 	// Load email for ID token payload (best-effort)
-	if s.pg != nil {
-		_ = s.pg.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1`, uid).Scan(&email)
+	var email string
+	if e, eErr := s.q.UserEmailByID(ctx, uid); eErr == nil && e != nil {
+		email = *e
 	}
 	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
 		_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil)
@@ -124,10 +123,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	// Rotate: set previous = current, current = new
 	newTok := randB64(32)
 	newHash := s.hashRefresh(newTok)
-	upd := `UPDATE profiles.refresh_sessions
-            SET previous_token_hash=current_token_hash, current_token_hash=$1, last_used_at=now(), user_agent=$2, ip_addr=$3
-            WHERE id=$4 AND revoked_at IS NULL`
-	if _, err = s.pg.Exec(ctx, upd, newHash, nullable(ua), ip, sid); err != nil {
+	if err = s.q.SessionRotate(ctx, db.SessionRotateParams{CurrentTokenHash: newHash, UserAgent: nullable(ua), IpAddr: ipText(ip), ID: sid}); err != nil {
 		return "", time.Time{}, "", err
 	}
 
@@ -141,9 +137,9 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	return accessToken, exp, newTok, nil
 }
 
-// ExchangeRefreshTokenWithOrg rotates a refresh token and returns a new access token + refresh token.
-// If org is provided and org_mode=multi, it mints an org-scoped access token (org + roles for that org).
-func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken string, ua string, ip net.IP, org string) (idToken string, expiresAt time.Time, newRefresh string, err error) {
+// ExchangeRefreshTokenWithTenant rotates a refresh token and returns a new service token + refresh token.
+// If tenant is provided and tenant_mode=multi, it mints an tenant-scoped service token (tenant + roles for that tenant).
+func (s *Service) ExchangeRefreshTokenWithTenant(ctx context.Context, refreshToken string, ua string, ip net.IP, tenant string) (idToken string, expiresAt time.Time, newRefresh string, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", errors.New("postgres not configured")
 	}
@@ -153,29 +149,24 @@ func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken 
 	h := s.hashRefresh(refreshToken)
 
 	// Try current hash
-	var sid, uid, email string
-	var fam string
-	sel := `SELECT id::text, user_id, family_id::text FROM profiles.refresh_sessions
-            WHERE current_token_hash=$1 AND issuer=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())`
-	row := s.pg.QueryRow(ctx, sel, h, s.opts.Issuer)
-	if err = row.Scan(&sid, &uid, &fam); err != nil {
+	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.opts.Issuer})
+	if err != nil {
 		// Maybe reuse of previous token -> revoke family
-		var sidPrev, uidPrev, famPrev string
-		selPrev := `SELECT id::text, user_id, family_id::text FROM profiles.refresh_sessions
-                    WHERE previous_token_hash=$1 AND issuer=$2 AND revoked_at IS NULL`
-		if e2 := s.pg.QueryRow(ctx, selPrev, h, s.opts.Issuer).Scan(&sidPrev, &uidPrev, &famPrev); e2 == nil {
-			_ = s.revokeFamily(ctx, famPrev)
+		if prev, e2 := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.opts.Issuer}); e2 == nil {
+			_ = s.revokeFamily(ctx, prev.FamilyID)
 			return "", time.Time{}, "", errors.New("refresh token reuse detected")
 		}
 		return "", time.Time{}, "", errors.New("invalid refresh token")
 	}
+	sid, uid := cur.ID, cur.UserID
 	if err := s.ensureUserAccessByID(ctx, uid); err != nil {
 		return "", time.Time{}, "", err
 	}
 
 	// Load email for token payload (best-effort)
-	if s.pg != nil {
-		_ = s.pg.QueryRow(ctx, `SELECT email FROM profiles.users WHERE id=$1`, uid).Scan(&email)
+	var email string
+	if e, eErr := s.q.UserEmailByID(ctx, uid); eErr == nil && e != nil {
+		email = *e
 	}
 	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
 		_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil)
@@ -185,16 +176,16 @@ func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken 
 	// Rotate: set previous = current, current = new
 	newTok := randB64(32)
 	newHash := s.hashRefresh(newTok)
-	upd := `UPDATE profiles.refresh_sessions
-            SET previous_token_hash=current_token_hash, current_token_hash=$1, last_used_at=now(), user_agent=$2, ip_addr=$3
-            WHERE id=$4 AND revoked_at IS NULL`
-	if _, err = s.pg.Exec(ctx, upd, newHash, nullable(ua), ip, sid); err != nil {
+	if err = s.q.SessionRotate(ctx, db.SessionRotateParams{CurrentTokenHash: newHash, UserAgent: nullable(ua), IpAddr: ipText(ip), ID: sid}); err != nil {
 		return "", time.Time{}, "", err
 	}
 
 	claims := map[string]any{"sid": sid}
-	if strings.TrimSpace(org) != "" && strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		accessToken, exp, err := s.IssueOrgAccessToken(ctx, uid, email, org, claims)
+	// (issue 60) A tenant request mints a tenant-scoped token whenever the user is
+	// a member (IssueServiceToken enforces membership); absence mints a normal
+	// user token. No global tenant-mode gate.
+	if strings.TrimSpace(tenant) != "" {
+		accessToken, exp, err := s.IssueServiceToken(ctx, uid, email, tenant, claims)
 		if err != nil {
 			return "", time.Time{}, "", err
 		}
@@ -215,28 +206,25 @@ func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	if s.pg == nil {
 		return nil, nil
 	}
-	q := `SELECT id::text, family_id::text, created_at, last_authenticated_at, last_used_at, expires_at, revoked_at,
-                 user_agent, COALESCE(NULLIF(host(ip_addr)::text,''), NULL)
-          FROM profiles.refresh_sessions
-          WHERE user_id=$1 AND issuer=$2 AND (revoked_at IS NULL)`
-	rows, err := s.pg.Query(ctx, q, userID, s.opts.Issuer)
+	rows, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: userID, Issuer: s.opts.Issuer})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []Session
-	for rows.Next() {
-		var sID, fam string
-		var created, lastUsed time.Time
-		var lastAuth *time.Time
-		var expires, revoked *time.Time
-		var ua, ip *string
-		if err := rows.Scan(&sID, &fam, &created, &lastAuth, &lastUsed, &expires, &revoked, &ua, &ip); err != nil {
-			return nil, err
-		}
-		out = append(out, Session{ID: sID, FamilyID: fam, CreatedAt: created, LastAuthenticatedAt: lastAuth, LastUsedAt: lastUsed, ExpiresAt: expires, RevokedAt: revoked, UserAgent: ua, IPAddr: ip})
+	for _, r := range rows {
+		out = append(out, Session{
+			ID:                  r.ID,
+			FamilyID:            r.FamilyID,
+			CreatedAt:           r.CreatedAt,
+			LastAuthenticatedAt: r.LastAuthenticatedAt,
+			LastUsedAt:          r.LastUsedAt,
+			ExpiresAt:           r.ExpiresAt,
+			RevokedAt:           r.RevokedAt,
+			UserAgent:           r.UserAgent,
+			IPAddr:              r.IpAddr,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
@@ -252,16 +240,7 @@ func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string
 		now = time.Now()
 	}
 
-	var freshSince time.Time
-	err := s.pg.QueryRow(ctx, `
-		SELECT COALESCE(last_authenticated_at, created_at)
-		FROM profiles.refresh_sessions
-		WHERE id = $1::uuid
-		  AND user_id = $2::uuid
-		  AND issuer = $3
-		  AND revoked_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > now())
-	`, sessionID, userID, s.opts.Issuer).Scan(&freshSince)
+	freshSince, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
 	if err != nil {
 		return SessionFreshness{}, err
 	}
@@ -297,19 +276,11 @@ func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionI
 	if userID == "" || sessionID == "" {
 		return jwt.ErrTokenInvalidClaims
 	}
-	tag, err := s.pg.Exec(ctx, `
-		UPDATE profiles.refresh_sessions
-		SET last_authenticated_at = now()
-		WHERE id = $1::uuid
-		  AND user_id = $2::uuid
-		  AND issuer = $3
-		  AND revoked_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > now())
-	`, sessionID, userID, s.opts.Issuer)
+	n, err := s.q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{SessionID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return jwt.ErrTokenInvalidClaims
 	}
 	return nil
@@ -321,8 +292,7 @@ func (s *Service) ResolveSessionByRefresh(ctx context.Context, refreshToken stri
 		return "", errors.New("not_found")
 	}
 	h := s.hashRefresh(refreshToken)
-	var sid string
-	err := s.pg.QueryRow(ctx, `SELECT id::text FROM profiles.refresh_sessions WHERE current_token_hash=$1 AND issuer=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())`, h, s.opts.Issuer).Scan(&sid)
+	sid, err := s.q.SessionIDByCurrentTokenHash(ctx, db.SessionIDByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.opts.Issuer})
 	if err != nil {
 		return "", err
 	}
@@ -338,8 +308,7 @@ func (s *Service) RevokeSessionByID(ctx context.Context, sessionID string) error
 		v := string(SessionRevokeReasonAdminRevoke)
 		reason = &v
 	}
-	var uid string
-	err := s.pg.QueryRow(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE id=$1 AND issuer=$2 AND revoked_at IS NULL RETURNING user_id::text`, sessionID, s.opts.Issuer).Scan(&uid)
+	uid, err := s.q.SessionRevokeByID(ctx, db.SessionRevokeByIDParams{ID: sessionID, Issuer: s.opts.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -360,8 +329,7 @@ func (s *Service) RevokeSessionByIDForUser(ctx context.Context, userID, sessionI
 		v := string(SessionRevokeReasonUserRevoke)
 		reason = &v
 	}
-	var sid string
-	err := s.pg.QueryRow(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND issuer=$3 AND revoked_at IS NULL RETURNING id::text`, sessionID, userID, s.opts.Issuer).Scan(&sid)
+	sid, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -382,40 +350,23 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSess
 		reason = &v
 	}
 	if keepSessionID != nil && *keepSessionID != "" {
-		rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
-			WHERE user_id=$1 AND issuer=$2 AND id<>$3 AND revoked_at IS NULL
-			RETURNING id::text`, userID, s.opts.Issuer, *keepSessionID)
+		ids, err := s.q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.opts.Issuer, ID: *keepSessionID})
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var sid string
-			if err := rows.Scan(&sid); err != nil {
-				return err
-			}
+		for _, sid := range ids {
 			s.logSessionRevoked(ctx, userID, sid, reason)
-		}
-		if err := rows.Err(); err != nil {
-			return err
 		}
 		return nil
 	}
-	rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
-		WHERE user_id=$1 AND issuer=$2 AND revoked_at IS NULL
-		RETURNING id::text`, userID, s.opts.Issuer)
+	ids, err := s.q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.opts.Issuer})
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var sid string
-		if err := rows.Scan(&sid); err != nil {
-			return err
-		}
+	for _, sid := range ids {
 		s.logSessionRevoked(ctx, userID, sid, reason)
 	}
-	return rows.Err()
+	return nil
 }
 
 // enforceSessionLimit enforces max active sessions per user using policy.
@@ -423,42 +374,23 @@ func (s *Service) enforceSessionLimit(ctx context.Context, userID, issuer string
 	if s.opts.SessionMaxPerUser <= 0 {
 		return nil
 	}
-	// Probe query left here for reference; count-based approach used below
-	// If count > max, evict (or reject). We probe by skipping max-1 and fetching the next oldest.
-	// More explicit approach: count then decide.
-	var count int
-	if err := s.pg.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1 AND issuer=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())`, userID, issuer).Scan(&count); err != nil {
+	count, err := s.q.SessionsCountActive(ctx, db.SessionsCountActiveParams{UserID: userID, Issuer: issuer})
+	if err != nil {
 		return err
 	}
-	if count < s.opts.SessionMaxPerUser {
+	if int(count) < s.opts.SessionMaxPerUser {
 		return nil
 	}
 	// evict-oldest in a single statement
-	excess := count - s.opts.SessionMaxPerUser + 1
+	excess := int(count) - s.opts.SessionMaxPerUser + 1
 	if excess > 0 {
-		rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
-			WHERE id IN (
-				SELECT id FROM profiles.refresh_sessions
-				WHERE user_id=$1 AND issuer=$2 AND revoked_at IS NULL
-				  AND (expires_at IS NULL OR expires_at>now())
-				ORDER BY last_used_at ASC
-				LIMIT $3
-			)
-			RETURNING id::text`, userID, issuer, excess)
+		ids, err := s.q.SessionsEvictOldest(ctx, db.SessionsEvictOldestParams{UserID: userID, Issuer: issuer, EvictCount: int64(excess)})
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
 		reason := string(SessionRevokeReasonEvicted)
-		for rows.Next() {
-			var sid string
-			if err := rows.Scan(&sid); err != nil {
-				return err
-			}
+		for _, sid := range ids {
 			s.logSessionRevoked(ctx, userID, sid, &reason)
-		}
-		if err := rows.Err(); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -468,22 +400,15 @@ func (s *Service) revokeFamily(ctx context.Context, familyID string) error {
 	if s.pg == nil {
 		return nil
 	}
-	rows, err := s.pg.Query(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now()
-		WHERE family_id=$1 AND revoked_at IS NULL
-		RETURNING id::text, user_id::text`, familyID)
+	rows, err := s.q.SessionsRevokeFamily(ctx, familyID)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	reason := string(SessionRevokeReasonRefreshReuseDetected)
-	for rows.Next() {
-		var sid, uid string
-		if err := rows.Scan(&sid, &uid); err != nil {
-			return err
-		}
-		s.logSessionRevoked(ctx, uid, sid, &reason)
+	for _, r := range rows {
+		s.logSessionRevoked(ctx, r.UserID, r.ID, &reason)
 	}
-	return rows.Err()
+	return nil
 }
 
 func (s *Service) hashRefresh(token string) []byte {
@@ -498,6 +423,15 @@ func nullable(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ipText renders an IP for an inet column parameter (nil -> NULL).
+func ipText(ip net.IP) *string {
+	if ip == nil {
+		return nil
+	}
+	v := ip.String()
+	return &v
 }
 
 // Helper exposed for admin endpoints

@@ -17,17 +17,17 @@ const (
 	RouteOwners             RouteGroup = "owners"
 	RouteEmailVerification  RouteGroup = "email_verification"
 	RoutePhoneVerification  RouteGroup = "phone_verification"
-	RouteOrganizations      RouteGroup = "organizations"
+	RouteTenants            RouteGroup = "tenants"
 	RouteUser               RouteGroup = "user"
 	RouteAccountOIDCLinking RouteGroup = "account_oidc_linking"
 	RouteTwoFactor          RouteGroup = "two_factor"
 	RouteSolana             RouteGroup = "solana"
 	RouteAdmin              RouteGroup = "admin"
 	RouteOIDCBrowser        RouteGroup = "oidc_browser"
-	// RouteFederation exposes the inbound accept-side federated-issuer registry
+	// RouteTenantIssuers exposes the inbound accept-side tenant-issuer registry
 	// routes (the home for what tensorhub previously exposed as
 	// `/api/v1/platform/issuers`).
-	RouteFederation RouteGroup = "federation"
+	RouteTenantIssuers RouteGroup = "federation"
 )
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
@@ -91,6 +91,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 
 	routes := []RouteSpec{
 		{Method: http.MethodPost, Path: "/token", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
+		{Method: http.MethodGet, Path: "/providers", Group: RouteCore, Handler: http.HandlerFunc(s.handleProvidersGET)},
 		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		{Method: http.MethodPost, Path: "/reauth/password", Group: RoutePassword, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
@@ -106,6 +107,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/register/availability", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
 		{Method: http.MethodPost, Path: "/register/resend-email", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationResendPOST)},
 		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
+		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
 		{Method: http.MethodGet, Path: "/owners/{slug}", Group: RouteOwners, Handler: http.HandlerFunc(s.handleOwnerNamespaceInfoGET)},
 
@@ -124,12 +126,15 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/user/me", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
 		{Method: http.MethodGet, Path: "/user/bootstrap", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBootstrapGET))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
+		{Method: http.MethodPatch, Path: "/user/preferred-locale", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPreferredLocalePATCH))},
 		{Method: http.MethodPost, Path: "/user/email/change/request", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeRequestPOST))},
 		{Method: http.MethodPost, Path: "/user/email/change/confirm", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeConfirmPOST))},
 		{Method: http.MethodPost, Path: "/user/email/change/resend", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeResendPOST))},
+		{Method: http.MethodPost, Path: "/user/email/change/cancel", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeCancelPOST))},
 		{Method: http.MethodPost, Path: "/user/phone/change/request", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeRequestPOST))},
 		{Method: http.MethodPost, Path: "/user/phone/change/confirm", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeConfirmPOST))},
 		{Method: http.MethodPost, Path: "/user/phone/change/resend", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeResendPOST))},
+		{Method: http.MethodPost, Path: "/user/phone/change/cancel", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeCancelPOST))},
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
 		{Method: http.MethodDelete, Path: "/user", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
 		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},
@@ -168,68 +173,72 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/accounts/unrestrict", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST))},
 		{Method: http.MethodPost, Path: "/admin/account/park", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountParkPOST))},
 		{Method: http.MethodPost, Path: "/admin/account/claim", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountClaimPOST))},
-		{Method: http.MethodPost, Path: "/admin/org/park", Group: RouteAdmin, Handler: notFoundHandler},
-		{Method: http.MethodPost, Path: "/admin/org/claim", Group: RouteAdmin, Handler: notFoundHandler},
+		{Method: http.MethodPost, Path: "/admin/tenant/park", Group: RouteAdmin, Handler: notFoundHandler},
+		{Method: http.MethodPost, Path: "/admin/tenant/claim", Group: RouteAdmin, Handler: notFoundHandler},
 
-		// Federated-org issuer registry (INBOUND accept side). Registration +
-		// deletion authorize on org owner/admin inside the handler (so they only
+		// Federated-tenant issuer registry (INBOUND accept side). Registration +
+		// deletion authorize on tenant owner/admin inside the handler (so they only
 		// need `required`, not the global-admin RequireAdmin gate). Listing is
 		// global-admin only for operator visibility.
-		{Method: http.MethodPost, Path: "/federated-issuers", Group: RouteFederation, Handler: required(http.HandlerFunc(s.handleFederatedIssuerRegisterPOST))},
-		{Method: http.MethodDelete, Path: "/federated-issuers", Group: RouteFederation, Handler: required(http.HandlerFunc(s.handleFederatedIssuerDeleteDELETE))},
-		{Method: http.MethodGet, Path: "/federated-issuers", Group: RouteFederation, Handler: admin(http.HandlerFunc(s.handleFederatedIssuersListGET))},
+		{Method: http.MethodPost, Path: "/tenant-issuers", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleTenantIssuerRegisterPOST))},
+		{Method: http.MethodDelete, Path: "/tenant-issuers", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleTenantIssuerDeleteDELETE))},
+		{Method: http.MethodGet, Path: "/tenant-issuers", Group: RouteTenantIssuers, Handler: admin(http.HandlerFunc(s.handleTenantIssuersListGET))},
 	}
 
-	// When public org onboarding/management is disabled, wrap the mutating
-	// org-facing routes with a stable org_management_disabled deny handler.
-	// Read-only org routes (listing, lookup, role/permission reads,
-	// introspection) and the org-scoped token route stay available so existing
-	// members can still authenticate and inspect their orgs. Embedded
+	// When public tenant onboarding/management is disabled, wrap the mutating
+	// tenant-facing routes with a stable tenant_management_disabled deny handler.
+	// Read-only tenant routes (listing, lookup, role/permission reads,
+	// introspection) and the tenant-scoped token route stay available so existing
+	// members can still authenticate and inspect their tenants. Embedded
 	// bootstrap/admin core APIs are unaffected (they never traverse these HTTP
 	// handlers).
-	orgMgmt := func(method, path string, h http.Handler) http.Handler {
-		if !s.publicOrgManagementDisabled() {
+	tenantMgmt := func(method, path string, h http.Handler) http.Handler {
+		if !s.publicTenantManagementDisabled() {
 			return h
 		}
-		if !isPublicOrgManagementRoute(method, path) {
+		if !isPublicTenantManagementRoute(method, path) {
 			return h
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			orgManagementDisabled(w)
+			tenantManagementDisabled(w)
 		})
 	}
 
-	if strings.EqualFold(strings.TrimSpace(s.svc.Options().OrgMode), "multi") {
+	// (issue 60) Tenant routes are always registered under the RouteTenants group;
+	// the host decides exposure by mounting (or not) that group, and mutating
+	// routes are gated by TenantRegistrationMode in their handlers. No tenant-mode
+	// gate.
+	{
 		routes = append(routes,
-			RouteSpec{Method: http.MethodPost, Path: "/token/org", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleAuthTokenOrgPOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgsListGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgsCreatePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgsGetGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/rename", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgsRenamePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMembersGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/members", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMembersPOST))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/members/{user_id}", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMembersDELETE))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/invites", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgInvitesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/invites", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgInvitesPOST))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/invites/{invite_id}/revoke", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgInviteRevokePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/me/invites", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleUserInvitesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/me/invites/{invite_id}/accept", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgInviteAcceptPOST))},
-			RouteSpec{Method: http.MethodPost, Path: "/me/invites/{invite_id}/decline", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgInviteDeclinePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/roles", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgRolesGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/roles/{role}", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgRoleGET))},
-			RouteSpec{Method: http.MethodPut, Path: "/orgs/{org}/roles/{role}", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgRolePUT))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/roles/{role}", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgRolesDELETE))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/access-tokens", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgAccessTokensPOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/access-tokens", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgAccessTokensGET))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/access-tokens/{token_id}", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgAccessTokenDELETE))},
-			RouteSpec{Method: http.MethodGet, Path: "/permissions", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handlePermissionCatalogGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/permissions", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMemberPermissionsGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesPOST))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesDELETE))},
+			RouteSpec{Method: http.MethodPost, Path: "/token/tenant", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleAuthTokenTenantPOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsListGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsCreatePOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsGetGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/rename", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantsRenamePOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMembersGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/members", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMembersPOST))},
+			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/members/{user_id}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMembersDELETE))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/invites", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInvitesGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/invites", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInvitesPOST))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/invites/{invite_id}/revoke", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInviteRevokePOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/me/invites", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleUserInvitesGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/me/invites/{invite_id}/accept", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInviteAcceptPOST))},
+			RouteSpec{Method: http.MethodPost, Path: "/me/invites/{invite_id}/decline", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantInviteDeclinePOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantRolesGET))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/roles/{role}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantRoleGET))},
+			RouteSpec{Method: http.MethodPut, Path: "/tenants/{tenant}/roles/{role}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantRolePUT))},
+			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/roles/{role}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantRolesDELETE))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/service-tokens", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleServiceTokensPOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/service-tokens", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleServiceTokensGET))},
+			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/service-tokens/{token_id}", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleServiceTokenDELETE))},
+			RouteSpec{Method: http.MethodGet, Path: "/permissions", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handlePermissionCatalogGET))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members/{user_id}/permissions", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberPermissionsGET))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberRolesGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberRolesPOST))},
+			RouteSpec{Method: http.MethodDelete, Path: "/tenants/{tenant}/members/{user_id}/roles", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMemberRolesDELETE))},
 			// Introspection (#46 follow-up): self (/me) + permission check.
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/me", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgMeGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/permissions/check", Group: RouteOrganizations, Handler: required(http.HandlerFunc(s.handleOrgPermissionCheckPOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/tenants/{tenant}/me", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantMeGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/tenants/{tenant}/permissions/check", Group: RouteTenants, Handler: required(http.HandlerFunc(s.handleTenantPermissionCheckPOST))},
 		)
 	}
 
@@ -238,8 +247,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		if !selected(route.Group) {
 			continue
 		}
-		if route.Group == RouteOrganizations {
-			route.Handler = orgMgmt(route.Method, route.Path, route.Handler)
+		if route.Group == RouteTenants {
+			route.Handler = tenantMgmt(route.Method, route.Path, route.Handler)
 		}
 		route.Handler = lang(route.Handler)
 		out = append(out, route)
@@ -247,25 +256,25 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	return out
 }
 
-// isPublicOrgManagementRoute reports whether (method, path) is a public
-// org-facing onboarding/management route gated by PublicOrgManagementDisabled.
-// These are the mutating org routes (creation, rename, invites, member changes,
-// role changes, OAT management) plus invite acceptance/decline. Read-only org
-// routes and the org-scoped token route are intentionally excluded so existing
-// members can still authenticate and inspect their orgs.
-func isPublicOrgManagementRoute(method, path string) bool {
+// isPublicTenantManagementRoute reports whether (method, path) is a public
+// tenant-facing onboarding/management route gated by TenantRegistrationMode.
+// These are the mutating tenant routes (creation, rename, invites, member changes,
+// role changes, service token management) plus invite acceptance/decline. Read-only tenant
+// routes and the tenant-scoped token route are intentionally excluded so existing
+// members can still authenticate and inspect their tenants.
+func isPublicTenantManagementRoute(method, path string) bool {
 	switch method {
 	case http.MethodGet:
-		// All org reads stay available (listings, lookups, role/permission
+		// All tenant reads stay available (listings, lookups, role/permission
 		// reads, introspection).
 		return false
 	case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
-		// The org-scoped token exchange (`POST /token/org`) is authentication,
-		// not org management — keep it available for existing members.
-		if method == http.MethodPost && path == "/token/org" {
+		// The tenant-scoped token exchange (`POST /token/tenant`) is authentication,
+		// not tenant management — keep it available for existing members.
+		if method == http.MethodPost && path == "/token/tenant" {
 			return false
 		}
-		return strings.HasPrefix(path, "/orgs") || strings.HasPrefix(path, "/me/invites")
+		return strings.HasPrefix(path, "/tenants") || strings.HasPrefix(path, "/me/invites")
 	default:
 		return false
 	}

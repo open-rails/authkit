@@ -61,6 +61,14 @@ func (s *Service) handleUser2FAStartPhonePOST(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Gate on real SMS deliverability up front (parity with signup / phone
+	// verification / phone change) so an undeliverable sender fails fast instead
+	// of stranding the user waiting for a code that will never arrive.
+	if !s.svc.SMSAvailable() {
+		serverErr(w, "phone_2fa_unavailable")
+		return
+	}
+
 	// Generate random 6-digit code.
 	n, err := rand.Int(rand.Reader, big.NewInt(900000))
 	if err != nil {

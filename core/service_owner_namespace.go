@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/open-rails/authkit/internal/db"
 )
 
 var (
-	ErrOwnerSlugTaken      = errors.New("owner_slug_taken")
-	ErrPersonalOrgLocked   = errors.New("personal_org_locked")
-	ErrInviteNotFound      = errors.New("org_invite_not_found")
-	ErrInviteNotPending    = errors.New("org_invite_not_pending")
-	ErrInviteNotForUser    = errors.New("org_invite_not_for_user")
-	ErrInviteExpired       = errors.New("org_invite_expired")
-	ErrPersonalOrgNotFound = errors.New("personal_org_not_found")
+	ErrOwnerSlugTaken         = errors.New("owner_slug_taken")
+	ErrPersonalTenantLocked   = errors.New("personal_tenant_locked")
+	ErrInviteNotFound         = errors.New("tenant_invite_not_found")
+	ErrInviteNotPending       = errors.New("tenant_invite_not_pending")
+	ErrInviteNotForUser       = errors.New("tenant_invite_not_for_user")
+	ErrInviteExpired          = errors.New("tenant_invite_expired")
+	ErrPersonalTenantNotFound = errors.New("personal_tenant_not_found")
 )
 
 func ownerSlugFromUsername(username string) string {
@@ -46,36 +48,24 @@ func ownerSlugFromUsername(username string) string {
 	return out
 }
 
-func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeOrgID string) (bool, error) {
+func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeTenantID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
 	slug = strings.ToLower(strings.TrimSpace(slug))
-	if err := validateOrgSlug(slug); err != nil {
+	if err := validateTenantSlug(slug); err != nil {
 		return false, err
 	}
 	reuseCutoff := time.Now().UTC().Add(-renameReuseHold)
-	var exists bool
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM profiles.owner_reserved_names r
-			WHERE r.slug=$1
-		)
-	`, slug).Scan(&exists); err != nil {
+	exists, err := s.q.OwnerReservedNameExists(ctx, slug)
+	if err != nil {
 		return false, err
 	}
 	if exists {
 		return false, nil
 	}
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM profiles.users u
-			WHERE u.username=$1
-			  AND ($2::text = '' OR u.id::text <> $2::text)
-		)
-	`, slug, strings.TrimSpace(excludeUserID)).Scan(&exists); err != nil {
+	exists, err = s.q.OwnerSlugUserExists(ctx, db.OwnerSlugUserExistsParams{Slug: slug, ExcludeUserID: strings.TrimSpace(excludeUserID)})
+	if err != nil {
 		return false, err
 	}
 	if exists {
@@ -87,51 +77,29 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 	// parameters. Joins to owner rows without filtering soft deletes: soft
 	// deletion keeps the namespace held, while hard deletion removes/cascades
 	// the owner row and allows eventual reuse.
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM profiles.user_renames r
-			JOIN profiles.users u ON u.id=r.user_id
-			WHERE r.from_slug=$1
-			  AND r.renamed_at >= $3
-			  AND ($2::text = '' OR r.user_id::text <> $2::text)
-		)
-	`, slug, strings.TrimSpace(excludeUserID), reuseCutoff).Scan(&exists); err != nil {
+	exists, err = s.q.OwnerSlugUserRenameHeld(ctx, db.OwnerSlugUserRenameHeldParams{Slug: slug, ReuseCutoff: reuseCutoff, ExcludeUserID: strings.TrimSpace(excludeUserID)})
+	if err != nil {
 		return false, err
 	}
 	if exists {
 		return false, nil
 	}
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM profiles.orgs o
-			WHERE o.slug=$1
-			  AND ($2::text = '' OR o.id::text <> $2::text)
-		)
-	`, slug, strings.TrimSpace(excludeOrgID)).Scan(&exists); err != nil {
+	exists, err = s.q.OwnerSlugTenantExists(ctx, db.OwnerSlugTenantExistsParams{Slug: slug, ExcludeTenantID: strings.TrimSpace(excludeTenantID)})
+	if err != nil {
 		return false, err
 	}
 	if exists {
 		return false, nil
 	}
-	if err := s.pg.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM profiles.org_renames r
-			JOIN profiles.orgs o ON o.id=r.org_id
-			WHERE r.from_slug=$1
-			  AND r.renamed_at >= $3
-			  AND ($2::text = '' OR r.org_id::text <> $2::text)
-		)
-	`, slug, strings.TrimSpace(excludeOrgID), reuseCutoff).Scan(&exists); err != nil {
+	exists, err = s.q.OwnerSlugTenantRenameHeld(ctx, db.OwnerSlugTenantRenameHeldParams{Slug: slug, ReuseCutoff: reuseCutoff, ExcludeTenantID: strings.TrimSpace(excludeTenantID)})
+	if err != nil {
 		return false, err
 	}
 	return !exists, nil
 }
 
-func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeOrgID string) error {
-	ok, err := s.ownerSlugAvailable(ctx, slug, excludeUserID, excludeOrgID)
+func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeTenantID string) error {
+	ok, err := s.ownerSlugAvailable(ctx, slug, excludeUserID, excludeTenantID)
 	if err != nil {
 		return err
 	}
@@ -141,22 +109,18 @@ func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUse
 	return nil
 }
 
-func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Org, error) {
+func (s *Service) GetPersonalTenantForUser(ctx context.Context, userID string) (*Tenant, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(userID) == "" {
 		return nil, fmt.Errorf("invalid_user")
 	}
-	var out Org
-	if err := s.pg.QueryRow(ctx, `
-		SELECT id::text, slug, is_personal, COALESCE(owner_user_id::text,'')
-		FROM profiles.orgs
-		WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
-	`, userID).Scan(&out.ID, &out.Slug, &out.IsPersonal, &out.OwnerUserID); err != nil {
-		return nil, ErrPersonalOrgNotFound
+	row, err := s.q.PersonalTenantByOwner(ctx, userID)
+	if err != nil {
+		return nil, ErrPersonalTenantNotFound
 	}
-	return &out, nil
+	return &Tenant{ID: row.ID, Slug: row.Slug, IsPersonal: row.IsPersonal, OwnerUserID: row.OwnerUserID}, nil
 }
 
 // ListUserSlugAliases returns every historical username this user has
@@ -169,25 +133,14 @@ func (s *Service) ListUserSlugAliases(ctx context.Context, userID string) ([]str
 	if strings.TrimSpace(userID) == "" {
 		return nil, fmt.Errorf("invalid_user")
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT DISTINCT from_slug
-		FROM profiles.user_renames
-		WHERE user_id=$1::uuid
-		ORDER BY from_slug ASC
-	`, userID)
+	out, err := s.q.UserSlugAliases(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]string, 0, 4)
-	for rows.Next() {
-		var slug string
-		if err := rows.Scan(&slug); err != nil {
-			return nil, err
-		}
-		out = append(out, slug)
+	if out == nil {
+		out = make([]string, 0, 4)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) ResolveUserBySlug(ctx context.Context, slug string) (userID string, username string, err error) {
@@ -199,118 +152,74 @@ func (s *Service) ResolveUserBySlug(ctx context.Context, slug string) (userID st
 		return "", "", fmt.Errorf("invalid_slug")
 	}
 	slug = strings.ToLower(slug)
-	if err := s.pg.QueryRow(ctx, `
-		SELECT id::text, username::text
-		FROM profiles.users
-		WHERE username=$1 AND deleted_at IS NULL
-	`, slug).Scan(&userID, &username); err == nil {
-		return userID, username, nil
+	if row, err := s.q.UserBySlug(ctx, &slug); err == nil {
+		return row.ID, row.Username, nil
 	}
 	// Fallback to renames table (issue #58). Most-recent rename wins
 	// when a slug has been used by multiple users at different times
 	// (only possible after hard-delete + reuse).
-	if err := s.pg.QueryRow(ctx, `
-		SELECT u.id::text, u.username::text
-		FROM profiles.user_renames r
-		JOIN profiles.users u ON u.id=r.user_id AND u.deleted_at IS NULL
-		WHERE r.from_slug=$1
-		ORDER BY r.renamed_at DESC
-		LIMIT 1
-	`, slug).Scan(&userID, &username); err != nil {
+	row, err := s.q.UserBySlugViaRename(ctx, slug)
+	if err != nil {
 		return "", "", ErrUserNotFound
 	}
-	return userID, username, nil
+	return row.ID, row.Username, nil
 }
 
-// ListOrgAliases returns every historical slug this org has held
-// (excluding the current one). Source: `org_renames.from_slug` (issue
+// ListTenantAliases returns every historical slug this tenant has held
+// (excluding the current one). Source: `tenant_renames.from_slug` (issue
 // #58). Distinct values.
-func (s *Service) ListOrgAliases(ctx context.Context, orgID string) ([]string, error) {
+func (s *Service) ListTenantAliases(ctx context.Context, tenantID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(orgID) == "" {
-		return nil, fmt.Errorf("invalid_org")
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, fmt.Errorf("invalid_tenant")
 	}
-	rows, err := s.pg.Query(ctx, `
-		SELECT DISTINCT from_slug
-		FROM profiles.org_renames
-		WHERE org_id=$1::uuid
-		ORDER BY from_slug ASC
-	`, orgID)
+	out, err := s.q.TenantAliases(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]string, 0, 4)
-	for rows.Next() {
-		var slug string
-		if err := rows.Scan(&slug); err != nil {
-			return nil, err
-		}
-		out = append(out, slug)
+	if out == nil {
+		out = make([]string, 0, 4)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username string) error {
+func (s *Service) ensurePersonalTenantForUser(ctx context.Context, userID, username string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	if !strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		return nil
-	}
+	// (issue 60) Gated by AutoCreatePersonalTenantsEnabled at every call site; no
+	// tenant-mode check here.
 	userID = strings.TrimSpace(userID)
 	slug := ownerSlugFromUsername(username)
 	if userID == "" || slug == "" {
-		return fmt.Errorf("invalid_personal_org")
+		return fmt.Errorf("invalid_personal_tenant")
 	}
-	if err := validateOrgSlug(slug); err != nil {
+	if err := validateTenantSlug(slug); err != nil {
 		return err
 	}
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
 		return err
 	}
 
-	orgIDToInsert, err := newUUIDV7String()
+	tenantIDToInsert, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	var orgID string
-	err = s.pg.QueryRow(ctx, `
-		INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id, metadata)
-		VALUES ($1::uuid, $2, true, $3::uuid, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
-		ON CONFLICT (owner_user_id) WHERE is_personal=true AND deleted_at IS NULL
-		DO UPDATE SET slug=EXCLUDED.slug, updated_at=now()
-		RETURNING id::text
-	`, orgIDToInsert, slug, userID).Scan(&orgID)
+	tenantID, err := s.q.PersonalTenantUpsert(ctx, db.PersonalTenantUpsertParams{ID: tenantIDToInsert, Slug: slug, OwnerUserID: userID})
 	if err != nil {
 		return err
 	}
 
-	if _, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.org_roles (org_id, role)
-		VALUES ($1::uuid, 'owner'), ($1::uuid, 'member')
-		ON CONFLICT (org_id, role) DO NOTHING
-	`, orgID); err != nil {
+	if err := s.q.TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
 		return err
 	}
-	if _, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.org_members (org_id, user_id)
-		VALUES ($1::uuid, $2::uuid)
-		ON CONFLICT (org_id, user_id) DO UPDATE SET deleted_at=NULL, updated_at=now()
-	`, orgID, userID); err != nil {
+	if err := s.q.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: tenantID, UserID: userID, Role: tenantOwnerRole}); err != nil {
 		return err
 	}
-	if _, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.org_member_roles (org_id, user_id, role)
-		VALUES ($1::uuid, $2::uuid, 'owner')
-		ON CONFLICT (org_id, user_id, role) DO NOTHING
-	`, orgID, userID); err != nil {
-		return err
-	}
-	// Seed owner=`*` + any app-declared default roles for the personal org.
-	if err := s.seedRolePermissionDefaults(ctx, orgID); err != nil {
+	// Seed owner=`*` + any app-declared default roles for the personal tenant.
+	if err := s.seedRolePermissionDefaults(ctx, tenantID); err != nil {
 		return err
 	}
 	return nil

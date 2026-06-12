@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	core "github.com/open-rails/authkit/core"
+	authlang "github.com/open-rails/authkit/lang"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -113,5 +114,46 @@ func TestCustomBuilders(t *testing.T) {
 	}
 	if !strings.Contains(gotBody, "custom+login+654321") {
 		t.Fatalf("expected custom body, got %s", gotBody)
+	}
+}
+
+func TestDefaultMessagesUseContextLanguage(t *testing.T) {
+	var bodies []string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	s, err := New(Config{
+		AccountSID:          "AC123",
+		AuthToken:           "secret",
+		MessagingServiceSID: "MG123",
+		AppName:             "Doujins",
+		Client:              client,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	esCtx := authlang.WithLanguage(context.Background(), "es")
+	if err := s.SendLoginCode(esCtx, "+15555550123", "654321"); err != nil {
+		t.Fatalf("SendLoginCode es: %v", err)
+	}
+	if !strings.Contains(bodies[0], "Doujins+codigo+de+inicio%3A+654321") {
+		t.Fatalf("expected Spanish SMS body, got %s", bodies[0])
+	}
+
+	frCtx := authlang.WithLanguage(context.Background(), "fr")
+	if err := s.SendLoginCode(frCtx, "+15555550123", "654321"); err != nil {
+		t.Fatalf("SendLoginCode fallback: %v", err)
+	}
+	if !strings.Contains(bodies[1], "Doujins+login+code%3A+654321") {
+		t.Fatalf("expected English fallback SMS body, got %s", bodies[1])
 	}
 }

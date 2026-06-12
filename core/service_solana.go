@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/siws"
 )
 
@@ -90,7 +91,7 @@ func (s *Service) GenerateSIWSChallenge(ctx context.Context, cache siws.Challeng
 }
 
 // VerifySIWSAndLogin verifies a SIWS signature and logs in or creates a user.
-// Returns access token, expiry, refresh token, user ID, and whether a new user was created.
+// Returns service token, expiry, refresh token, user ID, and whether a new user was created.
 func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (accessToken string, expiresAt time.Time, refreshToken, userID string, created bool, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", "", false, fmt.Errorf("postgres not configured")
@@ -130,7 +131,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		// New user - create account. Blocked when public registration is
 		// disabled: an existing wallet still logs in via the branch above, but
 		// no NEW account may be auto-created here.
-		if s.opts.PublicRegistrationDisabled {
+		if !s.opts.PublicNativeUserRegistrationEnabled() {
 			return "", time.Time{}, "", "", false, ErrRegistrationDisabled
 		}
 		username := challengeData.Username
@@ -249,11 +250,7 @@ func (s *Service) GetSolanaAddress(ctx context.Context, userID string) (string, 
 	}
 
 	var address string
-	err := s.pg.QueryRow(ctx, `
-		SELECT subject FROM profiles.user_providers
-		WHERE user_id = $1 AND issuer = $2
-	`, userID, s.solanaIssuer()).Scan(&address)
-
+	address, err := s.q.UserProviderSubjectByIssuer(ctx, db.UserProviderSubjectByIssuerParams{UserID: userID, Issuer: s.solanaIssuer()})
 	if err != nil {
 		return "", nil // No wallet linked
 	}
@@ -352,7 +349,5 @@ func (s *Service) usernameExists(ctx context.Context, username string) (bool, er
 	if s.pg == nil {
 		return false, nil
 	}
-	var exists bool
-	err := s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.users WHERE username = $1)`, username).Scan(&exists)
-	return exists, err
+	return s.q.UserUsernameExists(ctx, &username)
 }

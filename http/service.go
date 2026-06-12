@@ -172,8 +172,7 @@ func NewService(cfg core.Config) (*Service, error) {
 	opts := coreSvc.Options()
 	ver := NewVerifier(
 		WithSkew(5*time.Second),
-		WithOrgMode(opts.OrgMode),
-		WithTokenPrefix(opts.TokenPrefix),
+		WithServiceTokenPrefix(opts.ServiceTokenPrefix),
 	)
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
@@ -228,6 +227,21 @@ func (s *Service) WithSMSSender(sender core.SMSSender) *Service {
 	s.svc = s.svc.WithSMSSender(sender)
 	return s
 }
+
+// CheckSMSHealth probes (without sending an SMS) whether the configured sender
+// can actually deliver, caching the result to gate phone-based flows. Returns
+// the probe error (nil = healthy) so the host app can log it at startup.
+func (s *Service) CheckSMSHealth(ctx context.Context) error { return s.svc.CheckSMSHealth(ctx) }
+
+// SMSHealthy reports the last CheckSMSHealth result (true until a check runs).
+func (s *Service) SMSHealthy() bool { return s.svc.SMSHealthy() }
+
+// SMSHealthReason returns why SMS was last found unhealthy, if any.
+func (s *Service) SMSHealthReason() string { return s.svc.SMSHealthReason() }
+
+// SMSAvailable reports whether phone-based flows should be offered (a sender is
+// configured and, if checked, found able to deliver).
+func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 func (s *Service) WithLanguageConfig(cfg LanguageConfig) *Service {
 	s.langCfg = &cfg
 	return s
@@ -265,16 +279,16 @@ func (s *Service) publicRegistrationDisabled() bool {
 	if s == nil || s.svc == nil {
 		return false
 	}
-	return s.svc.Options().PublicRegistrationDisabled
+	return !s.svc.Options().PublicNativeUserRegistrationEnabled()
 }
 
-// publicOrgManagementDisabled reports whether the public org onboarding /
+// publicTenantManagementDisabled reports whether the public tenant onboarding /
 // management HTTP routes are turned off for this service.
-func (s *Service) publicOrgManagementDisabled() bool {
+func (s *Service) publicTenantManagementDisabled() bool {
 	if s == nil || s.svc == nil {
 		return false
 	}
-	return s.svc.Options().PublicOrgManagementDisabled
+	return !s.svc.Options().PublicTenantRegistrationEnabled()
 }
 
 func (s *Service) stateCache() oidckit.StateCache {

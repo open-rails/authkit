@@ -12,7 +12,7 @@ import (
 
 func newDelegatedTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *Verifier {
 	t.Helper()
-	v := NewVerifier(WithOrgMode("multi"))
+	v := NewVerifier(WithTenantMode("multi"))
 	if err := v.AddIssuer(iss, aud, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}); err != nil {
@@ -32,7 +32,6 @@ func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
-		Tenant:           "cozy-art",
 		Attributes:       map[string]any{"tier": "cozy_free"},
 		TTL:              time.Minute,
 	})
@@ -54,7 +53,7 @@ func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 	if !ok {
 		t.Fatal("Delegated() returned !ok")
 	}
-	if dp.Tenant != "cozy-art" || dp.DelegatedSubject != "user-123" || dp.UserTier != "cozy_free" {
+	if dp.DelegatedSubject != "user-123" || dp.UserTier != "cozy_free" {
 		t.Fatalf("principal=%+v", dp)
 	}
 }
@@ -136,7 +135,6 @@ func TestVerifyRejectsDelegatedSubWithoutDelegatedTyp(t *testing.T) {
 		"aud":           []string{"tensorhub"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
-		"tenant":        "cozy-art",
 		"delegated_sub": "ext-1",
 	}, map[string]any{"typ": AccessTokenType})
 	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)

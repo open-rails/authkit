@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin_password
     ports:
-      - "5432:5432"
+      - "127.0.0.1:35432:5432"
     volumes:
       - authkit_postgres_data:/var/lib/postgresql
     healthcheck:
@@ -38,7 +38,7 @@ services:
       DEVSERVER_DEV_MODE: "true"
       DEVSERVER_DEV_MINT_SECRET: "change-me"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:38080:8080"
     volumes:
       # Persist the generated dev signing key across restarts.
       - authkit_runtime_keys:/.runtime/authkit

@@ -6,12 +6,12 @@ import (
 )
 
 type userBootstrapResponse struct {
-	UserID             string          `json:"user_id"`
-	Username           string          `json:"username"`
-	PersonalOrg        string          `json:"personal_org"`
-	Orgs               []orgMembership `json:"orgs"`
-	UserAliases        []string        `json:"user_aliases,omitempty"`
-	PersonalOrgAliases []string        `json:"personal_org_aliases,omitempty"`
+	UserID                string             `json:"user_id"`
+	Username              string             `json:"username"`
+	PersonalTenant        string             `json:"personal_tenant"`
+	Tenants               []tenantMembership `json:"tenants"`
+	UserAliases           []string           `json:"user_aliases,omitempty"`
+	PersonalTenantAliases []string           `json:"personal_tenant_aliases,omitempty"`
 }
 
 func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request) {
@@ -34,29 +34,29 @@ func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	personalOrg, err := s.svc.GetPersonalOrgForUser(r.Context(), claims.UserID)
+	personalTenant, err := s.svc.GetPersonalTenantForUser(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "personal_org_lookup_failed")
+		serverErr(w, "personal_tenant_lookup_failed")
 		return
 	}
-	mems, err := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), claims.UserID)
+	mems, err := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "org_memberships_lookup_failed")
+		serverErr(w, "tenant_memberships_lookup_failed")
 		return
 	}
-	orgs := make([]orgMembership, 0, len(mems))
+	tenants := make([]tenantMembership, 0, len(mems))
 	for _, m := range mems {
-		orgs = append(orgs, orgMembership{Org: m.Org, Roles: m.Roles})
+		tenants = append(tenants, tenantMembership{Tenant: m.Tenant, Roles: m.Roles})
 	}
 
 	userAliases, _ := s.svc.ListUserSlugAliases(r.Context(), claims.UserID)
-	personalAliases, _ := s.svc.ListOrgAliases(r.Context(), personalOrg.ID)
+	personalAliases, _ := s.svc.ListTenantAliases(r.Context(), personalTenant.ID)
 	writeJSON(w, http.StatusOK, userBootstrapResponse{
-		UserID:             claims.UserID,
-		Username:           username,
-		PersonalOrg:        personalOrg.Slug,
-		Orgs:               orgs,
-		UserAliases:        userAliases,
-		PersonalOrgAliases: personalAliases,
+		UserID:                claims.UserID,
+		Username:              username,
+		PersonalTenant:        personalTenant.Slug,
+		Tenants:               tenants,
+		UserAliases:           userAliases,
+		PersonalTenantAliases: personalAliases,
 	})
 }

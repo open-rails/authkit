@@ -12,33 +12,33 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// memFederatedSource is an in-memory FederatedIssuerSource for tests, so the
+// memFederatedSource is an in-memory TenantIssuerSource for tests, so the
 // Verifier-load path can be exercised without a Postgres-backed core.Service.
 type memFederatedSource struct {
-	items []core.FederatedOrgIssuer
+	items []core.TenantIssuer
 }
 
-func (m *memFederatedSource) ListFederatedOrgIssuers(_ context.Context, activeOnly bool) ([]core.FederatedOrgIssuer, error) {
-	if !activeOnly {
+func (m *memFederatedSource) ListTenantIssuers(_ context.Context, enabledOnly bool) ([]core.TenantIssuer, error) {
+	if !enabledOnly {
 		return m.items, nil
 	}
-	var out []core.FederatedOrgIssuer
+	var out []core.TenantIssuer
 	for _, i := range m.items {
-		if i.Status == "active" {
+		if i.Enabled {
 			out = append(out, i)
 		}
 	}
 	return out, nil
 }
 
-func (m *memFederatedSource) GetFederatedOrgIssuer(_ context.Context, issuerID string) (*core.FederatedOrgIssuer, error) {
+func (m *memFederatedSource) GetTenantIssuer(_ context.Context, issuerID string) (*core.TenantIssuer, error) {
 	for i := range m.items {
-		if m.items[i].IssuerID == issuerID {
+		if m.items[i].Issuer == issuerID {
 			fi := m.items[i]
 			return &fi, nil
 		}
 	}
-	return nil, core.ErrFederatedIssuerNotFound
+	return nil, core.ErrTenantIssuerNotFound
 }
 
 // jwksServer serves a single signer's JWKS, returning its base URL.
@@ -52,10 +52,10 @@ func jwksServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-// TestOutboundClientPostsRegistration verifies the outbound FederationClient
+// TestOutboundClientPostsRegistration verifies the outbound TenantIssuersClient
 // posts the correct body and auth header to a resource server's accept endpoint.
 func TestOutboundClientPostsRegistration(t *testing.T) {
-	var got federatedIssuerRegistration
+	var got tenantIssuerRegistration
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -66,16 +66,16 @@ func TestOutboundClientPostsRegistration(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fc := NewFederationClient(WithFederationAuthToken("owner-token"))
-	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/federated-issuers", FederationRegistration{
-		Org:      "cozy-art",
-		IssuerID: "https://cozy.example",
-		JWKSURL:  "https://cozy.example/.well-known/jwks.json",
+	fc := NewTenantIssuersClient(WithTenantIssuersAuthToken("owner-token"))
+	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/tenant-issuers", TenantIssuersRegistration{
+		Tenant:  "cozy-art",
+		Issuer:  "https://cozy.example",
+		JWKSURI: "https://cozy.example/.well-known/jwks.json",
 	})
 	if err != nil {
 		t.Fatalf("RegisterIssuer: %v", err)
 	}
-	if got.Org != "cozy-art" || got.IssuerID != "https://cozy.example" || got.JWKSURL != "https://cozy.example/.well-known/jwks.json" {
+	if got.Tenant != "cozy-art" || got.Issuer != "https://cozy.example" || got.JWKSURI != "https://cozy.example/.well-known/jwks.json" {
 		t.Fatalf("body mismatch: %+v", got)
 	}
 	if gotAuth != "Bearer owner-token" {
@@ -89,9 +89,9 @@ func TestOutboundClientPropagatesError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"forbidden"}`))
 	}))
 	defer srv.Close()
-	fc := NewFederationClient()
-	err := fc.RegisterIssuer(context.Background(), srv.URL, FederationRegistration{
-		Org: "cozy-art", IssuerID: "https://cozy.example", JWKSURL: "https://cozy.example/jwks",
+	fc := NewTenantIssuersClient()
+	err := fc.RegisterIssuer(context.Background(), srv.URL, TenantIssuersRegistration{
+		Tenant: "cozy-art", Issuer: "https://cozy.example", JWKSURI: "https://cozy.example/jwks",
 	})
 	if err == nil {
 		t.Fatal("expected error for non-2xx response")
@@ -99,20 +99,20 @@ func TestOutboundClientPropagatesError(t *testing.T) {
 }
 
 func TestOutboundClientValidatesInput(t *testing.T) {
-	fc := NewFederationClient()
-	if err := fc.RegisterIssuer(context.Background(), "", FederationRegistration{Org: "a", IssuerID: "b", JWKSURL: "c"}); err == nil {
+	fc := NewTenantIssuersClient()
+	if err := fc.RegisterIssuer(context.Background(), "", TenantIssuersRegistration{Tenant: "a", Issuer: "b", JWKSURI: "c"}); err == nil {
 		t.Fatal("expected error for empty accept URL")
 	}
-	if err := fc.RegisterIssuer(context.Background(), "http://x", FederationRegistration{Org: "a"}); err == nil {
+	if err := fc.RegisterIssuer(context.Background(), "http://x", TenantIssuersRegistration{Tenant: "a"}); err == nil {
 		t.Fatal("expected error for missing issuer/jwks")
 	}
 }
 
-// TestVerifierLoadsFederatedIssuerAndValidates is the end-to-end mint -> register
+// TestVerifierLoadsTenantIssuerAndValidates is the end-to-end mint -> register
 // (in store) -> load-into-verifier -> validate path. The platform mints a
-// delegated token; the resource server loads the federated issuer from its
+// delegated token; the resource server loads the tenant issuer from its
 // store and validates the token against the issuer's JWKS.
-func TestVerifierLoadsFederatedIssuerAndValidates(t *testing.T) {
+func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 	// Platform signer + its JWKS endpoint.
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
@@ -124,27 +124,26 @@ func TestVerifierLoadsFederatedIssuerAndValidates(t *testing.T) {
 	iss := "https://cozy.example"
 	aud := []string{"tensorhub"}
 
-	// Resource server's store has the federated issuer registered, pointing at
+	// Resource server's store has the tenant issuer registered, pointing at
 	// the platform's JWKS endpoint.
-	src := &memFederatedSource{items: []core.FederatedOrgIssuer{{
-		OrgSlug:  "cozy-art",
-		IssuerID: iss,
-		JWKSURL:  jwks.URL + "/.well-known/jwks.json",
-		Status:   "active",
+	src := &memFederatedSource{items: []core.TenantIssuer{{
+		TenantSlug: "cozy-art",
+		Issuer:     iss,
+		JWKSURI:    jwks.URL + "/.well-known/jwks.json",
+		Enabled:    true,
 	}}}
 
-	// Resource server's verifier loads federated issuers from the store.
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
-		t.Fatalf("LoadFederatedIssuers: %v", err)
+	// Resource server's verifier loads tenant issuers from the store.
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
+		t.Fatalf("LoadTenantIssuers: %v", err)
 	}
 
-	// Platform mints a delegated access token.
+	// Platform mints a delegated service token.
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "ext-user-1",
-		Tenant:           "cozy-art",
 		Attributes:       map[string]any{"tier": "cozy_pro"},
 		TTL:              time.Minute,
 	})
@@ -161,14 +160,18 @@ func TestVerifierLoadsFederatedIssuerAndValidates(t *testing.T) {
 	if !ok {
 		t.Fatal("expected delegated principal")
 	}
-	if dp.Tenant != "cozy-art" || dp.DelegatedSubject != "ext-user-1" || dp.UserTier != "cozy_pro" {
+	if dp.DelegatedSubject != "ext-user-1" || dp.UserTier != "cozy_pro" {
 		t.Fatalf("principal=%+v", dp)
 	}
 }
 
-// TestVerifierRejectsFederatedTenantMismatch proves the resource server binds a
-// federated issuer to the org/resource account it was registered for.
-func TestVerifierRejectsFederatedTenantMismatch(t *testing.T) {
+// TestVerifierRejectsTenantIssuerMismatch proves the resource server binds a
+// tenant issuer to the tenant/resource account it was registered for.
+// (Hard cut: tokens carry no tenant claims, so "claiming another resource
+// account" is structurally impossible — the issuer registration alone decides
+// the tenant. These tests now assert the registry-loaded issuer's token simply
+// verifies.)
+func TestVerifierAcceptsRegistryLoadedTenantIssuerToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
 		t.Fatal(err)
@@ -178,22 +181,21 @@ func TestVerifierRejectsFederatedTenantMismatch(t *testing.T) {
 
 	iss := "https://doujins.example"
 	aud := []string{"openrails"}
-	src := newCountingSource(core.FederatedOrgIssuer{
-		OrgSlug:  "doujins",
-		IssuerID: iss,
-		JWKSURL:  jwks.URL + "/.well-known/jwks.json",
-		Status:   "active",
+	src := newCountingSource(core.TenantIssuer{
+		TenantSlug: "doujins",
+		Issuer:     iss,
+		JWKSURI:    jwks.URL + "/.well-known/jwks.json",
+		Enabled:    true,
 	})
 
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
-		t.Fatalf("LoadFederatedIssuers: %v", err)
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
+		t.Fatalf("LoadTenantIssuers: %v", err)
 	}
 
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
-		Tenant:           "hentai0",
 		DelegatedSubject: "paul-fidika",
 		Permissions:      []string{"openrails:tenant:admin"},
 		TTL:              time.Minute,
@@ -202,13 +204,12 @@ func TestVerifierRejectsFederatedTenantMismatch(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	_, _, err = ver.VerifyDelegatedAccess(tok)
-	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
-		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
+	if _, _, err = ver.VerifyDelegatedAccess(tok); err != nil {
+		t.Fatalf("verify: %v", err)
 	}
 }
 
-func TestVerifierRejectsLazyLoadedFederatedTenantMismatch(t *testing.T) {
+func TestVerifierAcceptsLazyLoadedTenantIssuerToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
 		t.Fatal(err)
@@ -218,24 +219,23 @@ func TestVerifierRejectsLazyLoadedFederatedTenantMismatch(t *testing.T) {
 
 	iss := "https://doujins.example"
 	aud := []string{"openrails"}
-	src := newCountingSource(core.FederatedOrgIssuer{
-		OrgSlug:  "doujins",
-		IssuerID: iss,
-		JWKSURL:  jwks.URL + "/.well-known/jwks.json",
-		Status:   "active",
+	src := newCountingSource(core.TenantIssuer{
+		TenantSlug: "doujins",
+		Issuer:     iss,
+		JWKSURI:    jwks.URL + "/.well-known/jwks.json",
+		Enabled:    true,
 	})
 
 	// Load only the source/audience; the List path returns nothing so the token
 	// must exercise lazy-load-on-miss.
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
-		t.Fatalf("LoadFederatedIssuers: %v", err)
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
+		t.Fatalf("LoadTenantIssuers: %v", err)
 	}
 
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
-		Tenant:           "hentai0",
 		DelegatedSubject: "paul-fidika",
 		Permissions:      []string{"openrails:tenant:admin"},
 		TTL:              time.Minute,
@@ -244,9 +244,8 @@ func TestVerifierRejectsLazyLoadedFederatedTenantMismatch(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	_, _, err = ver.VerifyDelegatedAccess(tok)
-	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
-		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
+	if _, _, err = ver.VerifyDelegatedAccess(tok); err != nil {
+		t.Fatalf("verify (lazy-load): %v", err)
 	}
 }
 
@@ -255,13 +254,13 @@ func TestVerifierRejectsLazyLoadedFederatedTenantMismatch(t *testing.T) {
 func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	src := &memFederatedSource{} // empty store
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), src, []string{"tensorhub"}); err != nil {
-		t.Fatalf("LoadFederatedIssuers: %v", err)
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), src, []string{"tensorhub"}); err != nil {
+		t.Fatalf("LoadTenantIssuers: %v", err)
 	}
 	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer: "https://rogue.example", Audiences: []string{"tensorhub"},
-		DelegatedSubject: "x", Tenant: "rogue", TTL: time.Minute,
+		DelegatedSubject: "x", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(tok); err == nil {
 		t.Fatal("expected rejection of unregistered issuer")

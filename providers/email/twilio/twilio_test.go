@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	core "github.com/open-rails/authkit/core"
+	authlang "github.com/open-rails/authkit/lang"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -136,6 +137,50 @@ func TestCustomBuilderPayload(t *testing.T) {
 		if !payloadContains(t, payload, want) {
 			t.Fatalf("expected payload to contain %q: %#v", want, payload)
 		}
+	}
+}
+
+func TestDefaultMessagesUseContextLanguage(t *testing.T) {
+	var payloads []map[string]any
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var payload map[string]any
+		b, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(b, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		payloads = append(payloads, payload)
+		return &http.Response{
+			StatusCode: http.StatusAccepted,
+			Body:       io.NopCloser(bytes.NewBufferString(``)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	s, err := New(Config{
+		APIKey:    "SG.key",
+		FromEmail: "noreply@example.com",
+		AppName:   "Doujins",
+		Client:    client,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	esCtx := authlang.WithLanguage(context.Background(), "es")
+	if err := s.SendLoginCode(esCtx, "user@example.com", "alice", "654321"); err != nil {
+		t.Fatalf("SendLoginCode es: %v", err)
+	}
+	if !payloadContains(t, payloads[0], "Tu codigo de inicio de sesion de Doujins") {
+		t.Fatalf("expected Spanish login-code payload: %#v", payloads[0])
+	}
+
+	frCtx := authlang.WithLanguage(context.Background(), "fr")
+	if err := s.SendLoginCode(frCtx, "user@example.com", "alice", "654321"); err != nil {
+		t.Fatalf("SendLoginCode fallback: %v", err)
+	}
+	if !payloadContains(t, payloads[1], "Your Doujins login code") {
+		t.Fatalf("expected English fallback payload: %#v", payloads[1])
 	}
 }
 

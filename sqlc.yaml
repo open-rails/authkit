@@ -1,0 +1,81 @@
+# sqlc configuration (https://docs.sqlc.dev).
+#
+# Raw SQL lives in internal/db/queries/*.sql (one file per domain). The schema
+# source of truth is the numbered migration files in migrations/postgres/.
+# Generated code is committed at internal/db (package db) and never hand-edited.
+#
+# Workflow (always run as a pair; see Makefile):
+#   make sqlc        # sqlc generate + sqlc vet
+#
+# Type mapping policy: uuid -> string (the Go API passes uuids as strings,
+# matching the pre-sqlc convention), timestamptz -> time.Time, citext -> string,
+# inet -> string via host()::text in queries. Nullable columns become pointers
+# (emit_pointers_for_null_types), matching the hand-written *string/*time.Time
+# scanning style this replaced.
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "internal/db/queries"
+    schema: "migrations/postgres"
+    database:
+      uri: "${SQLC_DATABASE_URL}"
+    rules:
+      - sqlc/db-prepare
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "string"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          - db_type: "pg_catalog.timestamptz"
+            go_type: "time.Time"
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
+          - db_type: "citext"
+            go_type: "string"
+          - db_type: "citext"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          - db_type: "public.citext"
+            go_type: "string"
+          - db_type: "public.citext"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          # inet params/columns travel as text (pgx encodes the string form);
+          # reads go through host(ip_addr)::text in the queries themselves.
+          - db_type: "pg_catalog.inet"
+            go_type: "string"
+          - db_type: "pg_catalog.inet"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          - db_type: "inet"
+            go_type: "string"
+          - db_type: "inet"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true

@@ -2,9 +2,12 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
@@ -19,24 +22,56 @@ func (s *Service) GenerateAvailableUsername(ctx context.Context, base string) st
 	}
 	// Try numbered suffixes
 	for i := 1; i <= 999; i++ {
-		candidate := fmt.Sprintf("%s%d", base, i)
+		candidate := usernameWithSuffix(base, fmt.Sprintf("%d", i))
 		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
 	// Fallback: base + random 4 digits (global rand is auto-seeded since Go 1.20)
 	for tries := 0; tries < 100; tries++ {
-		candidate := fmt.Sprintf("%s%04d", base, rand.Intn(10000))
+		candidate := usernameWithSuffix(base, fmt.Sprintf("%04d", rand.Intn(10000)))
 		if s.usernameAvailable(ctx, candidate) {
 			return candidate
 		}
 	}
-	return base + "_user"
+	return usernameWithSuffix(base, "_user")
 }
 
+// usernameWithSuffix appends suffix, trimming base so the result stays within
+// usernameMaxLen and remains valid for createUser.
+func usernameWithSuffix(base, suffix string) string {
+	if max := usernameMaxLen - len(suffix); len(base) > max {
+		base = base[:max]
+	}
+	return base + suffix
+}
+
+// usernameAvailable reports whether username and its derived owner-namespace
+// slug are both free. Both halves matter:
+//   - getUserByUsername returns pgx.ErrNoRows for a free name, so ErrNoRows is
+//     the available case, not a failure.
+//   - createUser reserves a slug per username (underscores collapse to
+//     dashes), so distinct usernames like "a_b" and "a__b" contend for the
+//     same slug, and reserved names occupy slugs with no matching user row.
+//     Checking only the username would let derivation pick a name that
+//     createUser then rejects with ErrOwnerSlugTaken.
 func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
+	if s.pg == nil {
+		return true
+	}
 	u, err := s.getUserByUsername(ctx, username)
-	return err == nil && u == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false
+	}
+	if u != nil {
+		return false
+	}
+	slug := ownerSlugFromUsername(username)
+	if slug == "" || validateTenantSlug(slug) != nil {
+		return false
+	}
+	ok, err := s.ownerSlugAvailable(ctx, slug, "", "")
+	return err == nil && ok
 }
 
 // DeriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.
@@ -67,7 +102,9 @@ func (s *Service) DeriveUsernameForOAuth(ctx context.Context, provider, preferre
 	return s.GenerateAvailableUsername(ctx, base+"_user")
 }
 
-// cleanUsername normalizes to lowercase, keeps [a-z0-9_], ensures a letter prefix, and caps length to 32.
+// cleanUsername normalizes to lowercase, keeps [a-z0-9_], ensures a letter
+// prefix, and keeps length within [usernameMinLen, usernameMaxLen] so derived
+// usernames always satisfy ValidateUsername.
 func cleanUsername(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
@@ -87,8 +124,11 @@ func cleanUsername(s string) string {
 	if out[0] < 'a' || out[0] > 'z' {
 		out = "u" + out
 	}
-	if len(out) > 32 {
-		out = out[:32]
+	if len(out) > usernameMaxLen {
+		out = out[:usernameMaxLen]
+	}
+	if len(out) < usernameMinLen {
+		out += "_user"
 	}
 	return out
 }

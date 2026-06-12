@@ -78,7 +78,7 @@ func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 		authhttp.WithSkew(60*time.Second),
 	)
 	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
-		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
 	claims, err := verifier.Verify(token)
@@ -106,7 +106,7 @@ func TestTestIssuer_TokenWithRoles(t *testing.T) {
 
 	verifier := authhttp.NewVerifier(authhttp.WithAlgorithms("RS256"))
 	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
-		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
 	claims, err := verifier.Verify(token)
@@ -130,7 +130,7 @@ func TestTestIssuer_ExpiredToken(t *testing.T) {
 		authhttp.WithSkew(0),
 	)
 	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
-		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
 	_, err := verifier.Verify(token)
@@ -151,7 +151,7 @@ func TestTestIssuer_CustomAudience(t *testing.T) {
 
 	verifier := authhttp.NewVerifier(authhttp.WithAlgorithms("RS256"))
 	_ = verifier.AddIssuer(issuer.URL(), []string{"billing-service"}, authhttp.IssuerOptions{
-		JWKSURL: issuer.URL() + "/.well-known/jwks.json",
+		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
 	claims, err := verifier.Verify(token)

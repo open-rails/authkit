@@ -24,7 +24,6 @@ func TestMintAndVerifyDelegatedAccessToken(t *testing.T) {
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
-		Tenant:           "cozy-art",
 		DelegatedSubject: "user-123",
 		Permissions:      []string{"openrails:self:billing:read", "openrails:self:checkout:create"},
 		Attributes:       map[string]any{"tier": "cozy_free", "budget": 42},
@@ -55,7 +54,7 @@ func TestMintAndVerifyDelegatedAccessToken(t *testing.T) {
 	if !cl.IsDelegatedAccessToken() {
 		t.Fatal("expected IsDelegatedAccessToken")
 	}
-	if dp.Tenant != "cozy-art" || dp.DelegatedSubject != "user-123" {
+	if dp.DelegatedSubject != "user-123" {
 		t.Fatalf("principal=%+v", dp)
 	}
 	if dp.JTI != "tok-1" {
@@ -80,7 +79,6 @@ func TestDelegatedAccessRejectsNormalSub(t *testing.T) {
 		"aud":           []string{"openrails"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
-		"tenant":        "cozy-art",
 		"delegated_sub": "ext-1",
 		"sub":           "local-1",
 	}, map[string]any{"typ": DelegatedAccessTokenType})
@@ -89,7 +87,7 @@ func TestDelegatedAccessRejectsNormalSub(t *testing.T) {
 	}
 	_, err = newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
 	if err == nil {
-		t.Fatal("expected rejection of access token with sub")
+		t.Fatal("expected rejection of service token with sub")
 	}
 	// Either invariant may fire (both sub+delegated_sub here); both are rejects.
 	if err.Error() != "conflicting_subject" && err.Error() != "access_token_has_sub" {
@@ -109,7 +107,6 @@ func TestDelegatedAccessRejectsSubOnlyAccessToken(t *testing.T) {
 		"aud":    []string{"openrails"},
 		"iat":    now.Unix(),
 		"exp":    now.Add(time.Minute).Unix(),
-		"tenant": "cozy-art",
 		"sub":    "local-1",
 	}, map[string]any{"typ": DelegatedAccessTokenType})
 	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
@@ -119,7 +116,7 @@ func TestDelegatedAccessRejectsSubOnlyAccessToken(t *testing.T) {
 }
 
 // TestDelegatedAccessRejectsSubPlusDelegatedSub covers the explicit
-// both-subjects reject for a delegated access token (no typ header path).
+// both-subjects reject for a delegated service token (no typ header path).
 func TestDelegatedAccessRejectsSubPlusDelegatedSub(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
@@ -138,7 +135,10 @@ func TestDelegatedAccessRejectsSubPlusDelegatedSub(t *testing.T) {
 	}
 }
 
-func TestDelegatedAccessRejectsOrgClaim(t *testing.T) {
+// TestDelegatedAccessRejectsTenantClaim: hard cut — a delegated token carries
+// NO tenant claims; the validated issuer is the tenant identity. A token still
+// carrying a `tenant` slug claim is rejected like any other forbidden claim.
+func TestDelegatedAccessRejectsTenantClaim(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()
@@ -148,62 +148,14 @@ func TestDelegatedAccessRejectsOrgClaim(t *testing.T) {
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
 		"tenant":        "cozy-art",
-		"org":           "cozy-art",
 		"delegated_sub": "ext-1",
 	}, map[string]any{"typ": DelegatedAccessTokenType})
 	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err == nil || err.Error() != "delegated_access_has_org" {
-		t.Fatalf("expected delegated_access_has_org, got %v", err)
+	if err == nil || err.Error() != "delegated_access_has_tenant" {
+		t.Fatalf("expected delegated_access_has_tenant, got %v", err)
 	}
 }
 
-func TestDelegatedAccessRejectsIssuerTenantMismatch(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	iss := "https://doujins.example"
-	aud := []string{"openrails"}
-
-	v := NewVerifier()
-	if err := v.AddIssuer(iss, aud, IssuerOptions{
-		RawKeys:                rawKey(signer),
-		TrustedResourceAccount: "doujins",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer:           iss,
-		Audiences:        aud,
-		Tenant:           "hentai0",
-		DelegatedSubject: "paul-fidika",
-		Permissions:      []string{"openrails:tenant:admin"},
-		TTL:              time.Minute,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, _, err = v.VerifyDelegatedAccess(tok)
-	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
-		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
-	}
-}
-
-func TestDelegatedAccessRejectsMissingTenant(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	iss := "https://cozy.example"
-	now := time.Now()
-	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
-		"iss":           iss,
-		"aud":           []string{"openrails"},
-		"iat":           now.Unix(),
-		"exp":           now.Add(time.Minute).Unix(),
-		"delegated_sub": "ext-1",
-	}, map[string]any{"typ": DelegatedAccessTokenType})
-	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err == nil || err.Error() != "missing_tenant" {
-		t.Fatalf("expected missing_tenant, got %v", err)
-	}
-}
 
 // TestDelegatedAccessRoundTripsArbitraryAttributes: arbitrary JSON survives.
 func TestDelegatedAccessRoundTripsArbitraryAttributes(t *testing.T) {
@@ -220,7 +172,6 @@ func TestDelegatedAccessRoundTripsArbitraryAttributes(t *testing.T) {
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
-		Tenant:           "cozy-art",
 		DelegatedSubject: "u1",
 		Attributes:       attrs,
 		TTL:              time.Minute,
@@ -260,7 +211,6 @@ func TestDelegatedAccessRejectsTopLevelUserTier(t *testing.T) {
 		"aud":           []string{"tensorhub"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
-		"tenant":        "cozy-art",
 		"delegated_sub": "u1",
 		"user_tier":     "legacy_free",
 		"attributes":    map[string]any{"tier": "canonical_pro"},
@@ -280,7 +230,6 @@ func TestDelegatedAccessRejectsRolesClaim(t *testing.T) {
 		"aud":           []string{"openrails"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
-		"tenant":        "cozy-art",
 		"delegated_sub": "u1",
 		"roles":         []string{"admin", "superuser"},
 	}, map[string]any{"typ": DelegatedAccessTokenType})
@@ -312,7 +261,7 @@ func TestPermissionCatalogValidator(t *testing.T) {
 
 	// Good token: only catalog perms.
 	good, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u",
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u",
 		Permissions: []string{"openrails:self:billing:read"}, TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(good); err != nil {
@@ -321,7 +270,7 @@ func TestPermissionCatalogValidator(t *testing.T) {
 
 	// Bad token: a permission not in the catalog.
 	bad, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u",
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u",
 		Permissions: []string{"openrails:tenant:admin"}, TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(bad); err == nil {
@@ -346,13 +295,13 @@ func TestAttributesPolicyValidator(t *testing.T) {
 		t.Fatal(err)
 	}
 	bad, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u", TTL: time.Minute,
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u", TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(bad); err == nil {
 		t.Fatal("expected tier_required rejection")
 	}
 	good, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, Tenant: "t", DelegatedSubject: "u",
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u",
 		Attributes: map[string]any{"tier": "cozy_free"}, TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(good); err != nil {

@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,7 +15,9 @@ func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 	}
 
 	var req struct {
-		Token string `json:"token"`
+		Token      string `json:"token"`
+		Identifier string `json:"identifier"`
+		Email      string `json:"email"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" {
 		badRequest(w, "invalid_request")
@@ -45,5 +48,35 @@ func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 		return
 	}
 
-	badRequest(w, "invalid_or_expired_token")
+	s.handleEmailVerifyLinkFailure(w, r.Context(), req.Identifier, req.Email)
+}
+
+func (s *Service) handleEmailVerifyLinkFailure(w http.ResponseWriter, ctx context.Context, identifier, email string) {
+	target := strings.TrimSpace(identifier)
+	if target == "" {
+		target = strings.TrimSpace(email)
+	}
+	if target == "" {
+		badRequest(w, "invalid_or_expired_token")
+		return
+	}
+	if err := core.ValidateEmail(target); err != nil {
+		badRequest(w, "invalid_or_expired_token")
+		return
+	}
+	target = core.NormalizeEmail(target)
+
+	if u, err := s.svc.GetUserByEmail(ctx, target); err == nil && u != nil {
+		if u.EmailVerified {
+			sendErr(w, http.StatusConflict, "email_already_verified")
+			return
+		}
+		sendErr(w, http.StatusGone, "verification_link_expired")
+		return
+	}
+	if pending, err := s.svc.GetPendingRegistrationByEmail(ctx, target); err == nil && pending != nil {
+		badRequest(w, "invalid_or_expired_token")
+		return
+	}
+	sendErr(w, http.StatusGone, "verification_link_expired")
 }

@@ -12,16 +12,19 @@ import (
 	"fmt"
 	stdlog "log"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	entpg "github.com/open-rails/authkit/entitlements"
+	"github.com/open-rails/authkit/internal/db"
 	jwtkit "github.com/open-rails/authkit/jwt"
+	authlang "github.com/open-rails/authkit/lang"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -41,29 +44,46 @@ type Options struct {
 	// non-blocking, or required.
 	RegistrationVerification RegistrationVerificationPolicy
 
-	// OrgMode controls multi-organization behavior.
-	// Valid values: "single" or "multi".
-	OrgMode string
+	// VerificationSendTimeout bounds each in-line email/SMS provider send
+	// (verification codes, password-reset links, login codes) so a configured
+	// but misconfigured/unreachable provider cannot hang the request that
+	// triggered it (e.g. registration). Empty/<=0 defaults to 15 seconds.
+	VerificationSendTimeout time.Duration
 
-	// PublicRegistrationDisabled turns off all public user self-registration and
-	// auto-registration paths. See Config.PublicRegistrationDisabled.
-	PublicRegistrationDisabled bool
-	// PublicOrgManagementDisabled denies the public org-facing onboarding and
-	// management HTTP routes. See Config.PublicOrgManagementDisabled.
-	PublicOrgManagementDisabled bool
+	// AutoCreatePersonalTenants creates a personal tenant for each native user at
+	// signup (direct opt-in; authkit issue 60). False keeps native users
+	// tenant-free by default.
+	AutoCreatePersonalTenants bool
+
+	// NativeUserRegistrationMode controls public native-user self-registration.
+	NativeUserRegistrationMode RegistrationMode
+	// TenantRegistrationMode controls public tenant onboarding/management.
+	TenantRegistrationMode RegistrationMode
 
 	// Environment is host-provided runtime mode used for dev/prod behavior checks.
 	Environment string
 	// SolanaNetwork is host-provided chain selector for SIWS flows.
 	SolanaNetwork string
+	// SolanaSNSEnabled enables AuthKit-owned Solana Name Service resolution for SIWS-linked wallets.
+	SolanaSNSEnabled bool
+	// SolanaSNSResolver resolves a verified Solana wallet address to its primary .sol name.
+	SolanaSNSResolver SolanaSNSResolver
+	// SolanaSNSLookupTimeout bounds resolver calls. Empty defaults to 3 seconds.
+	SolanaSNSLookupTimeout time.Duration
+	// SolanaSNSCacheTTL controls when cached SNS metadata is considered stale. Empty defaults to 24 hours.
+	SolanaSNSCacheTTL time.Duration
 
-	// TokenPrefix is the issuing application's brand prefix for Organization
-	// Access Tokens (validated lowercase-alnum, 1-16 chars; empty -> bare oat_).
-	TokenPrefix string
-	// OrgAccessTokenMaxTTL caps a minted OAT's expiry (0 = no cap).
-	OrgAccessTokenMaxTTL time.Duration
+	// ServiceTokenPrefix is the issuing application's brand prefix for Tenant
+	// Service Tokens (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
+	ServiceTokenPrefix string
+	// ServiceTokenMaxTTL caps a minted service token's expiry (0 = no cap).
+	ServiceTokenMaxTTL time.Duration
+	// ResourceScopeAuthorizer optionally authorizes host-defined service token resource
+	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
+	// opaquely for callers who may manage service tokens for the tenant.
+	ResourceScopeAuthorizer ResourceScopeAuthorizer
 	// PermissionCatalog is the app's permission vocabulary (merged with authkit's
-	// base `org:` permissions). DefaultRoles are role templates seeded per org.
+	// base `tenant:` permissions). DefaultRoles are role templates seeded per tenant.
 	PermissionCatalog []PermissionDef
 	DefaultRoles      []DefaultRole
 }
@@ -74,9 +94,23 @@ type Keyset struct {
 	PublicKeys map[string]crypto.PublicKey // kid -> pub
 }
 
-// EntitlementsProvider returns application entitlements for a user (e.g., billing tiers).
+// EntitlementsProvider returns the names of a user's currently active
+// application entitlements (e.g., billing tiers). Names are the ONLY shape
+// AuthKit consumes — they are baked verbatim into the `entitlements` claim of
+// access tokens and surfaced on admin user views. Providers should return
+// active grants only; expired/revoked entitlements are the provider's concern,
+// not AuthKit's.
 type EntitlementsProvider interface {
-	ListEntitlements(ctx context.Context, userID string) ([]entpg.Entitlement, error)
+	ListEntitlements(ctx context.Context, userID string) ([]string, error)
+}
+
+// BatchEntitlementsProvider is an optional upgrade of EntitlementsProvider:
+// one call answers many users, so list renders (AdminListUsers) cost one
+// provider round trip instead of one per row. Detected by type assertion;
+// providers without it get the per-user fallback. Unknown user ids may be
+// absent from the result.
+type BatchEntitlementsProvider interface {
+	ListEntitlementsBatch(ctx context.Context, userIDs []string) (map[string][]string, error)
 }
 
 var (
@@ -91,14 +125,16 @@ var (
 	// ErrPendingRegistrationNotFound indicates a registration resend request did not match a pending registration.
 	ErrPendingRegistrationNotFound = errors.New("pending_registration_not_found")
 	// ErrRegistrationDisabled indicates a public user-creation path was attempted
-	// while PublicRegistrationDisabled is set. Existing-user authentication is
-	// unaffected; only NEW account creation through public/auto-registration is
-	// blocked.
+	// while native-user registration is bootstrap-only. Existing-user
+	// authentication is unaffected; only NEW account creation through
+	// public/auto-registration is blocked.
 	ErrRegistrationDisabled = errors.New("registration_disabled")
-	// ErrOrgManagementDisabled indicates a public org onboarding/management path
-	// was attempted while PublicOrgManagementDisabled is set. Embedded
+	// ErrVerificationLinkExpired indicates a verification link/token no longer has a pending verification record.
+	ErrVerificationLinkExpired = errors.New("verification_link_expired")
+	// ErrTenantManagementDisabled indicates a public tenant onboarding/management path
+	// was attempted while tenant registration is bootstrap-only. Embedded
 	// bootstrap/admin core APIs remain available.
-	ErrOrgManagementDisabled = errors.New("org_management_disabled")
+	ErrTenantManagementDisabled = errors.New("tenant_management_disabled")
 )
 
 const defaultFrontendCallbackPath = "/login/callback"
@@ -112,16 +148,27 @@ type Service struct {
 	email          EmailSender
 	sms            SMSSender
 	pg             *pgxpool.Pool
+	q              *db.Queries
 	entitlements   EntitlementsProvider
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
 	ephemeralMode  EphemeralMode
 	verifyWarnOnce sync.Once
+
+	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
+	// run, SMS is considered available whenever a sender is configured (legacy
+	// behavior). Once a check runs, phone flows gate on the result.
+	smsHealthChecked atomic.Bool
+	smsHealthy       atomic.Bool
+	smsHealthReason  atomic.Value // string
 }
 
 func NewService(opts Options, keys Keyset) *Service {
-	if strings.TrimSpace(opts.OrgMode) == "" {
-		opts.OrgMode = "single"
+	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
+		opts.NativeUserRegistrationMode = mode
+	}
+	if mode, err := normalizeRegistrationMode(opts.TenantRegistrationMode); err == nil {
+		opts.TenantRegistrationMode = mode
 	}
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
@@ -185,49 +232,53 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	}
 	refTTL := cfg.RefreshTokenDuration // 0 or less => indefinite sessions
 
-	orgMode := strings.ToLower(strings.TrimSpace(cfg.OrgMode))
-	if orgMode == "" {
-		orgMode = "single"
-	}
-	switch orgMode {
-	case "single", "multi":
-	default:
-		return nil, fmt.Errorf("authkit: invalid OrgMode %q (want \"single\" or \"multi\")", cfg.OrgMode)
-	}
 	registrationVerification, err := normalizeRegistrationVerification(cfg.RegistrationVerification)
 	if err != nil {
 		return nil, err
 	}
-	tokenPrefix := strings.TrimSpace(cfg.TokenPrefix)
-	if !validTokenPrefix(tokenPrefix) {
-		return nil, fmt.Errorf("authkit: invalid TokenPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", cfg.TokenPrefix)
+	nativeUserRegistrationMode, err := normalizeRegistrationMode(cfg.NativeUserRegistrationMode)
+	if err != nil {
+		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, closed)", cfg.NativeUserRegistrationMode)
+	}
+	tenantRegistrationMode, err := normalizeRegistrationMode(cfg.TenantRegistrationMode)
+	if err != nil {
+		return nil, fmt.Errorf("authkit: invalid TenantRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.TenantRegistrationMode)
+	}
+	tokenPrefix := strings.TrimSpace(cfg.ServiceTokenPrefix)
+	if !validServiceTokenPrefix(tokenPrefix) {
+		return nil, fmt.Errorf("authkit: invalid ServiceTokenPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", cfg.ServiceTokenPrefix)
 	}
 	opts := Options{
-		Issuer:                      issuer,
-		IssuedAudiences:             issuedAudiences,
-		ExpectedAudiences:           expectedAudiences,
-		AccessTokenDuration:         accessTTL,
-		RefreshTokenDuration:        refTTL,
-		SessionMaxPerUser:           maxSess,
-		BaseURL:                     baseURL,
-		FrontendCallbackPath:        frontendCallbackPath,
-		RegistrationVerification:    registrationVerification,
-		OrgMode:                     orgMode,
-		PublicRegistrationDisabled:  cfg.PublicRegistrationDisabled,
-		PublicOrgManagementDisabled: cfg.PublicOrgManagementDisabled,
-		Environment:                 strings.TrimSpace(cfg.Environment),
-		SolanaNetwork:               strings.TrimSpace(cfg.SolanaNetwork),
-		TokenPrefix:                 tokenPrefix,
-		OrgAccessTokenMaxTTL:        cfg.OrgAccessTokenMaxTTL,
-		PermissionCatalog:           cfg.PermissionCatalog,
-		DefaultRoles:                cfg.DefaultRoles,
+		Issuer:                     issuer,
+		IssuedAudiences:            issuedAudiences,
+		ExpectedAudiences:          expectedAudiences,
+		AccessTokenDuration:        accessTTL,
+		RefreshTokenDuration:       refTTL,
+		SessionMaxPerUser:          maxSess,
+		BaseURL:                    baseURL,
+		FrontendCallbackPath:       frontendCallbackPath,
+		RegistrationVerification:   registrationVerification,
+		AutoCreatePersonalTenants:  cfg.AutoCreatePersonalTenants,
+		NativeUserRegistrationMode: nativeUserRegistrationMode,
+		TenantRegistrationMode:     tenantRegistrationMode,
+		Environment:                strings.TrimSpace(cfg.Environment),
+		SolanaNetwork:              strings.TrimSpace(cfg.SolanaNetwork),
+		SolanaSNSEnabled:           cfg.SolanaSNSEnabled,
+		SolanaSNSResolver:          cfg.SolanaSNSResolver,
+		SolanaSNSLookupTimeout:     cfg.SolanaSNSLookupTimeout,
+		SolanaSNSCacheTTL:          cfg.SolanaSNSCacheTTL,
+		ServiceTokenPrefix:         tokenPrefix,
+		ServiceTokenMaxTTL:         cfg.ServiceTokenMaxTTL,
+		ResourceScopeAuthorizer:    cfg.ResourceScopeAuthorizer,
+		PermissionCatalog:          cfg.PermissionCatalog,
+		DefaultRoles:               cfg.DefaultRoles,
 	}
 	return NewService(opts, ks), nil
 }
 
-// validTokenPrefix reports whether p is an acceptable OAT application prefix:
-// empty (-> bare oat_) or 1-16 lowercase alphanumeric characters.
-func validTokenPrefix(p string) bool {
+// validServiceTokenPrefix reports whether p is an acceptable service token application prefix:
+// empty (-> bare st_) or 1-16 lowercase alphanumeric characters.
+func validServiceTokenPrefix(p string) bool {
 	if p == "" {
 		return true
 	}
@@ -252,6 +303,24 @@ func normalizeRegistrationVerification(v RegistrationVerificationPolicy) (Regist
 		return value, nil
 	default:
 		return "", fmt.Errorf("authkit: invalid RegistrationVerification %q (want \"none\", \"optional\", or \"required\")", v)
+	}
+}
+
+func normalizeRegistrationMode(v RegistrationMode) (RegistrationMode, error) {
+	value := RegistrationMode(strings.ToLower(strings.TrimSpace(string(v))))
+	if value == "" {
+		return RegistrationModeOpen, nil
+	}
+	switch value {
+	case RegistrationModeOpen,
+		RegistrationModeInviteOnly,
+		RegistrationModeAdminOnly,
+		RegistrationModeAdminBootstrapOnly,
+		RegistrationModeManifestOnly,
+		RegistrationModeClosed:
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid_registration_mode")
 	}
 }
 
@@ -295,17 +364,22 @@ func (o Options) RegistrationVerificationEnabled() bool {
 	return o.RegistrationVerificationPolicy() != RegistrationVerificationNone
 }
 
-// PublicRegistrationEnabled reports whether public user self-registration /
-// auto-registration is allowed. It is the inverse of PublicRegistrationDisabled.
-func (o Options) PublicRegistrationEnabled() bool {
-	return !o.PublicRegistrationDisabled
+func (o Options) AutoCreatePersonalTenantsEnabled() bool {
+	return o.AutoCreatePersonalTenants
 }
 
-// PublicOrgManagementEnabled reports whether the public org onboarding /
-// management HTTP routes are allowed. It is the inverse of
-// PublicOrgManagementDisabled.
-func (o Options) PublicOrgManagementEnabled() bool {
-	return !o.PublicOrgManagementDisabled
+// PublicNativeUserRegistrationEnabled reports whether public native-user
+// self-registration / auto-registration is allowed.
+func (o Options) PublicNativeUserRegistrationEnabled() bool {
+	mode, err := normalizeRegistrationMode(o.NativeUserRegistrationMode)
+	return err == nil && mode == RegistrationModeOpen
+}
+
+// PublicTenantRegistrationEnabled reports whether public tenant onboarding /
+// management HTTP routes are allowed.
+func (o Options) PublicTenantRegistrationEnabled() bool {
+	mode, err := normalizeRegistrationMode(o.TenantRegistrationMode)
+	return err == nil && mode == RegistrationModeOpen
 }
 
 func isWellFormattedURL(raw string) bool {
@@ -383,7 +457,7 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 
 // IssueAccessToken builds and signs an access token (JWT) for the given user.
 // Includes core registered claims plus:
-// - roles (snapshot, org_mode=single only)
+// - roles (snapshot, tenant_mode=single only)
 // - entitlements (snapshot)
 // - email, username, discord_username (if available)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
@@ -391,27 +465,28 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
 	expiresAt = base.ExpiresAt.Time
 	// globalRoles are the user's platform-wide roles. They are emitted in the
-	// `global_roles` claim in BOTH single and multi-org mode so consumers can do
-	// global-admin authorization from any access token.
+	// `global_roles` claim in BOTH single and multi-tenant mode so consumers can do
+	// global-admin authorization from any service token.
 	var globalRoles []string
 	if s.pg != nil {
 		globalRoles = s.listRoleSlugsByUser(ctx, userID)
 	}
-	// roles is the legacy claim, populated only in single-org mode for
-	// back-compat (unchanged behavior).
-	var roles []string
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
-		roles = globalRoles
-	}
-	ents := []string{}
+	// roles is the legacy claim (authkit issue 60): a user access token always
+	// mirrors global_roles into `roles` as a fixed token-shape compatibility for
+	// consumers that read `roles`. This is independent of tenants — tenant-scoped
+	// service tokens carry tenant roles instead (see IssueServiceToken).
+	roles := globalRoles
+	var ents []string
 	if s.entitlements != nil {
-		if details, err := s.entitlements.ListEntitlements(ctx, userID); err == nil {
-			ents = activeEntitlementNames(details, time.Now().UTC())
-		} else {
-			// Fail closed (no entitlements minted) but surface the failure: a
-			// silent provider outage would otherwise strip grants from every
-			// freshly issued token with no signal.
-			stdlog.Printf("[authkit/entitlements] provider error for user %s during token issuance: %v", userID, err)
+		var entErr error
+		ents, entErr = s.entitlements.ListEntitlements(ctx, userID)
+		if entErr != nil {
+			// Deliberate availability-over-consistency: a failing entitlements
+			// provider must not block login, but it must be LOUD — the user is
+			// getting a token without entitlement claims (no premium access)
+			// until the next refresh.
+			stdlog.Printf("authkit: error: entitlements provider failed during access-token issuance for user %s; token issued WITHOUT entitlement claims: %v", userID, entErr)
+			ents = nil
 		}
 	}
 	// Attempt to fetch username/email fresh from DB if possible
@@ -453,12 +528,10 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 		"discord_username": discord,
 		"entitlements":     ents,
 	}
-	// global_roles is emitted in both single and multi-org mode (additive).
+	// global_roles is the canonical platform-wide roles claim.
 	claims["global_roles"] = globalRoles
-	// roles (legacy) is emitted only in single-org mode, unchanged.
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
-		claims["roles"] = roles
-	}
+	// roles (legacy) mirrors global_roles on every user access token (issue 60).
+	claims["roles"] = roles
 	for k, v := range extra {
 		claims[k] = v
 	}
@@ -470,40 +543,39 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	return tok, expiresAt, err
 }
 
-// IssueOrgAccessToken builds and signs an org-scoped access token (JWT) for the given user.
-// It is only valid in org_mode=multi, and only if the user is a member of the org.
-// The token includes:
-// - org (canonical slug)
-// - roles (snapshot for that org)
-func (s *Service) IssueOrgAccessToken(ctx context.Context, userID, email, orgSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
-	if !strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		return "", time.Time{}, fmt.Errorf("org_mode_not_multi")
-	}
+// IssueServiceToken builds and signs a tenant-scoped service token (JWT) for the
+// given user. Valid whenever the user is a member of the tenant (issue 60: tenants
+// are always supported; no global mode gate). The token includes:
+// - tenant_id (immutable tenant uuid — the canonical identifier)
+// - tenant (mutable slug, presentation/logging only)
+// - roles (snapshot for that tenant)
+func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, fmt.Errorf("postgres not configured")
 	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	// Membership check + roles snapshot.
-	var member bool
-	if err := s.pg.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.org_members WHERE org_id=$1::uuid AND user_id=$2::uuid AND deleted_at IS NULL)`, org.ID, userID).Scan(&member); err != nil {
-		return "", time.Time{}, err
-	}
-	if !member {
-		return "", time.Time{}, ErrNotOrgMember
-	}
-	orgRoles, err := s.ReadMemberRoles(ctx, org.Slug, userID)
+	member, err := s.q.TenantMembershipExists(ctx, db.TenantMembershipExistsParams{TenantID: tenant.ID, UserID: userID})
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	// org + roles (legacy) preserve existing behavior; org_roles is the new
-	// explicit org-scoped claim. global_roles is added by IssueAccessToken.
+	if !member {
+		return "", time.Time{}, ErrNotTenantMember
+	}
+	tenantRoles, err := s.ReadMemberRoles(ctx, tenant.Slug, userID)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	// tenant + roles (legacy) preserve existing behavior; tenant_roles is the new
+	// explicit tenant-scoped claim. global_roles is added by IssueAccessToken.
 	claims := map[string]any{
-		"org":       org.Slug,
-		"roles":     orgRoles,
-		"org_roles": orgRoles,
+		"tenant_id":    tenant.ID,
+		"tenant":       tenant.Slug,
+		"roles":        tenantRoles,
+		"tenant_roles": tenantRoles,
 	}
 	if extra == nil {
 		extra = map[string]any{}
@@ -536,31 +608,9 @@ func (s *Service) isDevEnvironment() bool {
 // WithPostgres attaches a pgx pool to the service.
 func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
 	s.pg = pool
-	if s.pg != nil && strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "single") {
-		// Safeguard: refuse multi->single downgrade when there is more than one org with more than one member.
-		// Best-effort: if org tables are missing (migrations not applied), allow single mode.
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		var present bool
-		_ = s.pg.QueryRow(ctx, `SELECT to_regclass('profiles.orgs') IS NOT NULL`).Scan(&present)
-		if present {
-			var cnt int
-			err := s.pg.QueryRow(ctx, `
-				SELECT count(*)
-				FROM profiles.orgs o
-				WHERE o.deleted_at IS NULL
-				  AND (
-				    SELECT count(*)
-				    FROM profiles.org_members m
-				    WHERE m.org_id=o.id AND m.deleted_at IS NULL
-				  ) > 1
-			`).Scan(&cnt)
-			if err == nil && cnt > 1 {
-				panic("authkit: org_mode single is not allowed when more than one org has more than one member")
-			}
-		}
-	}
+	s.q = db.New(pool)
+	// (issue 60) No tenant-mode downgrade safeguard: tenants are always supported,
+	// so there is no single/multi mode to refuse a downgrade into.
 	return s
 }
 
@@ -628,16 +678,19 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 	linkToken := randB64(32)
 	linkHash := sha256Hex(linkToken)
 
-	// Store phone verification with split TTLs.
-	if err := s.storePhoneVerificationTokens(ctx, "change_phone", trimmed, userID, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+	// Hold the new phone in the unified pending-change store with split TTLs. The
+	// new phone is applied to the profile only on confirmation — we do not
+	// optimistically pre-apply it. That keeps the user's current phone intact if
+	// the change is never confirmed (or is cancelled), so cancellation is a clean
+	// delete of this record with nothing to roll back.
+	if err := s.storePendingChange(ctx, pendingChange{
+		Kind:   KindChangePhone,
+		Target: trimmed,
+		UserID: userID,
+	}, map[string]time.Duration{
+		codeHash: defaultPhoneVerificationTTL,
+		linkHash: defaultPhoneVerificationTTL,
 	}); err != nil {
-		return err
-	}
-
-	// Temporarily set the new phone and mark unverified until confirmation.
-	if _, err := s.pg.Exec(ctx, `UPDATE profiles.users SET phone_number=$2, phone_verified=false, updated_at=NOW() WHERE id=$1`, userID, trimmed); err != nil {
 		return err
 	}
 
@@ -650,7 +703,8 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 	// Send verification message to new phone
 	if s.sms != nil {
-		if err := s.sms.SendVerification(ctx, trimmed, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, trimmed, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -665,41 +719,28 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 // ConfirmPhoneChange verifies the code and updates the user's phone number.
 // This is called when the user enters the verification code sent to their new phone.
 func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code string) error {
-	if s.pg == nil {
+	if s.pg == nil || !s.useEphemeralStore() {
 		return jwt.ErrTokenUnverifiable
 	}
 
-	// Use consumePhoneVerification to validate and consume the code, keyed by userID
+	// Load the pending change by the code's hash; validate kind, owner, and (when
+	// the caller supplied a phone) that it matches the pending target.
 	hash := sha256Hex(code)
-	if s.useEphemeralStore() {
-		verifiedUserID, err := s.consumePhoneVerification(ctx, "change_phone", phone, hash)
-		if err != nil {
-			return jwt.ErrTokenUnverifiable
-		}
-		if verifiedUserID != userID {
-			return jwt.ErrTokenInvalidClaims
-		}
-	} else {
+	rec, ok, err := s.loadPendingChangeByToken(ctx, hash)
+	if err != nil || !ok || rec.Kind != KindChangePhone {
+		return jwt.ErrTokenUnverifiable
+	}
+	if rec.UserID != userID {
+		return jwt.ErrTokenInvalidClaims
+	}
+	if strings.TrimSpace(phone) != "" && !strings.EqualFold(NormalizePhone(phone), rec.Target) {
 		return jwt.ErrTokenUnverifiable
 	}
 
-	// Get current user
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return errOrUnauthorized(err)
-	}
-
-	// If the phone matches the pending value, just verify it.
-	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, phone) {
-		return s.setPhoneVerified(ctx, userID, true)
-	}
-
-	// Otherwise, set and verify (should be rare if pending update already applied).
-	_, err = s.pg.Exec(ctx, `UPDATE profiles.users SET phone_number=$2, phone_verified=true, updated_at=NOW() WHERE id=$1`, userID, phone)
-	if err != nil {
+	if _, err := s.finalizeChangePhone(ctx, rec); err != nil {
 		return err
 	}
-
+	s.deletePendingChangeByToken(ctx, hash)
 	return nil
 }
 
@@ -714,27 +755,26 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 		return fmt.Errorf("user not found")
 	}
 
-	// Pending change exists only if the user's phone matches and is unverified.
-	if u.PhoneNumber == nil || !strings.EqualFold(*u.PhoneNumber, phone) || u.PhoneVerified {
+	// The unified pending-change record (keyed by user) is the source of truth for
+	// whether a phone change is pending for this user.
+	rec, ok := s.findPendingChangeByUser(ctx, KindChangePhone, userID)
+	if !ok {
 		return fmt.Errorf("no pending phone change found")
 	}
+	pendingPhone := rec.Target
 
-	// Check if pending phone change exists (by userID)
-	data, err := s.getPhoneVerification(ctx, "change_phone", phone)
-	if err != nil || data == nil || data.UserID != userID {
-		return fmt.Errorf("no pending phone change found")
-	}
-
-	// Generate new verification credentials.
+	// Generate new verification credentials; storePendingChange supersedes the old record.
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
 	linkToken := randB64(32)
 	linkHash := sha256Hex(linkToken)
-
-	// Store new phone verification (by userID)
-	if err := s.storePhoneVerificationTokens(ctx, "change_phone", phone, userID, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+	if err := s.storePendingChange(ctx, pendingChange{
+		Kind:   KindChangePhone,
+		Target: pendingPhone,
+		UserID: userID,
+	}, map[string]time.Duration{
+		codeHash: defaultPhoneVerificationTTL,
+		linkHash: defaultPhoneVerificationTTL,
 	}); err != nil {
 		return err
 	}
@@ -747,13 +787,26 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.sms != nil {
-		if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, pendingPhone, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
-		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s link_token=%s", phone, username, code, linkToken)
+		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s link_token=%s", pendingPhone, username, code, linkToken)
 	}
 
+	return nil
+}
+
+// CancelPhoneChange aborts a pending phone-change for the user, clearing the
+// unified pending-change record. Because the new phone is held only in the
+// pending record and never optimistically applied to the profile, there is
+// nothing to roll back. Idempotent: a no-op when no pending change exists.
+func (s *Service) CancelPhoneChange(ctx context.Context, userID, phone string) error {
+	if !s.useEphemeralStore() {
+		return nil
+	}
+	s.deletePendingChangeByUser(ctx, KindChangePhone, userID)
 	return nil
 }
 
@@ -762,12 +815,11 @@ func (s *Service) getUserByPhone(ctx context.Context, phone string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE phone_number=$1`, phone)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByPhone(ctx, &phone)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByPhoneRow(r), nil
 }
 
 // setPhoneVerified sets the phone_verified flag for a user.
@@ -775,8 +827,7 @@ func (s *Service) setPhoneVerified(ctx context.Context, id string, v bool) error
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET phone_verified=$2, updated_at=NOW() WHERE id=$1`, id, v)
-	return err
+	return s.q.UserSetPhoneVerifiedByID(ctx, db.UserSetPhoneVerifiedByIDParams{ID: id, PhoneVerified: &v})
 }
 
 // SendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
@@ -793,7 +844,8 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 
 	if s.sms != nil {
 		msg := VerificationMessage{Code: code}
-		return smsDeliveryError(s.sms.SendVerification(ctx, phone, msg))
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }))
 	}
 	// In production, require SMS to be configured
 	if !s.isDevEnvironment() {
@@ -1082,6 +1134,16 @@ type SMSSender interface {
 	SendLoginCode(ctx context.Context, phone, code string) error
 }
 
+// SMSHealthChecker is an optional capability for SMS senders that can verify,
+// without sending a message, that they are configured to actually deliver
+// (valid credentials, an attached sender, and a verified/registered number).
+// CheckHealth returns nil when delivery is expected to succeed, or a
+// descriptive error explaining why it will not (e.g. an unverified toll-free
+// sender that would otherwise fail silently with Twilio error 30032).
+type SMSHealthChecker interface {
+	CheckHealth(ctx context.Context) error
+}
+
 // WithEmailSender sets the email sender dependency.
 func (s *Service) WithEmailSender(sender EmailSender) *Service { s.email = sender; return s }
 
@@ -1093,6 +1155,64 @@ func (s *Service) HasEmailSender() bool { return s.email != nil }
 
 // HasSMSSender returns true if an SMS sender is configured.
 func (s *Service) HasSMSSender() bool { return s.sms != nil }
+
+// CheckSMSHealth probes whether the configured SMS sender can actually deliver,
+// without sending a message, when the sender implements SMSHealthChecker. The
+// result is cached and gates phone-based flows via SMSAvailable. It returns the
+// probe error (nil = healthy) so callers can log it. When no sender is
+// configured or the sender cannot self-check, it records healthy=true (delivery
+// readiness is then governed solely by sender presence, as before).
+func (s *Service) CheckSMSHealth(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	checker, ok := s.sms.(SMSHealthChecker)
+	if s.sms == nil || !ok {
+		s.smsHealthy.Store(true)
+		s.smsHealthReason.Store("")
+		s.smsHealthChecked.Store(true)
+		return nil
+	}
+	err := checker.CheckHealth(ctx)
+	if err != nil {
+		s.smsHealthy.Store(false)
+		s.smsHealthReason.Store(err.Error())
+	} else {
+		s.smsHealthy.Store(true)
+		s.smsHealthReason.Store("")
+	}
+	s.smsHealthChecked.Store(true)
+	return err
+}
+
+// SMSHealthy reports the last CheckSMSHealth result. It is true until a check
+// has run (legacy behavior: assume healthy when a sender is present).
+func (s *Service) SMSHealthy() bool {
+	if s == nil {
+		return false
+	}
+	if !s.smsHealthChecked.Load() {
+		return true
+	}
+	return s.smsHealthy.Load()
+}
+
+// SMSHealthReason returns the reason SMS was last found unhealthy, if any.
+func (s *Service) SMSHealthReason() string {
+	if s == nil {
+		return ""
+	}
+	if r, ok := s.smsHealthReason.Load().(string); ok {
+		return r
+	}
+	return ""
+}
+
+// SMSAvailable reports whether phone-based flows should be offered: a sender is
+// configured and (if a health check has run) it was found able to deliver.
+func (s *Service) SMSAvailable() bool {
+	return s.HasSMSSender() && s.SMSHealthy()
+}
 
 func emailDeliveryError(err error) error {
 	if err == nil {
@@ -1166,7 +1286,10 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return nil
 	}
 
-	if err := s.email.SendPasswordResetLink(ctx, *u.Email, username, token); err != nil {
+	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+		return s.email.SendPasswordResetLink(sendCtx, *u.Email, username, token)
+	}); err != nil {
 		return emailDeliveryError(err)
 	}
 
@@ -1244,7 +1367,7 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 	}
 
 	if pending, err := s.GetPendingRegistrationByEmail(ctx, email); err == nil && pending != nil {
-		_, err := s.CreatePendingRegistration(ctx, email, pending.Username, pending.PasswordHash, ttl)
+		_, err := s.CreatePendingRegistrationWithLocale(ctx, email, pending.Username, pending.PasswordHash, ttl, pending.PreferredLocale)
 		return err
 	}
 	if s.pg == nil {
@@ -1261,7 +1384,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		return ErrEmailAlreadyVerified
 	}
 	if ttl <= 0 {
-		ttl = 15 * time.Minute
+		ttl = defaultEmailVerificationTTL
 	}
 	if u.Email == nil {
 		return ErrUserNotFound
@@ -1272,7 +1395,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 	linkTokenHash := sha256Hex(linkToken)
 	if err := s.storeEmailVerificationTokens(ctx, u.ID, u.Email, map[string]time.Duration{
 		codeHash:      ttl,
-		linkTokenHash: time.Hour,
+		linkTokenHash: defaultEmailVerificationTTL,
 	}); err != nil {
 		return nil
 	}
@@ -1285,7 +1408,8 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		return nil
 	}
 	if s.email != nil {
-		if err := s.email.SendVerification(ctx, *u.Email, username, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, *u.Email, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -1326,14 +1450,28 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
-	if s.opts.PublicRegistrationDisabled {
+	return s.CreatePendingRegistrationWithLocale(ctx, email, username, passwordHash, ttl, "")
+}
+
+func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLocale string) (string, error) {
+	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
+	locale, err := NormalizePreferredLocale(preferredLocale)
+	if err != nil {
+		return "", err
+	}
+	sendCtx := contextWithPreferredLocale(ctx, locale)
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
-		_, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
+		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
 		if err != nil {
 			return "", err
+		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
 		}
 		return "", nil
 	case RegistrationVerificationOptional:
@@ -1342,11 +1480,16 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		if err != nil {
 			return "", err
 		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
+		}
 		if verified {
 			return "", nil
 		}
 		if ttl <= 0 {
-			ttl = 15 * time.Minute
+			ttl = defaultEmailVerificationTTL
 		}
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
@@ -1355,20 +1498,22 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		normEmail := normalizeEmail(email)
 		if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
 			codeHash: ttl,
-			linkHash: time.Hour,
+			linkHash: defaultEmailVerificationTTL,
 		}); err != nil {
 			return "", err
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			if err := s.email.SendVerification(ctx, normEmail, username, msg); err != nil {
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+				return s.email.SendVerification(sendCtx, normEmail, username, msg)
+			}); err != nil {
 				return "", emailDeliveryError(err)
 			}
 		}
 		return code, nil
 	default:
 		if ttl <= 0 {
-			ttl = 15 * time.Minute
+			ttl = defaultEmailVerificationTTL
 		}
 		code := randAlphanumeric(6)
 		codeHash := sha256Hex(code)
@@ -1376,9 +1521,15 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		linkHash := sha256Hex(linkToken)
 
 		if s.useEphemeralStore() {
-			if err := s.storePendingRegistrationTokens(ctx, email, username, passwordHash, map[string]time.Duration{
+			if err := s.storePendingChange(ctx, pendingChange{
+				Kind:            KindRegisterEmail,
+				Target:          email,
+				Username:        username,
+				PasswordHash:    passwordHash,
+				PreferredLocale: locale,
+			}, map[string]time.Duration{
 				codeHash: ttl,
-				linkHash: time.Hour,
+				linkHash: defaultEmailVerificationTTL,
 			}); err != nil {
 				return "", err
 			}
@@ -1389,7 +1540,7 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.email != nil {
-				if err := s.email.SendVerification(ctx, email, username, msg); err != nil {
+				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
 					return "", emailDeliveryError(err)
 				}
 			} else {
@@ -1404,63 +1555,16 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 // ConfirmPendingRegistration verifies token and creates the actual user account.
 // This implements "first to verify wins" - whoever verifies first gets the username/email.
 func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) (userID string, err error) {
-	if s.opts.PublicRegistrationDisabled {
+	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
-	hash := sha256Hex(token)
-
-	var email, username, passwordHash string
-	if s.useEphemeralStore() {
-		data, ok, err := s.loadPendingRegistration(ctx, hash)
-		if err != nil || !ok {
-			return "", jwt.ErrTokenUnverifiable
-		}
-		email, username, passwordHash = data.Email, data.Username, data.PasswordHash
-	} else {
+	if !s.useEphemeralStore() {
 		return "", jwt.ErrTokenUnverifiable
 	}
-
-	// Check if email or username is now taken (someone else verified first)
-	var exists bool
-	err = s.pg.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM profiles.users
-			WHERE email = lower($1) OR username = $2
-		)
-	`, email, username).Scan(&exists)
-
-	if err != nil {
-		return "", err
-	}
-	if exists {
-		// Someone else got there first - delete this pending registration
-		if s.useEphemeralStore() {
-			s.deletePendingRegistration(ctx, hash, pendingRegistrationData{Email: email, Username: username})
-		}
-		return "", fmt.Errorf("email or username already taken")
-	}
-
-	uid, err := s.createVerifiedRegistrationUser(ctx, email, username, passwordHash)
-
-	if err != nil {
-		return "", err
-	}
-
-	// In org_mode=multi every user must have a personal org in the owner namespace.
-	// ConfirmPendingRegistration creates the user directly (without going through createUser),
-	// so ensure we provision the personal org here too.
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
-			return "", err
-		}
-	}
-
-	// Delete pending registration (success)
-	if s.useEphemeralStore() {
-		s.deletePendingRegistration(ctx, hash, pendingRegistrationData{Email: email, Username: username})
-	}
-
-	return uid, nil
+	// The register_email finalizer enforces "first to verify wins", creates the
+	// verified user, and applies locale + personal tenant; consume deletes the
+	// pending record on success.
+	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindRegisterEmail)
 }
 
 // CheckPendingRegistrationConflict checks if email or username exists in users or pending registration cache.
@@ -1470,14 +1574,11 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 	email = NormalizeEmail(email)
 	username = strings.TrimSpace(username)
 	if s.pg != nil {
-		err := s.pg.QueryRow(ctx, `
-			SELECT
-				EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1)),
-				EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
-		`, email, username).Scan(&emailTaken, &usernameTaken)
+		taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username})
 		if err != nil {
 			return false, false, err
 		}
+		emailTaken, usernameTaken = taken.EmailTaken, taken.UsernameTaken
 	}
 
 	if emailTaken || usernameTaken {
@@ -1485,13 +1586,12 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 	}
 
 	if s.useEphemeralStore() {
-		if v, ok, _ := s.ephemGetString(ctx, keyPendingRegEmail+normalizeEmail(email)); ok && v != "" {
+		if s.pendingChangeTargetTaken(ctx, KindRegisterEmail, email) {
 			emailTaken = true
 		}
-		if v, ok, _ := s.ephemGetString(ctx, keyPendingRegUser+username); ok && v != "" {
+		if s.pendingChangeUsernameTaken(ctx, username) {
 			usernameTaken = true
 		}
-		return emailTaken, usernameTaken, nil
 	}
 	return emailTaken, usernameTaken, nil
 }
@@ -1501,14 +1601,28 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
-	if s.opts.PublicRegistrationDisabled {
+	return s.CreatePendingPhoneRegistrationWithLocale(ctx, phone, username, passwordHash, "")
+}
+
+func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, phone, username, passwordHash, preferredLocale string) (string, error) {
+	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
+	locale, err := NormalizePreferredLocale(preferredLocale)
+	if err != nil {
+		return "", err
+	}
+	sendCtx := contextWithPreferredLocale(ctx, locale)
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
-		_, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
+		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
 		if err != nil {
 			return "", err
+		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
 		}
 		return "", nil
 	case RegistrationVerificationOptional:
@@ -1516,6 +1630,11 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, verified)
 		if err != nil {
 			return "", err
+		}
+		if locale != "" {
+			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+				return "", err
+			}
 		}
 		if verified {
 			return "", nil
@@ -1525,14 +1644,14 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
 		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
-			codeHash: 15 * time.Minute,
-			linkHash: time.Hour,
+			codeHash: defaultPhoneVerificationTTL,
+			linkHash: defaultPhoneVerificationTTL,
 		}); err != nil {
 			return "", err
 		}
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
-			if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 				return "", smsDeliveryError(err)
 			}
 		}
@@ -1543,9 +1662,15 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
 		if s.useEphemeralStore() {
-			if err := s.storePendingPhoneRegistrationTokens(ctx, phone, username, passwordHash, map[string]time.Duration{
-				codeHash: 15 * time.Minute,
-				linkHash: time.Hour,
+			if err := s.storePendingChange(ctx, pendingChange{
+				Kind:            KindRegisterPhone,
+				Target:          phone,
+				Username:        username,
+				PasswordHash:    passwordHash,
+				PreferredLocale: locale,
+			}, map[string]time.Duration{
+				codeHash: defaultPhoneVerificationTTL,
+				linkHash: defaultPhoneVerificationTTL,
 			}); err != nil {
 				return "", err
 			}
@@ -1556,7 +1681,7 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 		msg := VerificationMessage{Code: code, LinkToken: linkToken}
 		if err := msg.Validate(); err == nil {
 			if s.sms != nil {
-				if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 					return "", smsDeliveryError(err)
 				}
 			} else {
@@ -1574,61 +1699,29 @@ func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, use
 // ConfirmPendingPhoneRegistration verifies code and creates the actual user account.
 // Implements "first to verify wins" - whoever verifies first gets the username/phone.
 func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
-	if s.opts.PublicRegistrationDisabled {
+	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
+	}
+	if !s.useEphemeralStore() {
+		return "", jwt.ErrTokenUnverifiable
 	}
 	hash := sha256Hex(code)
 
-	var username, passwordHash, pendingPhone string
-	if s.useEphemeralStore() {
-		data, ok, err := s.loadPendingPhoneRegistration(ctx, hash)
-		if err != nil || !ok {
+	// If a phone was supplied (manual-code path), ensure it matches the pending
+	// target before finalizing. The link-token path passes an empty phone.
+	if strings.TrimSpace(phone) != "" {
+		rec, ok, err := s.loadPendingChangeByToken(ctx, hash)
+		if err != nil || !ok || rec.Kind != KindRegisterPhone {
 			return "", jwt.ErrTokenUnverifiable
 		}
-		pendingPhone = strings.TrimSpace(data.Email)
-		if pendingPhone == "" {
+		if !strings.EqualFold(NormalizePhone(strings.TrimSpace(phone)), rec.Target) {
 			return "", jwt.ErrTokenUnverifiable
 		}
-		if strings.TrimSpace(phone) != "" && !strings.EqualFold(strings.TrimSpace(phone), pendingPhone) {
-			return "", jwt.ErrTokenUnverifiable
-		}
-		username, passwordHash = data.Username, data.PasswordHash
-		phone = pendingPhone
-	} else {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	// Check if phone or username is now taken
-	var exists bool
-	err = s.pg.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM profiles.users
-			WHERE phone_number = $1 OR username = $2
-		)
-	`, phone, username).Scan(&exists)
-
-	if err != nil {
-		return "", err
 	}
 
-	if exists {
-		// Someone else got there first
-		if s.useEphemeralStore() {
-			s.deletePendingPhoneRegistration(ctx, hash, pendingRegistrationData{Email: phone, Username: username})
-		}
-		return "", fmt.Errorf("phone or username already taken")
-	}
-
-	uid, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
-	if err != nil {
-		return "", err
-	}
-
-	// Delete pending registration
-	if s.useEphemeralStore() {
-		s.deletePendingPhoneRegistration(ctx, hash, pendingRegistrationData{Email: phone, Username: username})
-	}
-
-	return uid, nil
+	// The register_phone finalizer enforces "first to verify wins", creates the
+	// verified user, and applies locale; consume deletes on success.
+	return s.consumePendingChangeByToken(ctx, hash, KindRegisterPhone)
 }
 
 // ConfirmPendingPhoneRegistrationByToken verifies a pending phone registration
@@ -1645,14 +1738,11 @@ func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, use
 	username = strings.TrimSpace(username)
 
 	if s.pg != nil {
-		err := s.pg.QueryRow(ctx, `
-			SELECT
-				EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1),
-				EXISTS(SELECT 1 FROM profiles.users WHERE username = $2)
-		`, phone, username).Scan(&phoneTaken, &usernameTaken)
+		taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{Phone: phone, Username: username})
 		if err != nil {
 			return false, false, err
 		}
+		phoneTaken, usernameTaken = taken.PhoneTaken, taken.UsernameTaken
 	}
 
 	if phoneTaken || usernameTaken {
@@ -1660,10 +1750,10 @@ func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, use
 	}
 
 	if s.useEphemeralStore() {
-		if v, ok, _ := s.ephemGetString(ctx, keyPendingPhonePhone+phone); ok && v != "" {
+		if s.pendingChangeTargetTaken(ctx, KindRegisterPhone, phone) {
 			phoneTaken = true
 		}
-		if v, ok, _ := s.ephemGetString(ctx, keyPendingPhoneUser+username); ok && v != "" {
+		if s.pendingChangeUsernameTaken(ctx, username) {
 			usernameTaken = true
 		}
 		return phoneTaken, usernameTaken, nil
@@ -1676,15 +1766,15 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `
-		SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, deleted_at, biography, created_at, updated_at, last_login
-		FROM profiles.users WHERE phone_number = $1
-	`, phone)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByPhone(ctx, &phone)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	u := userFromByPhoneRow(r)
+	// Match the historical narrow projection of this lookup: banned_until,
+	// ban_reason, and banned_by were not selected here.
+	u.BannedUntil, u.BanReason, u.BannedBy = nil, nil, nil
+	return u, nil
 }
 
 // --- Phone Verification (for existing users with unverified phones) ---
@@ -1713,7 +1803,7 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 	}
 
 	if pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone); err == nil && pending != nil {
-		_, err := s.CreatePendingPhoneRegistration(ctx, phone, pending.Username, pending.PasswordHash)
+		_, err := s.CreatePendingPhoneRegistrationWithLocale(ctx, phone, pending.Username, pending.PasswordHash, pending.PreferredLocale)
 		return err
 	}
 	if s.pg == nil {
@@ -1727,7 +1817,7 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 // Always returns nil for security.
 func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
 	if ttl <= 0 {
-		ttl = 15 * time.Minute
+		ttl = defaultPhoneVerificationTTL
 	}
 
 	// Generate a numeric code for manual entry + a high-entropy link token.
@@ -1738,7 +1828,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 	if s.useEphemeralStore() {
 		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
 			codeHash: ttl,
-			linkHash: time.Hour,
+			linkHash: defaultPhoneVerificationTTL,
 		}); err != nil {
 			return nil
 		}
@@ -1753,7 +1843,8 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 
 	// Send SMS
 	if s.sms != nil {
-		if err := s.sms.SendVerification(ctx, phone, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
 	} else {
@@ -1779,7 +1870,6 @@ func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, cod
 	hash := sha256Hex(code)
 
 	var userID string
-	var err error
 	if s.useEphemeralStore() {
 		uid, err := s.consumePhoneVerification(ctx, "verify_phone", phone, hash)
 		if err != nil {
@@ -1791,13 +1881,7 @@ func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, cod
 	}
 
 	// Mark phone as verified
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.users 
-		SET phone_verified = true 
-		WHERE id = $1 AND phone_number = $2
-	`, userID, phone)
-
-	if err != nil {
+	if err := s.q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: &phone}); err != nil {
 		return "", err
 	}
 	return userID, nil
@@ -1817,12 +1901,7 @@ func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, tok
 		return "", err
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.users
-		SET phone_verified = true
-		WHERE id = $1 AND phone_number = $2
-	`, userID, phone)
-	if err != nil {
+	if err := s.q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: &phone}); err != nil {
 		return "", err
 	}
 	return userID, nil
@@ -1857,7 +1936,8 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		return nil
 	}
 
-	if err := s.sms.SendPasswordResetLink(ctx, phone, token); err != nil {
+	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendPasswordResetLink(sendCtx, phone, token) }); err != nil {
 		return smsDeliveryError(err)
 	}
 
@@ -1920,6 +2000,122 @@ type User struct {
 	LastLogin       *time.Time
 }
 
+func userFromByIDRow(r db.UserByIDRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByEmailRow(r db.UserByEmailRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByUsernameRow(r db.UserByUsernameRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+func userFromByPhoneRow(r db.UserByPhoneRow) *User {
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+}
+
+var preferredLocaleRe = regexp.MustCompile(`^[A-Za-z]{2,3}(-([A-Za-z]{2}|[0-9]{3}))?$`)
+
+func NormalizePreferredLocale(locale string) (string, error) {
+	locale = strings.TrimSpace(strings.ReplaceAll(locale, "_", "-"))
+	if locale == "" {
+		return "", nil
+	}
+	if !preferredLocaleRe.MatchString(locale) {
+		return "", fmt.Errorf("invalid_preferred_locale")
+	}
+	parts := strings.Split(locale, "-")
+	parts[0] = strings.ToLower(parts[0])
+	if len(parts) == 2 {
+		if len(parts[1]) == 2 {
+			parts[1] = strings.ToUpper(parts[1])
+		}
+	}
+	return strings.Join(parts, "-"), nil
+}
+
+func normalizePreferredLocaleSource(source string) string {
+	source = strings.TrimSpace(strings.ToLower(source))
+	switch source {
+	case "registration", "explicit", "migration", "import":
+		return source
+	default:
+		return "explicit"
+	}
+}
+
+type PreferredLocale struct {
+	Locale    string
+	Source    string
+	UpdatedAt *time.Time
+}
+
+func (s *Service) SetPreferredLocale(ctx context.Context, userID, locale, source string) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	userID = strings.TrimSpace(userID)
+	normalized, err := NormalizePreferredLocale(locale)
+	if err != nil {
+		return err
+	}
+	if userID == "" || normalized == "" {
+		return fmt.Errorf("invalid_request")
+	}
+	src := normalizePreferredLocaleSource(source)
+	return s.q.UserSetPreferredLocale(ctx, db.UserSetPreferredLocaleParams{ID: userID, PreferredLocale: &normalized, PreferredLocaleSource: &src})
+}
+
+func (s *Service) GetPreferredLocale(ctx context.Context, userID string) (PreferredLocale, error) {
+	if s.pg == nil {
+		return PreferredLocale{}, nil
+	}
+	row, err := s.q.UserPreferredLocale(ctx, strings.TrimSpace(userID))
+	return PreferredLocale{Locale: row.Locale, Source: row.Source, UpdatedAt: row.PreferredLocaleUpdatedAt}, err
+}
+
+func contextWithPreferredLocale(ctx context.Context, locale string) context.Context {
+	if strings.TrimSpace(locale) == "" {
+		return ctx
+	}
+	return authlang.WithLanguage(ctx, locale)
+}
+
+func (s *Service) contextWithUserPreferredLocale(ctx context.Context, userID string) context.Context {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return ctx
+	}
+	preferred, err := s.GetPreferredLocale(ctx, userID)
+	if err != nil || strings.TrimSpace(preferred.Locale) == "" {
+		return ctx
+	}
+	return contextWithPreferredLocale(ctx, preferred.Locale)
+}
+
+// verificationSendTimeout is the per-send deadline for in-line email/SMS
+// provider calls. Configurable via Options.VerificationSendTimeout; defaults to
+// 15s when unset.
+func (s *Service) verificationSendTimeout() time.Duration {
+	if s != nil && s.opts.VerificationSendTimeout > 0 {
+		return s.opts.VerificationSendTimeout
+	}
+	return 15 * time.Second
+}
+
+// withSendTimeout runs a single email/SMS provider send under a bounded context
+// so a configured-but-misconfigured/unreachable provider cannot hang the
+// request that triggered it (e.g. registration verification). It is loop-safe:
+// the deadline is cancelled as soon as the send returns, not at the end of the
+// calling function.
+func (s *Service) withSendTimeout(ctx context.Context, send func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, s.verificationSendTimeout())
+	defer cancel()
+	return send(ctx)
+}
+
 type ImportUserInput struct {
 	Email         string
 	PhoneNumber   string
@@ -1939,36 +2135,33 @@ func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, erro
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE lower(email)=lower($1)`, email)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByEmail(ctx, email)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByEmailRow(r), nil
 }
 
 func (s *Service) getUserByUsername(ctx context.Context, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE username=$1`, username)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByUsername(ctx, &username)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByUsernameRow(r), nil
 }
 
 func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT id, email, phone_number, username, discord_username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login FROM profiles.users WHERE id=$1`, id)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PhoneNumber, &u.Username, &u.DiscordUsername, &u.EmailVerified, &u.PhoneVerified, &u.BannedAt, &u.BannedUntil, &u.BanReason, &u.BannedBy, &u.DeletedAt, &u.Biography, &u.CreatedAt, &u.UpdatedAt, &u.LastLogin); err != nil {
+	r, err := s.q.UserByID(ctx, id)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return userFromByIDRow(r), nil
 }
 
 func (s *Service) ensureUserAccess(ctx context.Context, u *User) error {
@@ -2030,7 +2223,7 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 		return nil, nil
 	}
 	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateOrgSlug(slug) != nil {
+	if slug == "" || validateTenantSlug(slug) != nil {
 		return nil, fmt.Errorf("invalid_username_for_owner_namespace")
 	}
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
@@ -2040,40 +2233,43 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if err != nil {
 		return nil, err
 	}
-	row := s.pg.QueryRow(ctx, `INSERT INTO profiles.users (id, email, username) VALUES ($1::uuid, NULLIF(lower($2), ''), $3) RETURNING id, email, username, email_verified, banned_at, deleted_at`, userID, email, username)
-	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.Username, &u.EmailVerified, &u.BannedAt, &u.DeletedAt); err != nil {
+	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username})
+	if err != nil {
 		return nil, err
 	}
+	u := User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		if err := s.ensurePersonalOrgForUser(ctx, u.ID, username); err != nil {
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
+		if err := s.ensurePersonalTenantForUser(ctx, u.ID, username); err != nil {
 			return nil, err
 		}
 	}
 	return &u, nil
 }
 
-func normalizeImportUserInput(input ImportUserInput) (email any, phone any, username string, bannedBy any, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
+func normalizeImportUserInput(input ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
 	if trimmed := strings.TrimSpace(input.Email); trimmed != "" {
 		if err := ValidateEmail(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 		}
-		email = NormalizeEmail(trimmed)
+		v := NormalizeEmail(trimmed)
+		email = &v
 	}
 	if trimmed := strings.TrimSpace(input.PhoneNumber); trimmed != "" {
 		if err := ValidatePhone(trimmed); err != nil {
 			return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 		}
-		phone = NormalizePhone(trimmed)
+		v := NormalizePhone(trimmed)
+		phone = &v
 	}
 	username = strings.TrimSpace(input.Username)
 	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateOrgSlug(slug) != nil {
+	if slug == "" || validateTenantSlug(slug) != nil {
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, fmt.Errorf("invalid_username_for_owner_namespace")
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
-		bannedBy = strings.TrimSpace(*input.BannedBy)
+		v := strings.TrimSpace(*input.BannedBy)
+		bannedBy = &v
 	}
 	rawMetadata := input.Metadata
 	if rawMetadata == nil {
@@ -2111,21 +2307,26 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.users (
-			id, email, phone_number, username, email_verified, phone_verified,
-			banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
-		)
-		VALUES (
-			$1::uuid, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10::uuid, $11::jsonb, $12, $13
-		)
-	`, userID, email, phone, username, input.EmailVerified, input.PhoneVerified, input.BannedAt, input.BannedUntil, input.BanReason, bannedBy, metadata, createdAt, updatedAt)
+	err = s.q.UserImportInsert(ctx, db.UserImportInsertParams{
+		ID:            userID,
+		Email:         email,
+		PhoneNumber:   phone,
+		Username:      &username,
+		EmailVerified: input.EmailVerified,
+		PhoneVerified: &input.PhoneVerified,
+		BannedAt:      input.BannedAt,
+		BannedUntil:   input.BannedUntil,
+		BanReason:     input.BanReason,
+		BannedBy:      bannedBy,
+		Metadata:      []byte(metadata),
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	})
 	if err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
+		if err := s.ensurePersonalTenantForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2148,32 +2349,29 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
 		return nil, err
 	}
-	var updatedID string
-	err = s.pg.QueryRow(ctx, `
-		UPDATE profiles.users
-		SET email = COALESCE($2, email),
-		    phone_number = COALESCE($3, phone_number),
-		    username = $4,
-		    email_verified = $5,
-		    phone_verified = $6,
-		    banned_at = $7,
-		    banned_until = $8,
-		    ban_reason = $9,
-		    banned_by = $10::uuid,
-		    metadata = COALESCE(metadata, '{}'::jsonb) || $11::jsonb,
-		    created_at = CASE WHEN $12 < created_at THEN $12 ELSE created_at END,
-		    updated_at = $13
-		WHERE id = $1::uuid
-		RETURNING id::text
-	`, userID, email, phone, username, input.EmailVerified, input.PhoneVerified, input.BannedAt, input.BannedUntil, input.BanReason, bannedBy, metadata, createdAt, updatedAt).Scan(&updatedID)
+	updatedID, err := s.q.UserImportUpdate(ctx, db.UserImportUpdateParams{
+		ID:            userID,
+		Email:         email,
+		PhoneNumber:   phone,
+		Username:      &username,
+		EmailVerified: input.EmailVerified,
+		PhoneVerified: &input.PhoneVerified,
+		BannedAt:      input.BannedAt,
+		BannedUntil:   input.BannedUntil,
+		BanReason:     input.BanReason,
+		BannedBy:      bannedBy,
+		Metadata:      []byte(metadata),
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
+		if err := s.ensurePersonalTenantForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2184,8 +2382,7 @@ func (s *Service) setEmailVerified(ctx context.Context, id string, v bool) error
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET email_verified=$2, updated_at=NOW() WHERE id=$1`, id, v)
-	return err
+	return s.q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: id, EmailVerified: v})
 }
 
 func (s *Service) createVerifiedRegistrationUser(ctx context.Context, email, username, passwordHash string) (string, error) {
@@ -2213,11 +2410,7 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 		return "", fmt.Errorf("failed to create user")
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
-		VALUES ($1, $2, 'argon2id')
-	`, u.ID, passwordHash)
-	if err != nil {
+	if err := s.q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: u.ID, PasswordHash: passwordHash}); err != nil {
 		return "", err
 	}
 
@@ -2249,20 +2442,11 @@ func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, userna
 		return "", fmt.Errorf("failed to create user")
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo)
-		VALUES ($1, $2, 'argon2id')
-	`, u.ID, passwordHash)
-	if err != nil {
+	if err := s.q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: u.ID, PasswordHash: passwordHash}); err != nil {
 		return "", err
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.users
-		SET phone_number=$2, phone_verified=$3, updated_at=NOW()
-		WHERE id=$1
-	`, u.ID, phone, phoneVerified)
-	if err != nil {
+	if err := s.q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: u.ID, PhoneNumber: &phone, PhoneVerified: &phoneVerified}); err != nil {
 		return "", err
 	}
 
@@ -2273,8 +2457,7 @@ func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) erro
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET last_login=$2, updated_at=NOW() WHERE id=$1`, id, t)
-	return err
+	return s.q.UserSetLastLogin(ctx, db.UserSetLastLoginParams{ID: id, LastLogin: &t})
 }
 
 func (s *Service) clearUserBan(ctx context.Context, userID string) error {
@@ -2284,8 +2467,7 @@ func (s *Service) clearUserBan(ctx context.Context, userID string) error {
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=NULL, banned_until=NULL, ban_reason=NULL, banned_by=NULL, updated_at=NOW() WHERE id=$1`, userID)
-	return err
+	return s.q.UserClearBan(ctx, userID)
 }
 
 // BanUser disables a user account and stores ban metadata.
@@ -2313,8 +2495,7 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 		t := until.UTC()
 		untilPtr = &t
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET banned_at=$2, banned_until=$3, ban_reason=$4, banned_by=$5, updated_at=NOW() WHERE id=$1`, userID, now, untilPtr, reasonPtr, bannedByPtr)
-	if err != nil {
+	if err := s.q.UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: bannedByPtr}); err != nil {
 		return err
 	}
 	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonBanned), userID, nil)
@@ -2335,8 +2516,7 @@ func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	// Revoke sessions first
 	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonSoftDeleted), id, nil)
 	// Soft-delete user
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET deleted_at=now(), updated_at=now() WHERE id=$1`, id)
-	return err
+	return s.q.UserSoftDelete(ctx, id)
 }
 
 // RestoreUser clears deleted_at and re-enables the account.
@@ -2344,8 +2524,7 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET deleted_at=NULL, updated_at=now() WHERE id=$1`, id)
-	return err
+	return s.q.UserRestore(ctx, id)
 }
 
 // HostDeleteUser performs deletion on behalf of the host application.
@@ -2374,7 +2553,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return nil
 	}
 	newUsername := strings.TrimSpace(username)
-	newSlug, excludeOrgID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
+	newSlug, excludeTenantID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
 	if err != nil {
 		return err
 	}
@@ -2383,113 +2562,80 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
 
-	var oldUsername string
-	if err := tx.QueryRow(ctx, `SELECT username::text FROM profiles.users WHERE id=$1::uuid`, id).Scan(&oldUsername); err != nil {
+	oldUsername, err := qtx.UserUsernameByID(ctx, id)
+	if err != nil {
 		return err
 	}
 	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
 		return nil
 	}
-	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeOrgID); err != nil {
+	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeTenantID); err != nil {
 		return err
 	}
 
 	// Cooldown check (issue #58). The cooldown applies to the user's
-	// rename intent only — the personal-org rename below is a
+	// rename intent only — the personal-tenant rename below is a
 	// by-product, not separately rate-limited. Walks the
 	// `(user_id, renamed_at DESC)` index to grab the most recent rename.
 	if !bypassCooldown {
-		var lastRenamedAt *time.Time
-		if err := tx.QueryRow(ctx, `
-			SELECT renamed_at
-			FROM   profiles.user_renames
-			WHERE  user_id = $1::uuid
-			ORDER  BY renamed_at DESC
-			LIMIT  1
-		`, id).Scan(&lastRenamedAt); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		lastRenamedAt, err := qtx.UserLastRenamedAt(ctx, id)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if lastRenamedAt != nil && time.Since(*lastRenamedAt) < renameCooldown {
+		if err == nil && time.Since(lastRenamedAt) < renameCooldown {
 			return ErrRenameRateLimited
 		}
 	}
 
-	_, err = tx.Exec(ctx, `UPDATE profiles.users SET username=$2, updated_at=NOW() WHERE id=$1`, id, newUsername)
-	if err != nil {
+	if err := qtx.UserSetUsername(ctx, db.UserSetUsernameParams{ID: id, Username: &newUsername}); err != nil {
 		return err
 	}
 	// Audit row for the user rename.
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO profiles.user_renames (user_id, from_slug)
-		VALUES ($1::uuid, $2)
-	`, id, strings.ToLower(strings.TrimSpace(oldUsername))); err != nil {
+	if err := qtx.UserRenameInsert(ctx, db.UserRenameInsertParams{UserID: id, FromSlug: strings.ToLower(strings.TrimSpace(oldUsername))}); err != nil {
 		return err
 	}
 
-	if strings.EqualFold(strings.TrimSpace(s.opts.OrgMode), "multi") {
-		var orgID, oldOrgSlug string
-		err := tx.QueryRow(ctx, `
-			SELECT id::text, slug
-			FROM profiles.orgs
-			WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
-		`, id).Scan(&orgID, &oldOrgSlug)
+	if s.opts.AutoCreatePersonalTenantsEnabled() {
+		var tenantID, oldTenantSlug string
+		pt, err := qtx.PersonalTenantIDSlugByOwner(ctx, id)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if strings.TrimSpace(orgID) == "" {
-			derivedOrgID, err := newUUIDV7String()
+		if err == nil {
+			tenantID, oldTenantSlug = pt.ID, pt.Slug
+		}
+		if strings.TrimSpace(tenantID) == "" {
+			derivedTenantID, err := newUUIDV7String()
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id)
-				VALUES ($1::uuid, $2, true, $3::uuid)
-			`, derivedOrgID, newSlug, id); err != nil {
+			if err := qtx.PersonalTenantInsertBasic(ctx, db.PersonalTenantInsertBasicParams{ID: derivedTenantID, Slug: newSlug, OwnerUserID: id}); err != nil {
 				return err
 			}
-			if err := tx.QueryRow(ctx, `
-				SELECT id::text
-				FROM profiles.orgs
-				WHERE owner_user_id=$1::uuid AND is_personal=true AND deleted_at IS NULL
-			`, id).Scan(&orgID); err != nil {
+			pt, err := qtx.PersonalTenantIDSlugByOwner(ctx, id)
+			if err != nil {
 				return err
 			}
-		} else if !strings.EqualFold(oldOrgSlug, newSlug) {
-			// Personal-org rename rides the user-rename intent — write
-			// the org_renames audit row in the same tx. Cooldown was
+			tenantID = pt.ID
+		} else if !strings.EqualFold(oldTenantSlug, newSlug) {
+			// Personal-tenant rename rides the user-rename intent — write
+			// the tenant_renames audit row in the same tx. Cooldown was
 			// already checked against user_renames above; we don't
 			// re-gate here.
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.org_renames (org_id, from_slug)
-				VALUES ($1::uuid, $2)
-			`, orgID, strings.ToLower(strings.TrimSpace(oldOrgSlug))); err != nil {
+			if err := qtx.TenantRenameInsert(ctx, db.TenantRenameInsertParams{TenantID: tenantID, FromSlug: strings.ToLower(strings.TrimSpace(oldTenantSlug))}); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE profiles.orgs SET slug=$1, updated_at=now() WHERE id=$2::uuid`, newSlug, orgID); err != nil {
+			if err := qtx.TenantUpdateSlugUnconditional(ctx, db.TenantUpdateSlugUnconditionalParams{Slug: newSlug, ID: tenantID}); err != nil {
 				return err
 			}
 		}
-		if strings.TrimSpace(orgID) != "" {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.org_roles (org_id, role)
-				VALUES ($1::uuid, 'owner'), ($1::uuid, 'member')
-				ON CONFLICT (org_id, role) DO NOTHING
-			`, orgID); err != nil {
+		if strings.TrimSpace(tenantID) != "" {
+			if err := qtx.TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.org_members (org_id, user_id)
-				VALUES ($1::uuid, $2::uuid)
-				ON CONFLICT (org_id, user_id) DO UPDATE SET deleted_at=NULL, updated_at=now()
-			`, orgID, id); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO profiles.org_member_roles (org_id, user_id, role)
-				VALUES ($1::uuid, $2::uuid, 'owner')
-				ON CONFLICT (org_id, user_id, role) DO NOTHING
-			`, orgID, id); err != nil {
+			if err := qtx.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: tenantID, UserID: id, Role: tenantOwnerRole}); err != nil {
 				return err
 			}
 		}
@@ -2518,7 +2664,7 @@ func (s *Service) updateEmail(ctx context.Context, id, email string) error {
 		return nil
 	}
 
-	if _, err := s.pg.Exec(ctx, `UPDATE profiles.users SET email=lower($2), email_verified=false, updated_at=NOW() WHERE id=$1`, id, trimmed); err != nil {
+	if err := s.q.UserSetEmailAndUnverify(ctx, db.UserSetEmailAndUnverifyParams{ID: id, Email: trimmed}); err != nil {
 		return err
 	}
 
@@ -2564,11 +2710,15 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	linkToken := randB64(32)
 	linkHash := sha256Hex(linkToken)
 
-	// Create verification tokens with split TTLs for the NEW email address.
-	normEmail := normalizeEmail(trimmed)
-	if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+	// Hold the new email in the unified pending-change store (applied to the
+	// profile only on confirmation). Split TTLs: code + link token.
+	if err := s.storePendingChange(ctx, pendingChange{
+		Kind:   KindChangeEmail,
+		Target: trimmed,
+		UserID: userID,
+	}, map[string]time.Duration{
+		codeHash: defaultEmailVerificationTTL,
+		linkHash: defaultEmailVerificationTTL,
 	}); err != nil {
 		return err
 	}
@@ -2581,7 +2731,8 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	// Send verification message to NEW email
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	if s.email != nil {
-		if err := s.email.SendVerification(ctx, trimmed, username, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, trimmed, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -2605,52 +2756,25 @@ func (s *Service) ConfirmEmailChange(ctx context.Context, userID, code string) e
 		return jwt.ErrTokenUnverifiable
 	}
 
-	// Verify and consume the token
-	rec, err := s.useEmailVerifyToken(ctx, sha256Hex(code))
-	if err != nil {
-		return err
+	// Load the pending change by the code's hash and validate it belongs to this
+	// user, then finalize (apply the new email) and clear the pending record.
+	hash := sha256Hex(code)
+	rec, ok, err := s.loadPendingChangeByToken(ctx, hash)
+	if err != nil || !ok || rec.Kind != KindChangeEmail {
+		return jwt.ErrTokenUnverifiable
 	}
-
-	// Ensure token belongs to this user
 	if rec.UserID != userID {
 		return jwt.ErrTokenInvalidClaims
 	}
-
-	// The email in the token is the NEW email they want to change to
-	if rec.Email == nil {
-		return fmt.Errorf("invalid verification token")
-	}
-
-	// Get current user
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return errOrUnauthorized(err)
-	}
-
-	// Check if the email in the token is different from current email (it's an email change)
-	if u.Email != nil && strings.EqualFold(*u.Email, *rec.Email) {
-		// Same email - just verify it
-		return s.setEmailVerified(ctx, userID, true)
-	}
-
-	// Different email - this is an email change request
-	existing, _ := s.getUserByEmail(ctx, *rec.Email)
-	if existing != nil && existing.ID != userID {
-		return fmt.Errorf("email already in use")
-	}
-
-	// Update the email and mark as verified
-	_, err = s.pg.Exec(ctx, `UPDATE profiles.users SET email=lower($2), email_verified=true, updated_at=NOW() WHERE id=$1`, userID, *rec.Email)
-	if err != nil {
+	if _, err := s.finalizeChangeEmail(ctx, rec); err != nil {
 		return err
 	}
-
+	s.deletePendingChangeByToken(ctx, hash)
 	return nil
 }
 
 // ResendEmailChangeCode resends the verification code for a pending email change.
 func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) error {
-	// Get current user
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -2659,33 +2783,24 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		return fmt.Errorf("user not found")
 	}
 
-	var pendingEmail string
-	if s.useEphemeralStore() {
-		rec, err := s.getEmailVerificationByUser(ctx, userID)
-		if err != nil || rec == nil || rec.Email == nil {
-			return fmt.Errorf("no pending email change found")
-		}
-		pendingEmail = *rec.Email
-	} else {
+	rec, ok := s.findPendingChangeByUser(ctx, KindChangeEmail, userID)
+	if !ok {
 		return fmt.Errorf("no pending email change found")
 	}
+	pendingEmail := rec.Target
 
-	// Check if pending email is different from current (it's a change request, not just verification)
-	if u.Email != nil && strings.EqualFold(*u.Email, pendingEmail) {
-		return fmt.Errorf("no pending email change found")
-	}
-
-	// Generate new verification credentials.
+	// Generate new verification credentials; storePendingChange supersedes the old record.
 	code := randAlphanumeric(6)
 	codeHash := sha256Hex(code)
 	linkToken := randB64(32)
 	linkHash := sha256Hex(linkToken)
-
-	// Create new verification tokens.
-	normPending := normalizeEmail(pendingEmail)
-	if err := s.storeEmailVerificationTokens(ctx, userID, &normPending, map[string]time.Duration{
-		codeHash: 15 * time.Minute,
-		linkHash: time.Hour,
+	if err := s.storePendingChange(ctx, pendingChange{
+		Kind:   KindChangeEmail,
+		Target: pendingEmail,
+		UserID: userID,
+	}, map[string]time.Duration{
+		codeHash: defaultEmailVerificationTTL,
+		linkHash: defaultEmailVerificationTTL,
 	}); err != nil {
 		return err
 	}
@@ -2698,7 +2813,10 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.email != nil {
-		if err := s.email.SendVerification(ctx, pendingEmail, username, msg); err != nil {
+		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+			return s.email.SendVerification(sendCtx, pendingEmail, username, msg)
+		}); err != nil {
 			return emailDeliveryError(err)
 		}
 	} else {
@@ -2709,42 +2827,35 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 }
 
 // GetPendingEmailChange retrieves the pending email change for a user, if any.
+// A unified change_email record exists only for an actual change (verifying the
+// current address uses a separate store), so its presence already means "change".
 func (s *Service) GetPendingEmailChange(ctx context.Context, userID string) (string, error) {
-	// Get current user
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil {
-		return "", err
-	}
-	if u == nil {
-		return "", fmt.Errorf("user not found")
-	}
-
-	// Check if there's a pending email verification
-	var pendingEmail string
-	if s.useEphemeralStore() {
-		rec, err := s.getEmailVerificationByUser(ctx, userID)
-		if err != nil || rec == nil || rec.Email == nil {
-			return "", nil
-		}
-		pendingEmail = *rec.Email
-	} else {
+	if !s.useEphemeralStore() {
 		return "", nil
 	}
-
-	// Check if it's different from current email (it's a change request)
-	if u.Email != nil && strings.EqualFold(*u.Email, pendingEmail) {
-		return "", nil // Just a verification, not a change
+	rec, ok := s.findPendingChangeByUser(ctx, KindChangeEmail, userID)
+	if !ok {
+		return "", nil
 	}
+	return rec.Target, nil
+}
 
-	return pendingEmail, nil
+// CancelEmailChange aborts a pending email-change for the user, clearing the
+// unified pending-change record. The new email is applied only on confirmation,
+// so there is nothing to roll back. Idempotent: a no-op when none is pending.
+func (s *Service) CancelEmailChange(ctx context.Context, userID string) error {
+	if !s.useEphemeralStore() {
+		return nil
+	}
+	s.deletePendingChangeByUser(ctx, KindChangeEmail, userID)
+	return nil
 }
 
 func (s *Service) updateBiography(ctx context.Context, id string, bio *string) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.users SET biography=$2, updated_at=NOW() WHERE id=$1`, id, bio)
-	return err
+	return s.q.UserSetBiography(ctx, db.UserSetBiographyParams{ID: id, Biography: bio})
 }
 
 // setPasswordSet removed; presence of password is inferred from profiles.user_passwords
@@ -2753,19 +2864,15 @@ func (s *Service) getPasswordHash(ctx context.Context, userID string) (hash, alg
 	if s.pg == nil {
 		return "", "", nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT password_hash, hash_algo, COALESCE(hash_params,'{}'::jsonb) FROM profiles.user_passwords WHERE user_id=$1`, userID)
-	err = row.Scan(&hash, &algo, &params)
-	return
+	row, err := s.q.UserPasswordRow(ctx, userID)
+	return row.PasswordHash, row.HashAlgo, row.HashParams, err
 }
 
 func (s *Service) upsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `INSERT INTO profiles.user_passwords (user_id, password_hash, hash_algo, hash_params)
-VALUES ($1,$2,$3,$4)
-ON CONFLICT (user_id) DO UPDATE SET password_hash=EXCLUDED.password_hash, hash_algo=EXCLUDED.hash_algo, hash_params=EXCLUDED.hash_params, password_updated_at=NOW()`, userID, hash, algo, params)
-	return err
+	return s.q.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: algo, HashParams: params})
 }
 
 // email verification tokens
@@ -2804,20 +2911,16 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 	if s.pg == nil {
 		return nil
 	}
-	rows, err := s.pg.Query(ctx, `SELECT r.slug FROM profiles.global_user_roles ur JOIN profiles.global_roles r ON ur.role_id=r.id WHERE ur.user_id=$1 AND r.deleted_at IS NULL`, userID)
+	slugs, err := s.q.GlobalRoleSlugsByUser(ctx, userID)
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
 	var out []string
-	for rows.Next() {
-		var slug string
-		if rows.Scan(&slug) == nil {
-			if strings.EqualFold(strings.TrimSpace(slug), "owner") {
-				continue
-			}
-			out = append(out, slug)
+	for _, slug := range slugs {
+		if strings.EqualFold(strings.TrimSpace(slug), "owner") {
+			continue
 		}
+		out = append(out, slug)
 	}
 	return out
 }
@@ -2833,16 +2936,15 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 	if s.pg == nil {
 		return nil
 	}
-	var roleID string
-	if err := s.pg.QueryRow(ctx, `SELECT id FROM profiles.global_roles WHERE slug=$1`, slug).Scan(&roleID); err != nil {
+	roleID, err := s.q.GlobalRoleIDBySlug(ctx, slug)
+	if err != nil {
 		return err
 	}
 	userRoleID, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.global_user_roles (id, user_id, role_id) VALUES ($1,$2,$3) ON CONFLICT (user_id, role_id) DO NOTHING`, userRoleID, userID, roleID)
-	return err
+	return s.q.GlobalUserRoleInsert(ctx, db.GlobalUserRoleInsertParams{ID: userRoleID, UserID: userID, RoleID: roleID})
 }
 
 func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
@@ -2860,16 +2962,7 @@ func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, descr
 	if name == "" {
 		name = slug
 	}
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.global_roles (name, slug, description)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (slug) DO UPDATE SET
-			name = EXCLUDED.name,
-			description = EXCLUDED.description,
-			updated_at = NOW(),
-			deleted_at = NULL
-	`, name, slug, description)
-	return err
+	return s.q.GlobalRoleUpsert(ctx, db.GlobalRoleUpsertParams{Name: name, Slug: slug, Description: description})
 }
 
 func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) error {
@@ -2880,11 +2973,11 @@ func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) err
 	if roleSlug == "admin" {
 		return s.removeAdminRoleIfNotLast(ctx, userID)
 	}
-	tag, err := s.pg.Exec(ctx, `DELETE FROM profiles.global_user_roles ur USING profiles.global_roles r WHERE ur.role_id=r.id AND ur.user_id=$1 AND r.slug=$2 AND r.deleted_at IS NULL`, userID, roleSlug)
+	n, err := s.q.GlobalUserRoleDeleteBySlug(ctx, db.GlobalUserRoleDeleteBySlugParams{UserID: userID, Slug: roleSlug})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrUserRoleNotFound
 	}
 	return nil
@@ -2896,43 +2989,37 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 		return err
 	}
 	defer tx.Rollback(ctx)
+	qtx := s.q.WithTx(tx)
 
-	var roleID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM profiles.global_roles WHERE slug='admin' AND deleted_at IS NULL FOR UPDATE`).Scan(&roleID); err != nil {
+	roleID, err := qtx.GlobalAdminRoleIDForUpdate(ctx)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrUserRoleNotFound
 		}
 		return err
 	}
 
-	var hasRole bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.global_user_roles WHERE user_id=$1 AND role_id=$2)`, userID, roleID).Scan(&hasRole); err != nil {
+	hasRole, err := qtx.GlobalUserRoleExists(ctx, db.GlobalUserRoleExistsParams{UserID: userID, RoleID: roleID})
+	if err != nil {
 		return err
 	}
 	if !hasRole {
 		return ErrUserRoleNotFound
 	}
 
-	var activeAdminCount int64
-	if err := tx.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM profiles.global_user_roles ur
-		JOIN profiles.users u ON u.id=ur.user_id
-		WHERE ur.role_id=$1
-		  AND u.deleted_at IS NULL
-		  AND u.banned_at IS NULL
-	`, roleID).Scan(&activeAdminCount); err != nil {
+	activeAdminCount, err := qtx.GlobalActiveAdminCount(ctx, roleID)
+	if err != nil {
 		return err
 	}
 	if activeAdminCount <= 1 {
 		return ErrCannotRemoveLastAdminRole
 	}
 
-	tag, err := tx.Exec(ctx, `DELETE FROM profiles.global_user_roles WHERE user_id=$1 AND role_id=$2`, userID, roleID)
+	n, err := qtx.GlobalUserRoleDelete(ctx, db.GlobalUserRoleDeleteParams{UserID: userID, RoleID: roleID})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrUserRoleNotFound
 	}
 	return tx.Commit(ctx)
@@ -3079,6 +3166,8 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 		argIdx++
 	}
 
+	// Intentionally raw pgx (not sqlc): the filter/search/pagination clauses
+	// are assembled at runtime, which sqlc's static compilation cannot express.
 	countQuery := "SELECT COUNT(DISTINCT u.id) FROM " + from + " WHERE " + strings.Join(where, " AND ")
 	var total int64
 	if err := s.pg.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
@@ -3106,13 +3195,40 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 			return nil, err
 		}
 		a.Roles = s.listRoleSlugsByUser(ctx, a.ID)
-		a.Entitlements = s.ListEntitlements(ctx, a.ID)
 		out = append(out, a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	s.enrichEntitlements(ctx, out)
 	return &AdminListUsersResult{Users: out, Total: total, Limit: pageSize, Offset: offset}, nil
+}
+
+// enrichEntitlements fills Entitlements for a page of users: one provider call
+// when the provider implements BatchEntitlementsProvider, per-user otherwise.
+// Provider failures log and degrade to no entitlements.
+func (s *Service) enrichEntitlements(ctx context.Context, users []AdminUser) {
+	if s.entitlements == nil || len(users) == 0 {
+		return
+	}
+	if bp, ok := s.entitlements.(BatchEntitlementsProvider); ok {
+		ids := make([]string, 0, len(users))
+		for i := range users {
+			ids = append(ids, users[i].ID)
+		}
+		ents, err := bp.ListEntitlementsBatch(ctx, ids)
+		if err != nil {
+			stdlog.Printf("authkit: error: batch entitlements provider failed for %d users; reporting no entitlements: %v", len(users), err)
+			return
+		}
+		for i := range users {
+			users[i].Entitlements = ents[users[i].ID]
+		}
+		return
+	}
+	for i := range users {
+		users[i].Entitlements = s.ListEntitlements(ctx, users[i].ID)
+	}
 }
 
 func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, error) {
@@ -3136,10 +3252,9 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 		return nil
 	}
 	// Revoke all sessions
-	_, _ = s.pg.Exec(ctx, `UPDATE profiles.refresh_sessions SET revoked_at=now() WHERE user_id=$1 AND issuer=$2`, id, s.opts.Issuer)
+	_ = s.q.SessionsRevokeAllQuiet(ctx, db.SessionsRevokeAllQuietParams{UserID: id, Issuer: s.opts.Issuer})
 	// Delete user
-	_, err := s.pg.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, id)
-	return err
+	return s.q.UserDeleteHard(ctx, id)
 }
 
 // Additional public helpers used by OIDC flow
@@ -3292,7 +3407,8 @@ func (s *Service) SendWelcome(ctx context.Context, userID string) {
 	if u.Username != nil {
 		username = *u.Username
 	}
-	_ = s.email.SendWelcome(ctx, *u.Email, username)
+	sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+	_ = s.email.SendWelcome(sendCtx, *u.Email, username)
 }
 
 // Provider link management
@@ -3300,24 +3416,21 @@ func (s *Service) countProviderLinks(ctx context.Context, userID string) int {
 	if s.pg == nil {
 		return 0
 	}
-	var n int
-	_ = s.pg.QueryRow(ctx, `SELECT count(*) FROM profiles.user_providers WHERE user_id=$1`, userID).Scan(&n)
-	return n
+	n, _ := s.q.UserProvidersCount(ctx, userID)
+	return int(n)
 }
 func (s *Service) hasPassword(ctx context.Context, userID string) bool {
 	if s.pg == nil {
 		return false
 	}
-	var exists bool
-	_ = s.pg.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM profiles.user_passwords WHERE user_id=$1)`, userID).Scan(&exists)
+	exists, _ := s.q.UserHasPassword(ctx, userID)
 	return exists
 }
 func (s *Service) unlinkProvider(ctx context.Context, userID, provider string) error {
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `DELETE FROM profiles.user_providers WHERE user_id=$1 AND provider_slug=$2`, userID, provider)
-	return err
+	return s.q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider})
 }
 
 // Public wrappers
@@ -3342,74 +3455,63 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 		return nil
 	}
 	// First delete old Discord link if user is switching to a different Discord account
-	_, _ = s.pg.Exec(ctx, `DELETE FROM profiles.user_providers WHERE user_id=$1 AND issuer=$2 AND subject != $3`, userID, issuer, subject)
+	_ = s.q.UserProviderDeleteOtherSubjects(ctx, db.UserProviderDeleteOtherSubjectsParams{UserID: userID, Issuer: issuer, Subject: subject})
 	// Then insert/update the new link
 	providerID, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `
-		INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
-		VALUES ($1,$2,$3,$4,$5,$6)
-		ON CONFLICT (issuer, subject) DO UPDATE
-		SET email_at_provider=EXCLUDED.email_at_provider,
-		    provider_slug=COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
-	`, providerID, userID, issuer, providerSlug, subject, email)
-	return err
+	if err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+		ID:              providerID,
+		UserID:          userID,
+		Issuer:          issuer,
+		ProviderSlug:    &providerSlug,
+		Subject:         subject,
+		EmailAtProvider: email,
+	}); err != nil {
+		return err
+	}
+	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() {
+		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
+	}
+	return nil
 }
 
-// ListEntitlements returns the active entitlement names for a user (fresh from
-// provider). Revoked and expired grants are excluded; names are de-duplicated.
+// ListEntitlements returns current entitlement names for a user (fresh from
+// the provider). A provider failure is logged and returned as none — callers
+// (admin user views) degrade rather than fail.
 func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
 	if s.entitlements == nil {
 		return nil
 	}
-	details, err := s.entitlements.ListEntitlements(ctx, userID)
+	ents, err := s.entitlements.ListEntitlements(ctx, userID)
 	if err != nil {
-		stdlog.Printf("[authkit/entitlements] provider error listing entitlements for user %s: %v", userID, err)
+		stdlog.Printf("authkit: error: entitlements provider failed for user %s; reporting no entitlements: %v", userID, err)
 		return nil
 	}
-	return activeEntitlementNames(details, time.Now().UTC())
-}
-
-// ListEntitlementsDetailed returns the active entitlements (name + metadata) for
-// a user. Revoked and expired grants are excluded.
-func (s *Service) ListEntitlementsDetailed(ctx context.Context, userID string) []entpg.Entitlement {
-	if s.entitlements == nil {
-		return nil
-	}
-	details, err := s.entitlements.ListEntitlements(ctx, userID)
-	if err != nil {
-		stdlog.Printf("[authkit/entitlements] provider error listing detailed entitlements for user %s: %v", userID, err)
-		return nil
-	}
-	return activeEntitlements(details, time.Now().UTC())
+	return ents
 }
 
 func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, subject string) (userID string, email *string, err error) {
 	if s.pg == nil {
 		return "", nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT user_id, email_at_provider FROM profiles.user_providers WHERE issuer=$1 AND subject=$2`, issuer, subject)
-	var uid string
-	var e *string
-	if err := row.Scan(&uid, &e); err != nil {
+	row, err := s.q.ProviderLinkByIssuer(ctx, db.ProviderLinkByIssuerParams{Issuer: issuer, Subject: subject})
+	if err != nil {
 		return "", nil, err
 	}
-	return uid, e, nil
+	return row.UserID, row.EmailAtProvider, nil
 }
 
 func (s *Service) getProviderLinkBySlug(ctx context.Context, providerSlug, subject string) (userID string, email *string, err error) {
 	if s.pg == nil {
 		return "", nil, nil
 	}
-	row := s.pg.QueryRow(ctx, `SELECT user_id, email_at_provider FROM profiles.user_providers WHERE provider_slug=$1 AND subject=$2`, providerSlug, subject)
-	var uid string
-	var e *string
-	if err := row.Scan(&uid, &e); err != nil {
+	row, err := s.q.ProviderLinkBySlug(ctx, db.ProviderLinkBySlugParams{ProviderSlug: &providerSlug, Subject: subject})
+	if err != nil {
 		return "", nil, err
 	}
-	return uid, e, nil
+	return row.UserID, row.EmailAtProvider, nil
 }
 
 func (s *Service) linkProvider(ctx context.Context, userID, issuer, subject string, email *string) error {
@@ -3420,10 +3522,7 @@ func (s *Service) linkProvider(ctx context.Context, userID, issuer, subject stri
 	if err != nil {
 		return err
 	}
-	_, err = s.pg.Exec(ctx, `INSERT INTO profiles.user_providers (id, user_id, issuer, subject, email_at_provider)
-        VALUES ($1,$2,$3,$4,$5)
-        ON CONFLICT (issuer, subject) DO UPDATE SET email_at_provider=EXCLUDED.email_at_provider`, providerID, userID, issuer, subject, email)
-	return err
+	return s.q.UserProviderInsertSimple(ctx, db.UserProviderInsertSimpleParams{ID: providerID, UserID: userID, Issuer: issuer, Subject: subject, EmailAtProvider: email})
 }
 
 // setProviderUsername stores a provider-specific username into profile jsonb as {"username": <value>}.
@@ -3431,9 +3530,7 @@ func (s *Service) setProviderUsername(ctx context.Context, userID, issuer, subje
 	if s.pg == nil {
 		return nil
 	}
-	_, err := s.pg.Exec(ctx, `UPDATE profiles.user_providers SET profile = jsonb_build_object('username', $4)
-        WHERE user_id=$1 AND issuer=$2 AND subject=$3`, userID, issuer, subject, username)
-	return err
+	return s.q.UserProviderSetUsername(ctx, db.UserProviderSetUsernameParams{UserID: userID, Issuer: issuer, Subject: subject, Username: username})
 }
 
 // getProviderUsername fetches provider profile->>'username' for the given user (first match by provider).
@@ -3441,8 +3538,7 @@ func (s *Service) getProviderUsername(ctx context.Context, userID, provider stri
 	if s.pg == nil {
 		return "", nil
 	}
-	var uname *string
-	err := s.pg.QueryRow(ctx, `SELECT profile->>'username' FROM profiles.user_providers WHERE user_id=$1 AND provider_slug=$2 ORDER BY created_at DESC LIMIT 1`, userID, provider).Scan(&uname)
+	uname, err := s.q.UserProviderUsername(ctx, db.UserProviderUsernameParams{UserID: userID, ProviderSlug: &provider})
 	if err != nil {
 		return "", err
 	}
@@ -3467,15 +3563,19 @@ func deriveUsername(email string) string {
 		}
 	}
 	if len(clean) == 0 {
-		clean = []rune{'u', 's', 'r'}
+		clean = []rune{'u', 's', 'e', 'r'}
 	}
 	if clean[0] < 'a' || clean[0] > 'z' {
 		clean = append([]rune{'u'}, clean...)
 	}
-	if len(clean) > 32 {
-		clean = clean[:32]
+	if len(clean) > usernameMaxLen {
+		clean = clean[:usernameMaxLen]
 	}
-	return string(clean)
+	out := string(clean)
+	if len(out) < usernameMinLen {
+		out += "_user"
+	}
+	return out
 }
 
 // getDiscordUsername retrieves the discord username for a user, preferring the
@@ -3485,8 +3585,7 @@ func (s *Service) getDiscordUsername(ctx context.Context, userID string) (string
 		return "", nil
 	}
 	// Prefer stored column
-	var uname *string
-	if err := s.pg.QueryRow(ctx, `SELECT discord_username FROM profiles.users WHERE id=$1`, userID).Scan(&uname); err == nil {
+	if uname, err := s.q.UserDiscordUsername(ctx, userID); err == nil {
 		if uname != nil {
 			return *uname, nil
 		}
@@ -3501,49 +3600,45 @@ func (s *Service) getDiscordUsername(ctx context.Context, userID string) (string
 
 // PendingRegistration represents an unverified registration
 type PendingRegistration struct {
-	Email        string
-	Username     string
-	PasswordHash string
+	Email           string
+	Username        string
+	PasswordHash    string
+	PreferredLocale string
 }
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.
 func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
-	if s.useEphemeralStore() {
-		token, ok, err := s.ephemGetString(ctx, keyPendingRegEmail+normalizeEmail(email))
-		if err != nil || !ok || token == "" {
-			return nil, err
-		}
-		data, ok, err := s.loadPendingRegistration(ctx, token)
-		if err != nil || !ok {
-			return nil, err
-		}
-		return &PendingRegistration{
-			Email:        data.Email,
-			Username:     data.Username,
-			PasswordHash: data.PasswordHash,
-		}, nil
+	if !s.useEphemeralStore() {
+		return nil, nil
 	}
-	return nil, nil
+	rec, ok := s.findPendingChangeByTarget(ctx, KindRegisterEmail, email)
+	if !ok {
+		return nil, nil
+	}
+	return &PendingRegistration{
+		Email:           rec.Target,
+		Username:        rec.Username,
+		PasswordHash:    rec.PasswordHash,
+		PreferredLocale: rec.PreferredLocale,
+	}, nil
 }
 
 // GetPendingPhoneRegistrationByPhone looks up a pending phone registration by phone number.
+// (PendingRegistration.Email carries the phone for phone registrations, preserving prior behavior.)
 func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
-	if s.useEphemeralStore() {
-		token, ok, err := s.ephemGetString(ctx, keyPendingPhonePhone+phone)
-		if err != nil || !ok || token == "" {
-			return nil, err
-		}
-		data, ok, err := s.loadPendingPhoneRegistration(ctx, token)
-		if err != nil || !ok {
-			return nil, err
-		}
-		return &PendingRegistration{
-			Email:        "",
-			Username:     data.Username,
-			PasswordHash: data.PasswordHash,
-		}, nil
+	if !s.useEphemeralStore() {
+		return nil, nil
 	}
-	return nil, nil
+	rec, ok := s.findPendingChangeByTarget(ctx, KindRegisterPhone, phone)
+	if !ok {
+		return nil, nil
+	}
+	return &PendingRegistration{
+		Email:           rec.Target,
+		Username:        rec.Username,
+		PasswordHash:    rec.PasswordHash,
+		PreferredLocale: rec.PreferredLocale,
+	}, nil
 }
 
 // VerifyPendingPassword checks if the provided password matches the pending registration's hash.
@@ -3555,6 +3650,17 @@ func (s *Service) VerifyPendingPassword(ctx context.Context, email, pass string)
 	}
 
 	// Pending registrations always use argon2id (from CreatePendingRegistration)
+	ok, err := password.VerifyArgon2id(pr.PasswordHash, pass)
+	return err == nil && ok
+}
+
+// VerifyPendingPhonePassword checks if the provided password matches the pending
+// phone registration's hash. Returns true if password is correct, false otherwise.
+func (s *Service) VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool {
+	pr, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
+	if err != nil || pr == nil {
+		return false
+	}
 	ok, err := password.VerifyArgon2id(pr.PasswordHash, pass)
 	return err == nil && ok
 }
@@ -3599,17 +3705,7 @@ func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNum
 	}
 
 	// Insert or update 2FA settings
-	_, err := s.pg.Exec(ctx, `
-		INSERT INTO profiles.two_factor_settings (user_id, enabled, method, phone_number, backup_codes, updated_at)
-		VALUES ($1, true, $2, $3, $4, NOW())
-		ON CONFLICT (user_id) DO UPDATE SET
-			enabled = true,
-			method = $2,
-			phone_number = $3,
-			backup_codes = $4,
-			updated_at = NOW()
-	`, userID, method, phoneNumber, hashedCodes)
-	if err != nil {
+	if err := s.q.TwoFactorEnable(ctx, db.TwoFactorEnableParams{UserID: userID, Method: method, PhoneNumber: phoneNumber, BackupCodes: hashedCodes}); err != nil {
 		return nil, err
 	}
 
@@ -3622,12 +3718,7 @@ func (s *Service) Disable2FA(ctx context.Context, userID string) error {
 		return fmt.Errorf("postgres not configured")
 	}
 
-	_, err := s.pg.Exec(ctx, `
-		UPDATE profiles.two_factor_settings
-		SET enabled = false, updated_at = NOW()
-		WHERE user_id = $1
-	`, userID)
-	return err
+	return s.q.TwoFactorDisable(ctx, userID)
 }
 
 // Get2FASettings retrieves a user's 2FA settings
@@ -3636,21 +3727,19 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 		return nil, fmt.Errorf("postgres not configured")
 	}
 
-	row := s.pg.QueryRow(ctx, `
-		SELECT user_id, enabled, method, phone_number, backup_codes, created_at, updated_at
-		FROM profiles.two_factor_settings
-		WHERE user_id = $1
-	`, userID)
-
-	var settings TwoFactorSettings
-	var backupCodes []string
-	err := row.Scan(&settings.UserID, &settings.Enabled, &settings.Method, &settings.PhoneNumber, &backupCodes, &settings.CreatedAt, &settings.UpdatedAt)
+	row, err := s.q.TwoFactorSettingsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	settings.BackupCodes = backupCodes
-
-	return &settings, nil
+	return &TwoFactorSettings{
+		UserID:      row.UserID,
+		Enabled:     row.Enabled,
+		Method:      row.Method,
+		PhoneNumber: row.PhoneNumber,
+		BackupCodes: row.BackupCodes,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
+	}, nil
 }
 
 // Require2FAForLogin sends a 2FA code to the user's configured method.
@@ -3707,7 +3796,10 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 
 	if settings.Method == "email" {
 		if s.email != nil {
-			if err := s.email.SendLoginCode(ctx, destination, username, code); err != nil {
+			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+				return s.email.SendLoginCode(sendCtx, destination, username, code)
+			}); err != nil {
 				return "", emailDeliveryError(err)
 			}
 		} else {
@@ -3720,7 +3812,8 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 		}
 	} else { // sms
 		if s.sms != nil {
-			if err := s.sms.SendLoginCode(ctx, destination, code); err != nil {
+			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendLoginCode(sendCtx, destination, code) }); err != nil {
 				return "", smsDeliveryError(err)
 			}
 		} else {
@@ -3818,12 +3911,7 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 		}
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.two_factor_settings
-		SET backup_codes = $1, updated_at = NOW()
-		WHERE user_id = $2
-	`, newCodes, userID)
-	if err != nil {
+	if err := s.q.TwoFactorSetBackupCodes(ctx, db.TwoFactorSetBackupCodesParams{BackupCodes: newCodes, UserID: userID}); err != nil {
 		return false, err
 	}
 
@@ -3852,12 +3940,7 @@ func (s *Service) RegenerateBackupCodes(ctx context.Context, userID string) ([]s
 		hashedCodes[i] = sha256Hex(code)
 	}
 
-	_, err = s.pg.Exec(ctx, `
-		UPDATE profiles.two_factor_settings
-		SET backup_codes = $1, updated_at = NOW()
-		WHERE user_id = $2
-	`, hashedCodes, userID)
-	if err != nil {
+	if err := s.q.TwoFactorSetBackupCodes(ctx, db.TwoFactorSetBackupCodesParams{BackupCodes: hashedCodes, UserID: userID}); err != nil {
 		return nil, err
 	}
 

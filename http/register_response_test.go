@@ -13,6 +13,7 @@ import (
 
 	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
+	authlang "github.com/open-rails/authkit/lang"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"
 )
@@ -38,6 +39,17 @@ type failingVerificationEmailSender struct {
 
 func (failingVerificationEmailSender) SendVerification(context.Context, string, string, core.VerificationMessage) error {
 	return errors.New("provider rejected message")
+}
+
+type recordingEmailSender struct {
+	testEmailSender
+	languages []string
+}
+
+func (s *recordingEmailSender) SendVerification(ctx context.Context, email, username string, msg core.VerificationMessage) error {
+	lang, _ := authlang.LanguageFromContext(ctx)
+	s.languages = append(s.languages, lang)
+	return nil
 }
 
 func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificationPolicy) *Service {
@@ -193,6 +205,34 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	require.JSONEq(t, `{"ok":true}`, w.Body.String())
+}
+
+func TestAPIHandler_RegisterSeedsPreferredLocaleAndResendPreservesIt(t *testing.T) {
+	sender := &recordingEmailSender{}
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired).
+		WithLanguageConfig(LanguageConfig{Supported: []string{"en", "es"}, Default: "en"}).
+		WithEmailSender(sender)
+	h := s.APIHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/register?lang=es", strings.NewReader(`{
+		"identifier":"user@example.com",
+		"username":"user",
+		"password":"password123"
+	}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	require.Equal(t, []string{"es"}, sender.languages)
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, "/register/resend-email?lang=en", strings.NewReader(`{
+		"email":"user@example.com"
+	}`))
+	r.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	require.Equal(t, []string{"es", "es"}, sender.languages)
 }
 
 func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {

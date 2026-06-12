@@ -68,6 +68,7 @@ func ValidationErrorCode(err error) string {
 		ErrCodeUsernameCannotStartWithPlus,
 		ErrCodeUsernameInvalidCharacters,
 		ErrCodeInvalidEmail,
+		"invalid_preferred_locale",
 		ErrCodeInvalidPhoneNumber:
 		return err.Error()
 	default:
@@ -75,12 +76,19 @@ func ValidationErrorCode(err error) string {
 	}
 }
 
+// Username length bounds shared by ValidateUsername and the automatic
+// derivation in cleanUsername, so derived usernames always pass validation.
+const (
+	usernameMinLen = 4
+	usernameMaxLen = 30
+)
+
 func ValidateUsername(username string) error {
 	username = strings.TrimSpace(username)
-	if len(username) < 4 {
+	if len(username) < usernameMinLen {
 		return newValidationError(ErrCodeUsernameTooShort)
 	}
-	if len(username) > 30 {
+	if len(username) > usernameMaxLen {
 		return newValidationError(ErrCodeUsernameTooLong)
 	}
 	first := username[0]
@@ -169,21 +177,21 @@ func UsernameOwnerNamespaceError(lookup *OwnerNamespaceLookup, allowedUserID str
 			return ""
 		}
 		return ErrCodeOwnerSlugTaken
-	case OwnerNamespaceStatusRegisteredOrg:
-		if allowedUserID != "" && lookup.Org != nil && strings.TrimSpace(lookup.Org.OwnerUserID) == allowedUserID {
+	case OwnerNamespaceStatusRegisteredTenant:
+		if allowedUserID != "" && lookup.Tenant != nil && strings.TrimSpace(lookup.Tenant.OwnerUserID) == allowedUserID {
 			return ""
 		}
 		return ErrCodeOwnerSlugTaken
 	case OwnerNamespaceStatusParkedUser,
-		OwnerNamespaceStatusParkedOrg,
+		OwnerNamespaceStatusParkedTenant,
 		OwnerNamespaceStatusRestrictedName:
 		return ErrCodeUsernameNotAllowed
 	case OwnerNamespaceStatusRenamedUser,
-		OwnerNamespaceStatusRenamedOrg,
+		OwnerNamespaceStatusRenamedTenant,
 		OwnerNamespaceStatusHeldByDeletedUser,
-		OwnerNamespaceStatusHeldByDeletedOrg,
+		OwnerNamespaceStatusHeldByDeletedTenant,
 		OwnerNamespaceStatusHeldByRecentUserRename,
-		OwnerNamespaceStatusHeldByRecentOrgRename:
+		OwnerNamespaceStatusHeldByRecentTenantRename:
 		return ErrCodeOwnerSlugTaken
 	default:
 		if !lookup.Claimable {
@@ -193,12 +201,12 @@ func UsernameOwnerNamespaceError(lookup *OwnerNamespaceLookup, allowedUserID str
 	}
 }
 
-func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeOrgID string, err error) {
+func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeTenantID string, err error) {
 	if err := ValidateUsername(username); err != nil {
 		return "", "", err
 	}
 	slug = OwnerSlugFromUsername(username)
-	if slug == "" || validateOrgSlug(slug) != nil {
+	if slug == "" || validateTenantSlug(slug) != nil {
 		return "", "", newValidationError(ErrCodeUsernameInvalidCharacters)
 	}
 	if s == nil || s.pg == nil {
@@ -211,10 +219,10 @@ func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID 
 	if code := UsernameOwnerNamespaceError(lookup, userID); code != "" {
 		return "", "", newValidationError(code)
 	}
-	if lookup != nil && lookup.Org != nil && strings.TrimSpace(lookup.Org.OwnerUserID) == strings.TrimSpace(userID) {
-		excludeOrgID = strings.TrimSpace(lookup.Org.ID)
+	if lookup != nil && lookup.Tenant != nil && strings.TrimSpace(lookup.Tenant.OwnerUserID) == strings.TrimSpace(userID) {
+		excludeTenantID = strings.TrimSpace(lookup.Tenant.ID)
 	}
-	return slug, excludeOrgID, nil
+	return slug, excludeTenantID, nil
 }
 
 func (s *Service) ValidateUsernameForRegistration(ctx context.Context, username string) (string, error) {
@@ -227,17 +235,13 @@ func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID s
 		return 0, nil
 	}
 	var lastRenamedAt *time.Time
-	if err := s.pg.QueryRow(ctx, `
-		SELECT renamed_at
-		FROM   profiles.user_renames
-		WHERE  user_id = $1::uuid
-		ORDER  BY renamed_at DESC
-		LIMIT  1
-	`, strings.TrimSpace(userID)).Scan(&lastRenamedAt); err != nil {
+	if v, err := s.q.UserLastRenamedAt(ctx, strings.TrimSpace(userID)); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err
+	} else {
+		lastRenamedAt = &v
 	}
 	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
 		return 0, nil
@@ -250,22 +254,18 @@ func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID s
 	return int64((remaining + time.Second - time.Nanosecond) / time.Second), nil
 }
 
-func (s *Service) TimeUntilOrgRenameAvailable(ctx context.Context, orgID string, now time.Time) (int64, error) {
-	if s == nil || s.pg == nil || strings.TrimSpace(orgID) == "" {
+func (s *Service) TimeUntilTenantRenameAvailable(ctx context.Context, tenantID string, now time.Time) (int64, error) {
+	if s == nil || s.pg == nil || strings.TrimSpace(tenantID) == "" {
 		return 0, nil
 	}
 	var lastRenamedAt *time.Time
-	if err := s.pg.QueryRow(ctx, `
-		SELECT renamed_at
-		FROM   profiles.org_renames
-		WHERE  org_id = $1::uuid
-		ORDER  BY renamed_at DESC
-		LIMIT  1
-	`, strings.TrimSpace(orgID)).Scan(&lastRenamedAt); err != nil {
+	if v, err := s.q.TenantLastRenamedAt(ctx, strings.TrimSpace(tenantID)); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err
+	} else {
+		lastRenamedAt = &v
 	}
 	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
 		return 0, nil

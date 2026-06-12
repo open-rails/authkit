@@ -13,50 +13,50 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// countingSource wraps an in-memory federated store and counts how many times
+// countingSource wraps an in-memory tenant store and counts how many times
 // each lookup method is called, so tests can assert single-DB-hit behavior and
 // negative caching.
 type countingSource struct {
 	mu        sync.Mutex
-	items     []core.FederatedOrgIssuer
+	items     []core.TenantIssuer
 	listCalls int32
 	getCalls  map[string]int32
 }
 
-func newCountingSource(items ...core.FederatedOrgIssuer) *countingSource {
+func newCountingSource(items ...core.TenantIssuer) *countingSource {
 	return &countingSource{items: items, getCalls: map[string]int32{}}
 }
 
-func (c *countingSource) setItems(items []core.FederatedOrgIssuer) {
+func (c *countingSource) setItems(items []core.TenantIssuer) {
 	c.mu.Lock()
 	c.items = items
 	c.mu.Unlock()
 }
 
-func (c *countingSource) ListFederatedOrgIssuers(_ context.Context, activeOnly bool) ([]core.FederatedOrgIssuer, error) {
+func (c *countingSource) ListTenantIssuers(_ context.Context, enabledOnly bool) ([]core.TenantIssuer, error) {
 	atomic.AddInt32(&c.listCalls, 1)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var out []core.FederatedOrgIssuer
+	var out []core.TenantIssuer
 	for _, i := range c.items {
-		if !activeOnly || i.Status == "active" {
+		if !enabledOnly || i.Enabled {
 			out = append(out, i)
 		}
 	}
 	return out, nil
 }
 
-func (c *countingSource) GetFederatedOrgIssuer(_ context.Context, issuerID string) (*core.FederatedOrgIssuer, error) {
+func (c *countingSource) GetTenantIssuer(_ context.Context, issuerID string) (*core.TenantIssuer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.getCalls[issuerID]++
 	for i := range c.items {
-		if c.items[i].IssuerID == issuerID {
+		if c.items[i].Issuer == issuerID {
 			fi := c.items[i]
 			return &fi, nil
 		}
 	}
-	return nil, core.ErrFederatedIssuerNotFound
+	return nil, core.ErrTenantIssuerNotFound
 }
 
 func (c *countingSource) getCount(issuerID string) int32 {
@@ -105,7 +105,6 @@ func mintFor(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) s
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "ext-user",
-		Tenant:           "cozy-art",
 		TTL:              time.Minute,
 	})
 	if err != nil {
@@ -122,16 +121,16 @@ func TestLazyLoadOnMissThenCached(t *testing.T) {
 	iss := "https://lazy.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.FederatedOrgIssuer{
-		OrgSlug: "cozy-art", IssuerID: iss, JWKSURL: jwks.url(), Status: "active",
+	src := newCountingSource(core.TenantIssuer{
+		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 
-	ver := NewVerifier(WithOrgMode("multi"))
-	// Thread fedSource + audiences via LoadFederatedIssuers using a source whose
+	ver := NewVerifier(WithTenantMode("multi"))
+	// Thread fedSource + audiences via LoadTenantIssuers using a source whose
 	// List is EMPTY (nothing pre-loaded) but whose Get knows the issuer. This
 	// isolates the lazy-load-on-miss path from the bulk load.
-	if err := ver.LoadFederatedIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
-		t.Fatalf("LoadFederatedIssuers: %v", err)
+	if err := ver.LoadTenantIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
+		t.Fatalf("LoadTenantIssuers: %v", err)
 	}
 
 	tok := mintFor(t, signer, iss, aud)
@@ -161,11 +160,11 @@ func TestLazyLoadOnMissThenCached(t *testing.T) {
 // underlying source's issuers, isolating the lazy-load path.
 type listEmptyGetFull struct{ inner *countingSource }
 
-func (l *listEmptyGetFull) ListFederatedOrgIssuers(context.Context, bool) ([]core.FederatedOrgIssuer, error) {
+func (l *listEmptyGetFull) ListTenantIssuers(context.Context, bool) ([]core.TenantIssuer, error) {
 	return nil, nil
 }
-func (l *listEmptyGetFull) GetFederatedOrgIssuer(ctx context.Context, issuerID string) (*core.FederatedOrgIssuer, error) {
-	return l.inner.GetFederatedOrgIssuer(ctx, issuerID)
+func (l *listEmptyGetFull) GetTenantIssuer(ctx context.Context, issuerID string) (*core.TenantIssuer, error) {
+	return l.inner.GetTenantIssuer(ctx, issuerID)
 }
 
 // (b) Unknown issuer fails AND is negatively cached: the source is not consulted
@@ -173,9 +172,9 @@ func (l *listEmptyGetFull) GetFederatedOrgIssuer(ctx context.Context, issuerID s
 func TestUnknownIssuerNegativeCached(t *testing.T) {
 	src := newCountingSource() // empty: GET always returns not-found
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), src, []string{"tensorhub"}); err != nil {
-		t.Fatalf("LoadFederatedIssuers: %v", err)
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), src, []string{"tensorhub"}); err != nil {
+		t.Fatalf("LoadTenantIssuers: %v", err)
 	}
 	iss := "https://rogue.example"
 	tok := mintFor(t, signer, iss, []string{"tensorhub"})
@@ -195,7 +194,7 @@ func TestUnknownIssuerNegativeCached(t *testing.T) {
 	}
 }
 
-// (c) Reconciling reload evicts a now-inactive issuer so its token stops
+// (c) Reconciling reload evicts a now-disabled issuer so its token stops
 // validating.
 func TestReconcilingReloadEvicts(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "kid-1")
@@ -203,11 +202,11 @@ func TestReconcilingReloadEvicts(t *testing.T) {
 	iss := "https://evict.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.FederatedOrgIssuer{
-		OrgSlug: "cozy-art", IssuerID: iss, JWKSURL: jwks.url(), Status: "active",
+	src := newCountingSource(core.TenantIssuer{
+		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
 		t.Fatalf("initial load: %v", err)
 	}
 
@@ -217,37 +216,37 @@ func TestReconcilingReloadEvicts(t *testing.T) {
 	}
 
 	// Deactivate the issuer in the store and reconcile.
-	src.setItems([]core.FederatedOrgIssuer{{
-		OrgSlug: "cozy-art", IssuerID: iss, JWKSURL: jwks.url(), Status: "inactive",
+	src.setItems([]core.TenantIssuer{{
+		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: false,
 	}})
-	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
+	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
 		t.Fatalf("reconcile load: %v", err)
 	}
 
 	// The token must now be rejected. The lazy-load path won't re-add it because
-	// GET returns a non-active status.
+	// GET returns a non-enabled Enabled.
 	if _, err := ver.Verify(tok); err == nil {
 		t.Fatal("expected token to be rejected after eviction")
 	}
 }
 
 // Static issuers (added via AddIssuer directly) must NOT be evicted by a
-// reconciling reload — only federated issuers are eligible.
+// reconciling reload — only tenant issuers are eligible.
 func TestReconcileDoesNotEvictStaticIssuer(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "kid-1")
 	jwks := newRotatableJWKS(t, signer)
 	staticIss := "https://static.example"
 	aud := []string{"tensorhub"}
 
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.AddIssuer(staticIss, aud, IssuerOptions{JWKSURL: jwks.url()}); err != nil {
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.AddIssuer(staticIss, aud, IssuerOptions{JWKSURI: jwks.url()}); err != nil {
 		t.Fatalf("AddIssuer static: %v", err)
 	}
 
-	// A reconciling reload with an empty federated set must leave the static
+	// A reconciling reload with an empty tenant set must leave the static
 	// issuer intact.
 	src := newCountingSource()
-	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
+	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 
@@ -265,17 +264,17 @@ func TestRotatedKidRefetch(t *testing.T) {
 	iss := "https://rotate.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.FederatedOrgIssuer{
-		OrgSlug: "cozy-art", IssuerID: iss, JWKSURL: jwks.url(), Status: "active",
+	src := newCountingSource(core.TenantIssuer{
+		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 	// Long TTL so the normal TTL refresh does not fire — only the unknown-kid
 	// fall-through can pick up the rotation.
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	// Force a long cacheTTL on the registered issuer.
-	if err := ver.AddIssuer(iss, aud, IssuerOptions{JWKSURL: jwks.url(), CacheTTL: time.Hour}); err != nil {
+	if err := ver.AddIssuer(iss, aud, IssuerOptions{JWKSURI: jwks.url(), CacheTTL: time.Hour}); err != nil {
 		t.Fatalf("re-add with long TTL: %v", err)
 	}
 
@@ -308,14 +307,14 @@ func TestUnknownKidStormSingleFlight(t *testing.T) {
 	iss := "https://storm.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.FederatedOrgIssuer{
-		OrgSlug: "cozy-art", IssuerID: iss, JWKSURL: jwks.url(), Status: "active",
+	src := newCountingSource(core.TenantIssuer{
+		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), src, aud); err != nil {
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if err := ver.AddIssuer(iss, aud, IssuerOptions{JWKSURL: jwks.url(), CacheTTL: time.Hour}); err != nil {
+	if err := ver.AddIssuer(iss, aud, IssuerOptions{JWKSURI: jwks.url(), CacheTTL: time.Hour}); err != nil {
 		t.Fatalf("re-add: %v", err)
 	}
 	// Prime cache.
@@ -345,11 +344,11 @@ func TestConcurrentFirstUseNoDeadlock(t *testing.T) {
 	iss := "https://concurrent.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.FederatedOrgIssuer{
-		OrgSlug: "cozy-art", IssuerID: iss, JWKSURL: jwks.url(), Status: "active",
+	src := newCountingSource(core.TenantIssuer{
+		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
-	ver := NewVerifier(WithOrgMode("multi"))
-	if err := ver.LoadFederatedIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
+	ver := NewVerifier(WithTenantMode("multi"))
+	if err := ver.LoadTenantIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
 

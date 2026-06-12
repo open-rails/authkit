@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
+	"github.com/open-rails/migratekit"
 )
 
 type config struct {
@@ -32,12 +32,13 @@ type config struct {
 	IssuedAudiences          []string
 	ExpectedAudiences        []string
 	Environment              string
-	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
+	// Tenant/RBAC knobs. Default to authkit's zero values (single-tenant, no
 	// catalog) so existing deployments are unaffected; the e2e suite sets
-	// these to exercise the multi-org OAT/RBAC surface against a real server.
-	OrgMode           string
-	TokenPrefix       string
-	PermissionCatalog []string
+	// these to exercise the multi-tenant service token/RBAC surface against a real server.
+	ServiceTokenPrefix             string
+	PermissionCatalog              []string
+	TenantManifestPath             string
+	ReconcileTenantManifestOnStart bool
 }
 
 func main() {
@@ -60,8 +61,15 @@ func main() {
 		if err := runMigrate(cfg); err != nil {
 			fatal(err)
 		}
+	case "tenant-manifest":
+		if len(os.Args) < 3 || strings.TrimSpace(os.Args[2]) != "apply" {
+			fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, tenant-manifest apply)", strings.Join(os.Args[1:], " ")))
+		}
+		if err := runTenantManifestApply(cfg); err != nil {
+			fatal(err)
+		}
 	default:
-		fatal(fmt.Errorf("unknown command %q (supported: serve, migrate)", cmd))
+		fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, tenant-manifest apply)", cmd))
 	}
 }
 
@@ -70,19 +78,20 @@ func loadConfig() (*config, error) {
 	expectedAudiences := parseCSVEnv("DEVSERVER_EXPECTED_AUDIENCES", issuedAudiences)
 
 	c := &config{
-		ListenAddr:               envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
-		Issuer:                   strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
-		DBURL:                    firstEnv("DB_URL", "DATABASE_URL"),
-		DevMode:                  envBool("DEVSERVER_DEV_MODE", false),
-		DevMintSecret:            envOr("DEVSERVER_DEV_MINT_SECRET", ""),
-		MigrateOnStart:           envBool("DEVSERVER_MIGRATE_ON_START", true),
-		IssuedAudiences:          issuedAudiences,
-		ExpectedAudiences:        expectedAudiences,
-		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
-		OrgMode:                  strings.TrimSpace(envOr("DEVSERVER_ORG_MODE", "")),
-		TokenPrefix:              strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
-		PermissionCatalog:        parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
+		ListenAddr:                     envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
+		Issuer:                         strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
+		DBURL:                          firstEnv("DB_URL", "DATABASE_URL"),
+		DevMode:                        envBool("DEVSERVER_DEV_MODE", false),
+		DevMintSecret:                  envOr("DEVSERVER_DEV_MINT_SECRET", ""),
+		MigrateOnStart:                 envBool("DEVSERVER_MIGRATE_ON_START", true),
+		IssuedAudiences:                issuedAudiences,
+		ExpectedAudiences:              expectedAudiences,
+		Environment:                    envOr("DEVSERVER_ENVIRONMENT", "dev"),
+		RegistrationVerification:       core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
+		ServiceTokenPrefix:             strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
+		PermissionCatalog:              parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
+		TenantManifestPath:             strings.TrimSpace(envOr("DEVSERVER_TENANT_MANIFEST_PATH", "")),
+		ReconcileTenantManifestOnStart: envBool("DEVSERVER_RECONCILE_TENANT_MANIFEST_ON_START", false),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")
@@ -128,14 +137,18 @@ func runServe(cfg *config) error {
 		Keys:                     keySource,
 		Environment:              cfg.Environment,
 		RegistrationVerification: cfg.RegistrationVerification,
-		OrgMode:                  cfg.OrgMode,
-		TokenPrefix:              cfg.TokenPrefix,
+		ServiceTokenPrefix:       cfg.ServiceTokenPrefix,
 		PermissionCatalog:        toPermissionDefs(cfg.PermissionCatalog),
 	})
 	if err != nil {
 		return err
 	}
 	svc.WithPostgres(pg)
+	if cfg.ReconcileTenantManifestOnStart {
+		if _, err := reconcileTenantManifest(ctx, svc.Core(), cfg.TenantManifestPath); err != nil {
+			return err
+		}
+	}
 
 	apiH := svc.APIHandler()
 	oidcH := svc.OIDCHandler()
@@ -155,7 +168,7 @@ func runServe(cfg *config) error {
 			devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret).ServeHTTP(w, r)
 			return
 		}
-		// Dev-only: reflect the authenticated principal (user OR service/OAT)
+		// Dev-only: reflect the authenticated principal (user OR service/service token)
 		// so E2E tests can assert how a token resolved through the real verifier.
 		if cfg.DevMode && r.Method == http.MethodGet && r.URL.Path == apiPrefix+"/dev/whoami" {
 			devWhoamiHandler(svc).ServeHTTP(w, r)
@@ -184,6 +197,48 @@ func runMigrate(cfg *config) error {
 	return runMigrations(ctx, cfg.DBURL)
 }
 
+func runTenantManifestApply(cfg *config) error {
+	ctx := context.Background()
+	pg, err := pgxpool.New(ctx, cfg.DBURL)
+	if err != nil {
+		return fmt.Errorf("connect postgres: %w", err)
+	}
+	defer pg.Close()
+
+	svc := core.NewService(core.Options{
+		Issuer:             cfg.Issuer,
+		ServiceTokenPrefix: cfg.ServiceTokenPrefix,
+		PermissionCatalog:  toPermissionDefs(cfg.PermissionCatalog),
+	}, core.Keyset{}).WithPostgres(pg)
+	result, err := reconcileTenantManifest(ctx, svc, cfg.TenantManifestPath)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(map[string]int{
+		"tenants":       result.Tenants,
+		"issuers":       result.Issuers,
+		"roles":         result.Roles,
+		"tokens_minted": result.TokensMinted,
+		"tokens_kept":   result.TokensKept,
+	})
+}
+
+func reconcileTenantManifest(ctx context.Context, svc *core.Service, path string) (core.TenantManifestResult, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return core.TenantManifestResult{}, fmt.Errorf("DEVSERVER_TENANT_MANIFEST_PATH is required")
+	}
+	manifest, err := core.ParseTenantManifestYAMLFile(path)
+	if err != nil {
+		return core.TenantManifestResult{}, fmt.Errorf("read tenant manifest: %w", err)
+	}
+	result, err := svc.ReconcileTenantManifest(ctx, manifest, core.FileTenantManifestTokenStore{})
+	if err != nil {
+		return core.TenantManifestResult{}, fmt.Errorf("reconcile tenant manifest: %w", err)
+	}
+	return result, nil
+}
+
 func runMigrations(ctx context.Context, dbURL string) error {
 	sqlDB, err := sql.Open("pgx", dbURL)
 	if err != nil {
@@ -196,38 +251,16 @@ func runMigrations(ctx context.Context, dbURL string) error {
 		return fmt.Errorf("enable pgcrypto: %w", err)
 	}
 
-	files, err := fs.Glob(pgmigrations.FS, "*.up.sql")
+	// Same runner host applications use: migratekit, name-tracked per app in
+	// public.migrations.
+	ms, err := migratekit.LoadFromFS(pgmigrations.FS)
 	if err != nil {
-		return fmt.Errorf("list migrations: %w", err)
+		return fmt.Errorf("load migrations: %w", err)
 	}
-	if len(files) == 0 {
-		return fmt.Errorf("no postgres migrations found")
-	}
-	sortStrings(files)
-
-	for _, name := range files {
-		sqlBytes, err := pgmigrations.FS.ReadFile(name)
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
-		}
-		if strings.TrimSpace(string(sqlBytes)) == "" {
-			continue
-		}
-		if _, err := sqlDB.ExecContext(ctx, string(sqlBytes)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", name, err)
-		}
+	if err := migratekit.NewPostgres(sqlDB, "authkit").ApplyMigrations(ctx, ms); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
 	}
 	return nil
-}
-
-func sortStrings(v []string) {
-	for i := 0; i < len(v); i++ {
-		for j := i + 1; j < len(v); j++ {
-			if v[j] < v[i] {
-				v[i], v[j] = v[j], v[i]
-			}
-		}
-	}
 }
 
 type mintRequest struct {
@@ -260,8 +293,8 @@ func toPermissionDefs(names []string) []core.PermissionDef {
 }
 
 // devWhoamiHandler reflects the authenticated principal as resolved by the real
-// verifier (JWT user OR branded service/OAT token), behind the standard auth
-// middleware. Dev-only; used by the RBAC E2E suite to assert OAT resolution.
+// verifier (JWT user OR branded service/service token token), behind the standard auth
+// middleware. Dev-only; used by the RBAC E2E suite to assert service token resolution.
 func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 	reflect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, ok := authhttp.ClaimsFromContext(r.Context())
@@ -270,7 +303,7 @@ func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"org":         cl.Org,
+			"tenant":      cl.Tenant,
 			"permissions": cl.Permissions,
 			"is_service":  cl.IsService(),
 			"user_id":     cl.UserID,
