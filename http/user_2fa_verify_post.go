@@ -33,6 +33,14 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Per-identifier check: a 2FA code is 6 numeric digits with a 10-minute TTL,
+	// and a failed attempt does not consume it. Capping per user_id (not just per
+	// IP) prevents distributed brute-force against one account's second factor
+	// from many IPs, each spending their own per-IP budget.
+	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, userID) {
+		return
+	}
+
 	validChallenge, err := s.svc.Verify2FAChallenge(r.Context(), userID, challenge)
 	if err != nil {
 		serverErr(w, "challenge_verify_failed")
