@@ -375,9 +375,16 @@ AuthKit can include entitlements (e.g., "premium", "pro") in JWT service tokens 
 **Interface:**
 ```go
 type EntitlementsProvider interface {
-    ListEntitlements(ctx context.Context, userID string) ([]entitlements.Entitlement, error)
+    ListEntitlements(ctx context.Context, userID string) ([]string, error)
 }
 ```
+
+Providers return **active entitlement names only** — AuthKit bakes them verbatim
+into the JWT `entitlements` claim and admin user views. Filtering expired/revoked
+grants is the provider's responsibility.
+
+Optionally implement `BatchEntitlementsProvider` (`ListEntitlementsBatch`) so
+`AdminListUsers` can fetch entitlements in one round trip instead of per row.
 
 **Example implementation** (querying a `billing.entitlements` table):
 
@@ -388,7 +395,6 @@ import (
     "context"
     "time"
 
-    entpg "github.com/open-rails/authkit/entitlements"
     "github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -396,9 +402,9 @@ type BillingEntitlementsProvider struct {
     pg *pgxpool.Pool
 }
 
-func (p *BillingEntitlementsProvider) ListEntitlements(ctx context.Context, userID string) ([]entpg.Entitlement, error) {
+func (p *BillingEntitlementsProvider) ListEntitlements(ctx context.Context, userID string) ([]string, error) {
     rows, err := p.pg.Query(ctx, `
-        SELECT entitlement, start_at, end_at, revoked_at
+        SELECT entitlement
         FROM billing.entitlements
         WHERE user_id = $1
           AND revoked_at IS NULL
@@ -411,20 +417,13 @@ func (p *BillingEntitlementsProvider) ListEntitlements(ctx context.Context, user
     }
     defer rows.Close()
 
-    var out []entpg.Entitlement
+    var out []string
     for rows.Next() {
         var name string
-        var startAt time.Time
-        var endAt, revokedAt *time.Time
-        if err := rows.Scan(&name, &startAt, &endAt, &revokedAt); err != nil {
+        if err := rows.Scan(&name); err != nil {
             return nil, err
         }
-        out = append(out, entpg.Entitlement{
-            Name:      name,
-            ExpiresAt: endAt,
-            RevokedAt: revokedAt,
-            Source:    "billing",
-        })
+        out = append(out, name)
     }
     return out, rows.Err()
 }
@@ -436,7 +435,22 @@ svc = svc.
     WithEntitlements(&BillingEntitlementsProvider{pg: pg})
 ```
 
-Entitlements are snapshotted into the JWT at token issuance time. For fresh entitlements, re-issue the token.
+**Provider failures.** A billing outage must not block login: if the provider
+errors during token issuance, AuthKit still mints the token but omits entitlement
+claims and logs loudly (`token issued WITHOUT entitlement claims`). Admin views
+degrade to no entitlements rather than failing the request.
+
+**Gating requests.** Use `Claims.HasEntitlement(name)` for ad-hoc checks, or the
+`RequireEntitlement("premium")` / `RequireAnyEntitlement("pro", "premium")`
+middleware (mount after `Required`) to gate routes; both deny service-principal
+(OAT) and delegated tokens, which carry no entitlements.
+
+**Snapshot semantics & revocation lag.** Entitlements are snapshotted into the
+JWT at issuance time. Unlike account bans (re-checked live on every request),
+entitlements are NOT re-validated per request, so a revocation only takes effect
+once the access token expires or is re-issued. Size your access-token TTL
+(`AccessTokenDuration`) to your acceptable entitlement-revocation lag, or
+re-issue the token when a grant changes.
 
 ---
 
