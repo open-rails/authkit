@@ -41,7 +41,10 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 			if v.enrich != nil && cl.IsDelegated() {
-				if _, err := v.enrich.TouchTenantSubject(r.Context(), cl.TenantID, cl.Issuer, cl.DelegatedSubject); err != nil {
+				// The tenant is pinned from the VALIDATED issuer via the issuer
+				// registry — delegated tokens carry no tenant uuid (slug +
+				// delegated_sub only). Unknown/disabled issuers fail closed.
+				if _, err := v.enrich.TouchTenantSubjectForIssuer(r.Context(), cl.Issuer, cl.DelegatedSubject); err != nil {
 					unauthorized(w, "invalid_token")
 					return
 				}

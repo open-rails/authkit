@@ -36,13 +36,12 @@ type DelegatedAccessParams struct {
 	// "openrails", "tensorhub", or "gen-orchestrator".
 	Audiences []string
 	// Tenant becomes the `tenant` claim: the target resource-service account's
-	// mutable slug, e.g. "doujins" for OpenRails. Presentation/logging only —
-	// receiving services must key on TenantID.
+	// slug, e.g. "doujins" for OpenRails — the host-facing identity (a host
+	// knows its chosen name the way a user knows their username). Receivers pin
+	// the tenant from the VALIDATED `iss` via their issuer registry and
+	// cross-check this claim against the registration; there is no tenant uuid
+	// in the token (hard cut — resource-account uuids never leave the receiver).
 	Tenant string
-	// TenantID becomes the `tenant_id` claim: the immutable uuid of the target
-	// resource-service account. This is the canonical identifier receiving
-	// services persist and authorize against. Required.
-	TenantID string
 	// DelegatedSubject becomes `delegated_sub`: the issuer-side user/actor id.
 	// Required. No local account is implied in the receiving service.
 	DelegatedSubject string
@@ -80,9 +79,6 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	if strings.TrimSpace(p.DelegatedSubject) == "" {
 		return "", errors.New("delegated_sub required")
 	}
-	if strings.TrimSpace(p.TenantID) == "" {
-		return "", errors.New("tenant_id required")
-	}
 
 	ttl := p.TTL
 	if ttl <= 0 {
@@ -101,9 +97,6 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	}
 	if t := strings.TrimSpace(p.Tenant); t != "" {
 		claims["tenant"] = t
-	}
-	if t := strings.TrimSpace(p.TenantID); t != "" {
-		claims["tenant_id"] = t
 	}
 	if len(p.Permissions) > 0 {
 		// Copy + drop empties so callers can't smuggle blank permission strings.

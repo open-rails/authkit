@@ -32,11 +32,16 @@ type Claims struct {
 
 	// Delegated/tenant fields. A delegated service token carries the external
 	// actor in DelegatedSubject (claim `delegated_sub`) and the target resource
-	// account in TenantID (claim `tenant_id`, immutable uuid — the canonical
-	// key) and Tenant (claim `tenant`, mutable slug — presentation/logging
-	// only). It never carries `sub` (UserID stays empty), so the local-user
-	// gate does not apply. TenantID is empty on tokens minted before the
-	// tenant_id claim existed; fall back to resolving Tenant.
+	// account slug in Tenant (claim `tenant`, the host-facing identity). There
+	// is no tenant uuid in any TOKEN: receivers pin the tenant from the
+	// VALIDATED issuer via their issuer registry and cross-check the slug. It
+	// never carries `sub` (UserID stays empty), so the local-user gate does not
+	// apply.
+	//
+	// TenantID is populated ONLY for opaque service tokens, where it is
+	// resolved server-side from the receiver's own DB (introspection) — it is
+	// never read from a JWT claim, and delegated access tokens reject a
+	// `tenant_id` claim outright.
 	Tenant           string
 	TenantID         string
 	DelegatedSubject string
@@ -87,11 +92,11 @@ func (c Claims) IsService() bool {
 // Permissions, not local-user lookup.
 type DelegatedPrincipal struct {
 	Issuer string
-	// Tenant is the mutable resource-account slug (claim `tenant`);
-	// TenantID is the immutable uuid (claim `tenant_id`) and is the
-	// identifier to persist. TenantID is empty on legacy tokens.
+	// Tenant is the resource-account slug (claim `tenant`) — the host-facing
+	// identity. There is no tenant uuid on the token: the receiving service
+	// resolves its internal tenant record from the VALIDATED Issuer via its
+	// issuer registry and cross-checks this slug against the registration.
 	Tenant           string
-	TenantID         string
 	DelegatedSubject string
 	// Permissions are the resource-defined permission strings the receiving
 	// service authorizes against its own catalog. This is the authority source.
@@ -127,7 +132,6 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	return DelegatedPrincipal{
 		Issuer:           c.Issuer,
 		Tenant:           strings.TrimSpace(c.Tenant),
-		TenantID:         strings.TrimSpace(c.TenantID),
 		DelegatedSubject: c.DelegatedSubject,
 		Permissions:      c.Permissions,
 		Attributes:       c.Attributes,

@@ -657,8 +657,14 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		if tenant == "" {
 			return Claims{}, errors.New("missing_tenant")
 		}
-		if strClaim(mapClaims, "tenant_id") == "" {
-			return Claims{}, errors.New("missing_tenant_id")
+		// HARD CUT: delegated access tokens identify the tenant by `tenant`
+		// (slug) + validated `iss` ONLY. A `tenant_id` uuid claim is part of no
+		// profile — receivers resolve their internal tenant record from the
+		// issuer registry, so resource-account uuids never ride in tokens. A
+		// token carrying the legacy claim is rejected like any other forbidden
+		// claim on this profile.
+		if strClaim(mapClaims, "tenant_id") != "" {
+			return Claims{}, errors.New("delegated_access_has_tenant_id")
 		}
 		if strClaim(mapClaims, "user_tier") != "" {
 			return Claims{}, errors.New("delegated_access_has_user_tier")
@@ -692,10 +698,9 @@ func (v *Verifier) validateDelegatedIssuerResourceAccount(mapClaims jwt.MapClaim
 	}
 	trusted := strings.ToLower(strings.TrimSpace(match.trustedResourceAccount))
 	resourceAccount := strings.ToLower(strings.TrimSpace(tenant))
-	// The registered account may be the mutable slug (legacy) or the immutable
-	// tenant uuid; accept a match on either the `tenant` or `tenant_id` claim.
-	tenantID := strings.ToLower(strings.TrimSpace(strClaim(mapClaims, "tenant_id")))
-	if (resourceAccount == "" || resourceAccount != trusted) && (tenantID == "" || tenantID != trusted) {
+	// The registered account is the tenant SLUG — the only tenant identity a
+	// token carries (hard cut: no tenant_id uuid claim).
+	if resourceAccount == "" || resourceAccount != trusted {
 		return errors.New("resource_account_issuer_mismatch")
 	}
 	return nil
@@ -754,7 +759,8 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.UserID = strClaim(mc, "sub")
 	cl.DelegatedSubject = strClaim(mc, "delegated_sub")
 	cl.Tenant = strClaim(mc, "tenant")
-	cl.TenantID = strClaim(mc, "tenant_id")
+	// NO cl.TenantID here: tenant uuids never ride in JWTs. Claims.TenantID is
+	// only set by the opaque service-token DB resolution path.
 	cl.Email = strClaim(mc, "email")
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.Username = strClaim(mc, "username")

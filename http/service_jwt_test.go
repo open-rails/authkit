@@ -208,7 +208,6 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 
 	delegatedToken, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer: issuer, Audiences: []string{"openrails"}, Tenant: "hentai0",
-		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		DelegatedSubject: "external-user-1", TTL: time.Minute,
 	})
 	require.NoError(t, err)

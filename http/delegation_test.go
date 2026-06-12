@@ -33,7 +33,6 @@ func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
 		Tenant:           "cozy-art",
-		TenantID:         "0190dead-beef-7000-8000-000000000001",
 		Attributes:       map[string]any{"tier": "cozy_free"},
 		TTL:              time.Minute,
 	})

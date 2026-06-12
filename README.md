@@ -992,7 +992,9 @@ SpaceX accepts service tokens from multiple issuers; both tesla.com and x.com.
 
 AuthKit owns the shared identity primitives for federation: a resource service
 registers tenant issuers, verifies their OIDC/JWKS metadata, and records minimal
-delegated users as `(tenant_id, issuer, subject)`. Product-specific approval,
+delegated users as `(tenant_id, issuer, subject)` — where the tenant uuid is
+resolved server-side from the issuer registration (tokens carry only the tenant
+slug + `delegated_sub`). Product-specific approval,
 quota, billing, and resource policy still belong to the receiving product.
 
 This lets a tenant bring external principals that live in the tenant's own

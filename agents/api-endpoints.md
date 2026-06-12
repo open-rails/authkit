@@ -349,12 +349,13 @@ in-house JWKS fetch/refresh (no external push/sync). The outbound side is the
 Go `authhttp.TenantIssuersClient` (no route).
 
 Delegated access JWTs are minted with `authhttp.MintDelegatedAccessToken`.
-They carry `typ=delegated-access+jwt`, required `tenant` (mutable resource-account
-slug — presentation/logging only), `tenant_id` (immutable resource-account uuid —
-the canonical identifier receiving services persist and key on; REQUIRED —
-mint and verification both reject tokens without it), `delegated_sub`,
-resource-defined `permissions`, optional JSON `attributes`, and no normal
-`sub`. `delegated_sub` must be the issuer's **immutable, never-reassigned**
+They carry `typ=delegated-access+jwt`, required `tenant` (the resource-account
+slug — the host-facing tenant identity; the receiving service pins its internal
+tenant record from the VALIDATED `iss` via its issuer registry and cross-checks
+this claim), `delegated_sub`, resource-defined `permissions`, optional JSON
+`attributes`, and no normal `sub`. There is NO `tenant_id` claim — resource-
+account uuids are receiver-internal and never ride in tokens; verification
+rejects a token carrying the legacy claim (`delegated_access_has_tenant_id`). `delegated_sub` must be the issuer's **immutable, never-reassigned**
 subject identifier (OIDC `sub` semantics) — never a username, slug, or email.
 All authkit identifiers are opaque strings that happen to be uuidv7; consumers
 must not parse them or branch on their format. Ordinary AuthKit access JWTs carry `typ=access+jwt`; resource servers
