@@ -20,7 +20,7 @@ func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string
 	v := NewVerifier(WithSkew(time.Second))
 	require.NoError(t, v.AddIssuer(issuer, audiences, IssuerOptions{
 		RawKeys:                map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-		TrustedResourceAccount: "hentai0",
+		TenantSlug: "hentai0",
 	}))
 	return v
 }
@@ -207,7 +207,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	require.NoError(t, err)
 
 	delegatedToken, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: issuer, Audiences: []string{"openrails"}, Tenant: "hentai0",
+		Issuer: issuer, Audiences: []string{"openrails"},
 		DelegatedSubject: "external-user-1", TTL: time.Minute,
 	})
 	require.NoError(t, err)

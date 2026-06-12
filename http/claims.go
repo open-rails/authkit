@@ -31,17 +31,17 @@ type Claims struct {
 	JTI          string
 
 	// Delegated/tenant fields. A delegated service token carries the external
-	// actor in DelegatedSubject (claim `delegated_sub`) and the target resource
-	// account slug in Tenant (claim `tenant`, the host-facing identity). There
-	// is no tenant uuid in any TOKEN: receivers pin the tenant from the
-	// VALIDATED issuer via their issuer registry and cross-check the slug. It
+	// actor in DelegatedSubject (claim `delegated_sub`) and NO tenant claims of
+	// any kind: the VALIDATED Issuer is the tenant identity — receivers resolve
+	// their internal tenant record (slug + uuid) from their issuer registry. It
 	// never carries `sub` (UserID stays empty), so the local-user gate does not
 	// apply.
 	//
-	// TenantID is populated ONLY for opaque service tokens, where it is
-	// resolved server-side from the receiver's own DB (introspection) — it is
-	// never read from a JWT claim, and delegated access tokens reject a
-	// `tenant_id` claim outright.
+	// Tenant carries the `tenant` claim of tenant-scoped ACCESS tokens (and the
+	// slug of opaque service tokens, resolved server-side); on delegated access
+	// tokens the claim is forbidden and Tenant stays empty. TenantID is
+	// populated ONLY for opaque service tokens via the receiver's own DB
+	// resolution — never from a JWT claim.
 	Tenant           string
 	TenantID         string
 	DelegatedSubject string
@@ -91,12 +91,10 @@ func (c Claims) IsService() bool {
 // validating service — authorization is by issuer/resource-account trust plus
 // Permissions, not local-user lookup.
 type DelegatedPrincipal struct {
-	Issuer string
-	// Tenant is the resource-account slug (claim `tenant`) — the host-facing
-	// identity. There is no tenant uuid on the token: the receiving service
-	// resolves its internal tenant record from the VALIDATED Issuer via its
-	// issuer registry and cross-checks this slug against the registration.
-	Tenant           string
+	// Issuer is the tenant identity: the receiving service resolves its
+	// internal tenant record (slug + uuid) from the VALIDATED Issuer via its
+	// issuer registry. The token carries no tenant claims.
+	Issuer           string
 	DelegatedSubject string
 	// Permissions are the resource-defined permission strings the receiving
 	// service authorizes against its own catalog. This is the authority source.
@@ -131,7 +129,6 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	}
 	return DelegatedPrincipal{
 		Issuer:           c.Issuer,
-		Tenant:           strings.TrimSpace(c.Tenant),
 		DelegatedSubject: c.DelegatedSubject,
 		Permissions:      c.Permissions,
 		Attributes:       c.Attributes,

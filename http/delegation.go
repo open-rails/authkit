@@ -23,10 +23,11 @@ const AccessTokenType = jwtkit.AccessTokenType
 // A delegated service token is AuthKit's standard primitive for resource-service
 // federation: one AuthKit issuer signs a short-lived JWT for an external
 // (delegated) actor, and a resource service accepts it after issuer/JWKS/
-// audience/resource-account validation. The token represents a delegated actor
-// (DelegatedSubject) acting under a target resource account carried in the
-// `tenant` JWT claim. It NEVER carries a normal `sub` — no local account is
-// implied in the receiving service.
+// audience validation. The token represents a delegated actor
+// (DelegatedSubject) acting under the resource account that the VALIDATED
+// `iss` resolves to in the receiver's issuer registry — the token itself
+// carries no tenant claims. It NEVER carries a normal `sub` — no local account
+// is implied in the receiving service.
 type DelegatedAccessParams struct {
 	// Issuer becomes the `iss` claim: the AuthKit issuer that signed the token.
 	// signs the token. Must match a tenant issuer registered with the
@@ -35,13 +36,11 @@ type DelegatedAccessParams struct {
 	// Audiences becomes the `aud` claim: the target resource API(s), e.g.
 	// "openrails", "tensorhub", or "gen-orchestrator".
 	Audiences []string
-	// Tenant becomes the `tenant` claim: the target resource-service account's
-	// slug, e.g. "doujins" for OpenRails — the host-facing identity (a host
-	// knows its chosen name the way a user knows their username). Receivers pin
-	// the tenant from the VALIDATED `iss` via their issuer registry and
-	// cross-check this claim against the registration; there is no tenant uuid
-	// in the token (hard cut — resource-account uuids never leave the receiver).
-	Tenant string
+	// There is NO tenant claim of any kind on a delegated access token (hard
+	// cut): the VALIDATED `iss` IS the tenant identity. The receiver's issuer
+	// registry maps the issuer to exactly one internal tenant record (slug +
+	// uuid), so neither identifier ever rides in the token — a host's complete
+	// identity is its issuer URL and signing key.
 	// DelegatedSubject becomes `delegated_sub`: the issuer-side user/actor id.
 	// Required. No local account is implied in the receiving service.
 	DelegatedSubject string
@@ -63,7 +62,7 @@ type DelegatedAccessParams struct {
 
 // MintDelegatedAccessToken signs a canonical delegated service token. It stamps
 // the `typ=delegated-access+jwt` JOSE header, writes the canonical
-// `tenant`/`delegated_sub`/`permissions`/`attributes` claims, and NEVER sets
+// `delegated_sub`/`permissions`/`attributes` claims, and NEVER sets
 // `sub` — the
 // sub-XOR-delegated_sub invariant is enforced by construction. Receiving
 // services authorize by issuer/resource-account trust plus `permissions`;
@@ -94,9 +93,6 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	}
 	if len(p.Audiences) > 0 {
 		claims["aud"] = p.Audiences
-	}
-	if t := strings.TrimSpace(p.Tenant); t != "" {
-		claims["tenant"] = t
 	}
 	if len(p.Permissions) > 0 {
 		// Copy + drop empties so callers can't smuggle blank permission strings.

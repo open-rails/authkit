@@ -169,7 +169,7 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 		Scope: scopeSlice(mc["scope"]),
 	}
 	principal := ServiceJWTPrincipal{
-		Issuer: issuer, Subject: subject, Tenant: match.trustedResourceAccount,
+		Issuer: issuer, Subject: subject, Tenant: match.tenantSlug,
 		Audiences: audiences, Permissions: permissions, Resources: resources,
 		JTI: jti, ExpiresAt: exp,
 	}

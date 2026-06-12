@@ -144,7 +144,6 @@ func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "ext-user-1",
-		Tenant:           "cozy-art",
 		Attributes:       map[string]any{"tier": "cozy_pro"},
 		TTL:              time.Minute,
 	})
@@ -161,14 +160,18 @@ func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 	if !ok {
 		t.Fatal("expected delegated principal")
 	}
-	if dp.Tenant != "cozy-art" || dp.DelegatedSubject != "ext-user-1" || dp.UserTier != "cozy_pro" {
+	if dp.DelegatedSubject != "ext-user-1" || dp.UserTier != "cozy_pro" {
 		t.Fatalf("principal=%+v", dp)
 	}
 }
 
 // TestVerifierRejectsTenantIssuerMismatch proves the resource server binds a
 // tenant issuer to the tenant/resource account it was registered for.
-func TestVerifierRejectsTenantIssuerMismatch(t *testing.T) {
+// (Hard cut: tokens carry no tenant claims, so "claiming another resource
+// account" is structurally impossible — the issuer registration alone decides
+// the tenant. These tests now assert the registry-loaded issuer's token simply
+// verifies.)
+func TestVerifierAcceptsRegistryLoadedTenantIssuerToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +196,6 @@ func TestVerifierRejectsTenantIssuerMismatch(t *testing.T) {
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
-		Tenant:           "hentai0",
 		DelegatedSubject: "paul-fidika",
 		Permissions:      []string{"openrails:tenant:admin"},
 		TTL:              time.Minute,
@@ -202,13 +204,12 @@ func TestVerifierRejectsTenantIssuerMismatch(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	_, _, err = ver.VerifyDelegatedAccess(tok)
-	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
-		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
+	if _, _, err = ver.VerifyDelegatedAccess(tok); err != nil {
+		t.Fatalf("verify: %v", err)
 	}
 }
 
-func TestVerifierRejectsLazyLoadedTenantIssuerMismatch(t *testing.T) {
+func TestVerifierAcceptsLazyLoadedTenantIssuerToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +236,6 @@ func TestVerifierRejectsLazyLoadedTenantIssuerMismatch(t *testing.T) {
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
-		Tenant:           "hentai0",
 		DelegatedSubject: "paul-fidika",
 		Permissions:      []string{"openrails:tenant:admin"},
 		TTL:              time.Minute,
@@ -244,9 +244,8 @@ func TestVerifierRejectsLazyLoadedTenantIssuerMismatch(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	_, _, err = ver.VerifyDelegatedAccess(tok)
-	if err == nil || err.Error() != "resource_account_issuer_mismatch" {
-		t.Fatalf("expected resource_account_issuer_mismatch, got %v", err)
+	if _, _, err = ver.VerifyDelegatedAccess(tok); err != nil {
+		t.Fatalf("verify (lazy-load): %v", err)
 	}
 }
 
@@ -261,7 +260,7 @@ func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	}
 	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer: "https://rogue.example", Audiences: []string{"tensorhub"},
-		DelegatedSubject: "x", Tenant: "rogue", TTL: time.Minute,
+		DelegatedSubject: "x", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(tok); err == nil {
 		t.Fatal("expected rejection of unregistered issuer")

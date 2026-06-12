@@ -40,7 +40,7 @@ func TestVerifierJWKSFetchResilience(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", Tenant: "t1", TTL: time.Minute,
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 
 	// Prime the cache with the OLD key (verify a token it signed).
 	t1, _ := MintDelegatedAccessToken(context.Background(), oldSigner, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", Tenant: "t1", TTL: time.Minute,
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(t1); err != nil {
 		t.Fatalf("prime verify: %v", err)
@@ -97,7 +97,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 	// Rotate the signing key (same kid), cache still fresh, mint with the NEW key.
 	current.Store(newSigner)
 	t2, _ := MintDelegatedAccessToken(context.Background(), newSigner, DelegatedAccessParams{
-		Issuer: iss, Audiences: aud, DelegatedSubject: "u2", Tenant: "t1", TTL: time.Minute,
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u2", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(t2); err != nil {
 		t.Fatalf("verify should succeed after refetch-on-reject (key rotated under same kid): %v", err)

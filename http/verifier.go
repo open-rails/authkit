@@ -71,12 +71,12 @@ type Verifier struct {
 
 // issuerEntry describes a trusted issuer (private — replaces core.IssuerAccept).
 type issuerEntry struct {
-	issuer                 string
-	audiences              []string
-	jwksURL                string
-	cacheTTL               time.Duration
-	maxStale               time.Duration
-	trustedResourceAccount string
+	issuer     string
+	audiences  []string
+	jwksURL    string
+	cacheTTL   time.Duration
+	maxStale   time.Duration
+	tenantSlug string
 }
 
 type issuerKeys struct {
@@ -246,11 +246,11 @@ type IssuerOptions struct {
 	// a failed JWKS refresh. Default: 1 hour.
 	MaxStale time.Duration
 
-	// TrustedResourceAccount optionally binds delegated service tokens from this
-	// issuer to one resource-service account slug. Tenant issuers loaded from
-	// the tenant_issuers store set this to that row's tenant slug, so a
-	// trusted issuer cannot mint a delegated token for another resource account.
-	TrustedResourceAccount string
+	// TenantSlug is the receiver-internal tenant slug this issuer is registered
+	// to — issuer-registry data, the single source of tenant identity for
+	// tokens signed by this issuer (tokens carry no tenant claims). It resolves
+	// the principal's tenant; it is never compared against token claims.
+	TenantSlug string
 }
 
 // AddIssuer registers (or updates) a trusted issuer. This is the single
@@ -263,12 +263,12 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	}
 
 	ie := issuerEntry{
-		issuer:                 issuerID,
-		audiences:              audiences,
-		jwksURL:                strings.TrimSpace(opts.JWKSURI),
-		cacheTTL:               opts.CacheTTL,
-		maxStale:               opts.MaxStale,
-		trustedResourceAccount: strings.ToLower(strings.TrimSpace(opts.TrustedResourceAccount)),
+		issuer:     issuerID,
+		audiences:  audiences,
+		jwksURL:    strings.TrimSpace(opts.JWKSURI),
+		cacheTTL:   opts.CacheTTL,
+		maxStale:   opts.MaxStale,
+		tenantSlug: strings.TrimSpace(opts.TenantSlug),
 	}
 
 	v.mu.Lock()
@@ -370,7 +370,7 @@ func (v *Verifier) WithService(svc *core.Service) *Verifier {
 // its trust mode (#465): jwks mode fetches+refreshes from the URI; static mode
 // seeds the human-managed PEM list (no URL fetching ever for static bindings).
 func tenantIssuerOptions(fi core.TenantIssuer) IssuerOptions {
-	opts := IssuerOptions{TrustedResourceAccount: fi.TenantSlug}
+	opts := IssuerOptions{TenantSlug: fi.TenantSlug}
 	if fi.Mode == core.TenantIssuerModeStatic {
 		for _, k := range fi.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
@@ -652,17 +652,15 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		return Claims{}, errors.New("missing_sub")
 	}
 
-	tenant := strings.TrimSpace(strClaim(mapClaims, "tenant"))
 	if isDelegatedAccessTyp {
-		if tenant == "" {
-			return Claims{}, errors.New("missing_tenant")
+		// HARD CUT: a delegated access token carries NO tenant identity claims.
+		// The VALIDATED `iss` is the tenant identity: the receiver's issuer
+		// registry maps it to exactly one internal tenant record (slug + uuid),
+		// so neither a slug nor a uuid ever rides in the token. Legacy tenant
+		// claims are rejected like any other forbidden claim on this profile.
+		if strClaim(mapClaims, "tenant") != "" {
+			return Claims{}, errors.New("delegated_access_has_tenant")
 		}
-		// HARD CUT: delegated access tokens identify the tenant by `tenant`
-		// (slug) + validated `iss` ONLY. A `tenant_id` uuid claim is part of no
-		// profile — receivers resolve their internal tenant record from the
-		// issuer registry, so resource-account uuids never ride in tokens. A
-		// token carrying the legacy claim is rejected like any other forbidden
-		// claim on this profile.
 		if strClaim(mapClaims, "tenant_id") != "" {
 			return Claims{}, errors.New("delegated_access_has_tenant_id")
 		}
@@ -673,37 +671,10 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 			return Claims{}, errors.New("delegated_access_has_roles")
 		}
 	}
-	if err := v.validateDelegatedIssuerResourceAccount(mapClaims, tenant); err != nil {
-		return Claims{}, err
-	}
 
 	cl := v.extractClaims(mapClaims)
 	cl.TokenTyp = tokenTyp
 	return cl, nil
-}
-
-// validateDelegatedIssuerResourceAccount binds tenant delegated-service tokens
-// to the resource account registered for their issuer. The JWT `tenant` claim is
-// signed, but it is still issuer-controlled; this check ties it to the resource
-// server's trust registry so one trusted issuer cannot claim another resource
-// account.
-func (v *Verifier) validateDelegatedIssuerResourceAccount(mapClaims jwt.MapClaims, tenant string) error {
-	if strClaim(mapClaims, "delegated_sub") == "" {
-		return nil
-	}
-	issuer := strings.TrimSpace(strClaim(mapClaims, "iss"))
-	match := v.matchIssuer(issuer)
-	if match == nil || strings.TrimSpace(match.trustedResourceAccount) == "" {
-		return nil
-	}
-	trusted := strings.ToLower(strings.TrimSpace(match.trustedResourceAccount))
-	resourceAccount := strings.ToLower(strings.TrimSpace(tenant))
-	// The registered account is the tenant SLUG — the only tenant identity a
-	// token carries (hard cut: no tenant_id uuid claim).
-	if resourceAccount == "" || resourceAccount != trusted {
-		return errors.New("resource_account_issuer_mismatch")
-	}
-	return nil
 }
 
 // VerifyDelegatedAccess verifies a token, requires it to be a delegated access

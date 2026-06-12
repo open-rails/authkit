@@ -105,7 +105,6 @@ func mintFor(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) s
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "ext-user",
-		Tenant:           "cozy-art",
 		TTL:              time.Minute,
 	})
 	if err != nil {
