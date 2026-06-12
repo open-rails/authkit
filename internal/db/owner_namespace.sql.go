@@ -186,7 +186,7 @@ func (q *Queries) OwnerReservedNameUpsert(ctx context.Context, slug string) erro
 
 const ownerSlugConflictExists = `-- name: OwnerSlugConflictExists :one
 SELECT (
-  EXISTS(SELECT 1 FROM profiles.users u WHERE u.username = $1::text)
+  EXISTS(SELECT 1 FROM profiles.users u WHERE u.username = $1::text::citext)
   OR EXISTS(
     SELECT 1 FROM profiles.user_renames r
     JOIN profiles.users u ON u.id = r.user_id
@@ -267,7 +267,7 @@ const ownerSlugUserExists = `-- name: OwnerSlugUserExists :one
 SELECT EXISTS (
   SELECT 1
   FROM profiles.users u
-  WHERE u.username = $1::text
+  WHERE u.username = $1::text::citext
     AND ($2::text = '' OR u.id::text <> $2::text)
 )
 `

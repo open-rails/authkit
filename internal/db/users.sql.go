@@ -131,7 +131,7 @@ func (q *Queries) UserBan(ctx context.Context, arg UserBanParams) error {
 
 const userByEmail = `-- name: UserByEmail :one
 SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
-FROM profiles.users WHERE lower(email) = lower($1::text)
+FROM profiles.users WHERE email = lower($1::text)::citext
 `
 
 type UserByEmailRow struct {
@@ -366,7 +366,7 @@ func (q *Queries) UserEmailByID(ctx context.Context, id string) (*string, error)
 const userEmailOrUsernameExists = `-- name: UserEmailOrUsernameExists :one
 SELECT EXISTS(
   SELECT 1 FROM profiles.users
-  WHERE email = lower($1::text) OR username = $2::text
+  WHERE email = lower($1::text)::citext OR username = $2::text::citext
 )
 `
 
@@ -384,8 +384,8 @@ func (q *Queries) UserEmailOrUsernameExists(ctx context.Context, arg UserEmailOr
 
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text))::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text)::citext)::boolean AS email_taken,
+  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::citext)::boolean AS username_taken
 `
 
 type UserEmailOrUsernameTakenParams struct {
@@ -615,7 +615,7 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 const userPhoneOrUsernameExists = `-- name: UserPhoneOrUsernameExists :one
 SELECT EXISTS(
   SELECT 1 FROM profiles.users
-  WHERE phone_number = $1::text OR username = $2::text
+  WHERE phone_number = $1::text OR username = $2::text::citext
 )
 `
 
@@ -634,7 +634,7 @@ func (q *Queries) UserPhoneOrUsernameExists(ctx context.Context, arg UserPhoneOr
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::citext)::boolean AS username_taken
 `
 
 type UserPhoneOrUsernameTakenParams struct {

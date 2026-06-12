@@ -19,7 +19,7 @@ DELETE FROM profiles.owner_reserved_names WHERE slug = $1;
 -- eventual reuse.
 -- name: OwnerSlugConflictExists :one
 SELECT (
-  EXISTS(SELECT 1 FROM profiles.users u WHERE u.username = sqlc.arg(slug)::text)
+  EXISTS(SELECT 1 FROM profiles.users u WHERE u.username = sqlc.arg(slug)::text::citext)
   OR EXISTS(
     SELECT 1 FROM profiles.user_renames r
     JOIN profiles.users u ON u.id = r.user_id
@@ -77,7 +77,7 @@ RETURNING id::text;
 SELECT EXISTS (
   SELECT 1
   FROM profiles.users u
-  WHERE u.username = sqlc.arg(slug)::text
+  WHERE u.username = sqlc.arg(slug)::text::citext
     AND (sqlc.arg(exclude_user_id)::text = '' OR u.id::text <> sqlc.arg(exclude_user_id)::text)
 );
 

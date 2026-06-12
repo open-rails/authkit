@@ -9,7 +9,7 @@ FROM profiles.users WHERE id = $1;
 
 -- name: UserByEmail :one
 SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
-FROM profiles.users WHERE lower(email) = lower(sqlc.arg(email)::text);
+FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::citext;
 
 -- name: UserByUsername :one
 SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
@@ -29,13 +29,13 @@ WHERE id = $1 AND phone_number = $2;
 
 -- name: UserEmailOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text))::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text)::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::citext)::boolean AS email_taken,
+  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text::citext)::boolean AS username_taken;
 
 -- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text)::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text::citext)::boolean AS username_taken;
 
 -- name: UserSetPreferredLocale :exec
 UPDATE profiles.users
@@ -173,13 +173,13 @@ SELECT discord_username FROM profiles.users WHERE id = $1;
 -- name: UserEmailOrUsernameExists :one
 SELECT EXISTS(
   SELECT 1 FROM profiles.users
-  WHERE email = lower(sqlc.arg(email)::text) OR username = sqlc.arg(username)::text
+  WHERE email = lower(sqlc.arg(email)::text)::citext OR username = sqlc.arg(username)::text::citext
 );
 
 -- name: UserPhoneOrUsernameExists :one
 SELECT EXISTS(
   SELECT 1 FROM profiles.users
-  WHERE phone_number = sqlc.arg(phone)::text OR username = sqlc.arg(username)::text
+  WHERE phone_number = sqlc.arg(phone)::text OR username = sqlc.arg(username)::text::citext
 );
 
 -- name: UserApplyEmailChange :exec
