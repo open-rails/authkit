@@ -67,7 +67,7 @@ func main() {
     ExpectedAudiences: []string{"myapp"},
     BaseURL:           "https://myapp.com",
     FrontendCallbackPath: "/login/callback",
-    // RegistrationVerification: core.RegistrationVerificationRequired, // none|optional|required
+    // RegistrationVerification: core.RegistrationVerificationRequired, // none|optional|required — see "Registration verification: the embedder convention"
     // NativeUserRegistrationMode / TenantRegistrationMode: open|invite_only|admin_only|admin_bootstrap_only|... (host policy)
     // AutoCreatePersonalTenants: true  // opt in to a personal tenant per native user
     // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
@@ -109,6 +109,29 @@ For custom routers, iterate `svc.Routes().DefaultAPI()` or
 `svc.Routes().Groups(...)` and register each `RouteSpec.Method`,
 `RouteSpec.Path`, and `RouteSpec.Handler` yourself. Host apps should not keep
 duplicated AuthKit route allowlists.
+
+### Registration verification: the embedder convention
+
+`core.Config.RegistrationVerification` is a tri-state
+(`none|optional|required`) and stays that way — third-party embedders may
+legitimately want `none`. First-party hosts standardize on ONE config knob and
+map it to the enum at their config boundary (fleet decision 2026-06-11, issue
+#67):
+
+- Config key `auth.require_verified_registrations` / env
+  `AUTH_REQUIRE_VERIFIED_REGISTRATIONS`, a **bool, default `true`**.
+- `true`  => `core.RegistrationVerificationRequired` — verification gates login.
+- `false` => `core.RegistrationVerificationOptional` — the verification
+  email/SMS is still sent on signup when a sender is configured, but never
+  blocks login. With no sender configured, core degrades gracefully: the user
+  is created verified and nothing is sent.
+
+Reusing this name and mapping keeps hosts consistent (history: one host alone
+has cycled through `AUTH_VERIFICATION_REQUIRED`,
+`AUTH_REQUIRE_VERIFIED_REGISTRATIONS`, and `AUTH_REGISTRATION_VERIFICATION`).
+The bundled devserver follows the same convention (see `DEVSERVER.md`); treat
+`RegistrationVerificationNone` as a deliberate, library-level opt-out rather
+than something a host config should expose.
 
 Registration modes and route selection
 

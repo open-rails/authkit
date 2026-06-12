@@ -27,8 +27,18 @@ type config struct {
 	DBURL                    string
 	DevMode                  bool
 	DevMintSecret            string
-	RegistrationVerification core.RegistrationVerificationPolicy
-	MigrateOnStart           bool
+	// RequireVerifiedRegistrations is the first-party embedder convention for
+	// registration verification (issue #67): a single bool, default TRUE.
+	//   true  => core.RegistrationVerificationRequired (verification gates login)
+	//   false => core.RegistrationVerificationOptional (verification is still
+	//            sent when a sender is configured but never blocks login; with
+	//            no sender, core degrades gracefully and creates the user as
+	//            verified)
+	// The 'none' tier remains available to library embedders via
+	// core.RegistrationVerificationNone but is intentionally not reachable from
+	// the devserver env, mirroring what first-party hosts actually run.
+	RequireVerifiedRegistrations bool
+	MigrateOnStart               bool
 	IssuedAudiences          []string
 	ExpectedAudiences        []string
 	Environment              string
@@ -87,7 +97,7 @@ func loadConfig() (*config, error) {
 		IssuedAudiences:                issuedAudiences,
 		ExpectedAudiences:              expectedAudiences,
 		Environment:                    envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification:       core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
+		RequireVerifiedRegistrations:   envBool("AUTH_REQUIRE_VERIFIED_REGISTRATIONS", true),
 		ServiceTokenPrefix:             strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
 		PermissionCatalog:              parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
 		TenantManifestPath:             strings.TrimSpace(envOr("DEVSERVER_TENANT_MANIFEST_PATH", "")),
@@ -102,12 +112,23 @@ func loadConfig() (*config, error) {
 	if c.DevMode && c.DevMintSecret == "" {
 		return nil, fmt.Errorf("DEVSERVER_DEV_MINT_SECRET is required when DEVSERVER_DEV_MODE=true")
 	}
-	switch c.RegistrationVerification {
-	case core.RegistrationVerificationNone, core.RegistrationVerificationOptional, core.RegistrationVerificationRequired:
-	default:
-		return nil, fmt.Errorf("DEVSERVER_REGISTRATION_VERIFICATION must be one of: none, optional, required")
+	// Hard cut (issue #67): the tri-state env knob is gone; fail fast with a
+	// migration hint instead of silently ignoring it.
+	for _, legacy := range []string{"DEVSERVER_REGISTRATION_VERIFICATION", "DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS"} {
+		if strings.TrimSpace(os.Getenv(legacy)) != "" {
+			return nil, fmt.Errorf("%s has been replaced by AUTH_REQUIRE_VERIFIED_REGISTRATIONS (bool, default true): true => verification required (gates login), false => optional (still sends when a sender is configured, never blocks login). The 'none' tier is no longer exposed by the devserver", legacy)
+		}
 	}
 	return c, nil
+}
+
+// registrationVerificationPolicy maps the embedder bool convention to the core
+// tri-state enum at the config boundary (issue #67).
+func registrationVerificationPolicy(cfg *config) core.RegistrationVerificationPolicy {
+	if cfg.RequireVerifiedRegistrations {
+		return core.RegistrationVerificationRequired
+	}
+	return core.RegistrationVerificationOptional
 }
 
 func runServe(cfg *config) error {
@@ -136,7 +157,7 @@ func runServe(cfg *config) error {
 		ExpectedAudiences:        cfg.ExpectedAudiences,
 		Keys:                     keySource,
 		Environment:              cfg.Environment,
-		RegistrationVerification: cfg.RegistrationVerification,
+		RegistrationVerification: registrationVerificationPolicy(cfg),
 		ServiceTokenPrefix:       cfg.ServiceTokenPrefix,
 		PermissionCatalog:        toPermissionDefs(cfg.PermissionCatalog),
 	})
