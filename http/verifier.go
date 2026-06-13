@@ -13,9 +13,14 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
+
+// maxDelegatedRoles bounds how many role UUIDs we lift from attributes.roles on
+// a delegated token, so a hostile issuer can't inflate a principal unboundedly.
+const maxDelegatedRoles = 64
 
 // Verifier validates JWTs from one or more issuers.
 //
@@ -756,6 +761,11 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 		if tier := rawStringAttribute(cl.Attributes, "tier"); tier != "" {
 			cl.UserTier = tier
 		}
+		// Role UUIDs ride under attributes.roles (a JSON array of UUID strings).
+		// Validate + cap; malformed entries are dropped rather than failing the
+		// token. The top-level `roles` claim is forbidden on delegated tokens
+		// (rejected earlier), so this is the only role surface they carry.
+		cl.DelegatedRoles = rawUUIDStringsAttribute(cl.Attributes, "roles", maxDelegatedRoles)
 	} else {
 		cl.UserTier = strClaim(mc, "user_tier")
 		if cl.UserTier == "" {
@@ -827,6 +837,46 @@ func rawAttributesClaim(mc jwt.MapClaims, key string) map[string]json.RawMessage
 			continue
 		}
 		out[k] = json.RawMessage(b)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// rawUUIDStringsAttribute decodes a single attribute value as a JSON array of
+// strings and returns those that are well-formed UUIDs, capped at limit.
+// Malformed entries (non-UUID, blank) are dropped rather than failing — a
+// hostile issuer can't poison the whole token with one bad role. Returns nil
+// when the attribute is absent, not an array, or yields no valid UUIDs.
+func rawUUIDStringsAttribute(attrs map[string]json.RawMessage, key string, limit int) []string {
+	raw, ok := attrs[key]
+	if !ok {
+		return nil
+	}
+	// Decode element-wise so a single non-string entry doesn't void the whole
+	// array — non-string and malformed elements are skipped individually.
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, el := range arr {
+		var s string
+		if err := json.Unmarshal(el, &s); err != nil {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, err := uuid.Parse(s); err != nil {
+			continue
+		}
+		out = append(out, s)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
 	}
 	if len(out) == 0 {
 		return nil

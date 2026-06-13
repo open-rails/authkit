@@ -52,6 +52,15 @@ type Claims struct {
 	// its own typed schema. Nil when the claim is absent.
 	Attributes map[string]json.RawMessage
 
+	// DelegatedRoles are the actor's role UUIDs carried by a delegated service
+	// token under `attributes.roles` (a JSON array of UUID strings). They are
+	// extracted and validated at verify (malformed entries dropped, count
+	// capped) and surfaced on DelegatedPrincipal.Roles. Downstream services use
+	// them as e.g. budget-scope keys; authkit treats them as opaque strings.
+	// Nil when absent. Distinct from the native-user Roles/TenantRoles claims,
+	// which a delegated token never carries.
+	DelegatedRoles []string
+
 	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
 	// AuthKit service token; "delegated-access+jwt" identifies a delegated access
 	// token.
@@ -105,6 +114,11 @@ type DelegatedPrincipal struct {
 	JTI string
 	// UserTier is the resolved tier, sourced from `attributes.tier`.
 	UserTier string
+	// Roles are the actor's role UUID strings, sourced from `attributes.roles`
+	// (each validated as a well-formed UUID at verify; malformed entries are
+	// dropped, count is capped). Kept as strings so consumers parse to uuid
+	// without forcing a uuid dependency on the principal. Nil when absent.
+	Roles []string
 }
 
 // IsDelegated reports whether these claims represent a delegated principal
@@ -134,6 +148,7 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 		Attributes:       c.Attributes,
 		JTI:              c.JTI,
 		UserTier:         c.UserTier,
+		Roles:            c.DelegatedRoles,
 	}, true
 }
 

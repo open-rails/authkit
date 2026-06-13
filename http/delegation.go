@@ -52,6 +52,12 @@ type DelegatedAccessParams struct {
 	// policy metadata such as {"tier":"cozy_free"}, plan labels, budget classes,
 	// or risk buckets. Values are arbitrary JSON.
 	Attributes map[string]any
+	// Roles is a convenience for emitting the actor's role UUIDs into
+	// `attributes.roles` (a JSON array of UUID strings). Verify lifts them onto
+	// DelegatedPrincipal.Roles (validated + capped). Equivalent to setting
+	// Attributes["roles"] yourself; when both are set this typed field wins.
+	// authkit does not validate UUID shape at mint — that happens at verify.
+	Roles []string
 	// TTL is the token lifetime. Defaults to 15m when zero.
 	TTL time.Duration
 	// JTI, when set, becomes the `jti` claim (token identifier). Optional.
@@ -65,9 +71,10 @@ type DelegatedAccessParams struct {
 // `delegated_sub`/`permissions`/`attributes` claims, and NEVER sets
 // `sub` — the
 // sub-XOR-delegated_sub invariant is enforced by construction. Receiving
-// services authorize by issuer/resource-account trust plus `permissions`;
-// `roles` are not minted here because they are not authority for the receiving
-// service.
+// services authorize by issuer/resource-account trust plus `permissions`. A
+// top-level `roles` claim is never minted (it is forbidden on this profile);
+// actor role UUIDs, when carried, ride under `attributes.roles` (see the Roles
+// param) as opaque scope keys, not as authority for the receiving service.
 func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p DelegatedAccessParams) (string, error) {
 	if signer == nil {
 		return "", errors.New("signer required")
@@ -106,8 +113,33 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 			claims["permissions"] = perms
 		}
 	}
-	if len(p.Attributes) > 0 {
-		claims["attributes"] = p.Attributes
+	// Merge the typed Roles convenience into attributes.roles (typed field wins
+	// over any Attributes["roles"] the caller also set). Drop blanks so callers
+	// can't smuggle empty role strings.
+	attributes := p.Attributes
+	if len(p.Roles) > 0 {
+		roles := make([]string, 0, len(p.Roles))
+		for _, r := range p.Roles {
+			if s := strings.TrimSpace(r); s != "" {
+				roles = append(roles, s)
+			}
+		}
+		if len(roles) > 0 {
+			if attributes == nil {
+				attributes = make(map[string]any, 1)
+			} else {
+				// Copy so we don't mutate the caller's map.
+				cp := make(map[string]any, len(attributes)+1)
+				for k, vv := range attributes {
+					cp[k] = vv
+				}
+				attributes = cp
+			}
+			attributes["roles"] = roles
+		}
+	}
+	if len(attributes) > 0 {
+		claims["attributes"] = attributes
 	}
 	if j := strings.TrimSpace(p.JTI); j != "" {
 		claims["jti"] = j
