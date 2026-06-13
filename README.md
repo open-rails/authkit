@@ -526,7 +526,40 @@ sjwt, _, _ := svc.MintServiceJWT(ctx, core.ServiceJWTMintOptions{
     Subject:   "service:cozy-art",
     Audiences: []string{"tensorhub"},
 })
+
+// Arbitrary first-party claims (escape hatch — host owns the claim semantics):
+cjwt, _ := svc.MintCustomJWT(ctx, core.CustomJWTMintOptions{
+    Type:      "worker-capability+jwt",
+    TTL:       10 * time.Minute,
+    Subject:   "service:tensorhub",
+    Audiences: []string{"cozy.scheduler"},
+    Claims: map[string]any{
+        "cap_kind":   "worker",
+        "grants":     []string{"job:run"},
+        "release_id": releaseID,
+    },
+}) // iss/iat/exp + kid header owned by AuthKit; the host owns everything else
 ```
+
+**Three mint entry points — pick the most constrained one that fits.** All three
+sign through the one internal key (same JWKS, same `kid`/`alg` header); they
+differ only in how much of the claim shape AuthKit owns:
+
+| Method | Use when | Claim shape |
+| --- | --- | --- |
+| `MintServiceJWT` | First-party machine-to-machine call (`service:<app>` → another app). | **Opinionated.** Forces `token_use=service`, `typ=service+jwt`; you supply `sub`/`aud`/`permissions`/`resources` only. |
+| `MintDelegatedAccessToken` | Cross-service federation — one issuer signs for a delegated actor a receiver accepts after issuer/JWKS/aud checks. | **Opinionated.** Forces `typ=delegated-access+jwt`, writes `delegated_sub`, NEVER sets `sub`. |
+| `MintCustomJWT` | **Escape hatch** — token shapes the two above can't express (e.g. tensorhub capability/worker tokens with `cap_kind`/`grants`/`release_id`, or a worker variant with `aud:["cozy.scheduler"]`). | **Host-owned.** You pass an arbitrary `Claims` map (+ optional `Type`/`Subject`/`Audiences`/`Issuer`). AuthKit owns ONLY `iss`/`iat`/`exp` and the `kid`/`alg` header. |
+
+`MintCustomJWT` is the blessed alternative to reaching for the low-level
+`jwtkit.Signer.Sign` — the host stops hand-assembling `kid`/`iss`/`exp` and never
+risks holding a signer it shouldn't. **You own the claim semantics; the verifier
+side must understand them.** Precedence is enforced: the host `Claims` map may NOT
+set `iss`/`iat`/`exp` (returns `ErrCustomClaimsReserved`) — `iss` is overridable
+only via the explicit `Issuer` option (defaults to the Service issuer); the
+explicit `Subject`/`Audiences` options win over any `sub`/`aud` in the map. TTL is
+required and capped at `MaxCustomJWTLifetime` (1h); empty and oversized claim sets
+are rejected.
 
 **Local-backend key resolution precedence** (used when `cfg.Keys == nil`),
 identical for the convenience auto-resolver and the explicit constructors:

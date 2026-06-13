@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 73
+next_id: 74
 
 ---
 
@@ -177,3 +177,34 @@ Consumer adoption is tracked in the umbrella issue **cozy-art #143** (one JWT ke
 - [x] Docs: "Signing & key resolution for embedders" (one-key principle, sign-through-authkit, local backend config, remote-signer seam, envelope, prod hard-fail)
 - [x] Tests: configurable path resolves; env precedence preserved; prod hard-fails without a key; mint→verify round-trips through the `Signer`
 - [x] go build / go vet / go test green
+
+---
+
+# #73: Arbitrary-claims service-token mint — high-level API for custom JWT shapes (so hosts never reach for the low-level Signer)
+
+**Completed:** no
+
+Follows #70. #70 gave hosts two high-level mint methods — `MintDelegatedAccessToken` and `MintServiceJWT` — that sign through authkit's internal key (host never touches the PEM). But both **lock the claim shape**: `MintServiceJWT` forces `token_use=service` + `typ=service+jwt` and only allows `permissions`/`resources`; `MintDelegatedAccessToken` *deletes* `sub` and forces `typ=delegated-access+jwt`. Neither can express tensorhub's **capability/worker tokens**, which carry custom claims like `cap_kind`, `grants`, `tenant`, `request_id`, `job_id`, `endpoint`, `function_name` (and a worker/realtime variant with `release_id` + `aud:["cozy.scheduler"]`).
+
+Consequence today (tensorhub, after #70 adoption): tensorhub mints those tokens by reaching for the **low-level `jwtkit.Signer.Sign(ctx, claims)`** it pulls off the KeySource. That's still ONE key / ONE JWKS and the host never reads the PEM (the #70 hard boundary holds — `Signer` is a sign *operation*, not key material), but it bypasses the high-level mint surface: the host hand-assembles claims, sets its own `typ`/`kid`/`iss`/`exp`, and is one refactor away from accidentally holding a signer it shouldn't. We want a blessed high-level entry point for custom-claim tokens.
+
+Goal: add a Service-level mint for arbitrary first-party claim sets that signs through the internal `Signer`, so a host passes a claims map (+ a few controlled headers) and gets a signed JWT — never the signer, never the key. This is the high-level equivalent of what tensorhub does with the raw `Signer` now, with authkit owning the boilerplate (kid header, alg, `iss` default, `iat`/`exp`, JWKS alignment).
+
+Design:
+- New `(*core.Service) MintCustomJWT(ctx, opts core.CustomJWTMintOptions) (string, error)` (name TBD — could also be `MintRawClaims`). `CustomJWTMintOptions`:
+  - `Claims map[string]any` — the host's claim set (e.g. `cap_kind`, `grants`, `release_id`, custom `aud`). authkit sets/normalizes the registered claims it owns: `iss` (defaults to Service issuer; overridable), `iat`, `exp` (from a `TTL`), and `kid` in the header.
+  - `TTL time.Duration` (required, bounded by a sane max), `Type string` (the JWT `typ` header; default e.g. `at+jwt` or empty — host sets `worker-capability`/etc.), optional `Subject`, `Audiences`.
+  - It must REFUSE to silently clobber host claims it doesn't own, and document precedence (authkit-owned registered claims win, or are explicitly host-overridable).
+- Keep `MintServiceJWT` / `MintDelegatedAccessToken` as the constrained, opinionated paths (don't loosen them). `MintCustomJWT` is the escape hatch — clearly documented as "you own the claim semantics; the verifier side must understand them."
+- Boundary unchanged: signs via the internal `Signer`; NO new private-key/PEM/`crypto.Signer` accessor. (It does not need to expose `ActiveSigner` to the host at all — that's the point: replace host use of the raw signer.)
+- Docs: extend the #70 "Signing & key resolution for embedders" section with when to use `MintServiceJWT` vs `MintDelegatedAccessToken` vs `MintCustomJWT`.
+
+Consumer follow-up (tensorhub): replace the `jwtkit.Signer.Sign(...)` calls in `internal/identity/platformjwt` (capability + worker/realtime tokens) with `MintCustomJWT`, asserting byte-identical claim/`typ`/`iss`/`aud` output so cross-service verification is unchanged. Tracked alongside cozy-art #143's tensorhub task.
+
+**Tasks:**
+- [x] `core.CustomJWTMintOptions` + `(*Service).MintCustomJWT` signing through the internal `Signer` (sets kid/alg/iss-default/iat/exp; carries the host claim map + `typ`/`aud`/`sub`).
+- [x] Guardrails: bounded TTL; documented claim precedence (don't silently overwrite host claims); reject empty/oversized claim sets.
+- [x] Tests: custom claims (`cap_kind`/`grants`/`release_id`) round-trip; `typ` header honored; mint→verify via JWKS; `iss` default + override; TTL bound enforced.
+- [x] Docs: extend "Signing & key resolution for embedders" with the three mint entry points + when to use each.
+- [x] go build / go vet / go test green.
+- [ ] (consumer, separate) tensorhub platformjwt swaps raw `Signer.Sign` → `MintCustomJWT` with byte-identical output.
