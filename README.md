@@ -628,6 +628,37 @@ Identity validation policy
   still included as a compatibility alias.
 - Password policy is fixed in AuthKit and currently requires at least 8
   characters; weak passwords return `password_too_short`.
+
+Password hash policy (verification whitelist):
+- AuthKit verifies exactly two hash formats: **argon2id** (native) and
+  **bcrypt** (legacy-but-sound; verified, then lazily re-hashed to argon2id on
+  the first successful login). This is the designed migration path for hosts
+  importing password hashes: import bcrypt via `UpsertPasswordHash`, and
+  accounts upgrade themselves transparently.
+- Anything else is deliberately NOT verified, even when an implementation
+  would be easy. Rationale, learned from the doujins legacy migration (1,255
+  unimportable hashes): DES `crypt()` truncates passwords to 8 significant
+  characters with a 12-bit salt — accepting a DES match as proof of identity
+  keeps a trivially crackable credential live in the auth path; md5-crypt is
+  fast and memory-unhardened; and corrupted/mangled stored hashes (22% of that
+  cohort) can never verify under any algorithm, so a refuse-and-reset
+  mechanism is needed regardless. A short whitelist is itself the invariant:
+  every additional accepted format lowers the floor of what counts as
+  authentication.
+- For unverifiable imports, hosts store the row with
+  `hash_algo = "legacy-reset-required"` (`core.HashAlgoLegacyResetRequired`),
+  preserving the raw legacy hash for forensics only. Every password-verify
+  path (login, reauth, change-password) then returns
+  `core.ErrPasswordResetRequired`, surfaced over HTTP as a 401 with the stable
+  body code `password_reset_required`, so clients can tell the user to reset
+  instead of showing generic invalid-credentials.
+- Recovery root of trust: these accounts fall back to **email (or phone)
+  mailbox control as the sole proof of ownership** — the same trust model as
+  any forgot-password flow (reset links expire in 1 hour, and the flow does
+  not require the address to be pre-verified: receiving the link is the
+  proof). Completing the reset writes an argon2id hash, which clears the flag
+  permanently. Accounts with no reachable email/phone are support cases by
+  design.
 - Email and phone validation/normalization are fixed in AuthKit. Email is
   trimmed/lowercased and must be address-like. Phone numbers must be E.164-like
   (`+` followed by country code and digits).
