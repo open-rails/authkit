@@ -47,7 +47,7 @@ func WithTenantIssuersAuthToken(token string) TenantIssuersClientOption {
 
 // NewTenantIssuersClient creates a TenantIssuersClient.
 func NewTenantIssuersClient(opts ...TenantIssuersClientOption) *TenantIssuersClient {
-	fc := &TenantIssuersClient{httpClient: http.DefaultClient}
+	fc := &TenantIssuersClient{httpClient: defaultOutboundHTTPClient}
 	for _, o := range opts {
 		o(fc)
 	}
