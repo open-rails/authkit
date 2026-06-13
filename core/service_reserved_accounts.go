@@ -28,7 +28,7 @@ func (s *Service) setUserReservedTx(ctx context.Context, tx pgx.Tx, userID strin
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	return s.q.WithTx(tx).UserSetReserved(ctx, db.UserSetReservedParams{ID: userID, Reserved: reserved})
+	return s.qtx(tx).UserSetReserved(ctx, db.UserSetReservedParams{ID: userID, Reserved: reserved})
 }
 
 func (s *Service) setTenantReservedTx(ctx context.Context, tx pgx.Tx, tenantID string, reserved bool) error {
@@ -38,7 +38,7 @@ func (s *Service) setTenantReservedTx(ctx context.Context, tx pgx.Tx, tenantID s
 	if strings.TrimSpace(tenantID) == "" {
 		return fmt.Errorf("invalid_tenant")
 	}
-	return s.q.WithTx(tx).TenantSetReserved(ctx, db.TenantSetReservedParams{ID: tenantID, Reserved: reserved})
+	return s.qtx(tx).TenantSetReserved(ctx, db.TenantSetReservedParams{ID: tenantID, Reserved: reserved})
 }
 
 // enforceReservedPlaceholderCredentialInvariantTx ensures reserved placeholders
@@ -50,7 +50,7 @@ func (s *Service) enforceReservedPlaceholderCredentialInvariantTx(ctx context.Co
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid_user")
 	}
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 	if err := qtx.UserPasswordDelete(ctx, userID); err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 	if row, err := qtx.TenantIDReservedBySlug(ctx, slug); err == nil {
 		tenantID = strings.TrimSpace(row.ID)
 		if !row.Reserved {

@@ -272,7 +272,7 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug st
 		if err != nil {
 			return ServiceToken{}, "", err
 		}
-		qtx := s.q.WithTx(tx)
+		qtx := s.qtx(tx)
 		ins, err := qtx.ServiceTokenInsert(ctx, db.ServiceTokenInsertParams{
 			TenantID:   tenant.ID,
 			KeyID:      keyID,

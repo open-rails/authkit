@@ -117,7 +117,7 @@ func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, p
 	if pg == nil {
 		return false
 	}
-	exists, err := db.New(pg).UserProviderLinkExists(r.Context(), db.UserProviderLinkExistsParams{
+	exists, err := db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderLinkExists(r.Context(), db.UserProviderLinkExistsParams{
 		UserID:       strings.TrimSpace(userID),
 		Issuer:       strings.TrimSpace(issuer),
 		ProviderSlug: ptr(strings.TrimSpace(provider)),
@@ -191,7 +191,7 @@ func (s *Service) reauthMethods(r *http.Request, userID string) []string {
 	if pg == nil {
 		return methods
 	}
-	providers, err := db.New(pg).UserProviderSlugsDistinct(r.Context(), strings.TrimSpace(userID))
+	providers, err := db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderSlugsDistinct(r.Context(), strings.TrimSpace(userID))
 	if err != nil {
 		return methods
 	}

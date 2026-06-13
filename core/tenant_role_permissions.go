@@ -177,7 +177,7 @@ func (s *Service) SetRolePermissions(ctx context.Context, tenantSlug, role strin
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 	if err := qtx.TenantRolePermissionsDelete(ctx, db.TenantRolePermissionsDeleteParams{TenantID: tenant.ID, Role: role}); err != nil {
 		return err
 	}

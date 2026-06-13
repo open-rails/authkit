@@ -169,7 +169,7 @@ func (s *Service) transitionTenantInvite(ctx context.Context, inviteID, userID, 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 
 	inv, err := qtx.TenantInviteForUpdate(ctx, inviteID)
 	if err != nil {

@@ -39,6 +39,18 @@ Migrations
   The bundled devserver uses this exact path. `FS` remains available for custom runners.
 - PostgreSQL-backed storage requires PostgreSQL 18 or newer. Older PostgreSQL versions are not supported. AuthKit migrations use native `uuidv7()` defaults for AuthKit-owned UUID identifiers; PostgreSQL 17 can store UUIDv7 values but does not provide the required `uuidv7()` function.
 
+Configurable schema (issue 69)
+- AuthKit's tables live in the Postgres schema named by `core.Config.Schema` (default `profiles`, the historical name — leaving it unset is fully backward-compatible). Set it when multiple apps embed AuthKit against the same database and must not share auth tables (e.g. one app keeps `profiles`, another uses `openrails_auth`). Names must match `^[a-z_][a-z0-9_]*$` (max 63 bytes).
+- AuthKit never touches `search_path` on the host's shared pool; queries stay schema-qualified and the qualifier is rewritten to the configured schema at execution time (see `internal/db/schema.go`).
+- Hosts with a non-default schema must run the migrations rendered for it:
+
+  ```go
+  fsys, _ := pgmigrations.FSForSchema("openrails_auth") // fs.FS; "profiles"/"" returns the embedded FS unchanged
+  ms, _ := migratekit.LoadFromFS(fsys)
+  ```
+
+- Pool-parameter helpers default to `profiles`; schema-aware variants take `svc.Schema()`: `authhttp.RequireAdminInSchema`, `authhttp.IsAdminInSchema`, `authhttp.HasRoleDBCheckInSchema`, `identity.NewStoreInSchema`.
+
 Database queries (sqlc)
 - All static Postgres queries are written as raw SQL in `internal/db/queries/*.sql` (one file per domain) and compiled to type-safe Go by [sqlc](https://docs.sqlc.dev) into the `internal/db` package (committed, never hand-edited).
 - To add or change a query: edit the `.sql` file, run `make sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose -f docker-compose.devserver.yaml up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`.
@@ -471,7 +483,79 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 | `Issuer`, `IssuedAudiences`, `ExpectedAudiences` | Host config | Required token contract inputs. |
 | `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `AutoCreatePersonalTenants`, `NativeUserRegistrationMode`, `TenantRegistrationMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
 | `Keys` provided (`cfg.Keys != nil`) | Host config | Fully disables library key env/filesystem discovery. |
-| `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `/vault/auth/keys.json`, `.runtime/authkit/*`). |
+| `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `<KeysPath>/keys.json` (default `/vault/auth`), `.runtime/authkit/*`). |
+| `KeysPath` / `AUTHKIT_KEYS_PATH` | Host config | Overrides the filesystem **directory** the local resolver scans for `keys.json`. Default `/vault/auth` (unchanged). See "Signing & key resolution for embedders". |
+
+---
+
+### Signing & key resolution for embedders
+
+**One key per app.** Each embedding app owns exactly **one** JWT signing keypair —
+its issuer identity, the only thing on its JWKS (plus retiring keys during
+rotation). That single key signs **all** of the app's JWTs: user
+access/refresh tokens, first-party service JWTs, and delegated access JWTs.
+They differ only in claims (`aud`, `sub`/`delegated_sub`, `token_use`), never in
+key. No app should manage a second JWT key.
+
+**Sign through AuthKit — the host never holds the private key.** The host
+delegates the signing *operation* to AuthKit and passes claims/params only.
+AuthKit exposes the host exactly two things: (1) **mint/sign** operations
+(params in → signed token out) and (2) **public** verification material (JWKS).
+There is **no** API that returns a private key, a PEM, or a raw `crypto.Signer`
+over the private key — so the host literally cannot read, copy, or persist it.
+Mint through the `*core.Service` methods:
+
+```go
+svc, _ := core.NewFromConfig(core.Config{
+    Issuer:            "https://cozy-art.example",
+    IssuedAudiences:   []string{"cozy-art"},
+    ExpectedAudiences: []string{"cozy-art"},
+    // Keys: nil  => local resolver; point it wherever the host renders keys.json:
+    KeysPath:          "/vault/auth", // or set AUTHKIT_KEYS_PATH; default is /vault/auth
+})
+
+// Delegated access JWT (cross-service federation) — params only, no key:
+tok, _ := svc.MintDelegatedAccessToken(ctx, core.DelegatedAccessParams{
+    Audiences:        []string{"tensorhub"},
+    DelegatedSubject: userID,
+    Permissions:      []string{"repo:create"},
+}) // iss defaults to the Service's Issuer
+
+// First-party service JWT (machine-to-machine, e.g. cozy-art -> tensorhub):
+sjwt, _, _ := svc.MintServiceJWT(ctx, core.ServiceJWTMintOptions{
+    Subject:   "service:cozy-art",
+    Audiences: []string{"tensorhub"},
+})
+```
+
+**Local-backend key resolution precedence** (used when `cfg.Keys == nil`),
+identical for the convenience auto-resolver and the explicit constructors:
+
+1. **Env** — `ACTIVE_KEY_ID` + `ACTIVE_PRIVATE_KEY_PEM` (+ optional `PUBLIC_KEYS`).
+2. **File** — `<dir>/keys.json` where `dir` = `cfg.KeysPath` → `AUTHKIT_KEYS_PATH`
+   → `/vault/auth` (default, unchanged). The file uses the
+   `{active_key_id, active_private_key_pem, public_keys}` envelope.
+3. **Dev-gen** — auto-generates and persists a keypair under `.runtime/authkit/`.
+   **Non-prod only**: when `ENV`/`APP_ENV`/`ENVIRONMENT` is `production`/`prod`
+   and neither env nor file yields a key, resolution **hard-fails** — no
+   throwaway key in production.
+
+Compose it yourself with the exported `jwtkit` constructors instead of the
+convenience resolver:
+
+- `jwtkit.EnvKeySource()` — env loader (returns `nil` when unset).
+- `jwtkit.FileKeySource(dir)` — `<dir>/keys.json` loader (returns `nil` when absent; empty dir defaults to `/vault/auth`).
+- `jwtkit.NewGeneratedKeySourceInDir(dir)` — dev-gen under a chosen dir (defaults to `.runtime/authkit`).
+- `jwtkit.NewAutoKeySource()` / `jwtkit.NewAutoKeySourceWithPath(dir)` — the composed env → file → dev-gen ladder above.
+
+**Pluggable backend (future remote signer).** Because `jwt.Signer` is an
+interface, the local backend (RSA key in memory, from a `KeySource`) and a
+future **remote Vault-Transit backend** (where the private key never enters the
+app's memory/disk/container) are interchangeable. AuthKit selects the backend at
+init; call sites (`svc.MintDelegatedAccessToken(...)` etc.) are unchanged and
+never see key material. The remote `VaultTransitSigner` is tracked as a
+forward-looking follow-up — **authkit future #72** — and drops in behind this
+same `Signer` seam with zero host changes.
 
 ---
 

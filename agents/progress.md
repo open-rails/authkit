@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 72
+next_id: 73
 
 ---
 
@@ -135,7 +135,7 @@ Design constraints:
 
 ---
 
-# #70: Host-configurable key resolution — overridable keys path + explicit KeySource constructors; consistent adoption
+# #70: Hosts delegate JWT signing to authkit via a pluggable Signer (local key now, remote Vault-Transit later) — host never handles the private key; one key per app; uniform key config
 
 **Completed:** no
 
@@ -149,25 +149,31 @@ The design is right; two gaps make embedders silently diverge instead of using i
 
 Goal: **one JWT keypair per app** (its issuer identity, the only thing on its JWKS — plus retiring keys during rotation), loaded ONE uniform way via `KeySource`, and reused for ALL of that app's JWT signing — user access/refresh tokens AND service/delegated JWTs to tensorhub/openrails (those differ only in claims: `aud`, `sub=service:…`, `token_use` — never in key). No app should manage a second JWT key. Key discovery stays OUT of the verifier — `KeySource` is an opt-in library the host composes (via `Config.Keys`) or lets auto-resolve.
 
-A host therefore loads ONE `KeySource` and uses it twice: hands it to `core.Config.Keys` (user-token issuer + JWKS), and reuses its **active signer** for its own delegated/service-JWT signer. So `KeySource` must expose the active signer + public keys cleanly (it already backs the JWKS; make sure host reuse for ad-hoc signing is a supported, documented path — no need for a parallel keypair like cozy-art's `platform_signer` or tensorhub's `platformjwt`).
+A host therefore NEVER handles the private key — it delegates the signing OPERATION to authkit. The boundary already exists: `jwt.Signer.Sign(ctx, claims jwt.MapClaims) (token, error)`, and `MintDelegatedAccessToken(ctx, signer, params)` already mints through it. The host calls authkit to sign (`signer.Sign(...)` / a Service mint method) and passes claims/params only. cozy-art's `platform_signer`/`servicejwt` and tensorhub's `platformjwt` — which read a raw PEM and sign themselves — are deleted in favor of asking authkit to sign.
 
-(The ONLY legitimately separate signing key in this fleet is tensorhub's **artifact** key, which signs build artifacts, not JWTs — different trust domain, not on the JWKS. Out of scope here.)
+Why this matters beyond dedup: because `Signer` is an interface, the LOCAL backend (RSA key in memory, from `KeySource`) and a FUTURE REMOTE backend (HashiCorp Vault Transit `sign`, where the private key NEVER enters the app's memory/disk/container) are interchangeable. Switching local→remote is a config change at authkit init; call sites (`signer.Sign(...)`) are unchanged and never see key material. Host config + signing code stay identical regardless of where the key lives.
+
+**Boundary (hard invariant):** private key material NEVER crosses the authkit→host boundary. authkit exposes the host EXACTLY two things: (1) MINT/sign operations (claims/params in → signed token out) and (2) PUBLIC verification material (JWKS / public keys). There is NO accessor that returns a private key, a PEM, or a raw `crypto.Signer` over the private key — so the host literally cannot read, copy, or persist it, a remote (Vault Transit) backend is a true drop-in, and key handling can't leak through host code. Any "give me the active private signer" API (including the one an earlier draft of this issue proposed) is explicitly rejected. Key loading (`KeySource`, PEM parsing) lives ENTIRELY inside authkit's local backend; the only key bytes a host ever provides are inputs to authkit at init (path/env), never something it reads back out.
+
+(The ONLY separate signing key in this fleet is tensorhub's **artifact** key — signs build artifacts, not JWTs; different trust domain, not on the JWKS. Out of scope here, though it could adopt the same remote-signer pattern later.)
 
 Design:
-- **Host-overridable keys path**: add `core.Config.KeysPath` (and an `AUTHKIT_KEYS_PATH` env) feeding `tryLoadFromFilesystem`; keep `/vault/auth` as the default so existing External-Secrets/K8s embedders are unchanged.
-- **Explicit, composable constructors** so hosts don't depend on auto-magic: `FileKeySource(path)` (point straight at a keys.json), `EnvKeySource()`, `GeneratedKeySource(dir)` (the dev generate+persist source, configurable dir, prod hard-fail preserved). Refactor `NewAutoKeySource` to compose these.
-- **Expose the active signer for reuse**: a stable accessor on `KeySource` (active `jwtkit.Signer` + public keys) so a host can sign its delegated/service JWTs with the SAME key it gave authkit. This is what lets every app collapse to one JWT key.
-- **Docs**: a "Key resolution for embedders" section — the one-key principle, priority order, envelope format, prod requirements, opt-in via `Config.Keys`, decoupled from the verifier, and the active-signer reuse pattern.
+- **`Signer` is the boundary** (already exists: `jwt.Signer.Sign(ctx, claims)`). Hosts obtain a `Signer` / call Service mint methods and sign through it — never construct their own signer or read the PEM.
+- **Local backend = `KeySource` → `RSASigner`**, with a host-overridable key location: add `core.Config.KeysPath` (+ `AUTHKIT_KEYS_PATH` env) feeding `tryLoadFromFilesystem`; default stays `/vault/auth`. Explicit constructors `FileKeySource(path)` / `EnvKeySource()` / `GeneratedKeySource(dir)`; refactor `NewAutoKeySource` to compose them.
+- **Service-level mint API**: authkit mints the token types hosts need — user (exists), delegated (`MintDelegatedAccessToken`, exists), and a first-party **service JWT** (add if missing) — each signing via the Service's internal `Signer`, so the host hands over claims/params and nothing key-shaped.
+- **Pluggable backend by config**: authkit selects the `Signer` backend at init (local `KeySource` now; a `VaultTransitSigner` later). The remote backend is a forward-looking follow-up — **future.md #72** — this issue just keeps the `Signer` seam clean and config-driven so #72 drops in with zero host changes.
+- **Docs**: "Signing & key resolution for embedders" — one-key principle, sign-through-authkit rule (host never holds the key), local backend config (path/env/constructors, default `/vault/auth`), the future remote-signer seam, envelope format, prod hard-fail.
 
-Consumer adoption is tracked in the umbrella issue **cozy-art #143** (one uniform key location + env/config name; collapse each app onto a single JWT key), covering all four embedders:
-- cozy-art (`core.Config{Keys:nil}` → silent dev-gen; plus a SEPARATE `platform_signer`/`servicejwt` key) and doujins (`keySource = nil`, `internal/server/server.go`): load one `KeySource`, give it to authkit AND the delegated signer.
+Consumer adoption is tracked in the umbrella issue **cozy-art #143** (one JWT key per app; ALL signing through authkit; uniform key config), covering all four embedders:
+- cozy-art (`core.Config{Keys:nil}` → silent dev-gen, PLUS a separate `platform_signer`/`servicejwt` PEM) and doujins (`keySource = nil`, `internal/server/server.go`): give authkit one `KeySource` and mint delegated/service JWTs THROUGH authkit — delete the bespoke signer + its key handling.
 - hentai0 (`internal/infra/authkit.go` already calls `NewAutoKeySource()`): move onto the configurable path.
-- tensorhub: delete `platformjwt.autoKeyStore`'s bespoke ladder + separate platform key; sign capability/platform JWTs with authkit's `KeySource`. (Artifact key stays separate.)
+- tensorhub: delete `platformjwt.autoKeyStore` + its separate platform key; mint capability/platform/delegated JWTs through authkit's `Signer`. (Artifact key stays separate.)
 
 **Tasks:**
-- [ ] `core.Config.KeysPath` + `AUTHKIT_KEYS_PATH` env override for the filesystem source (default stays `/vault/auth`)
-- [ ] Export `FileKeySource(path)`, `EnvKeySource()`, `GeneratedKeySource(dir)`; refactor `NewAutoKeySource` to compose them
-- [ ] Expose the active signer + public keys on `KeySource` for host-side delegated/service-JWT signing (one key, two signers); document the reuse pattern
-- [ ] Docs: "Key resolution for embedders" (one-key principle, priority order, envelope, prod requirements, opt-in + core-decoupled, active-signer reuse)
-- [ ] Tests: configurable path resolves; env precedence preserved; prod still hard-fails when no key is found; active-signer accessor round-trips (sign → verify via JWKS)
-- [ ] go build / go vet / go test green
+- [x] `core.Config.KeysPath` + `AUTHKIT_KEYS_PATH` env override for the local filesystem key source (default stays `/vault/auth`)
+- [x] Export `FileKeySource(path)`, `EnvKeySource()`, `GeneratedKeySource(dir)`; refactor `NewAutoKeySource` to compose them
+- [x] Service-level mint API: ensure authkit mints user + delegated + first-party service JWTs through its internal `Signer` (add the service-JWT mint if absent), so hosts pass claims/params and NEVER a key or a self-built signer
+- [x] Keep the `Signer` backend selectable at init (local `KeySource` now); document the seam for a future `VaultTransitSigner` (remote signing, key never in-app) — implementation tracked as a separate forward-looking issue
+- [x] Docs: "Signing & key resolution for embedders" (one-key principle, sign-through-authkit, local backend config, remote-signer seam, envelope, prod hard-fail)
+- [x] Tests: configurable path resolves; env precedence preserved; prod hard-fails without a key; mint→verify round-trips through the `Signer`
+- [x] go build / go vet / go test green

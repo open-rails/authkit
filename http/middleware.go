@@ -106,8 +106,16 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAdmin verifies admin role directly in Postgres.
+// RequireAdmin verifies admin role directly in Postgres. It assumes the
+// default "profiles" schema; hosts that configure core.Config.Schema should
+// use RequireAdminInSchema with svc.Schema().
 func RequireAdmin(pg *pgxpool.Pool) func(http.Handler) http.Handler {
+	return RequireAdminInSchema(pg, "")
+}
+
+// RequireAdminInSchema is RequireAdmin against AuthKit tables in the given
+// schema (empty means the default "profiles").
+func RequireAdminInSchema(pg *pgxpool.Pool, schema string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if pg == nil {
@@ -119,7 +127,7 @@ func RequireAdmin(pg *pgxpool.Pool) func(http.Handler) http.Handler {
 				forbidden(w, "forbidden")
 				return
 			}
-			isAdmin, err := IsAdmin(r.Context(), pg, cl.UserID)
+			isAdmin, err := IsAdminInSchema(r.Context(), pg, schema, cl.UserID)
 			if err == nil && isAdmin {
 				next.ServeHTTP(w, r)
 				return

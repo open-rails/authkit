@@ -23,6 +23,15 @@ type Config struct {
 	// FrontendCallbackPath is the host-owned frontend route that receives full-page
 	// OIDC login results. Empty defaults to "/login/callback".
 	FrontendCallbackPath string
+
+	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
+	// "profiles" (the historical hard-coded name), which is fully
+	// backward-compatible. Set it when multiple apps embed AuthKit against the
+	// same database and must not share auth tables (authkit issue 69). The name
+	// must match ^[a-z_][a-z0-9_]*$ (max 63 bytes); NewFromConfig rejects
+	// anything else. Hosts that set a non-default schema must also run the
+	// migrations rendered for that schema — see migrations/postgres.FSForSchema.
+	Schema string
 	// Paths for reset/verify are fixed to "/reset" and "/verify"; not configurable.
 
 	// RegistrationVerification controls registration verification behavior.
@@ -65,9 +74,23 @@ type Config struct {
 
 	// Keys can be nil - if nil, authkit auto-discovers keys with this priority:
 	// 1. Environment variables (ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, PUBLIC_KEYS)
-	// 2. Filesystem /vault/auth/keys.json (External Secrets Operator in K8s)
-	// 3. Auto-generated keys in .runtime/authkit/ (development fallback)
+	// 2. Filesystem <KeysPath>/keys.json (default /vault/auth; External Secrets
+	//    Operator in K8s). Override the directory with KeysPath or the
+	//    AUTHKIT_KEYS_PATH env var.
+	// 3. Auto-generated keys in .runtime/authkit/ (development fallback; prod hard-fail)
+	//
+	// Hosts NEVER handle the private key: they delegate the signing OPERATION to
+	// authkit (the Service mint methods / the internal Signer). There is no API
+	// that returns a private key or PEM. A future remote Vault-Transit backend
+	// (authkit future #72) drops in behind the same Signer seam with no host
+	// changes.
 	Keys jwtkit.KeySource
+
+	// KeysPath overrides the filesystem DIRECTORY the local key resolver scans
+	// for keys.json when Keys is nil. Empty defaults to the AUTHKIT_KEYS_PATH
+	// env var, then to /vault/auth, so existing embedders are unchanged. Use it
+	// when the host renders its keyset outside K8s (e.g. a host-run dev mount).
+	KeysPath string
 
 	// Providers – identity providers by name ("google", "apple", "github", "discord").
 	// Only client id/secret are required; standard scopes are derived from defaults.

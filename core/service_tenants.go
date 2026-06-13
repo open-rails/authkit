@@ -227,7 +227,7 @@ func (s *Service) CreateTenantForUser(ctx context.Context, req CreateTenantForUs
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 
 	created, err := qtx.TenantInsert(ctx, db.TenantInsertParams{ID: tenantID, Slug: slug})
 	if err != nil {
@@ -284,7 +284,7 @@ func (s *Service) renameTenantSlugImpl(ctx context.Context, tenantID, newSlug, a
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 
 	cur, err := qtx.TenantSlugAndPersonalByID(ctx, tenantID)
 	if err != nil {

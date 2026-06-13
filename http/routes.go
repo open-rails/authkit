@@ -83,7 +83,9 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	}
 	selected := routeGroupSet(groups)
 	required := Required(s.verifier)
-	admin := func(h http.Handler) http.Handler { return required(RequireAdmin(s.svc.Postgres())(h)) }
+	admin := func(h http.Handler) http.Handler {
+		return required(RequireAdminInSchema(s.svc.Postgres(), s.svc.Schema())(h))
+	}
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "not_found")

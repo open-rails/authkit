@@ -12,6 +12,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,6 +41,12 @@ type Options struct {
 	BaseURL string
 	// FrontendCallbackPath is the host-owned frontend route that receives full-page OIDC login results.
 	FrontendCallbackPath string
+	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
+	// "profiles". Must match ^[a-z_][a-z0-9_]*$ (max 63 bytes); NewService
+	// panics on an invalid non-empty value because a malformed name would be
+	// spliced into SQL text (see internal/db.ForSchema). Prefer NewFromConfig,
+	// which returns the validation error instead.
+	Schema string
 	// RegistrationVerification controls whether registration verification is disabled,
 	// non-blocking, or required.
 	RegistrationVerification RegistrationVerificationPolicy
@@ -161,6 +168,7 @@ type Service struct {
 	sms            SMSSender
 	pg             *pgxpool.Pool
 	q              *db.Queries
+	schema         string // validated Postgres schema name; db.DefaultSchema when unset
 	entitlements   EntitlementsProvider
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
@@ -185,17 +193,35 @@ func NewService(opts Options, keys Keyset) *Service {
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
 	}
-	return &Service{opts: opts, keys: keys, ephemeralMode: EphemeralMemory}
+	schema := strings.TrimSpace(opts.Schema)
+	if schema == "" {
+		schema = db.DefaultSchema
+	}
+	if !db.ValidSchemaName(schema) {
+		// A malformed schema name would be spliced into SQL text; refusing to
+		// construct the service is the injection guard for the Options path
+		// (NewFromConfig returns this as an error instead).
+		panic(fmt.Sprintf("authkit: invalid Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", opts.Schema))
+	}
+	opts.Schema = schema
+	return &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory}
 }
 
 // NewFromConfig creates a Service from high-level Config + Stores.
 // If Keys is nil, auto-discovers keys from environment variables, filesystem, or generates development keys.
 func NewFromConfig(cfg Config) (*Service, error) {
-	// Handle nil Keys - auto-discover from env vars, /vault/auth/keys.json, or generate for dev
+	// Handle nil Keys - auto-discover from env vars, <KeysPath>/keys.json, or
+	// generate for dev. The filesystem directory is host-overridable via
+	// cfg.KeysPath, then the AUTHKIT_KEYS_PATH env var, defaulting to
+	// /vault/auth so existing embedders are unchanged.
 	keySource := cfg.Keys
 	if keySource == nil {
+		keysPath := strings.TrimSpace(cfg.KeysPath)
+		if keysPath == "" {
+			keysPath = strings.TrimSpace(os.Getenv("AUTHKIT_KEYS_PATH"))
+		}
 		var err error
-		keySource, err = jwtkit.NewAutoKeySource()
+		keySource, err = jwtkit.NewAutoKeySourceWithPath(keysPath)
 		if err != nil {
 			return nil, fmt.Errorf("authkit: failed to auto-discover JWT keys: %w", err)
 		}
@@ -260,6 +286,13 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	if !validServiceTokenPrefix(tokenPrefix) {
 		return nil, fmt.Errorf("authkit: invalid ServiceTokenPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", cfg.ServiceTokenPrefix)
 	}
+	schema := strings.TrimSpace(cfg.Schema)
+	if schema == "" {
+		schema = db.DefaultSchema
+	}
+	if !db.ValidSchemaName(schema) {
+		return nil, fmt.Errorf("authkit: invalid Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", cfg.Schema)
+	}
 	opts := Options{
 		Issuer:                     issuer,
 		IssuedAudiences:            issuedAudiences,
@@ -269,6 +302,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		SessionMaxPerUser:          maxSess,
 		BaseURL:                    baseURL,
 		FrontendCallbackPath:       frontendCallbackPath,
+		Schema:                     schema,
 		RegistrationVerification:   registrationVerification,
 		AutoCreatePersonalTenants:  cfg.AutoCreatePersonalTenants,
 		NativeUserRegistrationMode: nativeUserRegistrationMode,
@@ -617,10 +651,12 @@ func (s *Service) isDevEnvironment() bool {
 	return isDevEnvironment(s.opts.Environment)
 }
 
-// WithPostgres attaches a pgx pool to the service.
+// WithPostgres attaches a pgx pool to the service. The pool is shared with the
+// host; AuthKit never mutates it (in particular it never sets search_path —
+// queries stay schema-qualified, rewritten to s.Schema() when non-default).
 func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
 	s.pg = pool
-	s.q = db.New(pool)
+	s.q = db.New(db.ForSchema(pool, s.dbSchema()))
 	// (issue 60) No tenant-mode downgrade safeguard: tenants are always supported,
 	// so there is no single/multi mode to refuse a downgrade into.
 	return s
@@ -628,6 +664,26 @@ func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
 
 // Postgres returns the attached pgx pool (may be nil).
 func (s *Service) Postgres() *pgxpool.Pool { return s.pg }
+
+// Schema returns the Postgres schema AuthKit's tables live in ("profiles"
+// unless configured otherwise via Config.Schema/Options.Schema).
+func (s *Service) Schema() string { return s.dbSchema() }
+
+// dbSchema returns the validated schema name, defaulting for zero-value
+// Services (some tests construct Service{} directly).
+func (s *Service) dbSchema() string {
+	if s == nil || s.schema == "" {
+		return db.DefaultSchema
+	}
+	return s.schema
+}
+
+// qtx returns Queries bound to tx with the service's schema rewrite applied.
+// Always use this instead of s.qtx(tx): WithTx is sqlc-generated and
+// wraps the raw tx, which would bypass the schema rewrite.
+func (s *Service) qtx(tx pgx.Tx) *db.Queries {
+	return db.New(db.ForSchema(tx, s.dbSchema()))
+}
 
 // WithEntitlements sets the entitlements provider.
 func (s *Service) WithEntitlements(p EntitlementsProvider) *Service { s.entitlements = p; return s }
@@ -2596,7 +2652,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 
 	oldUsername, err := qtx.UserUsernameByID(ctx, id)
 	if err != nil {
@@ -3023,7 +3079,7 @@ func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) e
 		return err
 	}
 	defer tx.Rollback(ctx)
-	qtx := s.q.WithTx(tx)
+	qtx := s.qtx(tx)
 
 	roleID, err := qtx.GlobalAdminRoleIDForUpdate(ctx)
 	if err != nil {
@@ -3202,7 +3258,9 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 
 	// Intentionally raw pgx (not sqlc): the filter/search/pagination clauses
 	// are assembled at runtime, which sqlc's static compilation cannot express.
-	countQuery := "SELECT COUNT(DISTINCT u.id) FROM " + from + " WHERE " + strings.Join(where, " AND ")
+	// Written against the default "profiles." qualifier and rewritten to the
+	// configured schema, same mechanism as the sqlc path (issue 69).
+	countQuery := db.RewriteSQL("SELECT COUNT(DISTINCT u.id) FROM "+from+" WHERE "+strings.Join(where, " AND "), s.dbSchema())
 	var total int64
 	if err := s.pg.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, err
@@ -3217,7 +3275,7 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 		args = append(args, offset, pageSize)
 	}
 
-	rows, err := s.pg.Query(ctx, query, args...)
+	rows, err := s.pg.Query(ctx, db.RewriteSQL(query, s.dbSchema()), args...)
 	if err != nil {
 		return nil, err
 	}

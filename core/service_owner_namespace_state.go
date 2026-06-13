@@ -59,7 +59,7 @@ func (s *Service) ownerReservedNameExistsTx(ctx context.Context, tx pgx.Tx, slug
 		return false, fmt.Errorf("tx required")
 	}
 	slug = normalizeReservedSlug(slug)
-	return s.q.WithTx(tx).OwnerReservedNameExists(ctx, slug)
+	return s.qtx(tx).OwnerReservedNameExists(ctx, slug)
 }
 
 func (s *Service) upsertOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug string) error {
@@ -67,7 +67,7 @@ func (s *Service) upsertOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug
 		return fmt.Errorf("tx required")
 	}
 	slug = normalizeReservedSlug(slug)
-	return s.q.WithTx(tx).OwnerReservedNameUpsert(ctx, slug)
+	return s.qtx(tx).OwnerReservedNameUpsert(ctx, slug)
 }
 
 func (s *Service) deleteOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug string) error {
@@ -75,7 +75,7 @@ func (s *Service) deleteOwnerReservedNameTx(ctx context.Context, tx pgx.Tx, slug
 		return fmt.Errorf("tx required")
 	}
 	slug = normalizeReservedSlug(slug)
-	_, err := s.q.WithTx(tx).OwnerReservedNameDelete(ctx, slug)
+	_, err := s.qtx(tx).OwnerReservedNameDelete(ctx, slug)
 	return err
 }
 
@@ -85,7 +85,7 @@ func (s *Service) ownerSlugConflictExistsTx(ctx context.Context, tx pgx.Tx, slug
 	}
 	slug = strings.ToLower(strings.TrimSpace(slug))
 	reuseCutoff := time.Now().UTC().Add(-renameReuseHold)
-	return s.q.WithTx(tx).OwnerSlugConflictExists(ctx, db.OwnerSlugConflictExistsParams{Slug: slug, ReuseCutoff: reuseCutoff})
+	return s.qtx(tx).OwnerSlugConflictExists(ctx, db.OwnerSlugConflictExistsParams{Slug: slug, ReuseCutoff: reuseCutoff})
 }
 
 func (s *Service) IsUserReserved(ctx context.Context, userID string) (bool, error) {
@@ -138,7 +138,7 @@ func (s *Service) setTenantNamespaceStateTx(ctx context.Context, tx pgx.Tx, tena
 		return err
 	}
 	reserved := state == OwnerNamespaceStateParkedTenant
-	n, err := s.q.WithTx(tx).TenantSetNamespaceState(ctx, db.TenantSetNamespaceStateParams{ID: tenantID, State: string(state), Reserved: reserved})
+	n, err := s.qtx(tx).TenantSetNamespaceState(ctx, db.TenantSetNamespaceStateParams{ID: tenantID, State: string(state), Reserved: reserved})
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (s *Service) ParkTenantNamespace(ctx context.Context, slug string) (tenantI
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	existing, err := s.q.WithTx(tx).TenantIDPersonalBySlug(ctx, slug)
+	existing, err := s.qtx(tx).TenantIDPersonalBySlug(ctx, slug)
 	existingID := existing.ID
 	switch {
 	case err == nil:
@@ -246,11 +246,11 @@ func (s *Service) ParkTenantNamespace(ctx context.Context, slug string) (tenantI
 	if err != nil {
 		return "", false, err
 	}
-	tenantID, err = s.q.WithTx(tx).TenantInsertWithState(ctx, db.TenantInsertWithStateParams{ID: tenantIDToInsert, Slug: slug, State: string(OwnerNamespaceStateParkedTenant)})
+	tenantID, err = s.qtx(tx).TenantInsertWithState(ctx, db.TenantInsertWithStateParams{ID: tenantIDToInsert, Slug: slug, State: string(OwnerNamespaceStateParkedTenant)})
 	if err != nil {
 		return "", false, err
 	}
-	if err := s.q.WithTx(tx).TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
+	if err := s.qtx(tx).TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
 		return "", false, err
 	}
 	if err := s.deleteOwnerReservedNameTx(ctx, tx, slug); err != nil {
@@ -498,7 +498,7 @@ func (s *Service) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []str
 	unrestricted = make([]string, 0, len(slugs))
 	notRestricted = make([]string, 0)
 	for _, slug := range slugs {
-		n, err := s.q.WithTx(tx).OwnerReservedNameDelete(ctx, slug)
+		n, err := s.qtx(tx).OwnerReservedNameDelete(ctx, slug)
 		if err != nil {
 			return nil, nil, err
 		}

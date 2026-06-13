@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -10,7 +11,8 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Store provides minimal identity lookups/mutations against the profiles schema.
+// Store provides minimal identity lookups/mutations against AuthKit's schema
+// (the default "profiles" unless constructed via NewStoreInSchema).
 type Store struct {
 	pg *pgxpool.Pool
 	q  *db.Queries
@@ -18,6 +20,17 @@ type Store struct {
 
 func NewStore(pg *pgxpool.Pool) *Store {
 	return &Store{pg: pg, q: db.New(pg)}
+}
+
+// NewStoreInSchema is NewStore against AuthKit tables in the given schema
+// (empty means the default "profiles"). The schema must match
+// ^[a-z_][a-z0-9_]*$ (max 63 bytes); pass core.Service.Schema() to stay in
+// sync with the embedding service.
+func NewStoreInSchema(pg *pgxpool.Pool, schema string) (*Store, error) {
+	if schema != "" && !db.ValidSchemaName(schema) {
+		return nil, fmt.Errorf("identity: invalid schema %q", schema)
+	}
+	return &Store{pg: pg, q: db.New(db.ForSchema(pg, schema))}, nil
 }
 
 // GetEmailsByIDs returns user_id -> email.

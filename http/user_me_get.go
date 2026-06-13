@@ -97,7 +97,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	// TODO - Move to service layer. This is currently the only place we need to know about linked providers, but if we add more endpoints that surface this info, it may make sense to return it from the service directly instead of doing a separate DB query here.
 	linkedProviders := []string{}
 	if pg := s.svc.Postgres(); pg != nil {
-		if providers, err := db.New(pg).UserProviderSlugs(r.Context(), adminUser.ID); err == nil {
+		if providers, err := db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderSlugs(r.Context(), adminUser.ID); err == nil {
 			for _, provider := range providers {
 				provider = strings.TrimSpace(provider)
 				if provider != "" {
