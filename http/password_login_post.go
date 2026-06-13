@@ -181,7 +181,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		needsPhoneVerify := !fetchedUser.PhoneVerified && fetchedUser.PhoneNumber != nil && fetchedUser.CreatedAt.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 
 		if needsEmailVerify || needsPhoneVerify {
-			if !s.svc.VerifyUserPassword(r.Context(), userID, req.Password) {
+			if verr := s.svc.CheckUserPassword(r.Context(), userID, req.Password); verr != nil {
+				if errors.Is(verr, core.ErrPasswordResetRequired) {
+					logLoginFailed(s, r, userID, "password_reset_required")
+					unauthorized(w, "password_reset_required")
+					return
+				}
 				logLoginFailed(s, r, userID, "invalid_credentials")
 				unauthorized(w, "invalid_credentials")
 				return
@@ -228,6 +233,11 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				unauthorized(w, "user_banned")
 				return
 			}
+			if errors.Is(err, core.ErrPasswordResetRequired) {
+				logLoginFailed(s, r, userID, "password_reset_required")
+				unauthorized(w, "password_reset_required")
+				return
+			}
 			logLoginFailed(s, r, userID, "invalid_credentials")
 			unauthorized(w, "invalid_credentials")
 			return
@@ -238,6 +248,11 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			if errors.Is(err, core.ErrUserBanned) {
 				logLoginFailed(s, r, "", "user_banned")
 				unauthorized(w, "user_banned")
+				return
+			}
+			if errors.Is(err, core.ErrPasswordResetRequired) {
+				logLoginFailed(s, r, "", "password_reset_required")
+				unauthorized(w, "password_reset_required")
 				return
 			}
 			pendingUser, pendingErr := s.svc.GetPendingRegistrationByEmail(r.Context(), loginEmail)

@@ -34,7 +34,11 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	freshness, err := s.svc.RequireFreshSession(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	if err != nil {
 		if errors.Is(err, core.ErrReauthenticationRequired) && body.CurrentPassword != "" {
-			if !s.svc.VerifyUserPassword(r.Context(), claims.UserID, body.CurrentPassword) {
+			if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
+				if errors.Is(verr, core.ErrPasswordResetRequired) {
+					unauthorized(w, "password_reset_required")
+					return
+				}
 				unauthorized(w, "invalid_password")
 				return
 			}
@@ -66,6 +70,12 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		changeErr = s.svc.ChangePassword(r.Context(), claims.UserID, body.CurrentPassword, body.NewPassword, keep)
 	}
 	if changeErr != nil {
+		if errors.Is(changeErr, core.ErrPasswordResetRequired) {
+			// The current password can never verify against a legacy
+			// reset-required hash; route the user to the reset flow.
+			badRequest(w, "password_reset_required")
+			return
+		}
 		if code := core.ValidationErrorCode(changeErr); code != "" {
 			badRequest(w, code)
 			return

@@ -113,9 +113,21 @@ type BatchEntitlementsProvider interface {
 	ListEntitlementsBatch(ctx context.Context, userIDs []string) (map[string][]string, error)
 }
 
+// HashAlgoLegacyResetRequired marks profiles.user_passwords rows migrated from
+// legacy systems whose stored hashes can never verify (DES crypt, md5-crypt,
+// corrupted values). The raw legacy hash is preserved in password_hash for
+// forensics only; the sole way forward for these accounts is a password reset.
+const HashAlgoLegacyResetRequired = "legacy-reset-required"
+
 var (
 	// ErrUserBanned indicates the account is blocked from authenticating.
 	ErrUserBanned = errors.New("user_banned")
+	// ErrPasswordResetRequired indicates the account's stored password hash is
+	// flagged HashAlgoLegacyResetRequired: no plaintext can ever verify against
+	// it, so the user must complete a password reset before password auth (login,
+	// reauth, change-password) can succeed. HTTP layers map this to the stable
+	// code "password_reset_required".
+	ErrPasswordResetRequired = errors.New("password_reset_required")
 	// ErrUserNotFound indicates a user does not exist (or is not visible).
 	ErrUserNotFound = errors.New("user_not_found")
 	// ErrEmailAlreadyVerified indicates an email verification request targeted an already-verified email.
@@ -890,6 +902,8 @@ func (s *Service) PasswordLogin(ctx context.Context, email, pass string, extra m
 	}
 	// Support legacy bcrypt with lazy rehash to Argon2id on successful login.
 	switch algo {
+	case HashAlgoLegacyResetRequired:
+		return "", time.Time{}, ErrPasswordResetRequired
 	case "argon2id":
 		ok, err := password.VerifyArgon2id(hash, pass)
 		if err != nil || !ok {
@@ -941,6 +955,8 @@ func (s *Service) PasswordLoginByUserID(ctx context.Context, userID, pass string
 		return "", time.Time{}, errOrUnauthorized(err)
 	}
 	switch algo {
+	case HashAlgoLegacyResetRequired:
+		return "", time.Time{}, ErrPasswordResetRequired
 	case "argon2id":
 		ok, err := password.VerifyArgon2id(hash, pass)
 		if err != nil || !ok {
@@ -980,20 +996,34 @@ func errOrUnauthorized(err error) error {
 // VerifyUserPassword checks a user's password without issuing tokens or updating last-login.
 // Returns true if the password is correct, false otherwise.
 func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) bool {
+	return s.CheckUserPassword(ctx, userID, pass) == nil
+}
+
+// CheckUserPassword is the error-returning form of VerifyUserPassword: nil on
+// success, ErrPasswordResetRequired when the stored hash is flagged
+// HashAlgoLegacyResetRequired (no plaintext can verify; the user must reset),
+// and a generic unauthorized error otherwise. Callers that need to route
+// reset-required users (reauth, change-password) should use this form.
+func (s *Service) CheckUserPassword(ctx context.Context, userID, pass string) error {
 	if s.pg == nil || strings.TrimSpace(userID) == "" {
-		return false
+		return errOrUnauthorized(nil)
 	}
 	hash, algo, _, err := s.getPasswordHash(ctx, userID)
 	if err != nil {
-		return false
+		return errOrUnauthorized(err)
 	}
 	switch algo {
+	case HashAlgoLegacyResetRequired:
+		return ErrPasswordResetRequired
 	case "argon2id":
 		ok, err := password.VerifyArgon2id(hash, pass)
-		return err == nil && ok
+		if err != nil || !ok {
+			return errOrUnauthorized(err)
+		}
+		return nil
 	case "bcrypt", "":
 		if !password.IsBcryptHash(hash) && algo == "" {
-			return false
+			return errOrUnauthorized(nil)
 		}
 		ok, err := password.VerifyBcrypt(hash, pass)
 		if err == nil && ok {
@@ -1001,11 +1031,11 @@ func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) b
 			if phc, hErr := password.HashArgon2id(pass); hErr == nil {
 				_ = s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil)
 			}
-			return true
+			return nil
 		}
-		return false
+		return errOrUnauthorized(err)
 	default:
-		return false
+		return errOrUnauthorized(nil)
 	}
 }
 
@@ -1031,6 +1061,10 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 			return err
 		}
 		switch algo {
+		case HashAlgoLegacyResetRequired:
+			// The current password can never verify against a reset-required
+			// hash; the user must go through the password-reset flow instead.
+			return ErrPasswordResetRequired
 		case "argon2id":
 			ok, err := password.VerifyArgon2id(hash, current)
 			if err != nil || !ok {

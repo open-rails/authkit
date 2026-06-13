@@ -27,7 +27,13 @@ func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Reques
 		badRequest(w, "invalid_request")
 		return
 	}
-	if !s.svc.VerifyUserPassword(r.Context(), claims.UserID, body.Password) {
+	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
+		if errors.Is(verr, core.ErrPasswordResetRequired) {
+			// The stored hash can never verify (legacy reset-required); the user
+			// cannot reauth with a password and must reset it first.
+			unauthorized(w, "password_reset_required")
+			return
+		}
 		unauthorized(w, "invalid_password")
 		return
 	}
@@ -149,7 +155,11 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 		return false
 	}
 	if password != "" {
-		if !s.svc.VerifyUserPassword(r.Context(), claims.UserID, password) {
+		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
+			if errors.Is(verr, core.ErrPasswordResetRequired) {
+				unauthorized(w, "password_reset_required")
+				return false
+			}
 			unauthorized(w, "invalid_password")
 			return false
 		}
