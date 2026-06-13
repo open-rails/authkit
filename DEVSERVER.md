@@ -31,7 +31,17 @@ Dev minting (optional, but required for billing E2E):
 - `DEVSERVER_DEV_MINT_SECRET=...`
 
 Registration behavior:
-- `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
+- `AUTH_REQUIRE_VERIFIED_REGISTRATIONS` (bool, default `true`) — the standard
+  first-party embedder knob (issue #67). `true` maps to
+  `core.RegistrationVerificationRequired` (verification gates login); `false`
+  maps to `core.RegistrationVerificationOptional` (a verification email/SMS is
+  still sent when a sender is configured but never blocks login; with no sender
+  configured, users are created verified and nothing is sent). With no sender,
+  the devserver logs verification codes to stdout (`[authkit/dev-email] ...`).
+  The legacy `DEVSERVER_REGISTRATION_VERIFICATION` tri-state is rejected at
+  boot with a migration hint; the `none` tier is no longer reachable from the
+  devserver env (library embedders can still pass
+  `core.RegistrationVerificationNone`).
 
 Tenant manifest bootstrap:
 - `DEVSERVER_TENANT_MANIFEST_PATH=/path/to/tenants.yaml` - strict YAML manifest declaring tenants, trusted tenant issuers, roles, and optional service token outputs.
