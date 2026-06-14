@@ -203,7 +203,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 	v := &Verifier{
 		skew:             60 * time.Second,
 		algorithms:       []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"},
-		httpClient:       http.DefaultClient,
+		httpClient:       defaultOutboundHTTPClient,
 		byIss:            map[string]*issuerKeys{},
 		fedKnown:         map[string]bool{},
 		negCache:         map[string]time.Time{},
