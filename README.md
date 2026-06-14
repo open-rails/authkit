@@ -847,11 +847,47 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
     - Success response includes `{ok, username, email, phone_number, discord_username, next_action}`
     - `next_action` is one of `none`, `verify_email`, or `verify_phone`
     - When `next_action` is `none`, the response also includes `{access_token, refresh_token, token_type, expires_in}`
-  - Set `RegistrationVerification: none|optional|required` in `core.Config`
+  - Set `RegistrationVerification: none|optional|required` in `core.Config`. AuthKit's
+    library interface is this tri-state enum (third-party embedders may legitimately want
+    `none` — no verification artifacts at all). See "Registration verification: the
+    `AUTH_REQUIRE_VERIFIED_REGISTRATIONS` embedder convention" below for the canonical
+    first-party config knob and the graceful no-sender behavior.
   - POST /register/resend-email
   - POST /register/resend-phone
   - Registration resend requests now return `invalid_email` / `invalid_phone_number` for malformed input and `pending_registration_not_found` when no matching pending registration exists.
   - Message delivery failures from the configured sender are surfaced as stable `email_delivery_failed` / `sms_delivery_failed` errors after AuthKit attempts provider submission.
+
+#### Registration verification: the `AUTH_REQUIRE_VERIFIED_REGISTRATIONS` embedder convention
+
+AuthKit's library interface for registration verification is the tri-state enum
+`core.RegistrationVerification` (`none` | `optional` | `required`), set on `core.Config`.
+The enum is the stable contract: third-party embedders may legitimately want `none`
+(create users immediately, no verification artifacts ever).
+
+First-party / canonical embedders, however, expose **one bool knob**, not a tri-state enum,
+so new hosts don't re-invent config names (doujins alone has cycled through
+`AUTH_VERIFICATION_REQUIRED`, `AUTH_REGISTRATION_VERIFICATION`, and back). The recommended
+convention is:
+
+- Config key `auth.require_verified_registrations` / env `AUTH_REQUIRE_VERIFIED_REGISTRATIONS`
+- Type: bool, **default `true`**
+- Mapping, applied at the app's config boundary:
+  - `true`  ⇒ `core.RegistrationVerificationRequired` (verification gates login)
+  - `false` ⇒ `core.RegistrationVerificationOptional` (a verification email/SMS is still
+    sent on signup when a sender is configured, but never blocks login)
+
+This bool intentionally cannot reach `none`; `none` stays available only via the raw enum
+for third-party embedders that want it. (doujins, hentai0, tensorhub, and cozy-art all map
+the bool at their config boundary.)
+
+**Graceful degrade under `optional` with no sender.** If the policy is `optional` and no
+email/SMS sender is configured, AuthKit does not error and does not leave the user dangling:
+it creates the user **already verified** and sends nothing (the core decision is
+`verified := s.email == nil` in `CreatePendingRegistrationWithLocale`). So a host can flip
+`AUTH_REQUIRE_VERIFIED_REGISTRATIONS=false` before wiring up a mail provider and registration
+keeps working end-to-end. (`required` with no sender is rejected at startup by
+`ValidateVerificationConfiguration`.)
+
 - Email verification:
   - POST /email/verify/request
   - POST /email/verify/confirm

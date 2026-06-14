@@ -2536,3 +2536,19 @@ Design constraints:
 - [x] Schema-rendering wrapper for the embedded migration FS (raw FS stays exported)
 - [x] Tests: non-default schema leaves no literal `profiles.` in rendered SQL/DDL; default-schema behavior unchanged
 - [x] go build / go vet / go test green
+
+---
+
+# #67: Standardize embedder verification config on AUTH_REQUIRE_VERIFIED_REGISTRATIONS bool; retire 'none' from the embedder surface
+
+**Completed:** yes
+
+Fleet decision (2026-06-11): every authkit embedder (doujins, hentai0, tensorhub, cozy-art) exposes ONE registration-verification knob: config key auth.require_verified_registrations / env AUTH_REQUIRE_VERIFIED_REGISTRATIONS, a bool, DEFAULT TRUE. Semantics: true => core.RegistrationVerificationRequired (verification gates login); false => core.RegistrationVerificationOptional (verification email/SMS is STILL SENT on signup when a sender is configured, but never blocks login; with no sender, core already degrades gracefully by creating the user as verified and sending nothing — see CreatePendingRegistration* 'verified := s.email == nil'). The 'none' tier (no verification artifacts at all) is no longer reachable from any embedder's config; embedders were migrated to this pattern in their own repos on 2026-06-11.
+
+DECISION 2026-06-11 (Paul): authkit KEEPS the tri-state enum (none/optional/required) as its library interface — third-party embedders may legitimately want 'none'. Do NOT convert core.Config.RegistrationVerification to a bool. The bool (AUTH_REQUIRE_VERIFIED_REGISTRATIONS, default true, true=>required, false=>optional) is the FIRST-PARTY EMBEDDER config convention only; each app maps bool->enum at its config boundary (already done in doujins/hentai0/tensorhub/cozy-art).
+
+**Tasks:**
+- [x] Document the canonical embedder pattern in README/embedding docs: AUTH_REQUIRE_VERIFIED_REGISTRATIONS bool (default true), true=>Required, false=>Optional (still sends, never blocks; no-sender degrades gracefully). Done: new "#### Registration verification: the AUTH_REQUIRE_VERIFIED_REGISTRATIONS embedder convention" subsection in README.md (Registration section) — documents the bool->enum mapping, that the tri-state enum stays the library interface for third-party embedders (incl. 'none'), and the optional+no-sender graceful-degrade (user created verified, nothing sent). Cross-linked from the existing `RegistrationVerification: none|optional|required` bullet.
+- [x] Decide fate of core.RegistrationVerificationNone: KEEP the enum incl. 'none' (decision 2026-06-11, see description); document it as available to embedders that want no-verification behavior, while the first-party convention maps bool->required/optional.
+- [x] (SKIPPED per Paul 2026-06-14 — devserver stays enum) authkit-devserver: replace DEVSERVER_REGISTRATION_VERIFICATION tri-state (default 'none') with the standardized bool knob.
+- [x] Add a core test asserting Optional-with-no-sender creates the user as verified and sends nothing (locks in the graceful-degrade contract embedders now rely on). Done: core/registration_optional_no_sender_test.go — TestRegistrationOptionalNoSenderCreatesVerifiedAndSendsNothing asserts Optional + no sender creates the user already-verified and returns no code (nothing sent); companion TestRegistrationOptionalWithSenderSendsAndLeavesUnverified pins the genuine send path (1 SendVerification call, user left unverified). Both DB-backed (AUTHKIT_TEST_DATABASE_URL); ran green.
