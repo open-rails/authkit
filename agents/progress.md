@@ -150,10 +150,10 @@ SCOPE (authkit):
 - Routes: tenant-scoped paths/handlers -> org.
 - sqlc: regen after the query + schema renames.
 
-WIRE NUANCE (the `tenant` JWT claim is consumer-facing):
-- Old tokens carry the `tenant` claim; new code expects `org`. To avoid a flag-day, the verifier reads
-  `org ?? tenant` (fallback) for ONE release, and the minter writes `org` (optionally ALSO `tenant` for one
-  release for old consumers). Drop the fallback + the dual-write in the next release. Decide per the rollout.
+WIRE (HARD CUT — owner decision: NO legacy support):
+- Mint + verify ONLY the `org` claim. NO `org ?? tenant` fallback, NO dual-write — the `tenant` claim is
+  GONE. Requires a COORDINATED deploy (authkit + the org-using consumers ship together); old `tenant`
+  tokens stop verifying after cutover. Acceptable — pre-prod, we control all consumers.
 
 MIGRATION (migratekit name-tracked):
 - NEW numbered migration 009: idempotent table/column/constraint/index renames (mirror openrails 019's
@@ -164,23 +164,22 @@ MIGRATION (migratekit name-tracked):
   references can't be edited, so 001 may have to keep an old name that 009 renames, exactly like the
   money_settings case in openrails#491; verify sqlc + fresh-DB apply stay green).
 
-CONSUMER RIPPLE (separate repos, cascade after authkit tags):
-- openrails control plane: GetRemoteApplication org_id, ResolveRemoteApplicationOrg, the `org` claim,
-  org-scoped tokens. merchants.owner_tenant_id is OpenRails-side (its own naming; rename optional/separate).
-- doujins / hentai0 / cozy-art / tensorhub: anywhere they read the `tenant` claim, pass the `tenant` login
-  param, or call a tenant API. The `org ?? tenant` verifier fallback lets consumers migrate without a
-  flag-day.
+CONSUMER RIPPLE (separate repos, cascade after authkit tags) — HARD CUT, coordinated deploy:
+- openrails control plane + tensorhub (+ maybe cozy-art): rename everywhere they read the `org` claim, pass
+  the login `org` param, or call an org API. (merchants.owner_tenant_id is OpenRails-side naming; separate.)
+- doujins + hentai0 DON'T use orgs -> dep bump only, NO org code changes.
+- NO verifier fallback: old `tenant` tokens stop verifying at cutover.
 
 **Tasks:**
 - [ ] Migration 009: idempotent rename of orgs + all org_* tables, columns, constraints, indexes (019-style).
 - [ ] Update 001 baseline to org naming where the sqlc parser + fresh-DB apply allow; document any forced remnant.
 - [ ] sqlc queries + regen: `tenant*` -> `org*` (tables, params, generated types/methods).
 - [ ] Go core/http: Tenant* -> Org*; Claims.Org/OrgID; ResolveOrgBySlug; remote_app org_id; login body param `org`.
-- [ ] JWT claim: mint `org` (+ optional transient `tenant`); verify `org ?? tenant` fallback for one release.
+- [ ] JWT claim: mint + verify ONLY `org` (HARD CUT — no fallback, no dual-write; `tenant` claim removed).
 - [ ] Routes: tenant-scoped -> org-scoped paths/handlers.
 - [ ] Tests: green; claim fallback (a `tenant`-only token still verifies); membership/RBAC/invite paths.
-- [ ] Version bump (breaking -> v0.30.0) + consumer note. Cascade openrails + the 4 apps; drop the claim
-      fallback a release later.
+- [ ] Version bump (breaking -> v0.30.0). Cascade: openrails + tensorhub (+ maybe cozy-art) adapt the org
+      rename; doujins + hentai0 DON'T use orgs -> dep bump only. Coordinated deploy (hard cut, no fallback).
 
 **Related**
 openrails#480 (the merchant rename this mirrors), #74/#76/#77/#78 (the de-conflation work this completes the
