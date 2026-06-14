@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 77
+next_id: 78
 
 ---
 
@@ -45,3 +45,39 @@ NON-GOALS: enterprise/attestation-conveyance policy (accept 'none'); MDS metadat
 - [ ] Tests: full register + login ceremonies via a software-authenticator fixture; sign-count regression rejection; usernameless login; list/delete; anti-enumeration; rate limits.
 - [ ] Docs: api-endpoints.md + README passkey section (RP config, ceremony flow, frontend navigator.credentials notes, security model, recovery out-of-scope).
 - [ ] Version bump + publish; consumer notes (host mounts RoutePasskeys + sets RP config; frontend integrates the WebAuthn JS ceremonies).
+
+---
+
+# #77: remote_application owned by a TENANT (tenant_id FK), not a user
+
+**Completed:** no
+
+Today `profiles.remote_applications.owner_user_id -> users` anchors an issuer's ownership to a single
+CREATOR user. Re-anchor ownership to the owning ORG: add `remote_applications.tenant_id -> tenants`
+(NOT NULL). One tenant has MANY remote_applications (issuers); each issuer belongs to exactly ONE tenant.
+
+WHY:
+- Robustness: ownership survives the creator leaving the org (it's the org's, not a person's).
+- Deterministic billing resolution (openrails#491): `merchantForIssuer` collapses from a membership-walk /
+  slug convention to a two-hop FK — issuer -> remote_app.tenant_id -> merchant (owner_tenant_id) —
+  enforceable at write time, no "first matching membership" ambiguity, one resolution path shared by
+  OpenRails + tensorhub.
+- Clean separation: the polymorphic `tenant_memberships` then means ONLY "this issuer's self-token gets
+  these roles" (#76) — purely auth, fully decoupled from ownership/billing.
+
+Keep `owner_user_id` as a NULLABLE creator-audit (ON DELETE SET NULL), or drop it.
+
+**Tasks:**
+- [ ] Migration: add `remote_applications.tenant_id uuid NOT NULL REFERENCES profiles.tenants`; backfill
+      from existing ownership; make owner_user_id nullable (creator-audit) or drop.
+- [ ] Core: GetRemoteApplication returns tenant_id; create/update enforce exactly one tenant; add a
+      ResolveRemoteApplicationTenant (by tenant_id FK).
+- [ ] Keep tenant_memberships for self-token ROLES only (#76); document ownership(tenant_id) vs
+      roles(membership) split.
+- [ ] Tests: issuer->tenant is 1:1; ownership survives creator-user deletion; one-tenant-many-issuers.
+- [ ] Consumer note: openrails#491 merchantForIssuer switches to the tenant_id FK.
+
+**Related**
+#74 (remote_application table this amends), #76 (membership = roles only, post-split), openrails#491
+(customer/actor split + merchantForIssuer via tenant_id), openrails#480 (owner_tenant_id on merchant —
+the billing-side anchor this mirrors).
