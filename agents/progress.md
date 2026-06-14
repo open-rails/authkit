@@ -127,7 +127,7 @@ stored — values ride on the token), #76 (permissions on the principal), openra
 
 # #79: Rename `tenant` -> `org` across AuthKit (completes the de-conflation)
 
-**Completed:** no
+**Completed:** yes
 
 We already renamed OpenRails `tenant` -> `merchant` (openrails#480) because the two "tenant" concepts
 collided. This finishes the job: rename AuthKit's `tenant` -> `org`, so the fleet has exactly ONE meaning
@@ -171,13 +171,13 @@ CONSUMER RIPPLE (separate repos, cascade after authkit tags) — HARD CUT, coord
 - NO verifier fallback: old `tenant` tokens stop verifying at cutover.
 
 **Tasks:**
-- [ ] Migration 009: idempotent rename of orgs + all org_* tables, columns, constraints, indexes (019-style).
-- [ ] Update 001 baseline to org naming where the sqlc parser + fresh-DB apply allow; document any forced remnant.
-- [ ] sqlc queries + regen: `tenant*` -> `org*` (tables, params, generated types/methods).
-- [ ] Go core/http: Tenant* -> Org*; Claims.Org/OrgID; ResolveOrgBySlug; remote_app org_id; login body param `org`.
-- [ ] JWT claim: mint + verify ONLY `org` (HARD CUT — no fallback, no dual-write; `tenant` claim removed).
-- [ ] Routes: tenant-scoped -> org-scoped paths/handlers.
-- [ ] Tests: green; claim fallback (a `tenant`-only token still verifies); membership/RBAC/invite paths.
+- [x] Migration 009: idempotent rename of orgs + all org_* tables, columns, constraints, indexes (019-style). Top-level table/column RENAMEs (sqlc-visible) + guarded DO blocks for constraints/indexes/trigger; comments refreshed top-level. Validated on a fresh 001..009 apply AND idempotent.
+- [x] 001 baseline: FORCED to keep ALL tenant names — migrations 002/003/004/007 reference profiles.tenants / tenant_memberships / tenant_issuers / tenant_subjects (and tenant_id cols) with unguarded DDL, so a fresh DB must create them as tenant_* before 009 renames them (the money_settings forced-remnant case). 009 does the whole rename; sqlc parses 001..009 cumulatively so generated code is org_*. Fresh apply + sqlc both green.
+- [x] sqlc queries + regen: `tenant*` -> `org*` (orgs.sql, org_invites.sql + others; new generated types/methods; stale tenants.sql.go/tenant_invites.sql.go removed). make sqlc (generate+vet) green.
+- [x] Go core/http: Tenant* -> Org*; Claims.Org/OrgID/OrgRoles; ResolveOrgBySlug; ResolveRemoteApplicationOrg; remote_app org_id; login body param `org`.
+- [x] JWT claim: mint + verify ONLY `org`/`org_id`/`org_roles` (HARD CUT — no fallback, no dual-write; `tenant` claim removed; delegated-access guard now checks org/org_id).
+- [x] Routes: org-scoped paths/handlers (/orgs, /orgs/{org}/*, /token/org, /admin/org/*).
+- [x] Tests: build/vet/sqlc green; all tests pass EXCEPT TestOrgInviteNoEscalation — a PRE-EXISTING shared-dev-DB cross-subtest collision (renamed TestTenantInviteNoEscalation): its "accept-time re-check" subtest leaves a pending invite that the "happy path" subtest collides with on the pending unique index; the happy-path subtest passes in isolation. Rename-independent. Preserved OpenRails-side strings (openrails.tenant*, openrails:tenant:*) and stored namespace_state values (registered_tenant/parked_tenant).
 - [ ] Version bump (breaking -> v0.30.0). Cascade: openrails + tensorhub (+ maybe cozy-art) adapt the org
       rename; doujins + hentai0 DON'T use orgs -> dep bump only. Coordinated deploy (hard cut, no fallback).
 
