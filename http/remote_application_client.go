@@ -56,36 +56,36 @@ func NewTenantIssuersClient(opts ...TenantIssuersClientOption) *TenantIssuersCli
 
 // TenantIssuersRegistration is the payload published to a resource server.
 type TenantIssuersRegistration struct {
-	// Tenant is this issuer's resource account slug on the receiving service.
-	Tenant string
+	// Slug is this remote_application's slug on the receiving service.
+	Slug string
 	// Issuer is THIS platform's issuer URL (the `iss` of delegated tokens).
 	Issuer string
 	// JWKSURI is where the resource server fetches THIS platform's public keys
 	// (jwks mode — preferred). Mutually exclusive with PublicKeys.
 	JWKSURI string
 	// PublicKeys is the static-mode key list for platforms without a JWKS
-	// endpoint (#465). Mutually exclusive with JWKSURI.
-	PublicKeys []core.TenantIssuerKey
+	// endpoint (#74). Mutually exclusive with JWKSURI.
+	PublicKeys []core.RemoteAppKey
 }
 
-// RegisterIssuer POSTs this tenant's issuer registration to the resource server's
-// accept endpoint (acceptURL is the fully-qualified URL of the inbound
-// handler, e.g. "https://tensorhub.example/api/v1/tenant-issuers"). It
+// RegisterIssuer POSTs this remote_application's registration to the resource
+// server's accept endpoint (acceptURL is the fully-qualified URL of the inbound
+// handler, e.g. "https://tensorhub.example/api/v1/remote-applications"). It
 // returns an error for non-2xx responses.
 func (fc *TenantIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string, reg TenantIssuersRegistration) error {
 	acceptURL = strings.TrimSpace(acceptURL)
 	if acceptURL == "" {
 		return errors.New("accept URL required")
 	}
-	if strings.TrimSpace(reg.Tenant) == "" || strings.TrimSpace(reg.Issuer) == "" {
-		return errors.New("tenant and issuer are required")
+	if strings.TrimSpace(reg.Slug) == "" || strings.TrimSpace(reg.Issuer) == "" {
+		return errors.New("slug and issuer are required")
 	}
-	if _, err := core.NormalizeTenantIssuerTrustSource(reg.JWKSURI, "", reg.PublicKeys); err != nil {
+	if _, err := core.NormalizeRemoteAppTrustSource(reg.JWKSURI, "", reg.PublicKeys); err != nil {
 		return err
 	}
 
-	payload := tenantIssuerRegistration{
-		Tenant:     strings.TrimSpace(reg.Tenant),
+	payload := remoteApplicationRegistration{
+		Slug:       strings.TrimSpace(reg.Slug),
 		Issuer:     strings.TrimSpace(reg.Issuer),
 		JWKSURI:    strings.TrimSpace(reg.JWKSURI),
 		PublicKeys: reg.PublicKeys,

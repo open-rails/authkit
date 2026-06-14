@@ -103,11 +103,11 @@ func TestDelegatedAccessRejectsSubOnlyAccessToken(t *testing.T) {
 	iss := "https://cozy.example"
 	now := time.Now()
 	tok, _ := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
-		"iss":    iss,
-		"aud":    []string{"openrails"},
-		"iat":    now.Unix(),
-		"exp":    now.Add(time.Minute).Unix(),
-		"sub":    "local-1",
+		"iss": iss,
+		"aud": []string{"openrails"},
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
+		"sub": "local-1",
 	}, map[string]any{"typ": DelegatedAccessTokenType})
 	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
 	if err == nil || err.Error() != "access_token_has_sub" {
@@ -155,7 +155,6 @@ func TestDelegatedAccessRejectsTenantClaim(t *testing.T) {
 		t.Fatalf("expected delegated_access_has_tenant, got %v", err)
 	}
 }
-
 
 // TestDelegatedAccessRoundTripsArbitraryAttributes: arbitrary JSON survives.
 func TestDelegatedAccessRoundTripsArbitraryAttributes(t *testing.T) {
@@ -311,4 +310,69 @@ func TestAttributesPolicyValidator(t *testing.T) {
 
 func rawKey(s jwtkit.PublicKeySigner) map[string]crypto.PublicKey {
 	return map[string]crypto.PublicKey{s.KID(): s.PublicKey()}
+}
+
+// TestAttributeReferenceDetection locks the ref-vs-inline detector (#75): a JSON
+// string value is a REFERENCE, an object/array is INLINE.
+func TestAttributeReferenceDetection(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	aud := []string{"openrails"}
+	v := NewVerifier()
+	if err := v.AddIssuer(iss, aud, IssuerOptions{RawKeys: rawKey(signer)}); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u", TTL: time.Minute,
+		Attributes: map[string]any{
+			"tier": "tier-1",                                            // REFERENCE
+			"caps": map[string]any{"endpoints": []string{"marco-polo"}}, // INLINE
+		},
+	})
+	cl, _, err := v.VerifyDelegatedAccess(tok)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	ref, ok := cl.AttributeReference("tier")
+	if !ok || ref != "tier-1" {
+		t.Fatalf("tier should be a reference 'tier-1', got ref=%q ok=%v", ref, ok)
+	}
+	if cl.AttributeIsReference("caps") {
+		t.Fatal("caps is an inline object, must not be a reference")
+	}
+}
+
+// TestAttributeHydrationResolvesReference exercises opt-in verify-time hydration
+// (#75): a REFERENCE attribute is replaced in place by its resolved definition,
+// while an absent definition is left untouched.
+func TestAttributeHydrationResolvesReference(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	aud := []string{"openrails"}
+	resolved := json.RawMessage(`{"endpoints":["marco-polo"],"caps":["5h/$0.20"]}`)
+	v := NewVerifier(WithAttributeHydration(func(_ context.Context, gotIss, key, ref string) (json.RawMessage, error) {
+		if gotIss != iss || key != "tier" || ref != "tier-1" {
+			t.Fatalf("resolver got iss=%q key=%q ref=%q", gotIss, key, ref)
+		}
+		return resolved, nil
+	}))
+	if err := v.AddIssuer(iss, aud, IssuerOptions{RawKeys: rawKey(signer)}); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer: iss, Audiences: aud, DelegatedSubject: "u", TTL: time.Minute,
+		Attributes: map[string]any{"tier": "tier-1"},
+	})
+	cl, _, err := v.VerifyDelegatedAccess(tok)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	got, _ := cl.Attribute("tier")
+	if string(got) != string(resolved) {
+		t.Fatalf("tier not hydrated: got %s", got)
+	}
+	// After hydration the value is now INLINE (an object), no longer a reference.
+	if cl.AttributeIsReference("tier") {
+		t.Fatal("hydrated tier should be inline")
+	}
 }

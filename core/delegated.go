@@ -26,7 +26,7 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 // is implied in the receiving service.
 type DelegatedAccessParams struct {
 	// Issuer becomes the `iss` claim: the AuthKit issuer that signed the token.
-	// Must match a tenant issuer registered with the validating resource server.
+	// Must match a remote_application registered with the validating resource server.
 	// Required when minting via the free function; the *Service mint method
 	// defaults it to the Service's configured Issuer when empty.
 	Issuer string
@@ -40,9 +40,21 @@ type DelegatedAccessParams struct {
 	// permission strings (NOT OAuth's space-delimited `scope`). Receiving
 	// services validate these against their own permission catalog.
 	Permissions []string
-	// Attributes becomes the `attributes` claim: an object of issuer-provided
-	// policy metadata such as {"tier":"cozy_free"}, plan labels, budget classes,
-	// or risk buckets. Values are arbitrary JSON.
+	// Attributes becomes the `attributes` claim: the canonical app-specific
+	// ESCAPE HATCH (#75). An object of issuer-asserted, NAMESPACED, OPAQUE
+	// key/values that AuthKit transports + optionally shape-validates but NEVER
+	// interprets — the semantics belong to the consuming app (tensorhub etc.).
+	// Each value is set in ONE of two modes, per key:
+	//   INLINE    — the value carries the full definition, e.g.
+	//               {"tier":{"endpoints":[...],"caps":[...]}}. No lookup.
+	//   REFERENCE — the value is a short string key, e.g. {"tier":"tier-1"},
+	//               resolved by the consumer against a definition the
+	//               remote_application registered ahead of time (see the
+	//               attribute-def registry: Service.RegisterRemoteAppAttributeDef
+	//               / ResolveRemoteAppAttributeDef). Keeps tokens small.
+	// Reserved well-known keys: `tier` (opaque entitlement-tier string) and
+	// `roles` (a uuid array; prefer the typed Roles field below). Everything
+	// else is free-form per consuming app. Values are arbitrary JSON.
 	Attributes map[string]any
 	// Roles is a convenience for emitting the actor's role UUIDs into
 	// `attributes.roles` (a JSON array of UUID strings). Equivalent to setting

@@ -15,14 +15,14 @@ import (
 // memFederatedSource is an in-memory TenantIssuerSource for tests, so the
 // Verifier-load path can be exercised without a Postgres-backed core.Service.
 type memFederatedSource struct {
-	items []core.TenantIssuer
+	items []core.RemoteApplication
 }
 
-func (m *memFederatedSource) ListTenantIssuers(_ context.Context, enabledOnly bool) ([]core.TenantIssuer, error) {
+func (m *memFederatedSource) ListRemoteApplications(_ context.Context, enabledOnly bool) ([]core.RemoteApplication, error) {
 	if !enabledOnly {
 		return m.items, nil
 	}
-	var out []core.TenantIssuer
+	var out []core.RemoteApplication
 	for _, i := range m.items {
 		if i.Enabled {
 			out = append(out, i)
@@ -31,14 +31,14 @@ func (m *memFederatedSource) ListTenantIssuers(_ context.Context, enabledOnly bo
 	return out, nil
 }
 
-func (m *memFederatedSource) GetTenantIssuer(_ context.Context, issuerID string) (*core.TenantIssuer, error) {
+func (m *memFederatedSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
 	for i := range m.items {
 		if m.items[i].Issuer == issuerID {
 			fi := m.items[i]
 			return &fi, nil
 		}
 	}
-	return nil, core.ErrTenantIssuerNotFound
+	return nil, core.ErrRemoteApplicationNotFound
 }
 
 // jwksServer serves a single signer's JWKS, returning its base URL.
@@ -55,7 +55,7 @@ func jwksServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Server {
 // TestOutboundClientPostsRegistration verifies the outbound TenantIssuersClient
 // posts the correct body and auth header to a resource server's accept endpoint.
 func TestOutboundClientPostsRegistration(t *testing.T) {
-	var got tenantIssuerRegistration
+	var got remoteApplicationRegistration
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -67,15 +67,15 @@ func TestOutboundClientPostsRegistration(t *testing.T) {
 	defer srv.Close()
 
 	fc := NewTenantIssuersClient(WithTenantIssuersAuthToken("owner-token"))
-	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/tenant-issuers", TenantIssuersRegistration{
-		Tenant:  "cozy-art",
+	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/remote-applications", TenantIssuersRegistration{
+		Slug:    "cozy-art",
 		Issuer:  "https://cozy.example",
 		JWKSURI: "https://cozy.example/.well-known/jwks.json",
 	})
 	if err != nil {
 		t.Fatalf("RegisterIssuer: %v", err)
 	}
-	if got.Tenant != "cozy-art" || got.Issuer != "https://cozy.example" || got.JWKSURI != "https://cozy.example/.well-known/jwks.json" {
+	if got.Slug != "cozy-art" || got.Issuer != "https://cozy.example" || got.JWKSURI != "https://cozy.example/.well-known/jwks.json" {
 		t.Fatalf("body mismatch: %+v", got)
 	}
 	if gotAuth != "Bearer owner-token" {
@@ -91,7 +91,7 @@ func TestOutboundClientPropagatesError(t *testing.T) {
 	defer srv.Close()
 	fc := NewTenantIssuersClient()
 	err := fc.RegisterIssuer(context.Background(), srv.URL, TenantIssuersRegistration{
-		Tenant: "cozy-art", Issuer: "https://cozy.example", JWKSURI: "https://cozy.example/jwks",
+		Slug: "cozy-art", Issuer: "https://cozy.example", JWKSURI: "https://cozy.example/jwks",
 	})
 	if err == nil {
 		t.Fatal("expected error for non-2xx response")
@@ -100,10 +100,10 @@ func TestOutboundClientPropagatesError(t *testing.T) {
 
 func TestOutboundClientValidatesInput(t *testing.T) {
 	fc := NewTenantIssuersClient()
-	if err := fc.RegisterIssuer(context.Background(), "", TenantIssuersRegistration{Tenant: "a", Issuer: "b", JWKSURI: "c"}); err == nil {
+	if err := fc.RegisterIssuer(context.Background(), "", TenantIssuersRegistration{Slug: "a", Issuer: "b", JWKSURI: "c"}); err == nil {
 		t.Fatal("expected error for empty accept URL")
 	}
-	if err := fc.RegisterIssuer(context.Background(), "http://x", TenantIssuersRegistration{Tenant: "a"}); err == nil {
+	if err := fc.RegisterIssuer(context.Background(), "http://x", TenantIssuersRegistration{Slug: "a"}); err == nil {
 		t.Fatal("expected error for missing issuer/jwks")
 	}
 }
@@ -126,17 +126,17 @@ func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 
 	// Resource server's store has the tenant issuer registered, pointing at
 	// the platform's JWKS endpoint.
-	src := &memFederatedSource{items: []core.TenantIssuer{{
-		TenantSlug: "cozy-art",
-		Issuer:     iss,
-		JWKSURI:    jwks.URL + "/.well-known/jwks.json",
-		Enabled:    true,
+	src := &memFederatedSource{items: []core.RemoteApplication{{
+		Slug:    "cozy-art",
+		Issuer:  iss,
+		JWKSURI: jwks.URL + "/.well-known/jwks.json",
+		Enabled: true,
 	}}}
 
 	// Resource server's verifier loads tenant issuers from the store.
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
-		t.Fatalf("LoadTenantIssuers: %v", err)
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
 
 	// Platform mints a delegated service token.
@@ -181,16 +181,16 @@ func TestVerifierAcceptsRegistryLoadedTenantIssuerToken(t *testing.T) {
 
 	iss := "https://doujins.example"
 	aud := []string{"openrails"}
-	src := newCountingSource(core.TenantIssuer{
-		TenantSlug: "doujins",
-		Issuer:     iss,
-		JWKSURI:    jwks.URL + "/.well-known/jwks.json",
-		Enabled:    true,
+	src := newCountingSource(core.RemoteApplication{
+		Slug:    "doujins",
+		Issuer:  iss,
+		JWKSURI: jwks.URL + "/.well-known/jwks.json",
+		Enabled: true,
 	})
 
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
-		t.Fatalf("LoadTenantIssuers: %v", err)
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
 
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
@@ -219,18 +219,18 @@ func TestVerifierAcceptsLazyLoadedTenantIssuerToken(t *testing.T) {
 
 	iss := "https://doujins.example"
 	aud := []string{"openrails"}
-	src := newCountingSource(core.TenantIssuer{
-		TenantSlug: "doujins",
-		Issuer:     iss,
-		JWKSURI:    jwks.URL + "/.well-known/jwks.json",
-		Enabled:    true,
+	src := newCountingSource(core.RemoteApplication{
+		Slug:    "doujins",
+		Issuer:  iss,
+		JWKSURI: jwks.URL + "/.well-known/jwks.json",
+		Enabled: true,
 	})
 
 	// Load only the source/audience; the List path returns nothing so the token
 	// must exercise lazy-load-on-miss.
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
-		t.Fatalf("LoadTenantIssuers: %v", err)
+	if err := ver.LoadRemoteApplications(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
 
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
@@ -255,8 +255,8 @@ func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	src := &memFederatedSource{} // empty store
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), src, []string{"tensorhub"}); err != nil {
-		t.Fatalf("LoadTenantIssuers: %v", err)
+	if err := ver.LoadRemoteApplications(context.Background(), src, []string{"tensorhub"}); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
 	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer: "https://rogue.example", Audiences: []string{"tensorhub"},

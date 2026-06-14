@@ -7,7 +7,182 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 74
+next_id: 76
+
+---
+
+# #75: App-specific escape hatch — the delegated-token `attributes` bag as the remote_application→platform contract, with INLINE + REFERENCE claim modes (reference resolves against a generic AuthKit-hosted definition registry)
+
+Design (Paul, 2026-06-13): a remote_application is the AUTHORITY for its own delegated users and wants to assert
+arbitrary app-specific permissions/restrictions on them that don't reduce to a flat permission string — e.g.
+cozy-art declares user U is "tier-1", meaning [marco-polo only, 5h/$0.20, 7d/$1.40]. The platform (tensorhub)
+honors + enforces those restrictions; AuthKit/OpenRails stay app-AGNOSTIC, carrying opaque values they never
+interpret. This is the escape hatch: generic plumbing, app-specific semantics.
+
+## Two claim modes (Paul, 2026-06-13)
+The same `attributes` bag supports BOTH, per key:
+- **INLINE (self-describing):** the token carries the full definition — `attributes:{"tier":{endpoints:[...],
+  caps:[...]}}`. No lookup. For short/one-off values.
+- **REFERENCE (registered):** the token carries a short key — `attributes:{"tier":"tier-1"}` — pointing to a
+  definition the remote_application REGISTERED ahead of time. For long/complex/reused definitions; keeps tokens
+  small. The platform resolves the reference to its definition.
+
+## The generic definition registry (NEW — this is the added machinery)
+A reference needs a place to resolve. Home = **AuthKit**, so it is a GENERIC api every platform shares (storing
+it per-platform would mean each rebuilds it):
+- Store: `(remote_application_id, namespaced_key, version) → definition` as an OPAQUE JSON doc. AuthKit never
+  interprets it (same agnosticism as the token bag).
+- **Write side (remote_app authors):** cozy-art registers `(cozy-art,"tier-1") → {definition}` via a generic
+  API. The definition is the remote_application's — it is the authority for its own users' restrictions.
+- **Read side (platform resolves):** tensorhub pulls `(cozy-art,"tier-1")` via the same generic API.
+- **Optional verify-time hydration:** the verifier MAY resolve a reference into its full definition so the
+  consumer sees a uniform shape whether the token used inline or reference (off by default; opt-in).
+
+## Enforcement (unchanged): assertion → platform → OpenRails
+- The assertion (inline value or resolved reference) rides on / is reachable from the delegated token
+  (`core/delegated.go` Attributes; `Claims.Attribute(key)`, `http/claims.go:164`). Signed by the remote_app's
+  JWKS, short TTL bounds staleness.
+- The platform (tensorhub) maps the definition to concrete policy and pushes the billing-relevant parts DOWN to
+  OpenRails (`tier_policies` + `money_spend_limits`/budget windows), which enforces by the opaque value and never
+  parses meaning. Non-billing restrictions (endpoint allowlist) the platform enforces in its own code.
+
+## The generic contract (reserved keys + opaque values)
+- `attributes` = an object of issuer-asserted, NAMESPACED, opaque key/values. AuthKit transports + OPTIONALLY
+  shape-validates (consumer-registered `AttributesValidator` via `WithAttributesPolicy`, `http/verifier.go:142`);
+  it never interprets semantics.
+- Reserved well-known keys: `tier` (opaque entitlement-tier string, `verifier.go:760` → `UserTier`) and `roles`
+  (uuid array, `core/delegated.go:48`). Everything else is free-form per consuming app.
+- INVARIANT: AuthKit and OpenRails MUST NOT learn any app's tier NAMES. OpenRails stores `tier` as opaque text
+  keyed into `tier_policies`; only the consuming app's policy doc knows "tier-2".
+
+## Composition with the two tier AXES (do not conflate)
+- Escape-hatch tier = remote_application-ASSERTED entitlement tier (on token) → endpoint allowlist + spend caps
+  via the consumer policy doc.
+- OpenRails #476 tier = capacity/availability tier AUTO-graduated from cumulative paid spend (OpenRails-owned,
+  host read-only). Distinct input, distinct axis. tensorhub already threads both (`invoke_admission.go` token
+  tier as admit Tier; `action_bridge.go:194` resolves the #476 tier separately). The escape hatch adds nothing
+  to #476.
+
+## Resolves OpenRails #481 open-decision stub
+OpenRails #481's escape-hatch open decision is RESOLVED by this: the assertion rides on the token; the mapping is
+consumer-stored and synced to `tier_policies`/spend limits — OpenRails adds NO escape-hatch table/column and
+grows NO tier knowledge. #481 points here.
+
+## Footprint — REUSE the transport, ADD the registry
+- REUSE: `attributes` claim + `Claims.Attribute()` + `AttributesValidator`/`WithAttributesPolicy` (this repo);
+  OpenRails `tier_policies`/`money_spend_limits`/`money_windows`; tensorhub `platformpolicy.Document` PUT pipeline.
+- ADD (for REFERENCE mode): one `remote_application_attribute_defs` table + a generic write/read API
+  (remote_app registers; platform resolves), values OPAQUE to AuthKit. INLINE mode needs no new storage.
+
+## Non-goals
+- AuthKit/OpenRails interpreting any app's values. OpenRails learning tier names. Platform→effect mapping
+  (endpoint allowlists etc.) — that's the consuming app's (tensorhub) job, not the registry's.
+
+**Tasks:**
+- [x] Doc-comment the `attributes` bag as the canonical escape-hatch contract on `DelegatedAccessParams`
+      (`core/delegated.go`) + `Claims`/`DelegatedPrincipal` (`http/claims.go`): namespaced opaque key/values,
+      INLINE or REFERENCE; reserved keys `tier`,`roles`; consumer-interpreted, issuer-asserted.
+- [x] Definition registry: `remote_application_attribute_defs` (remote_application_id, key, version, definition
+      jsonb) + sqlc + core service (core/remote_application_attribute_defs.go,
+      migrations/postgres/005_remote_application_attribute_defs.up.sql); OPAQUE storage (no interpretation).
+- [x] Generic API: write (RegisterRemoteAppAttributeDef) + read/resolve (ResolveRemoteAppAttributeDef by
+      (remote_application, key[, version])); HTTP /remote-applications/{slug}/attribute-defs (POST owner-only,
+      GET any authenticated platform).
+- [x] Reference resolution: `Claims.AttributeReference`/`AttributeIsReference` ref-vs-inline detector; opt-in
+      verify-time hydration behind `WithAttributeHydration` (resolve ref → definition; Service-backed default
+      resolver maps issuer → remote_application → registered def by the ref key).
+- [x] Reserved well-known-key registry (`tier` string, `roles` uuid[]) documented on the contract; AuthKit only
+      transports, shape-validates (WithAttributesPolicy), and resolves opaque refs.
+- [ ] Cross-link: resolve OpenRails #481's escape-hatch decision here. NOT done (cross-repo OpenRails issue).
+- [x] Tests: INLINE round-trip (TestDelegatedAccessRoundTripsArbitraryAttributes + TestAttributeReferenceDetection);
+      REFERENCE round-trip (TestRemoteAppAttributeDefRegistry register→resolve; TestAttributeHydrationResolvesReference
+      mint ref token → opt-in hydration); `WithAttributesPolicy` rejection (TestAttributesPolicyValidator).
+
+---
+
+# #74: Split `profiles.tenants` into ORG (native) + REMOTE_APPLICATION (federation) — de-conflate the dual-purpose tenant row
+
+Design (Paul, 2026-06-13): conflation #1. One `profiles.tenants` row is doing DOUBLE DUTY — it is both an
+ORG (native cluster: identities we authenticate) and a REMOTE_APPLICATION (federation cluster: an external
+system we verify via JWKS). The `tenant_issuers` comment admits it: "A tenant brings its own users that
+authenticate via the tenant's OIDC issuer rather than local passwords." Nothing today enforces org-XOR-remote;
+a row can be both. Split them into two first-class concepts.
+
+## The two clusters (today, all hanging off `profiles.tenants`)
+- **ORG / native** (keep the name `tenant` = org/workspace): `tenants.owner_user_id`, `is_personal`,
+  `tenant_memberships`, `tenant_roles`, `tenant_role_permissions`, `tenant_invites`, `service_tokens`.
+- **REMOTE_APPLICATION = a PRINCIPAL, credential = JWKS** (NEW concept/name). A remote_application is just
+  like a `user` except it authenticates by signing JWTs we verify against its JWKS/public key (vs a user's
+  password/OIDC). It holds only credential-specific state: slug, issuer + jwks_uri/public key (was
+  `tenant_issuers`), creator `owner_user_id` → `profiles.users`. It IS a member of tenants with roles (see
+  Principal model). `tenant_subjects` (delegated OIDC subjects; the END-USERS a remote_app vouches for) is a
+  SEPARATE concept — not memberships, perms ride on the token (#75) — but also moves to the federation side.
+
+## Naming decision (Paul, 2026-06-13)
+- KEEP `tenant` = the native org/workspace (matches SaaS convention; avoids reverting the org→tenant migration
+  across tensorhub). INTRODUCE `remote_application` for the federation half. ("remote_application" over
+  `trusted_issuer` [undersells: also brings subjects + the escape-hatch protocol] / `client`/`relying_party`
+  [OAuth-overloaded].) OpenRails keeps its own word "tenant" for a billing namespace — bridge fact:
+  "an OpenRails tenant corresponds to an AuthKit remote_application."
+
+## Principal model (Paul, 2026-06-13) — "a remote_app is a special kind of user"
+- `user` and `remote_application` are both PRINCIPALS; they differ only in credential (password/OIDC vs
+  JWKS/public key). They share ONE membership + role + permission system.
+- **remote_application ↔ tenant is MANY-TO-MANY through the SAME machinery as users**: a remote_app can be a
+  member of many tenants; a tenant can have many remote_app members; each membership carries a role →
+  permissions ("cozy-art's backend may manage cozy-art's catalog" = a remote_app holding a role on a tenant).
+- Cleanest schema: make membership POLYMORPHIC —
+  `tenant_memberships(tenant_id, member_id, member_kind ['user'|'remote_application'], role)` — one table, one
+  role system, one permission check for both principal kinds. `tenant_roles`/`tenant_role_permissions` unchanged.
+
+## What changes
+1. New `profiles.remote_applications` (id uuidv7, slug, owner_user_id → users, issuer + jwks_uri/public key,
+   metadata) as a NEW numbered migration (NOT appended to 001 — migratekit name-tracking; service_tokens gotcha).
+2. Move/re-point `tenant_subjects` (delegated end-users) to `remote_application_id`; the issuer/JWKS becomes the
+   remote_application's own credential. Migrate federation-bearing `tenants` rows → remote_applications; backfill.
+3. **Generalize membership to principals.** `tenant_memberships` becomes polymorphic (member = user OR
+   remote_application). remote_app↔tenant is M:N with roles, same as user↔tenant. Independence still holds (a
+   remote_app needs no tenant and vice-versa — M:N allows zero), but the LINK, when present, is a first-class
+   membership with a role, NOT a bespoke grant. The org/`tenants` table still SHEDS its federation columns
+   (issuer/subjects → remote_application).
+4. Core API + http surface: separate org admin from remote_application admin (register/update remote app + its
+   JWKS; manage its tenant memberships/roles; list its delegated subjects). Verifier reads JWKS from
+   `remote_applications`. The verified principal (user OR remote_app) resolves roles via the shared membership.
+
+## Delegated permissions (no change — confirmed correct)
+- Delegated-user permissions stay ON THE TOKEN, not stored. There is (correctly) no delegated-permission
+  table; `tenant_role_permissions` is native org RBAC only. Keep it that way.
+
+## Open decision (cross-repo)
+- App-specific escape hatch (remote app asserts "tier-2" → consumer maps to caps): a custom remote_app↔host
+  protocol. Enforcement home is OpenRails `tier_policies` vs token-only — tracked in openrails #481; AuthKit
+  side only needs to NOT model it as a native permission.
+
+## Scope / sequencing
+- Largest, most invasive layer; mostly impacts TENSORHUB (the only heavy AuthKit-federation user). OpenRails
+  layers (#480 embedded self-register, #481 standalone decouple) are INDEPENDENT and do not block on this —
+  do them first; land this when tensorhub can absorb the migration.
+
+**Tasks:**
+- [x] NEW numbered migration: `profiles.remote_applications` (slug, owner_user_id, issuer + jwks_uri/public key)
+      + re-point `tenant_subjects` to `remote_application_id`; backfill from federation-bearing `tenants` rows.
+      (migrations/postgres/004_remote_applications.up.sql)
+- [x] Polymorphic `tenant_memberships` (member_id + member_kind ['user'|'remote_application']); remote_app↔tenant
+      M:N via the SAME `tenant_roles`/`tenant_role_permissions`. org/`tenants` sheds issuer/subject columns
+      (tenant_issuers dropped, subjects re-pointed). Per-kind FK enforced by trigger.
+- [x] sqlc queries + core service: remote_application CRUD (owner = native user) + JWKS
+      (core/service_remote_applications.go); remote_app tenant membership/role assignment reusing the
+      user-membership paths (core/remote_application_memberships.go); delegated-subject listing
+      (ListRemoteAppSubjects); verifier reads JWKS via remote_application (LoadRemoteApplications /
+      lazyLoadIssuer) and resolves the remote_app principal's tenant roles (RemoteApplicationTenantRoles).
+- [x] HTTP routes: split org admin vs remote_application admin; replaced the tenant-as-issuer routes with
+      /remote-applications (+ /{slug}/subjects, /{slug}/memberships) (http/remote_application_handlers.go,
+      routes.go).
+- [x] Remove dead "tenant brings own issuer" paths from core/tenants; update comments.
+- [ ] tensorhub migration plan + coordinated version bump (cross-repo; tensorhub tenants that were really
+      remote apps move over). NOT done here — separate repo.
+- [ ] Docs: README/embedding — the two-cluster model + OpenRails-tenant ≈ AuthKit-remote_application bridge
+      fact. NOT done (no README change requested in scope).
 
 ---
 

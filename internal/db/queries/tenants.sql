@@ -33,9 +33,9 @@ VALUES (sqlc.arg(tenant_id)::uuid, $2, $3)
 ON CONFLICT DO NOTHING;
 
 -- name: TenantMembershipUpsertRole :exec
-INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-VALUES (sqlc.arg(tenant_id)::uuid, sqlc.arg(user_id)::uuid, $3)
-ON CONFLICT (tenant_id, user_id)
+INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role)
+VALUES (sqlc.arg(tenant_id)::uuid, sqlc.arg(user_id)::uuid, 'user', $3)
+ON CONFLICT (tenant_id, member_id, member_kind)
 DO UPDATE SET role = EXCLUDED.role, deleted_at = NULL, updated_at = now();
 
 -- name: TenantSlugAndPersonalByID :one
@@ -61,21 +61,21 @@ WHERE id = sqlc.arg(id)::uuid AND deleted_at IS NULL;
 SELECT o.slug
 FROM profiles.tenant_memberships m
 JOIN profiles.tenants o ON o.id = m.tenant_id
-WHERE m.user_id = sqlc.arg(user_id)::uuid AND m.deleted_at IS NULL AND o.deleted_at IS NULL
+WHERE m.member_id = sqlc.arg(user_id)::uuid AND m.member_kind = 'user' AND m.deleted_at IS NULL AND o.deleted_at IS NULL
 ORDER BY o.slug ASC;
 
 -- TenantMemberAdd intentionally does NOT change role on conflict (re-adding
 -- an existing member only revives a soft-deleted row).
 -- name: TenantMemberAdd :exec
-INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-VALUES (sqlc.arg(tenant_id)::uuid, sqlc.arg(user_id)::uuid, 'member')
-ON CONFLICT (tenant_id, user_id) DO UPDATE SET deleted_at = NULL, updated_at = now();
+INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role)
+VALUES (sqlc.arg(tenant_id)::uuid, sqlc.arg(user_id)::uuid, 'user', 'member')
+ON CONFLICT (tenant_id, member_id, member_kind) DO UPDATE SET deleted_at = NULL, updated_at = now();
 
 -- name: TenantMemberHasRole :one
 SELECT EXISTS (
   SELECT 1
   FROM profiles.tenant_memberships
-  WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND role = $3 AND deleted_at IS NULL
+  WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_id = sqlc.arg(user_id)::uuid AND member_kind = 'user' AND role = $3 AND deleted_at IS NULL
 );
 
 -- name: TenantRoleMemberCount :one
@@ -85,7 +85,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND role = $2 AND deleted_at IS NULL
 
 -- name: TenantMemberSoftDelete :exec
 UPDATE profiles.tenant_memberships SET deleted_at = now(), updated_at = now()
-WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND deleted_at IS NULL;
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_id = sqlc.arg(user_id)::uuid AND member_kind = 'user' AND deleted_at IS NULL;
 
 -- name: TenantRoleDefine :exec
 INSERT INTO profiles.tenant_roles (tenant_id, role)
@@ -100,31 +100,57 @@ WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND role = $2;
 UPDATE profiles.tenant_memberships
 SET role = sqlc.arg(role), updated_at = now()
 WHERE tenant_id = sqlc.arg(tenant_id)::uuid
-  AND user_id = sqlc.arg(user_id)::uuid
+  AND member_id = sqlc.arg(user_id)::uuid
+  AND member_kind = 'user'
   AND deleted_at IS NULL
   AND EXISTS (SELECT 1 FROM profiles.tenant_roles WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND role = sqlc.arg(role));
 
 -- name: TenantMembershipResetRole :exec
 UPDATE profiles.tenant_memberships
 SET role = 'member', updated_at = now()
-WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND role = $3 AND deleted_at IS NULL;
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_id = sqlc.arg(user_id)::uuid AND member_kind = 'user' AND role = $3 AND deleted_at IS NULL;
 
 -- name: TenantMemberRole :one
 SELECT role
 FROM profiles.tenant_memberships
-WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND deleted_at IS NULL;
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_id = sqlc.arg(user_id)::uuid AND member_kind = 'user' AND deleted_at IS NULL;
 
 -- name: TenantMembershipExists :one
 SELECT EXISTS (
   SELECT 1 FROM profiles.tenant_memberships
-  WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND user_id = sqlc.arg(user_id)::uuid AND deleted_at IS NULL
+  WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_id = sqlc.arg(user_id)::uuid AND member_kind = 'user' AND deleted_at IS NULL
 );
 
 -- name: TenantMemberIDs :many
-SELECT user_id::text
+SELECT member_id::text
 FROM profiles.tenant_memberships
-WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND deleted_at IS NULL
-ORDER BY user_id::text ASC;
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_kind = 'user' AND deleted_at IS NULL
+ORDER BY member_id::text ASC;
+
+-- Polymorphic remote_application memberships: a remote_app holds tenant roles
+-- via the SAME tenant_memberships/tenant_roles machinery as users (#74).
+
+-- name: TenantMembershipUpsertRolePrincipal :exec
+INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role)
+VALUES (sqlc.arg(tenant_id)::uuid, sqlc.arg(member_id)::uuid, sqlc.arg(member_kind), sqlc.arg(role))
+ON CONFLICT (tenant_id, member_id, member_kind)
+DO UPDATE SET role = EXCLUDED.role, deleted_at = NULL, updated_at = now();
+
+-- name: TenantMemberSoftDeletePrincipal :exec
+UPDATE profiles.tenant_memberships SET deleted_at = now(), updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_id = sqlc.arg(member_id)::uuid AND member_kind = sqlc.arg(member_kind) AND deleted_at IS NULL;
+
+-- name: TenantMemberRolePrincipal :one
+SELECT role
+FROM profiles.tenant_memberships
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND member_id = sqlc.arg(member_id)::uuid AND member_kind = sqlc.arg(member_kind) AND deleted_at IS NULL;
+
+-- name: TenantRolesForPrincipal :many
+SELECT o.slug, m.role
+FROM profiles.tenant_memberships m
+JOIN profiles.tenants o ON o.id = m.tenant_id AND o.deleted_at IS NULL
+WHERE m.member_id = sqlc.arg(member_id)::uuid AND m.member_kind = sqlc.arg(member_kind) AND m.deleted_at IS NULL
+ORDER BY o.slug ASC, m.role ASC;
 
 -- name: TenantDefinedRoles :many
 SELECT role
@@ -149,47 +175,89 @@ WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND role = $2;
 -- name: TenantRoleHasPermissions :one
 SELECT EXISTS(SELECT 1 FROM profiles.tenant_role_permissions WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND role = $2);
 
--- Tenant issuer registry (core/service_tenant_issuers.go).
+-- Remote application registry (core/service_remote_applications.go). A
+-- remote_application is the federation PRINCIPAL: it authenticates by signing
+-- JWTs verified against its JWKS/public keys (#74).
 
--- name: TenantIssuerUpsert :one
-INSERT INTO profiles.tenant_issuers (tenant_id, issuer, jwks_uri, audiences, enabled, mode, public_keys)
-VALUES (sqlc.arg(tenant_id)::uuid, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (tenant_id, issuer) DO UPDATE
-  SET jwks_uri    = EXCLUDED.jwks_uri,
-      audiences   = EXCLUDED.audiences,
-      enabled     = EXCLUDED.enabled,
-      mode        = EXCLUDED.mode,
-      public_keys = EXCLUDED.public_keys,
-      updated_at  = now()
-RETURNING id::text, issuer, jwks_uri, audiences, enabled, mode, public_keys, created_at, updated_at;
+-- name: RemoteApplicationUpsert :one
+INSERT INTO profiles.remote_applications (slug, owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled)
+VALUES ($1, sqlc.narg(owner_user_id)::uuid, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (issuer) DO UPDATE
+  SET slug          = EXCLUDED.slug,
+      owner_user_id = EXCLUDED.owner_user_id,
+      jwks_uri      = EXCLUDED.jwks_uri,
+      mode          = EXCLUDED.mode,
+      public_keys   = EXCLUDED.public_keys,
+      audiences     = EXCLUDED.audiences,
+      enabled       = EXCLUDED.enabled,
+      updated_at    = now()
+RETURNING id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at;
 
--- name: TenantIssuerByIssuer :one
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
-FROM profiles.tenant_issuers ti
-JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-WHERE ti.issuer = $1
-ORDER BY ti.created_at ASC
-LIMIT 1;
+-- name: RemoteApplicationByIssuer :one
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE issuer = $1 AND deleted_at IS NULL;
 
--- name: TenantIssuersAll :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
-FROM profiles.tenant_issuers ti
-JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-ORDER BY t.slug ASC, ti.issuer ASC;
+-- name: RemoteApplicationBySlug :one
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE slug = $1 AND deleted_at IS NULL;
 
--- name: TenantIssuersEnabled :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
-FROM profiles.tenant_issuers ti
-JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-WHERE ti.enabled = true
-ORDER BY t.slug ASC, ti.issuer ASC;
+-- name: RemoteApplicationsAll :many
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE deleted_at IS NULL
+ORDER BY slug ASC;
 
--- name: TenantIssuerDelete :execrows
-DELETE FROM profiles.tenant_issuers WHERE issuer = $1;
+-- name: RemoteApplicationsEnabled :many
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE enabled = true AND deleted_at IS NULL
+ORDER BY slug ASC;
+
+-- name: RemoteApplicationDelete :execrows
+DELETE FROM profiles.remote_applications WHERE issuer = $1;
 
 -- name: TenantSubjectTouch :one
-INSERT INTO profiles.tenant_subjects (tenant_id, issuer, subject)
-VALUES (sqlc.arg(tenant_id)::uuid, $2, $3)
-ON CONFLICT (tenant_id, issuer, subject) DO UPDATE
+INSERT INTO profiles.tenant_subjects (remote_application_id, issuer, subject)
+VALUES (sqlc.arg(remote_application_id)::uuid, $2, $3)
+ON CONFLICT (remote_application_id, issuer, subject) DO UPDATE
   SET last_seen_at = now()
-RETURNING id::text, tenant_id::text AS tenant_id, issuer, subject, created_at, last_seen_at;
+RETURNING id::text, remote_application_id::text AS remote_application_id, issuer, subject, created_at, last_seen_at;
+
+-- name: TenantSubjectsByApp :many
+SELECT id::text, remote_application_id::text AS remote_application_id, issuer, subject, created_at, last_seen_at
+FROM profiles.tenant_subjects
+WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid
+ORDER BY last_seen_at DESC;
+
+-- Attribute definition registry (#75): REFERENCE-mode opaque definitions.
+
+-- name: RemoteAppAttributeDefUpsert :one
+INSERT INTO profiles.remote_application_attribute_defs (remote_application_id, key, version, definition)
+VALUES (sqlc.arg(remote_application_id)::uuid, $2, $3, $4)
+ON CONFLICT (remote_application_id, key, version) DO UPDATE
+  SET definition = EXCLUDED.definition, updated_at = now()
+RETURNING remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at;
+
+-- name: RemoteAppAttributeDefGet :one
+SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
+FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid AND key = $2 AND version = $3;
+
+-- name: RemoteAppAttributeDefGetLatest :one
+SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
+FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid AND key = $2
+ORDER BY version DESC
+LIMIT 1;
+
+-- name: RemoteAppAttributeDefsList :many
+SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
+FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid
+ORDER BY key ASC, version DESC;
+
+-- name: RemoteAppAttributeDefDelete :execrows
+DELETE FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid AND key = $2;

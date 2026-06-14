@@ -18,8 +18,11 @@ type TenantProvisionRequest struct {
 	ServiceTokens []TenantProvisionServiceToken
 }
 
-// TenantProvisionIssuer declares one trusted OIDC issuer for a tenant.
+// TenantProvisionIssuer declares one remote_application (federation principal,
+// #74) to register and bind as a member of the tenant. Slug defaults to the
+// tenant slug when empty.
 type TenantProvisionIssuer struct {
+	Slug      string
 	Issuer    string
 	JWKSURI   string
 	Audiences []string
@@ -105,13 +108,23 @@ func (s *Service) ProvisionTenant(ctx context.Context, req TenantProvisionReques
 		if issuer.Enabled != nil {
 			enabled = *issuer.Enabled
 		}
-		if _, err := s.UpsertTenantIssuer(ctx, TenantIssuer{
-			TenantSlug: tenant.Slug,
-			Issuer:     issuer.Issuer,
-			JWKSURI:    issuer.JWKSURI,
-			Audiences:  issuer.Audiences,
-			Enabled:    enabled,
-		}); err != nil {
+		slug := strings.TrimSpace(issuer.Slug)
+		if slug == "" {
+			slug = tenant.Slug
+		}
+		ra, err := s.UpsertRemoteApplication(ctx, RemoteApplication{
+			Slug:        slug,
+			OwnerUserID: tenant.OwnerUserID,
+			Issuer:      issuer.Issuer,
+			JWKSURI:     issuer.JWKSURI,
+			Audiences:   issuer.Audiences,
+			Enabled:     enabled,
+		})
+		if err != nil {
+			return result, err
+		}
+		// Bind the remote_application as a member of the tenant it federates into.
+		if err := s.AddRemoteApplicationMember(ctx, tenant.Slug, ra.ID, "member"); err != nil {
 			return result, err
 		}
 		result.Issuers++

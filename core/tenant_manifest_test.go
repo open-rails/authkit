@@ -28,8 +28,12 @@ func TestReconcileTenantManifestIdempotent(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
 	const slug = "manifest-test"
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug) })
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+	})
 
 	out := filepath.Join(t.TempDir(), "token")
 	enabled := true
@@ -84,8 +88,12 @@ func TestReconcileTenantManifestUpdatesAndDisablesIssuer(t *testing.T) {
 
 	const slug = "manifest-issuer-update"
 	const issuer = "https://issuer-update.example"
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug) })
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+	})
 
 	enabled := true
 	manifest := TenantManifest{Tenants: []TenantManifestTenant{{
@@ -109,12 +117,12 @@ func TestReconcileTenantManifestUpdatesAndDisablesIssuer(t *testing.T) {
 		t.Fatalf("update reconcile: %v", err)
 	}
 
-	got, err := svc.GetTenantIssuer(ctx, issuer)
+	got, err := svc.GetRemoteApplication(ctx, issuer)
 	if err != nil {
-		t.Fatalf("GetTenantIssuer: %v", err)
+		t.Fatalf("GetRemoteApplication: %v", err)
 	}
 	if got.Enabled {
-		t.Fatalf("issuer should be disabled after manifest update")
+		t.Fatalf("remote_application should be disabled after manifest update")
 	}
 	if got.JWKSURI != issuer+"/jwks-v2.json" {
 		t.Fatalf("JWKSURI=%q", got.JWKSURI)

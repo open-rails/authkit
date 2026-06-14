@@ -10,6 +10,451 @@ import (
 	"time"
 )
 
+const remoteAppAttributeDefDelete = `-- name: RemoteAppAttributeDefDelete :execrows
+DELETE FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = $1::uuid AND key = $2
+`
+
+type RemoteAppAttributeDefDeleteParams struct {
+	RemoteApplicationID string
+	Key                 string
+}
+
+func (q *Queries) RemoteAppAttributeDefDelete(ctx context.Context, arg RemoteAppAttributeDefDeleteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, remoteAppAttributeDefDelete, arg.RemoteApplicationID, arg.Key)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const remoteAppAttributeDefGet = `-- name: RemoteAppAttributeDefGet :one
+SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
+FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = $1::uuid AND key = $2 AND version = $3
+`
+
+type RemoteAppAttributeDefGetParams struct {
+	RemoteApplicationID string
+	Key                 string
+	Version             int32
+}
+
+type RemoteAppAttributeDefGetRow struct {
+	RemoteApplicationID string
+	Key                 string
+	Version             int32
+	Definition          []byte
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+func (q *Queries) RemoteAppAttributeDefGet(ctx context.Context, arg RemoteAppAttributeDefGetParams) (RemoteAppAttributeDefGetRow, error) {
+	row := q.db.QueryRow(ctx, remoteAppAttributeDefGet, arg.RemoteApplicationID, arg.Key, arg.Version)
+	var i RemoteAppAttributeDefGetRow
+	err := row.Scan(
+		&i.RemoteApplicationID,
+		&i.Key,
+		&i.Version,
+		&i.Definition,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const remoteAppAttributeDefGetLatest = `-- name: RemoteAppAttributeDefGetLatest :one
+SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
+FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = $1::uuid AND key = $2
+ORDER BY version DESC
+LIMIT 1
+`
+
+type RemoteAppAttributeDefGetLatestParams struct {
+	RemoteApplicationID string
+	Key                 string
+}
+
+type RemoteAppAttributeDefGetLatestRow struct {
+	RemoteApplicationID string
+	Key                 string
+	Version             int32
+	Definition          []byte
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+func (q *Queries) RemoteAppAttributeDefGetLatest(ctx context.Context, arg RemoteAppAttributeDefGetLatestParams) (RemoteAppAttributeDefGetLatestRow, error) {
+	row := q.db.QueryRow(ctx, remoteAppAttributeDefGetLatest, arg.RemoteApplicationID, arg.Key)
+	var i RemoteAppAttributeDefGetLatestRow
+	err := row.Scan(
+		&i.RemoteApplicationID,
+		&i.Key,
+		&i.Version,
+		&i.Definition,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const remoteAppAttributeDefUpsert = `-- name: RemoteAppAttributeDefUpsert :one
+
+INSERT INTO profiles.remote_application_attribute_defs (remote_application_id, key, version, definition)
+VALUES ($1::uuid, $2, $3, $4)
+ON CONFLICT (remote_application_id, key, version) DO UPDATE
+  SET definition = EXCLUDED.definition, updated_at = now()
+RETURNING remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
+`
+
+type RemoteAppAttributeDefUpsertParams struct {
+	RemoteApplicationID string
+	Key                 string
+	Version             int32
+	Definition          []byte
+}
+
+type RemoteAppAttributeDefUpsertRow struct {
+	RemoteApplicationID string
+	Key                 string
+	Version             int32
+	Definition          []byte
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+// Attribute definition registry (#75): REFERENCE-mode opaque definitions.
+func (q *Queries) RemoteAppAttributeDefUpsert(ctx context.Context, arg RemoteAppAttributeDefUpsertParams) (RemoteAppAttributeDefUpsertRow, error) {
+	row := q.db.QueryRow(ctx, remoteAppAttributeDefUpsert,
+		arg.RemoteApplicationID,
+		arg.Key,
+		arg.Version,
+		arg.Definition,
+	)
+	var i RemoteAppAttributeDefUpsertRow
+	err := row.Scan(
+		&i.RemoteApplicationID,
+		&i.Key,
+		&i.Version,
+		&i.Definition,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const remoteAppAttributeDefsList = `-- name: RemoteAppAttributeDefsList :many
+SELECT remote_application_id::text AS remote_application_id, key, version, definition, created_at, updated_at
+FROM profiles.remote_application_attribute_defs
+WHERE remote_application_id = $1::uuid
+ORDER BY key ASC, version DESC
+`
+
+type RemoteAppAttributeDefsListRow struct {
+	RemoteApplicationID string
+	Key                 string
+	Version             int32
+	Definition          []byte
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+func (q *Queries) RemoteAppAttributeDefsList(ctx context.Context, remoteApplicationID string) ([]RemoteAppAttributeDefsListRow, error) {
+	rows, err := q.db.Query(ctx, remoteAppAttributeDefsList, remoteApplicationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RemoteAppAttributeDefsListRow
+	for rows.Next() {
+		var i RemoteAppAttributeDefsListRow
+		if err := rows.Scan(
+			&i.RemoteApplicationID,
+			&i.Key,
+			&i.Version,
+			&i.Definition,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE issuer = $1 AND deleted_at IS NULL
+`
+
+type RemoteApplicationByIssuerRow struct {
+	ID          string
+	Slug        string
+	OwnerUserID string
+	Issuer      string
+	JwksUri     string
+	Mode        string
+	PublicKeys  []byte
+	Audiences   []string
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) (RemoteApplicationByIssuerRow, error) {
+	row := q.db.QueryRow(ctx, remoteApplicationByIssuer, issuer)
+	var i RemoteApplicationByIssuerRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.OwnerUserID,
+		&i.Issuer,
+		&i.JwksUri,
+		&i.Mode,
+		&i.PublicKeys,
+		&i.Audiences,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const remoteApplicationBySlug = `-- name: RemoteApplicationBySlug :one
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE slug = $1 AND deleted_at IS NULL
+`
+
+type RemoteApplicationBySlugRow struct {
+	ID          string
+	Slug        string
+	OwnerUserID string
+	Issuer      string
+	JwksUri     string
+	Mode        string
+	PublicKeys  []byte
+	Audiences   []string
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func (q *Queries) RemoteApplicationBySlug(ctx context.Context, slug string) (RemoteApplicationBySlugRow, error) {
+	row := q.db.QueryRow(ctx, remoteApplicationBySlug, slug)
+	var i RemoteApplicationBySlugRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.OwnerUserID,
+		&i.Issuer,
+		&i.JwksUri,
+		&i.Mode,
+		&i.PublicKeys,
+		&i.Audiences,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const remoteApplicationDelete = `-- name: RemoteApplicationDelete :execrows
+DELETE FROM profiles.remote_applications WHERE issuer = $1
+`
+
+func (q *Queries) RemoteApplicationDelete(ctx context.Context, issuer string) (int64, error) {
+	result, err := q.db.Exec(ctx, remoteApplicationDelete, issuer)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const remoteApplicationUpsert = `-- name: RemoteApplicationUpsert :one
+
+INSERT INTO profiles.remote_applications (slug, owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled)
+VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (issuer) DO UPDATE
+  SET slug          = EXCLUDED.slug,
+      owner_user_id = EXCLUDED.owner_user_id,
+      jwks_uri      = EXCLUDED.jwks_uri,
+      mode          = EXCLUDED.mode,
+      public_keys   = EXCLUDED.public_keys,
+      audiences     = EXCLUDED.audiences,
+      enabled       = EXCLUDED.enabled,
+      updated_at    = now()
+RETURNING id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+`
+
+type RemoteApplicationUpsertParams struct {
+	Slug        string
+	OwnerUserID *string
+	Issuer      string
+	JwksUri     string
+	Mode        string
+	PublicKeys  []byte
+	Audiences   []string
+	Enabled     bool
+}
+
+type RemoteApplicationUpsertRow struct {
+	ID          string
+	Slug        string
+	OwnerUserID string
+	Issuer      string
+	JwksUri     string
+	Mode        string
+	PublicKeys  []byte
+	Audiences   []string
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// Remote application registry (core/service_remote_applications.go). A
+// remote_application is the federation PRINCIPAL: it authenticates by signing
+// JWTs verified against its JWKS/public keys (#74).
+func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplicationUpsertParams) (RemoteApplicationUpsertRow, error) {
+	row := q.db.QueryRow(ctx, remoteApplicationUpsert,
+		arg.Slug,
+		arg.OwnerUserID,
+		arg.Issuer,
+		arg.JwksUri,
+		arg.Mode,
+		arg.PublicKeys,
+		arg.Audiences,
+		arg.Enabled,
+	)
+	var i RemoteApplicationUpsertRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.OwnerUserID,
+		&i.Issuer,
+		&i.JwksUri,
+		&i.Mode,
+		&i.PublicKeys,
+		&i.Audiences,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const remoteApplicationsAll = `-- name: RemoteApplicationsAll :many
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE deleted_at IS NULL
+ORDER BY slug ASC
+`
+
+type RemoteApplicationsAllRow struct {
+	ID          string
+	Slug        string
+	OwnerUserID string
+	Issuer      string
+	JwksUri     string
+	Mode        string
+	PublicKeys  []byte
+	Audiences   []string
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func (q *Queries) RemoteApplicationsAll(ctx context.Context) ([]RemoteApplicationsAllRow, error) {
+	rows, err := q.db.Query(ctx, remoteApplicationsAll)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RemoteApplicationsAllRow
+	for rows.Next() {
+		var i RemoteApplicationsAllRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.OwnerUserID,
+			&i.Issuer,
+			&i.JwksUri,
+			&i.Mode,
+			&i.PublicKeys,
+			&i.Audiences,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+FROM profiles.remote_applications
+WHERE enabled = true AND deleted_at IS NULL
+ORDER BY slug ASC
+`
+
+type RemoteApplicationsEnabledRow struct {
+	ID          string
+	Slug        string
+	OwnerUserID string
+	Issuer      string
+	JwksUri     string
+	Mode        string
+	PublicKeys  []byte
+	Audiences   []string
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplicationsEnabledRow, error) {
+	rows, err := q.db.Query(ctx, remoteApplicationsEnabled)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RemoteApplicationsEnabledRow
+	for rows.Next() {
+		var i RemoteApplicationsEnabledRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.OwnerUserID,
+			&i.Issuer,
+			&i.JwksUri,
+			&i.Mode,
+			&i.PublicKeys,
+			&i.Audiences,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tenantBySlug = `-- name: TenantBySlug :one
 
 SELECT id::text, slug, is_personal, COALESCE(owner_user_id::text, '')::text AS owner_user_id
@@ -119,223 +564,6 @@ func (q *Queries) TenantInsert(ctx context.Context, arg TenantInsertParams) (Ten
 	return i, err
 }
 
-const tenantIssuerByIssuer = `-- name: TenantIssuerByIssuer :one
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
-FROM profiles.tenant_issuers ti
-JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-WHERE ti.issuer = $1
-ORDER BY ti.created_at ASC
-LIMIT 1
-`
-
-type TenantIssuerByIssuerRow struct {
-	ID         string
-	Slug       string
-	Issuer     string
-	JwksUri    string
-	Audiences  []string
-	Enabled    bool
-	Mode       string
-	PublicKeys []byte
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
-
-func (q *Queries) TenantIssuerByIssuer(ctx context.Context, issuer string) (TenantIssuerByIssuerRow, error) {
-	row := q.db.QueryRow(ctx, tenantIssuerByIssuer, issuer)
-	var i TenantIssuerByIssuerRow
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Audiences,
-		&i.Enabled,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const tenantIssuerDelete = `-- name: TenantIssuerDelete :execrows
-DELETE FROM profiles.tenant_issuers WHERE issuer = $1
-`
-
-func (q *Queries) TenantIssuerDelete(ctx context.Context, issuer string) (int64, error) {
-	result, err := q.db.Exec(ctx, tenantIssuerDelete, issuer)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const tenantIssuerUpsert = `-- name: TenantIssuerUpsert :one
-
-INSERT INTO profiles.tenant_issuers (tenant_id, issuer, jwks_uri, audiences, enabled, mode, public_keys)
-VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (tenant_id, issuer) DO UPDATE
-  SET jwks_uri    = EXCLUDED.jwks_uri,
-      audiences   = EXCLUDED.audiences,
-      enabled     = EXCLUDED.enabled,
-      mode        = EXCLUDED.mode,
-      public_keys = EXCLUDED.public_keys,
-      updated_at  = now()
-RETURNING id::text, issuer, jwks_uri, audiences, enabled, mode, public_keys, created_at, updated_at
-`
-
-type TenantIssuerUpsertParams struct {
-	TenantID   string
-	Issuer     string
-	JwksUri    string
-	Audiences  []string
-	Enabled    bool
-	Mode       string
-	PublicKeys []byte
-}
-
-type TenantIssuerUpsertRow struct {
-	ID         string
-	Issuer     string
-	JwksUri    string
-	Audiences  []string
-	Enabled    bool
-	Mode       string
-	PublicKeys []byte
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
-
-// Tenant issuer registry (core/service_tenant_issuers.go).
-func (q *Queries) TenantIssuerUpsert(ctx context.Context, arg TenantIssuerUpsertParams) (TenantIssuerUpsertRow, error) {
-	row := q.db.QueryRow(ctx, tenantIssuerUpsert,
-		arg.TenantID,
-		arg.Issuer,
-		arg.JwksUri,
-		arg.Audiences,
-		arg.Enabled,
-		arg.Mode,
-		arg.PublicKeys,
-	)
-	var i TenantIssuerUpsertRow
-	err := row.Scan(
-		&i.ID,
-		&i.Issuer,
-		&i.JwksUri,
-		&i.Audiences,
-		&i.Enabled,
-		&i.Mode,
-		&i.PublicKeys,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const tenantIssuersAll = `-- name: TenantIssuersAll :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
-FROM profiles.tenant_issuers ti
-JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-ORDER BY t.slug ASC, ti.issuer ASC
-`
-
-type TenantIssuersAllRow struct {
-	ID         string
-	Slug       string
-	Issuer     string
-	JwksUri    string
-	Audiences  []string
-	Enabled    bool
-	Mode       string
-	PublicKeys []byte
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
-
-func (q *Queries) TenantIssuersAll(ctx context.Context) ([]TenantIssuersAllRow, error) {
-	rows, err := q.db.Query(ctx, tenantIssuersAll)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []TenantIssuersAllRow
-	for rows.Next() {
-		var i TenantIssuersAllRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Slug,
-			&i.Issuer,
-			&i.JwksUri,
-			&i.Audiences,
-			&i.Enabled,
-			&i.Mode,
-			&i.PublicKeys,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const tenantIssuersEnabled = `-- name: TenantIssuersEnabled :many
-SELECT ti.id::text AS id, t.slug, ti.issuer, ti.jwks_uri, ti.audiences, ti.enabled, ti.mode, ti.public_keys, ti.created_at, ti.updated_at
-FROM profiles.tenant_issuers ti
-JOIN profiles.tenants t ON t.id = ti.tenant_id AND t.deleted_at IS NULL
-WHERE ti.enabled = true
-ORDER BY t.slug ASC, ti.issuer ASC
-`
-
-type TenantIssuersEnabledRow struct {
-	ID         string
-	Slug       string
-	Issuer     string
-	JwksUri    string
-	Audiences  []string
-	Enabled    bool
-	Mode       string
-	PublicKeys []byte
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
-
-func (q *Queries) TenantIssuersEnabled(ctx context.Context) ([]TenantIssuersEnabledRow, error) {
-	rows, err := q.db.Query(ctx, tenantIssuersEnabled)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []TenantIssuersEnabledRow
-	for rows.Next() {
-		var i TenantIssuersEnabledRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Slug,
-			&i.Issuer,
-			&i.JwksUri,
-			&i.Audiences,
-			&i.Enabled,
-			&i.Mode,
-			&i.PublicKeys,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const tenantLastRenamedAt = `-- name: TenantLastRenamedAt :one
 SELECT renamed_at
 FROM   profiles.tenant_renames
@@ -352,9 +580,9 @@ func (q *Queries) TenantLastRenamedAt(ctx context.Context, tenantID string) (tim
 }
 
 const tenantMemberAdd = `-- name: TenantMemberAdd :exec
-INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-VALUES ($1::uuid, $2::uuid, 'member')
-ON CONFLICT (tenant_id, user_id) DO UPDATE SET deleted_at = NULL, updated_at = now()
+INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role)
+VALUES ($1::uuid, $2::uuid, 'user', 'member')
+ON CONFLICT (tenant_id, member_id, member_kind) DO UPDATE SET deleted_at = NULL, updated_at = now()
 `
 
 type TenantMemberAddParams struct {
@@ -373,7 +601,7 @@ const tenantMemberHasRole = `-- name: TenantMemberHasRole :one
 SELECT EXISTS (
   SELECT 1
   FROM profiles.tenant_memberships
-  WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND deleted_at IS NULL
+  WHERE tenant_id = $1::uuid AND member_id = $2::uuid AND member_kind = 'user' AND role = $3 AND deleted_at IS NULL
 )
 `
 
@@ -391,10 +619,10 @@ func (q *Queries) TenantMemberHasRole(ctx context.Context, arg TenantMemberHasRo
 }
 
 const tenantMemberIDs = `-- name: TenantMemberIDs :many
-SELECT user_id::text
+SELECT member_id::text
 FROM profiles.tenant_memberships
-WHERE tenant_id = $1::uuid AND deleted_at IS NULL
-ORDER BY user_id::text ASC
+WHERE tenant_id = $1::uuid AND member_kind = 'user' AND deleted_at IS NULL
+ORDER BY member_id::text ASC
 `
 
 func (q *Queries) TenantMemberIDs(ctx context.Context, tenantID string) ([]string, error) {
@@ -405,11 +633,11 @@ func (q *Queries) TenantMemberIDs(ctx context.Context, tenantID string) ([]strin
 	defer rows.Close()
 	var items []string
 	for rows.Next() {
-		var user_id string
-		if err := rows.Scan(&user_id); err != nil {
+		var member_id string
+		if err := rows.Scan(&member_id); err != nil {
 			return nil, err
 		}
-		items = append(items, user_id)
+		items = append(items, member_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -420,7 +648,7 @@ func (q *Queries) TenantMemberIDs(ctx context.Context, tenantID string) ([]strin
 const tenantMemberRole = `-- name: TenantMemberRole :one
 SELECT role
 FROM profiles.tenant_memberships
-WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND deleted_at IS NULL
+WHERE tenant_id = $1::uuid AND member_id = $2::uuid AND member_kind = 'user' AND deleted_at IS NULL
 `
 
 type TenantMemberRoleParams struct {
@@ -435,9 +663,28 @@ func (q *Queries) TenantMemberRole(ctx context.Context, arg TenantMemberRolePara
 	return role, err
 }
 
+const tenantMemberRolePrincipal = `-- name: TenantMemberRolePrincipal :one
+SELECT role
+FROM profiles.tenant_memberships
+WHERE tenant_id = $1::uuid AND member_id = $2::uuid AND member_kind = $3 AND deleted_at IS NULL
+`
+
+type TenantMemberRolePrincipalParams struct {
+	TenantID   string
+	MemberID   string
+	MemberKind string
+}
+
+func (q *Queries) TenantMemberRolePrincipal(ctx context.Context, arg TenantMemberRolePrincipalParams) (string, error) {
+	row := q.db.QueryRow(ctx, tenantMemberRolePrincipal, arg.TenantID, arg.MemberID, arg.MemberKind)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
 const tenantMemberSoftDelete = `-- name: TenantMemberSoftDelete :exec
 UPDATE profiles.tenant_memberships SET deleted_at = now(), updated_at = now()
-WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND deleted_at IS NULL
+WHERE tenant_id = $1::uuid AND member_id = $2::uuid AND member_kind = 'user' AND deleted_at IS NULL
 `
 
 type TenantMemberSoftDeleteParams struct {
@@ -450,10 +697,26 @@ func (q *Queries) TenantMemberSoftDelete(ctx context.Context, arg TenantMemberSo
 	return err
 }
 
+const tenantMemberSoftDeletePrincipal = `-- name: TenantMemberSoftDeletePrincipal :exec
+UPDATE profiles.tenant_memberships SET deleted_at = now(), updated_at = now()
+WHERE tenant_id = $1::uuid AND member_id = $2::uuid AND member_kind = $3 AND deleted_at IS NULL
+`
+
+type TenantMemberSoftDeletePrincipalParams struct {
+	TenantID   string
+	MemberID   string
+	MemberKind string
+}
+
+func (q *Queries) TenantMemberSoftDeletePrincipal(ctx context.Context, arg TenantMemberSoftDeletePrincipalParams) error {
+	_, err := q.db.Exec(ctx, tenantMemberSoftDeletePrincipal, arg.TenantID, arg.MemberID, arg.MemberKind)
+	return err
+}
+
 const tenantMembershipExists = `-- name: TenantMembershipExists :one
 SELECT EXISTS (
   SELECT 1 FROM profiles.tenant_memberships
-  WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND deleted_at IS NULL
+  WHERE tenant_id = $1::uuid AND member_id = $2::uuid AND member_kind = 'user' AND deleted_at IS NULL
 )
 `
 
@@ -472,7 +735,7 @@ func (q *Queries) TenantMembershipExists(ctx context.Context, arg TenantMembersh
 const tenantMembershipResetRole = `-- name: TenantMembershipResetRole :exec
 UPDATE profiles.tenant_memberships
 SET role = 'member', updated_at = now()
-WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND deleted_at IS NULL
+WHERE tenant_id = $1::uuid AND member_id = $2::uuid AND member_kind = 'user' AND role = $3 AND deleted_at IS NULL
 `
 
 type TenantMembershipResetRoleParams struct {
@@ -490,7 +753,8 @@ const tenantMembershipSetRole = `-- name: TenantMembershipSetRole :exec
 UPDATE profiles.tenant_memberships
 SET role = $1, updated_at = now()
 WHERE tenant_id = $2::uuid
-  AND user_id = $3::uuid
+  AND member_id = $3::uuid
+  AND member_kind = 'user'
   AND deleted_at IS NULL
   AND EXISTS (SELECT 1 FROM profiles.tenant_roles WHERE tenant_id = $2::uuid AND role = $1)
 `
@@ -507,9 +771,9 @@ func (q *Queries) TenantMembershipSetRole(ctx context.Context, arg TenantMembers
 }
 
 const tenantMembershipUpsertRole = `-- name: TenantMembershipUpsertRole :exec
-INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-VALUES ($1::uuid, $2::uuid, $3)
-ON CONFLICT (tenant_id, user_id)
+INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role)
+VALUES ($1::uuid, $2::uuid, 'user', $3)
+ON CONFLICT (tenant_id, member_id, member_kind)
 DO UPDATE SET role = EXCLUDED.role, deleted_at = NULL, updated_at = now()
 `
 
@@ -521,6 +785,33 @@ type TenantMembershipUpsertRoleParams struct {
 
 func (q *Queries) TenantMembershipUpsertRole(ctx context.Context, arg TenantMembershipUpsertRoleParams) error {
 	_, err := q.db.Exec(ctx, tenantMembershipUpsertRole, arg.TenantID, arg.UserID, arg.Role)
+	return err
+}
+
+const tenantMembershipUpsertRolePrincipal = `-- name: TenantMembershipUpsertRolePrincipal :exec
+
+INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role)
+VALUES ($1::uuid, $2::uuid, $3, $4)
+ON CONFLICT (tenant_id, member_id, member_kind)
+DO UPDATE SET role = EXCLUDED.role, deleted_at = NULL, updated_at = now()
+`
+
+type TenantMembershipUpsertRolePrincipalParams struct {
+	TenantID   string
+	MemberID   string
+	MemberKind string
+	Role       string
+}
+
+// Polymorphic remote_application memberships: a remote_app holds tenant roles
+// via the SAME tenant_memberships/tenant_roles machinery as users (#74).
+func (q *Queries) TenantMembershipUpsertRolePrincipal(ctx context.Context, arg TenantMembershipUpsertRolePrincipalParams) error {
+	_, err := q.db.Exec(ctx, tenantMembershipUpsertRolePrincipal,
+		arg.TenantID,
+		arg.MemberID,
+		arg.MemberKind,
+		arg.Role,
+	)
 	return err
 }
 
@@ -685,6 +976,44 @@ func (q *Queries) TenantRolePermissionsDelete(ctx context.Context, arg TenantRol
 	return err
 }
 
+const tenantRolesForPrincipal = `-- name: TenantRolesForPrincipal :many
+SELECT o.slug, m.role
+FROM profiles.tenant_memberships m
+JOIN profiles.tenants o ON o.id = m.tenant_id AND o.deleted_at IS NULL
+WHERE m.member_id = $1::uuid AND m.member_kind = $2 AND m.deleted_at IS NULL
+ORDER BY o.slug ASC, m.role ASC
+`
+
+type TenantRolesForPrincipalParams struct {
+	MemberID   string
+	MemberKind string
+}
+
+type TenantRolesForPrincipalRow struct {
+	Slug string
+	Role string
+}
+
+func (q *Queries) TenantRolesForPrincipal(ctx context.Context, arg TenantRolesForPrincipalParams) ([]TenantRolesForPrincipalRow, error) {
+	rows, err := q.db.Query(ctx, tenantRolesForPrincipal, arg.MemberID, arg.MemberKind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TenantRolesForPrincipalRow
+	for rows.Next() {
+		var i TenantRolesForPrincipalRow
+		if err := rows.Scan(&i.Slug, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tenantRolesSeedOwnerMember = `-- name: TenantRolesSeedOwnerMember :exec
 INSERT INTO profiles.tenant_roles (tenant_id, role)
 VALUES ($1::uuid, $2), ($1::uuid, $3)
@@ -723,7 +1052,7 @@ const tenantSlugsByUser = `-- name: TenantSlugsByUser :many
 SELECT o.slug
 FROM profiles.tenant_memberships m
 JOIN profiles.tenants o ON o.id = m.tenant_id
-WHERE m.user_id = $1::uuid AND m.deleted_at IS NULL AND o.deleted_at IS NULL
+WHERE m.member_id = $1::uuid AND m.member_kind = 'user' AND m.deleted_at IS NULL AND o.deleted_at IS NULL
 ORDER BY o.slug ASC
 `
 
@@ -748,40 +1077,83 @@ func (q *Queries) TenantSlugsByUser(ctx context.Context, userID string) ([]strin
 }
 
 const tenantSubjectTouch = `-- name: TenantSubjectTouch :one
-INSERT INTO profiles.tenant_subjects (tenant_id, issuer, subject)
+INSERT INTO profiles.tenant_subjects (remote_application_id, issuer, subject)
 VALUES ($1::uuid, $2, $3)
-ON CONFLICT (tenant_id, issuer, subject) DO UPDATE
+ON CONFLICT (remote_application_id, issuer, subject) DO UPDATE
   SET last_seen_at = now()
-RETURNING id::text, tenant_id::text AS tenant_id, issuer, subject, created_at, last_seen_at
+RETURNING id::text, remote_application_id::text AS remote_application_id, issuer, subject, created_at, last_seen_at
 `
 
 type TenantSubjectTouchParams struct {
-	TenantID string
-	Issuer   string
-	Subject  string
+	RemoteApplicationID string
+	Issuer              string
+	Subject             string
 }
 
 type TenantSubjectTouchRow struct {
-	ID         string
-	TenantID   string
-	Issuer     string
-	Subject    string
-	CreatedAt  time.Time
-	LastSeenAt time.Time
+	ID                  string
+	RemoteApplicationID string
+	Issuer              string
+	Subject             string
+	CreatedAt           time.Time
+	LastSeenAt          time.Time
 }
 
 func (q *Queries) TenantSubjectTouch(ctx context.Context, arg TenantSubjectTouchParams) (TenantSubjectTouchRow, error) {
-	row := q.db.QueryRow(ctx, tenantSubjectTouch, arg.TenantID, arg.Issuer, arg.Subject)
+	row := q.db.QueryRow(ctx, tenantSubjectTouch, arg.RemoteApplicationID, arg.Issuer, arg.Subject)
 	var i TenantSubjectTouchRow
 	err := row.Scan(
 		&i.ID,
-		&i.TenantID,
+		&i.RemoteApplicationID,
 		&i.Issuer,
 		&i.Subject,
 		&i.CreatedAt,
 		&i.LastSeenAt,
 	)
 	return i, err
+}
+
+const tenantSubjectsByApp = `-- name: TenantSubjectsByApp :many
+SELECT id::text, remote_application_id::text AS remote_application_id, issuer, subject, created_at, last_seen_at
+FROM profiles.tenant_subjects
+WHERE remote_application_id = $1::uuid
+ORDER BY last_seen_at DESC
+`
+
+type TenantSubjectsByAppRow struct {
+	ID                  string
+	RemoteApplicationID string
+	Issuer              string
+	Subject             string
+	CreatedAt           time.Time
+	LastSeenAt          time.Time
+}
+
+func (q *Queries) TenantSubjectsByApp(ctx context.Context, remoteApplicationID string) ([]TenantSubjectsByAppRow, error) {
+	rows, err := q.db.Query(ctx, tenantSubjectsByApp, remoteApplicationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TenantSubjectsByAppRow
+	for rows.Next() {
+		var i TenantSubjectsByAppRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RemoteApplicationID,
+			&i.Issuer,
+			&i.Subject,
+			&i.CreatedAt,
+			&i.LastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const tenantUpdateSlug = `-- name: TenantUpdateSlug :exec

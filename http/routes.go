@@ -178,13 +178,22 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/tenant/park", Group: RouteAdmin, Handler: notFoundHandler},
 		{Method: http.MethodPost, Path: "/admin/tenant/claim", Group: RouteAdmin, Handler: notFoundHandler},
 
-		// Federated-tenant issuer registry (INBOUND accept side). Registration +
-		// deletion authorize on tenant owner/admin inside the handler (so they only
-		// need `required`, not the global-admin RequireAdmin gate). Listing is
-		// global-admin only for operator visibility.
-		{Method: http.MethodPost, Path: "/tenant-issuers", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleTenantIssuerRegisterPOST))},
-		{Method: http.MethodDelete, Path: "/tenant-issuers", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleTenantIssuerDeleteDELETE))},
-		{Method: http.MethodGet, Path: "/tenant-issuers", Group: RouteTenantIssuers, Handler: admin(http.HandlerFunc(s.handleTenantIssuersListGET))},
+		// Remote-application registry (#74, INBOUND accept side). A
+		// remote_application is the federation PRINCIPAL (JWKS-credentialed).
+		// Register/delete authorize on the principal owner inside the handler;
+		// listing is global-admin only for operator visibility.
+		{Method: http.MethodPost, Path: "/remote-applications", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationRegisterPOST))},
+		{Method: http.MethodDelete, Path: "/remote-applications", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationDeleteDELETE))},
+		{Method: http.MethodGet, Path: "/remote-applications", Group: RouteTenantIssuers, Handler: admin(http.HandlerFunc(s.handleRemoteApplicationsListGET))},
+		// A remote_application's delegated subjects + its tenant memberships
+		// (assigned via the SAME role machinery as users).
+		{Method: http.MethodGet, Path: "/remote-applications/{slug}/subjects", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationSubjectsGET))},
+		{Method: http.MethodPost, Path: "/remote-applications/{slug}/memberships", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipPOST))},
+		{Method: http.MethodDelete, Path: "/remote-applications/{slug}/memberships", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipDELETE))},
+		// Attribute definition registry (#75): write side (remote_app authors)
+		// + read/resolve side (any platform resolving a token reference).
+		{Method: http.MethodPost, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefPutPOST))},
+		{Method: http.MethodGet, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefGET))},
 	}
 
 	// When public tenant onboarding/management is disabled, wrap the mutating

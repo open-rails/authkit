@@ -152,8 +152,8 @@ func TestCreateTenantForUserRejectsTenantLimit(t *testing.T) {
 				CROSS JOIN (VALUES ('owner'), ('member')) AS role_defs(role_name)
 				RETURNING tenant_id
 			)
-			INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role)
-			SELECT tenant.id, $3::uuid, 'owner'
+			INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role)
+			SELECT tenant.id, $3::uuid, 'user', 'owner'
 			FROM tenant
 			WHERE (SELECT count(*) FROM roles) = 2
 		`, tenantID, slug, user.ID); err != nil {

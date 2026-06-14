@@ -243,20 +243,18 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 	if _, err := svc.CreateTenant(ctx, slug); err != nil {
 		t.Fatalf("bootstrap CreateTenant: %v", err)
 	}
-	if _, err := svc.UpsertTenantIssuer(ctx, TenantIssuer{
-		TenantSlug: slug,
-		Issuer:     issuer,
-		JWKSURI:    issuer + "/.well-known/jwks.json",
-		Audiences:  []string{"openrails"},
-		Enabled:    true,
-	}); err != nil {
-		t.Fatalf("UpsertTenantIssuer: %v", err)
-	}
-	tenant, err := svc.ResolveTenantBySlug(ctx, slug)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
+	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
+		Slug:      slug,
+		Issuer:    issuer,
+		JWKSURI:   issuer + "/.well-known/jwks.json",
+		Audiences: []string{"openrails"},
+		Enabled:   true,
+	})
 	if err != nil {
-		t.Fatalf("ResolveTenantBySlug: %v", err)
+		t.Fatalf("UpsertRemoteApplication: %v", err)
 	}
-	if _, err := svc.TouchTenantSubject(ctx, tenant.ID, issuer, subject); err != nil {
+	if _, err := svc.TouchTenantSubject(ctx, ra.ID, issuer, subject); err != nil {
 		t.Fatalf("TouchTenantSubject: %v", err)
 	}
 	if _, err := svc.CreatePendingRegistration(ctx, "blocked@example.com", "blockeduser", "hash", 0); err != ErrRegistrationDisabled {

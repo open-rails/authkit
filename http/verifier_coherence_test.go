@@ -18,26 +18,26 @@ import (
 // negative caching.
 type countingSource struct {
 	mu        sync.Mutex
-	items     []core.TenantIssuer
+	items     []core.RemoteApplication
 	listCalls int32
 	getCalls  map[string]int32
 }
 
-func newCountingSource(items ...core.TenantIssuer) *countingSource {
+func newCountingSource(items ...core.RemoteApplication) *countingSource {
 	return &countingSource{items: items, getCalls: map[string]int32{}}
 }
 
-func (c *countingSource) setItems(items []core.TenantIssuer) {
+func (c *countingSource) setItems(items []core.RemoteApplication) {
 	c.mu.Lock()
 	c.items = items
 	c.mu.Unlock()
 }
 
-func (c *countingSource) ListTenantIssuers(_ context.Context, enabledOnly bool) ([]core.TenantIssuer, error) {
+func (c *countingSource) ListRemoteApplications(_ context.Context, enabledOnly bool) ([]core.RemoteApplication, error) {
 	atomic.AddInt32(&c.listCalls, 1)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var out []core.TenantIssuer
+	var out []core.RemoteApplication
 	for _, i := range c.items {
 		if !enabledOnly || i.Enabled {
 			out = append(out, i)
@@ -46,7 +46,7 @@ func (c *countingSource) ListTenantIssuers(_ context.Context, enabledOnly bool) 
 	return out, nil
 }
 
-func (c *countingSource) GetTenantIssuer(_ context.Context, issuerID string) (*core.TenantIssuer, error) {
+func (c *countingSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.getCalls[issuerID]++
@@ -56,7 +56,7 @@ func (c *countingSource) GetTenantIssuer(_ context.Context, issuerID string) (*c
 			return &fi, nil
 		}
 	}
-	return nil, core.ErrTenantIssuerNotFound
+	return nil, core.ErrRemoteApplicationNotFound
 }
 
 func (c *countingSource) getCount(issuerID string) int32 {
@@ -121,16 +121,16 @@ func TestLazyLoadOnMissThenCached(t *testing.T) {
 	iss := "https://lazy.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.TenantIssuer{
-		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
+	src := newCountingSource(core.RemoteApplication{
+		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 
 	ver := NewVerifier(WithTenantMode("multi"))
-	// Thread fedSource + audiences via LoadTenantIssuers using a source whose
+	// Thread fedSource + audiences via LoadRemoteApplications using a source whose
 	// List is EMPTY (nothing pre-loaded) but whose Get knows the issuer. This
 	// isolates the lazy-load-on-miss path from the bulk load.
-	if err := ver.LoadTenantIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
-		t.Fatalf("LoadTenantIssuers: %v", err)
+	if err := ver.LoadRemoteApplications(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
 
 	tok := mintFor(t, signer, iss, aud)
@@ -160,11 +160,11 @@ func TestLazyLoadOnMissThenCached(t *testing.T) {
 // underlying source's issuers, isolating the lazy-load path.
 type listEmptyGetFull struct{ inner *countingSource }
 
-func (l *listEmptyGetFull) ListTenantIssuers(context.Context, bool) ([]core.TenantIssuer, error) {
+func (l *listEmptyGetFull) ListRemoteApplications(context.Context, bool) ([]core.RemoteApplication, error) {
 	return nil, nil
 }
-func (l *listEmptyGetFull) GetTenantIssuer(ctx context.Context, issuerID string) (*core.TenantIssuer, error) {
-	return l.inner.GetTenantIssuer(ctx, issuerID)
+func (l *listEmptyGetFull) GetRemoteApplication(ctx context.Context, issuerID string) (*core.RemoteApplication, error) {
+	return l.inner.GetRemoteApplication(ctx, issuerID)
 }
 
 // (b) Unknown issuer fails AND is negatively cached: the source is not consulted
@@ -173,8 +173,8 @@ func TestUnknownIssuerNegativeCached(t *testing.T) {
 	src := newCountingSource() // empty: GET always returns not-found
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), src, []string{"tensorhub"}); err != nil {
-		t.Fatalf("LoadTenantIssuers: %v", err)
+	if err := ver.LoadRemoteApplications(context.Background(), src, []string{"tensorhub"}); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
 	iss := "https://rogue.example"
 	tok := mintFor(t, signer, iss, []string{"tensorhub"})
@@ -202,11 +202,11 @@ func TestReconcilingReloadEvicts(t *testing.T) {
 	iss := "https://evict.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.TenantIssuer{
-		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
+	src := newCountingSource(core.RemoteApplication{
+		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("initial load: %v", err)
 	}
 
@@ -216,10 +216,10 @@ func TestReconcilingReloadEvicts(t *testing.T) {
 	}
 
 	// Deactivate the issuer in the store and reconcile.
-	src.setItems([]core.TenantIssuer{{
-		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: false,
+	src.setItems([]core.RemoteApplication{{
+		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: false,
 	}})
-	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("reconcile load: %v", err)
 	}
 
@@ -246,7 +246,7 @@ func TestReconcileDoesNotEvictStaticIssuer(t *testing.T) {
 	// A reconciling reload with an empty tenant set must leave the static
 	// issuer intact.
 	src := newCountingSource()
-	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 
@@ -264,13 +264,13 @@ func TestRotatedKidRefetch(t *testing.T) {
 	iss := "https://rotate.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.TenantIssuer{
-		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
+	src := newCountingSource(core.RemoteApplication{
+		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 	// Long TTL so the normal TTL refresh does not fire — only the unknown-kid
 	// fall-through can pick up the rotation.
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	// Force a long cacheTTL on the registered issuer.
@@ -307,11 +307,11 @@ func TestUnknownKidStormSingleFlight(t *testing.T) {
 	iss := "https://storm.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.TenantIssuer{
-		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
+	src := newCountingSource(core.RemoteApplication{
+		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), src, aud); err != nil {
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if err := ver.AddIssuer(iss, aud, IssuerOptions{JWKSURI: jwks.url(), CacheTTL: time.Hour}); err != nil {
@@ -344,11 +344,11 @@ func TestConcurrentFirstUseNoDeadlock(t *testing.T) {
 	iss := "https://concurrent.example"
 	aud := []string{"tensorhub"}
 
-	src := newCountingSource(core.TenantIssuer{
-		TenantSlug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
+	src := newCountingSource(core.RemoteApplication{
+		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 	ver := NewVerifier(WithTenantMode("multi"))
-	if err := ver.LoadTenantIssuers(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
+	if err := ver.LoadRemoteApplications(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
 

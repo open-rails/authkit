@@ -177,7 +177,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 			}
 		}
 		sql := fmt.Sprintf(
-			"INSERT INTO profiles.tenant_memberships (tenant_id, user_id, role) VALUES (%s::uuid, %s::uuid, %s) ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role, updated_at = now();",
+			"INSERT INTO profiles.tenant_memberships (tenant_id, member_id, member_kind, role) VALUES (%s::uuid, %s::uuid, 'user', %s) ON CONFLICT (tenant_id, member_id, member_kind) DO UPDATE SET role = EXCLUDED.role, updated_at = now();",
 			sqlStr(tenantID), sqlStr(userID), sqlStr(role))
 		execSQL(t, sql)
 	}

@@ -42,13 +42,13 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 	}
 	var body struct {
 		Slug string `json:"slug"`
-		// Federation optionally binds the tenant's delegated-token issuer at
-		// creation (#465): the human plants the trust anchor exactly once, when
-		// registering the tenant; everything after is self-signed. The block is
-		// {issuer + jwks_uri} XOR {issuer + public_keys} — one trust source,
-		// never both. Trust-config changes after creation stay human-only via
-		// the tenant-issuers routes.
-		Federation *tenantIssuerRegistration `json:"federation,omitempty"`
+		// Federation optionally registers a remote_application (federation
+		// principal, #74) and binds it as a member of the tenant at creation: the
+		// human plants the trust anchor exactly once. The block is {issuer +
+		// jwks_uri} XOR {issuer + public_keys} — one trust source, never both.
+		// Slug defaults to the tenant slug. Trust-config changes after creation
+		// stay human-only via the remote-application routes.
+		Federation *remoteApplicationRegistration `json:"federation,omitempty"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Slug) == "" {
 		badRequest(w, "invalid_request")
@@ -61,7 +61,7 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 			badRequest(w, "invalid_federation_issuer")
 			return
 		}
-		if _, err := core.NormalizeTenantIssuerTrustSource(body.Federation.JWKSURI, body.Federation.Mode, body.Federation.PublicKeys); err != nil {
+		if _, err := core.NormalizeRemoteAppTrustSource(body.Federation.JWKSURI, body.Federation.Mode, body.Federation.PublicKeys); err != nil {
 			badRequest(w, "invalid_federation_trust_source")
 			return
 		}
@@ -93,19 +93,27 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 
 	resp := map[string]any{"tenant": tenant.Slug}
 	if body.Federation != nil {
-		fi, err := s.svc.UpsertTenantIssuer(r.Context(), core.TenantIssuer{
-			TenantSlug: tenant.Slug,
-			Issuer:     body.Federation.Issuer,
-			JWKSURI:    body.Federation.JWKSURI,
-			Mode:       body.Federation.Mode,
-			PublicKeys: body.Federation.PublicKeys,
-			Audiences:  body.Federation.Audiences,
-			Enabled:    true,
+		raSlug := strings.TrimSpace(body.Federation.Slug)
+		if raSlug == "" {
+			raSlug = tenant.Slug
+		}
+		ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
+			Slug:        raSlug,
+			OwnerUserID: claims.UserID,
+			Issuer:      body.Federation.Issuer,
+			JWKSURI:     body.Federation.JWKSURI,
+			Mode:        body.Federation.Mode,
+			PublicKeys:  body.Federation.PublicKeys,
+			Audiences:   body.Federation.Audiences,
+			Enabled:     true,
 		})
+		if err == nil {
+			err = s.svc.AddRemoteApplicationMember(r.Context(), tenant.Slug, ra.ID, "member")
+		}
 		if err != nil {
 			// The block was pre-validated, so this is unexpected; the tenant
 			// exists but is unfederated. Surface that honestly — the caller can
-			// bind via POST /tenant-issuers (same human credential).
+			// bind via the remote-application routes (same human credential).
 			s.logInternalError(r, "tenants_create", "federation_bind", "tenant_created_federation_failed", err)
 			writeJSON(w, http.StatusCreated, map[string]any{
 				"tenant":           tenant.Slug,
@@ -114,9 +122,9 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if s.verifier != nil {
-			_ = s.verifier.AddIssuer(fi.Issuer, nil, tenantIssuerOptions(*fi))
+			_ = s.verifier.AddIssuer(ra.Issuer, nil, remoteAppOptions(*ra))
 		}
-		resp["federation"] = tenantIssuerView(*fi)
+		resp["federation"] = remoteApplicationView(*ra)
 	}
 	writeJSON(w, http.StatusCreated, resp)
 }

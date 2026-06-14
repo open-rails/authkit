@@ -19,7 +19,7 @@ func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string
 	t.Helper()
 	v := NewVerifier(WithSkew(time.Second))
 	require.NoError(t, v.AddIssuer(issuer, audiences, IssuerOptions{
-		RawKeys:                map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+		RawKeys:    map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 		TenantSlug: "hentai0",
 	}))
 	return v
@@ -269,25 +269,25 @@ func TestVerifyServiceJWTDisabledTenantIssuerFailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	v := NewVerifier()
-	src := disabledTenantIssuerSource{issuer: core.TenantIssuer{
-		TenantSlug: "hentai0", Issuer: issuer, JWKSURI: "https://disabled-issuer.example/jwks", Enabled: false,
+	src := disabledTenantIssuerSource{issuer: core.RemoteApplication{
+		Slug: "hentai0", Issuer: issuer, JWKSURI: "https://disabled-issuer.example/jwks", Enabled: false,
 	}}
-	require.NoError(t, v.LoadTenantIssuers(context.Background(), src, []string{"openrails"}))
+	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"openrails"}))
 	_, _, err = v.VerifyServiceJWT(context.Background(), token)
 	require.EqualError(t, err, "invalid_token")
 }
 
 type disabledTenantIssuerSource struct {
-	issuer core.TenantIssuer
+	issuer core.RemoteApplication
 }
 
-func (s disabledTenantIssuerSource) ListTenantIssuers(context.Context, bool) ([]core.TenantIssuer, error) {
+func (s disabledTenantIssuerSource) ListRemoteApplications(context.Context, bool) ([]core.RemoteApplication, error) {
 	return nil, nil
 }
 
-func (s disabledTenantIssuerSource) GetTenantIssuer(_ context.Context, issuerID string) (*core.TenantIssuer, error) {
+func (s disabledTenantIssuerSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
 	if issuerID == s.issuer.Issuer {
 		return &s.issuer, nil
 	}
-	return nil, core.ErrTenantIssuerNotFound
+	return nil, core.ErrRemoteApplicationNotFound
 }

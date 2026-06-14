@@ -43,13 +43,13 @@ type Verifier struct {
 
 	enrich *core.Service
 
-	// Tenant-issuer lazy-load coherence state. fedSource is the store the
+	// Remote-application lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*core.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
 	// issuer is registered with the SAME audiences the bulk LoadTenantIssuers
 	// used. fedKnown records which issuers were sourced from the tenant store
 	// so reconciling reload only evicts those (never statically-configured ones).
-	fedSource    TenantIssuerSource
+	fedSource    RemoteApplicationSource
 	fedAudiences []string
 	fedKnown     map[string]bool
 
@@ -72,6 +72,10 @@ type Verifier struct {
 	// `attributes` against a policy schema. Run only by VerifyDelegatedAccess.
 	permValidator PermissionValidator
 	attrValidator AttributesValidator
+	// attrHydrate / attrResolver implement opt-in verify-time REFERENCE-mode
+	// attribute hydration (#75). Off unless WithAttributeHydration is set.
+	attrHydrate  bool
+	attrResolver AttributeDefResolver
 }
 
 // issuerEntry describes a trusted issuer (private — replaces core.IssuerAccept).
@@ -156,6 +160,28 @@ func WithPermissionCatalog(fn PermissionValidator) VerifierOption {
 // keys, value shapes/ranges).
 func WithAttributesPolicy(fn AttributesValidator) VerifierOption {
 	return func(v *Verifier) { v.attrValidator = fn }
+}
+
+// AttributeDefResolver resolves a REFERENCE-mode attribute (#75) to its opaque
+// definition, given the token's validated issuer, the attribute key, and the
+// reference value the token carried. It returns the resolved definition (raw
+// JSON) to substitute for the reference, or an error. *core.Service-backed
+// resolvers map issuer -> remote_application -> registered definition.
+type AttributeDefResolver func(ctx context.Context, issuer, key, ref string) (json.RawMessage, error)
+
+// WithAttributeHydration enables OPT-IN verify-time hydration (#75): after a
+// delegated token verifies, VerifyDelegatedAccess resolves each REFERENCE-mode
+// attribute (a JSON-string value) into its full definition via resolver, so the
+// consumer sees a uniform INLINE shape whether the token used inline or
+// reference. OFF by default. A resolver miss leaves that attribute untouched
+// (the consumer can still resolve it itself); only a hard resolver error fails
+// the call. Pass nil to use the Service-backed default resolver (requires
+// WithService).
+func WithAttributeHydration(resolver AttributeDefResolver) VerifierOption {
+	return func(v *Verifier) {
+		v.attrHydrate = true
+		v.attrResolver = resolver
+	}
 }
 
 // resolveServiceToken handles Service Tokens (service tokens). It returns
@@ -368,47 +394,46 @@ func (v *Verifier) WithService(svc *core.Service) *Verifier {
 }
 
 // ---------------------------------------------------------------------------
-// Federated-tenant issuers (in-house store, no external push/sync)
+// Remote-application issuers (in-house store, no external push/sync)
 // ---------------------------------------------------------------------------
 
-// tenantIssuerOptions maps a stored tenant-issuer row to verifier options for
-// its trust mode (#465): jwks mode fetches+refreshes from the URI; static mode
-// seeds the human-managed PEM list (no URL fetching ever for static bindings).
-func tenantIssuerOptions(fi core.TenantIssuer) IssuerOptions {
-	opts := IssuerOptions{TenantSlug: fi.TenantSlug}
-	if fi.Mode == core.TenantIssuerModeStatic {
-		for _, k := range fi.PublicKeys {
+// remoteAppOptions maps a stored remote_application to verifier options for its
+// trust mode (#74): jwks mode fetches+refreshes from the URI; static mode seeds
+// the human-managed PEM list (no URL fetching ever for static principals).
+func remoteAppOptions(ra core.RemoteApplication) IssuerOptions {
+	opts := IssuerOptions{TenantSlug: ra.Slug}
+	if ra.Mode == core.RemoteAppModeStatic {
+		for _, k := range ra.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
 		}
 		return opts
 	}
-	opts.JWKSURI = fi.JWKSURI
+	opts.JWKSURI = ra.JWKSURI
 	return opts
 }
 
-// TenantIssuerSource is the minimal store contract the Verifier needs to
-// load tenant-tenant issuers. *core.Service satisfies it. An embedding app may
-// supply its own implementation in tests or to source issuers from elsewhere.
-type TenantIssuerSource interface {
-	ListTenantIssuers(ctx context.Context, enabledOnly bool) ([]core.TenantIssuer, error)
-	// GetTenantIssuer fetches a SINGLE tenant-tenant issuer by its
-	// issuer, used by the lazy-load-on-miss path in keyForToken. *core.Service
-	// already implements this.
-	GetTenantIssuer(ctx context.Context, issuerID string) (*core.TenantIssuer, error)
+// RemoteApplicationSource is the minimal store contract the Verifier needs to
+// load remote_application principals (#74). *core.Service satisfies it. An
+// embedding app may supply its own implementation in tests.
+type RemoteApplicationSource interface {
+	ListRemoteApplications(ctx context.Context, enabledOnly bool) ([]core.RemoteApplication, error)
+	// GetRemoteApplication fetches a SINGLE remote_application by its issuer,
+	// used by the lazy-load-on-miss path in keyForToken. *core.Service already
+	// implements this.
+	GetRemoteApplication(ctx context.Context, issuer string) (*core.RemoteApplication, error)
 }
 
-// LoadTenantIssuers loads the ACTIVE tenant-tenant issuers from authkit's
-// OWN store (the tenant_issuers table) and registers each as a trusted
-// issuer via AddIssuer with its JWKS URL. The Verifier's existing in-house
-// JWKS fetch/refresh then handles the tenant keys — there is NO external
-// push or sync of keys.
+// LoadRemoteApplications loads the ACTIVE remote_applications from authkit's OWN
+// store (the remote_applications table) and registers each as a trusted issuer
+// via AddIssuer with its JWKS URL. The Verifier's in-house JWKS fetch/refresh
+// then handles the keys — there is NO external push or sync of keys.
 //
 // audiences, when non-empty, is applied to every loaded issuer (typically this
 // resource server's own audience). Call this at startup, and re-call (e.g. on
 // a ticker, or after an inbound registration) to pick up store changes. Pass
-// the embedding app's core.Service (or any TenantIssuerSource); if nil, the
+// the embedding app's core.Service (or any RemoteApplicationSource); if nil, the
 // Service provided via WithService is used.
-func (v *Verifier) LoadTenantIssuers(ctx context.Context, src TenantIssuerSource, audiences []string) error {
+func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplicationSource, audiences []string) error {
 	if src == nil {
 		if v.enrich == nil {
 			return errors.New("no tenant-issuer source available")
@@ -423,7 +448,7 @@ func (v *Verifier) LoadTenantIssuers(ctx context.Context, src TenantIssuerSource
 	v.fedAudiences = audiences
 	v.mu.Unlock()
 
-	issuers, err := src.ListTenantIssuers(ctx, true)
+	issuers, err := src.ListRemoteApplications(ctx, true)
 	if err != nil {
 		return err
 	}
@@ -437,7 +462,7 @@ func (v *Verifier) LoadTenantIssuers(ctx context.Context, src TenantIssuerSource
 			continue
 		}
 		enabled[issuerID] = true
-		if err := v.AddIssuer(issuerID, audiences, tenantIssuerOptions(fi)); err != nil {
+		if err := v.AddIssuer(issuerID, audiences, remoteAppOptions(fi)); err != nil {
 			return err
 		}
 		v.mu.Lock()
@@ -447,7 +472,7 @@ func (v *Verifier) LoadTenantIssuers(ctx context.Context, src TenantIssuerSource
 	}
 
 	// RECONCILE: evict in-memory FEDERATED issuers that are no longer in the
-	// enabled set. Only tenant issuers (tracked in fedKnown) are eligible —
+	// enabled set. Only remote-application issuers (tracked in fedKnown) are eligible —
 	// statically-configured issuers added via AddIssuer are never evicted here.
 	// This bounds revocation lag to the reload tick. (A Postgres LISTEN/NOTIFY
 	// stream of issuer-row changes could give sub-tick eviction; not built here —
@@ -516,7 +541,7 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 		wg.Done()
 	}()
 
-	fi, err := src.GetTenantIssuer(ctx, issuer)
+	fi, err := src.GetRemoteApplication(ctx, issuer)
 	if err != nil || fi == nil || !fi.Enabled {
 		v.mu.Lock()
 		v.negCache[issuer] = time.Now()
@@ -524,7 +549,7 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 		return false
 	}
 
-	if err := v.AddIssuer(fi.Issuer, aud, tenantIssuerOptions(*fi)); err != nil {
+	if err := v.AddIssuer(fi.Issuer, aud, remoteAppOptions(*fi)); err != nil {
 		v.mu.Lock()
 		v.negCache[issuer] = time.Now()
 		v.mu.Unlock()
@@ -705,7 +730,64 @@ func (v *Verifier) VerifyDelegatedAccess(tokenStr string) (Claims, DelegatedPrin
 			return Claims{}, DelegatedPrincipal{}, err
 		}
 	}
+	if v.attrHydrate {
+		if err := v.hydrateAttributes(&cl); err != nil {
+			return Claims{}, DelegatedPrincipal{}, err
+		}
+		dp, _ = cl.Delegated() // refresh principal view (UserTier etc. unchanged keys)
+	}
 	return cl, dp, nil
+}
+
+// hydrateAttributes resolves each REFERENCE-mode attribute (#75) in place into
+// its full definition, so the consumer sees a uniform INLINE shape. A resolver
+// miss (ErrAttributeDefNotFound) leaves the reference untouched; only a hard
+// resolver error fails. Uses the configured resolver, or a Service-backed
+// default (issuer -> remote_application -> registered definition).
+func (v *Verifier) hydrateAttributes(cl *Claims) error {
+	if len(cl.Attributes) == 0 {
+		return nil
+	}
+	resolver := v.attrResolver
+	if resolver == nil {
+		if v.enrich == nil {
+			return nil // nothing to resolve against
+		}
+		resolver = v.defaultAttributeResolver
+	}
+	for key := range cl.Attributes {
+		ref, isRef := cl.AttributeReference(key)
+		if !isRef {
+			continue
+		}
+		def, err := resolver(context.Background(), cl.Issuer, key, ref)
+		if err != nil {
+			if errors.Is(err, core.ErrAttributeDefNotFound) {
+				continue
+			}
+			return err
+		}
+		if len(def) > 0 {
+			cl.Attributes[key] = def
+		}
+	}
+	return nil
+}
+
+// defaultAttributeResolver maps a validated issuer to its remote_application and
+// resolves the registered definition for the REFERENCE value (the token's
+// {"<attr>":"<ref>"} carries <ref> as the registry key, e.g. "tier-1"). Latest
+// version. Used when WithAttributeHydration was passed a nil resolver.
+func (v *Verifier) defaultAttributeResolver(ctx context.Context, issuer, _key, ref string) (json.RawMessage, error) {
+	ra, err := v.enrich.GetRemoteApplication(ctx, issuer)
+	if err != nil {
+		return nil, err
+	}
+	def, err := v.enrich.ResolveRemoteAppAttributeDef(ctx, ra.ID, ref, 0)
+	if err != nil {
+		return nil, err
+	}
+	return def.Definition, nil
 }
 
 // verifyClaimsWithHeader is VerifyClaims plus the JOSE `typ` header value, so
@@ -916,7 +998,7 @@ func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
 	iss, _ := claims["iss"].(string)
 	match := v.matchIssuer(iss)
 	if match == nil {
-		// Lazy-load-on-miss: a brand-new tenant issuer may already be in the
+		// Lazy-load-on-miss: a brand-new remote-application issuer may already be in the
 		// store but not yet in this replica's in-memory cache. Fetch+register it
 		// (outside v.mu — AddIssuer locks v.mu) and retry. Backward compatible:
 		// when no tenant source is configured this is a no-op (-> bad_issuer).

@@ -29,6 +29,7 @@ type TenantManifestTenant struct {
 }
 
 type TenantManifestIssuer struct {
+	Slug      string   `json:"slug" yaml:"slug"`
 	Issuer    string   `json:"issuer" yaml:"issuer"`
 	JWKSURI   string   `json:"jwks_uri" yaml:"jwks_uri"`
 	Audiences []string `json:"audiences" yaml:"audiences"`

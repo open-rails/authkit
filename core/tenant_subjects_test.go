@@ -11,53 +11,54 @@ func TestTouchTenantSubjectPersistsOIDCTuple(t *testing.T) {
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
 
-	const slug = "tenant-subjects-test"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
-	var tenantID string
-	if err := pool.QueryRow(ctx, `INSERT INTO profiles.tenants (slug) VALUES ($1) RETURNING id::text`, slug).Scan(&tenantID); err != nil {
-		t.Fatalf("insert tenant: %v", err)
+	const slug = "tenant-subjects-app"
+	const iss = "https://subjects-test.example/iss"
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
+	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: slug, Issuer: iss, JWKSURI: "https://subjects-test.example/jwks.json", Enabled: true})
+	if err != nil {
+		t.Fatalf("create remote_application: %v", err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE id=$1::uuid`, tenantID) })
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
 
-	first, err := svc.TouchTenantSubject(ctx, tenantID, "https://issuer-a.example", "same-sub")
+	first, err := svc.TouchTenantSubject(ctx, ra.ID, "https://issuer-a.example", "same-sub")
 	if err != nil {
 		t.Fatalf("touch first: %v", err)
 	}
-	if first.TenantID != tenantID {
-		t.Fatalf("TenantID=%q, want %q", first.TenantID, tenantID)
+	if first.RemoteApplicationID != ra.ID {
+		t.Fatalf("RemoteApplicationID=%q, want %q", first.RemoteApplicationID, ra.ID)
 	}
-	second, err := svc.TouchTenantSubject(ctx, tenantID, "https://issuer-a.example", "same-sub")
+	second, err := svc.TouchTenantSubject(ctx, ra.ID, "https://issuer-a.example", "same-sub")
 	if err != nil {
 		t.Fatalf("touch second: %v", err)
 	}
 	if second.ID != first.ID {
-		t.Fatalf("uuid and slug touches diverged: %q != %q", second.ID, first.ID)
+		t.Fatalf("repeat touches diverged: %q != %q", second.ID, first.ID)
 	}
 	if second.LastSeenAt.Before(first.LastSeenAt) {
 		t.Fatalf("last_seen_at moved backwards: first=%s second=%s", first.LastSeenAt, second.LastSeenAt)
 	}
 
-	otherIssuer, err := svc.TouchTenantSubject(ctx, tenantID, "https://issuer-b.example", "same-sub")
+	otherIssuer, err := svc.TouchTenantSubject(ctx, ra.ID, "https://issuer-b.example", "same-sub")
 	if err != nil {
 		t.Fatalf("touch other issuer: %v", err)
 	}
 	if otherIssuer.ID == first.ID {
-		t.Fatalf("different issuers with the same subject must be distinct tenant subjects")
+		t.Fatalf("different issuers with the same subject must be distinct subjects")
 	}
 
-	var count int
-	if err := pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM profiles.tenant_subjects ts
-		JOIN profiles.tenants t ON t.id = ts.tenant_id
-		WHERE t.slug=$1 AND ts.subject='same-sub'
-	`, slug).Scan(&count); err != nil {
-		t.Fatalf("count tenant subjects: %v", err)
+	subjects, err := svc.ListRemoteAppSubjects(ctx, ra.ID)
+	if err != nil {
+		t.Fatalf("list subjects: %v", err)
+	}
+	count := 0
+	for _, s := range subjects {
+		if s.Subject == "same-sub" {
+			count++
+		}
 	}
 	if count != 2 {
-		t.Fatalf("tenant subject count=%d, want 2", count)
+		t.Fatalf("subject count=%d, want 2", count)
 	}
-
 }
 
 func TestTouchTenantSubjectValidation(t *testing.T) {
@@ -68,16 +69,16 @@ func TestTouchTenantSubjectValidation(t *testing.T) {
 
 	pool := testPG(t)
 	svc = svc.WithPostgres(pool)
-	// Empty tenant uuid is rejected outright (hard cut: no slug fallback).
+	// Empty principal uuid is rejected outright (hard cut: no slug fallback).
 	if _, err := svc.TouchTenantSubject(context.Background(), "", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
-		t.Fatalf("empty tenant uuid err=%v, want ErrInvalidTenantSubject", err)
+		t.Fatalf("empty principal uuid err=%v, want ErrInvalidTenantSubject", err)
 	}
-	// uuid that points at no tenant: FK violation maps to the credential error.
+	// uuid that points at no remote_application: FK violation maps to the credential error.
 	if _, err := svc.TouchTenantSubject(context.Background(), "00000000-0000-7000-8000-000000000000", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
-		t.Fatalf("unknown tenant uuid err=%v, want ErrInvalidTenantSubject", err)
+		t.Fatalf("unknown principal uuid err=%v, want ErrInvalidTenantSubject", err)
 	}
 	// Malformed uuid maps to the credential error, not an internal failure.
 	if _, err := svc.TouchTenantSubject(context.Background(), "not-a-uuid", "https://issuer.example", "sub"); !errors.Is(err, ErrInvalidTenantSubject) {
-		t.Fatalf("malformed tenant uuid err=%v, want ErrInvalidTenantSubject", err)
+		t.Fatalf("malformed principal uuid err=%v, want ErrInvalidTenantSubject", err)
 	}
 }

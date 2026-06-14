@@ -48,6 +48,33 @@ type ProfilesRefreshSession struct {
 	IpAddr              *string
 }
 
+// Federation principals: external systems that authenticate by signing JWTs verified against their JWKS/public keys. Members of tenants with roles via polymorphic tenant_memberships.
+type ProfilesRemoteApplication struct {
+	ID          string
+	Slug        string
+	OwnerUserID *string
+	Issuer      string
+	JwksUri     string
+	Mode        string
+	PublicKeys  []byte
+	Audiences   []string
+	Enabled     bool
+	Metadata    []byte
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   *time.Time
+}
+
+// REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).
+type ProfilesRemoteApplicationAttributeDef struct {
+	RemoteApplicationID string
+	Key                 string
+	Version             int32
+	Definition          []byte
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
 type ProfilesServiceToken struct {
 	ID         string
 	TenantID   string
@@ -100,29 +127,16 @@ type ProfilesTenantInvite struct {
 	DeletedAt *time.Time
 }
 
-// Registry of trusted tenant-owned OIDC issuers for delegated access tokens.
-type ProfilesTenantIssuer struct {
-	ID        string
-	TenantID  string
-	Issuer    string
-	JwksUri   string
-	Audiences []string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	// Trust source: jwks (fetch from jwks_uri) XOR static (human-managed public_keys list).
-	Mode string
-	// static mode only: JSON array of {kid, public_key_pem} entries, edited by humans like an authorized_keys file.
-	PublicKeys []byte
-}
-
 type ProfilesTenantMembership struct {
-	TenantID  string
-	UserID    string
+	TenantID string
+	// Principal id; referent table named by member_kind.
+	MemberID  string
 	Role      string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt *time.Time
+	// Principal kind: user | remote_application. One membership system serves both.
+	MemberKind string
 }
 
 type ProfilesTenantRename struct {
@@ -145,14 +159,14 @@ type ProfilesTenantRolePermission struct {
 	CreatedAt  time.Time
 }
 
-// Delegated OIDC subjects accepted per tenant: opaque (tenant_id, issuer, subject) tuples with first/last-seen timestamps. Not local users.
+// Delegated OIDC subjects a remote_application vouches for: opaque (remote_application_id, issuer, subject) tuples. Not members, not local users; their permissions ride on the token (#75).
 type ProfilesTenantSubject struct {
-	ID         string
-	TenantID   string
-	Issuer     string
-	Subject    string
-	CreatedAt  time.Time
-	LastSeenAt time.Time
+	ID                  string
+	Issuer              string
+	Subject             string
+	CreatedAt           time.Time
+	LastSeenAt          time.Time
+	RemoteApplicationID string
 }
 
 // Two-factor authentication settings per user (admin accounts)
