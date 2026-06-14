@@ -50,8 +50,9 @@ type ProfilesRefreshSession struct {
 
 // Federation principals: external systems that authenticate by signing JWTs verified against their JWKS/public keys. Members of tenants with roles via polymorphic tenant_memberships.
 type ProfilesRemoteApplication struct {
-	ID          string
-	Slug        string
+	ID   string
+	Slug string
+	// Creator-audit only (nullable, SET NULL on user delete). Ownership lives in tenant_id.
 	OwnerUserID *string
 	Issuer      string
 	JwksUri     string
@@ -63,6 +64,7 @@ type ProfilesRemoteApplication struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
+	TenantID    *string
 }
 
 // REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).

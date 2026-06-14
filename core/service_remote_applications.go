@@ -121,7 +121,8 @@ func decodeRemoteAppKeys(raw []byte) []RemoteAppKey {
 type RemoteApplication struct {
 	ID          string
 	Slug        string
-	OwnerUserID string
+	OwnerUserID string // creator-audit only (nullable); ownership lives in TenantID (#77)
+	TenantID    string // owning tenant; one tenant -> many remote_applications (#77)
 	Issuer      string // OIDC iss
 	JWKSURI     string // OIDC jwks_uri (jwks mode only)
 	// Mode is the trust source: RemoteAppModeJWKS (fetch from JWKSURI) XOR
@@ -136,7 +137,7 @@ type RemoteApplication struct {
 }
 
 func remoteAppFromUpsert(row db.RemoteApplicationUpsertRow) *RemoteApplication {
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OwnerUserID: row.OwnerUserID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OwnerUserID: row.OwnerUserID, TenantID: row.TenantID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
@@ -169,10 +170,15 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if o := strings.TrimSpace(in.OwnerUserID); o != "" {
 		owner = &o
 	}
+	var tenant *string
+	if t := strings.TrimSpace(in.TenantID); t != "" {
+		tenant = &t
+	}
 
 	row, err := s.q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
 		Slug:        slug,
 		OwnerUserID: owner,
+		TenantID:    tenant,
 		Issuer:      issuer,
 		JwksUri:     jwksURI,
 		Mode:        mode,
@@ -202,7 +208,18 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OwnerUserID: row.OwnerUserID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OwnerUserID: row.OwnerUserID, TenantID: row.TenantID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+}
+
+// ResolveRemoteApplicationTenant returns the owning tenant_id of the
+// remote_application registered for issuer (#77). Empty string if the row has
+// no tenant yet (pre-backfill); ErrRemoteApplicationNotFound if unknown.
+func (s *Service) ResolveRemoteApplicationTenant(ctx context.Context, issuer string) (string, error) {
+	ra, err := s.GetRemoteApplication(ctx, issuer)
+	if err != nil {
+		return "", err
+	}
+	return ra.TenantID, nil
 }
 
 // GetRemoteApplicationBySlug returns a remote_application by slug.
@@ -221,7 +238,7 @@ func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OwnerUserID: row.OwnerUserID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OwnerUserID: row.OwnerUserID, TenantID: row.TenantID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // ListRemoteApplications returns registered remote_applications. When activeOnly
@@ -237,7 +254,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OwnerUserID: r.OwnerUserID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+			out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OwnerUserID: r.OwnerUserID, TenantID: r.TenantID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
 		}
 		return out, nil
 	}
@@ -246,7 +263,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OwnerUserID: r.OwnerUserID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+		out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OwnerUserID: r.OwnerUserID, TenantID: r.TenantID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil
 }

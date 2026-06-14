@@ -13,9 +13,10 @@ import (
 // remoteApplicationRegistration is the wire shape posted to register/update a
 // remote_application (federation principal, #74). Also the GET response shape.
 type remoteApplicationRegistration struct {
-	Slug    string `json:"slug"`
-	Issuer  string `json:"issuer"`
-	JWKSURI string `json:"jwks_uri,omitempty"`
+	Slug     string `json:"slug"`
+	Issuer   string `json:"issuer"`
+	TenantID string `json:"tenant_id,omitempty"` // owning tenant (#77)
+	JWKSURI  string `json:"jwks_uri,omitempty"`
 	// Mode selects the trust source: "jwks" (fetch keys from jwks_uri; preferred)
 	// XOR "static" (human-managed public_keys list). Empty infers from which
 	// field is set. Setting BOTH is rejected — one trust source per principal.
@@ -28,6 +29,7 @@ type remoteApplicationRegistration struct {
 type remoteApplicationResponse struct {
 	Slug       string              `json:"slug"`
 	Issuer     string              `json:"issuer"`
+	TenantID   string              `json:"tenant_id,omitempty"`
 	JWKSURI    string              `json:"jwks_uri,omitempty"`
 	Mode       string              `json:"mode"`
 	PublicKeys []core.RemoteAppKey `json:"public_keys,omitempty"`
@@ -43,6 +45,7 @@ func remoteApplicationView(ra core.RemoteApplication) remoteApplicationResponse 
 	return remoteApplicationResponse{
 		Slug:       ra.Slug,
 		Issuer:     ra.Issuer,
+		TenantID:   ra.TenantID,
 		JWKSURI:    ra.JWKSURI,
 		Mode:       ra.Mode,
 		PublicKeys: ra.PublicKeys,
@@ -90,6 +93,7 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 	ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
 		Slug:        body.Slug,
 		OwnerUserID: owner,
+		TenantID:    body.TenantID,
 		Issuer:      body.Issuer,
 		JWKSURI:     body.JWKSURI,
 		Mode:        body.Mode,

@@ -180,37 +180,38 @@ SELECT EXISTS(SELECT 1 FROM profiles.tenant_role_permissions WHERE tenant_id = s
 -- JWTs verified against its JWKS/public keys (#74).
 
 -- name: RemoteApplicationUpsert :one
-INSERT INTO profiles.remote_applications (slug, owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled)
-VALUES ($1, sqlc.narg(owner_user_id)::uuid, $3, $4, $5, $6, $7, $8)
+INSERT INTO profiles.remote_applications (slug, owner_user_id, tenant_id, issuer, jwks_uri, mode, public_keys, audiences, enabled)
+VALUES ($1, sqlc.narg(owner_user_id)::uuid, sqlc.narg(tenant_id)::uuid, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (issuer) DO UPDATE
   SET slug          = EXCLUDED.slug,
       owner_user_id = EXCLUDED.owner_user_id,
+      tenant_id     = EXCLUDED.tenant_id,
       jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
       audiences     = EXCLUDED.audiences,
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
-RETURNING id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at;
+RETURNING id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, COALESCE(tenant_id::text, '')::text AS tenant_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at;
 
 -- name: RemoteApplicationByIssuer :one
-SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, COALESCE(tenant_id::text, '')::text AS tenant_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE issuer = $1 AND deleted_at IS NULL;
 
 -- name: RemoteApplicationBySlug :one
-SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, COALESCE(tenant_id::text, '')::text AS tenant_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE slug = $1 AND deleted_at IS NULL;
 
 -- name: RemoteApplicationsAll :many
-SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, COALESCE(tenant_id::text, '')::text AS tenant_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE deleted_at IS NULL
 ORDER BY slug ASC;
 
 -- name: RemoteApplicationsEnabled :many
-SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(owner_user_id::text, '')::text AS owner_user_id, COALESCE(tenant_id::text, '')::text AS tenant_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE enabled = true AND deleted_at IS NULL
 ORDER BY slug ASC;
