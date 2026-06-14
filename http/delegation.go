@@ -16,6 +16,12 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 // service token.
 const AccessTokenType = jwtkit.AccessTokenType
 
+// RemoteApplicationAccessTokenType is the JOSE `typ` for a JWKS principal's
+// SELF-token (#76): a remote_application signs a JWT whose subject is itself,
+// and AuthKit grants it the STORED authority WE ASSIGNED (its tenant roles +
+// direct permissions), never what the token self-claims.
+const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
+
 // DelegatedAccessParams describes a delegated service token to mint. It is an
 // alias for core.DelegatedAccessParams; the canonical definition (and the
 // (*core.Service).MintDelegatedAccessToken mint method) live in package core so

@@ -16,6 +16,11 @@ import (
 const (
 	AccessTokenType          = "access+jwt"
 	DelegatedAccessTokenType = "delegated-access+jwt"
+	// RemoteApplicationAccessTokenType is the JOSE `typ` for a JWKS principal's
+	// SELF-token (#76): a remote_application signs a JWT whose subject is itself.
+	// Distinct typ keeps the sub/delegated_sub invariant intact — a self-token
+	// carries neither (identity is the validated `iss` -> remote_application).
+	RemoteApplicationAccessTokenType = "remote-application-access+jwt"
 )
 
 // ClaimsBuilder builds custom claims layered on top of RegisteredClaims.

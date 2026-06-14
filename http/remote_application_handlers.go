@@ -276,6 +276,74 @@ func (s *Service) handleRemoteApplicationMembershipDELETE(w http.ResponseWriter,
 }
 
 // ---------------------------------------------------------------------------
+// Direct permission grants (#76) — STORED authority for a JWKS self-token
+// ---------------------------------------------------------------------------
+
+// remoteApplicationPermissionRequest assigns/removes a direct permission on a
+// remote_application principal (#76).
+type remoteApplicationPermissionRequest struct {
+	Permission string `json:"permission"`
+}
+
+// handleRemoteApplicationPermissionsGET lists a remote_application's DIRECT
+// permission grants. Authorized by its owner or a global admin.
+func (s *Service) handleRemoteApplicationPermissionsGET(w http.ResponseWriter, r *http.Request) {
+	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
+	if !ok {
+		return
+	}
+	perms, err := s.svc.ListRemoteApplicationPermissions(r.Context(), ra.ID)
+	if err != nil {
+		serverErr(w, "remote_application_permissions_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"permissions": perms})
+}
+
+// handleRemoteApplicationPermissionPOST grants a direct permission to a
+// remote_application. Authorized by its owner or a global admin.
+func (s *Service) handleRemoteApplicationPermissionPOST(w http.ResponseWriter, r *http.Request) {
+	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
+	if !ok {
+		return
+	}
+	var body remoteApplicationPermissionRequest
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Permission) == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if err := s.svc.AddRemoteApplicationPermission(r.Context(), ra.ID, body.Permission); err != nil {
+		if err == core.ErrUnknownPermission {
+			badRequest(w, "invalid_request")
+			return
+		}
+		serverErr(w, "remote_application_permission_grant_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"permission": strings.TrimSpace(body.Permission)})
+}
+
+// handleRemoteApplicationPermissionDELETE revokes a direct permission from a
+// remote_application. Authorized by its owner or a global admin.
+func (s *Service) handleRemoteApplicationPermissionDELETE(w http.ResponseWriter, r *http.Request) {
+	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
+	if !ok {
+		return
+	}
+	var body remoteApplicationPermissionRequest
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Permission) == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	removed, err := s.svc.RemoveRemoteApplicationPermission(r.Context(), ra.ID, body.Permission)
+	if err != nil {
+		serverErr(w, "remote_application_permission_revoke_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": removed})
+}
+
+// ---------------------------------------------------------------------------
 // Attribute definition registry (#75)
 // ---------------------------------------------------------------------------
 

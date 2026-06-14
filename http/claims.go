@@ -95,16 +95,36 @@ type Claims struct {
 	// Service Token. Empty means the service token has no AuthKit-stored
 	// resource constraints; resource-aware hosts decide whether to require them.
 	Resources []core.ServiceTokenResource
+
+	// RemoteApplicationID / RemoteApplicationSlug identify the JWKS PRINCIPAL a
+	// self-token (#76) authenticated as: a remote_application acting AS ITSELF.
+	// Populated ONLY for RemoteApplicationTokenType claims, resolved server-side
+	// from the validated `iss` (never from a self-asserted token claim). The
+	// principal's Permissions/TenantRoles carry its STORED, assigned authority.
+	RemoteApplicationID   string
+	RemoteApplicationSlug string
 }
 
 // ServiceTokenType is the TokenType value carried by an Tenant Access
 // Token (service token) — a machine credential that acts as the tenant, not a user.
 const ServiceTokenType = "service"
 
+// RemoteApplicationTokenType is the TokenType value carried by a JWKS principal
+// SELF-token (#76): a remote_application acting AS ITSELF. Like a service
+// principal it carries Permissions + TenantRoles (its STORED authority) but no
+// UserID; the live-user enrichment/ban gate is skipped (there is no user).
+const RemoteApplicationTokenType = "remote_application"
+
 // IsService reports whether these claims represent a service principal (an
 // Service Token), as opposed to a human user or delegated subject.
 func (c Claims) IsService() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), ServiceTokenType)
+}
+
+// IsRemoteApplication reports whether these claims represent a JWKS principal
+// (a remote_application) authenticated via its SELF-token (#76).
+func (c Claims) IsRemoteApplication() bool {
+	return strings.EqualFold(strings.TrimSpace(c.TokenType), RemoteApplicationTokenType)
 }
 
 // DelegatedPrincipal is the tenant identity carried by a delegated access

@@ -224,6 +224,69 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 	}, true, nil
 }
 
+// RemoteApplicationAuthoritySource resolves a JWKS principal's STORED authority
+// (#76): its tenant memberships (slug + role names) and effective permission set
+// (direct grants ∪ role-derived). *core.Service satisfies it.
+type RemoteApplicationAuthoritySource interface {
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []core.TenantMembership, permissions []string, err error)
+}
+
+// resolveRemoteApplicationSelf authenticates a JWKS principal SELF-token (#76):
+// it maps the VALIDATED issuer to its remote_application, loads that principal's
+// STORED authority (assigned tenant roles + direct permissions), and returns
+// Claims populated the way a service-token-authenticated principal would be. The
+// token's own permission/role claims are never consulted — authority is stored.
+func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tokenTyp string) (Claims, error) {
+	issuer = strings.TrimSpace(issuer)
+	if issuer == "" {
+		return Claims{}, errors.New("bad_issuer")
+	}
+	if v.enrich == nil {
+		return Claims{}, errors.New("invalid_token")
+	}
+	// Identity: the registered remote_application for this issuer.
+	var ra *core.RemoteApplication
+	var err error
+	if v.fedSource != nil {
+		ra, err = v.fedSource.GetRemoteApplication(ctx, issuer)
+	} else {
+		ra, err = v.enrich.GetRemoteApplication(ctx, issuer)
+	}
+	if err != nil || ra == nil {
+		return Claims{}, errors.New("bad_issuer")
+	}
+
+	// STORED authority — never the token's self-claimed permissions/roles.
+	var authority RemoteApplicationAuthoritySource = v.enrich
+	if src, ok := v.fedSource.(RemoteApplicationAuthoritySource); ok {
+		authority = src
+	}
+	memberships, perms, aerr := authority.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	if aerr != nil {
+		return Claims{}, errors.New("invalid_token")
+	}
+
+	cl := Claims{
+		Issuer:                issuer,
+		TokenType:             RemoteApplicationTokenType,
+		TokenTyp:              tokenTyp,
+		Permissions:           perms,
+		RemoteApplicationID:   ra.ID,
+		RemoteApplicationSlug: ra.Slug,
+	}
+	// Surface the assigned tenant roles. A principal is typically a member of one
+	// tenant; expose that tenant as Tenant + its roles as TenantRoles, and gather
+	// all role names across memberships into Roles for a flat view.
+	for _, m := range memberships {
+		if cl.Tenant == "" {
+			cl.Tenant = m.Tenant
+			cl.TenantRoles = append(cl.TenantRoles, m.Roles...)
+		}
+		cl.Roles = append(cl.Roles, m.Roles...)
+	}
+	return cl, nil
+}
+
 // NewVerifier creates a new Verifier. Add trusted issuers via AddIssuer.
 func NewVerifier(opts ...VerifierOption) *Verifier {
 	v := &Verifier{
@@ -659,6 +722,20 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	hasDelegatedSub := strClaim(mapClaims, "delegated_sub") != ""
 	isAccessTyp := strings.EqualFold(tokenTyp, AccessTokenType)
 	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, DelegatedAccessTokenType)
+	isRemoteAppTyp := strings.EqualFold(tokenTyp, RemoteApplicationAccessTokenType)
+
+	// JWKS principal SELF-token (#76): a remote_application acting AS ITSELF. Its
+	// identity is the VALIDATED `iss` (already mapped to a registered
+	// remote_application by the signature/issuer checks); it carries NEITHER `sub`
+	// NOR `delegated_sub`, so the user-XOR-delegated invariant below is untouched.
+	// Authority is STORED (resolved server-side); any self-claimed
+	// permissions/roles on the token are IGNORED.
+	if isRemoteAppTyp {
+		if hasSub || hasDelegatedSub {
+			return Claims{}, errors.New("remote_application_access_has_subject")
+		}
+		return v.resolveRemoteApplicationSelf(context.Background(), strClaim(mapClaims, "iss"), tokenTyp)
+	}
 
 	// Invariant: a delegated service token MUST NOT carry a normal `sub` — no
 	// local account may be implied. Reject it explicitly so a misconfigured

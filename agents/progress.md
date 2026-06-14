@@ -58,15 +58,27 @@ JWKS principal **+** delegated-user federation (delegation is the additional cap
   All blocked on this.
 
 **Tasks:**
-- [ ] Decide + document the JWKS self-token shape (typ + subject convention) excluded by the current invariant.
-- [ ] Verifier: authenticate a JWKS principal self-token → principal identity; resolve STORED permissions +
-      roles; reject/ignore self-claimed authority.
-- [ ] Assignable authority: assign permissions and/or a role to a remote_application (roles via
-      tenant_roles/role_permissions; a permissions grant for direct perms).
-- [ ] Reconcile with #70/#73 service-JWT (retain/deprecate/constrain); document the two programmatic-access
+- [x] Decide + document the JWKS self-token shape (typ + subject convention) excluded by the current invariant.
+      DECISION: dedicated `typ=remote-application-access+jwt` (jwt/jwt.go RemoteApplicationAccessTokenType),
+      carrying NEITHER `sub` NOR `delegated_sub` — identity is the validated `iss` → remote_application, exactly
+      as delegated tokens resolve tenant from `iss`. Keeps the sub-XOR-delegated_sub invariant (verifier.go:666)
+      fully intact. Mint via core.MintRemoteApplicationAccessToken.
+- [x] Verifier: authenticate a JWKS principal self-token → principal identity; resolve STORED permissions +
+      roles; reject/ignore self-claimed authority. (http/verifier.go resolveRemoteApplicationSelf →
+      core.ResolveRemoteApplicationAuthority; populates Claims{TokenType:"remote_application", Permissions,
+      Tenant, TenantRoles, RemoteApplicationID/Slug}. Self-claimed perms/roles/tenant ignored; a self-token
+      carrying `sub`/`delegated_sub` is rejected.)
+- [x] Assignable authority: assign permissions and/or a role to a remote_application (roles via
+      tenant_roles/role_permissions through #74's polymorphic tenant_memberships; a new
+      remote_application_permissions grant for direct perms — migration 006, sqlc, core CRUD in
+      core/remote_application_permissions.go, HTTP /remote-applications/{slug}/permissions GET/POST/DELETE).
+- [x] Reconcile with #70/#73 service-JWT (retain/deprecate/constrain); document the two programmatic-access
       credential types (shared-secret service-token vs self-signed JWKS principal), both stored-authority.
-- [ ] Tests: JWKS self-token authenticates + resolves assigned perms/role; self-claimed perms NOT honored;
-      delegated (`delegated_sub`) + native-user (`sub`) paths unchanged.
+      DECISION: RETAIN #70/#73 unchanged (tensorhub/cozy-art depend on it); stored-authority self-token is the
+      canonical model and #70/#73 MAY be deprecated later — doc-comment in core/remote_application_token.go.
+- [x] Tests: JWKS self-token authenticates + resolves assigned perms/role; self-claimed perms NOT honored;
+      delegated (`delegated_sub`) + native-user (`sub`) paths unchanged. (core/remote_application_permissions_test.go;
+      http/remote_application_self_token_test.go; existing delegated/native + verifier.go:666 guards still green.)
 
 ---
 
