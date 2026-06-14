@@ -188,9 +188,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/remote-applications", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationRegisterPOST))},
 		{Method: http.MethodDelete, Path: "/remote-applications", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationDeleteDELETE))},
 		{Method: http.MethodGet, Path: "/remote-applications", Group: RouteTenantIssuers, Handler: admin(http.HandlerFunc(s.handleRemoteApplicationsListGET))},
-		// A remote_application's delegated subjects + its tenant memberships
-		// (assigned via the SAME role machinery as users).
-		{Method: http.MethodGet, Path: "/remote-applications/{slug}/subjects", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationSubjectsGET))},
+		// A remote_application's tenant memberships (assigned via the SAME role
+		// machinery as users).
 		{Method: http.MethodPost, Path: "/remote-applications/{slug}/memberships", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipPOST))},
 		{Method: http.MethodDelete, Path: "/remote-applications/{slug}/memberships", Group: RouteTenantIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipDELETE))},
 		// Direct permission grants (#76): the JWKS principal's STORED authority for

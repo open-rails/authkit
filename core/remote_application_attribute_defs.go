@@ -133,25 +133,3 @@ func (s *Service) DeleteRemoteAppAttributeDef(ctx context.Context, appID, key st
 	}
 	return nil
 }
-
-// ListRemoteAppSubjects returns the delegated OIDC subjects a remote_application
-// has vouched for (the END-USERS, not members). These are opaque (issuer,
-// subject) tuples with first/last-seen timestamps.
-func (s *Service) ListRemoteAppSubjects(ctx context.Context, appID string) ([]TenantSubject, error) {
-	if err := s.requirePG(); err != nil {
-		return nil, err
-	}
-	appID = strings.TrimSpace(appID)
-	if appID == "" {
-		return nil, ErrInvalidRemoteApplication
-	}
-	rows, err := s.q.TenantSubjectsByApp(ctx, appID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]TenantSubject, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, TenantSubject{ID: r.ID, RemoteApplicationID: r.RemoteApplicationID, Issuer: r.Issuer, Subject: r.Subject, CreatedAt: r.CreatedAt, LastSeenAt: r.LastSeenAt})
-	}
-	return out, nil
-}

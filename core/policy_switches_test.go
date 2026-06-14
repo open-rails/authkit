@@ -220,9 +220,8 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 	pool := testPG(t)
 	ctx := context.Background()
 	const (
-		slug    = "closed-relying-party"
-		issuer  = "https://closed-relying-party.example"
-		subject = "external-user-1"
+		slug   = "closed-relying-party"
+		issuer = "https://closed-relying-party.example"
 	)
 
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
@@ -244,18 +243,14 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 		t.Fatalf("bootstrap CreateTenant: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
-	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
+	if _, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:      slug,
 		Issuer:    issuer,
 		JWKSURI:   issuer + "/.well-known/jwks.json",
 		Audiences: []string{"openrails"},
 		Enabled:   true,
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("UpsertRemoteApplication: %v", err)
-	}
-	if _, err := svc.TouchTenantSubject(ctx, ra.ID, issuer, subject); err != nil {
-		t.Fatalf("TouchTenantSubject: %v", err)
 	}
 	if _, err := svc.CreatePendingRegistration(ctx, "blocked@example.com", "blockeduser", "hash", 0); err != ErrRegistrationDisabled {
 		t.Fatalf("closed native registration should reject public user creation, got %v", err)

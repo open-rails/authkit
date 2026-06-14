@@ -41,10 +41,11 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 			if v.enrich != nil && cl.IsDelegated() {
-				// The tenant is pinned from the VALIDATED issuer via the issuer
-				// registry — delegated tokens carry no tenant uuid (slug +
-				// delegated_sub only). Unknown/disabled issuers fail closed.
-				if _, err := v.enrich.TouchTenantSubjectForIssuer(r.Context(), cl.Issuer, cl.DelegatedSubject); err != nil {
+				// Fail-closed issuer gate (#78): resolve the remote_application by
+				// the VALIDATED issuer and reject unknown/disabled ones. READ-ONLY
+				// — no per-request write. Auth rides entirely on the token.
+				ra, err := v.enrich.GetRemoteApplication(r.Context(), cl.Issuer)
+				if err != nil || ra == nil || !ra.Enabled {
 					unauthorized(w, "invalid_token")
 					return
 				}

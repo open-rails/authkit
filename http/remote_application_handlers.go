@@ -174,31 +174,6 @@ func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-// handleRemoteApplicationSubjectsGET lists the delegated subjects a
-// remote_application has vouched for. Authorized by its owner or a global admin.
-func (s *Service) handleRemoteApplicationSubjectsGET(w http.ResponseWriter, r *http.Request) {
-	claims, ra, ok := s.authRemoteApplicationBySlug(w, r)
-	if !ok {
-		return
-	}
-	_ = claims
-	subjects, err := s.svc.ListRemoteAppSubjects(r.Context(), ra.ID)
-	if err != nil {
-		serverErr(w, "remote_application_subjects_failed")
-		return
-	}
-	out := make([]map[string]any, 0, len(subjects))
-	for _, sub := range subjects {
-		out = append(out, map[string]any{
-			"issuer":       sub.Issuer,
-			"subject":      sub.Subject,
-			"created_at":   sub.CreatedAt,
-			"last_seen_at": sub.LastSeenAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"subjects": out})
-}
-
 // remoteApplicationMembershipRequest assigns a remote_application a role on a
 // tenant via the shared membership machinery (#74).
 type remoteApplicationMembershipRequest struct {

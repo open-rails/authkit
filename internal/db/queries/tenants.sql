@@ -219,19 +219,6 @@ ORDER BY slug ASC;
 -- name: RemoteApplicationDelete :execrows
 DELETE FROM profiles.remote_applications WHERE issuer = $1;
 
--- name: TenantSubjectTouch :one
-INSERT INTO profiles.tenant_subjects (remote_application_id, issuer, subject)
-VALUES (sqlc.arg(remote_application_id)::uuid, $2, $3)
-ON CONFLICT (remote_application_id, issuer, subject) DO UPDATE
-  SET last_seen_at = now()
-RETURNING id::text, remote_application_id::text AS remote_application_id, issuer, subject, created_at, last_seen_at;
-
--- name: TenantSubjectsByApp :many
-SELECT id::text, remote_application_id::text AS remote_application_id, issuer, subject, created_at, last_seen_at
-FROM profiles.tenant_subjects
-WHERE remote_application_id = sqlc.arg(remote_application_id)::uuid
-ORDER BY last_seen_at DESC;
-
 -- Attribute definition registry (#75): REFERENCE-mode opaque definitions.
 
 -- name: RemoteAppAttributeDefUpsert :one

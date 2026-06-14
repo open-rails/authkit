@@ -168,16 +168,6 @@ type ProfilesTenantRolePermission struct {
 	CreatedAt  time.Time
 }
 
-// Delegated OIDC subjects a remote_application vouches for: opaque (remote_application_id, issuer, subject) tuples. Not members, not local users; their permissions ride on the token (#75).
-type ProfilesTenantSubject struct {
-	ID                  string
-	Issuer              string
-	Subject             string
-	CreatedAt           time.Time
-	LastSeenAt          time.Time
-	RemoteApplicationID string
-}
-
 // Two-factor authentication settings per user (admin accounts)
 type ProfilesTwoFactorSetting struct {
 	UserID  string
