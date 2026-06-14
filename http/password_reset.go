@@ -26,6 +26,13 @@ func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}
+
+	// Per-identifier check: prevents reset-mail bombing of a single address
+	// from many IPs.
+	if s.rateLimitedByIdentifier(w, r, RLPasswordResetRequest, email) {
+		return
+	}
+
 	if !s.svc.HasEmailSender() {
 		serverErr(w, "email_password_reset_unavailable")
 		return

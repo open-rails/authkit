@@ -27,6 +27,12 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 	phone = core.NormalizePhone(phone)
 
+	// Per-identifier check: prevents SMS bombing of a single phone number (and
+	// the associated delivery cost) from many IPs.
+	if s.rateLimitedByIdentifier(w, r, RLPhoneVerifyRequest, phone) {
+		return
+	}
+
 	if !s.svc.SMSAvailable() {
 		serverErr(w, "phone_verification_unavailable")
 		return
@@ -63,6 +69,12 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
 	if phone == "" || code == "" {
 		badRequest(w, "invalid_request")
+		return
+	}
+
+	// Per-identifier check: prevents distributed brute-force of the 6-digit code
+	// for a single phone number from many IPs.
+	if s.rateLimitedByIdentifier(w, r, RLPhoneVerifyConfirm, phone) {
 		return
 	}
 

@@ -29,6 +29,12 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 		return
 	}
 	phone = core.NormalizePhone(phone)
+
+	// Per-identifier check: prevents reset-SMS bombing of a single phone number
+	// (and the associated delivery cost) from many IPs.
+	if s.rateLimitedByIdentifier(w, r, RLPasswordResetRequest, phone) {
+		return
+	}
 	ua := r.UserAgent()
 	ip := clientIP(r)
 	if err := s.svc.RequestPhonePasswordReset(r.Context(), phone, 0, &ip, &ua); err != nil {

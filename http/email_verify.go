@@ -32,6 +32,13 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		badRequest(w, core.ValidationErrorCode(err))
 		return
 	}
+
+	// Per-identifier check: prevents verification-mail bombing of a single
+	// address from many IPs.
+	if s.rateLimitedByIdentifier(w, r, RLEmailVerifyRequest, req.Email) {
+		return
+	}
+
 	if !s.svc.HasEmailSender() {
 		serverErr(w, "email_verification_unavailable")
 		return
