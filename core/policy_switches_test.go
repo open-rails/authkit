@@ -239,12 +239,14 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 		NativeUserRegistrationMode: RegistrationModeClosed,
 		OrgRegistrationMode:        RegistrationModeManifestOnly,
 	}, Keyset{}).WithPostgres(pool)
-	if _, err := svc.CreateOrg(ctx, slug); err != nil {
+	org, err := svc.CreateOrg(ctx, slug)
+	if err != nil {
 		t.Fatalf("bootstrap CreateOrg: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
 	if _, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:      slug,
+		OrgID:     org.ID,
 		Issuer:    issuer,
 		JWKSURI:   issuer + "/.well-known/jwks.json",
 		Audiences: []string{"openrails"},

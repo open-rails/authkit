@@ -47,13 +47,19 @@ func newSelfTokenEnv(t *testing.T, slug, iss string) *selfTokenEnv {
 	signer, err := jwtkit.NewRSASigner(2048, "remote-app-kid")
 	require.NoError(t, err)
 
+	// #77: each issuer belongs to exactly one org (org_id NOT NULL). Register the
+	// org cleanup first so the RA cleanup (LIFO) runs before it (FK order).
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug) })
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
+	org, err := svc.CreateOrg(ctx, slug)
+	require.NoError(t, err)
 
 	jwks := jwksServer(t, signer)
 	t.Cleanup(jwks.Close)
 	app, err := svc.UpsertRemoteApplication(ctx, core.RemoteApplication{
-		Slug: slug, Issuer: iss, JWKSURI: jwks.URL + "/.well-known/jwks.json", Enabled: true,
+		Slug: slug, OrgID: org.ID, Issuer: iss, JWKSURI: jwks.URL + "/.well-known/jwks.json", Enabled: true,
 	})
 	require.NoError(t, err)
 

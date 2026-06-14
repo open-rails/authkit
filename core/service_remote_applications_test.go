@@ -29,18 +29,33 @@ func testPG(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// createTestOrg makes a fresh org for a remote_application fixture and returns
+// its id (#77: org_id is NOT NULL). Cleanup runs after the RA cleanup (LIFO).
+func createTestOrg(t *testing.T, ctx context.Context, svc *Service, pool *pgxpool.Pool, slug string) string {
+	t.Helper()
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug) })
+	org, err := svc.CreateOrg(ctx, slug)
+	if err != nil {
+		t.Fatalf("create org %q: %v", slug, err)
+	}
+	return org.ID
+}
+
 func TestRemoteApplicationRoundTrip(t *testing.T) {
 	pool := testPG(t)
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
+	orgID := createTestOrg(t, ctx, svc, pool, "cozy-art-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "cozy-art")
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "cozy-art") })
 
 	// Upsert (insert).
 	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:    "cozy-art",
+		OrgID:   orgID,
 		Issuer:  iss,
 		JWKSURI: "https://cozy.example/.well-known/jwks.json",
 		Enabled: true,
@@ -70,6 +85,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	// Upsert (update jwks + Enabled).
 	upd, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:    "cozy-art",
+		OrgID:   orgID,
 		Issuer:  iss,
 		JWKSURI: "https://cozy.example/v2/jwks.json",
 		Enabled: false,
@@ -182,12 +198,14 @@ func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 
 	iss := "https://static.example/issuer"
 	slug := "static-keys-app"
+	orgID := createTestOrg(t, ctx, svc, pool, "static-keys-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
 
 	// Static insert.
 	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:       slug,
+		OrgID:      orgID,
 		Issuer:     iss,
 		PublicKeys: []RemoteAppKey{{KID: "k1", PublicKeyPEM: pemKey}},
 		Enabled:    true,
@@ -221,6 +239,7 @@ func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 	// Mode switch static -> jwks (human console action): atomically clears keys.
 	ra2, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:    slug,
+		OrgID:   orgID,
 		Issuer:  iss,
 		JWKSURI: "https://static.example/jwks.json",
 		Enabled: true,

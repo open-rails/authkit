@@ -100,6 +100,7 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 		ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
 			Slug:        raSlug,
 			OwnerUserID: claims.UserID,
+			OrgID:       org.ID, // #77: each issuer belongs to exactly one org
 			Issuer:      body.Federation.Issuer,
 			JWKSURI:     body.Federation.JWKSURI,
 			Mode:        body.Federation.Mode,

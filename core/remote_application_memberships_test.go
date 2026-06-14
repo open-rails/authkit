@@ -37,13 +37,14 @@ func TestRemoteApplicationPolymorphicMembership(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
 	})
 
-	if _, err := svc.CreateOrg(ctx, tslug); err != nil {
+	org, err := svc.CreateOrg(ctx, tslug)
+	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
 	if err := svc.DefineRole(ctx, tslug, "catalog-admin"); err != nil {
 		t.Fatalf("define role: %v", err)
 	}
-	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, Issuer: iss, JWKSURI: "https://poly.example/jwks.json", Enabled: true})
+	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, OrgID: org.ID, Issuer: iss, JWKSURI: "https://poly.example/jwks.json", Enabled: true})
 	if err != nil {
 		t.Fatalf("create remote_application: %v", err)
 	}
@@ -95,10 +96,11 @@ func TestRemoteAppAttributeDefRegistry(t *testing.T) {
 
 	const aslug = "attrdef-app"
 	const iss = "https://attrdef.example/iss"
+	orgID := createTestOrg(t, ctx, svc, pool, "attrdef-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug) })
 
-	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, Issuer: iss, JWKSURI: "https://attrdef.example/jwks.json", Enabled: true})
+	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, OrgID: orgID, Issuer: iss, JWKSURI: "https://attrdef.example/jwks.json", Enabled: true})
 	if err != nil {
 		t.Fatalf("create remote_application: %v", err)
 	}

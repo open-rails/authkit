@@ -115,6 +115,7 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 		ra, err := s.UpsertRemoteApplication(ctx, RemoteApplication{
 			Slug:        slug,
 			OwnerUserID: org.OwnerUserID,
+			OrgID:       org.ID, // #77: each issuer belongs to exactly one org
 			Issuer:      issuer.Issuer,
 			JWKSURI:     issuer.JWKSURI,
 			Audiences:   issuer.Audiences,

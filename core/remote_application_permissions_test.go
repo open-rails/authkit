@@ -15,10 +15,11 @@ func TestRemoteApplicationDirectPermissions(t *testing.T) {
 
 	const aslug = "perm-app"
 	const iss = "https://perm-app.example/iss"
+	orgID := createTestOrg(t, ctx, svc, pool, "perm-app-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug) })
 
-	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, Issuer: iss, JWKSURI: "https://perm-app.example/jwks.json", Enabled: true})
+	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, OrgID: orgID, Issuer: iss, JWKSURI: "https://perm-app.example/jwks.json", Enabled: true})
 	if err != nil {
 		t.Fatalf("create remote_application: %v", err)
 	}
@@ -71,10 +72,11 @@ func TestResolveRemoteApplicationAuthority(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
 	})
 
-	if _, err := svc.CreateOrg(ctx, tslug); err != nil {
+	org, err := svc.CreateOrg(ctx, tslug)
+	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
-	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, Issuer: iss, JWKSURI: "https://authority-app.example/jwks.json", Enabled: true})
+	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, OrgID: org.ID, Issuer: iss, JWKSURI: "https://authority-app.example/jwks.json", Enabled: true})
 	if err != nil {
 		t.Fatalf("create remote_application: %v", err)
 	}
