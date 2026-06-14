@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 79
+next_id: 80
 
 ---
 
@@ -122,3 +122,66 @@ the hot path).
 #74 (created the remote_application model + re-pointed this table), #75 (attribute DEFS stay; only defs are
 stored — values ride on the token), #76 (permissions on the principal), openrails#491 (delegated-user
 (issuer, subject) is tracked on the BILLING side as the actor — the non-redundant place).
+
+---
+
+# #79: Rename `tenant` -> `org` across AuthKit (completes the de-conflation)
+
+**Completed:** no
+
+We already renamed OpenRails `tenant` -> `merchant` (openrails#480) because the two "tenant" concepts
+collided. This finishes the job: rename AuthKit's `tenant` -> `org`, so the fleet has exactly ONE meaning
+per word — **`org` = the organization (members, roles, owner) in AuthKit; `merchant` = the billing/isolation
+namespace in OpenRails**; NO overloaded "tenant" anywhere. "org" also matches the domain (it's an
+organization à la GitHub orgs), whereas "tenant" is the infra-isolation term — which is what `merchant` now
+is. This is a LARGE but MECHANICAL (low logic-risk) rename; the risk is breadth + the wire-facing `tenant`
+claim, not logic.
+
+NAMING: table `orgs`; type `Org`; column `org_id`; tables `org_memberships` / `org_roles` /
+`org_role_permissions` / `org_invites` / `org_renames`; JWT claim `org`; `Claims.Org` / `Claims.OrgID`;
+`ResolveOrgBySlug`; org-scoped routes. SUPERSEDES #77's `remote_applications.tenant_id` -> `org_id` (that
+column is a day old).
+
+SCOPE (authkit):
+- Tables/columns: `tenants` + every `tenant_*` table + every `tenant_id` FK column.
+- Polymorphic membership: `tenant_memberships(tenant_id, member_id, member_kind, role)` -> `org_memberships(org_id, ...)`. RBAC: `tenant_roles` / `tenant_role_permissions` -> `org_*`. Also `tenant_invites`, `tenant_renames`, `owner_reserved_names` (if tenant-scoped).
+- remote_applications.tenant_id (#77) -> org_id; ResolveRemoteApplicationTenant -> ResolveRemoteApplicationOrg.
+- Go: `Tenant*` types/funcs -> `Org*`; `Claims.Tenant`/`TenantID` -> `Claims.Org`/`OrgID`; `ResolveTenantBySlug` -> `ResolveOrgBySlug`; the `tenant` login body param -> `org`.
+- Routes: tenant-scoped paths/handlers -> org.
+- sqlc: regen after the query + schema renames.
+
+WIRE NUANCE (the `tenant` JWT claim is consumer-facing):
+- Old tokens carry the `tenant` claim; new code expects `org`. To avoid a flag-day, the verifier reads
+  `org ?? tenant` (fallback) for ONE release, and the minter writes `org` (optionally ALSO `tenant` for one
+  release for old consumers). Drop the fallback + the dual-write in the next release. Decide per the rollout.
+
+MIGRATION (migratekit name-tracked):
+- NEW numbered migration 009: idempotent table/column/constraint/index renames (mirror openrails 019's
+  guarded DO $$ blocks). Top-level `ALTER TABLE IF EXISTS ... RENAME` where sqlc must parse the final name;
+  guarded DO blocks for constraints/indexes. Converge fresh + existing DBs to the `org` names.
+- Update the 001 baseline to the new names WHERE the parser allows (note: earlier recorded migrations 003/004
+  reference `tenant_subjects`/`tenant_memberships` by old names with unguarded DDL — those specific
+  references can't be edited, so 001 may have to keep an old name that 009 renames, exactly like the
+  money_settings case in openrails#491; verify sqlc + fresh-DB apply stay green).
+
+CONSUMER RIPPLE (separate repos, cascade after authkit tags):
+- openrails control plane: GetRemoteApplication org_id, ResolveRemoteApplicationOrg, the `org` claim,
+  org-scoped tokens. merchants.owner_tenant_id is OpenRails-side (its own naming; rename optional/separate).
+- doujins / hentai0 / cozy-art / tensorhub: anywhere they read the `tenant` claim, pass the `tenant` login
+  param, or call a tenant API. The `org ?? tenant` verifier fallback lets consumers migrate without a
+  flag-day.
+
+**Tasks:**
+- [ ] Migration 009: idempotent rename of orgs + all org_* tables, columns, constraints, indexes (019-style).
+- [ ] Update 001 baseline to org naming where the sqlc parser + fresh-DB apply allow; document any forced remnant.
+- [ ] sqlc queries + regen: `tenant*` -> `org*` (tables, params, generated types/methods).
+- [ ] Go core/http: Tenant* -> Org*; Claims.Org/OrgID; ResolveOrgBySlug; remote_app org_id; login body param `org`.
+- [ ] JWT claim: mint `org` (+ optional transient `tenant`); verify `org ?? tenant` fallback for one release.
+- [ ] Routes: tenant-scoped -> org-scoped paths/handlers.
+- [ ] Tests: green; claim fallback (a `tenant`-only token still verifies); membership/RBAC/invite paths.
+- [ ] Version bump (breaking -> v0.30.0) + consumer note. Cascade openrails + the 4 apps; drop the claim
+      fallback a release later.
+
+**Related**
+openrails#480 (the merchant rename this mirrors), #74/#76/#77/#78 (the de-conflation work this completes the
+naming for), openrails#491 (sequence: rename first, then #491, then ONE fleet cascade carrying both).
