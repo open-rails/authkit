@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 78
+next_id: 79
 
 ---
 
@@ -82,3 +82,40 @@ Keep `owner_user_id` as a NULLABLE creator-audit (ON DELETE SET NULL), or drop i
 #74 (remote_application table this amends), #76 (membership = roles only, post-split), openrails#491
 (customer/actor split + merchantForIssuer via tenant_id), openrails#480 (owner_tenant_id on merchant —
 the billing-side anchor this mirrors).
+
+---
+
+# #78: Drop tenant_subjects — the delegated-user registry is not load-bearing
+
+**Completed:** no
+
+tenant_subjects persists nothing the auth decision needs. The ONLY write is TouchTenantSubject (an
+idempotent upsert + last_seen_at bump on each delegated login); its own code comment says it is "never read
+from a request" — authorization rides ENTIRELY on the token. So the table is a write-mostly activity
+registry plus a speculative anchor for per-subject state that DOES NOT EXIST: there are no per-subject
+attribute VALUES and no revocation today — only the attribute DEFS (#75) are stored, and values ride on the
+token. OpenRails separately records (issuer, subject) for billing (customers -> actors, openrails#491), so
+delegated-user tracking is redundant on the auth side. Drop it.
+
+PRESERVE the one side-effect the touch also provided: the FAIL-CLOSED ISSUER GATE — the middleware resolved
+the remote_application by issuer on every delegated token and rejected unknown/disabled issuers. That gate
+MUST remain; move it to a read-only remote_application(issuer) enabled-check on the verify path (no write on
+the hot path).
+
+**Tasks:**
+- [ ] Replace the TouchTenantSubject* call in the delegated-token middleware with a read-only
+      GetRemoteApplication(issuer) enabled lookup, so unknown/disabled issuers still fail closed — but with
+      NO per-request write.
+- [ ] Delete core/tenant_subjects.go + the TenantSubjectTouch query + the db model.
+- [ ] Migration: DROP TABLE profiles.tenant_subjects.
+- [ ] Confirm nothing else reads it (attribute_defs #75 key on remote_application, not subject; permissions
+      #76 likewise).
+- [ ] If per-subject revocation or #75 reference-mode (pre-stored) attribute VALUES are ever wanted,
+      reintroduce a purpose-built table THEN — do not keep this one speculatively.
+- [ ] Tests: delegated auth still works with the table gone; unknown/disabled issuer still rejected
+      (fail-closed gate preserved); no per-request write on the delegated path.
+
+**Related**
+#74 (created the remote_application model + re-pointed this table), #75 (attribute DEFS stay; only defs are
+stored — values ride on the token), #76 (permissions on the principal), openrails#491 (delegated-user
+(issuer, subject) is tracked on the BILLING side as the actor — the non-redundant place).
