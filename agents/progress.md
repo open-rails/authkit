@@ -7,7 +7,66 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 76
+next_id: 77
+
+---
+
+# #76: JWKS-principal programmatic auth — a self-signed external key as a first-class credential with STORED permissions/role (parallel to service tokens)
+
+Design (Paul, 2026-06-14): programmatic access should support TWO credential types, symmetric in how authority
+is granted:
+- **service token** (exists): a shared secret / API-key (`<app>st_<keyid>_<secret>`); we store `sha256(secret)`
+  + its assigned permissions; verified by indexed lookup.
+- **JWKS principal** (NEW auth method): an external party with its OWN signing key presents a SELF-SIGNED JWT
+  whose subject IS the principal; we verify the signature via its registered JWKS and grant the authority WE
+  ASSIGNED to that principal — NOT what it self-claims on the token.
+
+Both are assigned STORED authority: a set of permissions and/or a role (a role is just a pre-built bundle of
+permissions). The JWKS principal IS the `remote_application` (#74) acting AS ITSELF; `remote_application` =
+JWKS principal **+** delegated-user federation (delegation is the additional capability, orthogonal to this).
+
+## What exists vs the gap
+- #74 already gave `remote_application` a JWKS credential + polymorphic tenant membership + stored roles
+  (`core.RemoteApplicationTenantRoles`). The DATA model for stored authority exists.
+- The verifier today knows ONLY native-user `sub` (AuthKit-signed) XOR delegated `delegated_sub` (JWKS-signed),
+  and FORBIDS a JWKS/delegated token from carrying a `sub` (`http/verifier.go:666`). So a JWKS principal
+  "acting as itself" has NO first-class verify path.
+- The current act-as-itself path is the #70/#73 service-JWT (permissions ON the token, self-asserted). This
+  issue makes authority STORED/assigned — the secure model, and it reconciles the overlap.
+
+## Work
+1. **Self-token shape**: a JWKS-issuer token whose subject is the principal's own id — the case the
+   `sub`/`delegated_sub` invariant doesn't model. Pick the convention (a dedicated `typ`, or `sub` == a
+   registered remote_application id) and authenticate it AS the principal.
+2. **Resolve STORED authority on verify**: the principal's assigned permissions + roles
+   (`RemoteApplicationTenantRoles` + a direct-permissions grant analogous to `service_token_permissions`).
+   IGNORE/constrain any self-claimed permissions on the token — authority is what we assigned.
+3. **Assignable-authority surface**: assign permissions and/or a role to a remote_application (reuse
+   `tenant_roles`/`tenant_role_permissions` for roles — role = permission bundle; add a permissions grant for
+   direct perms, mirroring service tokens).
+4. **Reconcile with #70/#73 service-JWT** (permissions-on-token): decide retain / deprecate / constrain
+   (self-asserted perms must be a SUBSET of assigned, or dropped). Don't ship two divergent authority sources.
+5. Delegated-user federation (`delegated_sub`) is UNCHANGED — the other remote_application capability.
+
+## Open decision
+- Stored-authority JWKS auth vs the existing permissions-on-token service-JWT. Recommend: authority is ALWAYS
+  stored/assigned (like service tokens); a self-signed token never grants self-claimed permissions.
+
+## Downstream adoption (separate issues)
+- openrails #484 (accept JWKS-principal auth in the standalone control plane), tensorhub #485 (accept + maybe
+  migrate its outbound service-JWT), cozy-art #147 (migrate act-as-itself to a stored-role JWKS principal).
+  All blocked on this.
+
+**Tasks:**
+- [ ] Decide + document the JWKS self-token shape (typ + subject convention) excluded by the current invariant.
+- [ ] Verifier: authenticate a JWKS principal self-token → principal identity; resolve STORED permissions +
+      roles; reject/ignore self-claimed authority.
+- [ ] Assignable authority: assign permissions and/or a role to a remote_application (roles via
+      tenant_roles/role_permissions; a permissions grant for direct perms).
+- [ ] Reconcile with #70/#73 service-JWT (retain/deprecate/constrain); document the two programmatic-access
+      credential types (shared-secret service-token vs self-signed JWKS principal), both stored-authority.
+- [ ] Tests: JWKS self-token authenticates + resolves assigned perms/role; self-claimed perms NOT honored;
+      delegated (`delegated_sub`) + native-user (`sub`) paths unchanged.
 
 ---
 
