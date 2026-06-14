@@ -137,9 +137,9 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	return accessToken, exp, newTok, nil
 }
 
-// ExchangeRefreshTokenWithTenant rotates a refresh token and returns a new service token + refresh token.
-// If tenant is provided and tenant_mode=multi, it mints an tenant-scoped service token (tenant + roles for that tenant).
-func (s *Service) ExchangeRefreshTokenWithTenant(ctx context.Context, refreshToken string, ua string, ip net.IP, tenant string) (idToken string, expiresAt time.Time, newRefresh string, err error) {
+// ExchangeRefreshTokenWithOrg rotates a refresh token and returns a new service token + refresh token.
+// If org is provided and org_mode=multi, it mints an org-scoped service token (org + roles for that org).
+func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken string, ua string, ip net.IP, org string) (idToken string, expiresAt time.Time, newRefresh string, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", errors.New("postgres not configured")
 	}
@@ -181,11 +181,11 @@ func (s *Service) ExchangeRefreshTokenWithTenant(ctx context.Context, refreshTok
 	}
 
 	claims := map[string]any{"sid": sid}
-	// (issue 60) A tenant request mints a tenant-scoped token whenever the user is
+	// (issue 60) A org request mints a org-scoped token whenever the user is
 	// a member (IssueServiceToken enforces membership); absence mints a normal
-	// user token. No global tenant-mode gate.
-	if strings.TrimSpace(tenant) != "" {
-		accessToken, exp, err := s.IssueServiceToken(ctx, uid, email, tenant, claims)
+	// user token. No global org-mode gate.
+	if strings.TrimSpace(org) != "" {
+		accessToken, exp, err := s.IssueServiceToken(ctx, uid, email, org, claims)
 		if err != nil {
 			return "", time.Time{}, "", err
 		}

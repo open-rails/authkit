@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestCoreServiceWithTenantMode(t *testing.T, mode string) *core.Service {
+func newTestCoreServiceWithOrgMode(t *testing.T, mode string) *core.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
@@ -29,11 +29,11 @@ func newTestCoreServiceWithTenantMode(t *testing.T, mode string) *core.Service {
 	return core.NewService(opts, ks)
 }
 
-func newTestServiceWithTenantMode(t *testing.T, mode string) *Service {
+func newTestServiceWithOrgMode(t *testing.T, mode string) *Service {
 	t.Helper()
-	coreSvc := newTestCoreServiceWithTenantMode(t, mode)
+	coreSvc := newTestCoreServiceWithOrgMode(t, mode)
 	opts := coreSvc.Options()
-	ver := NewVerifier(WithSkew(5*time.Second), WithTenantMode(mode))
+	ver := NewVerifier(WithSkew(5*time.Second), WithOrgMode(mode))
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
@@ -41,20 +41,20 @@ func newTestServiceWithTenantMode(t *testing.T, mode string) *Service {
 	return &Service{svc: coreSvc, verifier: ver}
 }
 
-// (issue 60) Tenant routes are always registered (no tenant-mode gate); the host
-// controls exposure by mounting the RouteTenants group. They require auth.
-func TestAPIHandler_TokenTenant_RouteAlwaysRegistered(t *testing.T) {
-	s := newTestServiceWithTenantMode(t, "")
+// (issue 60) Org routes are always registered (no org-mode gate); the host
+// controls exposure by mounting the RouteOrgs group. They require auth.
+func TestAPIHandler_TokenOrg_RouteAlwaysRegistered(t *testing.T) {
+	s := newTestServiceWithOrgMode(t, "")
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/token/tenant", bytes.NewReader([]byte(`{"tenant":"acme"}`)))
+	r := httptest.NewRequest(http.MethodPost, "/token/org", bytes.NewReader([]byte(`{"org":"acme"}`)))
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
 }
 
-func TestAPIHandler_TenantInviteRoutes_AlwaysRegistered(t *testing.T) {
-	s := newTestServiceWithTenantMode(t, "")
+func TestAPIHandler_OrgInviteRoutes_AlwaysRegistered(t *testing.T) {
+	s := newTestServiceWithOrgMode(t, "")
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/me/invites", nil)
@@ -63,15 +63,15 @@ func TestAPIHandler_TenantInviteRoutes_AlwaysRegistered(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
 }
 
-func TestAPIHandler_TokenTenant_InvalidRequest(t *testing.T) {
-	s := newTestServiceWithTenantMode(t, "multi")
+func TestAPIHandler_TokenOrg_InvalidRequest(t *testing.T) {
+	s := newTestServiceWithOrgMode(t, "multi")
 	h := s.APIHandler()
 
 	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/token/tenant", bytes.NewReader([]byte(`{}`)))
+	r := httptest.NewRequest(http.MethodPost, "/token/org", bytes.NewReader([]byte(`{}`)))
 	r.Header.Set("Authorization", "Bearer "+tok)
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)

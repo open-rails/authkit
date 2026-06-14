@@ -23,7 +23,7 @@ type userMeResponse struct {
 	PhoneVerified                     bool                      `json:"phone_verified"`
 	HasPassword                       bool                      `json:"has_password"`
 	Roles                             *[]string                 `json:"roles,omitempty"`
-	Tenants                           *[]tenantMembership       `json:"tenants,omitempty"`
+	Orgs                              *[]orgMembership          `json:"orgs,omitempty"`
 	Entitlements                      []string                  `json:"entitlements"`
 	Biography                         *string                   `json:"biography,omitempty"`
 	PreferredLocale                   *string                   `json:"preferred_locale,omitempty"`
@@ -35,9 +35,9 @@ type userMeResponse struct {
 	ReauthRequiredForSensitiveActions *bool                     `json:"reauth_required_for_sensitive_actions,omitempty"`
 }
 
-type tenantMembership struct {
-	Tenant string   `json:"tenant"`
-	Roles  []string `json:"roles"`
+type orgMembership struct {
+	Org   string   `json:"org"`
+	Roles []string `json:"roles"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -111,25 +111,25 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		enabledProviders = append(enabledProviders, provider)
 	}
 
-	// (issue 60) Always return the user's global roles AND their tenant memberships
-	// (memberships may be empty for tenant-free users). No tenant-mode branch.
+	// (issue 60) Always return the user's global roles AND their org memberships
+	// (memberships may be empty for org-free users). No org-mode branch.
 	var rolesPtr *[]string
-	var tenantsPtr *[]tenantMembership
+	var orgsPtr *[]orgMembership
 	roles := adminUser.Roles
 	if roles == nil {
 		roles = []string{}
 	}
 	rolesPtr = &roles
-	mems, mErr := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), adminUser.ID)
+	mems, mErr := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), adminUser.ID)
 	if mErr != nil {
-		serverErr(w, "tenant_memberships_lookup_failed")
+		serverErr(w, "org_memberships_lookup_failed")
 		return
 	}
-	tenants := make([]tenantMembership, 0, len(mems))
+	orgs := make([]orgMembership, 0, len(mems))
 	for _, m := range mems {
-		tenants = append(tenants, tenantMembership{Tenant: m.Tenant, Roles: m.Roles})
+		orgs = append(orgs, orgMembership{Org: m.Org, Roles: m.Roles})
 	}
-	tenantsPtr = &tenants
+	orgsPtr = &orgs
 
 	var createdAt *string
 	if !adminUser.CreatedAt.IsZero() {
@@ -164,7 +164,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		PhoneVerified:                     adminUser.PhoneVerified,
 		HasPassword:                       hasPassword,
 		Roles:                             rolesPtr,
-		Tenants:                           tenantsPtr,
+		Orgs:                              orgsPtr,
 		Entitlements:                      adminUser.Entitlements,
 		Biography:                         adminUser.Biography,
 		PreferredLocale:                   preferredLocale,

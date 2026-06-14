@@ -6,8 +6,8 @@ SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
 
--- name: TenantSetReserved :exec
-UPDATE profiles.tenants
+-- name: OrgSetReserved :exec
+UPDATE profiles.orgs
 SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb(sqlc.arg(reserved)::boolean), true),
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
@@ -37,24 +37,24 @@ SET metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(patch)::jsonb,
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
 
--- name: TenantMetadata :one
+-- name: OrgMetadata :one
 SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
-FROM profiles.tenants WHERE id = sqlc.arg(id)::uuid AND deleted_at IS NULL;
+FROM profiles.orgs WHERE id = sqlc.arg(id)::uuid AND deleted_at IS NULL;
 
--- name: TenantMetadataPatch :execrows
-UPDATE profiles.tenants
+-- name: OrgMetadataPatch :execrows
+UPDATE profiles.orgs
 SET metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(patch)::jsonb,
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid AND deleted_at IS NULL;
 
--- name: TenantIDReservedBySlug :one
+-- name: OrgIDReservedBySlug :one
 SELECT id::text,
        (CASE
          WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
          THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
          ELSE false
        END)::boolean AS reserved
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE slug = $1
   AND deleted_at IS NULL;
 
@@ -69,7 +69,7 @@ FROM profiles.users
 WHERE username = $1
   AND deleted_at IS NULL;
 
--- name: PersonalTenantIDSlugReservedByOwner :one
+-- name: PersonalOrgIDSlugReservedByOwner :one
 SELECT id::text,
        slug,
        (CASE
@@ -77,7 +77,7 @@ SELECT id::text,
          THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
          ELSE false
        END)::boolean AS reserved
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE owner_user_id = sqlc.arg(owner_user_id)::uuid
   AND is_personal = true
   AND deleted_at IS NULL;

@@ -2,8 +2,8 @@
 
 -- name: ServiceTokenInsert :one
 INSERT INTO profiles.service_tokens
-  (tenant_id, key_id, secret_hash, name, created_by, expires_at)
-VALUES (sqlc.arg(tenant_id)::uuid, $2, $3, $4, sqlc.narg(created_by)::uuid, $6)
+  (org_id, key_id, secret_hash, name, created_by, expires_at)
+VALUES (sqlc.arg(org_id)::uuid, $2, $3, $4, sqlc.narg(created_by)::uuid, $6)
 RETURNING id::text, created_at;
 
 -- name: ServiceTokenPermissionInsert :exec
@@ -14,23 +14,23 @@ VALUES (sqlc.arg(service_token_id)::uuid, $2);
 INSERT INTO profiles.service_token_resources (token_id, kind, resource_id)
 VALUES (sqlc.arg(token_id)::uuid, $2, $3);
 
--- name: ServiceTokensByTenant :many
+-- name: ServiceTokensByOrg :many
 SELECT id::text, key_id, name, COALESCE(created_by::text, '')::text AS created_by,
        created_at, last_used_at, expires_at, revoked_at
 FROM profiles.service_tokens
-WHERE tenant_id = sqlc.arg(tenant_id)::uuid
+WHERE org_id = sqlc.arg(org_id)::uuid
 ORDER BY created_at DESC;
 
 -- name: ServiceTokenRevoke :execrows
 UPDATE profiles.service_tokens
 SET revoked_at = now()
-WHERE id = sqlc.arg(id)::uuid AND tenant_id = sqlc.arg(tenant_id)::uuid AND revoked_at IS NULL;
+WHERE id = sqlc.arg(id)::uuid AND org_id = sqlc.arg(org_id)::uuid AND revoked_at IS NULL;
 
 -- name: ServiceTokenByKeyID :one
 SELECT t.id::text AS id, t.secret_hash, t.expires_at, t.revoked_at,
-       o.id::text AS tenant_id, o.slug, o.deleted_at AS tenant_deleted_at
+       o.id::text AS org_id, o.slug, o.deleted_at AS org_deleted_at
 FROM profiles.service_tokens t
-JOIN profiles.tenants o ON o.id = t.tenant_id
+JOIN profiles.orgs o ON o.id = t.org_id
 WHERE t.key_id = $1;
 
 -- name: ServiceTokenTouchLastUsed :exec

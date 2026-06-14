@@ -76,7 +76,7 @@ func TestForSchemaRewritesGeneratedQueries(t *testing.T) {
 	ctx := context.Background()
 
 	_, _ = q.UserByEmail(ctx, "user@example.com")
-	_, _ = q.TenantBySlug(ctx, "acme")
+	_, _ = q.OrgBySlug(ctx, "acme")
 	_, _ = q.GlobalUserHasActiveRole(ctx, GlobalUserHasActiveRoleParams{UserID: "00000000-0000-0000-0000-000000000000", Slug: "admin"})
 	_, _ = q.UserProviderSlugs(ctx, "00000000-0000-0000-0000-000000000000")
 

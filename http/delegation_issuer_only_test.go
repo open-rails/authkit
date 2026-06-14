@@ -10,15 +10,15 @@ import (
 )
 
 // The issuer-only delegated-token contract (HARD CUT): a delegated access
-// token carries `delegated_sub` (the host's stable user uuid) and NO tenant
-// claims of any kind — the VALIDATED `iss` IS the tenant identity. The
-// receiver's issuer registry maps the issuer to exactly one internal tenant
+// token carries `delegated_sub` (the host's stable user uuid) and NO org
+// claims of any kind — the VALIDATED `iss` IS the org identity. The
+// receiver's issuer registry maps the issuer to exactly one internal org
 // record (slug + uuid), so neither identifier ever rides in the token: a
 // host's complete identity is its issuer URL and signing key. Tokens carrying
-// the legacy `tenant` or `tenant_id` claims are rejected outright.
+// the legacy `org` or `org_id` claims are rejected outright.
 
 // TestIssuerOnlyDelegatedToken: the canonical mint carries delegated_sub and
-// neither tenant claim; verification accepts it.
+// neither org claim; verification accepts it.
 func TestIssuerOnlyDelegatedToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "host-kid")
 	if err != nil {
@@ -37,12 +37,12 @@ func TestIssuerOnlyDelegatedToken(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	// The token must carry NEITHER tenant claim (absent, not empty).
+	// The token must carry NEITHER org claim (absent, not empty).
 	claims := jwt.MapClaims{}
 	if _, _, perr := jwt.NewParser().ParseUnverified(tok, claims); perr != nil {
 		t.Fatalf("parse: %v", perr)
 	}
-	for _, forbidden := range []string{"tenant", "tenant_id"} {
+	for _, forbidden := range []string{"org", "org_id"} {
 		if _, present := claims[forbidden]; present {
 			t.Fatalf("%s claim present on minted token: %v", forbidden, claims[forbidden])
 		}
@@ -58,10 +58,10 @@ func TestIssuerOnlyDelegatedToken(t *testing.T) {
 	}
 }
 
-// TestDelegatedAccessRejectsTenantIDClaim: a token carrying the legacy
-// `tenant_id` uuid claim is rejected. (The `tenant` slug rejection is covered
-// by TestDelegatedAccessRejectsTenantClaim in delegated_access_test.go.)
-func TestDelegatedAccessRejectsTenantIDClaim(t *testing.T) {
+// TestDelegatedAccessRejectsOrgIDClaim: a token carrying the legacy
+// `org_id` uuid claim is rejected. (The `org` slug rejection is covered
+// by TestDelegatedAccessRejectsOrgClaim in delegated_access_test.go.)
+func TestDelegatedAccessRejectsOrgIDClaim(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "host-kid")
 	iss := "https://doujins.example"
 	now := time.Now()
@@ -70,7 +70,7 @@ func TestDelegatedAccessRejectsTenantIDClaim(t *testing.T) {
 		"aud":           []string{"openrails"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
-		"tenant_id":     "0190dead-beef-7000-8000-000000000001",
+		"org_id":        "0190dead-beef-7000-8000-000000000001",
 		"delegated_sub": "user-123",
 		"permissions":   []string{"openrails:self:billing:read"},
 	}, map[string]any{"typ": DelegatedAccessTokenType})
@@ -78,7 +78,7 @@ func TestDelegatedAccessRejectsTenantIDClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err = newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).VerifyDelegatedAccess(tok)
-	if err == nil || err.Error() != "delegated_access_has_tenant_id" {
-		t.Fatalf("err = %v, want delegated_access_has_tenant_id", err)
+	if err == nil || err.Error() != "delegated_access_has_org_id" {
+		t.Fatalf("err = %v, want delegated_access_has_org_id", err)
 	}
 }

@@ -39,22 +39,22 @@ type Config struct {
 	// Empty defaults to "none".
 	RegistrationVerification RegistrationVerificationPolicy
 
-	// AutoCreatePersonalTenants creates a personal tenant for each native user at
-	// signup. Direct host opt-in (authkit issue 60): tenants are always a supported
-	// primitive, so this is no longer gated on a global tenant mode. Empty/false
-	// means native users can exist without tenant rows; hosts that want
+	// AutoCreatePersonalOrgs creates a personal org for each native user at
+	// signup. Direct host opt-in (authkit issue 60): orgs are always a supported
+	// primitive, so this is no longer gated on a global org mode. Empty/false
+	// means native users can exist without org rows; hosts that want
 	// personal/team workspaces opt in.
-	AutoCreatePersonalTenants bool
+	AutoCreatePersonalOrgs bool
 
 	// NativeUserRegistrationMode controls public native-user self-registration.
 	// Empty defaults to "open". Non-open modes disable every public user
 	// creation path while leaving embedded admin/bootstrap core APIs available.
 	NativeUserRegistrationMode RegistrationMode
 
-	// TenantRegistrationMode controls public tenant onboarding/management.
-	// Empty defaults to "open". Non-open modes disable public tenant mutation
+	// OrgRegistrationMode controls public org onboarding/management.
+	// Empty defaults to "open". Non-open modes disable public org mutation
 	// routes while leaving manifest/admin/bootstrap core APIs available.
-	TenantRegistrationMode RegistrationMode
+	OrgRegistrationMode RegistrationMode
 
 	// Environment is a host-provided runtime mode string used for dev/prod behavior checks.
 	// Expected values include "prod"/"production" for production, anything else is treated as non-prod.
@@ -101,8 +101,8 @@ type Config struct {
 	// the preferred path for adding custom providers.
 	ProviderDescriptors map[string]authprovider.Provider
 
-	// ServiceTokenPrefix is the issuing application's BRAND prefix for Tenant
-	// Service Tokens (service tokens). It is a single value per deployment (NOT per-tenant)
+	// ServiceTokenPrefix is the issuing application's BRAND prefix for Org
+	// Service Tokens (service tokens). It is a single value per deployment (NOT per-org)
 	// and a free brand choice by the host app — e.g. tensorhub sets "cozy" so
 	// every service token it mints is `cozy_st_<key_id>_<secret>`. The `_st_` type
 	// segment is fixed and not configurable. Empty -> bare `st_`. Must be
@@ -124,16 +124,16 @@ type Config struct {
 
 	// PermissionCatalog is the embedding application's set of valid permission
 	// strings (e.g. tensorhub's `endpoint:revise`, `repo:create`). authkit merges
-	// this with its own base permissions (the reserved `tenant:` namespace) to form
+	// this with its own base permissions (the reserved `org:` namespace) to form
 	// the catalog it validates role/service token grants against. Permissions are opaque to
 	// authkit — it never interprets their meaning. Names must not collide with
-	// the reserved `tenant:` base permissions.
+	// the reserved `org:` base permissions.
 	PermissionCatalog []PermissionDef
 
-	// DefaultRoles are role templates seeded into every tenant at creation, in
+	// DefaultRoles are role templates seeded into every org at creation, in
 	// addition to the built-in `owner` role (which is always seeded with `*`).
-	// e.g. tensorhub declares `admin` = {"*", "!tenant:roles:manage",
-	// "!tenant:members:manage"} (everything an owner has except role + membership
+	// e.g. tensorhub declares `admin` = {"*", "!org:roles:manage",
+	// "!org:members:manage"} (everything an owner has except role + membership
 	// management). Permission tokens: a concrete permission, `*` (all), or
 	// `!perm` (exclude).
 	DefaultRoles []DefaultRole
@@ -146,7 +146,7 @@ type PermissionDef struct {
 	Description string `json:"description,omitempty"`
 }
 
-// DefaultRole is a role template seeded into every tenant at creation: a role name
+// DefaultRole is a role template seeded into every org at creation: a role name
 // and its permission set (tokens may include `*` and `!perm` exclusions).
 type DefaultRole struct {
 	Name        string   `json:"name"`

@@ -52,10 +52,10 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 			}
 
 			// Best-effort DB enrichment when a service is attached. Skipped for
-			// delegated platform principals: their subject is a tenant user
+			// delegated platform principals: their subject is a org user
 			// that does not exist locally, so the local-user enrichment + the
 			// IsUserAllowed gate must not apply (the resource server authorizes
-			// by tenant/issuer trust instead). A delegated token carries no
+			// by org/issuer trust instead). A delegated token carries no
 			// `sub`, so UserID is empty anyway — this is the explicit guard.
 			if v.enrich != nil && cl.UserID != "" && !cl.IsDelegated() {
 				// Discord username enrichment.
@@ -64,8 +64,8 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				}
 
 				// (issue 60) Role enrichment: if a non-delegated token carries no roles,
-				// supply the user's canonical global roles. No tenant-mode gate; a
-				// tenant-scoped token already carries tenant roles so this won't fire.
+				// supply the user's canonical global roles. No org-mode gate; a
+				// org-scoped token already carries org roles so this won't fire.
 				if len(cl.Roles) == 0 {
 					if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
 						cl.Roles = rs

@@ -7,54 +7,54 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// Tenant-RBAC introspection endpoints (authkit #46 follow-up). These complement the
+// Org-RBAC introspection endpoints (authkit #46 follow-up). These complement the
 // management endpoints with the read-side primitives every comparable RBAC API
 // exposes: self introspection (/me), a permission-check ("can I?") endpoint, and
-// a grantable-permission preview. Self endpoints require only tenant membership (a
-// member may always read their OWN roles/permissions, no tenant:read); the rest are
+// a grantable-permission preview. Self endpoints require only org membership (a
+// member may always read their OWN roles/permissions, no org:read); the rest are
 // gated as noted.
 
 // callerEffectivePermissions resolves the concrete permission set of the CALLER
-// in the given (already-canonical) tenant. A service principal (service token) carries its
+// in the given (already-canonical) org. A service principal (service token) carries its
 // permissions directly in claims; a user's set is computed from role mappings.
-func (s *Service) callerEffectivePermissions(r *http.Request, claims Claims, canonicalTenant string) ([]string, error) {
+func (s *Service) callerEffectivePermissions(r *http.Request, claims Claims, canonicalOrg string) ([]string, error) {
 	if claims.IsService() {
 		return append([]string{}, claims.Permissions...), nil
 	}
-	return s.svc.EffectivePermissions(r.Context(), canonicalTenant, claims.UserID)
+	return s.svc.EffectivePermissions(r.Context(), canonicalOrg, claims.UserID)
 }
 
-// handleTenantMeGET returns the caller's OWN membership view in the tenant — roles +
+// handleOrgMeGET returns the caller's OWN membership view in the org — roles +
 // effective permissions in one call. Requires membership only: a member may
-// always introspect itself without holding tenant:read. A global admin gets the
+// always introspect itself without holding org:read. A global admin gets the
 // full catalog (and no roles, since membership is not required).
-func (s *Service) handleTenantMeGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
 	if claimsHasGlobalAdmin(claims) {
-		tenant, err := s.svc.ResolveTenantBySlug(r.Context(), tenantSlug)
+		org, err := s.svc.ResolveOrgBySlug(r.Context(), orgSlug)
 		if err != nil {
-			s.writeTenantLookupErr(w, err)
+			s.writeOrgLookupErr(w, err)
 			return
 		}
 		names := make([]string, 0)
 		for _, d := range s.svc.Catalog() {
 			names = append(names, d.Name)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant.Slug, "roles": []string{}, "permissions": names})
+		writeJSON(w, http.StatusOK, map[string]any{"org": org.Slug, "roles": []string{}, "permissions": names})
 		return
 	}
-	canonical, member, err := s.requireTenantMember(r.Context(), claims.UserID, tenantSlug)
+	canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)
 	if err != nil {
-		s.writeTenantLookupErr(w, err)
+		s.writeOrgLookupErr(w, err)
 		return
 	}
 	if !member {
@@ -77,23 +77,23 @@ func (s *Service) handleTenantMeGET(w http.ResponseWriter, r *http.Request) {
 	if perms == nil {
 		perms = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenant": canonical, "roles": roles, "permissions": perms})
+	writeJSON(w, http.StatusOK, map[string]any{"org": canonical, "roles": roles, "permissions": perms})
 }
 
-// handleTenantPermissionCheckPOST answers "does the principal hold these
+// handleOrgPermissionCheckPOST answers "does the principal hold these
 // permissions?" (GCP testIamPermissions / AWS SimulatePrincipalPolicy shape).
 // Body: {"permissions":[...]}; returns {"granted":[...]} — the requested subset
 // the principal holds. By default the principal is the caller (a member may
 // always check itself). An optional "user_id" checks another member and
-// requires tenant:read. A global admin holds everything.
-func (s *Service) handleTenantPermissionCheckPOST(w http.ResponseWriter, r *http.Request) {
+// requires org:read. A global admin holds everything.
+func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || (strings.TrimSpace(claims.UserID) == "" && !claims.IsService()) {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -111,8 +111,8 @@ func (s *Service) handleTenantPermissionCheckPOST(w http.ResponseWriter, r *http
 	target := strings.TrimSpace(body.UserID)
 	switch {
 	case target != "" && target != claims.UserID:
-		// Checking another member requires tenant:read.
-		canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
+		// Checking another member requires org:read.
+		canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
 		if !gateOK {
 			return
 		}
@@ -127,10 +127,10 @@ func (s *Service) handleTenantPermissionCheckPOST(w http.ResponseWriter, r *http
 		writeJSON(w, http.StatusOK, map[string]any{"granted": requested})
 		return
 	default:
-		// Self-check: caller must be a member of the tenant.
-		canonical, member, err := s.requireTenantMember(r.Context(), claims.UserID, tenantSlug)
+		// Self-check: caller must be a member of the org.
+		canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)
 		if err != nil {
-			s.writeTenantLookupErr(w, err)
+			s.writeOrgLookupErr(w, err)
 			return
 		}
 		if !member && !claims.IsService() {
@@ -158,27 +158,27 @@ func (s *Service) handleTenantPermissionCheckPOST(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, map[string]any{"granted": granted})
 }
 
-// handleTenantRoleGET returns a single role's detail (name + permission tokens) in
-// one call. Gated tenant:read. 404 if the role is not defined in the tenant.
-func (s *Service) handleTenantRoleGET(w http.ResponseWriter, r *http.Request) {
+// handleOrgRoleGET returns a single role's detail (name + permission tokens) in
+// one call. Gated org:read. 404 if the role is not defined in the org.
+func (s *Service) handleOrgRoleGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	role := strings.TrimSpace(r.PathValue("role"))
-	if tenantSlug == "" || role == "" {
+	if orgSlug == "" || role == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
 	if !gateOK {
 		return
 	}
-	defined, err := s.svc.ListTenantDefinedRoles(r.Context(), canonical)
+	defined, err := s.svc.ListOrgDefinedRoles(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "tenant_roles_lookup_failed")
+		serverErr(w, "org_roles_lookup_failed")
 		return
 	}
 	found := ""
@@ -203,13 +203,13 @@ func (s *Service) handleTenantRoleGET(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"role": found, "permissions": perms})
 }
 
-// writeTenantLookupErr maps an tenant-resolution error to the standard response.
-func (s *Service) writeTenantLookupErr(w http.ResponseWriter, err error) {
-	if err == core.ErrTenantNotFound {
-		notFound(w, "tenant_not_found")
+// writeOrgLookupErr maps an org-resolution error to the standard response.
+func (s *Service) writeOrgLookupErr(w http.ResponseWriter, err error) {
+	if err == core.ErrOrgNotFound {
+		notFound(w, "org_not_found")
 		return
 	}
-	serverErr(w, "tenant_lookup_failed")
+	serverErr(w, "org_lookup_failed")
 }
 
 // dedupeNonEmpty trims, drops empties, and de-duplicates while preserving order.

@@ -13,7 +13,7 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// countingSource wraps an in-memory tenant store and counts how many times
+// countingSource wraps an in-memory org store and counts how many times
 // each lookup method is called, so tests can assert single-DB-hit behavior and
 // negative caching.
 type countingSource struct {
@@ -125,7 +125,7 @@ func TestLazyLoadOnMissThenCached(t *testing.T) {
 		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
 
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	// Thread fedSource + audiences via LoadRemoteApplications using a source whose
 	// List is EMPTY (nothing pre-loaded) but whose Get knows the issuer. This
 	// isolates the lazy-load-on-miss path from the bulk load.
@@ -172,7 +172,7 @@ func (l *listEmptyGetFull) GetRemoteApplication(ctx context.Context, issuerID st
 func TestUnknownIssuerNegativeCached(t *testing.T) {
 	src := newCountingSource() // empty: GET always returns not-found
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), src, []string{"tensorhub"}); err != nil {
 		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestReconcilingReloadEvicts(t *testing.T) {
 	src := newCountingSource(core.RemoteApplication{
 		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("initial load: %v", err)
 	}
@@ -231,19 +231,19 @@ func TestReconcilingReloadEvicts(t *testing.T) {
 }
 
 // Static issuers (added via AddIssuer directly) must NOT be evicted by a
-// reconciling reload — only tenant issuers are eligible.
+// reconciling reload — only org issuers are eligible.
 func TestReconcileDoesNotEvictStaticIssuer(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "kid-1")
 	jwks := newRotatableJWKS(t, signer)
 	staticIss := "https://static.example"
 	aud := []string{"tensorhub"}
 
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.AddIssuer(staticIss, aud, IssuerOptions{JWKSURI: jwks.url()}); err != nil {
 		t.Fatalf("AddIssuer static: %v", err)
 	}
 
-	// A reconciling reload with an empty tenant set must leave the static
+	// A reconciling reload with an empty org set must leave the static
 	// issuer intact.
 	src := newCountingSource()
 	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
@@ -269,7 +269,7 @@ func TestRotatedKidRefetch(t *testing.T) {
 	})
 	// Long TTL so the normal TTL refresh does not fire — only the unknown-kid
 	// fall-through can pick up the rotation.
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestUnknownKidStormSingleFlight(t *testing.T) {
 	src := newCountingSource(core.RemoteApplication{
 		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestConcurrentFirstUseNoDeadlock(t *testing.T) {
 	src := newCountingSource(core.RemoteApplication{
 		Slug: "cozy-art", Issuer: iss, JWKSURI: jwks.url(), Enabled: true,
 	})
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
 		t.Fatalf("load: %v", err)
 	}

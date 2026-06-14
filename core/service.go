@@ -57,15 +57,15 @@ type Options struct {
 	// triggered it (e.g. registration). Empty/<=0 defaults to 15 seconds.
 	VerificationSendTimeout time.Duration
 
-	// AutoCreatePersonalTenants creates a personal tenant for each native user at
+	// AutoCreatePersonalOrgs creates a personal org for each native user at
 	// signup (direct opt-in; authkit issue 60). False keeps native users
-	// tenant-free by default.
-	AutoCreatePersonalTenants bool
+	// org-free by default.
+	AutoCreatePersonalOrgs bool
 
 	// NativeUserRegistrationMode controls public native-user self-registration.
 	NativeUserRegistrationMode RegistrationMode
-	// TenantRegistrationMode controls public tenant onboarding/management.
-	TenantRegistrationMode RegistrationMode
+	// OrgRegistrationMode controls public org onboarding/management.
+	OrgRegistrationMode RegistrationMode
 
 	// Environment is host-provided runtime mode used for dev/prod behavior checks.
 	Environment string
@@ -80,17 +80,17 @@ type Options struct {
 	// SolanaSNSCacheTTL controls when cached SNS metadata is considered stale. Empty defaults to 24 hours.
 	SolanaSNSCacheTTL time.Duration
 
-	// ServiceTokenPrefix is the issuing application's brand prefix for Tenant
+	// ServiceTokenPrefix is the issuing application's brand prefix for Org
 	// Service Tokens (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
 	ServiceTokenPrefix string
 	// ServiceTokenMaxTTL caps a minted service token's expiry (0 = no cap).
 	ServiceTokenMaxTTL time.Duration
 	// ResourceScopeAuthorizer optionally authorizes host-defined service token resource
 	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
-	// opaquely for callers who may manage service tokens for the tenant.
+	// opaquely for callers who may manage service tokens for the org.
 	ResourceScopeAuthorizer ResourceScopeAuthorizer
 	// PermissionCatalog is the app's permission vocabulary (merged with authkit's
-	// base `tenant:` permissions). DefaultRoles are role templates seeded per tenant.
+	// base `org:` permissions). DefaultRoles are role templates seeded per org.
 	PermissionCatalog []PermissionDef
 	DefaultRoles      []DefaultRole
 }
@@ -150,10 +150,10 @@ var (
 	ErrRegistrationDisabled = errors.New("registration_disabled")
 	// ErrVerificationLinkExpired indicates a verification link/token no longer has a pending verification record.
 	ErrVerificationLinkExpired = errors.New("verification_link_expired")
-	// ErrTenantManagementDisabled indicates a public tenant onboarding/management path
-	// was attempted while tenant registration is bootstrap-only. Embedded
+	// ErrOrgManagementDisabled indicates a public org onboarding/management path
+	// was attempted while org registration is bootstrap-only. Embedded
 	// bootstrap/admin core APIs remain available.
-	ErrTenantManagementDisabled = errors.New("tenant_management_disabled")
+	ErrOrgManagementDisabled = errors.New("org_management_disabled")
 )
 
 const defaultFrontendCallbackPath = "/login/callback"
@@ -187,8 +187,8 @@ func NewService(opts Options, keys Keyset) *Service {
 	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
 		opts.NativeUserRegistrationMode = mode
 	}
-	if mode, err := normalizeRegistrationMode(opts.TenantRegistrationMode); err == nil {
-		opts.TenantRegistrationMode = mode
+	if mode, err := normalizeRegistrationMode(opts.OrgRegistrationMode); err == nil {
+		opts.OrgRegistrationMode = mode
 	}
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
@@ -278,9 +278,9 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, closed)", cfg.NativeUserRegistrationMode)
 	}
-	tenantRegistrationMode, err := normalizeRegistrationMode(cfg.TenantRegistrationMode)
+	orgRegistrationMode, err := normalizeRegistrationMode(cfg.OrgRegistrationMode)
 	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid TenantRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.TenantRegistrationMode)
+		return nil, fmt.Errorf("authkit: invalid OrgRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.OrgRegistrationMode)
 	}
 	tokenPrefix := strings.TrimSpace(cfg.ServiceTokenPrefix)
 	if !validServiceTokenPrefix(tokenPrefix) {
@@ -304,9 +304,9 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		FrontendCallbackPath:       frontendCallbackPath,
 		Schema:                     schema,
 		RegistrationVerification:   registrationVerification,
-		AutoCreatePersonalTenants:  cfg.AutoCreatePersonalTenants,
+		AutoCreatePersonalOrgs:     cfg.AutoCreatePersonalOrgs,
 		NativeUserRegistrationMode: nativeUserRegistrationMode,
-		TenantRegistrationMode:     tenantRegistrationMode,
+		OrgRegistrationMode:        orgRegistrationMode,
 		Environment:                strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:              strings.TrimSpace(cfg.SolanaNetwork),
 		SolanaSNSEnabled:           cfg.SolanaSNSEnabled,
@@ -410,8 +410,8 @@ func (o Options) RegistrationVerificationEnabled() bool {
 	return o.RegistrationVerificationPolicy() != RegistrationVerificationNone
 }
 
-func (o Options) AutoCreatePersonalTenantsEnabled() bool {
-	return o.AutoCreatePersonalTenants
+func (o Options) AutoCreatePersonalOrgsEnabled() bool {
+	return o.AutoCreatePersonalOrgs
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user
@@ -421,10 +421,10 @@ func (o Options) PublicNativeUserRegistrationEnabled() bool {
 	return err == nil && mode == RegistrationModeOpen
 }
 
-// PublicTenantRegistrationEnabled reports whether public tenant onboarding /
+// PublicOrgRegistrationEnabled reports whether public org onboarding /
 // management HTTP routes are allowed.
-func (o Options) PublicTenantRegistrationEnabled() bool {
-	mode, err := normalizeRegistrationMode(o.TenantRegistrationMode)
+func (o Options) PublicOrgRegistrationEnabled() bool {
+	mode, err := normalizeRegistrationMode(o.OrgRegistrationMode)
 	return err == nil && mode == RegistrationModeOpen
 }
 
@@ -503,7 +503,7 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 
 // IssueAccessToken builds and signs an access token (JWT) for the given user.
 // Includes core registered claims plus:
-// - roles (snapshot, tenant_mode=single only)
+// - roles (snapshot, org_mode=single only)
 // - entitlements (snapshot)
 // - email, username, discord_username (if available)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
@@ -511,7 +511,7 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
 	expiresAt = base.ExpiresAt.Time
 	// globalRoles are the user's platform-wide roles. They are emitted in the
-	// `global_roles` claim in BOTH single and multi-tenant mode so consumers can do
+	// `global_roles` claim in BOTH single and multi-org mode so consumers can do
 	// global-admin authorization from any service token.
 	var globalRoles []string
 	if s.pg != nil {
@@ -519,8 +519,8 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	}
 	// roles is the legacy claim (authkit issue 60): a user access token always
 	// mirrors global_roles into `roles` as a fixed token-shape compatibility for
-	// consumers that read `roles`. This is independent of tenants — tenant-scoped
-	// service tokens carry tenant roles instead (see IssueServiceToken).
+	// consumers that read `roles`. This is independent of orgs — org-scoped
+	// service tokens carry org roles instead (see IssueServiceToken).
 	roles := globalRoles
 	var ents []string
 	if s.entitlements != nil {
@@ -589,39 +589,39 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	return tok, expiresAt, err
 }
 
-// IssueServiceToken builds and signs a tenant-scoped service token (JWT) for the
-// given user. Valid whenever the user is a member of the tenant (issue 60: tenants
+// IssueServiceToken builds and signs a org-scoped service token (JWT) for the
+// given user. Valid whenever the user is a member of the org (issue 60: orgs
 // are always supported; no global mode gate). The token includes:
-// - tenant_id (immutable tenant uuid — the canonical identifier)
-// - tenant (mutable slug, presentation/logging only)
-// - roles (snapshot for that tenant)
-func (s *Service) IssueServiceToken(ctx context.Context, userID, email, tenantSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
+// - org_id (immutable org uuid — the canonical identifier)
+// - org (mutable slug, presentation/logging only)
+// - roles (snapshot for that org)
+func (s *Service) IssueServiceToken(ctx context.Context, userID, email, orgSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, fmt.Errorf("postgres not configured")
 	}
-	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	// Membership check + roles snapshot.
-	member, err := s.q.TenantMembershipExists(ctx, db.TenantMembershipExistsParams{TenantID: tenant.ID, UserID: userID})
+	member, err := s.q.OrgMembershipExists(ctx, db.OrgMembershipExistsParams{OrgID: org.ID, UserID: userID})
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	if !member {
-		return "", time.Time{}, ErrNotTenantMember
+		return "", time.Time{}, ErrNotOrgMember
 	}
-	tenantRoles, err := s.ReadMemberRoles(ctx, tenant.Slug, userID)
+	orgRoles, err := s.ReadMemberRoles(ctx, org.Slug, userID)
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	// tenant + roles (legacy) preserve existing behavior; tenant_roles is the new
-	// explicit tenant-scoped claim. global_roles is added by IssueAccessToken.
+	// org + roles (legacy) preserve existing behavior; org_roles is the new
+	// explicit org-scoped claim. global_roles is added by IssueAccessToken.
 	claims := map[string]any{
-		"tenant_id":    tenant.ID,
-		"tenant":       tenant.Slug,
-		"roles":        tenantRoles,
-		"tenant_roles": tenantRoles,
+		"org_id":    org.ID,
+		"org":       org.Slug,
+		"roles":     orgRoles,
+		"org_roles": orgRoles,
 	}
 	if extra == nil {
 		extra = map[string]any{}
@@ -657,7 +657,7 @@ func (s *Service) isDevEnvironment() bool {
 func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
 	s.pg = pool
 	s.q = db.New(db.ForSchema(pool, s.dbSchema()))
-	// (issue 60) No tenant-mode downgrade safeguard: tenants are always supported,
+	// (issue 60) No org-mode downgrade safeguard: orgs are always supported,
 	// so there is no single/multi mode to refuse a downgrade into.
 	return s
 }
@@ -1639,7 +1639,7 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 		return "", jwt.ErrTokenUnverifiable
 	}
 	// The register_email finalizer enforces "first to verify wins", creates the
-	// verified user, and applies locale + personal tenant; consume deletes the
+	// verified user, and applies locale + personal org; consume deletes the
 	// pending record on success.
 	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindRegisterEmail)
 }
@@ -2296,7 +2296,7 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 		return nil, nil
 	}
 	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateTenantSlug(slug) != nil {
+	if slug == "" || validateOrgSlug(slug) != nil {
 		return nil, fmt.Errorf("invalid_username_for_owner_namespace")
 	}
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
@@ -2312,8 +2312,8 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	}
 	u := User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 
-	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalTenantForUser(ctx, u.ID, username); err != nil {
+	if s.opts.AutoCreatePersonalOrgsEnabled() {
+		if err := s.ensurePersonalOrgForUser(ctx, u.ID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2337,7 +2337,7 @@ func normalizeImportUserInput(input ImportUserInput) (email *string, phone *stri
 	}
 	username = strings.TrimSpace(input.Username)
 	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateTenantSlug(slug) != nil {
+	if slug == "" || validateOrgSlug(slug) != nil {
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, fmt.Errorf("invalid_username_for_owner_namespace")
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
@@ -2398,8 +2398,8 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 	if err != nil {
 		return nil, err
 	}
-	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalTenantForUser(ctx, userID, username); err != nil {
+	if s.opts.AutoCreatePersonalOrgsEnabled() {
+		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2443,8 +2443,8 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 	if err != nil {
 		return nil, err
 	}
-	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalTenantForUser(ctx, userID, username); err != nil {
+	if s.opts.AutoCreatePersonalOrgsEnabled() {
+		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
 			return nil, err
 		}
 	}
@@ -2626,7 +2626,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return nil
 	}
 	newUsername := strings.TrimSpace(username)
-	newSlug, excludeTenantID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
+	newSlug, excludeOrgID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
 	if err != nil {
 		return err
 	}
@@ -2644,12 +2644,12 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
 		return nil
 	}
-	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeTenantID); err != nil {
+	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeOrgID); err != nil {
 		return err
 	}
 
 	// Cooldown check (issue #58). The cooldown applies to the user's
-	// rename intent only — the personal-tenant rename below is a
+	// rename intent only — the personal-org rename below is a
 	// by-product, not separately rate-limited. Walks the
 	// `(user_id, renamed_at DESC)` index to grab the most recent rename.
 	if !bypassCooldown {
@@ -2670,45 +2670,45 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return err
 	}
 
-	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		var tenantID, oldTenantSlug string
-		pt, err := qtx.PersonalTenantIDSlugByOwner(ctx, id)
+	if s.opts.AutoCreatePersonalOrgsEnabled() {
+		var orgID, oldOrgSlug string
+		pt, err := qtx.PersonalOrgIDSlugByOwner(ctx, id)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		if err == nil {
-			tenantID, oldTenantSlug = pt.ID, pt.Slug
+			orgID, oldOrgSlug = pt.ID, pt.Slug
 		}
-		if strings.TrimSpace(tenantID) == "" {
-			derivedTenantID, err := newUUIDV7String()
+		if strings.TrimSpace(orgID) == "" {
+			derivedOrgID, err := newUUIDV7String()
 			if err != nil {
 				return err
 			}
-			if err := qtx.PersonalTenantInsertBasic(ctx, db.PersonalTenantInsertBasicParams{ID: derivedTenantID, Slug: newSlug, OwnerUserID: id}); err != nil {
+			if err := qtx.PersonalOrgInsertBasic(ctx, db.PersonalOrgInsertBasicParams{ID: derivedOrgID, Slug: newSlug, OwnerUserID: id}); err != nil {
 				return err
 			}
-			pt, err := qtx.PersonalTenantIDSlugByOwner(ctx, id)
+			pt, err := qtx.PersonalOrgIDSlugByOwner(ctx, id)
 			if err != nil {
 				return err
 			}
-			tenantID = pt.ID
-		} else if !strings.EqualFold(oldTenantSlug, newSlug) {
-			// Personal-tenant rename rides the user-rename intent — write
-			// the tenant_renames audit row in the same tx. Cooldown was
+			orgID = pt.ID
+		} else if !strings.EqualFold(oldOrgSlug, newSlug) {
+			// Personal-org rename rides the user-rename intent — write
+			// the org_renames audit row in the same tx. Cooldown was
 			// already checked against user_renames above; we don't
 			// re-gate here.
-			if err := qtx.TenantRenameInsert(ctx, db.TenantRenameInsertParams{TenantID: tenantID, FromSlug: strings.ToLower(strings.TrimSpace(oldTenantSlug))}); err != nil {
+			if err := qtx.OrgRenameInsert(ctx, db.OrgRenameInsertParams{OrgID: orgID, FromSlug: strings.ToLower(strings.TrimSpace(oldOrgSlug))}); err != nil {
 				return err
 			}
-			if err := qtx.TenantUpdateSlugUnconditional(ctx, db.TenantUpdateSlugUnconditionalParams{Slug: newSlug, ID: tenantID}); err != nil {
+			if err := qtx.OrgUpdateSlugUnconditional(ctx, db.OrgUpdateSlugUnconditionalParams{Slug: newSlug, ID: orgID}); err != nil {
 				return err
 			}
 		}
-		if strings.TrimSpace(tenantID) != "" {
-			if err := qtx.TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
+		if strings.TrimSpace(orgID) != "" {
+			if err := qtx.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: orgID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
 				return err
 			}
-			if err := qtx.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: tenantID, UserID: id, Role: tenantOwnerRole}); err != nil {
+			if err := qtx.OrgMembershipUpsertRole(ctx, db.OrgMembershipUpsertRoleParams{OrgID: orgID, UserID: id, Role: orgOwnerRole}); err != nil {
 				return err
 			}
 		}

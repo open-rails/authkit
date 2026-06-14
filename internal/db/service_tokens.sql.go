@@ -12,20 +12,20 @@ import (
 
 const serviceTokenByKeyID = `-- name: ServiceTokenByKeyID :one
 SELECT t.id::text AS id, t.secret_hash, t.expires_at, t.revoked_at,
-       o.id::text AS tenant_id, o.slug, o.deleted_at AS tenant_deleted_at
+       o.id::text AS org_id, o.slug, o.deleted_at AS org_deleted_at
 FROM profiles.service_tokens t
-JOIN profiles.tenants o ON o.id = t.tenant_id
+JOIN profiles.orgs o ON o.id = t.org_id
 WHERE t.key_id = $1
 `
 
 type ServiceTokenByKeyIDRow struct {
-	ID              string
-	SecretHash      []byte
-	ExpiresAt       *time.Time
-	RevokedAt       *time.Time
-	TenantID        string
-	Slug            string
-	TenantDeletedAt *time.Time
+	ID           string
+	SecretHash   []byte
+	ExpiresAt    *time.Time
+	RevokedAt    *time.Time
+	OrgID        string
+	Slug         string
+	OrgDeletedAt *time.Time
 }
 
 func (q *Queries) ServiceTokenByKeyID(ctx context.Context, keyID string) (ServiceTokenByKeyIDRow, error) {
@@ -36,9 +36,9 @@ func (q *Queries) ServiceTokenByKeyID(ctx context.Context, keyID string) (Servic
 		&i.SecretHash,
 		&i.ExpiresAt,
 		&i.RevokedAt,
-		&i.TenantID,
+		&i.OrgID,
 		&i.Slug,
-		&i.TenantDeletedAt,
+		&i.OrgDeletedAt,
 	)
 	return i, err
 }
@@ -46,13 +46,13 @@ func (q *Queries) ServiceTokenByKeyID(ctx context.Context, keyID string) (Servic
 const serviceTokenInsert = `-- name: ServiceTokenInsert :one
 
 INSERT INTO profiles.service_tokens
-  (tenant_id, key_id, secret_hash, name, created_by, expires_at)
+  (org_id, key_id, secret_hash, name, created_by, expires_at)
 VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6)
 RETURNING id::text, created_at
 `
 
 type ServiceTokenInsertParams struct {
-	TenantID   string
+	OrgID      string
 	KeyID      string
 	SecretHash []byte
 	Name       string
@@ -68,7 +68,7 @@ type ServiceTokenInsertRow struct {
 // Service token queries (core/service_tokens.go).
 func (q *Queries) ServiceTokenInsert(ctx context.Context, arg ServiceTokenInsertParams) (ServiceTokenInsertRow, error) {
 	row := q.db.QueryRow(ctx, serviceTokenInsert,
-		arg.TenantID,
+		arg.OrgID,
 		arg.KeyID,
 		arg.SecretHash,
 		arg.Name,
@@ -238,16 +238,16 @@ func (q *Queries) ServiceTokenResourcesByTokenIDs(ctx context.Context, ids []str
 const serviceTokenRevoke = `-- name: ServiceTokenRevoke :execrows
 UPDATE profiles.service_tokens
 SET revoked_at = now()
-WHERE id = $1::uuid AND tenant_id = $2::uuid AND revoked_at IS NULL
+WHERE id = $1::uuid AND org_id = $2::uuid AND revoked_at IS NULL
 `
 
 type ServiceTokenRevokeParams struct {
-	ID       string
-	TenantID string
+	ID    string
+	OrgID string
 }
 
 func (q *Queries) ServiceTokenRevoke(ctx context.Context, arg ServiceTokenRevokeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, serviceTokenRevoke, arg.ID, arg.TenantID)
+	result, err := q.db.Exec(ctx, serviceTokenRevoke, arg.ID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}
@@ -263,15 +263,15 @@ func (q *Queries) ServiceTokenTouchLastUsed(ctx context.Context, id string) erro
 	return err
 }
 
-const serviceTokensByTenant = `-- name: ServiceTokensByTenant :many
+const serviceTokensByOrg = `-- name: ServiceTokensByOrg :many
 SELECT id::text, key_id, name, COALESCE(created_by::text, '')::text AS created_by,
        created_at, last_used_at, expires_at, revoked_at
 FROM profiles.service_tokens
-WHERE tenant_id = $1::uuid
+WHERE org_id = $1::uuid
 ORDER BY created_at DESC
 `
 
-type ServiceTokensByTenantRow struct {
+type ServiceTokensByOrgRow struct {
 	ID         string
 	KeyID      string
 	Name       string
@@ -282,15 +282,15 @@ type ServiceTokensByTenantRow struct {
 	RevokedAt  *time.Time
 }
 
-func (q *Queries) ServiceTokensByTenant(ctx context.Context, tenantID string) ([]ServiceTokensByTenantRow, error) {
-	rows, err := q.db.Query(ctx, serviceTokensByTenant, tenantID)
+func (q *Queries) ServiceTokensByOrg(ctx context.Context, orgID string) ([]ServiceTokensByOrgRow, error) {
+	rows, err := q.db.Query(ctx, serviceTokensByOrg, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ServiceTokensByTenantRow
+	var items []ServiceTokensByOrgRow
 	for rows.Next() {
-		var i ServiceTokensByTenantRow
+		var i ServiceTokensByOrgRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.KeyID,

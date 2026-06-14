@@ -62,8 +62,8 @@ func newSelfTokenEnv(t *testing.T, slug, iss string) *selfTokenEnv {
 	// Trust the principal's external key directly (equivalent to LoadRemoteApplications
 	// fetching its JWKS; here we seed the key so the test needs no live fetch).
 	require.NoError(t, ver.AddIssuer(iss, aud, IssuerOptions{
-		RawKeys:    map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-		TenantSlug: slug,
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+		OrgSlug: slug,
 	}))
 	return &selfTokenEnv{pool: pool, svc: svc, ver: ver, signer: signer, app: app, iss: iss, aud: aud}
 }
@@ -91,15 +91,15 @@ func (e *selfTokenEnv) mintScoped(t *testing.T, perms []string) string {
 // TestRemoteApplicationSelfTokenResolvesStoredAuthority is the core #76 case: a
 // JWKS principal self-token authenticates AS the remote_application and resolves
 // its ASSIGNED authority — direct permissions UNION role-derived permissions —
-// and exposes its tenant role. Self-claimed authority on the token is ignored.
+// and exposes its org role. Self-claimed authority on the token is ignored.
 func TestRemoteApplicationSelfTokenResolvesStoredAuthority(t *testing.T) {
 	env := newSelfTokenEnv(t, "self-app", "https://self-app.example/iss")
 	ctx := context.Background()
 
-	const tslug = "self-tenant"
-	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
-	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug) })
-	_, err := env.svc.CreateTenant(ctx, tslug)
+	const tslug = "self-org"
+	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
+	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug) })
+	_, err := env.svc.CreateOrg(ctx, tslug)
 	require.NoError(t, err)
 
 	// A role that bundles a permission, assigned to the principal.
@@ -118,14 +118,14 @@ func TestRemoteApplicationSelfTokenResolvesStoredAuthority(t *testing.T) {
 	require.Empty(t, cl.UserID, "self-token implies no local user")
 	require.Equal(t, env.app.ID, cl.RemoteApplicationID)
 	require.Equal(t, "self-app", cl.RemoteApplicationSlug)
-	require.Equal(t, tslug, cl.Tenant)
-	require.Contains(t, cl.TenantRoles, "catalog-admin")
+	require.Equal(t, tslug, cl.Org)
+	require.Contains(t, cl.OrgRoles, "catalog-admin")
 	// Effective permissions = role-derived ∪ direct.
 	require.ElementsMatch(t, []string{"catalog:write", "billing:read"}, cl.Permissions)
 }
 
 // TestRemoteApplicationSelfTokenIgnoresSelfClaimedAuthority proves a hostile
-// self-signed token cannot grant itself authority: roles/tenant claims are STORED
+// self-signed token cannot grant itself authority: roles/org claims are STORED
 // only and never honored, and a `permissions` over-claim (now a down-scoping
 // request, #76 amendment) REJECTS rather than escalating. With no perms claim the
 // verified Claims carry ONLY what was assigned (here: nothing).
@@ -133,14 +133,14 @@ func TestRemoteApplicationSelfTokenIgnoresSelfClaimedAuthority(t *testing.T) {
 	env := newSelfTokenEnv(t, "noescal-app", "https://noescal-app.example/iss")
 	now := time.Now()
 
-	// Bogus roles/tenant (and NO permissions claim) are ignored, not honored.
+	// Bogus roles/org (and NO permissions claim) are ignored, not honored.
 	tok, err := env.signer.SignWithHeaders(context.Background(), map[string]any{
-		"iss":    env.iss,
-		"aud":    env.aud,
-		"iat":    now.Unix(),
-		"exp":    now.Add(time.Minute).Unix(),
-		"roles":  []string{"owner"},
-		"tenant": "some-other-tenant",
+		"iss":   env.iss,
+		"aud":   env.aud,
+		"iat":   now.Unix(),
+		"exp":   now.Add(time.Minute).Unix(),
+		"roles": []string{"owner"},
+		"org":   "some-other-org",
 	}, map[string]any{"typ": RemoteApplicationAccessTokenType})
 	require.NoError(t, err)
 	cl, err := env.ver.Verify(tok)
@@ -148,7 +148,7 @@ func TestRemoteApplicationSelfTokenIgnoresSelfClaimedAuthority(t *testing.T) {
 	require.True(t, cl.IsRemoteApplication())
 	require.Empty(t, cl.Permissions, "self-claimed permissions must NOT be honored")
 	require.Empty(t, cl.Roles, "self-claimed roles must NOT be honored")
-	require.Empty(t, cl.Tenant, "self-claimed tenant must NOT be honored")
+	require.Empty(t, cl.Org, "self-claimed org must NOT be honored")
 
 	// A `permissions` over-claim can no longer escalate — it rejects the token.
 	tok2, err := env.signer.SignWithHeaders(context.Background(), map[string]any{
@@ -189,13 +189,13 @@ func TestRemoteApplicationSelfTokenGrantTakesEffect(t *testing.T) {
 
 // seedCeiling assigns a remote_application a role-derived perm (catalog:write via
 // a role) plus a direct perm (billing:read), giving a ceiling of both. Returns
-// the tenant slug for cleanup-aware callers.
+// the org slug for cleanup-aware callers.
 func seedCeiling(t *testing.T, env *selfTokenEnv, tslug string) {
 	t.Helper()
 	ctx := context.Background()
-	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
-	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug) })
-	_, err := env.svc.CreateTenant(ctx, tslug)
+	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
+	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug) })
+	_, err := env.svc.CreateOrg(ctx, tslug)
 	require.NoError(t, err)
 	require.NoError(t, env.svc.DefineRole(ctx, tslug, "catalog-admin"))
 	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "catalog-admin", []string{"catalog:write"}))
@@ -208,7 +208,7 @@ func seedCeiling(t *testing.T, env *selfTokenEnv, tslug string) {
 // the ceiling, so a role-derived perm can be selected by the claim.
 func TestRemoteApplicationSelfTokenDownScopesToSubset(t *testing.T) {
 	env := newSelfTokenEnv(t, "scope-app", "https://scope-app.example/iss")
-	seedCeiling(t, env, "scope-tenant")
+	seedCeiling(t, env, "scope-org")
 
 	// Claim only the role-derived perm => effective = {catalog:write}.
 	cl, err := env.ver.Verify(env.mintScoped(t, []string{"catalog:write"}))
@@ -223,7 +223,7 @@ func TestRemoteApplicationSelfTokenDownScopesToSubset(t *testing.T) {
 // loudly. The in-grant perm in the same claim does NOT rescue it.
 func TestRemoteApplicationSelfTokenCannotWiden(t *testing.T) {
 	env := newSelfTokenEnv(t, "widen-app", "https://widen-app.example/iss")
-	seedCeiling(t, env, "widen-tenant")
+	seedCeiling(t, env, "widen-org")
 
 	_, err := env.ver.Verify(env.mintScoped(t, []string{"billing:read", "admin:everything"}))
 	require.Error(t, err, "out-of-grant claimed perm must reject the token")
@@ -235,7 +235,7 @@ func TestRemoteApplicationSelfTokenCannotWiden(t *testing.T) {
 // the FULL stored ceiling (direct ∪ role-derived) — backward-compatible.
 func TestRemoteApplicationSelfTokenAbsentClaimFullCeiling(t *testing.T) {
 	env := newSelfTokenEnv(t, "absent-app", "https://absent-app.example/iss")
-	seedCeiling(t, env, "absent-tenant")
+	seedCeiling(t, env, "absent-org")
 
 	cl, err := env.ver.Verify(env.mint(t)) // mint() carries no permissions claim
 	require.NoError(t, err)
@@ -284,7 +284,7 @@ func toStrings(t *testing.T, v any) []string {
 // its grant before minting a valid down-scoped token.
 func TestMePermissionsRemoteAppReturnsCeiling(t *testing.T) {
 	env := newSelfTokenEnv(t, "intro-app", "https://intro-app.example/iss")
-	seedCeiling(t, env, "intro-tenant")
+	seedCeiling(t, env, "intro-org")
 
 	// Present a NARROWED token (claims only one of two ceiling perms).
 	cl, err := env.ver.Verify(env.mintScoped(t, []string{"billing:read"}))
@@ -295,7 +295,7 @@ func TestMePermissionsRemoteAppReturnsCeiling(t *testing.T) {
 	require.Equal(t, "remote_application", out["principal_type"])
 	require.Equal(t, env.app.ID, out["id"])
 	require.Equal(t, "intro-app", out["slug"])
-	require.Equal(t, "intro-tenant", out["tenant"])
+	require.Equal(t, "intro-org", out["org"])
 	require.Contains(t, toStrings(t, out["roles"]), "catalog-admin")
 	// The FULL ceiling, not the narrowed claim.
 	require.ElementsMatch(t, []string{"catalog:write", "billing:read"}, toStrings(t, out["permissions"]))
@@ -307,26 +307,26 @@ func TestMePermissionsServiceTokenReturnsStored(t *testing.T) {
 	env := newSelfTokenEnv(t, "svc-intro-app", "https://svc-intro-app.example/iss")
 	cl := Claims{
 		TokenType:   ServiceTokenType,
-		Tenant:      "svc-tenant",
-		TenantRoles: []string{"runner"},
+		Org:         "svc-org",
+		OrgRoles:    []string{"runner"},
 		Permissions: []string{"jobs:submit", "jobs:read"},
 	}
 	out := callMePermissions(t, env.pool, cl)
 	require.Equal(t, "service", out["principal_type"])
-	require.Equal(t, "svc-tenant", out["tenant"])
+	require.Equal(t, "svc-org", out["org"])
 	require.ElementsMatch(t, []string{"jobs:submit", "jobs:read"}, toStrings(t, out["permissions"]))
 }
 
 // TestMePermissionsNativeUserResolves: a native user's effective permissions are
-// resolved from role mappings in the token's tenant.
+// resolved from role mappings in the token's org.
 func TestMePermissionsNativeUserResolves(t *testing.T) {
 	env := newSelfTokenEnv(t, "user-intro-app", "https://user-intro-app.example/iss")
 	ctx := context.Background()
 
-	const tslug = "user-intro-tenant"
-	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
-	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug) })
-	_, err := env.svc.CreateTenant(ctx, tslug)
+	const tslug = "user-intro-org"
+	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
+	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug) })
+	_, err := env.svc.CreateOrg(ctx, tslug)
 	require.NoError(t, err)
 
 	u, err := env.svc.CreateUser(ctx, "intro-user@example.test", "introuser")
@@ -338,11 +338,11 @@ func TestMePermissionsNativeUserResolves(t *testing.T) {
 	require.NoError(t, env.svc.AddMember(ctx, tslug, u.ID))
 	require.NoError(t, env.svc.AssignRole(ctx, tslug, u.ID, "editor"))
 
-	cl := Claims{UserID: u.ID, Tenant: tslug, TenantRoles: []string{"editor"}}
+	cl := Claims{UserID: u.ID, Org: tslug, OrgRoles: []string{"editor"}}
 	out := callMePermissions(t, env.pool, cl)
 	require.Equal(t, "user", out["principal_type"])
 	require.Equal(t, u.ID, out["id"])
-	require.Equal(t, tslug, out["tenant"])
+	require.Equal(t, tslug, out["org"])
 	require.Contains(t, toStrings(t, out["permissions"]), "docs:write")
 }
 

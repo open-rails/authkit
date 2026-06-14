@@ -32,13 +32,13 @@ type config struct {
 	IssuedAudiences          []string
 	ExpectedAudiences        []string
 	Environment              string
-	// Tenant/RBAC knobs. Default to authkit's zero values (single-tenant, no
+	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
 	// catalog) so existing deployments are unaffected; the e2e suite sets
-	// these to exercise the multi-tenant service token/RBAC surface against a real server.
-	ServiceTokenPrefix             string
-	PermissionCatalog              []string
-	TenantManifestPath             string
-	ReconcileTenantManifestOnStart bool
+	// these to exercise the multi-org service token/RBAC surface against a real server.
+	ServiceTokenPrefix          string
+	PermissionCatalog           []string
+	OrgManifestPath             string
+	ReconcileOrgManifestOnStart bool
 }
 
 func main() {
@@ -61,15 +61,15 @@ func main() {
 		if err := runMigrate(cfg); err != nil {
 			fatal(err)
 		}
-	case "tenant-manifest":
+	case "org-manifest":
 		if len(os.Args) < 3 || strings.TrimSpace(os.Args[2]) != "apply" {
-			fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, tenant-manifest apply)", strings.Join(os.Args[1:], " ")))
+			fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, org-manifest apply)", strings.Join(os.Args[1:], " ")))
 		}
-		if err := runTenantManifestApply(cfg); err != nil {
+		if err := runOrgManifestApply(cfg); err != nil {
 			fatal(err)
 		}
 	default:
-		fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, tenant-manifest apply)", cmd))
+		fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, org-manifest apply)", cmd))
 	}
 }
 
@@ -78,20 +78,20 @@ func loadConfig() (*config, error) {
 	expectedAudiences := parseCSVEnv("DEVSERVER_EXPECTED_AUDIENCES", issuedAudiences)
 
 	c := &config{
-		ListenAddr:                     envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
-		Issuer:                         strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
-		DBURL:                          firstEnv("DB_URL", "DATABASE_URL"),
-		DevMode:                        envBool("DEVSERVER_DEV_MODE", false),
-		DevMintSecret:                  envOr("DEVSERVER_DEV_MINT_SECRET", ""),
-		MigrateOnStart:                 envBool("DEVSERVER_MIGRATE_ON_START", true),
-		IssuedAudiences:                issuedAudiences,
-		ExpectedAudiences:              expectedAudiences,
-		Environment:                    envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification:       core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
-		ServiceTokenPrefix:             strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
-		PermissionCatalog:              parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
-		TenantManifestPath:             strings.TrimSpace(envOr("DEVSERVER_TENANT_MANIFEST_PATH", "")),
-		ReconcileTenantManifestOnStart: envBool("DEVSERVER_RECONCILE_TENANT_MANIFEST_ON_START", false),
+		ListenAddr:                  envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
+		Issuer:                      strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
+		DBURL:                       firstEnv("DB_URL", "DATABASE_URL"),
+		DevMode:                     envBool("DEVSERVER_DEV_MODE", false),
+		DevMintSecret:               envOr("DEVSERVER_DEV_MINT_SECRET", ""),
+		MigrateOnStart:              envBool("DEVSERVER_MIGRATE_ON_START", true),
+		IssuedAudiences:             issuedAudiences,
+		ExpectedAudiences:           expectedAudiences,
+		Environment:                 envOr("DEVSERVER_ENVIRONMENT", "dev"),
+		RegistrationVerification:    core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
+		ServiceTokenPrefix:          strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
+		PermissionCatalog:           parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
+		OrgManifestPath:             strings.TrimSpace(envOr("DEVSERVER_ORG_MANIFEST_PATH", "")),
+		ReconcileOrgManifestOnStart: envBool("DEVSERVER_RECONCILE_ORG_MANIFEST_ON_START", false),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")
@@ -144,8 +144,8 @@ func runServe(cfg *config) error {
 		return err
 	}
 	svc.WithPostgres(pg)
-	if cfg.ReconcileTenantManifestOnStart {
-		if _, err := reconcileTenantManifest(ctx, svc.Core(), cfg.TenantManifestPath); err != nil {
+	if cfg.ReconcileOrgManifestOnStart {
+		if _, err := reconcileOrgManifest(ctx, svc.Core(), cfg.OrgManifestPath); err != nil {
 			return err
 		}
 	}
@@ -197,7 +197,7 @@ func runMigrate(cfg *config) error {
 	return runMigrations(ctx, cfg.DBURL)
 }
 
-func runTenantManifestApply(cfg *config) error {
+func runOrgManifestApply(cfg *config) error {
 	ctx := context.Background()
 	pg, err := pgxpool.New(ctx, cfg.DBURL)
 	if err != nil {
@@ -210,12 +210,12 @@ func runTenantManifestApply(cfg *config) error {
 		ServiceTokenPrefix: cfg.ServiceTokenPrefix,
 		PermissionCatalog:  toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)
-	result, err := reconcileTenantManifest(ctx, svc, cfg.TenantManifestPath)
+	result, err := reconcileOrgManifest(ctx, svc, cfg.OrgManifestPath)
 	if err != nil {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(map[string]int{
-		"tenants":       result.Tenants,
+		"orgs":          result.Orgs,
 		"issuers":       result.Issuers,
 		"roles":         result.Roles,
 		"tokens_minted": result.TokensMinted,
@@ -223,18 +223,18 @@ func runTenantManifestApply(cfg *config) error {
 	})
 }
 
-func reconcileTenantManifest(ctx context.Context, svc *core.Service, path string) (core.TenantManifestResult, error) {
+func reconcileOrgManifest(ctx context.Context, svc *core.Service, path string) (core.OrgManifestResult, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return core.TenantManifestResult{}, fmt.Errorf("DEVSERVER_TENANT_MANIFEST_PATH is required")
+		return core.OrgManifestResult{}, fmt.Errorf("DEVSERVER_ORG_MANIFEST_PATH is required")
 	}
-	manifest, err := core.ParseTenantManifestYAMLFile(path)
+	manifest, err := core.ParseOrgManifestYAMLFile(path)
 	if err != nil {
-		return core.TenantManifestResult{}, fmt.Errorf("read tenant manifest: %w", err)
+		return core.OrgManifestResult{}, fmt.Errorf("read org manifest: %w", err)
 	}
-	result, err := svc.ReconcileTenantManifest(ctx, manifest, core.FileTenantManifestTokenStore{})
+	result, err := svc.ReconcileOrgManifest(ctx, manifest, core.FileOrgManifestTokenStore{})
 	if err != nil {
-		return core.TenantManifestResult{}, fmt.Errorf("reconcile tenant manifest: %w", err)
+		return core.OrgManifestResult{}, fmt.Errorf("reconcile org manifest: %w", err)
 	}
 	return result, nil
 }
@@ -303,7 +303,7 @@ func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"tenant":      cl.Tenant,
+			"org":         cl.Org,
 			"permissions": cl.Permissions,
 			"is_service":  cl.IsService(),
 			"user_id":     cl.UserID,

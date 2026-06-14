@@ -12,11 +12,11 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-func TestRequired_TenantScopedRoles_UsesRolesWhenTenantPresent(t *testing.T) {
+func TestRequired_OrgScopedRoles_UsesRolesWhenOrgPresent(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 
-	v := NewVerifier(WithTenantMode("multi"))
+	v := NewVerifier(WithOrgMode("multi"))
 	err = v.AddIssuer("https://example.com", []string{"test-app"}, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{
 			signer.KID(): signer.PublicKey(),
@@ -27,20 +27,20 @@ func TestRequired_TenantScopedRoles_UsesRolesWhenTenantPresent(t *testing.T) {
 	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, ok := ClaimsFromContext(r.Context())
 		require.True(t, ok)
-		require.Equal(t, "acme", cl.Tenant)
-		require.Equal(t, []string{"a", "b"}, cl.TenantRoles)
+		require.Equal(t, "acme", cl.Org)
+		require.Equal(t, []string{"a", "b"}, cl.OrgRoles)
 		require.Empty(t, cl.Roles)
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	token := signToken(t, signer, map[string]any{
-		"iss":    "https://example.com",
-		"sub":    "user",
-		"aud":    "test-app",
-		"iat":    time.Now().Unix(),
-		"exp":    time.Now().Add(1 * time.Hour).Unix(),
-		"tenant": "acme",
-		"roles":  []string{"a", "b"},
+		"iss":   "https://example.com",
+		"sub":   "user",
+		"aud":   "test-app",
+		"iat":   time.Now().Unix(),
+		"exp":   time.Now().Add(1 * time.Hour).Unix(),
+		"org":   "acme",
+		"roles": []string{"a", "b"},
 	})
 
 	w := httptest.NewRecorder()

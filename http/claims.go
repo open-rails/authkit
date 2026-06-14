@@ -19,31 +19,31 @@ type Claims struct {
 	SessionID       string
 	Roles           []string
 	// GlobalRoles are the user's GLOBAL (platform-wide) roles, carried in the
-	// `global_roles` claim in both single and multi-tenant mode. Use these for
+	// `global_roles` claim in both single and multi-org mode. Use these for
 	// global-admin authorization decisions.
 	GlobalRoles []string
-	// TenantRoles are the roles scoped to the tenant named in Tenant, carried in the
-	// `tenant_roles` claim on tenant-scoped tokens. Use these for tenant-scoped authz.
-	TenantRoles  []string
+	// OrgRoles are the roles scoped to the org named in Org, carried in the
+	// `org_roles` claim on org-scoped tokens. Use these for org-scoped authz.
+	OrgRoles     []string
 	Entitlements []string
 	Issuer       string
 	UserTier     string
 	JTI          string
 
-	// Delegated/tenant fields. A delegated service token carries the external
-	// actor in DelegatedSubject (claim `delegated_sub`) and NO tenant claims of
-	// any kind: the VALIDATED Issuer is the tenant identity — receivers resolve
-	// their internal tenant record (slug + uuid) from their issuer registry. It
+	// Delegated/org fields. A delegated service token carries the external
+	// actor in DelegatedSubject (claim `delegated_sub`) and NO org claims of
+	// any kind: the VALIDATED Issuer is the org identity — receivers resolve
+	// their internal org record (slug + uuid) from their issuer registry. It
 	// never carries `sub` (UserID stays empty), so the local-user gate does not
 	// apply.
 	//
-	// Tenant carries the `tenant` claim of tenant-scoped ACCESS tokens (and the
+	// Org carries the `org` claim of org-scoped ACCESS tokens (and the
 	// slug of opaque service tokens, resolved server-side); on delegated access
-	// tokens the claim is forbidden and Tenant stays empty. TenantID is
+	// tokens the claim is forbidden and Org stays empty. OrgID is
 	// populated ONLY for opaque service tokens via the receiver's own DB
 	// resolution — never from a JWT claim.
-	Tenant           string
-	TenantID         string
+	Org              string
+	OrgID            string
 	DelegatedSubject string
 
 	// Attributes is the `attributes` claim of a delegated service token: the
@@ -70,7 +70,7 @@ type Claims struct {
 	// extracted and validated at verify (malformed entries dropped, count
 	// capped) and surfaced on DelegatedPrincipal.Roles. Downstream services use
 	// them as e.g. budget-scope keys; authkit treats them as opaque strings.
-	// Nil when absent. Distinct from the native-user Roles/TenantRoles claims,
+	// Nil when absent. Distinct from the native-user Roles/OrgRoles claims,
 	// which a delegated token never carries.
 	DelegatedRoles []string
 
@@ -80,14 +80,14 @@ type Claims struct {
 	TokenTyp string
 
 	// TokenType marks the credential class. Empty for ordinary user JWTs;
-	// "service" for an Service Token (service token) acting AS THE TENANT. A
-	// service principal carries Tenant + Permissions but no UserID, so the live-user
+	// "service" for an Service Token (service token) acting AS THE ORG. A
+	// service principal carries Org + Permissions but no UserID, so the live-user
 	// ban/enrichment gate is skipped (there is no user to look up).
 	TokenType string
 
 	// Permissions are the app-defined permission strings a service principal
 	// (service token) carries directly — the PBAC grant. Empty for user principals, whose
-	// authority is expressed as TenantRoles that the resource server expands to
+	// authority is expressed as OrgRoles that the resource server expands to
 	// permissions at request time. authkit treats permission strings as opaque.
 	Permissions []string
 
@@ -100,18 +100,18 @@ type Claims struct {
 	// self-token (#76) authenticated as: a remote_application acting AS ITSELF.
 	// Populated ONLY for RemoteApplicationTokenType claims, resolved server-side
 	// from the validated `iss` (never from a self-asserted token claim). The
-	// principal's Permissions/TenantRoles carry its STORED, assigned authority.
+	// principal's Permissions/OrgRoles carry its STORED, assigned authority.
 	RemoteApplicationID   string
 	RemoteApplicationSlug string
 }
 
-// ServiceTokenType is the TokenType value carried by an Tenant Access
-// Token (service token) — a machine credential that acts as the tenant, not a user.
+// ServiceTokenType is the TokenType value carried by an Org Access
+// Token (service token) — a machine credential that acts as the org, not a user.
 const ServiceTokenType = "service"
 
 // RemoteApplicationTokenType is the TokenType value carried by a JWKS principal
 // SELF-token (#76): a remote_application acting AS ITSELF. Like a service
-// principal it carries Permissions + TenantRoles (its STORED authority) but no
+// principal it carries Permissions + OrgRoles (its STORED authority) but no
 // UserID; the live-user enrichment/ban gate is skipped (there is no user).
 const RemoteApplicationTokenType = "remote_application"
 
@@ -127,15 +127,15 @@ func (c Claims) IsRemoteApplication() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), RemoteApplicationTokenType)
 }
 
-// DelegatedPrincipal is the tenant identity carried by a delegated access
+// DelegatedPrincipal is the org identity carried by a delegated access
 // token: an external actor (DelegatedSubject) acting under a canonical target
-// resource account (Tenant). The subject does NOT exist as a local user in the
+// resource account (Org). The subject does NOT exist as a local user in the
 // validating service — authorization is by issuer/resource-account trust plus
 // Permissions, not local-user lookup.
 type DelegatedPrincipal struct {
-	// Issuer is the tenant identity: the receiving service resolves its
-	// internal tenant record (slug + uuid) from the VALIDATED Issuer via its
-	// issuer registry. The token carries no tenant claims.
+	// Issuer is the org identity: the receiving service resolves its
+	// internal org record (slug + uuid) from the VALIDATED Issuer via its
+	// issuer registry. The token carries no org claims.
 	Issuer           string
 	DelegatedSubject string
 	// Permissions are the resource-defined permission strings the receiving

@@ -9,7 +9,80 @@ import (
 	"context"
 )
 
-const personalTenantIDSlugReservedByOwner = `-- name: PersonalTenantIDSlugReservedByOwner :one
+const orgIDReservedBySlug = `-- name: OrgIDReservedBySlug :one
+SELECT id::text,
+       (CASE
+         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
+         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
+         ELSE false
+       END)::boolean AS reserved
+FROM profiles.orgs
+WHERE slug = $1
+  AND deleted_at IS NULL
+`
+
+type OrgIDReservedBySlugRow struct {
+	ID       string
+	Reserved bool
+}
+
+func (q *Queries) OrgIDReservedBySlug(ctx context.Context, slug string) (OrgIDReservedBySlugRow, error) {
+	row := q.db.QueryRow(ctx, orgIDReservedBySlug, slug)
+	var i OrgIDReservedBySlugRow
+	err := row.Scan(&i.ID, &i.Reserved)
+	return i, err
+}
+
+const orgMetadata = `-- name: OrgMetadata :one
+SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
+FROM profiles.orgs WHERE id = $1::uuid AND deleted_at IS NULL
+`
+
+func (q *Queries) OrgMetadata(ctx context.Context, id string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, orgMetadata, id)
+	var metadata []byte
+	err := row.Scan(&metadata)
+	return metadata, err
+}
+
+const orgMetadataPatch = `-- name: OrgMetadataPatch :execrows
+UPDATE profiles.orgs
+SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+    updated_at = now()
+WHERE id = $2::uuid AND deleted_at IS NULL
+`
+
+type OrgMetadataPatchParams struct {
+	Patch []byte
+	ID    string
+}
+
+func (q *Queries) OrgMetadataPatch(ctx context.Context, arg OrgMetadataPatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, orgMetadataPatch, arg.Patch, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const orgSetReserved = `-- name: OrgSetReserved :exec
+UPDATE profiles.orgs
+SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb($1::boolean), true),
+    updated_at = now()
+WHERE id = $2::uuid
+`
+
+type OrgSetReservedParams struct {
+	Reserved bool
+	ID       string
+}
+
+func (q *Queries) OrgSetReserved(ctx context.Context, arg OrgSetReservedParams) error {
+	_, err := q.db.Exec(ctx, orgSetReserved, arg.Reserved, arg.ID)
+	return err
+}
+
+const personalOrgIDSlugReservedByOwner = `-- name: PersonalOrgIDSlugReservedByOwner :one
 SELECT id::text,
        slug,
        (CASE
@@ -17,96 +90,23 @@ SELECT id::text,
          THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
          ELSE false
        END)::boolean AS reserved
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE owner_user_id = $1::uuid
   AND is_personal = true
   AND deleted_at IS NULL
 `
 
-type PersonalTenantIDSlugReservedByOwnerRow struct {
+type PersonalOrgIDSlugReservedByOwnerRow struct {
 	ID       string
 	Slug     string
 	Reserved bool
 }
 
-func (q *Queries) PersonalTenantIDSlugReservedByOwner(ctx context.Context, ownerUserID string) (PersonalTenantIDSlugReservedByOwnerRow, error) {
-	row := q.db.QueryRow(ctx, personalTenantIDSlugReservedByOwner, ownerUserID)
-	var i PersonalTenantIDSlugReservedByOwnerRow
+func (q *Queries) PersonalOrgIDSlugReservedByOwner(ctx context.Context, ownerUserID string) (PersonalOrgIDSlugReservedByOwnerRow, error) {
+	row := q.db.QueryRow(ctx, personalOrgIDSlugReservedByOwner, ownerUserID)
+	var i PersonalOrgIDSlugReservedByOwnerRow
 	err := row.Scan(&i.ID, &i.Slug, &i.Reserved)
 	return i, err
-}
-
-const tenantIDReservedBySlug = `-- name: TenantIDReservedBySlug :one
-SELECT id::text,
-       (CASE
-         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-         ELSE false
-       END)::boolean AS reserved
-FROM profiles.tenants
-WHERE slug = $1
-  AND deleted_at IS NULL
-`
-
-type TenantIDReservedBySlugRow struct {
-	ID       string
-	Reserved bool
-}
-
-func (q *Queries) TenantIDReservedBySlug(ctx context.Context, slug string) (TenantIDReservedBySlugRow, error) {
-	row := q.db.QueryRow(ctx, tenantIDReservedBySlug, slug)
-	var i TenantIDReservedBySlugRow
-	err := row.Scan(&i.ID, &i.Reserved)
-	return i, err
-}
-
-const tenantMetadata = `-- name: TenantMetadata :one
-SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
-FROM profiles.tenants WHERE id = $1::uuid AND deleted_at IS NULL
-`
-
-func (q *Queries) TenantMetadata(ctx context.Context, id string) ([]byte, error) {
-	row := q.db.QueryRow(ctx, tenantMetadata, id)
-	var metadata []byte
-	err := row.Scan(&metadata)
-	return metadata, err
-}
-
-const tenantMetadataPatch = `-- name: TenantMetadataPatch :execrows
-UPDATE profiles.tenants
-SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
-    updated_at = now()
-WHERE id = $2::uuid AND deleted_at IS NULL
-`
-
-type TenantMetadataPatchParams struct {
-	Patch []byte
-	ID    string
-}
-
-func (q *Queries) TenantMetadataPatch(ctx context.Context, arg TenantMetadataPatchParams) (int64, error) {
-	result, err := q.db.Exec(ctx, tenantMetadataPatch, arg.Patch, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const tenantSetReserved = `-- name: TenantSetReserved :exec
-UPDATE profiles.tenants
-SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb($1::boolean), true),
-    updated_at = now()
-WHERE id = $2::uuid
-`
-
-type TenantSetReservedParams struct {
-	Reserved bool
-	ID       string
-}
-
-func (q *Queries) TenantSetReserved(ctx context.Context, arg TenantSetReservedParams) error {
-	_, err := q.db.Exec(ctx, tenantSetReserved, arg.Reserved, arg.ID)
-	return err
 }
 
 const userClearLoginIdentifiers = `-- name: UserClearLoginIdentifiers :exec

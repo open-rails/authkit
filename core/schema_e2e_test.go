@@ -19,7 +19,7 @@ func TestNonDefaultSchemaEndToEnd(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	const schema = "authkit_schema_e2e"
-	const slug = "schema-e2e-tenant"
+	const slug = "schema-e2e-org"
 
 	drop := func() { _, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE") }
 	drop()
@@ -61,35 +61,35 @@ func TestNonDefaultSchemaEndToEnd(t *testing.T) {
 	}
 
 	// Make sure a same-slug row in the default schema can't mask the result.
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug) })
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug) })
 
-	tenant, err := svc.CreateTenant(ctx, slug)
+	org, err := svc.CreateOrg(ctx, slug)
 	if err != nil {
-		t.Fatalf("create tenant in schema %s: %v", schema, err)
+		t.Fatalf("create org in schema %s: %v", schema, err)
 	}
-	if tenant.Slug != slug {
-		t.Fatalf("unexpected tenant: %+v", tenant)
+	if org.Slug != slug {
+		t.Fatalf("unexpected org: %+v", org)
 	}
 
 	var inNew, inDefault int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+schema+".tenants WHERE slug=$1", slug).Scan(&inNew); err != nil {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+schema+".orgs WHERE slug=$1", slug).Scan(&inNew); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM profiles.tenants WHERE slug=$1", slug).Scan(&inDefault); err != nil {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM profiles.orgs WHERE slug=$1", slug).Scan(&inDefault); err != nil {
 		t.Fatal(err)
 	}
 	if inNew != 1 || inDefault != 0 {
-		t.Fatalf("tenant row placement: %s.tenants=%d profiles.tenants=%d (want 1/0)", schema, inNew, inDefault)
+		t.Fatalf("org row placement: %s.orgs=%d profiles.orgs=%d (want 1/0)", schema, inNew, inDefault)
 	}
 
 	// Read back through the service (exercises the sqlc query rewrite on the
-	// SELECT path, including the transaction-seeded tenant roles).
-	got, err := svc.ResolveTenantBySlug(ctx, slug)
+	// SELECT path, including the transaction-seeded org roles).
+	got, err := svc.ResolveOrgBySlug(ctx, slug)
 	if err != nil {
-		t.Fatalf("get tenant: %v", err)
+		t.Fatalf("get org: %v", err)
 	}
-	if got.ID != tenant.ID {
-		t.Fatalf("round-trip mismatch: %+v vs %+v", got, tenant)
+	if got.ID != org.ID {
+		t.Fatalf("round-trip mismatch: %+v vs %+v", got, org)
 	}
 }

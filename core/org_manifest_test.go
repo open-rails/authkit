@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-func TestParseTenantManifestYAMLRejectsUnknownFields(t *testing.T) {
-	_, err := ParseTenantManifestYAML([]byte(`
-tenants:
+func TestParseOrgManifestYAMLRejectsUnknownFields(t *testing.T) {
+	_, err := ParseOrgManifestYAML([]byte(`
+orgs:
   - slug: cozy-art
     unknown: true
 `))
@@ -22,46 +22,46 @@ tenants:
 	}
 }
 
-func TestReconcileTenantManifestIdempotent(t *testing.T) {
+func TestReconcileOrgManifestIdempotent(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
 	const slug = "manifest-test"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	})
 
 	out := filepath.Join(t.TempDir(), "token")
 	enabled := true
-	manifest := TenantManifest{Tenants: []TenantManifestTenant{{
+	manifest := OrgManifest{Orgs: []OrgManifestOrg{{
 		Slug: slug,
-		Issuers: []TenantManifestIssuer{{
+		Issuers: []OrgManifestIssuer{{
 			Issuer:    "https://doujins.example",
 			JWKSURI:   "https://doujins.example/.well-known/jwks.json",
 			Audiences: []string{"openrails"},
 			Enabled:   &enabled,
 		}},
-		Roles: []TenantManifestRole{{
+		Roles: []OrgManifestRole{{
 			Name:        "reader",
-			Permissions: []string{PermTenantRead},
+			Permissions: []string{PermOrgRead},
 		}},
-		ServiceTokens: []TenantManifestServiceToken{{
+		ServiceTokens: []OrgManifestServiceToken{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
 			Resources:   []ServiceTokenResource{{Kind: "openrails.tenant", ID: slug}},
-			Output:      TenantManifestServiceTokenOutput{File: out},
+			Output:      OrgManifestServiceTokenOutput{File: out},
 		}},
 	}}}
 
-	first, err := svc.ReconcileTenantManifest(ctx, manifest, FileTenantManifestTokenStore{})
+	first, err := svc.ReconcileOrgManifest(ctx, manifest, FileOrgManifestTokenStore{})
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if first.Tenants != 1 || first.Issuers != 1 || first.Roles != 1 || first.TokensMinted != 1 || first.TokensKept != 0 {
+	if first.Orgs != 1 || first.Issuers != 1 || first.Roles != 1 || first.TokensMinted != 1 || first.TokensKept != 0 {
 		t.Fatalf("first result=%+v", first)
 	}
 	raw, err := os.ReadFile(out)
@@ -72,7 +72,7 @@ func TestReconcileTenantManifestIdempotent(t *testing.T) {
 		t.Fatalf("output token has wrong marker: %q", raw)
 	}
 
-	second, err := svc.ReconcileTenantManifest(ctx, manifest, FileTenantManifestTokenStore{})
+	second, err := svc.ReconcileOrgManifest(ctx, manifest, FileOrgManifestTokenStore{})
 	if err != nil {
 		t.Fatalf("second reconcile: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestReconcileTenantManifestIdempotent(t *testing.T) {
 	}
 }
 
-func TestReconcileTenantManifestUpdatesAndDisablesIssuer(t *testing.T) {
+func TestReconcileOrgManifestUpdatesAndDisablesIssuer(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
@@ -89,31 +89,31 @@ func TestReconcileTenantManifestUpdatesAndDisablesIssuer(t *testing.T) {
 	const slug = "manifest-issuer-update"
 	const issuer = "https://issuer-update.example"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	})
 
 	enabled := true
-	manifest := TenantManifest{Tenants: []TenantManifestTenant{{
+	manifest := OrgManifest{Orgs: []OrgManifestOrg{{
 		Slug: slug,
-		Issuers: []TenantManifestIssuer{{
+		Issuers: []OrgManifestIssuer{{
 			Issuer:    issuer,
 			JWKSURI:   issuer + "/jwks-v1.json",
 			Audiences: []string{"openrails-v1"},
 			Enabled:   &enabled,
 		}},
 	}}}
-	if _, err := svc.ReconcileTenantManifest(ctx, manifest, nil); err != nil {
+	if _, err := svc.ReconcileOrgManifest(ctx, manifest, nil); err != nil {
 		t.Fatalf("initial reconcile: %v", err)
 	}
 
 	disabled := false
-	manifest.Tenants[0].Issuers[0].JWKSURI = issuer + "/jwks-v2.json"
-	manifest.Tenants[0].Issuers[0].Audiences = []string{"openrails-v2", "openrails-admin"}
-	manifest.Tenants[0].Issuers[0].Enabled = &disabled
-	if _, err := svc.ReconcileTenantManifest(ctx, manifest, nil); err != nil {
+	manifest.Orgs[0].Issuers[0].JWKSURI = issuer + "/jwks-v2.json"
+	manifest.Orgs[0].Issuers[0].Audiences = []string{"openrails-v2", "openrails-admin"}
+	manifest.Orgs[0].Issuers[0].Enabled = &disabled
+	if _, err := svc.ReconcileOrgManifest(ctx, manifest, nil); err != nil {
 		t.Fatalf("update reconcile: %v", err)
 	}
 
@@ -132,33 +132,33 @@ func TestReconcileTenantManifestUpdatesAndDisablesIssuer(t *testing.T) {
 	}
 }
 
-func TestReconcileTenantManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T) {
+func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svcA := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 	svcB := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
 	const slug = "manifest-lock"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug) })
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug) })
 
 	store := &memoryManifestTokenStore{writeDelay: 100 * time.Millisecond}
-	manifest := TenantManifest{Tenants: []TenantManifestTenant{{
+	manifest := OrgManifest{Orgs: []OrgManifestOrg{{
 		Slug: slug,
-		ServiceTokens: []TenantManifestServiceToken{{
+		ServiceTokens: []OrgManifestServiceToken{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
 			Resources:   []ServiceTokenResource{{Kind: "openrails.tenant", ID: slug}},
-			Output:      TenantManifestServiceTokenOutput{File: "runtime"},
+			Output:      OrgManifestServiceTokenOutput{File: "runtime"},
 		}},
 	}}}
 
 	start := make(chan struct{})
-	results := make(chan TenantManifestResult, 2)
+	results := make(chan OrgManifestResult, 2)
 	errs := make(chan error, 2)
 	run := func(svc *Service) {
 		<-start
-		res, err := svc.ReconcileTenantManifest(ctx, manifest, store)
+		res, err := svc.ReconcileOrgManifest(ctx, manifest, store)
 		if err != nil {
 			errs <- err
 			return
@@ -185,7 +185,7 @@ func TestReconcileTenantManifestAdvisoryLockPreventsDuplicateTokenMint(t *testin
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM profiles.service_tokens st
-		JOIN profiles.tenants t ON t.id = st.tenant_id
+		JOIN profiles.orgs t ON t.id = st.org_id
 		WHERE t.slug=$1
 	`, slug).Scan(&tokenCount); err != nil {
 		t.Fatalf("count service tokens: %v", err)
@@ -202,7 +202,7 @@ type memoryManifestTokenStore struct {
 	writeDelay time.Duration
 }
 
-func (m *memoryManifestTokenStore) ReadTenantManifestToken(_ context.Context, out TenantManifestServiceTokenOutput) (string, error) {
+func (m *memoryManifestTokenStore) ReadOrgManifestToken(_ context.Context, out OrgManifestServiceTokenOutput) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.values == nil {
@@ -211,7 +211,7 @@ func (m *memoryManifestTokenStore) ReadTenantManifestToken(_ context.Context, ou
 	return m.values[out.File], nil
 }
 
-func (m *memoryManifestTokenStore) WriteTenantManifestToken(_ context.Context, out TenantManifestServiceTokenOutput, token string) error {
+func (m *memoryManifestTokenStore) WriteOrgManifestToken(_ context.Context, out OrgManifestServiceTokenOutput, token string) error {
 	m.writes.Add(1)
 	if m.writeDelay > 0 {
 		time.Sleep(m.writeDelay)

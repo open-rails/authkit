@@ -8,7 +8,7 @@ func TestNormalizeOwnerNamespaceState(t *testing.T) {
 		want OwnerNamespaceState
 	}{
 		{in: OwnerNamespaceState(" RESTRICTED_NAME "), want: OwnerNamespaceStateRestrictedName},
-		{in: OwnerNamespaceState("parked_tenant"), want: OwnerNamespaceStateParkedTenant},
+		{in: OwnerNamespaceState("parked_tenant"), want: OwnerNamespaceStateParkedOrg},
 		{in: OwnerNamespaceState("registered_tenant"), want: OwnerNamespaceStateRegistered},
 		{in: OwnerNamespaceState("unknown"), want: ""},
 	}
@@ -21,14 +21,14 @@ func TestNormalizeOwnerNamespaceState(t *testing.T) {
 }
 
 func TestValidateOwnerNamespaceState(t *testing.T) {
-	if err := validateOwnerNamespaceState(OwnerNamespaceStateParkedTenant); err != nil {
+	if err := validateOwnerNamespaceState(OwnerNamespaceStateParkedOrg); err != nil {
 		t.Fatalf("expected parked_tenant to be valid, got err=%v", err)
 	}
 	if err := validateOwnerNamespaceState(OwnerNamespaceStateRegistered); err != nil {
 		t.Fatalf("expected registered_tenant to be valid, got err=%v", err)
 	}
 	if err := validateOwnerNamespaceState(OwnerNamespaceStateRestrictedName); err == nil {
-		t.Fatalf("expected restricted_name to be rejected for tenant state")
+		t.Fatalf("expected restricted_name to be rejected for org state")
 	}
 	if err := validateOwnerNamespaceState(OwnerNamespaceState("unknown")); err == nil {
 		t.Fatalf("expected unknown state to be invalid")

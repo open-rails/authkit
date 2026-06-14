@@ -31,12 +31,12 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 			serverErr(w, "permissions_lookup_failed")
 			return
 		}
-		tenant, roles := firstMembership(memberships)
+		org, roles := firstMembership(memberships)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"principal_type": "remote_application",
 			"id":             claims.RemoteApplicationID,
 			"slug":           claims.RemoteApplicationSlug,
-			"tenant":         tenant,
+			"org":            org,
 			"roles":          roles,
 			"permissions":    nonNil(perms),
 		})
@@ -45,15 +45,15 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		// Service token: stored permissions ride directly on the claims.
 		writeJSON(w, http.StatusOK, map[string]any{
 			"principal_type": "service",
-			"tenant":         claims.Tenant,
-			"roles":          nonNil(claims.TenantRoles),
+			"org":            claims.Org,
+			"roles":          nonNil(claims.OrgRoles),
 			"permissions":    nonNil(claims.Permissions),
 		})
 
 	case strings.TrimSpace(claims.UserID) != "":
-		// Native user: resolve effective permissions in the token's tenant.
+		// Native user: resolve effective permissions in the token's org.
 		perms := claims.Permissions
-		if t := strings.TrimSpace(claims.Tenant); t != "" {
+		if t := strings.TrimSpace(claims.Org); t != "" {
 			resolved, err := s.svc.EffectivePermissions(ctx, t, claims.UserID)
 			if err != nil {
 				serverErr(w, "permissions_lookup_failed")
@@ -64,8 +64,8 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"principal_type": "user",
 			"id":             claims.UserID,
-			"tenant":         claims.Tenant,
-			"roles":          nonNil(claims.TenantRoles),
+			"org":            claims.Org,
+			"roles":          nonNil(claims.OrgRoles),
 			"permissions":    nonNil(perms),
 		})
 
@@ -74,16 +74,16 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// firstMembership surfaces a principal's primary tenant + roles (a principal is
-// typically a member of one tenant), mirroring resolveRemoteApplicationSelf.
-func firstMembership(memberships []core.TenantMembership) (tenant string, roles []string) {
+// firstMembership surfaces a principal's primary org + roles (a principal is
+// typically a member of one org), mirroring resolveRemoteApplicationSelf.
+func firstMembership(memberships []core.OrgMembership) (org string, roles []string) {
 	roles = []string{}
 	for _, m := range memberships {
-		tenant = m.Tenant
+		org = m.Org
 		roles = append(roles, m.Roles...)
 		break
 	}
-	return tenant, roles
+	return org, roles
 }
 
 // nonNil returns a non-nil slice so JSON renders [] not null.

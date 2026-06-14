@@ -18,7 +18,7 @@ import (
 type ServiceJWTPrincipal struct {
 	Issuer      string
 	Subject     string
-	Tenant      string
+	Org         string
 	Audiences   []string
 	Permissions []string
 	Resources   []core.ServiceTokenResource
@@ -169,7 +169,7 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 		Scope: scopeSlice(mc["scope"]),
 	}
 	principal := ServiceJWTPrincipal{
-		Issuer: issuer, Subject: subject, Tenant: match.tenantSlug,
+		Issuer: issuer, Subject: subject, Org: match.orgSlug,
 		Audiences: audiences, Permissions: permissions, Resources: resources,
 		JTI: jti, ExpiresAt: exp,
 	}

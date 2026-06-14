@@ -779,7 +779,7 @@ func TestDevserverE2E(t *testing.T) {
 		// /admin/accounts/unrestrict), which manage the profiles.owner_reserved_names
 		// blocklist. There is no /admin/accounts/reserve or /admin/accounts/claim
 		// route (the old placeholder-user "reserve+password-claim" flow was never
-		// shipped as HTTP routes and assumed multi-tenant mode the devserver does not
+		// shipped as HTTP routes and assumed multi-org mode the devserver does not
 		// run). This exercises the real, route-backed reserved-name feature.
 		adminUserID := "11111111-1111-1111-1111-111111111111"
 		adminEmail := "admin@example.com"

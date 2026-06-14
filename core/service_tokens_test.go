@@ -118,13 +118,13 @@ func TestServiceTokenResourceContract(t *testing.T) {
 		t.Fatalf("wildcard-looking ID should be stored opaquely, got %+v", resources[1])
 	}
 
-	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "tenant", ID: "x"}, {Kind: "tenant", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
+	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "org", ID: "x"}, {Kind: "org", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
 		t.Fatalf("duplicate err=%v, want duplicate_resource", err)
 	}
 	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "", ID: "x"}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("empty kind err=%v, want invalid_resource", err)
 	}
-	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "tenant", ID: strings.Repeat("x", serviceTokenResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
+	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "org", ID: strings.Repeat("x", serviceTokenResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("long id err=%v, want invalid_resource", err)
 	}
 }
@@ -134,7 +134,7 @@ func TestResourceScopeAuthorizer(t *testing.T) {
 	svc := NewService(Options{
 		Issuer: "https://test",
 		ResourceScopeAuthorizer: func(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
-			if req.TenantSlug != "acme" || req.ActorUserID != "user-1" {
+			if req.OrgSlug != "acme" || req.ActorUserID != "user-1" {
 				t.Fatalf("unexpected request identity: %+v", req)
 			}
 			if len(req.Resources) != 1 || req.Resources[0] != (ServiceTokenResource{Kind: "repo", ID: "alpha"}) {
@@ -145,7 +145,7 @@ func TestResourceScopeAuthorizer(t *testing.T) {
 		},
 	}, Keyset{})
 	err := svc.AuthorizeServiceTokenResources(context.Background(), ResourceScopeAuthorizationRequest{
-		TenantSlug:  " acme ",
+		OrgSlug:     " acme ",
 		ActorUserID: " user-1 ",
 		Resources:   []ServiceTokenResource{{Kind: " repo ", ID: " alpha "}},
 	})
@@ -167,12 +167,12 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
 	const slug = "service-token-lifecycle-test"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
-	var tenantID string
-	if err := pool.QueryRow(ctx, `INSERT INTO profiles.tenants (slug) VALUES ($1) RETURNING id::text`, slug).Scan(&tenantID); err != nil {
-		t.Fatalf("insert tenant: %v", err)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	var orgID string
+	if err := pool.QueryRow(ctx, `INSERT INTO profiles.orgs (slug) VALUES ($1) RETURNING id::text`, slug).Scan(&orgID); err != nil {
+		t.Fatalf("insert org: %v", err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE id=$1::uuid`, tenantID) })
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE id=$1::uuid`, orgID) })
 
 	// Mint.
 	resources := []ServiceTokenResource{
@@ -196,12 +196,12 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	}
 
 	// Resolve success.
-	gotTenant, gotScopes, err := svc.ResolveServiceToken(ctx, keyID, secret)
+	gotOrg, gotScopes, err := svc.ResolveServiceToken(ctx, keyID, secret)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if gotTenant != slug {
-		t.Fatalf("resolve tenant = %q, want %q", gotTenant, slug)
+	if gotOrg != slug {
+		t.Fatalf("resolve org = %q, want %q", gotOrg, slug)
 	}
 	if len(gotScopes) != 1 || gotScopes[0] != "deployer" {
 		t.Fatalf("resolve scopes = %v, want [deployer]", gotScopes)
@@ -210,7 +210,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve with resources: %v", err)
 	}
-	if resolved.TokenID != tok.ID || resolved.KeyID != tok.KeyID || resolved.TenantSlug != slug {
+	if resolved.TokenID != tok.ID || resolved.KeyID != tok.KeyID || resolved.OrgSlug != slug {
 		t.Fatalf("resolved metadata = %+v, token = %+v", resolved, tok)
 	}
 	if len(resolved.Resources) != 2 || resolved.Resources[0] != resources[0] || resolved.Resources[1] != resources[1] {

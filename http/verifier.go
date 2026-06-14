@@ -51,14 +51,14 @@ type Verifier struct {
 	// Remote-application lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*core.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
-	// issuer is registered with the SAME audiences the bulk LoadTenantIssuers
-	// used. fedKnown records which issuers were sourced from the tenant store
+	// issuer is registered with the SAME audiences the bulk LoadOrgIssuers
+	// used. fedKnown records which issuers were sourced from the org store
 	// so reconciling reload only evicts those (never statically-configured ones).
 	fedSource    RemoteApplicationSource
 	fedAudiences []string
 	fedKnown     map[string]bool
 
-	// negCache remembers issuers the tenant source did not return as enabled,
+	// negCache remembers issuers the org source did not return as enabled,
 	// for negCacheTTL, so garbage/unknown `iss` values don't hit the DB per
 	// request. fedFlight single-flights concurrent first-use of the same issuer.
 	negCache    map[string]time.Time
@@ -85,12 +85,12 @@ type Verifier struct {
 
 // issuerEntry describes a trusted issuer (private — replaces core.IssuerAccept).
 type issuerEntry struct {
-	issuer     string
-	audiences  []string
-	jwksURL    string
-	cacheTTL   time.Duration
-	maxStale   time.Duration
-	tenantSlug string
+	issuer    string
+	audiences []string
+	jwksURL   string
+	cacheTTL  time.Duration
+	maxStale  time.Duration
+	orgSlug   string
 }
 
 type issuerKeys struct {
@@ -128,12 +128,12 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 	}
 }
 
-// WithTenantMode is a deprecated no-op compatibility shim (authkit issue 60): the
-// global tenant mode was removed. Tenant claims are now parsed whenever present.
+// WithOrgMode is a deprecated no-op compatibility shim (authkit issue 60): the
+// global org mode was removed. Org claims are now parsed whenever present.
 // Kept so existing callers compile; scheduled for deletion.
 //
-// Deprecated: remove the call. Tenant claim handling no longer depends on a mode.
-func WithTenantMode(string) VerifierOption {
+// Deprecated: remove the call. Org claim handling no longer depends on a mode.
+func WithOrgMode(string) VerifierOption {
 	return func(*Verifier) {}
 }
 
@@ -221,8 +221,8 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 		}
 	}
 	return Claims{
-		Tenant:      resolved.TenantSlug,
-		TenantID:    resolved.TenantID,
+		Org:         resolved.OrgSlug,
+		OrgID:       resolved.OrgID,
 		Permissions: resolved.Permissions,
 		Resources:   resolved.Resources,
 		TokenType:   ServiceTokenType,
@@ -230,17 +230,17 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 }
 
 // RemoteApplicationAuthoritySource resolves a JWKS principal's STORED authority
-// (#76): its tenant memberships (slug + role names) and effective permission set
+// (#76): its org memberships (slug + role names) and effective permission set
 // (direct grants ∪ role-derived). *core.Service satisfies it.
 type RemoteApplicationAuthoritySource interface {
-	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []core.TenantMembership, permissions []string, err error)
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []core.OrgMembership, permissions []string, err error)
 }
 
 // resolveRemoteApplicationSelf authenticates a JWKS principal SELF-token (#76):
 // it maps the VALIDATED issuer to its remote_application, loads that principal's
-// STORED authority (assigned tenant roles + direct permissions), and returns
+// STORED authority (assigned org roles + direct permissions), and returns
 // Claims populated the way a service-token-authenticated principal would be. The
-// token's own role/tenant claims are never consulted — authority is stored.
+// token's own role/org claims are never consulted — authority is stored.
 //
 // claimedPerms is the token's `permissions` down-scoping request (#76 amendment):
 // nil => no claim => full stored ceiling; non-nil => effective = the claim, but
@@ -309,13 +309,13 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 		RemoteApplicationID:   ra.ID,
 		RemoteApplicationSlug: ra.Slug,
 	}
-	// Surface the assigned tenant roles. A principal is typically a member of one
-	// tenant; expose that tenant as Tenant + its roles as TenantRoles, and gather
+	// Surface the assigned org roles. A principal is typically a member of one
+	// org; expose that org as Org + its roles as OrgRoles, and gather
 	// all role names across memberships into Roles for a flat view.
 	for _, m := range memberships {
-		if cl.Tenant == "" {
-			cl.Tenant = m.Tenant
-			cl.TenantRoles = append(cl.TenantRoles, m.Roles...)
+		if cl.Org == "" {
+			cl.Org = m.Org
+			cl.OrgRoles = append(cl.OrgRoles, m.Roles...)
 		}
 		cl.Roles = append(cl.Roles, m.Roles...)
 	}
@@ -375,11 +375,11 @@ type IssuerOptions struct {
 	// a failed JWKS refresh. Default: 1 hour.
 	MaxStale time.Duration
 
-	// TenantSlug is the receiver-internal tenant slug this issuer is registered
-	// to — issuer-registry data, the single source of tenant identity for
-	// tokens signed by this issuer (tokens carry no tenant claims). It resolves
-	// the principal's tenant; it is never compared against token claims.
-	TenantSlug string
+	// OrgSlug is the receiver-internal org slug this issuer is registered
+	// to — issuer-registry data, the single source of org identity for
+	// tokens signed by this issuer (tokens carry no org claims). It resolves
+	// the principal's org; it is never compared against token claims.
+	OrgSlug string
 }
 
 // AddIssuer registers (or updates) a trusted issuer. This is the single
@@ -392,12 +392,12 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	}
 
 	ie := issuerEntry{
-		issuer:     issuerID,
-		audiences:  audiences,
-		jwksURL:    strings.TrimSpace(opts.JWKSURI),
-		cacheTTL:   opts.CacheTTL,
-		maxStale:   opts.MaxStale,
-		tenantSlug: strings.TrimSpace(opts.TenantSlug),
+		issuer:    issuerID,
+		audiences: audiences,
+		jwksURL:   strings.TrimSpace(opts.JWKSURI),
+		cacheTTL:  opts.CacheTTL,
+		maxStale:  opts.MaxStale,
+		orgSlug:   strings.TrimSpace(opts.OrgSlug),
 	}
 
 	v.mu.Lock()
@@ -480,7 +480,7 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 
 // WithService enables best-effort enrichment hooks (roles/provider usernames)
 // from Postgres, and wires the same *core.Service as the default
-// tenant-issuer source for lazy-load-on-miss (see keyForToken).
+// org-issuer source for lazy-load-on-miss (see keyForToken).
 func (v *Verifier) WithService(svc *core.Service) *Verifier {
 	v.enrich = svc
 	v.mu.Lock()
@@ -499,7 +499,7 @@ func (v *Verifier) WithService(svc *core.Service) *Verifier {
 // trust mode (#74): jwks mode fetches+refreshes from the URI; static mode seeds
 // the human-managed PEM list (no URL fetching ever for static principals).
 func remoteAppOptions(ra core.RemoteApplication) IssuerOptions {
-	opts := IssuerOptions{TenantSlug: ra.Slug}
+	opts := IssuerOptions{OrgSlug: ra.Slug}
 	if ra.Mode == core.RemoteAppModeStatic {
 		for _, k := range ra.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
@@ -534,7 +534,7 @@ type RemoteApplicationSource interface {
 func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplicationSource, audiences []string) error {
 	if src == nil {
 		if v.enrich == nil {
-			return errors.New("no tenant-issuer source available")
+			return errors.New("no org-issuer source available")
 		}
 		src = v.enrich
 	}
@@ -595,7 +595,7 @@ func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplica
 }
 
 // lazyLoadIssuer is the lazy-load-on-miss path: when matchIssuer misses and a
-// tenant-issuer source is configured, fetch that ONE issuer from the store
+// org-issuer source is configured, fetch that ONE issuer from the store
 // and, if ACTIVE, register it (AddIssuer fetches+caches its JWKS). All DB/JWKS
 // work happens WITHOUT holding v.mu (AddIssuer locks v.mu internally, so calling
 // it under the lock would deadlock). A short negative cache + single-flight stop
@@ -803,16 +803,16 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	}
 
 	if isDelegatedAccessTyp {
-		// HARD CUT: a delegated access token carries NO tenant identity claims.
-		// The VALIDATED `iss` is the tenant identity: the receiver's issuer
-		// registry maps it to exactly one internal tenant record (slug + uuid),
-		// so neither a slug nor a uuid ever rides in the token. Legacy tenant
+		// HARD CUT: a delegated access token carries NO org identity claims.
+		// The VALIDATED `iss` is the org identity: the receiver's issuer
+		// registry maps it to exactly one internal org record (slug + uuid),
+		// so neither a slug nor a uuid ever rides in the token. Legacy org
 		// claims are rejected like any other forbidden claim on this profile.
-		if strClaim(mapClaims, "tenant") != "" {
-			return Claims{}, errors.New("delegated_access_has_tenant")
+		if strClaim(mapClaims, "org") != "" {
+			return Claims{}, errors.New("delegated_access_has_org")
 		}
-		if strClaim(mapClaims, "tenant_id") != "" {
-			return Claims{}, errors.New("delegated_access_has_tenant_id")
+		if strClaim(mapClaims, "org_id") != "" {
+			return Claims{}, errors.New("delegated_access_has_org_id")
 		}
 		if strClaim(mapClaims, "user_tier") != "" {
 			return Claims{}, errors.New("delegated_access_has_user_tier")
@@ -936,17 +936,17 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	}
 	cl.UserID = strClaim(mc, "sub")
 	cl.DelegatedSubject = strClaim(mc, "delegated_sub")
-	cl.Tenant = strClaim(mc, "tenant")
-	// NO cl.TenantID here: tenant uuids never ride in JWTs. Claims.TenantID is
+	cl.Org = strClaim(mc, "org")
+	// NO cl.OrgID here: org uuids never ride in JWTs. Claims.OrgID is
 	// only set by the opaque service-token DB resolution path.
 	cl.Email = strClaim(mc, "email")
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.Username = strClaim(mc, "username")
 	cl.DiscordUsername = strClaim(mc, "discord_username")
 	cl.SessionID = strClaim(mc, "sid")
-	cl.Tenant = strClaim(mc, "tenant")
-	if cl.Tenant == "" {
-		cl.Tenant = strClaim(mc, "owner")
+	cl.Org = strClaim(mc, "org")
+	if cl.Org == "" {
+		cl.Org = strClaim(mc, "owner")
 	}
 	cl.JTI = strClaim(mc, "jti")
 
@@ -978,23 +978,23 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
 
-	// Split global/tenant role claims (additive). `global_roles` carries the user's
-	// platform-wide roles in both single and multi-tenant mode; `tenant_roles` carries
-	// roles scoped to the tenant on an tenant-scoped token.
+	// Split global/org role claims (additive). `global_roles` carries the user's
+	// platform-wide roles in both single and multi-org mode; `org_roles` carries
+	// roles scoped to the org on an org-scoped token.
 	cl.GlobalRoles = strSliceClaim(mc, "global_roles")
-	if oroles := strSliceClaim(mc, "tenant_roles"); len(oroles) > 0 {
-		cl.TenantRoles = oroles
+	if oroles := strSliceClaim(mc, "org_roles"); len(oroles) > 0 {
+		cl.OrgRoles = oroles
 	}
 
-	// (issue 60) Whenever a tenant claim is present, the legacy `roles` claim is
-	// tenant-scoped — derive TenantRoles from it when the explicit `tenant_roles`
-	// claim is absent (older tokens). No tenant-mode gate. Delegated tokens keep
-	// their roles on Roles (the tenant principal carries its own roles), so only
+	// (issue 60) Whenever a org claim is present, the legacy `roles` claim is
+	// org-scoped — derive OrgRoles from it when the explicit `org_roles`
+	// claim is absent (older tokens). No org-mode gate. Delegated tokens keep
+	// their roles on Roles (the org principal carries its own roles), so only
 	// shuffle for native-user tokens.
 	if !cl.IsDelegated() &&
-		strings.TrimSpace(cl.Tenant) != "" && len(cl.Roles) > 0 {
-		if len(cl.TenantRoles) == 0 {
-			cl.TenantRoles = cl.Roles
+		strings.TrimSpace(cl.Org) != "" && len(cl.Roles) > 0 {
+		if len(cl.OrgRoles) == 0 {
+			cl.OrgRoles = cl.Roles
 		}
 		cl.Roles = nil
 	}
@@ -1121,7 +1121,7 @@ func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
 		// Lazy-load-on-miss: a brand-new remote-application issuer may already be in the
 		// store but not yet in this replica's in-memory cache. Fetch+register it
 		// (outside v.mu — AddIssuer locks v.mu) and retry. Backward compatible:
-		// when no tenant source is configured this is a no-op (-> bad_issuer).
+		// when no org source is configured this is a no-op (-> bad_issuer).
 		if v.lazyLoadIssuer(context.Background(), iss) {
 			match = v.matchIssuer(iss)
 		}

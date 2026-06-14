@@ -65,8 +65,8 @@ func TestInboundHandlerRejectsDelegatedPrincipal(t *testing.T) {
 		t.Run(route.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/remote-applications", strings.NewReader(body))
 			req = req.WithContext(setClaims(req.Context(), Claims{
-				// Delegated principal: tenant + delegated_sub set, NO UserID.
-				Tenant:           "cozy-art",
+				// Delegated principal: org + delegated_sub set, NO UserID.
+				Org:              "cozy-art",
 				DelegatedSubject: "platform:cozy-art",
 				Issuer:           "https://cozy.example",
 			}))
@@ -97,15 +97,15 @@ func TestInboundHandlerRejectsBothTrustSources(t *testing.T) {
 	}
 }
 
-// TestTenantsCreateRejectsInvalidFederation: an invalid federation block
-// rejects the whole registration — no tenant is created (#74).
-func TestTenantsCreateRejectsInvalidFederation(t *testing.T) {
+// TestOrgsCreateRejectsInvalidFederation: an invalid federation block
+// rejects the whole registration — no org is created (#74).
+func TestOrgsCreateRejectsInvalidFederation(t *testing.T) {
 	s := &Service{}
 	body := `{"slug":"cozy-art","federation":{"issuer":"https://cozy.example","jwks_uri":"https://cozy.example/jwks","public_keys":[{"public_key_pem":"x"}]}}`
-	req := httptest.NewRequest(http.MethodPost, "/tenants", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/orgs", strings.NewReader(body))
 	req = req.WithContext(setClaims(req.Context(), Claims{UserID: "user-1"}))
 	rec := httptest.NewRecorder()
-	s.handleTenantsCreatePOST(rec, req)
+	s.handleOrgsCreatePOST(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid federation block, got %d (body=%s)", rec.Code, rec.Body.String())
 	}

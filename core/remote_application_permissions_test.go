@@ -55,24 +55,24 @@ func TestRemoteApplicationDirectPermissions(t *testing.T) {
 
 // TestResolveRemoteApplicationAuthority proves the verifier's authority source
 // returns direct permissions UNION role-derived permissions, plus the assigned
-// tenant memberships (#76).
+// org memberships (#76).
 func TestResolveRemoteApplicationAuthority(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
 
-	const tslug = "authority-tenant"
+	const tslug = "authority-org"
 	const aslug = "authority-app"
 	const iss = "https://authority-app.example/iss"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
 	})
 
-	if _, err := svc.CreateTenant(ctx, tslug); err != nil {
-		t.Fatalf("create tenant: %v", err)
+	if _, err := svc.CreateOrg(ctx, tslug); err != nil {
+		t.Fatalf("create org: %v", err)
 	}
 	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{Slug: aslug, Issuer: iss, JWKSURI: "https://authority-app.example/jwks.json", Enabled: true})
 	if err != nil {
@@ -105,13 +105,13 @@ func TestResolveRemoteApplicationAuthority(t *testing.T) {
 			t.Fatalf("unexpected perm %q in %v", p, perms)
 		}
 	}
-	foundTenant := false
+	foundOrg := false
 	for _, m := range memberships {
-		if m.Tenant == tslug {
-			foundTenant = true
+		if m.Org == tslug {
+			foundOrg = true
 		}
 	}
-	if !foundTenant {
-		t.Fatalf("tenant membership not resolved: %+v", memberships)
+	if !foundOrg {
+		t.Fatalf("org membership not resolved: %+v", memberships)
 	}
 }

@@ -282,13 +282,13 @@ func (s *Service) publicRegistrationDisabled() bool {
 	return !s.svc.Options().PublicNativeUserRegistrationEnabled()
 }
 
-// publicTenantManagementDisabled reports whether the public tenant onboarding /
+// publicOrgManagementDisabled reports whether the public org onboarding /
 // management HTTP routes are turned off for this service.
-func (s *Service) publicTenantManagementDisabled() bool {
+func (s *Service) publicOrgManagementDisabled() bool {
 	if s == nil || s.svc == nil {
 		return false
 	}
-	return !s.svc.Options().PublicTenantRegistrationEnabled()
+	return !s.svc.Options().PublicOrgRegistrationEnabled()
 }
 
 func (s *Service) stateCache() oidckit.StateCache {

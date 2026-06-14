@@ -55,7 +55,7 @@ Database queries (sqlc)
 - All static Postgres queries are written as raw SQL in `internal/db/queries/*.sql` (one file per domain) and compiled to type-safe Go by [sqlc](https://docs.sqlc.dev) into the `internal/db` package (committed, never hand-edited).
 - To add or change a query: edit the `.sql` file, run `make sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose -f docker-compose.devserver.yaml up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`.
 - The schema source of truth for sqlc is `migrations/postgres/` — generated code is always type-checked against the real migrations. CI fails if `internal/db` drifts from the query files (`make sqlc-check`).
-- Escape hatch: queries whose SQL is assembled at runtime stay on raw pgx with a comment explaining why (currently `core.AdminListUsers` and the advisory-lock path in `core.ReconcileTenantManifest`). ClickHouse queries are out of sqlc's scope.
+- Escape hatch: queries whose SQL is assembled at runtime stay on raw pgx with a comment explaining why (currently `core.AdminListUsers` and the advisory-lock path in `core.ReconcileOrgManifest`). ClickHouse queries are out of sqlc's scope.
 
 ---
 
@@ -80,8 +80,8 @@ func main() {
     BaseURL:           "https://myapp.com",
     FrontendCallbackPath: "/login/callback",
     // RegistrationVerification: core.RegistrationVerificationRequired, // none|optional|required
-    // NativeUserRegistrationMode / TenantRegistrationMode: open|invite_only|admin_only|admin_bootstrap_only|... (host policy)
-    // AutoCreatePersonalTenants: true  // opt in to a personal tenant per native user
+    // NativeUserRegistrationMode / OrgRegistrationMode: open|invite_only|admin_only|admin_bootstrap_only|... (host policy)
+    // AutoCreatePersonalOrgs: true  // opt in to a personal org per native user
     // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
 
@@ -131,7 +131,7 @@ separate registration modes on `core.Config`:
 
 - `NativeUserRegistrationMode`: `open`, `invite_only`, `admin_only`,
   `admin_bootstrap_only`, or `closed`.
-- `TenantRegistrationMode`: `open`, `invite_only`, `admin_only`,
+- `OrgRegistrationMode`: `open`, `invite_only`, `admin_only`,
   `admin_bootstrap_only`, `manifest_only`, or `closed`.
 
 Both default to `open`. Any non-open native-user mode turns off public user
@@ -144,27 +144,27 @@ login, refresh, logout, password reset/recovery, token verification, and
 sessions all keep working. Embedded bootstrap/admin creation through exported
 core APIs (`CreateUser`, `ImportUser`) still works.
 
-Any non-open tenant *registration* mode denies the public tenant-facing mutation routes
-(tenant creation/rename, invites, member changes, role changes, service token
-management routes) with a stable `tenant_management_disabled` error. Read-only
-tenant routes and the tenant-scoped token exchange (`POST /token/tenant`) stay
+Any non-open org *registration* mode denies the public org-facing mutation routes
+(org creation/rename, invites, member changes, role changes, service token
+management routes) with a stable `org_management_disabled` error. Read-only
+org routes and the org-scoped token exchange (`POST /token/org`) stay
 available for existing members. Embedded core/bootstrap code can still ensure
-initial tenants, roles, admins, trusted issuers, and generated opaque service
-tokens through the privileged provisioning API (`ProvisionTenant`) or the tenant
-manifest reconciler. Public tenant creation uses `CreateTenantForUser`; lower
-level `CreateTenant` is for bootstrap/admin callers that intentionally create an
-ownerless tenant.
+initial orgs, roles, admins, trusted issuers, and generated opaque service
+tokens through the privileged provisioning API (`ProvisionOrg`) or the org
+manifest reconciler. Public org creation uses `CreateOrgForUser`; lower
+level `CreateOrg` is for bootstrap/admin callers that intentionally create an
+ownerless org.
 
 Locked-down (e.g. self-hosted OpenRails) pattern: mount only the chosen route
 groups, set both modes to `admin_bootstrap_only` or `manifest_only`, and
-bootstrap through embedded core APIs or a deployment-owned tenant manifest.
-Bootstrap authority is an operator/deploy action, not a fake AuthKit tenant.
+bootstrap through embedded core APIs or a deployment-owned org manifest.
+Bootstrap authority is an operator/deploy action, not a fake AuthKit org.
 
 ```go
 cfg := core.Config{
   // ...issuer/audiences/keys...
   NativeUserRegistrationMode: core.RegistrationModeAdminBootstrapOnly,
-  TenantRegistrationMode:     core.RegistrationModeManifestOnly,
+  OrgRegistrationMode:     core.RegistrationModeManifestOnly,
 }
 svc, _ := authhttp.NewService(cfg)
 
@@ -175,28 +175,28 @@ authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
   authhttp.RouteUser,     // self-service for existing accounts
 )))
 
-// Bootstrap declared tenants, roles, admins, and service tokens internally via
+// Bootstrap declared orgs, roles, admins, and service tokens internally via
 // AuthKit core APIs (unaffected by the public registration modes):
 core := svc.Core()
 admin, _ := core.CreateUser(ctx, "ops@example.com", "operator")
-bootstrap, _ := core.ProvisionTenant(ctx, core.TenantProvisionRequest{
+bootstrap, _ := core.ProvisionOrg(ctx, core.OrgProvisionRequest{
   Slug: "operator",
-  Memberships: []core.TenantProvisionMembership{{UserID: admin.ID, Role: "owner"}},
-  ServiceTokens: []core.TenantProvisionServiceToken{{
+  Memberships: []core.OrgProvisionMembership{{UserID: admin.ID, Role: "owner"}},
+  ServiceTokens: []core.OrgProvisionServiceToken{{
     Name: "ci",
-    Permissions: []string{"tenant:read"},
+    Permissions: []string{"org:read"},
   }},
 }, nil)
 _ = bootstrap.MintedTokens[0].Plaintext // write once to a secret store
 ```
 
 For a closed-registration deployment, the manifest reconciler is the standard
-machine/bootstrap path. It declares tenants, trusted delegated-token issuers,
+machine/bootstrap path. It declares orgs, trusted delegated-token issuers,
 roles, optional memberships, trusted issuers, and optional generated opaque
 service tokens, then applies them idempotently under a Postgres advisory lock:
 
 ```yaml
-tenants:
+orgs:
   - slug: cozy-art
     issuers:
       - issuer: https://cozy.example
@@ -205,7 +205,7 @@ tenants:
         enabled: true
     roles:
       - name: operator
-        permissions: ["tenant:read", "openrails:billing:read"]
+        permissions: ["org:read", "openrails:billing:read"]
     memberships:
       - user_id: 018f0000-0000-7000-8000-000000000001
         role: operator
@@ -227,23 +227,23 @@ DEVSERVER_ISSUER=https://auth.example \
 DB_URL=postgres://... \
 DEVSERVER_PERMISSION_CATALOG=openrails:billing:read,openrails:entitlements:read \
 DEVSERVER_TOKEN_PREFIX=cozy \
-DEVSERVER_TENANT_MANIFEST_PATH=/manifests/tenants.yaml \
-/authkit-devserver tenant-manifest apply
+DEVSERVER_ORG_MANIFEST_PATH=/manifests/orgs.yaml \
+/authkit-devserver org-manifest apply
 ```
 
-Use `DEVSERVER_RECONCILE_TENANT_MANIFEST_ON_START=true` only for local/dev or
+Use `DEVSERVER_RECONCILE_ORG_MANIFEST_ON_START=true` only for local/dev or
 simple self-hosted deployments. Production systems should usually run the
-one-shot command as a release job, or call `core.ReconcileTenantManifest` from
-their own job with a Vault/Kubernetes-backed `TenantManifestTokenStore`, so API
+one-shot command as a release job, or call `core.ReconcileOrgManifest` from
+their own job with a Vault/Kubernetes-backed `OrgManifestTokenStore`, so API
 pods do not need long-lived secret-write credentials.
 
 Hosted SaaS deployments can later set both registration modes to `open` and
-mount the `RouteRegister` / `RouteTenants` groups to enable public signup and
-tenant onboarding without code changes.
+mount the `RouteRegister` / `RouteOrgs` groups to enable public signup and
+org onboarding without code changes.
 
 OpenRails' bootstrap flow should call these AuthKit primitives for AuthKit-owned
-objects: user-owned tenant registration for public SaaS signup, and
-`ProvisionTenant`/`ReconcileTenantManifest` for closed-registration or embedded
+objects: user-owned org registration for public SaaS signup, and
+`ProvisionOrg`/`ReconcileOrgManifest` for closed-registration or embedded
 bootstrap. OpenRails still owns OpenRails-specific catalog, prices,
 entitlements, grants, billing, and provider state.
 
@@ -481,7 +481,7 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 | Area | Ownership | Notes |
 | --- | --- | --- |
 | `Issuer`, `IssuedAudiences`, `ExpectedAudiences` | Host config | Required token contract inputs. |
-| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `AutoCreatePersonalTenants`, `NativeUserRegistrationMode`, `TenantRegistrationMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
+| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `AutoCreatePersonalOrgs`, `NativeUserRegistrationMode`, `OrgRegistrationMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
 | `Keys` provided (`cfg.Keys != nil`) | Host config | Fully disables library key env/filesystem discovery. |
 | `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `<KeysPath>/keys.json` (default `/vault/auth`), `.runtime/authkit/*`). |
 | `KeysPath` / `AUTHKIT_KEYS_PATH` | Host config | Overrides the filesystem **directory** the local resolver scans for `keys.json`. Default `/vault/auth` (unchanged). See "Signing & key resolution for embedders". |
@@ -642,38 +642,38 @@ Roles (global storage)
 - AuthKit does not define app role taxonomy (what roles exist). The embedding application/platform should seed its role catalog.
 - Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
 
-Tenants
-- AuthKit **always** supports tenants + tenant-scoped RBAC — there is no global `TenantMode` switch (issue #60). Tenants are a first-class primitive at the core layer; what a host *exposes* is decided by which route groups it mounts and by the two registration modes (`NativeUserRegistrationMode`, `TenantRegistrationMode`), not by a mode flag. Native users may exist with zero tenants; tenants may exist (via manifest/admin/bootstrap) with zero native users.
-  - Shared owner namespace: user slugs and tenant slugs should be treated as one namespace (no collisions).
-  - Native users do not create tenant rows by default. Hosts that want personal
-    workspaces must opt in with `AutoCreatePersonalTenants: true`; those
-    personal tenants are non-transferable and keyed by `owner_user_id`.
-  - Users can belong to 0, 1, or many tenants simultaneously.
-  - Tenant slug renames create aliases; handlers accept either current slug or alias on `:tenant`.
-  - Username renames preserve old owner paths via user slug aliases; personal tenant slug aliases are also retained.
-  - Default service tokens do **not** embed tenant membership or tenant roles; apps check membership/roles server-side.
-  - `GET /user/me` returns `tenants` (membership list) plus tenant-scoped roles for the user.
-  - `GET /user/bootstrap` returns canonical personal tenant + tenant memberships in one call.
-  - Tenant-scoped service tokens include `tenant` + `roles` (single tenant only), minted whenever the user is a member (rejected otherwise) — no mode gate.
-    - Mint explicitly: `POST /token/tenant`
-    - Or mint at login/refresh by providing `tenant` in the request body (accepted on every deployment; the legacy `tenant_not_supported` rejection is gone).
+Orgs
+- AuthKit **always** supports orgs + org-scoped RBAC — there is no global `OrgMode` switch (issue #60). Orgs are a first-class primitive at the core layer; what a host *exposes* is decided by which route groups it mounts and by the two registration modes (`NativeUserRegistrationMode`, `OrgRegistrationMode`), not by a mode flag. Native users may exist with zero orgs; orgs may exist (via manifest/admin/bootstrap) with zero native users.
+  - Shared owner namespace: user slugs and org slugs should be treated as one namespace (no collisions).
+  - Native users do not create org rows by default. Hosts that want personal
+    workspaces must opt in with `AutoCreatePersonalOrgs: true`; those
+    personal orgs are non-transferable and keyed by `owner_user_id`.
+  - Users can belong to 0, 1, or many orgs simultaneously.
+  - Org slug renames create aliases; handlers accept either current slug or alias on `:org`.
+  - Username renames preserve old owner paths via user slug aliases; personal org slug aliases are also retained.
+  - Default service tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
+  - `GET /user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
+  - `GET /user/bootstrap` returns canonical personal org + org memberships in one call.
+  - Org-scoped service tokens include `org` + `roles` (single org only), minted whenever the user is a member (rejected otherwise) — no mode gate.
+    - Mint explicitly: `POST /token/org`
+    - Or mint at login/refresh by providing `org` in the request body (accepted on every deployment; the legacy `org_not_supported` rejection is gone).
   - Invitation workflow:
-    - Tenant owners create/list/revoke invites with `/tenants/:tenant/invites`.
-    - Users list their invites via `GET /me/invites` (cross-tenant).
+    - Org owners create/list/revoke invites with `/orgs/:org/invites`.
+    - Users list their invites via `GET /me/invites` (cross-org).
     - Users accept/decline via `/me/invites/:invite_id/accept|decline`.
-  - Tenant management is **permission-based RBAC** (a role = a set of permissions). authkit is the generic engine: it ships **base permissions** in the reserved `tenant:` namespace (`tenant:roles:manage`, `tenant:members:manage`, `tenant:service_tokens:manage`, `tenant:read`) that gate all tenant-management endpoints, stores per-tenant role→permission assignments, computes `EffectivePermissions`, and enforces no-escalation + catalog validation. The embedding app declares its own permission catalog (`Config.PermissionCatalog`) + optional default roles (`Config.DefaultRoles`, e.g. an `admin` = `*` minus `{tenant:roles:manage, tenant:members:manage}`); effective catalog = base ∪ app. The `owner` role is hardcoded and seeded with `*` (all), protected, and cannot be removed as the last owner. Permissions are opaque to authkit — the app owns their meaning and enforces them at its own endpoints via `core.EffectivePermissions`. Introspection endpoints complement the management API: `GET /tenants/:tenant/me` (self-read of `{roles, permissions}`, membership only — no `tenant:read`) and `POST /tenants/:tenant/permissions/check` (a `testIamPermissions`-style "does this principal hold X?" → `{granted[]}`). Roles are RESTful resources: `GET /tenants/:tenant/roles/:role` (detail), `PUT /tenants/:tenant/roles/:role` (idempotent create-or-replace, body `{permissions[]}`), `DELETE /tenants/:tenant/roles/:role`; members likewise (`DELETE /tenants/:tenant/members/:user_id`). Invitee self-routes live at top-level `/me/invites` (cross-tenant — the invitee isn't a member yet).
+  - Org management is **permission-based RBAC** (a role = a set of permissions). authkit is the generic engine: it ships **base permissions** in the reserved `org:` namespace (`org:roles:manage`, `org:members:manage`, `org:service_tokens:manage`, `org:read`) that gate all org-management endpoints, stores per-org role→permission assignments, computes `EffectivePermissions`, and enforces no-escalation + catalog validation. The embedding app declares its own permission catalog (`Config.PermissionCatalog`) + optional default roles (`Config.DefaultRoles`, e.g. an `admin` = `*` minus `{org:roles:manage, org:members:manage}`); effective catalog = base ∪ app. The `owner` role is hardcoded and seeded with `*` (all), protected, and cannot be removed as the last owner. Permissions are opaque to authkit — the app owns their meaning and enforces them at its own endpoints via `core.EffectivePermissions`. Introspection endpoints complement the management API: `GET /orgs/:org/me` (self-read of `{roles, permissions}`, membership only — no `org:read`) and `POST /orgs/:org/permissions/check` (a `testIamPermissions`-style "does this principal hold X?" → `{granted[]}`). Roles are RESTful resources: `GET /orgs/:org/roles/:role` (detail), `PUT /orgs/:org/roles/:role` (idempotent create-or-replace, body `{permissions[]}`), `DELETE /orgs/:org/roles/:role`; members likewise (`DELETE /orgs/:org/members/:user_id`). Invitee self-routes live at top-level `/me/invites` (cross-org — the invitee isn't a member yet).
 - Token claim shape (uniform; no mode):
-  - A user access token always includes `global_roles` (platform-wide) and a legacy `roles` claim that mirrors `global_roles` (fixed token-shape compatibility). Tenant-scoped tokens additionally carry `tenant` + tenant `roles`/`tenant_roles`.
-  - An app with no tenants simply never mints tenant-scoped tokens — its tokens carry `roles`/`global_roles` only.
+  - A user access token always includes `global_roles` (platform-wide) and a legacy `roles` claim that mirrors `global_roles` (fixed token-shape compatibility). Org-scoped tokens additionally carry `org` + org `roles`/`org_roles`.
+  - An app with no orgs simply never mints org-scoped tokens — its tokens carry `roles`/`global_roles` only.
 
 Service Tokens (opaque machine credentials)
-- Long-lived, revocable bearer credentials **owned by a tenant** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). The standard machine-auth primitive (cf. Docker Hub service tokens, Stripe `sk_` keys) — robots should not replay the human password-login path.
-- A service token acts **as the tenant**: middleware sets `Claims.Tenant` + `Claims.Permissions` (the token's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `TenantRoles`; the resource server expands role→permission at request time.)
+- Long-lived, revocable bearer credentials **owned by a org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). The standard machine-auth primitive (cf. Docker Hub service tokens, Stripe `sk_` keys) — robots should not replay the human password-login path.
+- A service token acts **as the org**: middleware sets `Claims.Org` + `Claims.Permissions` (the token's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `OrgRoles`; the resource server expands role→permission at request time.)
 - Presented as `Authorization: Bearer <app>st_<key_id>_<secret>`, where `<app>` is the host-configured `Config.ServiceTokenPrefix` brand (e.g. `cozy` → `cozy_st_…`; empty → bare `st_`). `key_id` is a non-secret public id for O(1) indexed lookup; only `sha256(secret)` is stored; the full token is shown **once**.
-- Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/tenant-deleted rejected; non-service-token credentials fall through to JWT). The service token path is separate from the password-login handler, so service tokens **bypass the interactive password-login rate limiter** by design.
-- **Mint authorization is native + permission-based:** minting requires `tenant:service_tokens:manage`, and authkit validates the requested permissions against the tenant's effective catalog — each must be a defined permission the caller holds (no escalation; `403 permission_grant_denied`/`400 unknown_permission`), with the reserved write/mint perms (`tenant:roles:manage`, `tenant:members:manage`, `tenant:service_tokens:manage`) and wildcards barred from service tokens (read-only `tenant:read` is service token-grantable). Permissions are frozen at mint time. A service token can never mint/list/revoke service tokens (no user). See "Tenant RBAC" below for the catalog + role→permission model.
+- Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/org-deleted rejected; non-service-token credentials fall through to JWT). The service token path is separate from the password-login handler, so service tokens **bypass the interactive password-login rate limiter** by design.
+- **Mint authorization is native + permission-based:** minting requires `org:service_tokens:manage`, and authkit validates the requested permissions against the org's effective catalog — each must be a defined permission the caller holds (no escalation; `403 permission_grant_denied`/`400 unknown_permission`), with the reserved write/mint perms (`org:roles:manage`, `org:members:manage`, `org:service_tokens:manage`) and wildcards barred from service tokens (read-only `org:read` is service token-grantable). Permissions are frozen at mint time. A service token can never mint/list/revoke service tokens (no user). See "Org RBAC" below for the catalog + role→permission model.
 - **Resource scopes:** service tokens may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.service_token_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
-- Manage via `POST/GET/DELETE /tenants/:tenant/service-tokens[/:token_id]`. POST accepts `{name, permissions[], resources?:[{kind,id}], expires_at?}`. Optional `expires_at` (null = non-expiring), capped by `Config.ServiceTokenMaxTTL` when set. Stored in `profiles.service_tokens`.
+- Manage via `POST/GET/DELETE /orgs/:org/service-tokens[/:token_id]`. POST accepts `{name, permissions[], resources?:[{kind,id}], expires_at?}`. Optional `expires_at` (null = non-expiring), capped by `Config.ServiceTokenMaxTTL` when set. Stored in `profiles.service_tokens`.
 - **Leak response:** revoke the token (`DELETE …/service-tokens/:id`) — the `<app>st_` prefix is registrable with secret-scanning/push-protection partners so leaked tokens can be auto-detected.
 
 Service JWTs (OIDC/JWKS machine credentials)
@@ -685,7 +685,7 @@ Service JWTs (OIDC/JWKS machine credentials)
 - AuthKit provides `core.MintServiceJWT` / `(*core.Service).MintServiceJWT` and
   `authhttp.Verifier.VerifyServiceJWT` plus `RequiredServiceJWT`. Verification
   uses the same issuer/JWKS registry as delegated access tokens, including
-  tenant issuer lazy-load and disabled-issuer fail-closed behavior.
+  org issuer lazy-load and disabled-issuer fail-closed behavior.
 - `permissions: []` is the canonical requested-capability claim. OAuth `scope`
   is accepted only as an explicit compatibility bridge. AuthKit parses requested
   permissions/resources but does not grant them; resource servers such as
@@ -698,19 +698,19 @@ Service JWTs (OIDC/JWKS machine credentials)
 Reserved slug policy
 - Owner namespaces use explicit states:
   - `restricted_name`: slug is blocked in `profiles.owner_reserved_names` and not publicly registrable.
-  - `parked_tenant`: tenant exists and is platform-held (`metadata.namespace_state=parked_tenant`, `metadata.reserved=true`).
-  - `registered_tenant`: normal tenant lifecycle (`metadata.namespace_state=registered_tenant`).
+  - `parked_tenant`: org exists and is platform-held (`metadata.namespace_state=parked_tenant`, `metadata.reserved=true`).
+  - `registered_tenant`: normal org lifecycle (`metadata.namespace_state=registered_tenant`).
 - Public lookup endpoint: `GET /owners/{slug}` returns canonical public metadata for the slug:
   - `requested_slug`: normalized slug from the request.
   - `slug` / `canonical_slug`: current canonical slug when the request resolves to a live or held owner; otherwise the requested slug.
-  - `enabled` / `state`: `registered_user`, `registered_tenant`, `parked_user`, `parked_tenant`, `restricted_name`, `renamed_user`, `renamed_tenant`, `held_by_deleted_user`, `held_by_deleted_tenant`, `held_by_recent_user_rename`, `held_by_recent_tenant_rename`, or `unregistered`.
-  - `claimable`: whether the slug can currently be claimed by a new user/tenant.
+  - `enabled` / `state`: `registered_user`, `registered_tenant`, `parked_user`, `parked_tenant`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, or `unregistered`.
+  - `claimable`: whether the slug can currently be claimed by a new user/org.
   - `renamed`: whether this lookup resolved through rename history.
   - `hold_until`: present for enabled rename reuse holds.
-  - `entity_kind`: `none`, `tenant`, `user`, or `tenant_and_user`
-  - optional `tenant` and/or `user` payloads when records exist.
+  - `entity_kind`: `none`, `org`, `user`, or `org_and_user`
+  - optional `org` and/or `user` payloads when records exist.
 - The PostgreSQL baseline schema creates `profiles.owner_reserved_names` and seeds canonical restricted names (`admin`, `superuser`, `root`, `sudo`) directly.
-- Public register/create/rename/tenant-create/tenant-rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
+- Public register/create/rename/org-create/org-rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
 - Reserved users are non-loginable (reserved placeholder credentials/providers are cleared by migration and reserve flows).
 
 Verification delivery and expiry
@@ -734,7 +734,7 @@ Identity validation policy
   ASCII letter, allow only ASCII letters/digits/underscore, no `@`, and no
   leading `+`. AuthKit normalizes the owner slug by lowercasing and converting
   underscore/dash runs to single dashes.
-- Username namespace checks reject collisions with users/tenants, renamed or
+- Username namespace checks reject collisions with users/orgs, renamed or
   recently held slugs, soft-deleted owners, parked namespaces, and restricted
   names. Parked/restricted names return `username_not_allowed`; held/taken
   names return `owner_slug_taken`.
@@ -942,8 +942,8 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
 - Admin owner-namespace lifecycle (admin only):
   - POST /admin/accounts/restrict (batch add slugs to restricted-name list)
   - POST /admin/accounts/unrestrict (batch remove slugs from restricted-name list)
-  - POST /admin/account/park (`{kind:"tenant"|"user",slug}`)
-  - POST /admin/account/claim (`{kind:"tenant"|"user",slug,...}`; for `kind:"tenant"`, `owner_user_id` is required)
+  - POST /admin/account/park (`{kind:"org"|"user",slug}`)
+  - POST /admin/account/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
 - Public owner-namespace lookup:
   - GET /owners/:slug → canonical owner metadata + `enabled`/`claimable`
 - Solana wallet authentication (SIWS):
@@ -1125,11 +1125,11 @@ const linkWallet = async (accessToken: string) => {
 Use the verifier when a service needs to accept JWTs issued by one or more
 AuthKit-powered APIs (e.g., spacex), without mounting any auth routes.
 
-- Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`. (`WithTenantMode` is a deprecated no-op shim kept for back-compat; tenant claims are parsed whenever present.)
+- Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`. (`WithOrgMode` is a deprecated no-op shim kept for back-compat; org claims are parsed whenever present.)
 - Add issuers via `verifier.AddIssuer(issuerID, audiences, opts)` — each may specify a JWKS URL (defaults to `/.well-known/jwks.json`), pre-provided PEM keys, or raw `*rsa.PublicKey` maps.
 - For service JWTs, call `verifier.VerifyServiceJWT(ctx, token)` or mount
   `authhttp.RequiredServiceJWT(verifier)`. This returns a machine principal with
-  issuer, subject, tenant/resource account, permissions, resources, and JTI; the
+  issuer, subject, org/resource account, permissions, resources, and JTI; the
   host still owns final authorization.
 - Keep route classes explicit: ordinary user/delegated routes use
   `authhttp.Required`, delegated-only resource routes use
@@ -1186,17 +1186,17 @@ SpaceX accepts service tokens from multiple issuers; both tesla.com and x.com.
 
 ---
 
-### Tenant Issuers & Delegated Access JWTs
+### Org Issuers & Delegated Access JWTs
 
 AuthKit owns the shared identity primitives for federation: a resource service
-registers tenant issuers, verifies their OIDC/JWKS metadata, and records minimal
-delegated users as `(tenant_id, issuer, subject)` — where the tenant uuid is
+registers org issuers, verifies their OIDC/JWKS metadata, and records minimal
+delegated users as `(org_id, issuer, subject)` — where the org uuid is
 resolved server-side from the issuer registration (tokens carry only
-`delegated_sub`; the validated issuer IS the tenant identity). Product-specific approval,
+`delegated_sub`; the validated issuer IS the org identity). Product-specific approval,
 quota, billing, and resource policy still belong to the receiving product.
 
-This lets a tenant bring external principals that live in the tenant's own
-system. Those principals authenticate via the tenant's **issuer** rather than
+This lets a org bring external principals that live in the org's own
+system. Those principals authenticate via the org's **issuer** rather than
 local passwords. Two AuthKit-embedding services register with and trust each
 other:
 
@@ -1209,14 +1209,14 @@ There are three roles, all owned by AuthKit:
 
 | Role | Side | API |
 |---|---|---|
-| **register** | both | `TenantIssuersClient.RegisterIssuer` (outbound) → `POST /tenant-issuers` (inbound) |
+| **register** | both | `OrgIssuersClient.RegisterIssuer` (outbound) → `POST /org-issuers` (inbound) |
 | **mint** | platform | `MintDelegatedAccessToken(ctx, signer, DelegatedAccessParams)` |
-| **validate** | resource server | `Verifier.LoadTenantIssuers` + `Verifier.VerifyDelegatedAccess` → `Claims.DelegatedAccess()` |
+| **validate** | resource server | `Verifier.LoadOrgIssuers` + `Verifier.VerifyDelegatedAccess` → `Claims.DelegatedAccess()` |
 
 #### Delegated access JWTs
 
 A **delegated access JWT** is AuthKit's standard primitive for user or
-tenant-admin federation: one AuthKit issuer signs a short-lived JWT for an
+org-admin federation: one AuthKit issuer signs a short-lived JWT for an
 external delegated actor, and a resource service (OpenRails, Tensorhub,
 Gen-Orchestrator, ...) accepts it after issuer/JWKS/audience/resource-account
 validation.
@@ -1229,7 +1229,7 @@ Canonical claim contract:
 | header `typ=delegated-access+jwt` | identifies a delegated access JWT (`DelegatedAccessTokenType`) | `Claims.TokenTyp` / `IsDelegatedAccessToken()` |
 | `iss` | AuthKit issuer that signed the token | `Claims.Issuer` |
 | `aud` | target resource API (`openrails`, `tensorhub`, `gen-orchestrator`) | (matched at verify) |
-| `tenant` | target resource-service account slug, e.g. `doujins` in OpenRails | `Claims.Tenant` |
+| `org` | target resource-service account slug, e.g. `doujins` in OpenRails | `Claims.Org` |
 | `delegated_sub` | issuer-side actor id, e.g. Paul's Doujins-side subject id; **no local account is implied** | `Claims.DelegatedSubject` |
 | `permissions []string` | resource-defined permission strings (NOT OAuth space-delimited scope) — the **authority source** | `Claims.Permissions` / `HasPermission()` |
 | `attributes {}` | issuer policy metadata, e.g. `{"tier":"cozy_free"}` (arbitrary JSON) | `Claims.Attributes` / `Attribute(key)` |
@@ -1249,14 +1249,14 @@ Canonical claim contract:
   does not mint them, and `Verify()` rejects delegated access JWTs carrying a
   `roles` claim (`delegated_access_has_roles`). Receiving services authorize on
   `permissions` + explicit `attributes` policy.
-- The `tenant` JWT claim is required and means the target resource-service
+- The `org` JWT claim is required and means the target resource-service
   account. Delegated access JWTs MUST NOT carry the legacy AuthKit `org` claim;
   `Verify()` rejects it (`delegated_access_has_org`).
 - Tier/plan metadata belongs under `attributes.tier`. Delegated access JWTs
   MUST NOT carry a top-level `user_tier` claim
   (`delegated_access_has_user_tier`).
-- Tenant issuers loaded from AuthKit's `tenant_issuers` store are
-  also bound to the registered resource account (`tenant_slug` in the storage row):
+- Org issuers loaded from AuthKit's `org_issuers` store are
+  also bound to the registered resource account (`org_slug` in the storage row):
   delegated access JWTs from that issuer must claim the same resource account,
   or verification rejects them with `resource_account_issuer_mismatch`. This
   prevents one trusted issuer from minting a delegated token for another
@@ -1270,7 +1270,7 @@ v := authhttp.NewVerifier(
     authhttp.WithAttributesPolicy(func(a map[string]json.RawMessage) error { /* check schema */ }),
 )
 cl, dp, err := v.VerifyDelegatedAccess(token) // requires typ=delegated-access+jwt + runs hooks
-// dp.Tenant, dp.DelegatedSubject, dp.Permissions, dp.Attributes, dp.JTI, dp.Issuer
+// dp.Org, dp.DelegatedSubject, dp.Permissions, dp.Attributes, dp.JTI, dp.Issuer
 ```
 
 Because a delegated access JWT has no `sub`, the resource server's middleware
@@ -1281,7 +1281,7 @@ Recommended OpenRails permission naming uses a service prefix even though
 `aud=openrails` is present, because a host AuthKit permission catalog may carry
 permissions for several resource services: self-scoped
 `openrails:self:billing:read`, `openrails:self:checkout:create`,
-`openrails:self:subscriptions:cancel`; tenant/admin
+`openrails:self:subscriptions:cancel`; org/admin
 `openrails:tenant:catalog:write`, `openrails:tenant:payments:refund`,
 `openrails:tenant:admin`. Routes must still check scope semantics, not just
 string presence.
@@ -1290,7 +1290,7 @@ For browser-direct self-service billing, the host app still has one
 authenticated AuthKit touchpoint: a current-user token endpoint owned by the
 host app. That endpoint authenticates the normal app session, decides which
 self-scoped OpenRails permissions the current user may receive, then calls
-`MintDelegatedAccessToken` with `aud=openrails`, `tenant`, `delegated_sub` set
+`MintDelegatedAccessToken` with `aud=openrails`, `org`, `delegated_sub` set
 to the current user id, short `TTL`, and permissions such as
 `openrails:self:billing:read` or `openrails:self:checkout:create`. The browser
 then calls OpenRails directly with that delegated access JWT; the host does
@@ -1298,41 +1298,41 @@ not proxy billing reads or checkout/subscription actions.
 
 #### Registration handshake (both sides)
 
-**Outbound (platform side, e.g. cozy-art)** — publish this tenant's issuer +
+**Outbound (platform side, e.g. cozy-art)** — publish this org's issuer +
 JWKS URL to a resource server's accept endpoint:
 
 ```go
-fc := authhttp.NewTenantIssuersClient(
-    authhttp.WithTenantIssuersAuthToken(ownerAccessToken), // tenant owner/admin token
+fc := authhttp.NewOrgIssuersClient(
+    authhttp.WithOrgIssuersAuthToken(ownerAccessToken), // org owner/admin token
 )
-err := fc.RegisterIssuer(ctx, "https://tensorhub.example/api/v1/tenant-issuers",
-    authhttp.TenantIssuersRegistration{
-        Tenant:      "cozy-art",
+err := fc.RegisterIssuer(ctx, "https://tensorhub.example/api/v1/org-issuers",
+    authhttp.OrgIssuersRegistration{
+        Org:      "cozy-art",
         Issuer: "https://cozy.art",
         JWKSURI:  "https://cozy.art/.well-known/jwks.json",
     })
 ```
 
-**Inbound (resource-server side, e.g. tensorhub)** — mount the `RouteTenantIssuers`
-group. `POST /tenant-issuers` accepts + stores a registration, authorized by
-the **tenant owner/admin** of the registering tenant (global admins may register for
-any tenant); `DELETE /tenant-issuers` removes one; `GET /tenant-issuers`
+**Inbound (resource-server side, e.g. tensorhub)** — mount the `RouteOrgIssuers`
+group. `POST /org-issuers` accepts + stores a registration, authorized by
+the **org owner/admin** of the registering org (global admins may register for
+any org); `DELETE /org-issuers` removes one; `GET /org-issuers`
 (global-admin) lists them. This is the AuthKit-owned home for what services used
 to expose as a bespoke `/api/v1/platform/issuers` endpoint.
 
 #### In-house JWKS — no external push/sync
 
-The resource server loads registered tenant issuers from AuthKit's **own
-store** (the `profiles.tenant_issuers` table) and registers each with the
+The resource server loads registered org issuers from AuthKit's **own
+store** (the `profiles.org_issuers` table) and registers each with the
 Verifier, whose existing in-house JWKS fetch/refresh then handles the keys.
 There is **no external key push or sync** — the resource server pulls JWKS from
 each issuer's URL on demand and refreshes per `CacheTTL`.
 
 ```go
 // At startup (and re-run on a ticker / after a registration) to pick up store changes:
-err := verifier.LoadTenantIssuers(ctx, coreSvc /* or any TenantIssuerSource */, []string{"tensorhub"})
+err := verifier.LoadOrgIssuers(ctx, coreSvc /* or any OrgIssuerSource */, []string{"tensorhub"})
 ```
 
-`LoadTenantIssuers` registers only `enabled` issuers. A newly-accepted
+`LoadOrgIssuers` registers only `enabled` issuers. A newly-accepted
 registration is also added to the Verifier immediately by the inbound handler,
 so it is usable without waiting for the next store load.

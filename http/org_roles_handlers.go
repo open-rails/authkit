@@ -7,47 +7,47 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleTenantRolesGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgRolesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
 	if !gateOK {
 		return
 	}
-	roles, err := s.svc.ListTenantDefinedRoles(r.Context(), canonical)
+	roles, err := s.svc.ListOrgDefinedRoles(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "tenant_roles_lookup_failed")
+		serverErr(w, "org_roles_lookup_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"roles": roles})
 }
 
-func (s *Service) handleTenantRolesDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgRolesDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	role := strings.TrimSpace(r.PathValue("role"))
-	if tenantSlug == "" || role == "" {
+	if orgSlug == "" || role == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRolesManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesManage)
 	if !gateOK {
 		return
 	}
 	if err := s.svc.DeleteRole(r.Context(), canonical, role); err != nil {
-		if err == core.ErrProtectedTenantRole {
+		if err == core.ErrProtectedOrgRole {
 			badRequest(w, "protected_role")
 			return
 		}

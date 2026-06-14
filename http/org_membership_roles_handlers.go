@@ -7,19 +7,19 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleTenantMemberRolesGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
-	if tenantSlug == "" || targetUserID == "" {
+	if orgSlug == "" || targetUserID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
 	if !gateOK {
 		return
 	}
@@ -31,19 +31,19 @@ func (s *Service) handleTenantMemberRolesGET(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"roles": roles})
 }
 
-func (s *Service) handleTenantMemberRolesPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
-	if tenantSlug == "" || targetUserID == "" {
+	if orgSlug == "" || targetUserID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
 	if !gateOK {
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Service) handleTenantMemberRolesPOST(w http.ResponseWriter, r *http.Req
 	}
 	// NO-ESCALATION: assigning a role grants its permissions, so the assigner
 	// must hold every permission the role confers (owner=`*`/global-admin pass).
-	// This is what keeps a member with tenant:members:manage from granting the
+	// This is what keeps a member with org:members:manage from granting the
 	// `owner` role (which is `*`) and escalating.
 	rolePerms, err := s.svc.EffectiveRolePermissions(r.Context(), canonical, body.Role)
 	if err != nil {
@@ -77,19 +77,19 @@ func (s *Service) handleTenantMemberRolesPOST(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-func (s *Service) handleTenantMemberRolesDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
-	if tenantSlug == "" || targetUserID == "" {
+	if orgSlug == "" || targetUserID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
 	if !gateOK {
 		return
 	}
@@ -101,7 +101,7 @@ func (s *Service) handleTenantMemberRolesDELETE(w http.ResponseWriter, r *http.R
 		return
 	}
 	if err := s.svc.UnassignRole(r.Context(), canonical, targetUserID, body.Role); err != nil {
-		if err == core.ErrLastTenantOwner {
+		if err == core.ErrLastOrgOwner {
 			badRequest(w, "cannot_remove_last_owner")
 			return
 		}

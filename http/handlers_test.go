@@ -403,11 +403,11 @@ func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/tenants/state?slug=google", nil)
+	r := httptest.NewRequest(http.MethodGet, "/orgs/state?slug=google", nil)
 	h.ServeHTTP(w, r)
-	// (issue 60) The special public namespace-state route is gone. Tenant routes
-	// are always registered now, so /tenants/state matches the generic
-	// GET /tenants/{tenant} handler, which requires auth -> 401 (not a public 200).
+	// (issue 60) The special public namespace-state route is gone. Org routes
+	// are always registered now, so /orgs/state matches the generic
+	// GET /orgs/{org} handler, which requires auth -> 401 (not a public 200).
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
@@ -448,7 +448,7 @@ func TestAPIHandler_AdminAccountParkRoute_RequiresAuth(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/admin/account/park", strings.NewReader(`{"kind":"tenant","slug":"google"}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/account/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
@@ -460,31 +460,31 @@ func TestAPIHandler_AdminAccountClaimRoute_RequiresAuth(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/admin/account/claim", strings.NewReader(`{"kind":"tenant","slug":"google","owner_user_id":"abc"}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/account/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
 }
 
-func TestAPIHandler_AdminTenantParkClaimLegacyRoutes_Removed(t *testing.T) {
+func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
 	w1 := httptest.NewRecorder()
-	r1 := httptest.NewRequest(http.MethodPost, "/admin/tenant/park", strings.NewReader(`{"slug":"google"}`))
+	r1 := httptest.NewRequest(http.MethodPost, "/admin/org/park", strings.NewReader(`{"slug":"google"}`))
 	r1.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w1, r1)
 	require.Equal(t, http.StatusNotFound, w1.Code)
 
 	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodPost, "/admin/tenant/claim", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
+	r2 := httptest.NewRequest(http.MethodPost, "/admin/org/claim", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
 	r2.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w2, r2)
 	require.Equal(t, http.StatusNotFound, w2.Code)
 }
 
-func TestAPIHandler_AdminAccountsTenantLegacyRoutes_Removed(t *testing.T) {
+func TestAPIHandler_AdminAccountsOrgLegacyRoutes_Removed(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
@@ -495,7 +495,7 @@ func TestAPIHandler_AdminAccountsTenantLegacyRoutes_Removed(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w1.Code)
 
 	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodPost, "/admin/accounts/claim-tenant", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
+	r2 := httptest.NewRequest(http.MethodPost, "/admin/accounts/claim-org", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
 	r2.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w2, r2)
 	require.Equal(t, http.StatusNotFound, w2.Code)

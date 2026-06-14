@@ -12,9 +12,9 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-type TenantInvite struct {
+type OrgInvite struct {
 	ID        string     `json:"id"`
-	Tenant    string     `json:"tenant"`
+	Org       string     `json:"org"`
 	UserID    string     `json:"user_id"`
 	InvitedBy string     `json:"invited_by"`
 	Role      string     `json:"role"`
@@ -24,7 +24,7 @@ type TenantInvite struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-// ValidateInviteRoleGrant enforces the no-escalation invariant for a tenant
+// ValidateInviteRoleGrant enforces the no-escalation invariant for a org
 // invite: the GRANTOR (the inviter) must currently hold every permission the
 // invited role confers. A global admin or an actor holding `*` passes. Returns
 // ErrInviteRoleExceedsGrantor when the grantor's authority is insufficient.
@@ -33,7 +33,7 @@ type TenantInvite struct {
 // inviter's permissions may have been reduced between creating the invite and
 // the invitee accepting it (a stale pending "owner" invite must not still grant
 // owner once its creator has been demoted).
-func (s *Service) ValidateInviteRoleGrant(ctx context.Context, tenantSlug, grantorUserID, role string) error {
+func (s *Service) ValidateInviteRoleGrant(ctx context.Context, orgSlug, grantorUserID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -45,14 +45,14 @@ func (s *Service) ValidateInviteRoleGrant(ctx context.Context, tenantSlug, grant
 	if role == "" {
 		role = "member"
 	}
-	rolePerms, err := s.EffectiveRolePermissions(ctx, tenantSlug, role)
+	rolePerms, err := s.EffectiveRolePermissions(ctx, orgSlug, role)
 	if err != nil {
 		return err
 	}
 	// Global admins may grant any role; otherwise the grantor's own effective
 	// permissions must cover the role (ValidateGrant computes the superset).
 	grantorAll, _ := s.q.GlobalUserHasActiveRole(ctx, db.GlobalUserHasActiveRoleParams{UserID: grantorUserID, Slug: "admin"})
-	if _, offending, verr := s.ValidateGrant(ctx, tenantSlug, grantorUserID, rolePerms, grantorAll); verr != nil {
+	if _, offending, verr := s.ValidateGrant(ctx, orgSlug, grantorUserID, rolePerms, grantorAll); verr != nil {
 		return verr
 	} else if len(offending) > 0 {
 		return ErrInviteRoleExceedsGrantor
@@ -60,11 +60,11 @@ func (s *Service) ValidateInviteRoleGrant(ctx context.Context, tenantSlug, grant
 	return nil
 }
 
-func (s *Service) CreateTenantInvite(ctx context.Context, tenantSlug, userID, invitedBy, role string, expiresAt *time.Time) (*TenantInvite, error) {
+func (s *Service) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedBy, role string, expiresAt *time.Time) (*OrgInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return nil, err
 	}
@@ -81,9 +81,9 @@ func (s *Service) CreateTenantInvite(ctx context.Context, tenantSlug, userID, in
 	if err != nil {
 		return nil, err
 	}
-	row, err := s.q.TenantInviteInsert(ctx, db.TenantInviteInsertParams{
+	row, err := s.q.OrgInviteInsert(ctx, db.OrgInviteInsertParams{
 		ID:        inviteID,
-		TenantID:  tenant.ID,
+		OrgID:     org.ID,
 		UserID:    userID,
 		InvitedBy: invitedBy,
 		Role:      role,
@@ -92,9 +92,9 @@ func (s *Service) CreateTenantInvite(ctx context.Context, tenantSlug, userID, in
 	if err != nil {
 		return nil, err
 	}
-	return &TenantInvite{
+	return &OrgInvite{
 		ID:        row.ID,
-		Tenant:    tenant.Slug,
+		Org:       org.Slug,
 		UserID:    row.UserID,
 		InvitedBy: row.InvitedBy,
 		Role:      row.Role,
@@ -105,37 +105,37 @@ func (s *Service) CreateTenantInvite(ctx context.Context, tenantSlug, userID, in
 	}, nil
 }
 
-func (s *Service) ListTenantInvites(ctx context.Context, tenantSlug, status string) ([]TenantInvite, error) {
+func (s *Service) ListOrgInvites(ctx context.Context, orgSlug, status string) ([]OrgInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return nil, err
 	}
 	status = strings.TrimSpace(status)
-	out := make([]TenantInvite, 0, 8)
+	out := make([]OrgInvite, 0, 8)
 	if status == "" {
-		rows, err := s.q.TenantInvitesByTenant(ctx, tenant.ID)
+		rows, err := s.q.OrgInvitesByOrg(ctx, org.ID)
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, TenantInvite{ID: r.ID, Tenant: tenant.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
+			out = append(out, OrgInvite{ID: r.ID, Org: org.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
 		}
 		return out, nil
 	}
-	rows, err := s.q.TenantInvitesByTenantStatus(ctx, db.TenantInvitesByTenantStatusParams{TenantID: tenant.ID, Status: status})
+	rows, err := s.q.OrgInvitesByOrgStatus(ctx, db.OrgInvitesByOrgStatusParams{OrgID: org.ID, Status: status})
 	if err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, TenantInvite{ID: r.ID, Tenant: tenant.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
+		out = append(out, OrgInvite{ID: r.ID, Org: org.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
 	}
 	return out, nil
 }
 
-func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([]TenantInvite, error) {
+func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([]OrgInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -144,36 +144,36 @@ func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([
 		return nil, fmt.Errorf("invalid_user")
 	}
 	status = strings.TrimSpace(status)
-	out := make([]TenantInvite, 0, 8)
+	out := make([]OrgInvite, 0, 8)
 	if status == "" {
-		rows, err := s.q.TenantInvitesByUser(ctx, userID)
+		rows, err := s.q.OrgInvitesByUser(ctx, userID)
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, TenantInvite{ID: r.ID, Tenant: r.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
+			out = append(out, OrgInvite{ID: r.ID, Org: r.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
 		}
 		return out, nil
 	}
-	rows, err := s.q.TenantInvitesByUserStatus(ctx, db.TenantInvitesByUserStatusParams{UserID: userID, Status: status})
+	rows, err := s.q.OrgInvitesByUserStatus(ctx, db.OrgInvitesByUserStatusParams{UserID: userID, Status: status})
 	if err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, TenantInvite{ID: r.ID, Tenant: r.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
+		out = append(out, OrgInvite{ID: r.ID, Org: r.Slug, UserID: r.UserID, InvitedBy: r.InvitedBy, Role: r.Role, Status: r.Status, ExpiresAt: r.ExpiresAt, ActedAt: r.ActedAt, CreatedAt: r.CreatedAt})
 	}
 	return out, nil
 }
 
-func (s *Service) RevokeTenantInvite(ctx context.Context, tenantSlug, inviteID string) error {
+func (s *Service) RevokeOrgInvite(ctx context.Context, orgSlug, inviteID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return err
 	}
-	n, err := s.q.TenantInviteRevoke(ctx, db.TenantInviteRevokeParams{ID: strings.TrimSpace(inviteID), TenantID: tenant.ID})
+	n, err := s.q.OrgInviteRevoke(ctx, db.OrgInviteRevokeParams{ID: strings.TrimSpace(inviteID), OrgID: org.ID})
 	if err != nil {
 		return err
 	}
@@ -183,15 +183,15 @@ func (s *Service) RevokeTenantInvite(ctx context.Context, tenantSlug, inviteID s
 	return nil
 }
 
-func (s *Service) AcceptTenantInvite(ctx context.Context, inviteID, userID string) error {
-	return s.transitionTenantInvite(ctx, inviteID, userID, "accepted")
+func (s *Service) AcceptOrgInvite(ctx context.Context, inviteID, userID string) error {
+	return s.transitionOrgInvite(ctx, inviteID, userID, "accepted")
 }
 
-func (s *Service) DeclineTenantInvite(ctx context.Context, inviteID, userID string) error {
-	return s.transitionTenantInvite(ctx, inviteID, userID, "declined")
+func (s *Service) DeclineOrgInvite(ctx context.Context, inviteID, userID string) error {
+	return s.transitionOrgInvite(ctx, inviteID, userID, "declined")
 }
 
-func (s *Service) transitionTenantInvite(ctx context.Context, inviteID, userID, target string) error {
+func (s *Service) transitionOrgInvite(ctx context.Context, inviteID, userID, target string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -207,7 +207,7 @@ func (s *Service) transitionTenantInvite(ctx context.Context, inviteID, userID, 
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.qtx(tx)
 
-	inv, err := qtx.TenantInviteForUpdate(ctx, inviteID)
+	inv, err := qtx.OrgInviteForUpdate(ctx, inviteID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInviteNotFound
@@ -221,7 +221,7 @@ func (s *Service) transitionTenantInvite(ctx context.Context, inviteID, userID, 
 		return ErrInviteNotPending
 	}
 	if inv.ExpiresAt != nil && inv.ExpiresAt.Before(time.Now().UTC()) {
-		_ = qtx.TenantInviteMarkExpired(ctx, inviteID)
+		_ = qtx.OrgInviteMarkExpired(ctx, inviteID)
 		return ErrInviteExpired
 	}
 
@@ -232,23 +232,23 @@ func (s *Service) transitionTenantInvite(ctx context.Context, inviteID, userID, 
 		// must not be honored once its creator can no longer grant that role.
 		var invitedBy string
 		if err := tx.QueryRow(ctx,
-			`SELECT invited_by::text FROM profiles.tenant_invites WHERE id = $1::uuid`, inviteID,
+			`SELECT invited_by::text FROM profiles.org_invites WHERE id = $1::uuid`, inviteID,
 		).Scan(&invitedBy); err != nil {
 			return err
 		}
-		slugRow, err := qtx.TenantSlugAndPersonalByID(ctx, inv.TenantID)
+		slugRow, err := qtx.OrgSlugAndPersonalByID(ctx, inv.OrgID)
 		if err != nil {
 			return err
 		}
 		if err := s.ValidateInviteRoleGrant(ctx, slugRow.Slug, invitedBy, inv.Role); err != nil {
 			return err
 		}
-		if err := qtx.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: inv.TenantID, UserID: userID, Role: inv.Role}); err != nil {
+		if err := qtx.OrgMembershipUpsertRole(ctx, db.OrgMembershipUpsertRoleParams{OrgID: inv.OrgID, UserID: userID, Role: inv.Role}); err != nil {
 			return err
 		}
 	}
 
-	if err := qtx.TenantInviteSetStatus(ctx, db.TenantInviteSetStatusParams{ID: inviteID, Status: target}); err != nil {
+	if err := qtx.OrgInviteSetStatus(ctx, db.OrgInviteSetStatusParams{ID: inviteID, Status: target}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

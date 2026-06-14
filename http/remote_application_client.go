@@ -13,49 +13,49 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// TenantIssuersClient publishes THIS tenant's issuer registration to a resource
+// OrgIssuersClient publishes THIS org's issuer registration to a resource
 // server's inbound accept endpoint. It is the OUTBOUND (send-side) half of the
 // AuthKit-owned federation handshake — the platform/IdP side (e.g. cozy-art)
 // uses it to tell a resource server (e.g. tensorhub) "trust delegated tokens I
 // mint with this issuer + JWKS URL". The resource server's
-// handleTenantIssuerRegisterPOST stores the registration.
-type TenantIssuersClient struct {
+// handleOrgIssuerRegisterPOST stores the registration.
+type OrgIssuersClient struct {
 	httpClient *http.Client
 	// AuthToken, when set, is sent as a Bearer token on the registration
-	// request. The accept endpoint authorizes by tenant owner/admin, so this must
-	// be a service token for a user who owns the tenant being registered.
+	// request. The accept endpoint authorizes by org owner/admin, so this must
+	// be a service token for a user who owns the org being registered.
 	authToken string
 }
 
-// TenantIssuersClientOption configures a TenantIssuersClient.
-type TenantIssuersClientOption func(*TenantIssuersClient)
+// OrgIssuersClientOption configures a OrgIssuersClient.
+type OrgIssuersClientOption func(*OrgIssuersClient)
 
-// WithTenantIssuersHTTPClient sets the HTTP client used for registration calls.
-func WithTenantIssuersHTTPClient(c *http.Client) TenantIssuersClientOption {
-	return func(fc *TenantIssuersClient) {
+// WithOrgIssuersHTTPClient sets the HTTP client used for registration calls.
+func WithOrgIssuersHTTPClient(c *http.Client) OrgIssuersClientOption {
+	return func(fc *OrgIssuersClient) {
 		if c != nil {
 			fc.httpClient = c
 		}
 	}
 }
 
-// WithTenantIssuersAuthToken sets the Bearer token used to authenticate to the
-// resource server's accept endpoint (owner/admin of the tenant being registered).
-func WithTenantIssuersAuthToken(token string) TenantIssuersClientOption {
-	return func(fc *TenantIssuersClient) { fc.authToken = strings.TrimSpace(token) }
+// WithOrgIssuersAuthToken sets the Bearer token used to authenticate to the
+// resource server's accept endpoint (owner/admin of the org being registered).
+func WithOrgIssuersAuthToken(token string) OrgIssuersClientOption {
+	return func(fc *OrgIssuersClient) { fc.authToken = strings.TrimSpace(token) }
 }
 
-// NewTenantIssuersClient creates a TenantIssuersClient.
-func NewTenantIssuersClient(opts ...TenantIssuersClientOption) *TenantIssuersClient {
-	fc := &TenantIssuersClient{httpClient: defaultOutboundHTTPClient}
+// NewOrgIssuersClient creates a OrgIssuersClient.
+func NewOrgIssuersClient(opts ...OrgIssuersClientOption) *OrgIssuersClient {
+	fc := &OrgIssuersClient{httpClient: defaultOutboundHTTPClient}
 	for _, o := range opts {
 		o(fc)
 	}
 	return fc
 }
 
-// TenantIssuersRegistration is the payload published to a resource server.
-type TenantIssuersRegistration struct {
+// OrgIssuersRegistration is the payload published to a resource server.
+type OrgIssuersRegistration struct {
 	// Slug is this remote_application's slug on the receiving service.
 	Slug string
 	// Issuer is THIS platform's issuer URL (the `iss` of delegated tokens).
@@ -72,7 +72,7 @@ type TenantIssuersRegistration struct {
 // server's accept endpoint (acceptURL is the fully-qualified URL of the inbound
 // handler, e.g. "https://tensorhub.example/api/v1/remote-applications"). It
 // returns an error for non-2xx responses.
-func (fc *TenantIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string, reg TenantIssuersRegistration) error {
+func (fc *OrgIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string, reg OrgIssuersRegistration) error {
 	acceptURL = strings.TrimSpace(acceptURL)
 	if acceptURL == "" {
 		return errors.New("accept URL required")

@@ -18,7 +18,7 @@ const AccessTokenType = jwtkit.AccessTokenType
 
 // RemoteApplicationAccessTokenType is the JOSE `typ` for a JWKS principal's
 // SELF-token (#76): a remote_application signs a JWT whose subject is itself,
-// and AuthKit grants it the STORED authority WE ASSIGNED (its tenant roles +
+// and AuthKit grants it the STORED authority WE ASSIGNED (its org roles +
 // direct permissions), never what the token self-claims.
 const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 

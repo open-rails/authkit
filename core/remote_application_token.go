@@ -20,7 +20,7 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 //     store sha256(secret) + its assigned permissions.
 //   - JWKS principal SELF-token (this file): a remote_application signs its own
 //     JWT; we verify it against the principal's registered JWKS and grant the
-//     authority WE ASSIGNED (tenant roles + remote_application_permissions),
+//     authority WE ASSIGNED (org roles + remote_application_permissions),
 //     NEVER what the token self-claims.
 //
 // This stored-authority self-token is the canonical "act as myself by assigned
@@ -32,7 +32,7 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 // RemoteApplicationAccessParams describes a JWKS principal SELF-token to mint
 // (#76): a remote_application signs a short-lived JWT that authenticates it AS
 // ITSELF. The principal's authority is the STORED set AuthKit assigned it
-// (tenant roles + direct permissions), resolved at verify from the validated
+// (org roles + direct permissions), resolved at verify from the validated
 // `iss`. A self-token therefore carries NO authority claims of its own — and
 // even if a caller adds them, the verifier ignores them.
 type RemoteApplicationAccessParams struct {

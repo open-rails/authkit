@@ -13,7 +13,7 @@ import (
 )
 
 // TestMintAndVerifyDelegatedAccessToken exercises the canonical contract: typ
-// header, tenant/delegated_sub, permissions, attributes, no sub.
+// header, org/delegated_sub, permissions, attributes, no sub.
 func TestMintAndVerifyDelegatedAccessToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
@@ -135,10 +135,10 @@ func TestDelegatedAccessRejectsSubPlusDelegatedSub(t *testing.T) {
 	}
 }
 
-// TestDelegatedAccessRejectsTenantClaim: hard cut — a delegated token carries
-// NO tenant claims; the validated issuer is the tenant identity. A token still
-// carrying a `tenant` slug claim is rejected like any other forbidden claim.
-func TestDelegatedAccessRejectsTenantClaim(t *testing.T) {
+// TestDelegatedAccessRejectsOrgClaim: hard cut — a delegated token carries
+// NO org claims; the validated issuer is the org identity. A token still
+// carrying a `org` slug claim is rejected like any other forbidden claim.
+func TestDelegatedAccessRejectsOrgClaim(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	now := time.Now()
@@ -147,12 +147,12 @@ func TestDelegatedAccessRejectsTenantClaim(t *testing.T) {
 		"aud":           []string{"openrails"},
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
-		"tenant":        "cozy-art",
+		"org":           "cozy-art",
 		"delegated_sub": "ext-1",
 	}, map[string]any{"typ": DelegatedAccessTokenType})
 	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
-	if err == nil || err.Error() != "delegated_access_has_tenant" {
-		t.Fatalf("expected delegated_access_has_tenant, got %v", err)
+	if err == nil || err.Error() != "delegated_access_has_org" {
+		t.Fatalf("expected delegated_access_has_org, got %v", err)
 	}
 }
 

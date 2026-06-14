@@ -9,10 +9,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// H-4: tenant invites must enforce the no-escalation invariant — the inviter
+// H-4: org invites must enforce the no-escalation invariant — the inviter
 // must hold every permission the invited role confers — at BOTH invite-create
 // time and accept time (the inviter may be demoted in between). Without this, a
-// non-owner with tenant:members:manage could invite a confederate as "owner".
+// non-owner with org:members:manage could invite a confederate as "owner".
 
 // Deterministic, no DB: the check fails closed without a Postgres backend rather
 // than silently allowing the grant.
@@ -37,12 +37,12 @@ func inviteTestPG(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-func TestTenantInviteNoEscalation(t *testing.T) {
+func TestOrgInviteNoEscalation(t *testing.T) {
 	pool := inviteTestPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://example.com"}, Keyset{}).WithPostgres(pool)
 
-	const slug = "esc-test-tenant"
+	const slug = "esc-test-org"
 	cleanupUser := func(email string) string {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
 		u, err := svc.CreateUser(ctx, email, email[:len(email)-len("@example.com")])
@@ -53,17 +53,17 @@ func TestTenantInviteNoEscalation(t *testing.T) {
 		return u.ID
 	}
 
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug) })
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug) })
 
 	ownerID := cleanupUser("esc-owner@example.com")
 	memberID := cleanupUser("esc-member@example.com")
 	inviteeID := cleanupUser("esc-invitee@example.com")
 
-	if _, err := svc.CreateTenant(ctx, slug); err != nil {
-		t.Fatalf("create tenant: %v", err)
+	if _, err := svc.CreateOrg(ctx, slug); err != nil {
+		t.Fatalf("create org: %v", err)
 	}
-	// owner holds the tenant `owner` role (=`*`); member is a plain member.
+	// owner holds the org `owner` role (=`*`); member is a plain member.
 	if err := svc.AddMember(ctx, slug, ownerID); err != nil {
 		t.Fatalf("add owner member: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestTenantInviteNoEscalation(t *testing.T) {
 
 	t.Run("non-owner may not grant owner (invite-time)", func(t *testing.T) {
 		// A plain member — and equivalently a member holding only
-		// tenant:members:manage — lacks `*`, so it cannot mint an owner invite.
+		// org:members:manage — lacks `*`, so it cannot mint an owner invite.
 		if err := svc.ValidateInviteRoleGrant(ctx, slug, memberID, "owner"); !errors.Is(err, ErrInviteRoleExceedsGrantor) {
 			t.Fatalf("member granting owner: got %v, want ErrInviteRoleExceedsGrantor", err)
 		}
@@ -93,7 +93,7 @@ func TestTenantInviteNoEscalation(t *testing.T) {
 
 	t.Run("accept-time re-check blocks a demoted inviter", func(t *testing.T) {
 		// Owner creates a legitimate owner-role invite...
-		inv, err := svc.CreateTenantInvite(ctx, slug, inviteeID, ownerID, "owner", nil)
+		inv, err := svc.CreateOrgInvite(ctx, slug, inviteeID, ownerID, "owner", nil)
 		if err != nil {
 			t.Fatalf("create invite: %v", err)
 		}
@@ -102,7 +102,7 @@ func TestTenantInviteNoEscalation(t *testing.T) {
 			t.Fatalf("demote inviter: %v", err)
 		}
 		// Accept must now be refused — the grantor no longer holds owner authority.
-		if err := svc.AcceptTenantInvite(ctx, inv.ID, inviteeID); !errors.Is(err, ErrInviteRoleExceedsGrantor) {
+		if err := svc.AcceptOrgInvite(ctx, inv.ID, inviteeID); !errors.Is(err, ErrInviteRoleExceedsGrantor) {
 			t.Fatalf("accept after demotion: got %v, want ErrInviteRoleExceedsGrantor", err)
 		}
 		// And no membership/role was granted to the invitee.
@@ -119,11 +119,11 @@ func TestTenantInviteNoEscalation(t *testing.T) {
 		if err := svc.AssignRole(ctx, slug, ownerID, "owner"); err != nil {
 			t.Fatalf("re-promote owner: %v", err)
 		}
-		inv, err := svc.CreateTenantInvite(ctx, slug, inviteeID, ownerID, "member", nil)
+		inv, err := svc.CreateOrgInvite(ctx, slug, inviteeID, ownerID, "member", nil)
 		if err != nil {
 			t.Fatalf("create member invite: %v", err)
 		}
-		if err := svc.AcceptTenantInvite(ctx, inv.ID, inviteeID); err != nil {
+		if err := svc.AcceptOrgInvite(ctx, inv.ID, inviteeID); err != nil {
 			t.Fatalf("accept member invite: %v", err)
 		}
 		roles, err := svc.ReadMemberRoles(ctx, slug, inviteeID)

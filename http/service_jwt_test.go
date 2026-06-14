@@ -19,8 +19,8 @@ func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string
 	t.Helper()
 	v := NewVerifier(WithSkew(time.Second))
 	require.NoError(t, v.AddIssuer(issuer, audiences, IssuerOptions{
-		RawKeys:    map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-		TenantSlug: "hentai0",
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+		OrgSlug: "hentai0",
 	}))
 	return v
 }
@@ -43,7 +43,7 @@ func TestVerifyServiceJWTValidToken(t *testing.T) {
 	claims, principal, err := v.VerifyServiceJWT(context.Background(), token)
 	require.NoError(t, err)
 	require.Equal(t, "service:hentai0-runtime", claims.Subject)
-	require.Equal(t, "hentai0", principal.Tenant)
+	require.Equal(t, "hentai0", principal.Org)
 	require.Equal(t, []string{"openrails:entitlements:read"}, principal.Permissions)
 	require.Equal(t, []core.ServiceTokenResource{{Kind: "openrails.tenant", ID: "hentai0"}}, principal.Resources)
 }
@@ -259,7 +259,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	})
 }
 
-func TestVerifyServiceJWTDisabledTenantIssuerFailsClosed(t *testing.T) {
+func TestVerifyServiceJWTDisabledOrgIssuerFailsClosed(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 	issuer := "https://disabled-issuer.example"
@@ -269,7 +269,7 @@ func TestVerifyServiceJWTDisabledTenantIssuerFailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	v := NewVerifier()
-	src := disabledTenantIssuerSource{issuer: core.RemoteApplication{
+	src := disabledOrgIssuerSource{issuer: core.RemoteApplication{
 		Slug: "hentai0", Issuer: issuer, JWKSURI: "https://disabled-issuer.example/jwks", Enabled: false,
 	}}
 	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"openrails"}))
@@ -277,15 +277,15 @@ func TestVerifyServiceJWTDisabledTenantIssuerFailsClosed(t *testing.T) {
 	require.EqualError(t, err, "invalid_token")
 }
 
-type disabledTenantIssuerSource struct {
+type disabledOrgIssuerSource struct {
 	issuer core.RemoteApplication
 }
 
-func (s disabledTenantIssuerSource) ListRemoteApplications(context.Context, bool) ([]core.RemoteApplication, error) {
+func (s disabledOrgIssuerSource) ListRemoteApplications(context.Context, bool) ([]core.RemoteApplication, error) {
 	return nil, nil
 }
 
-func (s disabledTenantIssuerSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
+func (s disabledOrgIssuerSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
 	if issuerID == s.issuer.Issuer {
 		return &s.issuer, nil
 	}

@@ -20,25 +20,25 @@ func jsonEqual(t *testing.T, a, b json.RawMessage) bool {
 }
 
 // TestRemoteApplicationPolymorphicMembership proves a remote_application holds a
-// tenant role via the SAME machinery as a user (#74): assign -> resolve ->
-// remove, all through tenant_memberships/tenant_roles.
+// org role via the SAME machinery as a user (#74): assign -> resolve ->
+// remove, all through org_memberships/org_roles.
 func TestRemoteApplicationPolymorphicMembership(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
 
-	const tslug = "poly-tenant"
+	const tslug = "poly-org"
 	const aslug = "poly-app"
 	const iss = "https://poly.example/iss"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, aslug)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
 	})
 
-	if _, err := svc.CreateTenant(ctx, tslug); err != nil {
-		t.Fatalf("create tenant: %v", err)
+	if _, err := svc.CreateOrg(ctx, tslug); err != nil {
+		t.Fatalf("create org: %v", err)
 	}
 	if err := svc.DefineRole(ctx, tslug, "catalog-admin"); err != nil {
 		t.Fatalf("define role: %v", err)
@@ -48,23 +48,23 @@ func TestRemoteApplicationPolymorphicMembership(t *testing.T) {
 		t.Fatalf("create remote_application: %v", err)
 	}
 
-	// Assign the remote_app the role on the tenant.
+	// Assign the remote_app the role on the org.
 	if err := svc.AddRemoteApplicationMember(ctx, tslug, ra.ID, "catalog-admin"); err != nil {
 		t.Fatalf("add member: %v", err)
 	}
-	role, err := svc.RemoteApplicationTenantRole(ctx, tslug, ra.ID)
+	role, err := svc.RemoteApplicationOrgRole(ctx, tslug, ra.ID)
 	if err != nil || role != "catalog-admin" {
 		t.Fatalf("role=%q err=%v, want catalog-admin", role, err)
 	}
 
 	// The polymorphic resolution (verifier path) surfaces the same membership.
-	memberships, err := svc.RemoteApplicationTenantRoles(ctx, ra.ID)
+	memberships, err := svc.RemoteApplicationOrgRoles(ctx, ra.ID)
 	if err != nil {
 		t.Fatalf("resolve roles: %v", err)
 	}
 	found := false
 	for _, m := range memberships {
-		if m.Tenant == tslug {
+		if m.Org == tslug {
 			for _, r := range m.Roles {
 				if r == "catalog-admin" {
 					found = true
@@ -76,12 +76,12 @@ func TestRemoteApplicationPolymorphicMembership(t *testing.T) {
 		t.Fatalf("remote_app role not resolved via polymorphic membership: %+v", memberships)
 	}
 
-	// A user membership in the SAME tenant is independent (different member_kind).
+	// A user membership in the SAME org is independent (different member_kind).
 	if err := svc.RemoveRemoteApplicationMember(ctx, tslug, ra.ID); err != nil {
 		t.Fatalf("remove member: %v", err)
 	}
-	if _, err := svc.RemoteApplicationTenantRole(ctx, tslug, ra.ID); err != ErrNotTenantMember {
-		t.Fatalf("after remove err=%v, want ErrNotTenantMember", err)
+	if _, err := svc.RemoteApplicationOrgRole(ctx, tslug, ra.ID); err != ErrNotOrgMember {
+		t.Fatalf("after remove err=%v, want ErrNotOrgMember", err)
 	}
 }
 

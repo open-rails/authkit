@@ -13,11 +13,11 @@ const ownerNamespaceStateRegisteredUser = "registered_user"
 const ownerNamespaceStateParkedUser = "parked_user"
 
 const (
-	adminAccountKindTenant = "tenant"
-	adminAccountKindUser   = "user"
+	adminAccountKindOrg  = "org"
+	adminAccountKindUser = "user"
 )
 
-type ownerNamespaceTenantPublicInfo struct {
+type ownerNamespaceOrgPublicInfo struct {
 	ID          string `json:"id"`
 	Slug        string `json:"slug"`
 	IsPersonal  bool   `json:"is_personal"`
@@ -31,19 +31,19 @@ type ownerNamespaceUserPublicInfo struct {
 }
 
 type ownerNamespaceLookupResponse struct {
-	OK            bool                            `json:"ok"`
-	Slug          string                          `json:"slug"`
-	RequestedSlug string                          `json:"requested_slug"`
-	CanonicalSlug string                          `json:"canonical_slug"`
-	State         string                          `json:"state"`
-	Status        string                          `json:"status"`
-	Claimable     bool                            `json:"claimable"`
-	Exists        bool                            `json:"exists"`
-	EntityKind    string                          `json:"entity_kind"`
-	Renamed       bool                            `json:"renamed"`
-	HoldUntil     *time.Time                      `json:"hold_until,omitempty"`
-	Tenant        *ownerNamespaceTenantPublicInfo `json:"tenant,omitempty"`
-	User          *ownerNamespaceUserPublicInfo   `json:"user,omitempty"`
+	OK            bool                          `json:"ok"`
+	Slug          string                        `json:"slug"`
+	RequestedSlug string                        `json:"requested_slug"`
+	CanonicalSlug string                        `json:"canonical_slug"`
+	State         string                        `json:"state"`
+	Status        string                        `json:"status"`
+	Claimable     bool                          `json:"claimable"`
+	Exists        bool                          `json:"exists"`
+	EntityKind    string                        `json:"entity_kind"`
+	Renamed       bool                          `json:"renamed"`
+	HoldUntil     *time.Time                    `json:"hold_until,omitempty"`
+	Org           *ownerNamespaceOrgPublicInfo  `json:"org,omitempty"`
+	User          *ownerNamespaceUserPublicInfo `json:"user,omitempty"`
 }
 
 func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Req
 	lookup, err := s.svc.LookupOwnerNamespace(r.Context(), slug)
 	if err != nil {
 		switch {
-		case errors.Is(err, core.ErrInvalidTenantSlug):
+		case errors.Is(err, core.ErrInvalidOrgSlug):
 			badRequest(w, "invalid_slug")
 			return
 		default:
@@ -78,13 +78,13 @@ func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Req
 		Renamed:       lookup.Renamed,
 		HoldUntil:     lookup.HoldUntil,
 	}
-	if lookup.Tenant != nil {
-		resp.Tenant = &ownerNamespaceTenantPublicInfo{
-			ID:          strings.TrimSpace(lookup.Tenant.ID),
-			Slug:        strings.TrimSpace(lookup.Tenant.Slug),
-			IsPersonal:  lookup.Tenant.IsPersonal,
-			OwnerUserID: strings.TrimSpace(lookup.Tenant.OwnerUserID),
-			State:       string(lookup.Tenant.State),
+	if lookup.Org != nil {
+		resp.Org = &ownerNamespaceOrgPublicInfo{
+			ID:          strings.TrimSpace(lookup.Org.ID),
+			Slug:        strings.TrimSpace(lookup.Org.Slug),
+			IsPersonal:  lookup.Org.IsPersonal,
+			OwnerUserID: strings.TrimSpace(lookup.Org.OwnerUserID),
+			State:       string(lookup.Org.State),
 		}
 	}
 	if lookup.User != nil {
@@ -114,15 +114,15 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	switch normalizeAdminAccountKind(req.Kind) {
-	case adminAccountKindTenant:
-		tenantID, created, err := s.svc.ParkTenantNamespace(r.Context(), req.Slug)
+	case adminAccountKindOrg:
+		orgID, created, err := s.svc.ParkOrgNamespace(r.Context(), req.Slug)
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrOwnerSlugTaken):
 				sendErr(w, http.StatusConflict, "owner_slug_taken")
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
 				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
-			case errors.Is(err, core.ErrInvalidTenantSlug):
+			case errors.Is(err, core.ErrInvalidOrgSlug):
 				badRequest(w, "invalid_slug")
 			default:
 				serverErr(w, "account_park_failed")
@@ -130,15 +130,15 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":        true,
-			"kind":      adminAccountKindTenant,
-			"tenant_id": strings.TrimSpace(tenantID),
-			"created":   created,
-			"state":     string(core.OwnerNamespaceStateParkedTenant),
+			"ok":      true,
+			"kind":    adminAccountKindOrg,
+			"org_id":  strings.TrimSpace(orgID),
+			"created": created,
+			"state":   string(core.OwnerNamespaceStateParkedOrg),
 		})
 		return
 	case adminAccountKindUser:
-		userID, tenantID, created, err := s.svc.ParkUserNamespace(r.Context(), req.Slug)
+		userID, orgID, created, err := s.svc.ParkUserNamespace(r.Context(), req.Slug)
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrReservedAccountNotFound):
@@ -151,7 +151,7 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 				sendErr(w, http.StatusConflict, "account_already_claimed")
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
 				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
-			case errors.Is(err, core.ErrInvalidTenantSlug):
+			case errors.Is(err, core.ErrInvalidOrgSlug):
 				badRequest(w, "invalid_slug")
 			default:
 				serverErr(w, "account_park_failed")
@@ -159,12 +159,12 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":        true,
-			"kind":      adminAccountKindUser,
-			"user_id":   strings.TrimSpace(userID),
-			"tenant_id": strings.TrimSpace(tenantID),
-			"created":   created,
-			"state":     ownerNamespaceStateParkedUser,
+			"ok":      true,
+			"kind":    adminAccountKindUser,
+			"user_id": strings.TrimSpace(userID),
+			"org_id":  strings.TrimSpace(orgID),
+			"created": created,
+			"state":   ownerNamespaceStateParkedUser,
 		})
 		return
 	default:
@@ -187,12 +187,12 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 		return
 	}
 	switch normalizeAdminAccountKind(req.Kind) {
-	case adminAccountKindTenant:
+	case adminAccountKindOrg:
 		if strings.TrimSpace(req.OwnerUser) == "" {
 			badRequest(w, "invalid_request")
 			return
 		}
-		tenantID, created, err := s.svc.ClaimTenantNamespace(r.Context(), req.Slug, req.OwnerUser)
+		orgID, created, err := s.svc.ClaimOrgNamespace(r.Context(), req.Slug, req.OwnerUser)
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrUserNotFound):
@@ -200,28 +200,28 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 			case errors.Is(err, core.ErrOwnerMembershipRequired):
 				badRequest(w, "owner_membership_required")
 			case errors.Is(err, core.ErrOwnerNamespaceAlreadyClaimed):
-				sendErr(w, http.StatusConflict, "tenant_already_claimed")
+				sendErr(w, http.StatusConflict, "org_already_claimed")
 			case errors.Is(err, core.ErrOwnerSlugTaken):
 				sendErr(w, http.StatusConflict, "owner_slug_taken")
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
 				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
-			case errors.Is(err, core.ErrInvalidTenantSlug):
+			case errors.Is(err, core.ErrInvalidOrgSlug):
 				badRequest(w, "invalid_slug")
 			default:
-				serverErr(w, "account_claim_tenant_failed")
+				serverErr(w, "account_claim_org_failed")
 			}
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":        true,
-			"kind":      adminAccountKindTenant,
-			"tenant_id": strings.TrimSpace(tenantID),
-			"state":     string(core.OwnerNamespaceStateRegistered),
-			"created":   created,
+			"ok":      true,
+			"kind":    adminAccountKindOrg,
+			"org_id":  strings.TrimSpace(orgID),
+			"state":   string(core.OwnerNamespaceStateRegistered),
+			"created": created,
 		})
 		return
 	case adminAccountKindUser:
-		userID, tenantID, created, err := s.svc.ClaimUserNamespace(r.Context(), req.Slug)
+		userID, orgID, created, err := s.svc.ClaimUserNamespace(r.Context(), req.Slug)
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrUserNotFound):
@@ -232,7 +232,7 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 				sendErr(w, http.StatusConflict, "account_already_claimed")
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
 				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
-			case errors.Is(err, core.ErrInvalidTenantSlug):
+			case errors.Is(err, core.ErrInvalidOrgSlug):
 				badRequest(w, "invalid_slug")
 			default:
 				serverErr(w, "account_claim_user_failed")
@@ -240,12 +240,12 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":        true,
-			"kind":      adminAccountKindUser,
-			"user_id":   strings.TrimSpace(userID),
-			"tenant_id": strings.TrimSpace(tenantID),
-			"state":     ownerNamespaceStateRegisteredUser,
-			"created":   created,
+			"ok":      true,
+			"kind":    adminAccountKindUser,
+			"user_id": strings.TrimSpace(userID),
+			"org_id":  strings.TrimSpace(orgID),
+			"state":   ownerNamespaceStateRegisteredUser,
+			"created": created,
 		})
 		return
 	default:
@@ -269,7 +269,7 @@ func (s *Service) handleAdminAccountsRestrictPOST(w http.ResponseWriter, r *http
 	restricted, alreadyRestricted, err := s.svc.RestrictOwnerNamespaceSlugs(r.Context(), req.Slugs)
 	if err != nil {
 		switch {
-		case errors.Is(err, core.ErrInvalidTenantSlug):
+		case errors.Is(err, core.ErrInvalidOrgSlug):
 			badRequest(w, "invalid_slug")
 		case errors.Is(err, core.ErrOwnerNamespaceBatchEmpty):
 			badRequest(w, "invalid_request")
@@ -303,7 +303,7 @@ func (s *Service) handleAdminAccountsUnrestrictPOST(w http.ResponseWriter, r *ht
 	unrestricted, notRestricted, err := s.svc.UnrestrictOwnerNamespaceSlugs(r.Context(), req.Slugs)
 	if err != nil {
 		switch {
-		case errors.Is(err, core.ErrInvalidTenantSlug):
+		case errors.Is(err, core.ErrInvalidOrgSlug):
 			badRequest(w, "invalid_slug")
 		case errors.Is(err, core.ErrOwnerNamespaceBatchEmpty):
 			badRequest(w, "invalid_request")

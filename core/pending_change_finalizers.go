@@ -11,7 +11,7 @@ import (
 // finalizeRegisterEmail completes an email+password signup: it enforces
 // "first to verify wins" (email/username may have been taken since the pending
 // record was created), creates the verified user, applies the preferred locale,
-// and provisions a personal tenant when the host opts in. Mirrors the historical
+// and provisions a personal org when the host opts in. Mirrors the historical
 // ConfirmPendingRegistration body.
 func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) (string, error) {
 	email := rec.Target
@@ -36,8 +36,8 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 			return "", err
 		}
 	}
-	if s.opts.AutoCreatePersonalTenantsEnabled() {
-		if err := s.ensurePersonalTenantForUser(ctx, uid, username); err != nil {
+	if s.opts.AutoCreatePersonalOrgsEnabled() {
+		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
 			return "", err
 		}
 	}
@@ -45,7 +45,7 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 }
 
 // finalizeRegisterPhone completes a phone+password signup. Mirrors the historical
-// ConfirmPendingPhoneRegistration body (no personal-tenant provisioning, matching
+// ConfirmPendingPhoneRegistration body (no personal-org provisioning, matching
 // prior behavior).
 func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) (string, error) {
 	phone := rec.Target

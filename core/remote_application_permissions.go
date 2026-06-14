@@ -9,8 +9,8 @@ import (
 
 // Direct-permission grants for a JWKS principal (#76). A remote_application's
 // STORED authority is the union of these direct permissions and the permissions
-// its assigned tenant roles expand to (RemoteApplicationTenantRoles ->
-// tenant_role_permissions). Mirrors service_token_permissions: authority is what
+// its assigned org roles expand to (RemoteApplicationOrgRoles ->
+// org_role_permissions). Mirrors service_token_permissions: authority is what
 // WE ASSIGNED, never what a self-signed token claims.
 
 // AddRemoteApplicationPermission grants a direct permission to a
@@ -74,12 +74,12 @@ func (s *Service) ListRemoteApplicationPermissions(ctx context.Context, appID st
 }
 
 // ResolveRemoteApplicationAuthority returns a JWKS principal's STORED authority:
-// its tenant memberships (each a tenant slug + role names) and the effective
+// its org memberships (each a org slug + role names) and the effective
 // permission set — the union of its DIRECT permissions and the permissions its
-// tenant roles expand to against the catalog. This is the verifier's source of
+// org roles expand to against the catalog. This is the verifier's source of
 // truth for "what may this remote_application do AS ITSELF" (#76); self-claimed
 // authority on the token is ignored.
-func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []TenantMembership, permissions []string, err error) {
+func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []OrgMembership, permissions []string, err error) {
 	if err := s.requirePG(); err != nil {
 		return nil, nil, err
 	}
@@ -87,7 +87,7 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	if appID == "" {
 		return nil, nil, ErrInvalidRemoteApplication
 	}
-	memberships, err = s.RemoteApplicationTenantRoles(ctx, appID)
+	memberships, err = s.RemoteApplicationOrgRoles(ctx, appID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -95,7 +95,7 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	eff := map[string]bool{}
 	for _, m := range memberships {
 		for _, role := range m.Roles {
-			toks, terr := s.GetRolePermissions(ctx, m.Tenant, role)
+			toks, terr := s.GetRolePermissions(ctx, m.Org, role)
 			if terr != nil {
 				return nil, nil, terr
 			}

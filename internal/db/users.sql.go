@@ -10,37 +10,53 @@ import (
 	"time"
 )
 
-const personalTenantIDSlugByOwner = `-- name: PersonalTenantIDSlugByOwner :one
+const orgUpdateSlugUnconditional = `-- name: OrgUpdateSlugUnconditional :exec
+UPDATE profiles.orgs SET slug = $1, updated_at = now() WHERE id = $2::uuid
+`
+
+type OrgUpdateSlugUnconditionalParams struct {
+	Slug string
+	ID   string
+}
+
+// OrgUpdateSlugUnconditional intentionally has no deleted_at filter — it
+// rides the user-rename transaction in updateUsernameImpl.
+func (q *Queries) OrgUpdateSlugUnconditional(ctx context.Context, arg OrgUpdateSlugUnconditionalParams) error {
+	_, err := q.db.Exec(ctx, orgUpdateSlugUnconditional, arg.Slug, arg.ID)
+	return err
+}
+
+const personalOrgIDSlugByOwner = `-- name: PersonalOrgIDSlugByOwner :one
 SELECT id::text, slug
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE owner_user_id = $1::uuid AND is_personal = true AND deleted_at IS NULL
 `
 
-type PersonalTenantIDSlugByOwnerRow struct {
+type PersonalOrgIDSlugByOwnerRow struct {
 	ID   string
 	Slug string
 }
 
-func (q *Queries) PersonalTenantIDSlugByOwner(ctx context.Context, ownerUserID string) (PersonalTenantIDSlugByOwnerRow, error) {
-	row := q.db.QueryRow(ctx, personalTenantIDSlugByOwner, ownerUserID)
-	var i PersonalTenantIDSlugByOwnerRow
+func (q *Queries) PersonalOrgIDSlugByOwner(ctx context.Context, ownerUserID string) (PersonalOrgIDSlugByOwnerRow, error) {
+	row := q.db.QueryRow(ctx, personalOrgIDSlugByOwner, ownerUserID)
+	var i PersonalOrgIDSlugByOwnerRow
 	err := row.Scan(&i.ID, &i.Slug)
 	return i, err
 }
 
-const personalTenantInsertBasic = `-- name: PersonalTenantInsertBasic :exec
-INSERT INTO profiles.tenants (id, slug, is_personal, owner_user_id)
+const personalOrgInsertBasic = `-- name: PersonalOrgInsertBasic :exec
+INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id)
 VALUES ($1::uuid, $2, true, $3::uuid)
 `
 
-type PersonalTenantInsertBasicParams struct {
+type PersonalOrgInsertBasicParams struct {
 	ID          string
 	Slug        string
 	OwnerUserID string
 }
 
-func (q *Queries) PersonalTenantInsertBasic(ctx context.Context, arg PersonalTenantInsertBasicParams) error {
-	_, err := q.db.Exec(ctx, personalTenantInsertBasic, arg.ID, arg.Slug, arg.OwnerUserID)
+func (q *Queries) PersonalOrgInsertBasic(ctx context.Context, arg PersonalOrgInsertBasicParams) error {
+	_, err := q.db.Exec(ctx, personalOrgInsertBasic, arg.ID, arg.Slug, arg.OwnerUserID)
 	return err
 }
 
@@ -57,22 +73,6 @@ type SessionsRevokeAllQuietParams struct {
 // SessionsRevokeAll it returns nothing (no per-session revoke logging).
 func (q *Queries) SessionsRevokeAllQuiet(ctx context.Context, arg SessionsRevokeAllQuietParams) error {
 	_, err := q.db.Exec(ctx, sessionsRevokeAllQuiet, arg.UserID, arg.Issuer)
-	return err
-}
-
-const tenantUpdateSlugUnconditional = `-- name: TenantUpdateSlugUnconditional :exec
-UPDATE profiles.tenants SET slug = $1, updated_at = now() WHERE id = $2::uuid
-`
-
-type TenantUpdateSlugUnconditionalParams struct {
-	Slug string
-	ID   string
-}
-
-// TenantUpdateSlugUnconditional intentionally has no deleted_at filter — it
-// rides the user-rename transaction in updateUsernameImpl.
-func (q *Queries) TenantUpdateSlugUnconditional(ctx context.Context, arg TenantUpdateSlugUnconditionalParams) error {
-	_, err := q.db.Exec(ctx, tenantUpdateSlugUnconditional, arg.Slug, arg.ID)
 	return err
 }
 

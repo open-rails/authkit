@@ -26,6 +26,64 @@ type ProfilesGlobalUserRole struct {
 	UpdatedAt time.Time
 }
 
+type ProfilesOrg struct {
+	ID          string
+	Slug        string
+	IsPersonal  bool
+	OwnerUserID *string
+	// Arbitrary org metadata (internal/admin flags such as reserved)
+	Metadata  []byte
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
+}
+
+type ProfilesOrgInvite struct {
+	ID        string
+	OrgID     string
+	UserID    string
+	InvitedBy string
+	Role      string
+	Status    string
+	ExpiresAt *time.Time
+	ActedAt   *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
+}
+
+type ProfilesOrgMembership struct {
+	OrgID string
+	// Principal id; referent table named by member_kind.
+	MemberID  string
+	Role      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
+	// Principal kind: user | remote_application. One membership system serves both.
+	MemberKind string
+}
+
+type ProfilesOrgRename struct {
+	ID        int64
+	OrgID     string
+	FromSlug  string
+	RenamedAt time.Time
+}
+
+type ProfilesOrgRole struct {
+	OrgID     string
+	Role      string
+	CreatedAt time.Time
+}
+
+type ProfilesOrgRolePermission struct {
+	OrgID      string
+	Role       string
+	Permission string
+	CreatedAt  time.Time
+}
+
 type ProfilesOwnerReservedName struct {
 	Slug      string
 	CreatedAt time.Time
@@ -48,11 +106,11 @@ type ProfilesRefreshSession struct {
 	IpAddr              *string
 }
 
-// Federation principals: external systems that authenticate by signing JWTs verified against their JWKS/public keys. Members of tenants with roles via polymorphic tenant_memberships.
+// Federation principals: external systems that authenticate by signing JWTs verified against their JWKS/public keys. Members of orgs with roles via polymorphic org_memberships.
 type ProfilesRemoteApplication struct {
 	ID   string
 	Slug string
-	// Creator-audit only (nullable, SET NULL on user delete). Ownership lives in tenant_id.
+	// Creator-audit only (nullable, SET NULL on user delete). Ownership lives in org_id.
 	OwnerUserID *string
 	Issuer      string
 	JwksUri     string
@@ -64,7 +122,7 @@ type ProfilesRemoteApplication struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
-	TenantID    *string
+	OrgID       *string
 }
 
 // REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).
@@ -86,7 +144,7 @@ type ProfilesRemoteApplicationPermission struct {
 
 type ProfilesServiceToken struct {
 	ID         string
-	TenantID   string
+	OrgID      string
 	KeyID      string
 	SecretHash []byte
 	Name       string
@@ -107,64 +165,6 @@ type ProfilesServiceTokenResource struct {
 	TokenID    string
 	Kind       string
 	ResourceID string
-	CreatedAt  time.Time
-}
-
-type ProfilesTenant struct {
-	ID          string
-	Slug        string
-	IsPersonal  bool
-	OwnerUserID *string
-	// Arbitrary tenant metadata (internal/admin flags such as reserved)
-	Metadata  []byte
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
-}
-
-type ProfilesTenantInvite struct {
-	ID        string
-	TenantID  string
-	UserID    string
-	InvitedBy string
-	Role      string
-	Status    string
-	ExpiresAt *time.Time
-	ActedAt   *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
-}
-
-type ProfilesTenantMembership struct {
-	TenantID string
-	// Principal id; referent table named by member_kind.
-	MemberID  string
-	Role      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
-	// Principal kind: user | remote_application. One membership system serves both.
-	MemberKind string
-}
-
-type ProfilesTenantRename struct {
-	ID        int64
-	TenantID  string
-	FromSlug  string
-	RenamedAt time.Time
-}
-
-type ProfilesTenantRole struct {
-	TenantID  string
-	Role      string
-	CreatedAt time.Time
-}
-
-type ProfilesTenantRolePermission struct {
-	TenantID   string
-	Role       string
-	Permission string
 	CreatedAt  time.Time
 }
 

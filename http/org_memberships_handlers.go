@@ -7,41 +7,41 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleTenantMembersGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
 	if !gateOK {
 		return
 	}
-	members, err := s.svc.ListTenantMembers(r.Context(), canonical)
+	members, err := s.svc.ListOrgMembers(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "tenant_memberships_lookup_failed")
+		serverErr(w, "org_memberships_lookup_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"members": members})
 }
 
-func (s *Service) handleTenantMembersPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
 	if !gateOK {
 		return
 	}
@@ -59,14 +59,14 @@ func (s *Service) handleTenantMembersPOST(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-func (s *Service) handleTenantMembersDELETE(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -75,16 +75,16 @@ func (s *Service) handleTenantMembersDELETE(w http.ResponseWriter, r *http.Reque
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
 	if !gateOK {
 		return
 	}
 	if err := s.svc.RemoveMember(r.Context(), canonical, targetUserID); err != nil {
-		if err == core.ErrPersonalTenantOwner {
-			badRequest(w, "cannot_remove_personal_tenant_owner")
+		if err == core.ErrPersonalOrgOwner {
+			badRequest(w, "cannot_remove_personal_org_owner")
 			return
 		}
-		if err == core.ErrLastTenantOwner {
+		if err == core.ErrLastOrgOwner {
 			badRequest(w, "cannot_remove_last_owner")
 			return
 		}

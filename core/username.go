@@ -67,7 +67,7 @@ func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
 		return false
 	}
 	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateTenantSlug(slug) != nil {
+	if slug == "" || validateOrgSlug(slug) != nil {
 		return false
 	}
 	ok, err := s.ownerSlugAvailable(ctx, slug, "", "")

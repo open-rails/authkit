@@ -58,7 +58,7 @@ func TestSendVerificationPayload(t *testing.T) {
 		Categories: []string{
 			"platform",
 		},
-		CustomArgs: map[string]string{"tenant": "cozy-art"},
+		CustomArgs: map[string]string{"org": "cozy-art"},
 		VerificationLinkURL: func(token string) string {
 			return "https://example.com/verify?token=" + token
 		},

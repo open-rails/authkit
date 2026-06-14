@@ -22,7 +22,7 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 // audience validation. The token represents a delegated actor
 // (DelegatedSubject) acting under the resource account that the VALIDATED
 // `iss` resolves to in the receiver's issuer registry — the token itself
-// carries no tenant claims. It NEVER carries a normal `sub` — no local account
+// carries no org claims. It NEVER carries a normal `sub` — no local account
 // is implied in the receiving service.
 type DelegatedAccessParams struct {
 	// Issuer becomes the `iss` claim: the AuthKit issuer that signed the token.

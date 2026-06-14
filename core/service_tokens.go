@@ -17,14 +17,14 @@ import (
 )
 
 // Service Tokens (service tokens): long-lived, revocable bearer credentials
-// owned by an tenant (not a person), for machine/automation callers. A service token carries
+// owned by an org (not a person), for machine/automation callers. A service token carries
 // a set of app-defined PERMISSION strings (opaque to authkit; the embedding app
 // defines and enforces what each one means). See agents #43 (lifecycle) and #44
 // (permission model).
 
 var (
 	// ErrInvalidAccessToken indicates a service token that does not exist, has a bad
-	// secret, or whose owning tenant is gone. Deliberately indistinguishable from
+	// secret, or whose owning org is gone. Deliberately indistinguishable from
 	// a malformed token so callers learn nothing from the error.
 	ErrInvalidAccessToken = errors.New("invalid_token")
 	// ErrAccessTokenRevoked indicates the service token was explicitly revoked.
@@ -128,11 +128,11 @@ type ServiceTokenResource struct {
 type ResolvedServiceToken struct {
 	TokenID string
 	KeyID   string
-	// TenantID is the immutable tenant uuid — the canonical identifier for
-	// persistence and cross-service references. TenantSlug is the mutable
+	// OrgID is the immutable org uuid — the canonical identifier for
+	// persistence and cross-service references. OrgSlug is the mutable
 	// human-readable name, for presentation/logging only.
-	TenantID    string
-	TenantSlug  string
+	OrgID       string
+	OrgSlug     string
 	Permissions []string
 	Resources   []ServiceTokenResource
 }
@@ -151,7 +151,7 @@ type ServiceTokenMintOptions struct {
 // service token mint route receives resource scopes. AuthKit has already validated shape
 // and permission no-escalation before this hook runs.
 type ResourceScopeAuthorizationRequest struct {
-	TenantSlug       string
+	OrgSlug          string
 	ActorUserID      string
 	Permissions      []string
 	Resources        []ServiceTokenResource
@@ -171,7 +171,7 @@ func (s *Service) AuthorizeServiceTokenResources(ctx context.Context, req Resour
 	if s.opts.ResourceScopeAuthorizer == nil {
 		return nil
 	}
-	req.TenantSlug = strings.TrimSpace(req.TenantSlug)
+	req.OrgSlug = strings.TrimSpace(req.OrgSlug)
 	req.ActorUserID = strings.TrimSpace(req.ActorUserID)
 	req.Resources = resources
 	req.Permissions = dedupeStrings(req.Permissions)
@@ -200,13 +200,13 @@ func normalizeServiceTokenResources(in []ServiceTokenResource) ([]ServiceTokenRe
 	return out, nil
 }
 
-// MintServiceToken inserts a new service token for the tenant and returns its metadata plus
+// MintServiceToken inserts a new service token for the org and returns its metadata plus
 // the full plaintext token (shown ONCE). permissions must already be authorized
 // by the caller (the grant decision lives in the HTTP handler / host hook).
 // expiresAt is optional (nil = no expiry) and is capped to ServiceTokenMaxTTL
 // when set.
-func (s *Service) MintServiceToken(ctx context.Context, tenantSlug, name string, permissions []string, createdBy string, expiresAt *time.Time) (ServiceToken, string, error) {
-	return s.MintServiceTokenWithOptions(ctx, tenantSlug, ServiceTokenMintOptions{
+func (s *Service) MintServiceToken(ctx context.Context, orgSlug, name string, permissions []string, createdBy string, expiresAt *time.Time) (ServiceToken, string, error) {
+	return s.MintServiceTokenWithOptions(ctx, orgSlug, ServiceTokenMintOptions{
 		Name:        name,
 		Permissions: permissions,
 		CreatedBy:   createdBy,
@@ -216,11 +216,11 @@ func (s *Service) MintServiceToken(ctx context.Context, tenantSlug, name string,
 
 // MintServiceTokenWithOptions inserts a new service token using the resource-aware mint
 // contract. Permissions and resources must already be authorized by the caller.
-func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug string, opts ServiceTokenMintOptions) (ServiceToken, string, error) {
+func (s *Service) MintServiceTokenWithOptions(ctx context.Context, orgSlug string, opts ServiceTokenMintOptions) (ServiceToken, string, error) {
 	if err := s.requirePG(); err != nil {
 		return ServiceToken{}, "", err
 	}
-	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return ServiceToken{}, "", err
 	}
@@ -274,7 +274,7 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug st
 		}
 		qtx := s.qtx(tx)
 		ins, err := qtx.ServiceTokenInsert(ctx, db.ServiceTokenInsertParams{
-			TenantID:   tenant.ID,
+			OrgID:      org.ID,
 			KeyID:      keyID,
 			SecretHash: secretHash,
 			Name:       name,
@@ -320,18 +320,18 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, tenantSlug st
 	return ServiceToken{}, "", errors.New("key_id_generation_failed")
 }
 
-// ListServiceTokens returns metadata for every service token of the tenant (including
+// ListServiceTokens returns metadata for every service token of the org (including
 // revoked/expired ones, so an admin can see and clean them up). The secret is
 // never returned.
-func (s *Service) ListServiceTokens(ctx context.Context, tenantSlug string) ([]ServiceToken, error) {
+func (s *Service) ListServiceTokens(ctx context.Context, orgSlug string) ([]ServiceToken, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ServiceTokensByTenant(ctx, tenant.ID)
+	rows, err := s.q.ServiceTokensByOrg(ctx, org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -357,18 +357,18 @@ func (s *Service) ListServiceTokens(ctx context.Context, tenantSlug string) ([]S
 	return out, nil
 }
 
-// RevokeServiceToken marks the service token revoked. It is scoped to the tenant so a
-// token cannot be revoked from a different tenant. Returns false if no matching,
+// RevokeServiceToken marks the service token revoked. It is scoped to the org so a
+// token cannot be revoked from a different org. Returns false if no matching,
 // not-already-revoked token exists.
-func (s *Service) RevokeServiceToken(ctx context.Context, tenantSlug, tokenID string) (bool, error) {
+func (s *Service) RevokeServiceToken(ctx context.Context, orgSlug, tokenID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	tenant, err := s.ResolveTenantBySlug(ctx, tenantSlug)
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
 		return false, err
 	}
-	n, err := s.q.ServiceTokenRevoke(ctx, db.ServiceTokenRevokeParams{ID: strings.TrimSpace(tokenID), TenantID: tenant.ID})
+	n, err := s.q.ServiceTokenRevoke(ctx, db.ServiceTokenRevokeParams{ID: strings.TrimSpace(tokenID), OrgID: org.ID})
 	if err != nil {
 		return false, err
 	}
@@ -376,20 +376,20 @@ func (s *Service) RevokeServiceToken(ctx context.Context, tenantSlug, tokenID st
 }
 
 // ResolveServiceToken validates a presented service token (key_id + secret) and returns
-// the owning tenant's current slug and the token's frozen permissions. It performs
+// the owning org's current slug and the token's frozen permissions. It performs
 // an indexed lookup by key_id, a constant-time secret compare, and revoked /
-// expired / tenant-deleted checks, then best-effort async-touches last_used_at.
-func (s *Service) ResolveServiceToken(ctx context.Context, keyID, secret string) (tenantSlug string, permissions []string, err error) {
+// expired / org-deleted checks, then best-effort async-touches last_used_at.
+func (s *Service) ResolveServiceToken(ctx context.Context, keyID, secret string) (orgSlug string, permissions []string, err error) {
 	resolved, err := s.ResolveServiceTokenWithResources(ctx, keyID, secret)
 	if err != nil {
 		return "", nil, err
 	}
-	return resolved.TenantSlug, resolved.Permissions, nil
+	return resolved.OrgSlug, resolved.Permissions, nil
 }
 
 // ResolveServiceTokenWithResources validates a presented service token and returns the
 // full resource-aware result. Existing tokens with no resources return an empty
-// Resources slice and remain tenant-wide for hosts that use the compatibility
+// Resources slice and remain org-wide for hosts that use the compatibility
 // resolver.
 func (s *Service) ResolveServiceTokenWithResources(ctx context.Context, keyID, secret string) (ResolvedServiceToken, error) {
 	if err := s.requirePG(); err != nil {
@@ -413,7 +413,7 @@ func (s *Service) ResolveServiceTokenWithResources(ctx context.Context, keyID, s
 	if row.ExpiresAt != nil && !row.ExpiresAt.After(time.Now().UTC()) {
 		return ResolvedServiceToken{}, ErrAccessTokenExpired
 	}
-	if row.TenantDeletedAt != nil {
+	if row.OrgDeletedAt != nil {
 		return ResolvedServiceToken{}, ErrInvalidAccessToken
 	}
 
@@ -429,8 +429,8 @@ func (s *Service) ResolveServiceTokenWithResources(ctx context.Context, keyID, s
 	return ResolvedServiceToken{
 		TokenID:     row.ID,
 		KeyID:       keyID,
-		TenantID:    row.TenantID,
-		TenantSlug:  row.Slug,
+		OrgID:       row.OrgID,
+		OrgSlug:     row.Slug,
 		Permissions: gotPerms,
 		Resources:   resources,
 	}, nil

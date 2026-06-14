@@ -13,10 +13,10 @@ import (
 // remoteApplicationRegistration is the wire shape posted to register/update a
 // remote_application (federation principal, #74). Also the GET response shape.
 type remoteApplicationRegistration struct {
-	Slug     string `json:"slug"`
-	Issuer   string `json:"issuer"`
-	TenantID string `json:"tenant_id,omitempty"` // owning tenant (#77)
-	JWKSURI  string `json:"jwks_uri,omitempty"`
+	Slug    string `json:"slug"`
+	Issuer  string `json:"issuer"`
+	OrgID   string `json:"org_id,omitempty"` // owning org (#77)
+	JWKSURI string `json:"jwks_uri,omitempty"`
 	// Mode selects the trust source: "jwks" (fetch keys from jwks_uri; preferred)
 	// XOR "static" (human-managed public_keys list). Empty infers from which
 	// field is set. Setting BOTH is rejected — one trust source per principal.
@@ -29,7 +29,7 @@ type remoteApplicationRegistration struct {
 type remoteApplicationResponse struct {
 	Slug       string              `json:"slug"`
 	Issuer     string              `json:"issuer"`
-	TenantID   string              `json:"tenant_id,omitempty"`
+	OrgID      string              `json:"org_id,omitempty"`
 	JWKSURI    string              `json:"jwks_uri,omitempty"`
 	Mode       string              `json:"mode"`
 	PublicKeys []core.RemoteAppKey `json:"public_keys,omitempty"`
@@ -45,7 +45,7 @@ func remoteApplicationView(ra core.RemoteApplication) remoteApplicationResponse 
 	return remoteApplicationResponse{
 		Slug:       ra.Slug,
 		Issuer:     ra.Issuer,
-		TenantID:   ra.TenantID,
+		OrgID:      ra.OrgID,
 		JWKSURI:    ra.JWKSURI,
 		Mode:       ra.Mode,
 		PublicKeys: ra.PublicKeys,
@@ -93,7 +93,7 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 	ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
 		Slug:        body.Slug,
 		OwnerUserID: owner,
-		TenantID:    body.TenantID,
+		OrgID:       body.OrgID,
 		Issuer:      body.Issuer,
 		JWKSURI:     body.JWKSURI,
 		Mode:        body.Mode,
@@ -175,32 +175,32 @@ func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *
 }
 
 // remoteApplicationMembershipRequest assigns a remote_application a role on a
-// tenant via the shared membership machinery (#74).
+// org via the shared membership machinery (#74).
 type remoteApplicationMembershipRequest struct {
-	Tenant string `json:"tenant"`
-	Role   string `json:"role,omitempty"`
+	Org  string `json:"org"`
+	Role string `json:"role,omitempty"`
 }
 
 // handleRemoteApplicationMembershipPOST binds a remote_application as a member of
-// a tenant with a role. Authorized: the caller must own BOTH the
-// remote_application and the tenant (or be a global admin).
+// a org with a role. Authorized: the caller must own BOTH the
+// remote_application and the org (or be a global admin).
 func (s *Service) handleRemoteApplicationMembershipPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
 		return
 	}
 	var body remoteApplicationMembershipRequest
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Tenant) == "" {
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Org) == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, ok, err := s.canManageTenantMembership(r.Context(), claims, body.Tenant)
+	canonical, ok, err := s.canManageOrgMembership(r.Context(), claims, body.Org)
 	if err != nil {
-		if err == core.ErrTenantNotFound {
-			notFound(w, "tenant_not_found")
+		if err == core.ErrOrgNotFound {
+			notFound(w, "org_not_found")
 			return
 		}
-		serverErr(w, "tenant_lookup_failed")
+		serverErr(w, "org_lookup_failed")
 		return
 	}
 	if !ok {
@@ -212,35 +212,35 @@ func (s *Service) handleRemoteApplicationMembershipPOST(w http.ResponseWriter, r
 		role = "member"
 	}
 	if err := s.svc.AddRemoteApplicationMember(r.Context(), canonical, ra.ID, role); err != nil {
-		if err == core.ErrInvalidTenantRole {
+		if err == core.ErrInvalidOrgRole {
 			badRequest(w, "invalid_role")
 			return
 		}
 		serverErr(w, "remote_application_membership_failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenant": canonical, "role": role})
+	writeJSON(w, http.StatusOK, map[string]any{"org": canonical, "role": role})
 }
 
 // handleRemoteApplicationMembershipDELETE removes a remote_application's
-// membership in a tenant.
+// membership in a org.
 func (s *Service) handleRemoteApplicationMembershipDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
 		return
 	}
 	var body remoteApplicationMembershipRequest
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Tenant) == "" {
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Org) == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, ok, err := s.canManageTenantMembership(r.Context(), claims, body.Tenant)
+	canonical, ok, err := s.canManageOrgMembership(r.Context(), claims, body.Org)
 	if err != nil {
-		if err == core.ErrTenantNotFound {
-			notFound(w, "tenant_not_found")
+		if err == core.ErrOrgNotFound {
+			notFound(w, "org_not_found")
 			return
 		}
-		serverErr(w, "tenant_lookup_failed")
+		serverErr(w, "org_lookup_failed")
 		return
 	}
 	if !ok {
@@ -460,17 +460,17 @@ func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Req
 	return claims, ra, true
 }
 
-// canManageTenantMembership reports whether the caller may assign memberships on
-// a tenant: a global admin, or a tenant owner. Returns the canonical slug.
-func (s *Service) canManageTenantMembership(ctx context.Context, claims Claims, tenantSlug string) (canonical string, ok bool, err error) {
+// canManageOrgMembership reports whether the caller may assign memberships on
+// a org: a global admin, or a org owner. Returns the canonical slug.
+func (s *Service) canManageOrgMembership(ctx context.Context, claims Claims, orgSlug string) (canonical string, ok bool, err error) {
 	if claimsHasGlobalAdmin(claims) {
-		tenant, e := s.svc.ResolveTenantBySlug(ctx, tenantSlug)
+		org, e := s.svc.ResolveOrgBySlug(ctx, orgSlug)
 		if e != nil {
 			return "", false, e
 		}
-		return tenant.Slug, true, nil
+		return org.Slug, true, nil
 	}
-	canonical, _, isOwner, err := s.requireTenantOwner(ctx, claims.UserID, tenantSlug)
+	canonical, _, isOwner, err := s.requireOrgOwner(ctx, claims.UserID, orgSlug)
 	if err != nil {
 		return canonical, false, err
 	}

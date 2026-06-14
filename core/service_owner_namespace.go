@@ -11,18 +11,18 @@ import (
 )
 
 var (
-	ErrOwnerSlugTaken       = errors.New("owner_slug_taken")
-	ErrPersonalTenantLocked = errors.New("personal_tenant_locked")
-	ErrInviteNotFound       = errors.New("tenant_invite_not_found")
-	ErrInviteNotPending     = errors.New("tenant_invite_not_pending")
-	ErrInviteNotForUser     = errors.New("tenant_invite_not_for_user")
-	ErrInviteExpired        = errors.New("tenant_invite_expired")
+	ErrOwnerSlugTaken    = errors.New("owner_slug_taken")
+	ErrPersonalOrgLocked = errors.New("personal_org_locked")
+	ErrInviteNotFound    = errors.New("org_invite_not_found")
+	ErrInviteNotPending  = errors.New("org_invite_not_pending")
+	ErrInviteNotForUser  = errors.New("org_invite_not_for_user")
+	ErrInviteExpired     = errors.New("org_invite_expired")
 	// ErrInviteRoleExceedsGrantor is returned when an invite's role confers
 	// permissions the inviter does not (currently) hold — the no-escalation
 	// invariant. Enforced at invite-create time and re-checked at accept time
 	// (the inviter may have been demoted in between).
-	ErrInviteRoleExceedsGrantor = errors.New("tenant_invite_role_exceeds_grantor")
-	ErrPersonalTenantNotFound   = errors.New("personal_tenant_not_found")
+	ErrInviteRoleExceedsGrantor = errors.New("org_invite_role_exceeds_grantor")
+	ErrPersonalOrgNotFound      = errors.New("personal_org_not_found")
 )
 
 func ownerSlugFromUsername(username string) string {
@@ -53,12 +53,12 @@ func ownerSlugFromUsername(username string) string {
 	return out
 }
 
-func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeTenantID string) (bool, error) {
+func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeOrgID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
 	slug = strings.ToLower(strings.TrimSpace(slug))
-	if err := validateTenantSlug(slug); err != nil {
+	if err := validateOrgSlug(slug); err != nil {
 		return false, err
 	}
 	reuseCutoff := time.Now().UTC().Add(-renameReuseHold)
@@ -89,22 +89,22 @@ func (s *Service) ownerSlugAvailable(ctx context.Context, slug, excludeUserID, e
 	if exists {
 		return false, nil
 	}
-	exists, err = s.q.OwnerSlugTenantExists(ctx, db.OwnerSlugTenantExistsParams{Slug: slug, ExcludeTenantID: strings.TrimSpace(excludeTenantID)})
+	exists, err = s.q.OwnerSlugOrgExists(ctx, db.OwnerSlugOrgExistsParams{Slug: slug, ExcludeOrgID: strings.TrimSpace(excludeOrgID)})
 	if err != nil {
 		return false, err
 	}
 	if exists {
 		return false, nil
 	}
-	exists, err = s.q.OwnerSlugTenantRenameHeld(ctx, db.OwnerSlugTenantRenameHeldParams{Slug: slug, ReuseCutoff: reuseCutoff, ExcludeTenantID: strings.TrimSpace(excludeTenantID)})
+	exists, err = s.q.OwnerSlugOrgRenameHeld(ctx, db.OwnerSlugOrgRenameHeldParams{Slug: slug, ReuseCutoff: reuseCutoff, ExcludeOrgID: strings.TrimSpace(excludeOrgID)})
 	if err != nil {
 		return false, err
 	}
 	return !exists, nil
 }
 
-func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeTenantID string) error {
-	ok, err := s.ownerSlugAvailable(ctx, slug, excludeUserID, excludeTenantID)
+func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUserID, excludeOrgID string) error {
+	ok, err := s.ownerSlugAvailable(ctx, slug, excludeUserID, excludeOrgID)
 	if err != nil {
 		return err
 	}
@@ -114,18 +114,18 @@ func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUse
 	return nil
 }
 
-func (s *Service) GetPersonalTenantForUser(ctx context.Context, userID string) (*Tenant, error) {
+func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(userID) == "" {
 		return nil, fmt.Errorf("invalid_user")
 	}
-	row, err := s.q.PersonalTenantByOwner(ctx, userID)
+	row, err := s.q.PersonalOrgByOwner(ctx, userID)
 	if err != nil {
-		return nil, ErrPersonalTenantNotFound
+		return nil, ErrPersonalOrgNotFound
 	}
-	return &Tenant{ID: row.ID, Slug: row.Slug, IsPersonal: row.IsPersonal, OwnerUserID: row.OwnerUserID}, nil
+	return &Org{ID: row.ID, Slug: row.Slug, IsPersonal: row.IsPersonal, OwnerUserID: row.OwnerUserID}, nil
 }
 
 // ListUserSlugAliases returns every historical username this user has
@@ -170,17 +170,17 @@ func (s *Service) ResolveUserBySlug(ctx context.Context, slug string) (userID st
 	return row.ID, row.Username, nil
 }
 
-// ListTenantAliases returns every historical slug this tenant has held
-// (excluding the current one). Source: `tenant_renames.from_slug` (issue
+// ListOrgAliases returns every historical slug this org has held
+// (excluding the current one). Source: `org_renames.from_slug` (issue
 // #58). Distinct values.
-func (s *Service) ListTenantAliases(ctx context.Context, tenantID string) ([]string, error) {
+func (s *Service) ListOrgAliases(ctx context.Context, orgID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(tenantID) == "" {
-		return nil, fmt.Errorf("invalid_tenant")
+	if strings.TrimSpace(orgID) == "" {
+		return nil, fmt.Errorf("invalid_org")
 	}
-	out, err := s.q.TenantAliases(ctx, tenantID)
+	out, err := s.q.OrgAliases(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -190,41 +190,41 @@ func (s *Service) ListTenantAliases(ctx context.Context, tenantID string) ([]str
 	return out, nil
 }
 
-func (s *Service) ensurePersonalTenantForUser(ctx context.Context, userID, username string) error {
+func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	// (issue 60) Gated by AutoCreatePersonalTenantsEnabled at every call site; no
-	// tenant-mode check here.
+	// (issue 60) Gated by AutoCreatePersonalOrgsEnabled at every call site; no
+	// org-mode check here.
 	userID = strings.TrimSpace(userID)
 	slug := ownerSlugFromUsername(username)
 	if userID == "" || slug == "" {
-		return fmt.Errorf("invalid_personal_tenant")
+		return fmt.Errorf("invalid_personal_org")
 	}
-	if err := validateTenantSlug(slug); err != nil {
+	if err := validateOrgSlug(slug); err != nil {
 		return err
 	}
 	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
 		return err
 	}
 
-	tenantIDToInsert, err := newUUIDV7String()
+	orgIDToInsert, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	tenantID, err := s.q.PersonalTenantUpsert(ctx, db.PersonalTenantUpsertParams{ID: tenantIDToInsert, Slug: slug, OwnerUserID: userID})
+	orgID, err := s.q.PersonalOrgUpsert(ctx, db.PersonalOrgUpsertParams{ID: orgIDToInsert, Slug: slug, OwnerUserID: userID})
 	if err != nil {
 		return err
 	}
 
-	if err := s.q.TenantRolesSeedOwnerMember(ctx, db.TenantRolesSeedOwnerMemberParams{TenantID: tenantID, OwnerRole: tenantOwnerRole, MemberRole: tenantMemberRole}); err != nil {
+	if err := s.q.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: orgID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
 		return err
 	}
-	if err := s.q.TenantMembershipUpsertRole(ctx, db.TenantMembershipUpsertRoleParams{TenantID: tenantID, UserID: userID, Role: tenantOwnerRole}); err != nil {
+	if err := s.q.OrgMembershipUpsertRole(ctx, db.OrgMembershipUpsertRoleParams{OrgID: orgID, UserID: userID, Role: orgOwnerRole}); err != nil {
 		return err
 	}
-	// Seed owner=`*` + any app-declared default roles for the personal tenant.
-	if err := s.seedRolePermissionDefaults(ctx, tenantID); err != nil {
+	// Seed owner=`*` + any app-declared default roles for the personal org.
+	if err := s.seedRolePermissionDefaults(ctx, orgID); err != nil {
 		return err
 	}
 	return nil

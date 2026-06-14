@@ -8,31 +8,31 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleTenantsListGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgsListGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	mems, err := s.svc.ListUserTenantMembershipsAndRoles(r.Context(), claims.UserID)
+	mems, err := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "tenants_lookup_failed")
+		serverErr(w, "orgs_lookup_failed")
 		return
 	}
-	type tenantItem struct {
-		Tenant string   `json:"tenant"`
-		Roles  []string `json:"roles"`
+	type orgItem struct {
+		Org   string   `json:"org"`
+		Roles []string `json:"roles"`
 	}
-	out := make([]tenantItem, 0, len(mems))
+	out := make([]orgItem, 0, len(mems))
 	for _, m := range mems {
-		out = append(out, tenantItem{Tenant: m.Tenant, Roles: m.Roles})
+		out = append(out, orgItem{Org: m.Org, Roles: m.Roles})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenants": out})
+	writeJSON(w, http.StatusOK, map[string]any{"orgs": out})
 }
 
-func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request) {
-	if s.publicTenantManagementDisabled() {
-		tenantManagementDisabled(w)
+func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
+	if s.publicOrgManagementDisabled() {
+		orgManagementDisabled(w)
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -43,10 +43,10 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Slug string `json:"slug"`
 		// Federation optionally registers a remote_application (federation
-		// principal, #74) and binds it as a member of the tenant at creation: the
+		// principal, #74) and binds it as a member of the org at creation: the
 		// human plants the trust anchor exactly once. The block is {issuer +
 		// jwks_uri} XOR {issuer + public_keys} — one trust source, never both.
-		// Slug defaults to the tenant slug. Trust-config changes after creation
+		// Slug defaults to the org slug. Trust-config changes after creation
 		// stay human-only via the remote-application routes.
 		Federation *remoteApplicationRegistration `json:"federation,omitempty"`
 	}
@@ -55,7 +55,7 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Validate the federation block BEFORE creating anything, so an invalid
-	// block rejects the whole registration (no tenant created).
+	// block rejects the whole registration (no org created).
 	if body.Federation != nil {
 		if strings.TrimSpace(body.Federation.Issuer) == "" {
 			badRequest(w, "invalid_federation_issuer")
@@ -66,36 +66,36 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	tenant, err := s.svc.CreateTenantForUser(r.Context(), core.CreateTenantForUserRequest{
+	org, err := s.svc.CreateOrgForUser(r.Context(), core.CreateOrgForUserRequest{
 		Slug:        body.Slug,
 		OwnerUserID: claims.UserID,
 	})
 	if err != nil {
-		if err == core.ErrInvalidTenantSlug {
-			badRequest(w, "invalid_tenant_slug")
+		if err == core.ErrInvalidOrgSlug {
+			badRequest(w, "invalid_org_slug")
 			return
 		}
 		if err == core.ErrOwnerSlugTaken {
 			badRequest(w, "owner_slug_taken")
 			return
 		}
-		if err == core.ErrInvalidTenantOwner {
-			forbidden(w, "invalid_tenant_owner")
+		if err == core.ErrInvalidOrgOwner {
+			forbidden(w, "invalid_org_owner")
 			return
 		}
-		if err == core.ErrTenantLimitExceeded {
-			forbidden(w, "tenant_limit_exceeded")
+		if err == core.ErrOrgLimitExceeded {
+			forbidden(w, "org_limit_exceeded")
 			return
 		}
-		badRequest(w, "tenant_create_failed")
+		badRequest(w, "org_create_failed")
 		return
 	}
 
-	resp := map[string]any{"tenant": tenant.Slug}
+	resp := map[string]any{"org": org.Slug}
 	if body.Federation != nil {
 		raSlug := strings.TrimSpace(body.Federation.Slug)
 		if raSlug == "" {
-			raSlug = tenant.Slug
+			raSlug = org.Slug
 		}
 		ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
 			Slug:        raSlug,
@@ -108,16 +108,16 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 			Enabled:     true,
 		})
 		if err == nil {
-			err = s.svc.AddRemoteApplicationMember(r.Context(), tenant.Slug, ra.ID, "member")
+			err = s.svc.AddRemoteApplicationMember(r.Context(), org.Slug, ra.ID, "member")
 		}
 		if err != nil {
-			// The block was pre-validated, so this is unexpected; the tenant
+			// The block was pre-validated, so this is unexpected; the org
 			// exists but is unfederated. Surface that honestly — the caller can
 			// bind via the remote-application routes (same human credential).
-			s.logInternalError(r, "tenants_create", "federation_bind", "tenant_created_federation_failed", err)
+			s.logInternalError(r, "orgs_create", "federation_bind", "org_created_federation_failed", err)
 			writeJSON(w, http.StatusCreated, map[string]any{
-				"tenant":           tenant.Slug,
-				"federation_error": "tenant_created_federation_failed",
+				"org":              org.Slug,
+				"federation_error": "org_created_federation_failed",
 			})
 			return
 		}
@@ -129,37 +129,37 @@ func (s *Service) handleTenantsCreatePOST(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-func (s *Service) handleTenantsGetGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, member, err := s.requireTenantMember(r.Context(), claims.UserID, tenantSlug)
+	canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)
 	if err != nil {
-		if err == core.ErrTenantNotFound {
-			notFound(w, "tenant_not_found")
+		if err == core.ErrOrgNotFound {
+			notFound(w, "org_not_found")
 			return
 		}
-		serverErr(w, "tenant_lookup_failed")
+		serverErr(w, "org_lookup_failed")
 		return
 	}
 	if !member {
-		forbidden(w, "not_tenant_member")
+		forbidden(w, "not_org_member")
 		return
 	}
 	// Issue #58: emit a 301 redirect when the request used a historical
-	// slug. requireTenantMember already resolved through `tenant_renames`
-	// (which ResolveTenantBySlug consults on alias miss), so `canonical`
-	// here is the live `tenants.slug`. If the inbound differs, the caller
+	// slug. requireOrgMember already resolved through `org_renames`
+	// (which ResolveOrgBySlug consults on alias miss), so `canonical`
+	// here is the live `orgs.slug`. If the inbound differs, the caller
 	// dropped in a renamed-away name and gets pointed at the new path.
-	if !strings.EqualFold(tenantSlug, canonical) {
-		newPath := strings.Replace(r.URL.Path, tenantSlug, canonical, 1)
+	if !strings.EqualFold(orgSlug, canonical) {
+		newPath := strings.Replace(r.URL.Path, orgSlug, canonical, 1)
 		if r.URL.RawQuery != "" {
 			newPath += "?" + r.URL.RawQuery
 		}
@@ -167,27 +167,27 @@ func (s *Service) handleTenantsGetGET(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMovedPermanently)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenant": canonical})
+	writeJSON(w, http.StatusOK, map[string]any{"org": canonical})
 }
 
-func (s *Service) handleTenantsRenamePOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, _, isOwner, err := s.requireTenantOwner(r.Context(), claims.UserID, tenantSlug)
+	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
 	if err != nil {
-		if err == core.ErrTenantNotFound {
-			notFound(w, "tenant_not_found")
+		if err == core.ErrOrgNotFound {
+			notFound(w, "org_not_found")
 			return
 		}
-		serverErr(w, "tenant_lookup_failed")
+		serverErr(w, "org_lookup_failed")
 		return
 	}
 	if !isOwner {
@@ -201,14 +201,14 @@ func (s *Service) handleTenantsRenamePOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid_request")
 		return
 	}
-	tenant, err := s.svc.ResolveTenantBySlug(r.Context(), canonical)
+	org, err := s.svc.ResolveOrgBySlug(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "tenant_lookup_failed")
+		serverErr(w, "org_lookup_failed")
 		return
 	}
-	if err := s.svc.RenameTenantSlug(r.Context(), tenant.ID, body.NewSlug, claims.UserID); err != nil {
-		if err == core.ErrPersonalTenantLocked {
-			badRequest(w, "personal_tenant_locked")
+	if err := s.svc.RenameOrgSlug(r.Context(), org.ID, body.NewSlug, claims.UserID); err != nil {
+		if err == core.ErrPersonalOrgLocked {
+			badRequest(w, "personal_org_locked")
 			return
 		}
 		if err == core.ErrOwnerSlugTaken {
@@ -216,21 +216,21 @@ func (s *Service) handleTenantsRenamePOST(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if err == core.ErrRenameRateLimited {
-			seconds, _ := s.svc.TimeUntilTenantRenameAvailable(r.Context(), tenant.ID, time.Now())
-			availability := cooldownAvailability("rename_tenant", seconds, 72*time.Hour, time.Now())
+			seconds, _ := s.svc.TimeUntilOrgRenameAvailable(r.Context(), org.ID, time.Now())
+			availability := cooldownAvailability("rename_org", seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
 			data["error"] = core.ErrCodeRenameRateLimited
 			writeJSON(w, http.StatusTooManyRequests, data)
 			return
 		}
-		badRequest(w, "tenant_rename_failed")
+		badRequest(w, "org_rename_failed")
 		return
 	}
 	// Return canonical slug after rename.
-	renamed, err := s.svc.ResolveTenantBySlug(r.Context(), body.NewSlug)
+	renamed, err := s.svc.ResolveOrgBySlug(r.Context(), body.NewSlug)
 	if err != nil {
-		serverErr(w, "tenant_lookup_failed")
+		serverErr(w, "org_lookup_failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenant": renamed.Slug})
+	writeJSON(w, http.StatusOK, map[string]any{"org": renamed.Slug})
 }

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const namespaceTenantBySlug = `-- name: NamespaceTenantBySlug :one
+const namespaceOrgBySlug = `-- name: NamespaceOrgBySlug :one
 SELECT id::text,
        slug,
        is_personal,
@@ -22,11 +22,11 @@ SELECT id::text,
          THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
          ELSE false
        END)::boolean AS reserved
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE slug = $1
 `
 
-type NamespaceTenantBySlugRow struct {
+type NamespaceOrgBySlugRow struct {
 	ID          string
 	Slug        string
 	IsPersonal  bool
@@ -36,9 +36,9 @@ type NamespaceTenantBySlugRow struct {
 	Reserved    bool
 }
 
-func (q *Queries) NamespaceTenantBySlug(ctx context.Context, slug string) (NamespaceTenantBySlugRow, error) {
-	row := q.db.QueryRow(ctx, namespaceTenantBySlug, slug)
-	var i NamespaceTenantBySlugRow
+func (q *Queries) NamespaceOrgBySlug(ctx context.Context, slug string) (NamespaceOrgBySlugRow, error) {
+	row := q.db.QueryRow(ctx, namespaceOrgBySlug, slug)
+	var i NamespaceOrgBySlugRow
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
@@ -51,16 +51,16 @@ func (q *Queries) NamespaceTenantBySlug(ctx context.Context, slug string) (Names
 	return i, err
 }
 
-const namespaceTenantRenameBySlug = `-- name: NamespaceTenantRenameBySlug :one
+const namespaceOrgRenameBySlug = `-- name: NamespaceOrgRenameBySlug :one
 SELECT o.id::text AS id, o.slug, o.is_personal, COALESCE(o.owner_user_id::text, '')::text AS owner_user_id, (o.deleted_at IS NOT NULL)::boolean AS deleted, r.renamed_at
-FROM profiles.tenant_renames r
-JOIN profiles.tenants o ON o.id = r.tenant_id
+FROM profiles.org_renames r
+JOIN profiles.orgs o ON o.id = r.org_id
 WHERE r.from_slug = $1
 ORDER BY r.renamed_at DESC
 LIMIT 1
 `
 
-type NamespaceTenantRenameBySlugRow struct {
+type NamespaceOrgRenameBySlugRow struct {
 	ID          string
 	Slug        string
 	IsPersonal  bool
@@ -69,9 +69,9 @@ type NamespaceTenantRenameBySlugRow struct {
 	RenamedAt   time.Time
 }
 
-func (q *Queries) NamespaceTenantRenameBySlug(ctx context.Context, fromSlug string) (NamespaceTenantRenameBySlugRow, error) {
-	row := q.db.QueryRow(ctx, namespaceTenantRenameBySlug, fromSlug)
-	var i NamespaceTenantRenameBySlugRow
+func (q *Queries) NamespaceOrgRenameBySlug(ctx context.Context, fromSlug string) (NamespaceOrgRenameBySlugRow, error) {
+	row := q.db.QueryRow(ctx, namespaceOrgRenameBySlug, fromSlug)
+	var i NamespaceOrgRenameBySlugRow
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
@@ -146,6 +146,117 @@ func (q *Queries) NamespaceUserRenameBySlug(ctx context.Context, fromSlug string
 	return i, err
 }
 
+const orgAliases = `-- name: OrgAliases :many
+SELECT DISTINCT from_slug
+FROM profiles.org_renames
+WHERE org_id = $1::uuid
+ORDER BY from_slug ASC
+`
+
+func (q *Queries) OrgAliases(ctx context.Context, orgID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, orgAliases, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var from_slug string
+		if err := rows.Scan(&from_slug); err != nil {
+			return nil, err
+		}
+		items = append(items, from_slug)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const orgIDPersonalBySlug = `-- name: OrgIDPersonalBySlug :one
+SELECT id::text, is_personal
+FROM profiles.orgs
+WHERE slug = $1 AND deleted_at IS NULL
+`
+
+type OrgIDPersonalBySlugRow struct {
+	ID         string
+	IsPersonal bool
+}
+
+func (q *Queries) OrgIDPersonalBySlug(ctx context.Context, slug string) (OrgIDPersonalBySlugRow, error) {
+	row := q.db.QueryRow(ctx, orgIDPersonalBySlug, slug)
+	var i OrgIDPersonalBySlugRow
+	err := row.Scan(&i.ID, &i.IsPersonal)
+	return i, err
+}
+
+const orgInsertWithState = `-- name: OrgInsertWithState :one
+INSERT INTO profiles.orgs (id, slug, metadata)
+VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', $3::text, 'reserved', to_jsonb(true)))
+RETURNING id::text
+`
+
+type OrgInsertWithStateParams struct {
+	ID    string
+	Slug  string
+	State string
+}
+
+func (q *Queries) OrgInsertWithState(ctx context.Context, arg OrgInsertWithStateParams) (string, error) {
+	row := q.db.QueryRow(ctx, orgInsertWithState, arg.ID, arg.Slug, arg.State)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const orgNamespaceStateByID = `-- name: OrgNamespaceStateByID :one
+SELECT COALESCE(COALESCE(metadata, '{}'::jsonb)->>'namespace_state', '')::text AS state_raw,
+       (CASE
+         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
+         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
+         ELSE false
+       END)::boolean AS reserved
+FROM profiles.orgs
+WHERE id = $1::uuid AND deleted_at IS NULL
+`
+
+type OrgNamespaceStateByIDRow struct {
+	StateRaw string
+	Reserved bool
+}
+
+func (q *Queries) OrgNamespaceStateByID(ctx context.Context, id string) (OrgNamespaceStateByIDRow, error) {
+	row := q.db.QueryRow(ctx, orgNamespaceStateByID, id)
+	var i OrgNamespaceStateByIDRow
+	err := row.Scan(&i.StateRaw, &i.Reserved)
+	return i, err
+}
+
+const orgSetNamespaceState = `-- name: OrgSetNamespaceState :execrows
+UPDATE profiles.orgs
+SET metadata = jsonb_set(
+      jsonb_set(COALESCE(metadata, '{}'::jsonb), '{namespace_state}', to_jsonb($1::text), true),
+      '{reserved}', to_jsonb($2::boolean), true
+    ),
+    updated_at = now()
+WHERE id = $3::uuid AND deleted_at IS NULL
+`
+
+type OrgSetNamespaceStateParams struct {
+	State    string
+	Reserved bool
+	ID       string
+}
+
+func (q *Queries) OrgSetNamespaceState(ctx context.Context, arg OrgSetNamespaceStateParams) (int64, error) {
+	result, err := q.db.Exec(ctx, orgSetNamespaceState, arg.State, arg.Reserved, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const ownerReservedNameDelete = `-- name: OwnerReservedNameDelete :execrows
 DELETE FROM profiles.owner_reserved_names WHERE slug = $1
 `
@@ -192,10 +303,10 @@ SELECT (
     JOIN profiles.users u ON u.id = r.user_id
     WHERE r.from_slug = $1::text AND r.renamed_at >= $2::timestamptz
   )
-  OR EXISTS(SELECT 1 FROM profiles.tenants o WHERE o.slug = $1::text)
+  OR EXISTS(SELECT 1 FROM profiles.orgs o WHERE o.slug = $1::text)
   OR EXISTS(
-    SELECT 1 FROM profiles.tenant_renames r
-    JOIN profiles.tenants o ON o.id = r.tenant_id
+    SELECT 1 FROM profiles.org_renames r
+    JOIN profiles.orgs o ON o.id = r.org_id
     WHERE r.from_slug = $1::text AND r.renamed_at >= $2::timestamptz
   )
 )::boolean AS conflict_exists
@@ -217,46 +328,46 @@ func (q *Queries) OwnerSlugConflictExists(ctx context.Context, arg OwnerSlugConf
 	return conflict_exists, err
 }
 
-const ownerSlugTenantExists = `-- name: OwnerSlugTenantExists :one
+const ownerSlugOrgExists = `-- name: OwnerSlugOrgExists :one
 SELECT EXISTS (
   SELECT 1
-  FROM profiles.tenants o
+  FROM profiles.orgs o
   WHERE o.slug = $1::text
     AND ($2::text = '' OR o.id::text <> $2::text)
 )
 `
 
-type OwnerSlugTenantExistsParams struct {
-	Slug            string
-	ExcludeTenantID string
+type OwnerSlugOrgExistsParams struct {
+	Slug         string
+	ExcludeOrgID string
 }
 
-func (q *Queries) OwnerSlugTenantExists(ctx context.Context, arg OwnerSlugTenantExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, ownerSlugTenantExists, arg.Slug, arg.ExcludeTenantID)
+func (q *Queries) OwnerSlugOrgExists(ctx context.Context, arg OwnerSlugOrgExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, ownerSlugOrgExists, arg.Slug, arg.ExcludeOrgID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
 }
 
-const ownerSlugTenantRenameHeld = `-- name: OwnerSlugTenantRenameHeld :one
+const ownerSlugOrgRenameHeld = `-- name: OwnerSlugOrgRenameHeld :one
 SELECT EXISTS (
   SELECT 1
-  FROM profiles.tenant_renames r
-  JOIN profiles.tenants o ON o.id = r.tenant_id
+  FROM profiles.org_renames r
+  JOIN profiles.orgs o ON o.id = r.org_id
   WHERE r.from_slug = $1::text
     AND r.renamed_at >= $2::timestamptz
-    AND ($3::text = '' OR r.tenant_id::text <> $3::text)
+    AND ($3::text = '' OR r.org_id::text <> $3::text)
 )
 `
 
-type OwnerSlugTenantRenameHeldParams struct {
-	Slug            string
-	ReuseCutoff     time.Time
-	ExcludeTenantID string
+type OwnerSlugOrgRenameHeldParams struct {
+	Slug         string
+	ReuseCutoff  time.Time
+	ExcludeOrgID string
 }
 
-func (q *Queries) OwnerSlugTenantRenameHeld(ctx context.Context, arg OwnerSlugTenantRenameHeldParams) (bool, error) {
-	row := q.db.QueryRow(ctx, ownerSlugTenantRenameHeld, arg.Slug, arg.ReuseCutoff, arg.ExcludeTenantID)
+func (q *Queries) OwnerSlugOrgRenameHeld(ctx context.Context, arg OwnerSlugOrgRenameHeldParams) (bool, error) {
+	row := q.db.QueryRow(ctx, ownerSlugOrgRenameHeld, arg.Slug, arg.ReuseCutoff, arg.ExcludeOrgID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -309,22 +420,22 @@ func (q *Queries) OwnerSlugUserRenameHeld(ctx context.Context, arg OwnerSlugUser
 	return exists, err
 }
 
-const personalTenantByOwner = `-- name: PersonalTenantByOwner :one
+const personalOrgByOwner = `-- name: PersonalOrgByOwner :one
 SELECT id::text, slug, is_personal, COALESCE(owner_user_id::text, '')::text AS owner_user_id
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE owner_user_id = $1::uuid AND is_personal = true AND deleted_at IS NULL
 `
 
-type PersonalTenantByOwnerRow struct {
+type PersonalOrgByOwnerRow struct {
 	ID          string
 	Slug        string
 	IsPersonal  bool
 	OwnerUserID string
 }
 
-func (q *Queries) PersonalTenantByOwner(ctx context.Context, ownerUserID string) (PersonalTenantByOwnerRow, error) {
-	row := q.db.QueryRow(ctx, personalTenantByOwner, ownerUserID)
-	var i PersonalTenantByOwnerRow
+func (q *Queries) PersonalOrgByOwner(ctx context.Context, ownerUserID string) (PersonalOrgByOwnerRow, error) {
+	row := q.db.QueryRow(ctx, personalOrgByOwner, ownerUserID)
+	var i PersonalOrgByOwnerRow
 	err := row.Scan(
 		&i.ID,
 		&i.Slug,
@@ -334,136 +445,25 @@ func (q *Queries) PersonalTenantByOwner(ctx context.Context, ownerUserID string)
 	return i, err
 }
 
-const personalTenantUpsert = `-- name: PersonalTenantUpsert :one
-INSERT INTO profiles.tenants (id, slug, is_personal, owner_user_id, metadata)
+const personalOrgUpsert = `-- name: PersonalOrgUpsert :one
+INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id, metadata)
 VALUES ($1::uuid, $2, true, $3::uuid, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
 ON CONFLICT (owner_user_id) WHERE is_personal = true AND deleted_at IS NULL
 DO UPDATE SET slug = EXCLUDED.slug, updated_at = now()
 RETURNING id::text
 `
 
-type PersonalTenantUpsertParams struct {
+type PersonalOrgUpsertParams struct {
 	ID          string
 	Slug        string
 	OwnerUserID string
 }
 
-func (q *Queries) PersonalTenantUpsert(ctx context.Context, arg PersonalTenantUpsertParams) (string, error) {
-	row := q.db.QueryRow(ctx, personalTenantUpsert, arg.ID, arg.Slug, arg.OwnerUserID)
+func (q *Queries) PersonalOrgUpsert(ctx context.Context, arg PersonalOrgUpsertParams) (string, error) {
+	row := q.db.QueryRow(ctx, personalOrgUpsert, arg.ID, arg.Slug, arg.OwnerUserID)
 	var id string
 	err := row.Scan(&id)
 	return id, err
-}
-
-const tenantAliases = `-- name: TenantAliases :many
-SELECT DISTINCT from_slug
-FROM profiles.tenant_renames
-WHERE tenant_id = $1::uuid
-ORDER BY from_slug ASC
-`
-
-func (q *Queries) TenantAliases(ctx context.Context, tenantID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, tenantAliases, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var from_slug string
-		if err := rows.Scan(&from_slug); err != nil {
-			return nil, err
-		}
-		items = append(items, from_slug)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const tenantIDPersonalBySlug = `-- name: TenantIDPersonalBySlug :one
-SELECT id::text, is_personal
-FROM profiles.tenants
-WHERE slug = $1 AND deleted_at IS NULL
-`
-
-type TenantIDPersonalBySlugRow struct {
-	ID         string
-	IsPersonal bool
-}
-
-func (q *Queries) TenantIDPersonalBySlug(ctx context.Context, slug string) (TenantIDPersonalBySlugRow, error) {
-	row := q.db.QueryRow(ctx, tenantIDPersonalBySlug, slug)
-	var i TenantIDPersonalBySlugRow
-	err := row.Scan(&i.ID, &i.IsPersonal)
-	return i, err
-}
-
-const tenantInsertWithState = `-- name: TenantInsertWithState :one
-INSERT INTO profiles.tenants (id, slug, metadata)
-VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', $3::text, 'reserved', to_jsonb(true)))
-RETURNING id::text
-`
-
-type TenantInsertWithStateParams struct {
-	ID    string
-	Slug  string
-	State string
-}
-
-func (q *Queries) TenantInsertWithState(ctx context.Context, arg TenantInsertWithStateParams) (string, error) {
-	row := q.db.QueryRow(ctx, tenantInsertWithState, arg.ID, arg.Slug, arg.State)
-	var id string
-	err := row.Scan(&id)
-	return id, err
-}
-
-const tenantNamespaceStateByID = `-- name: TenantNamespaceStateByID :one
-SELECT COALESCE(COALESCE(metadata, '{}'::jsonb)->>'namespace_state', '')::text AS state_raw,
-       (CASE
-         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-         ELSE false
-       END)::boolean AS reserved
-FROM profiles.tenants
-WHERE id = $1::uuid AND deleted_at IS NULL
-`
-
-type TenantNamespaceStateByIDRow struct {
-	StateRaw string
-	Reserved bool
-}
-
-func (q *Queries) TenantNamespaceStateByID(ctx context.Context, id string) (TenantNamespaceStateByIDRow, error) {
-	row := q.db.QueryRow(ctx, tenantNamespaceStateByID, id)
-	var i TenantNamespaceStateByIDRow
-	err := row.Scan(&i.StateRaw, &i.Reserved)
-	return i, err
-}
-
-const tenantSetNamespaceState = `-- name: TenantSetNamespaceState :execrows
-UPDATE profiles.tenants
-SET metadata = jsonb_set(
-      jsonb_set(COALESCE(metadata, '{}'::jsonb), '{namespace_state}', to_jsonb($1::text), true),
-      '{reserved}', to_jsonb($2::boolean), true
-    ),
-    updated_at = now()
-WHERE id = $3::uuid AND deleted_at IS NULL
-`
-
-type TenantSetNamespaceStateParams struct {
-	State    string
-	Reserved bool
-	ID       string
-}
-
-func (q *Queries) TenantSetNamespaceState(ctx context.Context, arg TenantSetNamespaceStateParams) (int64, error) {
-	result, err := q.db.Exec(ctx, tenantSetNamespaceState, arg.State, arg.Reserved, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const userBySlug = `-- name: UserBySlug :one

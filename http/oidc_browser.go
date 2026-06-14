@@ -172,7 +172,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// SECURITY (C-2): never silently link a fresh IdP identity to a
 		// pre-existing local account by matching its asserted email. An IdP that
 		// asserts (or lies about) a victim's email — Apple private-relay, a
-		// hostile/federated issuer, a tenant-controlled mailbox — would otherwise
+		// hostile/federated issuer, a org-controlled mailbox — would otherwise
 		// take over the victim's existing account with no proof the caller
 		// controls it. If a local account already owns this email, refuse and
 		// require the user to sign in and link the provider via the authenticated

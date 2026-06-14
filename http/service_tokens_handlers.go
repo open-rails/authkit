@@ -10,11 +10,11 @@ import (
 
 // Service Token (service token) management endpoints. A service token carries a set of
 // app-defined PERMISSIONS (opaque to authkit). All three endpoints are gated by
-// the base permission tenant:service_tokens:manage (owner holds `*`; a platform global
+// the base permission org:service_tokens:manage (owner holds `*`; a platform global
 // admin bypasses). Minting validates the requested permissions against the
 // catalog AND the caller's own effective permissions (no-escalation), and bars
-// wildcards + the write/mint reserved `tenant:` management permissions from service tokens
-// (a service token does machine work, not tenant management). Read-only tenant:read IS
+// wildcards + the write/mint reserved `org:` management permissions from service tokens
+// (a service token does machine work, not org management). Read-only org:read IS
 // service token-grantable (escalation-harmless, for monitoring/audit automation). A
 // service principal (a service token) has no UserID,
 // so it can never reach these handlers — a service token can never mint/list/revoke service tokens.
@@ -79,10 +79,10 @@ func cleanStrings(in []string) []string {
 	return out
 }
 
-// orgAccessTokenManageGate resolves the tenant and confirms the caller holds
-// tenant:service_tokens:manage (list/revoke). Owner holds `*`; a global admin bypasses.
-func (s *Service) tenantAccessTokenManageGate(w http.ResponseWriter, r *http.Request, claims Claims, tenantSlug string) (canonical string, ok bool) {
-	return s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantTokensManage)
+// orgAccessTokenManageGate resolves the org and confirms the caller holds
+// org:service_tokens:manage (list/revoke). Owner holds `*`; a global admin bypasses.
+func (s *Service) orgAccessTokenManageGate(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string) (canonical string, ok bool) {
+	return s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgTokensManage)
 }
 
 func (s *Service) handleServiceTokensPOST(w http.ResponseWriter, r *http.Request) {
@@ -93,8 +93,8 @@ func (s *Service) handleServiceTokensPOST(w http.ResponseWriter, r *http.Request
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -128,12 +128,12 @@ func (s *Service) handleServiceTokensPOST(w http.ResponseWriter, r *http.Request
 	resources := body.Resources
 
 	// Authorize the mint + the permission grant.
-	canonical, ok := s.authorizeServiceTokenMint(w, r, claims, tenantSlug, permissions)
+	canonical, ok := s.authorizeServiceTokenMint(w, r, claims, orgSlug, permissions)
 	if !ok {
 		return
 	}
 	if err := s.svc.AuthorizeServiceTokenResources(r.Context(), core.ResourceScopeAuthorizationRequest{
-		TenantSlug:       canonical,
+		OrgSlug:          canonical,
 		ActorUserID:      claims.UserID,
 		Permissions:      permissions,
 		Resources:        resources,
@@ -187,11 +187,11 @@ func (s *Service) handleServiceTokensPOST(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// authorizeServiceTokenMint gates minting on tenant:service_tokens:manage and validates the
+// authorizeServiceTokenMint gates minting on org:service_tokens:manage and validates the
 // requested permissions: they must be concrete catalog permissions the caller
-// itself holds (no-escalation) — never wildcards/exclusions or reserved `tenant:`
-// management permissions (a service token does machine work, not tenant management).
-func (s *Service) authorizeServiceTokenMint(w http.ResponseWriter, r *http.Request, claims Claims, tenantSlug string, permissions []string) (canonical string, ok bool) {
+// itself holds (no-escalation) — never wildcards/exclusions or reserved `org:`
+// management permissions (a service token does machine work, not org management).
+func (s *Service) authorizeServiceTokenMint(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string, permissions []string) (canonical string, ok bool) {
 	var notGrantable []string
 	for _, p := range permissions {
 		if p == core.PermWildcard || strings.HasPrefix(p, "!") || (core.IsReservedPermission(p) && !core.IsServiceTokenGrantableReservedPermission(p)) {
@@ -202,7 +202,7 @@ func (s *Service) authorizeServiceTokenMint(w http.ResponseWriter, r *http.Reque
 		sendErrData(w, http.StatusForbidden, "permission_not_grantable_to_service_token", map[string]any{"offending_permissions": notGrantable})
 		return "", false
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantTokensManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgTokensManage)
 	if !gateOK {
 		return "", false
 	}
@@ -228,12 +228,12 @@ func (s *Service) handleServiceTokensGET(w http.ResponseWriter, r *http.Request)
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.tenantAccessTokenManageGate(w, r, claims, tenantSlug)
+	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, orgSlug)
 	if !gateOK {
 		return
 	}
@@ -255,13 +255,13 @@ func (s *Service) handleServiceTokenDELETE(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	tokenID := strings.TrimSpace(r.PathValue("token_id"))
-	if tenantSlug == "" || tokenID == "" {
+	if orgSlug == "" || tokenID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.tenantAccessTokenManageGate(w, r, claims, tenantSlug)
+	canonical, gateOK := s.orgAccessTokenManageGate(w, r, claims, orgSlug)
 	if !gateOK {
 		return
 	}

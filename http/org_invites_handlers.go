@@ -8,42 +8,42 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleTenantInvitesGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgInvitesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
 	if !gateOK {
 		return
 	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	items, err := s.svc.ListTenantInvites(r.Context(), canonical, status)
+	items, err := s.svc.ListOrgInvites(r.Context(), canonical, status)
 	if err != nil {
-		serverErr(w, "tenant_invites_lookup_failed")
+		serverErr(w, "org_invites_lookup_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"invites": items})
 }
 
-func (s *Service) handleTenantInvitesPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
-	if tenantSlug == "" {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
 	if !gateOK {
 		return
 	}
@@ -58,10 +58,10 @@ func (s *Service) handleTenantInvitesPOST(w http.ResponseWriter, r *http.Request
 	}
 	// NO-ESCALATION at invite time: an invite grants its role's permissions on
 	// accept, so the inviter must hold every permission the role confers. This
-	// stops a member with only tenant:members:manage from minting an `owner`
+	// stops a member with only org:members:manage from minting an `owner`
 	// (=`*`) invite. The same check runs again at accept time (the inviter may be
 	// demoted before the invite is accepted). Same primitive as the direct
-	// role-grant handler (handleTenantMemberRolesPOST).
+	// role-grant handler (handleOrgMemberRolesPOST).
 	if err := s.svc.ValidateInviteRoleGrant(r.Context(), canonical, claims.UserID, strings.TrimSpace(body.Role)); err != nil {
 		if err == core.ErrInviteRoleExceedsGrantor {
 			forbidden(w, "role_exceeds_grantor")
@@ -80,42 +80,42 @@ func (s *Service) handleTenantInvitesPOST(w http.ResponseWriter, r *http.Request
 		parsed = parsed.UTC()
 		expiresAt = &parsed
 	}
-	item, err := s.svc.CreateTenantInvite(r.Context(), canonical, strings.TrimSpace(body.UserID), claims.UserID, strings.TrimSpace(body.Role), expiresAt)
+	item, err := s.svc.CreateOrgInvite(r.Context(), canonical, strings.TrimSpace(body.UserID), claims.UserID, strings.TrimSpace(body.Role), expiresAt)
 	if err != nil {
-		badRequest(w, "tenant_invite_create_failed")
+		badRequest(w, "org_invite_create_failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
 }
 
-func (s *Service) handleTenantInviteRevokePOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgInviteRevokePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	tenantSlug := strings.TrimSpace(r.PathValue("tenant"))
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	inviteID := strings.TrimSpace(r.PathValue("invite_id"))
-	if tenantSlug == "" || inviteID == "" {
+	if orgSlug == "" || inviteID == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireTenantPermissionGin(w, r, claims, tenantSlug, core.PermTenantMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
 	if !gateOK {
 		return
 	}
-	if err := s.svc.RevokeTenantInvite(r.Context(), canonical, inviteID); err != nil {
+	if err := s.svc.RevokeOrgInvite(r.Context(), canonical, inviteID); err != nil {
 		if err == core.ErrInviteNotFound {
 			notFound(w, "invite_not_found")
 			return
 		}
-		badRequest(w, "tenant_invite_revoke_failed")
+		badRequest(w, "org_invite_revoke_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Service) handleTenantInviteAcceptPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgInviteAcceptPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -126,7 +126,7 @@ func (s *Service) handleTenantInviteAcceptPOST(w http.ResponseWriter, r *http.Re
 		badRequest(w, "invalid_request")
 		return
 	}
-	if err := s.svc.AcceptTenantInvite(r.Context(), inviteID, claims.UserID); err != nil {
+	if err := s.svc.AcceptOrgInvite(r.Context(), inviteID, claims.UserID); err != nil {
 		switch err {
 		case core.ErrInviteNotFound:
 			notFound(w, "invite_not_found")
@@ -139,14 +139,14 @@ func (s *Service) handleTenantInviteAcceptPOST(w http.ResponseWriter, r *http.Re
 		case core.ErrInviteNotPending, core.ErrInviteExpired:
 			badRequest(w, err.Error())
 		default:
-			badRequest(w, "tenant_invite_accept_failed")
+			badRequest(w, "org_invite_accept_failed")
 		}
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Service) handleTenantInviteDeclinePOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleOrgInviteDeclinePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
@@ -157,7 +157,7 @@ func (s *Service) handleTenantInviteDeclinePOST(w http.ResponseWriter, r *http.R
 		badRequest(w, "invalid_request")
 		return
 	}
-	if err := s.svc.DeclineTenantInvite(r.Context(), inviteID, claims.UserID); err != nil {
+	if err := s.svc.DeclineOrgInvite(r.Context(), inviteID, claims.UserID); err != nil {
 		switch err {
 		case core.ErrInviteNotFound:
 			notFound(w, "invite_not_found")
@@ -166,7 +166,7 @@ func (s *Service) handleTenantInviteDeclinePOST(w http.ResponseWriter, r *http.R
 		case core.ErrInviteNotPending, core.ErrInviteExpired:
 			badRequest(w, err.Error())
 		default:
-			badRequest(w, "tenant_invite_decline_failed")
+			badRequest(w, "org_invite_decline_failed")
 		}
 		return
 	}

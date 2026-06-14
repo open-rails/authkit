@@ -12,18 +12,18 @@ import (
 type OwnerNamespaceLookupStatus string
 
 const (
-	OwnerNamespaceStatusRegisteredUser           OwnerNamespaceLookupStatus = "registered_user"
-	OwnerNamespaceStatusRegisteredTenant         OwnerNamespaceLookupStatus = "registered_tenant"
-	OwnerNamespaceStatusParkedUser               OwnerNamespaceLookupStatus = "parked_user"
-	OwnerNamespaceStatusParkedTenant             OwnerNamespaceLookupStatus = "parked_tenant"
-	OwnerNamespaceStatusRestrictedName           OwnerNamespaceLookupStatus = "restricted_name"
-	OwnerNamespaceStatusRenamedUser              OwnerNamespaceLookupStatus = "renamed_user"
-	OwnerNamespaceStatusRenamedTenant            OwnerNamespaceLookupStatus = "renamed_tenant"
-	OwnerNamespaceStatusHeldByDeletedUser        OwnerNamespaceLookupStatus = "held_by_deleted_user"
-	OwnerNamespaceStatusHeldByDeletedTenant      OwnerNamespaceLookupStatus = "held_by_deleted_tenant"
-	OwnerNamespaceStatusHeldByRecentUserRename   OwnerNamespaceLookupStatus = "held_by_recent_user_rename"
-	OwnerNamespaceStatusHeldByRecentTenantRename OwnerNamespaceLookupStatus = "held_by_recent_tenant_rename"
-	OwnerNamespaceStatusUnregistered             OwnerNamespaceLookupStatus = "unregistered"
+	OwnerNamespaceStatusRegisteredUser         OwnerNamespaceLookupStatus = "registered_user"
+	OwnerNamespaceStatusRegisteredOrg          OwnerNamespaceLookupStatus = "registered_tenant"
+	OwnerNamespaceStatusParkedUser             OwnerNamespaceLookupStatus = "parked_user"
+	OwnerNamespaceStatusParkedOrg              OwnerNamespaceLookupStatus = "parked_tenant"
+	OwnerNamespaceStatusRestrictedName         OwnerNamespaceLookupStatus = "restricted_name"
+	OwnerNamespaceStatusRenamedUser            OwnerNamespaceLookupStatus = "renamed_user"
+	OwnerNamespaceStatusRenamedOrg             OwnerNamespaceLookupStatus = "renamed_org"
+	OwnerNamespaceStatusHeldByDeletedUser      OwnerNamespaceLookupStatus = "held_by_deleted_user"
+	OwnerNamespaceStatusHeldByDeletedOrg       OwnerNamespaceLookupStatus = "held_by_deleted_org"
+	OwnerNamespaceStatusHeldByRecentUserRename OwnerNamespaceLookupStatus = "held_by_recent_user_rename"
+	OwnerNamespaceStatusHeldByRecentOrgRename  OwnerNamespaceLookupStatus = "held_by_recent_org_rename"
+	OwnerNamespaceStatusUnregistered           OwnerNamespaceLookupStatus = "unregistered"
 )
 
 type OwnerNamespaceLookupUser struct {
@@ -31,7 +31,7 @@ type OwnerNamespaceLookupUser struct {
 	Username string
 }
 
-type OwnerNamespaceLookupTenant struct {
+type OwnerNamespaceLookupOrg struct {
 	ID          string
 	Slug        string
 	IsPersonal  bool
@@ -49,7 +49,7 @@ type OwnerNamespaceLookup struct {
 	Renamed       bool
 	HoldUntil     *time.Time
 	User          *OwnerNamespaceLookupUser
-	Tenant        *OwnerNamespaceLookupTenant
+	Org           *OwnerNamespaceLookupOrg
 }
 
 type ownerNamespaceCurrentUser struct {
@@ -59,7 +59,7 @@ type ownerNamespaceCurrentUser struct {
 	reserved bool
 }
 
-type ownerNamespaceCurrentTenant struct {
+type ownerNamespaceCurrentOrg struct {
 	id          string
 	slug        string
 	isPersonal  bool
@@ -77,7 +77,7 @@ func (s *Service) LookupOwnerNamespace(ctx context.Context, slug string) (*Owner
 		return nil, err
 	}
 	requested := strings.ToLower(strings.TrimSpace(slug))
-	if err := validateTenantSlug(requested); err != nil {
+	if err := validateOrgSlug(requested); err != nil {
 		return nil, err
 	}
 
@@ -93,13 +93,13 @@ func (s *Service) LookupOwnerNamespace(ctx context.Context, slug string) (*Owner
 	if userErr != nil {
 		return nil, userErr
 	}
-	tenant, tenantErr := s.lookupOwnerNamespaceCurrentTenant(ctx, requested)
-	if tenantErr != nil {
-		return nil, tenantErr
+	org, orgErr := s.lookupOwnerNamespaceCurrentOrg(ctx, requested)
+	if orgErr != nil {
+		return nil, orgErr
 	}
 
-	if user != nil || tenant != nil {
-		return s.ownerNamespaceLookupFromCurrent(out, user, tenant), nil
+	if user != nil || org != nil {
+		return s.ownerNamespaceLookupFromCurrent(out, user, org), nil
 	}
 
 	restricted, err := s.ownerNamespaceRestrictedNameExists(ctx, requested)
@@ -118,7 +118,7 @@ func (s *Service) LookupOwnerNamespace(ctx context.Context, slug string) (*Owner
 		return renamed, nil
 	}
 
-	if renamed, err := s.lookupOwnerNamespaceTenantRename(ctx, requested); err != nil {
+	if renamed, err := s.lookupOwnerNamespaceOrgRename(ctx, requested); err != nil {
 		return nil, err
 	} else if renamed != nil {
 		return renamed, nil
@@ -127,46 +127,46 @@ func (s *Service) LookupOwnerNamespace(ctx context.Context, slug string) (*Owner
 	return out, nil
 }
 
-func (s *Service) ownerNamespaceLookupFromCurrent(out *OwnerNamespaceLookup, user *ownerNamespaceCurrentUser, tenant *ownerNamespaceCurrentTenant) *OwnerNamespaceLookup {
+func (s *Service) ownerNamespaceLookupFromCurrent(out *OwnerNamespaceLookup, user *ownerNamespaceCurrentUser, org *ownerNamespaceCurrentOrg) *OwnerNamespaceLookup {
 	out.Claimable = false
 
 	hasLiveUser := user != nil && !user.deleted
-	hasLiveTenant := tenant != nil && !tenant.deleted
+	hasLiveOrg := org != nil && !org.deleted
 	hasDeletedUser := user != nil && user.deleted
-	hasDeletedTenant := tenant != nil && tenant.deleted
+	hasDeletedOrg := org != nil && org.deleted
 
 	switch {
-	case hasLiveUser && hasLiveTenant:
+	case hasLiveUser && hasLiveOrg:
 		out.Exists = true
-		out.EntityKind = "tenant_and_user"
+		out.EntityKind = "org_and_user"
 	case hasLiveUser:
 		out.Exists = true
 		out.EntityKind = "user"
-	case hasLiveTenant:
+	case hasLiveOrg:
 		out.Exists = true
-		out.EntityKind = "tenant"
+		out.EntityKind = "org"
 	default:
 		out.Exists = false
 		out.EntityKind = "none"
 	}
 
-	if hasLiveTenant {
-		state := tenant.state
+	if hasLiveOrg {
+		state := org.state
 		if state == "" {
 			state = OwnerNamespaceStateRegistered
 		}
-		out.Tenant = &OwnerNamespaceLookupTenant{
-			ID:          strings.TrimSpace(tenant.id),
-			Slug:        strings.TrimSpace(tenant.slug),
-			IsPersonal:  tenant.isPersonal,
-			OwnerUserID: strings.TrimSpace(tenant.ownerUserID),
+		out.Org = &OwnerNamespaceLookupOrg{
+			ID:          strings.TrimSpace(org.id),
+			Slug:        strings.TrimSpace(org.slug),
+			IsPersonal:  org.isPersonal,
+			OwnerUserID: strings.TrimSpace(org.ownerUserID),
 			State:       state,
 		}
-		out.CanonicalSlug = strings.TrimSpace(tenant.slug)
-		if state == OwnerNamespaceStateParkedTenant {
-			out.Status = OwnerNamespaceStatusParkedTenant
+		out.CanonicalSlug = strings.TrimSpace(org.slug)
+		if state == OwnerNamespaceStateParkedOrg {
+			out.Status = OwnerNamespaceStatusParkedOrg
 		} else {
-			out.Status = OwnerNamespaceStatusRegisteredTenant
+			out.Status = OwnerNamespaceStatusRegisteredOrg
 		}
 	}
 	if hasLiveUser {
@@ -181,15 +181,15 @@ func (s *Service) ownerNamespaceLookupFromCurrent(out *OwnerNamespaceLookup, use
 			out.Status = OwnerNamespaceStatusRegisteredUser
 		}
 	}
-	if !hasLiveUser && !hasLiveTenant {
+	if !hasLiveUser && !hasLiveOrg {
 		if hasDeletedUser {
 			out.Status = OwnerNamespaceStatusHeldByDeletedUser
 			out.CanonicalSlug = strings.TrimSpace(user.username)
 			return out
 		}
-		if hasDeletedTenant {
-			out.Status = OwnerNamespaceStatusHeldByDeletedTenant
-			out.CanonicalSlug = strings.TrimSpace(tenant.slug)
+		if hasDeletedOrg {
+			out.Status = OwnerNamespaceStatusHeldByDeletedOrg
+			out.CanonicalSlug = strings.TrimSpace(org.slug)
 			return out
 		}
 	}
@@ -211,30 +211,30 @@ func (s *Service) lookupOwnerNamespaceCurrentUser(ctx context.Context, slug stri
 	return &ownerNamespaceCurrentUser{id: row.ID, username: row.Username, deleted: row.Deleted, reserved: row.Reserved}, nil
 }
 
-func (s *Service) lookupOwnerNamespaceCurrentTenant(ctx context.Context, slug string) (*ownerNamespaceCurrentTenant, error) {
-	row, err := s.q.NamespaceTenantBySlug(ctx, slug)
+func (s *Service) lookupOwnerNamespaceCurrentOrg(ctx context.Context, slug string) (*ownerNamespaceCurrentOrg, error) {
+	row, err := s.q.NamespaceOrgBySlug(ctx, slug)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	tenant := ownerNamespaceCurrentTenant{
+	org := ownerNamespaceCurrentOrg{
 		id:          row.ID,
 		slug:        row.Slug,
 		isPersonal:  row.IsPersonal,
 		ownerUserID: row.OwnerUserID,
 		deleted:     row.Deleted,
 	}
-	tenant.state = normalizeOwnerNamespaceState(OwnerNamespaceState(row.StateRaw))
-	if tenant.state == "" {
+	org.state = normalizeOwnerNamespaceState(OwnerNamespaceState(row.StateRaw))
+	if org.state == "" {
 		if row.Reserved {
-			tenant.state = OwnerNamespaceStateParkedTenant
+			org.state = OwnerNamespaceStateParkedOrg
 		} else {
-			tenant.state = OwnerNamespaceStateRegistered
+			org.state = OwnerNamespaceStateRegistered
 		}
 	}
-	return &tenant, nil
+	return &org, nil
 }
 
 func (s *Service) ownerNamespaceRestrictedNameExists(ctx context.Context, slug string) (bool, error) {
@@ -252,8 +252,8 @@ func (s *Service) lookupOwnerNamespaceUserRename(ctx context.Context, slug strin
 	return ownerNamespaceLookupFromRename(slug, row.Username, row.ID, row.RenamedAt, row.Deleted, true), nil
 }
 
-func (s *Service) lookupOwnerNamespaceTenantRename(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
-	row, err := s.q.NamespaceTenantRenameBySlug(ctx, slug)
+func (s *Service) lookupOwnerNamespaceOrgRename(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
+	row, err := s.q.NamespaceOrgRenameBySlug(ctx, slug)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -262,7 +262,7 @@ func (s *Service) lookupOwnerNamespaceTenantRename(ctx context.Context, slug str
 	}
 	out := ownerNamespaceLookupFromRename(slug, row.Slug, row.ID, row.RenamedAt, row.Deleted, false)
 	if !row.Deleted {
-		out.Tenant = &OwnerNamespaceLookupTenant{
+		out.Org = &OwnerNamespaceLookupOrg{
 			ID:          strings.TrimSpace(row.ID),
 			Slug:        strings.TrimSpace(row.Slug),
 			IsPersonal:  row.IsPersonal,
@@ -307,12 +307,12 @@ func ownerNamespaceLookupFromRename(requested, canonical, ownerID string, rename
 			out.CanonicalSlug = strings.TrimSpace(requested)
 			out.HoldUntil = nil
 		} else {
-			out.Status = OwnerNamespaceStatusHeldByRecentTenantRename
+			out.Status = OwnerNamespaceStatusHeldByRecentOrgRename
 		}
 		return out
 	}
-	out.Status = OwnerNamespaceStatusRenamedTenant
+	out.Status = OwnerNamespaceStatusRenamedOrg
 	out.Exists = true
-	out.EntityKind = "tenant"
+	out.EntityKind = "org"
 	return out
 }

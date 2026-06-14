@@ -15,21 +15,21 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 	if opts.NativeUserRegistrationMode != RegistrationModeOpen {
 		t.Fatalf("NativeUserRegistrationMode should default to open")
 	}
-	if opts.TenantRegistrationMode != RegistrationModeOpen {
-		t.Fatalf("TenantRegistrationMode should default to open")
+	if opts.OrgRegistrationMode != RegistrationModeOpen {
+		t.Fatalf("OrgRegistrationMode should default to open")
 	}
 	if !opts.PublicNativeUserRegistrationEnabled() {
 		t.Fatalf("PublicNativeUserRegistrationEnabled should default to true")
 	}
-	if !opts.PublicTenantRegistrationEnabled() {
-		t.Fatalf("PublicTenantRegistrationEnabled should default to true")
+	if !opts.PublicOrgRegistrationEnabled() {
+		t.Fatalf("PublicOrgRegistrationEnabled should default to true")
 	}
 }
 
 func TestPolicySwitches_Plumbed(t *testing.T) {
 	cfg := baseTestConfig(t)
 	cfg.NativeUserRegistrationMode = RegistrationModeAdminBootstrapOnly
-	cfg.TenantRegistrationMode = RegistrationModeManifestOnly
+	cfg.OrgRegistrationMode = RegistrationModeManifestOnly
 	svc, err := NewFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
@@ -38,14 +38,14 @@ func TestPolicySwitches_Plumbed(t *testing.T) {
 	if opts.NativeUserRegistrationMode != RegistrationModeAdminBootstrapOnly {
 		t.Fatalf("NativeUserRegistrationMode not plumbed through NewFromConfig")
 	}
-	if opts.TenantRegistrationMode != RegistrationModeManifestOnly {
-		t.Fatalf("TenantRegistrationMode not plumbed through NewFromConfig")
+	if opts.OrgRegistrationMode != RegistrationModeManifestOnly {
+		t.Fatalf("OrgRegistrationMode not plumbed through NewFromConfig")
 	}
 	if opts.PublicNativeUserRegistrationEnabled() {
 		t.Fatalf("PublicNativeUserRegistrationEnabled should be false when disabled")
 	}
-	if opts.PublicTenantRegistrationEnabled() {
-		t.Fatalf("PublicTenantRegistrationEnabled should be false when disabled")
+	if opts.PublicOrgRegistrationEnabled() {
+		t.Fatalf("PublicOrgRegistrationEnabled should be false when disabled")
 	}
 }
 
@@ -78,15 +78,15 @@ func TestPolicySwitches_RegistrationModes(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			opts := Options{
 				NativeUserRegistrationMode: mode,
-				TenantRegistrationMode:     mode,
+				OrgRegistrationMode:        mode,
 			}
 			svc := NewService(opts, Keyset{})
 			got := svc.Options()
 			if got.PublicNativeUserRegistrationEnabled() {
 				t.Fatalf("native public registration should be disabled for %q", mode)
 			}
-			if got.PublicTenantRegistrationEnabled() {
-				t.Fatalf("tenant public registration should be disabled for %q", mode)
+			if got.PublicOrgRegistrationEnabled() {
+				t.Fatalf("org public registration should be disabled for %q", mode)
 			}
 		})
 	}
@@ -94,31 +94,31 @@ func TestPolicySwitches_RegistrationModes(t *testing.T) {
 
 func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 	tests := []struct {
-		name                   string
-		nativeMode             RegistrationMode
-		tenantMode             RegistrationMode
-		wantPublicNativeUsers  bool
-		wantPublicTenants      bool
-		wantPersonalTenantAuto bool
+		name                  string
+		nativeMode            RegistrationMode
+		orgMode               RegistrationMode
+		wantPublicNativeUsers bool
+		wantPublicOrgs        bool
+		wantPersonalOrgAuto   bool
 	}{
 		{
 			name:                  "doujins-hentai0-native-app",
 			nativeMode:            RegistrationModeOpen,
-			tenantMode:            RegistrationModeClosed,
+			orgMode:               RegistrationModeClosed,
 			wantPublicNativeUsers: true,
-			wantPublicTenants:     false,
+			wantPublicOrgs:        false,
 		},
 		{
-			name:              "tensorhub-b2b-admin-created",
-			nativeMode:        RegistrationModeAdminOnly,
-			tenantMode:        RegistrationModeAdminBootstrapOnly,
-			wantPublicTenants: false,
+			name:           "tensorhub-b2b-admin-created",
+			nativeMode:     RegistrationModeAdminOnly,
+			orgMode:        RegistrationModeAdminBootstrapOnly,
+			wantPublicOrgs: false,
 		},
 		{
-			name:              "openrails-relying-party-closed",
-			nativeMode:        RegistrationModeClosed,
-			tenantMode:        RegistrationModeManifestOnly,
-			wantPublicTenants: false,
+			name:           "openrails-relying-party-closed",
+			nativeMode:     RegistrationModeClosed,
+			orgMode:        RegistrationModeManifestOnly,
+			wantPublicOrgs: false,
 		},
 	}
 
@@ -127,17 +127,17 @@ func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 			svc := NewService(Options{
 				Issuer:                     "https://test",
 				NativeUserRegistrationMode: tt.nativeMode,
-				TenantRegistrationMode:     tt.tenantMode,
+				OrgRegistrationMode:        tt.orgMode,
 			}, Keyset{})
 			opts := svc.Options()
 			if opts.PublicNativeUserRegistrationEnabled() != tt.wantPublicNativeUsers {
 				t.Fatalf("PublicNativeUserRegistrationEnabled=%v, want %v", opts.PublicNativeUserRegistrationEnabled(), tt.wantPublicNativeUsers)
 			}
-			if opts.PublicTenantRegistrationEnabled() != tt.wantPublicTenants {
-				t.Fatalf("PublicTenantRegistrationEnabled=%v, want %v", opts.PublicTenantRegistrationEnabled(), tt.wantPublicTenants)
+			if opts.PublicOrgRegistrationEnabled() != tt.wantPublicOrgs {
+				t.Fatalf("PublicOrgRegistrationEnabled=%v, want %v", opts.PublicOrgRegistrationEnabled(), tt.wantPublicOrgs)
 			}
-			if opts.AutoCreatePersonalTenantsEnabled() != tt.wantPersonalTenantAuto {
-				t.Fatalf("AutoCreatePersonalTenantsEnabled=%v, want %v", opts.AutoCreatePersonalTenantsEnabled(), tt.wantPersonalTenantAuto)
+			if opts.AutoCreatePersonalOrgsEnabled() != tt.wantPersonalOrgAuto {
+				t.Fatalf("AutoCreatePersonalOrgsEnabled=%v, want %v", opts.AutoCreatePersonalOrgsEnabled(), tt.wantPersonalOrgAuto)
 			}
 		})
 	}
@@ -151,15 +151,15 @@ func TestPolicySwitches_RejectsLegacyBootstrapOnlyMode(t *testing.T) {
 	}
 }
 
-func TestPolicySwitches_NativeUsersDoNotCreatePersonalTenantsByDefault(t *testing.T) {
+func TestPolicySwitches_NativeUsersDoNotCreatePersonalOrgsByDefault(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	const username = "tenantlessuser"
+	const username = "orglessuser"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, username)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, username)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
 	})
 
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
@@ -170,32 +170,32 @@ func TestPolicySwitches_NativeUsersDoNotCreatePersonalTenantsByDefault(t *testin
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
-		FROM profiles.tenants
+		FROM profiles.orgs
 		WHERE owner_user_id=$1::uuid
 		  AND is_personal=true
 		  AND deleted_at IS NULL
 	`, u.ID).Scan(&count); err != nil {
-		t.Fatalf("count personal tenants: %v", err)
+		t.Fatalf("count personal orgs: %v", err)
 	}
 	if count != 0 {
-		t.Fatalf("expected no default personal tenant, got %d", count)
+		t.Fatalf("expected no default personal org, got %d", count)
 	}
 }
 
-func TestPolicySwitches_AutoCreatePersonalTenantsOptIn(t *testing.T) {
+func TestPolicySwitches_AutoCreatePersonalOrgsOptIn(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	const username = "personaltenantuser"
+	const username = "personalorguser"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, username)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, username)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
 	})
 
 	svc := NewService(Options{
-		Issuer:                    "https://test",
-		AutoCreatePersonalTenants: true,
+		Issuer:                 "https://test",
+		AutoCreatePersonalOrgs: true,
 	}, Keyset{}).WithPostgres(pool)
 	u, err := svc.CreateUser(ctx, "", username)
 	if err != nil {
@@ -204,15 +204,15 @@ func TestPolicySwitches_AutoCreatePersonalTenantsOptIn(t *testing.T) {
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
-		FROM profiles.tenants
+		FROM profiles.orgs
 		WHERE owner_user_id=$1::uuid
 		  AND is_personal=true
 		  AND deleted_at IS NULL
 	`, u.ID).Scan(&count); err != nil {
-		t.Fatalf("count personal tenants: %v", err)
+		t.Fatalf("count personal orgs: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("expected opted-in personal tenant, got %d", count)
+		t.Fatalf("expected opted-in personal org, got %d", count)
 	}
 }
 
@@ -224,9 +224,9 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 		issuer = "https://closed-relying-party.example"
 	)
 
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, slug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	})
 
 	var usersBefore int
@@ -237,10 +237,10 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 	svc := NewService(Options{
 		Issuer:                     "https://test",
 		NativeUserRegistrationMode: RegistrationModeClosed,
-		TenantRegistrationMode:     RegistrationModeManifestOnly,
+		OrgRegistrationMode:        RegistrationModeManifestOnly,
 	}, Keyset{}).WithPostgres(pool)
-	if _, err := svc.CreateTenant(ctx, slug); err != nil {
-		t.Fatalf("bootstrap CreateTenant: %v", err)
+	if _, err := svc.CreateOrg(ctx, slug); err != nil {
+		t.Fatalf("bootstrap CreateOrg: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
 	if _, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{

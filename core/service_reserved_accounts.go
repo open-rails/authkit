@@ -31,14 +31,14 @@ func (s *Service) setUserReservedTx(ctx context.Context, tx pgx.Tx, userID strin
 	return s.qtx(tx).UserSetReserved(ctx, db.UserSetReservedParams{ID: userID, Reserved: reserved})
 }
 
-func (s *Service) setTenantReservedTx(ctx context.Context, tx pgx.Tx, tenantID string, reserved bool) error {
+func (s *Service) setOrgReservedTx(ctx context.Context, tx pgx.Tx, orgID string, reserved bool) error {
 	if tx == nil {
 		return fmt.Errorf("tx required")
 	}
-	if strings.TrimSpace(tenantID) == "" {
-		return fmt.Errorf("invalid_tenant")
+	if strings.TrimSpace(orgID) == "" {
+		return fmt.Errorf("invalid_org")
 	}
-	return s.qtx(tx).TenantSetReserved(ctx, db.TenantSetReservedParams{ID: tenantID, Reserved: reserved})
+	return s.qtx(tx).OrgSetReserved(ctx, db.OrgSetReservedParams{ID: orgID, Reserved: reserved})
 }
 
 // enforceReservedPlaceholderCredentialInvariantTx ensures reserved placeholders
@@ -108,17 +108,17 @@ func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch ma
 	return nil
 }
 
-func (s *Service) GetTenantMetadata(ctx context.Context, tenantID string) (map[string]any, error) {
+func (s *Service) GetOrgMetadata(ctx context.Context, orgID string) (map[string]any, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(tenantID) == "" {
-		return nil, fmt.Errorf("invalid_tenant")
+	if strings.TrimSpace(orgID) == "" {
+		return nil, fmt.Errorf("invalid_org")
 	}
-	raw, err := s.q.TenantMetadata(ctx, tenantID)
+	raw, err := s.q.OrgMetadata(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrTenantNotFound
+			return nil, ErrOrgNotFound
 		}
 		return nil, err
 	}
@@ -132,12 +132,12 @@ func (s *Service) GetTenantMetadata(ctx context.Context, tenantID string) (map[s
 	return out, nil
 }
 
-func (s *Service) PatchTenantMetadata(ctx context.Context, tenantID string, patch map[string]any) error {
+func (s *Service) PatchOrgMetadata(ctx context.Context, orgID string, patch map[string]any) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
-	if strings.TrimSpace(tenantID) == "" {
-		return fmt.Errorf("invalid_tenant")
+	if strings.TrimSpace(orgID) == "" {
+		return fmt.Errorf("invalid_org")
 	}
 	if len(patch) == 0 {
 		return nil
@@ -146,32 +146,32 @@ func (s *Service) PatchTenantMetadata(ctx context.Context, tenantID string, patc
 	if err != nil {
 		return err
 	}
-	n, err := s.q.TenantMetadataPatch(ctx, db.TenantMetadataPatchParams{ID: tenantID, Patch: raw})
+	n, err := s.q.OrgMetadataPatch(ctx, db.OrgMetadataPatchParams{ID: orgID, Patch: raw})
 	if err != nil {
 		return err
 	}
 	if n == 0 {
-		return ErrTenantNotFound
+		return ErrOrgNotFound
 	}
 	return nil
 }
 
-func (s *Service) IsTenantReserved(ctx context.Context, tenantID string) (bool, error) {
-	state, err := s.GetTenantNamespaceState(ctx, tenantID)
+func (s *Service) IsOrgReserved(ctx context.Context, orgID string) (bool, error) {
+	state, err := s.GetOrgNamespaceState(ctx, orgID)
 	if err != nil {
 		return false, err
 	}
-	return state == OwnerNamespaceStateParkedTenant, nil
+	return state == OwnerNamespaceStateParkedOrg, nil
 }
 
 // ReserveAccount reserves a namespace slug without requiring a same-slug login user.
 // For legacy placeholder rows, it still enforces non-loginable reserved invariants.
-func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tenantID string, reserved bool, err error) {
+func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgID string, reserved bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", "", false, err
 	}
 	slug = normalizeReservedSlug(slug)
-	if err := validateTenantSlug(slug); err != nil {
+	if err := validateOrgSlug(slug); err != nil {
 		return "", "", false, err
 	}
 
@@ -182,8 +182,8 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.qtx(tx)
-	if row, err := qtx.TenantIDReservedBySlug(ctx, slug); err == nil {
-		tenantID = strings.TrimSpace(row.ID)
+	if row, err := qtx.OrgIDReservedBySlug(ctx, slug); err == nil {
+		orgID = strings.TrimSpace(row.ID)
 		if !row.Reserved {
 			return "", "", false, ErrReservedAccountClaimed
 		}
@@ -202,10 +202,10 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 		return "", "", false, err
 	}
 
-	if strings.TrimSpace(userID) != "" && strings.TrimSpace(tenantID) == "" {
-		switch row, err := qtx.PersonalTenantIDSlugReservedByOwner(ctx, userID); {
+	if strings.TrimSpace(userID) != "" && strings.TrimSpace(orgID) == "" {
+		switch row, err := qtx.PersonalOrgIDSlugReservedByOwner(ctx, userID); {
 		case err == nil:
-			tenantID = strings.TrimSpace(row.ID)
+			orgID = strings.TrimSpace(row.ID)
 			if !row.Reserved {
 				return "", "", false, ErrReservedAccountClaimed
 			}
@@ -215,7 +215,7 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 		}
 	}
 
-	if strings.TrimSpace(userID) == "" && strings.TrimSpace(tenantID) == "" {
+	if strings.TrimSpace(userID) == "" && strings.TrimSpace(orgID) == "" {
 		if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
 			return "", "", false, err
 		}
@@ -234,11 +234,11 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 		}
 	}
 
-	if strings.TrimSpace(tenantID) != "" {
-		if err := s.setTenantReservedTx(ctx, tx, tenantID, true); err != nil {
+	if strings.TrimSpace(orgID) != "" {
+		if err := s.setOrgReservedTx(ctx, tx, orgID, true); err != nil {
 			return "", "", false, err
 		}
-		if err := s.setTenantNamespaceStateTx(ctx, tx, tenantID, OwnerNamespaceStateParkedTenant); err != nil {
+		if err := s.setOrgNamespaceStateTx(ctx, tx, orgID, OwnerNamespaceStateParkedOrg); err != nil {
 			return "", "", false, err
 		}
 	}
@@ -246,5 +246,5 @@ func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, tena
 	if err := tx.Commit(ctx); err != nil {
 		return "", "", false, err
 	}
-	return strings.TrimSpace(userID), strings.TrimSpace(tenantID), true, nil
+	return strings.TrimSpace(userID), strings.TrimSpace(orgID), true, nil
 }

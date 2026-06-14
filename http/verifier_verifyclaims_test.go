@@ -23,7 +23,7 @@ func TestVerifyClaims_CustomTokenReturnsRawClaims(t *testing.T) {
 		"aud":      "tensorhub-workers",
 		"iat":      time.Now().Unix(),
 		"exp":      time.Now().Add(time.Hour).Unix(),
-		"owner":    "tenant-acme",
+		"owner":    "org-acme",
 		"cap_kind": "repo_write",
 		"scopes":   []string{"repo:write"},
 		// deliberately no `sub` — a custom (non-user) token shape.
@@ -31,7 +31,7 @@ func TestVerifyClaims_CustomTokenReturnsRawClaims(t *testing.T) {
 
 	mc, err := v.VerifyClaims(tok)
 	require.NoError(t, err)
-	require.Equal(t, "tenant-acme", mc["owner"])
+	require.Equal(t, "org-acme", mc["owner"])
 	require.Equal(t, "repo_write", mc["cap_kind"])
 }
 

@@ -36,12 +36,12 @@ func TestAPIRoutesIncludeProviderDiscovery(t *testing.T) {
 	requireRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/providers")
 }
 
-// (issue 60) Tenant routes are always registered under RouteTenants — no
-// tenant-mode gate; the host controls exposure by mounting the group.
-func TestAPIRoutesTenantRoutesAlwaysRegistered(t *testing.T) {
-	s := newTestServiceWithTenantMode(t, "")
-	requireRoute(t, s.APIRoutes(), http.MethodPost, "/token/tenant")
-	requireRoute(t, s.APIRoutes(RouteTenants), http.MethodGet, "/tenants/{tenant}/members")
+// (issue 60) Org routes are always registered under RouteOrgs — no
+// org-mode gate; the host controls exposure by mounting the group.
+func TestAPIRoutesOrgRoutesAlwaysRegistered(t *testing.T) {
+	s := newTestServiceWithOrgMode(t, "")
+	requireRoute(t, s.APIRoutes(), http.MethodPost, "/token/org")
+	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/orgs/{org}/members")
 }
 
 func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {

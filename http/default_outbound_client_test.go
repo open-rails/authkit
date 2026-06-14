@@ -6,7 +6,7 @@ import (
 )
 
 // The default outbound client must carry a bounded timeout: NewVerifier and
-// NewTenantIssuersClient previously defaulted to http.DefaultClient, which has
+// NewOrgIssuersClient previously defaulted to http.DefaultClient, which has
 // none, so a slow/hostile JWKS or registration endpoint could hang a request
 // goroutine forever.
 func TestDefaultOutboundClientHasTimeout(t *testing.T) {
@@ -31,10 +31,10 @@ func TestNewVerifierUsesBoundedClient(t *testing.T) {
 	}
 }
 
-func TestNewTenantIssuersClientUsesBoundedClient(t *testing.T) {
-	fc := NewTenantIssuersClient()
+func TestNewOrgIssuersClientUsesBoundedClient(t *testing.T) {
+	fc := NewOrgIssuersClient()
 	if fc.httpClient == nil || fc.httpClient == http.DefaultClient {
-		t.Fatal("NewTenantIssuersClient must default to a bounded outbound client")
+		t.Fatal("NewOrgIssuersClient must default to a bounded outbound client")
 	}
 	if fc.httpClient.Timeout <= 0 {
 		t.Fatalf("federation client timeout = %v, want > 0", fc.httpClient.Timeout)

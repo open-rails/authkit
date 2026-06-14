@@ -25,10 +25,10 @@ SELECT (
     JOIN profiles.users u ON u.id = r.user_id
     WHERE r.from_slug = sqlc.arg(slug)::text AND r.renamed_at >= sqlc.arg(reuse_cutoff)::timestamptz
   )
-  OR EXISTS(SELECT 1 FROM profiles.tenants o WHERE o.slug = sqlc.arg(slug)::text)
+  OR EXISTS(SELECT 1 FROM profiles.orgs o WHERE o.slug = sqlc.arg(slug)::text)
   OR EXISTS(
-    SELECT 1 FROM profiles.tenant_renames r
-    JOIN profiles.tenants o ON o.id = r.tenant_id
+    SELECT 1 FROM profiles.org_renames r
+    JOIN profiles.orgs o ON o.id = r.org_id
     WHERE r.from_slug = sqlc.arg(slug)::text AND r.renamed_at >= sqlc.arg(reuse_cutoff)::timestamptz
   )
 )::boolean AS conflict_exists;
@@ -42,18 +42,18 @@ END)::boolean AS reserved
 FROM profiles.users
 WHERE id = sqlc.arg(id)::uuid;
 
--- name: TenantNamespaceStateByID :one
+-- name: OrgNamespaceStateByID :one
 SELECT COALESCE(COALESCE(metadata, '{}'::jsonb)->>'namespace_state', '')::text AS state_raw,
        (CASE
          WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
          THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
          ELSE false
        END)::boolean AS reserved
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE id = sqlc.arg(id)::uuid AND deleted_at IS NULL;
 
--- name: TenantSetNamespaceState :execrows
-UPDATE profiles.tenants
+-- name: OrgSetNamespaceState :execrows
+UPDATE profiles.orgs
 SET metadata = jsonb_set(
       jsonb_set(COALESCE(metadata, '{}'::jsonb), '{namespace_state}', to_jsonb(sqlc.arg(state)::text), true),
       '{reserved}', to_jsonb(sqlc.arg(reserved)::boolean), true
@@ -61,13 +61,13 @@ SET metadata = jsonb_set(
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid AND deleted_at IS NULL;
 
--- name: TenantIDPersonalBySlug :one
+-- name: OrgIDPersonalBySlug :one
 SELECT id::text, is_personal
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE slug = $1 AND deleted_at IS NULL;
 
--- name: TenantInsertWithState :one
-INSERT INTO profiles.tenants (id, slug, metadata)
+-- name: OrgInsertWithState :one
+INSERT INTO profiles.orgs (id, slug, metadata)
 VALUES (sqlc.arg(id)::uuid, $2, jsonb_build_object('namespace_state', sqlc.arg(state)::text, 'reserved', to_jsonb(true)))
 RETURNING id::text;
 
@@ -91,27 +91,27 @@ SELECT EXISTS (
     AND (sqlc.arg(exclude_user_id)::text = '' OR r.user_id::text <> sqlc.arg(exclude_user_id)::text)
 );
 
--- name: OwnerSlugTenantExists :one
+-- name: OwnerSlugOrgExists :one
 SELECT EXISTS (
   SELECT 1
-  FROM profiles.tenants o
+  FROM profiles.orgs o
   WHERE o.slug = sqlc.arg(slug)::text
-    AND (sqlc.arg(exclude_tenant_id)::text = '' OR o.id::text <> sqlc.arg(exclude_tenant_id)::text)
+    AND (sqlc.arg(exclude_org_id)::text = '' OR o.id::text <> sqlc.arg(exclude_org_id)::text)
 );
 
--- name: OwnerSlugTenantRenameHeld :one
+-- name: OwnerSlugOrgRenameHeld :one
 SELECT EXISTS (
   SELECT 1
-  FROM profiles.tenant_renames r
-  JOIN profiles.tenants o ON o.id = r.tenant_id
+  FROM profiles.org_renames r
+  JOIN profiles.orgs o ON o.id = r.org_id
   WHERE r.from_slug = sqlc.arg(slug)::text
     AND r.renamed_at >= sqlc.arg(reuse_cutoff)::timestamptz
-    AND (sqlc.arg(exclude_tenant_id)::text = '' OR r.tenant_id::text <> sqlc.arg(exclude_tenant_id)::text)
+    AND (sqlc.arg(exclude_org_id)::text = '' OR r.org_id::text <> sqlc.arg(exclude_org_id)::text)
 );
 
--- name: PersonalTenantByOwner :one
+-- name: PersonalOrgByOwner :one
 SELECT id::text, slug, is_personal, COALESCE(owner_user_id::text, '')::text AS owner_user_id
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE owner_user_id = sqlc.arg(owner_user_id)::uuid AND is_personal = true AND deleted_at IS NULL;
 
 -- name: UserSlugAliases :many
@@ -136,14 +136,14 @@ WHERE r.from_slug = $1
 ORDER BY r.renamed_at DESC
 LIMIT 1;
 
--- name: TenantAliases :many
+-- name: OrgAliases :many
 SELECT DISTINCT from_slug
-FROM profiles.tenant_renames
-WHERE tenant_id = sqlc.arg(tenant_id)::uuid
+FROM profiles.org_renames
+WHERE org_id = sqlc.arg(org_id)::uuid
 ORDER BY from_slug ASC;
 
--- name: PersonalTenantUpsert :one
-INSERT INTO profiles.tenants (id, slug, is_personal, owner_user_id, metadata)
+-- name: PersonalOrgUpsert :one
+INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id, metadata)
 VALUES (sqlc.arg(id)::uuid, $2, true, sqlc.arg(owner_user_id)::uuid, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
 ON CONFLICT (owner_user_id) WHERE is_personal = true AND deleted_at IS NULL
 DO UPDATE SET slug = EXCLUDED.slug, updated_at = now()
@@ -164,7 +164,7 @@ SELECT id::text,
 FROM profiles.users
 WHERE username = $1;
 
--- name: NamespaceTenantBySlug :one
+-- name: NamespaceOrgBySlug :one
 SELECT id::text,
        slug,
        is_personal,
@@ -176,7 +176,7 @@ SELECT id::text,
          THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
          ELSE false
        END)::boolean AS reserved
-FROM profiles.tenants
+FROM profiles.orgs
 WHERE slug = $1;
 
 -- name: NamespaceUserRenameBySlug :one
@@ -187,10 +187,10 @@ WHERE r.from_slug = $1
 ORDER BY r.renamed_at DESC
 LIMIT 1;
 
--- name: NamespaceTenantRenameBySlug :one
+-- name: NamespaceOrgRenameBySlug :one
 SELECT o.id::text AS id, o.slug, o.is_personal, COALESCE(o.owner_user_id::text, '')::text AS owner_user_id, (o.deleted_at IS NOT NULL)::boolean AS deleted, r.renamed_at
-FROM profiles.tenant_renames r
-JOIN profiles.tenants o ON o.id = r.tenant_id
+FROM profiles.org_renames r
+JOIN profiles.orgs o ON o.id = r.org_id
 WHERE r.from_slug = $1
 ORDER BY r.renamed_at DESC
 LIMIT 1;

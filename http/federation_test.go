@@ -12,7 +12,7 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// memFederatedSource is an in-memory TenantIssuerSource for tests, so the
+// memFederatedSource is an in-memory OrgIssuerSource for tests, so the
 // Verifier-load path can be exercised without a Postgres-backed core.Service.
 type memFederatedSource struct {
 	items []core.RemoteApplication
@@ -52,7 +52,7 @@ func jwksServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-// TestOutboundClientPostsRegistration verifies the outbound TenantIssuersClient
+// TestOutboundClientPostsRegistration verifies the outbound OrgIssuersClient
 // posts the correct body and auth header to a resource server's accept endpoint.
 func TestOutboundClientPostsRegistration(t *testing.T) {
 	var got remoteApplicationRegistration
@@ -66,8 +66,8 @@ func TestOutboundClientPostsRegistration(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fc := NewTenantIssuersClient(WithTenantIssuersAuthToken("owner-token"))
-	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/remote-applications", TenantIssuersRegistration{
+	fc := NewOrgIssuersClient(WithOrgIssuersAuthToken("owner-token"))
+	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/remote-applications", OrgIssuersRegistration{
 		Slug:    "cozy-art",
 		Issuer:  "https://cozy.example",
 		JWKSURI: "https://cozy.example/.well-known/jwks.json",
@@ -89,8 +89,8 @@ func TestOutboundClientPropagatesError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"forbidden"}`))
 	}))
 	defer srv.Close()
-	fc := NewTenantIssuersClient()
-	err := fc.RegisterIssuer(context.Background(), srv.URL, TenantIssuersRegistration{
+	fc := NewOrgIssuersClient()
+	err := fc.RegisterIssuer(context.Background(), srv.URL, OrgIssuersRegistration{
 		Slug: "cozy-art", Issuer: "https://cozy.example", JWKSURI: "https://cozy.example/jwks",
 	})
 	if err == nil {
@@ -99,20 +99,20 @@ func TestOutboundClientPropagatesError(t *testing.T) {
 }
 
 func TestOutboundClientValidatesInput(t *testing.T) {
-	fc := NewTenantIssuersClient()
-	if err := fc.RegisterIssuer(context.Background(), "", TenantIssuersRegistration{Slug: "a", Issuer: "b", JWKSURI: "c"}); err == nil {
+	fc := NewOrgIssuersClient()
+	if err := fc.RegisterIssuer(context.Background(), "", OrgIssuersRegistration{Slug: "a", Issuer: "b", JWKSURI: "c"}); err == nil {
 		t.Fatal("expected error for empty accept URL")
 	}
-	if err := fc.RegisterIssuer(context.Background(), "http://x", TenantIssuersRegistration{Slug: "a"}); err == nil {
+	if err := fc.RegisterIssuer(context.Background(), "http://x", OrgIssuersRegistration{Slug: "a"}); err == nil {
 		t.Fatal("expected error for missing issuer/jwks")
 	}
 }
 
-// TestVerifierLoadsTenantIssuerAndValidates is the end-to-end mint -> register
+// TestVerifierLoadsOrgIssuerAndValidates is the end-to-end mint -> register
 // (in store) -> load-into-verifier -> validate path. The platform mints a
-// delegated token; the resource server loads the tenant issuer from its
+// delegated token; the resource server loads the org issuer from its
 // store and validates the token against the issuer's JWKS.
-func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
+func TestVerifierLoadsOrgIssuerAndValidates(t *testing.T) {
 	// Platform signer + its JWKS endpoint.
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
@@ -124,7 +124,7 @@ func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 	iss := "https://cozy.example"
 	aud := []string{"tensorhub"}
 
-	// Resource server's store has the tenant issuer registered, pointing at
+	// Resource server's store has the org issuer registered, pointing at
 	// the platform's JWKS endpoint.
 	src := &memFederatedSource{items: []core.RemoteApplication{{
 		Slug:    "cozy-art",
@@ -133,8 +133,8 @@ func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 		Enabled: true,
 	}}}
 
-	// Resource server's verifier loads tenant issuers from the store.
-	ver := NewVerifier(WithTenantMode("multi"))
+	// Resource server's verifier loads org issuers from the store.
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
@@ -165,13 +165,13 @@ func TestVerifierLoadsTenantIssuerAndValidates(t *testing.T) {
 	}
 }
 
-// TestVerifierRejectsTenantIssuerMismatch proves the resource server binds a
-// tenant issuer to the tenant/resource account it was registered for.
-// (Hard cut: tokens carry no tenant claims, so "claiming another resource
+// TestVerifierRejectsOrgIssuerMismatch proves the resource server binds a
+// org issuer to the org/resource account it was registered for.
+// (Hard cut: tokens carry no org claims, so "claiming another resource
 // account" is structurally impossible — the issuer registration alone decides
-// the tenant. These tests now assert the registry-loaded issuer's token simply
+// the org. These tests now assert the registry-loaded issuer's token simply
 // verifies.)
-func TestVerifierAcceptsRegistryLoadedTenantIssuerToken(t *testing.T) {
+func TestVerifierAcceptsRegistryLoadedOrgIssuerToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestVerifierAcceptsRegistryLoadedTenantIssuerToken(t *testing.T) {
 		Enabled: true,
 	})
 
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
 		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestVerifierAcceptsRegistryLoadedTenantIssuerToken(t *testing.T) {
 	}
 }
 
-func TestVerifierAcceptsLazyLoadedTenantIssuerToken(t *testing.T) {
+func TestVerifierAcceptsLazyLoadedOrgIssuerToken(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestVerifierAcceptsLazyLoadedTenantIssuerToken(t *testing.T) {
 
 	// Load only the source/audience; the List path returns nothing so the token
 	// must exercise lazy-load-on-miss.
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), &listEmptyGetFull{src}, aud); err != nil {
 		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestVerifierAcceptsLazyLoadedTenantIssuerToken(t *testing.T) {
 func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	src := &memFederatedSource{} // empty store
-	ver := NewVerifier(WithTenantMode("multi"))
+	ver := NewVerifier(WithOrgMode("multi"))
 	if err := ver.LoadRemoteApplications(context.Background(), src, []string{"tensorhub"}); err != nil {
 		t.Fatalf("LoadRemoteApplications: %v", err)
 	}

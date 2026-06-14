@@ -9,7 +9,7 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleAuthTokenTenantPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleAuthTokenOrgPOST(w http.ResponseWriter, r *http.Request) {
 	// Reuse auth token rate limit bucket.
 	if s.rateLimited(w, r, RLAuthToken) {
 		return
@@ -22,9 +22,9 @@ func (s *Service) handleAuthTokenTenantPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Tenant string `json:"tenant"`
+		Org string `json:"org"`
 	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Tenant) == "" {
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Org) == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -40,14 +40,14 @@ func (s *Service) handleAuthTokenTenantPOST(w http.ResponseWriter, r *http.Reque
 	if strings.TrimSpace(claims.SessionID) != "" {
 		extra["sid"] = claims.SessionID
 	}
-	token, exp, err := s.svc.IssueServiceToken(r.Context(), claims.UserID, email, body.Tenant, extra)
+	token, exp, err := s.svc.IssueServiceToken(r.Context(), claims.UserID, email, body.Org, extra)
 	if err != nil {
-		if errors.Is(err, core.ErrNotTenantMember) {
-			forbidden(w, "not_tenant_member")
+		if errors.Is(err, core.ErrNotOrgMember) {
+			forbidden(w, "not_org_member")
 			return
 		}
-		if errors.Is(err, core.ErrTenantNotFound) {
-			notFound(w, "tenant_not_found")
+		if errors.Is(err, core.ErrOrgNotFound) {
+			notFound(w, "org_not_found")
 			return
 		}
 		serverErr(w, "token_issue_failed")
