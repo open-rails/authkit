@@ -2097,3 +2097,94 @@ NON-GOALS: ClickHouse queries (sqlc supports postgres/mysql/sqlite only); changi
 - [x] Eliminate bun completely. Done 2026-06-09, corrected 2026-06-10: nothing ever consumed the bun `Migrations` registry — hosts (openrails) already run authkit's migrations via migratekit (LoadFromFS(authkitpostgres.FS) + NewPostgres(sqlDB, "authkit"), tracked per-app in public.migrations), so bun was pure dead weight. migrations/postgres/migrations.go now exports only FS (registry var deleted, breaking but unused); the devserver runs the SAME migratekit path as production hosts (a briefly-added custom Apply runner with a bun_migrations table was removed the next day — it preserved bookkeeping history that never existed anywhere); go mod tidy: zero bun/uptrace deps in go.mod/go.sum; migratekit v0.7.15 added as the devserver's runner dep.
 - [x] Cleanup + docs. Done 2026-06-09: dead reservedUserFlagExpr + hand-rolled sortStrings removed with their call sites; README gained a 'Database queries (sqlc)' section (layout, make sqlc workflow, schema source of truth, CI drift guard, raw-pgx escape-hatch policy incl. the two annotated holdouts, ClickHouse out of scope) and the Migrations section now documents migrations.Apply.
 - [x] Full test suite green. Done 2026-06-09: go vet clean; entire `go test ./...` green against the devserver Postgres (DB-backed core/http/riverjobs/testing suites included); sqlc vet db-prepare PREPAREd all 120 generated queries against the live schema (validates every RETURNING clause, ::text cast, and ANY(uuid[]) param); make sqlc-check shows zero drift.
+
+---
+
+# #71: Surface delegated-token role UUIDs (attributes.roles) on DelegatedPrincipal.Roles
+
+**Completed:** yes
+
+Let a self-issuing tenant carry the actor's ROLE UUIDs in a delegated token and surface them on the verified principal, so downstream services (tensorhub) can use role UUIDs as budget-scope keys. Mirrors the existing `attributes.tier` -> `UserTier` derivation. The top-level `roles` claim stays forbidden on delegated tokens (invariant `delegated_access_has_roles`); role UUIDs ride under `attributes.roles` as opaque scope keys, not authority.
+
+- VERIFY (http/verifier.go): for delegated tokens, lift `attributes.roles` (JSON array of UUID strings) onto `Claims.DelegatedRoles` via new helper `rawUUIDStringsAttribute` — validates each as a well-formed UUID (google/uuid), drops malformed/non-string entries individually (doesn't fail the token), caps at `maxDelegatedRoles` = 64.
+- PRINCIPAL (http/claims.go): added `Roles []string` to `DelegatedPrincipal` (UUID strings; consumers parse to uuid) + `DelegatedRoles []string` carrier on `Claims`; populated in `Delegated()`.
+- MINT (http/delegation.go): added convenience `Roles []string` to `DelegatedAccessParams`, emitted into `attributes.roles` (typed field wins over `Attributes["roles"]`; blanks dropped; caller map not mutated).
+- TEST: http/delegated_roles_test.go — round-trip, malformed-dropped, absent (backward compat), capped.
+
+Backward compatible: tokens without `attributes.roles` -> empty Roles. Existing non-delegated `Roles`/`TenantRoles` behavior untouched. `go build ./...` + `go test ./...` green.
+
+---
+
+# #70: Hosts delegate JWT signing to authkit via a pluggable Signer (local key now, remote Vault-Transit later) — host never handles the private key; one key per app; uniform key config
+
+**Completed:** no
+
+authkit already ships an opt-in key resolver, separate from the verify/sign core: `jwt.KeySource` + `jwt.NewAutoKeySource`, wired via `core.Config.Keys` (nil ⇒ auto-resolve). Auto priority: env (`ACTIVE_KEY_ID` / `ACTIVE_PRIVATE_KEY_PEM` / `PUBLIC_KEYS`) → filesystem `DefaultAuthKeysPath` = `/vault/auth` (`keys.json` under it) → generate-and-persist under `.runtime/authkit/` (HARD-FAIL in prod). Envelope: `{active_key_id, active_private_key_pem, public_keys}`.
+
+The design is right; two gaps make embedders silently diverge instead of using it:
+
+1. **The filesystem source path is hard-coded** to `/vault/auth` with no host override. An embedder that renders its keyset anywhere else — host-run dev pointing at `~/cozy/e2e/.secrets/<app>/auth/keys.json`, or any non-K8s mount — cannot point the resolver at it; it falls through to dev-gen. There must be a host-overridable path.
+
+2. **Inconsistent adoption → silent dev keys.** cozy-art constructs `core.Config{}` with `Keys: nil`, sets none of the env vars, and has no `/vault/auth/keys.json` on the host, so authkit auto-generates a throwaway key for its user-login issuer — its JWKS becomes a per-process random key instead of the managed keyset its compose/Vault renders. Meanwhile tensorhub doesn't use this resolver at all for its platform issuer: it reimplements the same env→/vault/auth→.runtime ladder in its own `platformjwt.autoKeyStore`. One concern, three behaviors.
+
+Goal: **one JWT keypair per app** (its issuer identity, the only thing on its JWKS — plus retiring keys during rotation), loaded ONE uniform way via `KeySource`, and reused for ALL of that app's JWT signing — user access/refresh tokens AND service/delegated JWTs to tensorhub/openrails (those differ only in claims: `aud`, `sub=service:…`, `token_use` — never in key). No app should manage a second JWT key. Key discovery stays OUT of the verifier — `KeySource` is an opt-in library the host composes (via `Config.Keys`) or lets auto-resolve.
+
+A host therefore NEVER handles the private key — it delegates the signing OPERATION to authkit. The boundary already exists: `jwt.Signer.Sign(ctx, claims jwt.MapClaims) (token, error)`, and `MintDelegatedAccessToken(ctx, signer, params)` already mints through it. The host calls authkit to sign (`signer.Sign(...)` / a Service mint method) and passes claims/params only. cozy-art's `platform_signer`/`servicejwt` and tensorhub's `platformjwt` — which read a raw PEM and sign themselves — are deleted in favor of asking authkit to sign.
+
+Why this matters beyond dedup: because `Signer` is an interface, the LOCAL backend (RSA key in memory, from `KeySource`) and a FUTURE REMOTE backend (HashiCorp Vault Transit `sign`, where the private key NEVER enters the app's memory/disk/container) are interchangeable. Switching local→remote is a config change at authkit init; call sites (`signer.Sign(...)`) are unchanged and never see key material. Host config + signing code stay identical regardless of where the key lives.
+
+**Boundary (hard invariant):** private key material NEVER crosses the authkit→host boundary. authkit exposes the host EXACTLY two things: (1) MINT/sign operations (claims/params in → signed token out) and (2) PUBLIC verification material (JWKS / public keys). There is NO accessor that returns a private key, a PEM, or a raw `crypto.Signer` over the private key — so the host literally cannot read, copy, or persist it, a remote (Vault Transit) backend is a true drop-in, and key handling can't leak through host code. Any "give me the active private signer" API (including the one an earlier draft of this issue proposed) is explicitly rejected. Key loading (`KeySource`, PEM parsing) lives ENTIRELY inside authkit's local backend; the only key bytes a host ever provides are inputs to authkit at init (path/env), never something it reads back out.
+
+(The ONLY separate signing key in this fleet is tensorhub's **artifact** key — signs build artifacts, not JWTs; different trust domain, not on the JWKS. Out of scope here, though it could adopt the same remote-signer pattern later.)
+
+Design:
+- **`Signer` is the boundary** (already exists: `jwt.Signer.Sign(ctx, claims)`). Hosts obtain a `Signer` / call Service mint methods and sign through it — never construct their own signer or read the PEM.
+- **Local backend = `KeySource` → `RSASigner`**, with a host-overridable key location: add `core.Config.KeysPath` (+ `AUTHKIT_KEYS_PATH` env) feeding `tryLoadFromFilesystem`; default stays `/vault/auth`. Explicit constructors `FileKeySource(path)` / `EnvKeySource()` / `GeneratedKeySource(dir)`; refactor `NewAutoKeySource` to compose them.
+- **Service-level mint API**: authkit mints the token types hosts need — user (exists), delegated (`MintDelegatedAccessToken`, exists), and a first-party **service JWT** (add if missing) — each signing via the Service's internal `Signer`, so the host hands over claims/params and nothing key-shaped.
+- **Pluggable backend by config**: authkit selects the `Signer` backend at init (local `KeySource` now; a `VaultTransitSigner` later). The remote backend is a forward-looking follow-up — **future.md #72** — this issue just keeps the `Signer` seam clean and config-driven so #72 drops in with zero host changes.
+- **Docs**: "Signing & key resolution for embedders" — one-key principle, sign-through-authkit rule (host never holds the key), local backend config (path/env/constructors, default `/vault/auth`), the future remote-signer seam, envelope format, prod hard-fail.
+
+Consumer adoption is tracked in the umbrella issue **cozy-art #143** (one JWT key per app; ALL signing through authkit; uniform key config), covering all four embedders:
+- cozy-art (`core.Config{Keys:nil}` → silent dev-gen, PLUS a separate `platform_signer`/`servicejwt` PEM) and doujins (`keySource = nil`, `internal/server/server.go`): give authkit one `KeySource` and mint delegated/service JWTs THROUGH authkit — delete the bespoke signer + its key handling.
+- hentai0 (`internal/infra/authkit.go` already calls `NewAutoKeySource()`): move onto the configurable path.
+- tensorhub: delete `platformjwt.autoKeyStore` + its separate platform key; mint capability/platform/delegated JWTs through authkit's `Signer`. (Artifact key stays separate.)
+
+**Tasks:**
+- [x] `core.Config.KeysPath` + `AUTHKIT_KEYS_PATH` env override for the local filesystem key source (default stays `/vault/auth`)
+- [x] Export `FileKeySource(path)`, `EnvKeySource()`, `GeneratedKeySource(dir)`; refactor `NewAutoKeySource` to compose them
+- [x] Service-level mint API: ensure authkit mints user + delegated + first-party service JWTs through its internal `Signer` (add the service-JWT mint if absent), so hosts pass claims/params and NEVER a key or a self-built signer
+- [x] Keep the `Signer` backend selectable at init (local `KeySource` now); document the seam for a future `VaultTransitSigner` (remote signing, key never in-app) — implementation tracked as a separate forward-looking issue
+- [x] Docs: "Signing & key resolution for embedders" (one-key principle, sign-through-authkit, local backend config, remote-signer seam, envelope, prod hard-fail)
+- [x] Tests: configurable path resolves; env precedence preserved; prod hard-fails without a key; mint→verify round-trips through the `Signer`
+- [x] go build / go vet / go test green
+
+---
+
+# #73: Arbitrary-claims service-token mint — high-level API for custom JWT shapes (so hosts never reach for the low-level Signer)
+
+**Completed:** no
+
+Follows #70. #70 gave hosts two high-level mint methods — `MintDelegatedAccessToken` and `MintServiceJWT` — that sign through authkit's internal key (host never touches the PEM). But both **lock the claim shape**: `MintServiceJWT` forces `token_use=service` + `typ=service+jwt` and only allows `permissions`/`resources`; `MintDelegatedAccessToken` *deletes* `sub` and forces `typ=delegated-access+jwt`. Neither can express tensorhub's **capability/worker tokens**, which carry custom claims like `cap_kind`, `grants`, `tenant`, `request_id`, `job_id`, `endpoint`, `function_name` (and a worker/realtime variant with `release_id` + `aud:["cozy.scheduler"]`).
+
+Consequence today (tensorhub, after #70 adoption): tensorhub mints those tokens by reaching for the **low-level `jwtkit.Signer.Sign(ctx, claims)`** it pulls off the KeySource. That's still ONE key / ONE JWKS and the host never reads the PEM (the #70 hard boundary holds — `Signer` is a sign *operation*, not key material), but it bypasses the high-level mint surface: the host hand-assembles claims, sets its own `typ`/`kid`/`iss`/`exp`, and is one refactor away from accidentally holding a signer it shouldn't. We want a blessed high-level entry point for custom-claim tokens.
+
+Goal: add a Service-level mint for arbitrary first-party claim sets that signs through the internal `Signer`, so a host passes a claims map (+ a few controlled headers) and gets a signed JWT — never the signer, never the key. This is the high-level equivalent of what tensorhub does with the raw `Signer` now, with authkit owning the boilerplate (kid header, alg, `iss` default, `iat`/`exp`, JWKS alignment).
+
+Design:
+- New `(*core.Service) MintCustomJWT(ctx, opts core.CustomJWTMintOptions) (string, error)` (name TBD — could also be `MintRawClaims`). `CustomJWTMintOptions`:
+  - `Claims map[string]any` — the host's claim set (e.g. `cap_kind`, `grants`, `release_id`, custom `aud`). authkit sets/normalizes the registered claims it owns: `iss` (defaults to Service issuer; overridable), `iat`, `exp` (from a `TTL`), and `kid` in the header.
+  - `TTL time.Duration` (required, bounded by a sane max), `Type string` (the JWT `typ` header; default e.g. `at+jwt` or empty — host sets `worker-capability`/etc.), optional `Subject`, `Audiences`.
+  - It must REFUSE to silently clobber host claims it doesn't own, and document precedence (authkit-owned registered claims win, or are explicitly host-overridable).
+- Keep `MintServiceJWT` / `MintDelegatedAccessToken` as the constrained, opinionated paths (don't loosen them). `MintCustomJWT` is the escape hatch — clearly documented as "you own the claim semantics; the verifier side must understand them."
+- Boundary unchanged: signs via the internal `Signer`; NO new private-key/PEM/`crypto.Signer` accessor. (It does not need to expose `ActiveSigner` to the host at all — that's the point: replace host use of the raw signer.)
+- Docs: extend the #70 "Signing & key resolution for embedders" section with when to use `MintServiceJWT` vs `MintDelegatedAccessToken` vs `MintCustomJWT`.
+
+Consumer follow-up (tensorhub): replace the `jwtkit.Signer.Sign(...)` calls in `internal/identity/platformjwt` (capability + worker/realtime tokens) with `MintCustomJWT`, asserting byte-identical claim/`typ`/`iss`/`aud` output so cross-service verification is unchanged. Tracked alongside cozy-art #143's tensorhub task.
+
+**Tasks:**
+- [x] `core.CustomJWTMintOptions` + `(*Service).MintCustomJWT` signing through the internal `Signer` (sets kid/alg/iss-default/iat/exp; carries the host claim map + `typ`/`aud`/`sub`).
+- [x] Guardrails: bounded TTL; documented claim precedence (don't silently overwrite host claims); reject empty/oversized claim sets.
+- [x] Tests: custom claims (`cap_kind`/`grants`/`release_id`) round-trip; `typ` header honored; mint→verify via JWKS; `iss` default + override; TTL bound enforced.
+- [x] Docs: extend "Signing & key resolution for embedders" with the three mint entry points + when to use each.
+- [x] go build / go vet / go test green.
+- [ ] (consumer, separate) tensorhub platformjwt swaps raw `Signer.Sign` → `MintCustomJWT` with byte-identical output.
