@@ -56,8 +56,17 @@ func PublicToJWK(pub crypto.PublicKey, kid, alg string) JWK {
 	case *ecdsa.PublicKey:
 		crv := k.Curve.Params().Name
 		size := (k.Curve.Params().BitSize + 7) / 8
-		x := base64.RawURLEncoding.EncodeToString(padCoordinate(k.X.Bytes(), size))
-		y := base64.RawURLEncoding.EncodeToString(padCoordinate(k.Y.Bytes(), size))
+		// Go 1.26 deprecated direct big.Int X/Y access on ecdsa.PublicKey. Derive
+		// the fixed-length JWK coordinates from the uncompressed SEC1 point
+		// (0x04 || X || Y) via crypto/ecdh — the supported path for the NIST
+		// curves (P-256/384/521) we sign with.
+		var x, y string
+		if ek, err := k.ECDH(); err == nil {
+			if raw := ek.Bytes(); len(raw) == 1+2*size {
+				x = base64.RawURLEncoding.EncodeToString(raw[1 : 1+size])
+				y = base64.RawURLEncoding.EncodeToString(raw[1+size:])
+			}
+		}
 		return JWK{Kty: "EC", Use: "sig", Kid: kid, Alg: alg, Crv: crv, X: x, Y: y}
 	case ed25519.PublicKey:
 		return JWK{
@@ -68,15 +77,6 @@ func PublicToJWK(pub crypto.PublicKey, kid, alg string) JWK {
 	default:
 		return JWK{Kid: kid, Alg: alg}
 	}
-}
-
-func padCoordinate(b []byte, size int) []byte {
-	if len(b) >= size {
-		return b
-	}
-	out := make([]byte, size)
-	copy(out[size-len(b):], b)
-	return out
 }
 
 // JWKToPublicKey parses a single JWK into a crypto.PublicKey.
