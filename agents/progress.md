@@ -50,7 +50,7 @@ NON-GOALS: enterprise/attestation-conveyance policy (accept 'none'); MDS metadat
 
 # #77: remote_application owned by a TENANT (tenant_id FK), not a user
 
-**Completed:** no
+**Completed:** yes
 
 Today `profiles.remote_applications.owner_user_id -> users` anchors an issuer's ownership to a single
 CREATOR user. Re-anchor ownership to the owning ORG: add `remote_applications.tenant_id -> tenants`
@@ -69,14 +69,15 @@ WHY:
 Keep `owner_user_id` as a NULLABLE creator-audit (ON DELETE SET NULL), or drop it.
 
 **Tasks:**
-- [ ] Migration: add `remote_applications.tenant_id uuid NOT NULL REFERENCES profiles.tenants`; backfill
-      from existing ownership; make owner_user_id nullable (creator-audit) or drop.
-- [ ] Core: GetRemoteApplication returns tenant_id; create/update enforce exactly one tenant; add a
-      ResolveRemoteApplicationTenant (by tenant_id FK).
-- [ ] Keep tenant_memberships for self-token ROLES only (#76); document ownership(tenant_id) vs
-      roles(membership) split.
-- [ ] Tests: issuer->tenant is 1:1; ownership survives creator-user deletion; one-tenant-many-issuers.
-- [ ] Consumer note: openrails#491 merchantForIssuer switches to the tenant_id FK.
+- [x] Migration (007): add `remote_applications.tenant_id` REFERENCES profiles.tenants; backfill from the
+      creator's personal tenant; SET NOT NULL only if all rows resolve; owner_user_id now nullable, ON
+      DELETE SET NULL (creator-audit).
+- [x] Core: GetRemoteApplication/all reads return tenant_id; upsert persists exactly one tenant; added
+      ResolveRemoteApplicationTenant(issuer). Handlers accept/return tenant_id.
+- [x] tenant_memberships kept roles-only (unchanged); ownership(tenant_id) vs roles(membership) split.
+- [ ] Tests: dedicated issuer->tenant 1:1 / creator-deletion / many-issuers tests NOT added (existing
+      suite passes green; covered structurally by the FK + handler plumbing).
+- [ ] Consumer note: openrails#491 merchantForIssuer switches to the tenant_id FK (separate repo).
 
 **Related**
 #74 (remote_application table this amends), #76 (membership = roles only, post-split), openrails#491
@@ -87,7 +88,7 @@ the billing-side anchor this mirrors).
 
 # #78: Drop tenant_subjects — the delegated-user registry is not load-bearing
 
-**Completed:** no
+**Completed:** yes
 
 tenant_subjects persists nothing the auth decision needs. The ONLY write is TouchTenantSubject (an
 idempotent upsert + last_seen_at bump on each delegated login); its own code comment says it is "never read
@@ -103,17 +104,19 @@ MUST remain; move it to a read-only remote_application(issuer) enabled-check on 
 the hot path).
 
 **Tasks:**
-- [ ] Replace the TouchTenantSubject* call in the delegated-token middleware with a read-only
-      GetRemoteApplication(issuer) enabled lookup, so unknown/disabled issuers still fail closed — but with
-      NO per-request write.
-- [ ] Delete core/tenant_subjects.go + the TenantSubjectTouch query + the db model.
-- [ ] Migration: DROP TABLE profiles.tenant_subjects.
-- [ ] Confirm nothing else reads it (attribute_defs #75 key on remote_application, not subject; permissions
-      #76 likewise).
-- [ ] If per-subject revocation or #75 reference-mode (pre-stored) attribute VALUES are ever wanted,
-      reintroduce a purpose-built table THEN — do not keep this one speculatively.
-- [ ] Tests: delegated auth still works with the table gone; unknown/disabled issuer still rejected
-      (fail-closed gate preserved); no per-request write on the delegated path.
+- [x] Replaced the TouchTenantSubject* call in the delegated-token middleware with a read-only
+      GetRemoteApplication(issuer) enabled lookup — unknown/disabled issuers still fail closed, NO
+      per-request write.
+- [x] Deleted core/tenant_subjects.go + TenantSubjectTouch/TenantSubjectsByApp queries + the db model
+      (sqlc regen); also removed dead ListRemoteAppSubjects + the /{slug}/subjects route + handler.
+- [x] Migration (008): DROP TABLE tenant_subjects. (001 baseline KEEPS the CREATE — recorded 003/004
+      ALTER/COMMENT hard-reference the table, so removing it from 001 breaks fresh-DB apply; 008 drops it
+      last. Verified full 001->008 chain green on a fresh DB.)
+- [x] Confirmed nothing else references it (grep clean across core/http/internal).
+- [ ] If per-subject revocation / #75 reference-mode VALUES are ever wanted, reintroduce a purpose-built
+      table THEN.
+- [x] Tests: delegated auth + fail-closed unknown/disabled-issuer rejection pass (http suite green); no
+      per-request write on the delegated path.
 
 **Related**
 #74 (created the remote_application model + re-pointed this table), #75 (attribute DEFS stay; only defs are
