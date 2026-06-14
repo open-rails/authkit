@@ -8,3 +8,5 @@ authkit
 # Local SAST scan output
 .reports/
 *.sarif
+
+**/.DS_Store

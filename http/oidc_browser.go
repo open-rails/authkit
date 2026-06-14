@@ -167,49 +167,50 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			_ = s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername)
 		}
 	} else {
-		matched := false
-		if claims.Email != nil && (claims.EmailVerified == nil || (claims.EmailVerified != nil && *claims.EmailVerified)) {
+		// No (issuer, sub) link yet, and this is not an explicit link flow.
+		//
+		// SECURITY (C-2): never silently link a fresh IdP identity to a
+		// pre-existing local account by matching its asserted email. An IdP that
+		// asserts (or lies about) a victim's email — Apple private-relay, a
+		// hostile/federated issuer, a tenant-controlled mailbox — would otherwise
+		// take over the victim's existing account with no proof the caller
+		// controls it. If a local account already owns this email, refuse and
+		// require the user to sign in and link the provider via the authenticated
+		// /oidc/link/start flow.
+		if strings.TrimSpace(email) != "" {
 			if u, err := s.svc.GetUserByEmail(r.Context(), email); err == nil && u != nil {
-				userID = u.ID
-				matched = true
-				_ = s.svc.LinkProviderByIssuer(r.Context(), u.ID, issuer, provider, claims.Subject, claims.Email)
-				if claims.EmailVerified != nil && *claims.EmailVerified && provider != "discord" {
-					_ = s.svc.SetEmailVerified(r.Context(), u.ID, true)
-				}
-				if strings.TrimSpace(provUsername) != "" {
-					_ = s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername)
-				}
-			}
-		}
-		if !matched {
-			// No existing user matched this tenant identity. Auto-creating a
-			// new account is a public registration path, so it is blocked when
-			// public registration is disabled (existing-user OIDC login above
-			// still works).
-			if s.publicRegistrationDisabled() {
-				registrationDisabled(w)
-				return
-			}
-			displayName := ""
-			if claims.Name != nil {
-				displayName = *claims.Name
-			}
-			username := s.svc.DeriveUsernameForOAuth(r.Context(), provider, provUsername, email, displayName)
-			if u, err := s.svc.CreateUser(r.Context(), email, username); err == nil && u != nil {
-				userID = u.ID
-				if claims.EmailVerified != nil && *claims.EmailVerified && provider != "discord" {
-					_ = s.svc.SetEmailVerified(r.Context(), u.ID, true)
-				}
-				_ = s.svc.LinkProviderByIssuer(r.Context(), u.ID, issuer, provider, claims.Subject, claims.Email)
-				if strings.TrimSpace(provUsername) != "" {
-					_ = s.svc.SetProviderUsername(r.Context(), u.ID, issuer, claims.Subject, provUsername)
-				}
-				created = true
-			} else {
-				serverErr(w, "user_creation_failed")
+				accountExistsLinkRequired(w)
 				return
 			}
 		}
+
+		// Brand-new identity with no existing local account: this is a public
+		// registration path, blocked when public registration is disabled.
+		if s.publicRegistrationDisabled() {
+			registrationDisabled(w)
+			return
+		}
+		displayName := ""
+		if claims.Name != nil {
+			displayName = *claims.Name
+		}
+		username := s.svc.DeriveUsernameForOAuth(r.Context(), provider, provUsername, email, displayName)
+		u, err := s.svc.CreateUser(r.Context(), email, username)
+		if err != nil || u == nil {
+			serverErr(w, "user_creation_failed")
+			return
+		}
+		userID = u.ID
+		// Trust the IdP's email_verified ONLY when it is explicitly true; an
+		// absent claim is treated as false (defense in depth).
+		if claims.EmailVerified != nil && *claims.EmailVerified && provider != "discord" {
+			_ = s.svc.SetEmailVerified(r.Context(), u.ID, true)
+		}
+		_ = s.svc.LinkProviderByIssuer(r.Context(), u.ID, issuer, provider, claims.Subject, claims.Email)
+		if strings.TrimSpace(provUsername) != "" {
+			_ = s.svc.SetProviderUsername(r.Context(), u.ID, issuer, claims.Subject, provUsername)
+		}
+		created = true
 	}
 
 	extra := map[string]any{"provider": provider}
@@ -283,6 +284,16 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	frag := "#access_token=" + token + "&refresh_token=" + rt + "&expires_in=" + fmt.Sprint(int64(time.Until(exp).Seconds())) + "&provider=" + provider + "&state=" + state
 	target := buildFrontendCallbackURL(base, s.svc.Options().FrontendCallbackPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// accountExistsLinkRequired is the C-2-safe outcome for an OIDC/OAuth2 callback
+// whose (issuer, sub) is not yet linked but whose asserted email already belongs
+// to a local account. We refuse to silently link the identity (that is the
+// account-takeover vector) and signal that the user must sign in and link the
+// provider explicitly via the authenticated /oidc/link/start flow. 409 Conflict
+// with a stable machine-readable code so frontends can route to the link flow.
+func accountExistsLinkRequired(w http.ResponseWriter) {
+	sendErr(w, http.StatusConflict, "account_exists_link_required")
 }
 
 func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {

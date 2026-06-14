@@ -19,27 +19,37 @@ Reporting a vulnerability
 
 ---
 
-Scope (minimal)
+Scope
 - gosec: Go security-focused SAST (crypto, randomness, SQL, file perms, command injection, hardcoded creds).
 - go vet + staticcheck: correctness and suspicious-construct analysis.
 - CodeQL (Go): dataflow/taint analysis with the `security-extended` and `security-and-quality` query suites.
+- govulncheck: dependency vulnerability scanning against the Go vulnerability DB (call-graph aware).
+- Trivy: software-composition analysis plus filesystem secret/misconfiguration scanning.
+- golangci-lint: lint/quality (advisory — non-blocking until the backlog is cleared).
 
-Everything else (secret scanning, dependency/supply-chain, container, Semgrep)
-is intentionally out of scope here to keep this a Go SAST baseline.
+This brings the pipeline to parity with the OpenRails security workflow.
+Semgrep remains out of scope to keep the rule surface focused.
 
 ---
 
 Workflows
 
-Two GitHub Actions workflows live in `.github/workflows/`:
+Four GitHub Actions workflows live in `.github/workflows/`:
 
-- `go-sast.yml` — runs `gosec` and `staticcheck + go vet` as separate jobs.
+- `go-sast.yml` — runs `gosec` (SARIF) and `staticcheck + go vet` as separate jobs.
 - `codeql.yml` — runs CodeQL analysis for Go.
+- `security.yaml` — runs `govulncheck`, `Trivy` (SCA + secret + misconfig), and
+  `golangci-lint`. `govulncheck` and `Trivy` **gate** (fail the build) on a
+  reachable known vulnerability / fixable HIGH+ finding; the tree is clean as of
+  the Go 1.26.4 + `quic-go` v0.57.0 bumps. `golangci-lint` is advisory
+  (non-blocking) until its backlog is cleared. The Go SAST baseline above stays
+  advisory (SARIF to code scanning).
+- `sqlc.yml` — verifies generated `internal/db` code is in sync with the query files.
 
-Both trigger on:
+They trigger on:
 - `push` to `master`/`main`
 - `pull_request` targeting `master`/`main`
-- a weekly schedule (Monday, `go-sast` 06:00 UTC, `codeql` 07:00 UTC)
+- a weekly schedule (Monday, `go-sast` 06:00 UTC, `codeql` 07:00 UTC, `security` 08:00 UTC)
 - `workflow_dispatch` (manual run)
 
 Runners are pinned to commit SHAs and hardened with `step-security/harden-runner`

@@ -158,9 +158,14 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
 	}
 
-	match := v.matchIssuer(issuer)
-	if match == nil {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("bad_issuer")
+	// Resolve the tenant from the VALIDATED issuer + audience. When several
+	// tenants share an issuer string, the token's aud selects which one; an
+	// ambiguous or unmatched binding fails closed so a token can never resolve to
+	// the wrong tenant (C-1). The tenant identity rides in the issuer registry,
+	// never in the token's own claims.
+	tenantSlug, terr := v.tenantForIssuerAudience(issuer, mc["aud"])
+	if terr != nil {
+		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, terr
 	}
 	claims := core.ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
@@ -169,7 +174,7 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 		Scope: scopeSlice(mc["scope"]),
 	}
 	principal := ServiceJWTPrincipal{
-		Issuer: issuer, Subject: subject, Tenant: match.tenantSlug,
+		Issuer: issuer, Subject: subject, Tenant: tenantSlug,
 		Audiences: audiences, Permissions: permissions, Resources: resources,
 		JTI: jti, ExpiresAt: exp,
 	}

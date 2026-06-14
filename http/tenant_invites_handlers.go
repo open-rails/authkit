@@ -56,6 +56,20 @@ func (s *Service) handleTenantInvitesPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid_request")
 		return
 	}
+	// NO-ESCALATION at invite time: an invite grants its role's permissions on
+	// accept, so the inviter must hold every permission the role confers. This
+	// stops a member with only tenant:members:manage from minting an `owner`
+	// (=`*`) invite. The same check runs again at accept time (the inviter may be
+	// demoted before the invite is accepted). Same primitive as the direct
+	// role-grant handler (handleTenantMemberRolesPOST).
+	if err := s.svc.ValidateInviteRoleGrant(r.Context(), canonical, claims.UserID, strings.TrimSpace(body.Role)); err != nil {
+		if err == core.ErrInviteRoleExceedsGrantor {
+			forbidden(w, "role_exceeds_grantor")
+			return
+		}
+		serverErr(w, "permission_validate_failed")
+		return
+	}
 	var expiresAt *time.Time
 	if body.ExpiresAt != nil && strings.TrimSpace(*body.ExpiresAt) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*body.ExpiresAt))
@@ -118,6 +132,10 @@ func (s *Service) handleTenantInviteAcceptPOST(w http.ResponseWriter, r *http.Re
 			notFound(w, "invite_not_found")
 		case core.ErrInviteNotForUser:
 			forbidden(w, "forbidden")
+		case core.ErrInviteRoleExceedsGrantor:
+			// The inviter no longer has authority to grant this role (demoted
+			// since the invite was created). Refuse rather than escalate.
+			forbidden(w, "role_exceeds_grantor")
 		case core.ErrInviteNotPending, core.ErrInviteExpired:
 			badRequest(w, err.Error())
 		default:

@@ -762,11 +762,6 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		return err
 	}
 
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 
 	// Send verification message to new phone
@@ -775,8 +770,8 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, trimmed, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
-	} else {
-		stdlog.Printf("[authkit/dev-sms] phone change verify to=%s username=%s code=%s link_token=%s", trimmed, username, code, linkToken)
+	} else if !s.isDevEnvironment() {
+		return fmt.Errorf("phone change verification unavailable: SMS sender not configured")
 	}
 
 	// Optionally: notify old phone (not implemented)
@@ -847,11 +842,6 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 		return err
 	}
 
-	username := ""
-	if u.Username != nil {
-		username = *u.Username
-	}
-
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.sms != nil {
@@ -859,8 +849,8 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, pendingPhone, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
-	} else {
-		stdlog.Printf("[authkit/dev-sms] phone change resend to=%s username=%s code=%s link_token=%s", pendingPhone, username, code, linkToken)
+	} else if !s.isDevEnvironment() {
+		return fmt.Errorf("phone change verification unavailable: SMS sender not configured")
 	}
 
 	return nil
@@ -919,8 +909,6 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 	if !s.isDevEnvironment() {
 		return fmt.Errorf("SMS sender not configured")
 	}
-	// Dev mode: log code to stdout
-	stdlog.Printf("[authkit/dev-sms] 2FA setup phone=%s code= %s", phone, code)
 	return nil
 }
 
@@ -1372,7 +1360,6 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		if !s.isDevEnvironment() {
 			return fmt.Errorf("email password reset unavailable: email sender not configured")
 		}
-		stdlog.Printf("[authkit/dev-email] password reset email=%s username=%s token=%s", *u.Email, username, token)
 		return nil
 	}
 
@@ -1502,8 +1489,8 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, *u.Email, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
-	} else {
-		stdlog.Printf("[authkit/dev-email] email verify to=%s username=%s code=%s link_token=%s", *u.Email, username, code, linkToken)
+	} else if !s.isDevEnvironment() {
+		return fmt.Errorf("email verification unavailable: email sender not configured")
 	}
 	return nil
 }
@@ -1633,8 +1620,8 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
 					return "", emailDeliveryError(err)
 				}
-			} else {
-				stdlog.Printf("[authkit/dev-email] verify pending registration to=%s username=%s code=%s link_token=%s", email, username, code, linkToken)
+			} else if !s.isDevEnvironment() {
+				return "", fmt.Errorf("registration verification unavailable: email sender not configured")
 			}
 		}
 
@@ -1778,7 +1765,6 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 				if !s.isDevEnvironment() {
 					return "", fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone registration requires SMS in production)")
 				}
-				stdlog.Printf("[authkit/dev-sms] verify pending phone registration phone=%s code=%s link_token=%s", phone, code, linkToken)
 			}
 		}
 
@@ -1942,8 +1928,6 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 		if !s.isDevEnvironment() {
 			return fmt.Errorf("SMS verification unavailable: SMS sender not configured (phone verification requires SMS in production)")
 		}
-		// Dev mode: log code to stdout
-		stdlog.Printf("[authkit/dev-sms] phone verify phone=%s code=%s link_token=%s", phone, code, linkToken)
 	}
 
 	return nil
@@ -2022,7 +2006,6 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		if !s.isDevEnvironment() {
 			return fmt.Errorf("SMS password reset unavailable: sms sender not configured")
 		}
-		stdlog.Printf("[authkit/dev-sms] password reset phone=%s token=%s", phone, token)
 		return nil
 	}
 
@@ -2825,8 +2808,8 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, trimmed, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
-	} else {
-		stdlog.Printf("[authkit/dev-email] email change verify to=%s username=%s code=%s link_token=%s", trimmed, username, code, linkToken)
+	} else if !s.isDevEnvironment() {
+		return fmt.Errorf("email change verification unavailable: email sender not configured")
 	}
 
 	// Send notification to OLD email about the change request
@@ -2909,8 +2892,8 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		}); err != nil {
 			return emailDeliveryError(err)
 		}
-	} else {
-		stdlog.Printf("[authkit/dev-email] email change resend to=%s username=%s code=%s link_token=%s", pendingEmail, username, code, linkToken)
+	} else if !s.isDevEnvironment() {
+		return fmt.Errorf("email change verification unavailable: email sender not configured")
 	}
 
 	return nil
@@ -3899,8 +3882,6 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 			if !s.isDevEnvironment() {
 				return "", fmt.Errorf("email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
 			}
-			// Dev mode: log code to stdout
-			stdlog.Printf("[authkit/dev-2fa] email 2FA code for %s: %s", destination, code)
 		}
 	} else { // sms
 		if s.sms != nil {
@@ -3913,8 +3894,6 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 			if !s.isDevEnvironment() {
 				return "", fmt.Errorf("SMS 2FA unavailable: SMS sender not configured (SMS 2FA requires delivery in production)")
 			}
-			// Dev mode: log code to stdout
-			stdlog.Printf("[authkit/dev-2fa] SMS 2FA code for %s: %s", destination, code)
 		}
 	}
 
