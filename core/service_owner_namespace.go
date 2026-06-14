@@ -11,13 +11,18 @@ import (
 )
 
 var (
-	ErrOwnerSlugTaken         = errors.New("owner_slug_taken")
-	ErrPersonalTenantLocked   = errors.New("personal_tenant_locked")
-	ErrInviteNotFound         = errors.New("tenant_invite_not_found")
-	ErrInviteNotPending       = errors.New("tenant_invite_not_pending")
-	ErrInviteNotForUser       = errors.New("tenant_invite_not_for_user")
-	ErrInviteExpired          = errors.New("tenant_invite_expired")
-	ErrPersonalTenantNotFound = errors.New("personal_tenant_not_found")
+	ErrOwnerSlugTaken       = errors.New("owner_slug_taken")
+	ErrPersonalTenantLocked = errors.New("personal_tenant_locked")
+	ErrInviteNotFound       = errors.New("tenant_invite_not_found")
+	ErrInviteNotPending     = errors.New("tenant_invite_not_pending")
+	ErrInviteNotForUser     = errors.New("tenant_invite_not_for_user")
+	ErrInviteExpired        = errors.New("tenant_invite_expired")
+	// ErrInviteRoleExceedsGrantor is returned when an invite's role confers
+	// permissions the inviter does not (currently) hold — the no-escalation
+	// invariant. Enforced at invite-create time and re-checked at accept time
+	// (the inviter may have been demoted in between).
+	ErrInviteRoleExceedsGrantor = errors.New("tenant_invite_role_exceeds_grantor")
+	ErrPersonalTenantNotFound   = errors.New("personal_tenant_not_found")
 )
 
 func ownerSlugFromUsername(username string) string {

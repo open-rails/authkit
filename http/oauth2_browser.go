@@ -17,6 +17,12 @@ import (
 
 var errProviderAlreadyLinked = errors.New("provider_already_linked")
 
+// errAccountExistsLinkRequired signals that an OAuth2 identity is not yet linked
+// but its asserted email already belongs to a local account. We refuse to
+// silently link by email (the C-2 account-takeover vector); the user must sign
+// in and link the provider via the authenticated /oidc/link/start flow.
+var errAccountExistsLinkRequired = errors.New("account_exists_link_required")
+
 func strptr(s string) *string {
 	return &s
 }
@@ -192,6 +198,10 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 			badRequest(w, "provider_already_linked")
 			return
 		}
+		if errors.Is(err, errAccountExistsLinkRequired) {
+			accountExistsLinkRequired(w)
+			return
+		}
 		if errors.Is(err, core.ErrRegistrationDisabled) {
 			registrationDisabled(w)
 			return
@@ -345,18 +355,19 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 		}
 		return uid, false, nil
 	}
-	if info.EmailVerified && strings.TrimSpace(info.Email) != "" {
+	// SECURITY (C-2): never silently link a fresh provider identity to a
+	// pre-existing local account by matching its asserted email. An IdP that
+	// asserts (or lies about) a victim's email would otherwise take over the
+	// victim's account with no proof the caller controls it. If a local account
+	// already owns this email, refuse and require the user to sign in and link
+	// the provider via the authenticated /oidc/link/start flow.
+	if strings.TrimSpace(info.Email) != "" {
 		if u, err := s.svc.GetUserByEmail(r.Context(), info.Email); err == nil && u != nil {
-			_ = s.svc.LinkProviderByIssuer(r.Context(), u.ID, cfg.Issuer, cfg.Name, info.Subject, emailPtr)
-			_ = s.svc.SetEmailVerified(r.Context(), u.ID, true)
-			if strings.TrimSpace(info.Preferred) != "" {
-				_ = s.svc.SetProviderUsername(r.Context(), u.ID, cfg.Issuer, info.Subject, info.Preferred)
-			}
-			return u.ID, false, nil
+			return "", false, errAccountExistsLinkRequired
 		}
 	}
-	// No existing user matched this provider identity. Auto-creating a new
-	// account is a public registration path, blocked when public registration
+	// No existing account for this provider identity or email. Auto-creating a
+	// new account is a public registration path, blocked when public registration
 	// is disabled (existing-user login above still works).
 	if s.publicRegistrationDisabled() {
 		return "", false, core.ErrRegistrationDisabled
