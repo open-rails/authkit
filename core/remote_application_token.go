@@ -49,6 +49,13 @@ type RemoteApplicationAccessParams struct {
 	JTI string
 	// NotBefore, when set, becomes the `nbf` claim. Optional.
 	NotBefore time.Time
+	// Permissions, when non-nil, becomes the `permissions` claim: a DOWN-SCOPING
+	// request for least-privilege (#76 amendment). The stored grant is the
+	// ceiling; effective = this claim, but EVERY claimed perm must be within the
+	// stored grant — an out-of-grant claimed perm REJECTS the token at verify (a
+	// self-token can never widen). nil/absent => no claim => full stored ceiling
+	// (backward-compatible with v0.28.0 tokens).
+	Permissions []string
 }
 
 // MintRemoteApplicationAccessToken signs a JWKS principal SELF-token using the
@@ -67,8 +74,10 @@ func (s *Service) MintRemoteApplicationAccessToken(ctx context.Context, p Remote
 
 // MintRemoteApplicationAccessToken signs a JWKS principal SELF-token with an
 // explicit signer. It stamps the `typ=remote-application-access+jwt` header and
-// writes NO `sub`/`delegated_sub` and NO authority claims — identity is the
-// validated `iss` and authority is STORED, resolved at verify.
+// writes NO `sub`/`delegated_sub` — identity is the validated `iss` and authority
+// is STORED, resolved at verify. A non-nil p.Permissions is written as the
+// `permissions` claim: a down-scoping request the verifier intersects with the
+// stored ceiling (#76 amendment); never a widening.
 func MintRemoteApplicationAccessToken(ctx context.Context, signer jwtkit.Signer, p RemoteApplicationAccessParams) (string, error) {
 	if signer == nil {
 		return "", errors.New("signer required")
@@ -94,6 +103,10 @@ func MintRemoteApplicationAccessToken(ctx context.Context, signer jwtkit.Signer,
 	}
 	if !p.NotBefore.IsZero() {
 		claims["nbf"] = p.NotBefore.Unix()
+	}
+	// Non-nil => a down-scoping claim (even empty = narrow to nothing). nil = no claim.
+	if p.Permissions != nil {
+		claims["permissions"] = p.Permissions
 	}
 	// Invariant: a self-token implies no local user or delegated actor.
 	delete(claims, "sub")

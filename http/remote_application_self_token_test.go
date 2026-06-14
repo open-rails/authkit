@@ -3,6 +3,9 @@ package authhttp
 import (
 	"context"
 	"crypto"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -74,6 +77,17 @@ func (e *selfTokenEnv) mint(t *testing.T) string {
 	return tok
 }
 
+// mintScoped mints a self-token carrying a `permissions` down-scoping claim (#76
+// amendment). A nil perms slice means "no claim" (full ceiling).
+func (e *selfTokenEnv) mintScoped(t *testing.T, perms []string) string {
+	t.Helper()
+	tok, err := core.MintRemoteApplicationAccessToken(context.Background(), e.signer, core.RemoteApplicationAccessParams{
+		Issuer: e.iss, Audiences: e.aud, TTL: time.Minute, Permissions: perms,
+	})
+	require.NoError(t, err)
+	return tok
+}
+
 // TestRemoteApplicationSelfTokenResolvesStoredAuthority is the core #76 case: a
 // JWKS principal self-token authenticates AS the remote_application and resolves
 // its ASSIGNED authority — direct permissions UNION role-derived permissions —
@@ -111,29 +125,43 @@ func TestRemoteApplicationSelfTokenResolvesStoredAuthority(t *testing.T) {
 }
 
 // TestRemoteApplicationSelfTokenIgnoresSelfClaimedAuthority proves a hostile
-// self-signed token cannot grant itself permissions/roles: authority is STORED
-// only. We sign a token with bogus permissions/roles claims and assert the
+// self-signed token cannot grant itself authority: roles/tenant claims are STORED
+// only and never honored, and a `permissions` over-claim (now a down-scoping
+// request, #76 amendment) REJECTS rather than escalating. With no perms claim the
 // verified Claims carry ONLY what was assigned (here: nothing).
 func TestRemoteApplicationSelfTokenIgnoresSelfClaimedAuthority(t *testing.T) {
 	env := newSelfTokenEnv(t, "noescal-app", "https://noescal-app.example/iss")
 	now := time.Now()
+
+	// Bogus roles/tenant (and NO permissions claim) are ignored, not honored.
 	tok, err := env.signer.SignWithHeaders(context.Background(), map[string]any{
-		"iss":         env.iss,
-		"aud":         env.aud,
-		"iat":         now.Unix(),
-		"exp":         now.Add(time.Minute).Unix(),
-		"permissions": []string{"admin:everything", "billing:write"},
-		"roles":       []string{"owner"},
-		"tenant":      "some-other-tenant",
+		"iss":    env.iss,
+		"aud":    env.aud,
+		"iat":    now.Unix(),
+		"exp":    now.Add(time.Minute).Unix(),
+		"roles":  []string{"owner"},
+		"tenant": "some-other-tenant",
 	}, map[string]any{"typ": RemoteApplicationAccessTokenType})
 	require.NoError(t, err)
-
 	cl, err := env.ver.Verify(tok)
 	require.NoError(t, err)
 	require.True(t, cl.IsRemoteApplication())
 	require.Empty(t, cl.Permissions, "self-claimed permissions must NOT be honored")
 	require.Empty(t, cl.Roles, "self-claimed roles must NOT be honored")
 	require.Empty(t, cl.Tenant, "self-claimed tenant must NOT be honored")
+
+	// A `permissions` over-claim can no longer escalate — it rejects the token.
+	tok2, err := env.signer.SignWithHeaders(context.Background(), map[string]any{
+		"iss":         env.iss,
+		"aud":         env.aud,
+		"iat":         now.Unix(),
+		"exp":         now.Add(time.Minute).Unix(),
+		"permissions": []string{"admin:everything", "billing:write"},
+	}, map[string]any{"typ": RemoteApplicationAccessTokenType})
+	require.NoError(t, err)
+	_, err = env.ver.Verify(tok2)
+	require.Error(t, err, "self-claimed permissions must reject, not escalate")
+	require.Contains(t, err.Error(), "permission_not_granted")
 }
 
 // TestRemoteApplicationSelfTokenGrantTakesEffect proves assigning then removing a
@@ -157,6 +185,165 @@ func TestRemoteApplicationSelfTokenGrantTakesEffect(t *testing.T) {
 	cl, err = env.ver.Verify(env.mint(t))
 	require.NoError(t, err)
 	require.Empty(t, cl.Permissions)
+}
+
+// seedCeiling assigns a remote_application a role-derived perm (catalog:write via
+// a role) plus a direct perm (billing:read), giving a ceiling of both. Returns
+// the tenant slug for cleanup-aware callers.
+func seedCeiling(t *testing.T, env *selfTokenEnv, tslug string) {
+	t.Helper()
+	ctx := context.Background()
+	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
+	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug) })
+	_, err := env.svc.CreateTenant(ctx, tslug)
+	require.NoError(t, err)
+	require.NoError(t, env.svc.DefineRole(ctx, tslug, "catalog-admin"))
+	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "catalog-admin", []string{"catalog:write"}))
+	require.NoError(t, env.svc.AddRemoteApplicationMember(ctx, tslug, env.app.ID, "catalog-admin"))
+	require.NoError(t, env.svc.AddRemoteApplicationPermission(ctx, env.app.ID, "billing:read"))
+}
+
+// TestRemoteApplicationSelfTokenDownScopesToSubset (#76 amendment): a `permissions`
+// claim narrows the stored ceiling to the intersection. Roles still contribute to
+// the ceiling, so a role-derived perm can be selected by the claim.
+func TestRemoteApplicationSelfTokenDownScopesToSubset(t *testing.T) {
+	env := newSelfTokenEnv(t, "scope-app", "https://scope-app.example/iss")
+	seedCeiling(t, env, "scope-tenant")
+
+	// Claim only the role-derived perm => effective = {catalog:write}.
+	cl, err := env.ver.Verify(env.mintScoped(t, []string{"catalog:write"}))
+	require.NoError(t, err)
+	require.True(t, cl.IsRemoteApplication())
+	require.Equal(t, []string{"catalog:write"}, cl.Permissions)
+}
+
+// TestRemoteApplicationSelfTokenCannotWiden (#76 amendment, REVISED): a claim for
+// a perm OUTSIDE the stored ceiling REJECTS the whole token with
+// permission_not_granted — not a silent clamp — so a misconfigured caller fails
+// loudly. The in-grant perm in the same claim does NOT rescue it.
+func TestRemoteApplicationSelfTokenCannotWiden(t *testing.T) {
+	env := newSelfTokenEnv(t, "widen-app", "https://widen-app.example/iss")
+	seedCeiling(t, env, "widen-tenant")
+
+	_, err := env.ver.Verify(env.mintScoped(t, []string{"billing:read", "admin:everything"}))
+	require.Error(t, err, "out-of-grant claimed perm must reject the token")
+	require.Contains(t, err.Error(), "permission_not_granted")
+}
+
+// TestRemoteApplicationSelfTokenAbsentClaimFullCeiling (#76 amendment) regression-
+// guards the v0.28.0 behavior: a self-token with NO `permissions` claim resolves
+// the FULL stored ceiling (direct ∪ role-derived) — backward-compatible.
+func TestRemoteApplicationSelfTokenAbsentClaimFullCeiling(t *testing.T) {
+	env := newSelfTokenEnv(t, "absent-app", "https://absent-app.example/iss")
+	seedCeiling(t, env, "absent-tenant")
+
+	cl, err := env.ver.Verify(env.mint(t)) // mint() carries no permissions claim
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"catalog:write", "billing:read"}, cl.Permissions)
+}
+
+// callMePermissions invokes the introspection handler directly with the given
+// claims in context and returns the decoded JSON body. Driving the handler with
+// pre-resolved claims isolates the endpoint's resolution logic from the auth
+// middleware (covered elsewhere).
+func callMePermissions(t *testing.T, pool *pgxpool.Pool, cl Claims) map[string]any {
+	t.Helper()
+	s, err := NewService(core.Config{
+		Issuer:            "https://authkit.test",
+		IssuedAudiences:   []string{"openrails"},
+		ExpectedAudiences: []string{"openrails"},
+		BaseURL:           "https://authkit.test",
+	})
+	require.NoError(t, err)
+	s = s.WithPostgres(pool)
+
+	r := httptest.NewRequest(http.MethodGet, "/me/permissions", nil)
+	r = r.WithContext(setClaims(r.Context(), cl))
+	w := httptest.NewRecorder()
+	s.handleMePermissionsGET(w, r)
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	return out
+}
+
+func toStrings(t *testing.T, v any) []string {
+	t.Helper()
+	raw, ok := v.([]any)
+	require.True(t, ok, "expected array, got %T", v)
+	out := make([]string, 0, len(raw))
+	for _, e := range raw {
+		out = append(out, e.(string))
+	}
+	return out
+}
+
+// TestMePermissionsRemoteAppReturnsCeiling (#76 amendment): the introspection
+// endpoint returns a JWKS principal's full GRANTED ceiling resolved by identity —
+// NOT the (narrowed) Permissions of the presented token — so a caller can discover
+// its grant before minting a valid down-scoped token.
+func TestMePermissionsRemoteAppReturnsCeiling(t *testing.T) {
+	env := newSelfTokenEnv(t, "intro-app", "https://intro-app.example/iss")
+	seedCeiling(t, env, "intro-tenant")
+
+	// Present a NARROWED token (claims only one of two ceiling perms).
+	cl, err := env.ver.Verify(env.mintScoped(t, []string{"billing:read"}))
+	require.NoError(t, err)
+	require.Equal(t, []string{"billing:read"}, cl.Permissions, "presented token is narrowed")
+
+	out := callMePermissions(t, env.pool, cl)
+	require.Equal(t, "remote_application", out["principal_type"])
+	require.Equal(t, env.app.ID, out["id"])
+	require.Equal(t, "intro-app", out["slug"])
+	require.Equal(t, "intro-tenant", out["tenant"])
+	require.Contains(t, toStrings(t, out["roles"]), "catalog-admin")
+	// The FULL ceiling, not the narrowed claim.
+	require.ElementsMatch(t, []string{"catalog:write", "billing:read"}, toStrings(t, out["permissions"]))
+}
+
+// TestMePermissionsServiceTokenReturnsStored: a service principal's stored
+// permissions ride on its claims and are echoed back.
+func TestMePermissionsServiceTokenReturnsStored(t *testing.T) {
+	env := newSelfTokenEnv(t, "svc-intro-app", "https://svc-intro-app.example/iss")
+	cl := Claims{
+		TokenType:   ServiceTokenType,
+		Tenant:      "svc-tenant",
+		TenantRoles: []string{"runner"},
+		Permissions: []string{"jobs:submit", "jobs:read"},
+	}
+	out := callMePermissions(t, env.pool, cl)
+	require.Equal(t, "service", out["principal_type"])
+	require.Equal(t, "svc-tenant", out["tenant"])
+	require.ElementsMatch(t, []string{"jobs:submit", "jobs:read"}, toStrings(t, out["permissions"]))
+}
+
+// TestMePermissionsNativeUserResolves: a native user's effective permissions are
+// resolved from role mappings in the token's tenant.
+func TestMePermissionsNativeUserResolves(t *testing.T) {
+	env := newSelfTokenEnv(t, "user-intro-app", "https://user-intro-app.example/iss")
+	ctx := context.Background()
+
+	const tslug = "user-intro-tenant"
+	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug)
+	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.tenants WHERE slug=$1`, tslug) })
+	_, err := env.svc.CreateTenant(ctx, tslug)
+	require.NoError(t, err)
+
+	u, err := env.svc.CreateUser(ctx, "intro-user@example.test", "introuser")
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, u.ID) })
+
+	require.NoError(t, env.svc.DefineRole(ctx, tslug, "editor"))
+	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "editor", []string{"docs:write"}))
+	require.NoError(t, env.svc.AddMember(ctx, tslug, u.ID))
+	require.NoError(t, env.svc.AssignRole(ctx, tslug, u.ID, "editor"))
+
+	cl := Claims{UserID: u.ID, Tenant: tslug, TenantRoles: []string{"editor"}}
+	out := callMePermissions(t, env.pool, cl)
+	require.Equal(t, "user", out["principal_type"])
+	require.Equal(t, u.ID, out["id"])
+	require.Equal(t, tslug, out["tenant"])
+	require.Contains(t, toStrings(t, out["permissions"]), "docs:write")
 }
 
 // TestRemoteApplicationSelfTokenRejectsSubject regression-guards the verifier's

@@ -80,6 +80,52 @@ JWKS principal **+** delegated-user federation (delegation is the additional cap
       delegated (`delegated_sub`) + native-user (`sub`) paths unchanged. (core/remote_application_permissions_test.go;
       http/remote_application_self_token_test.go; existing delegated/native + verifier.go:666 guards still green.)
 
+## AMENDMENT (Paul, 2026-06-14): down-scoping — the self-token's permission claim is HONORED as a SUBSET
+Reverses the shipped (#76 v0.28.0) "ignore self-claimed perms, grant full stored" behavior. The stored grant is
+the CEILING; a self-token MAY carry a permission claim to request LEAST-PRIVILEGE for that use; **effective =
+token-claimed ⊆ stored-granted**. Rules:
+- Token permission claim PRESENT → effective = the claim, but EVERY claimed permission must be within the stored
+  grant. An out-of-grant claimed permission → **REJECT the token with an error** (REVISED 2026-06-14, Paul:
+  error, NOT silent clamp/drop — a misconfigured caller must fail loudly so it's caught, not silently lose perms).
+- Token permission claim ABSENT → effective = the full stored ceiling (narrowing is opt-in; backward-compatible
+  with v0.28.0 tokens that carry no claim).
+- Over the resolved permission SET (direct ∪ role-derived). Ship as **authkit v0.28.1**.
+- **Introspection endpoint (NEW, Paul 2026-06-14)**: an authenticated "what are my permissions" endpoint returning
+  the caller's GRANTED set (the ceiling) + identity — for service-tokens AND self-signed JWKS principals (and
+  native users). So a caller can discover its grant and construct a valid narrowed token without guessing
+  (OAuth-introspection / whoami pattern). Reject-on-over-claim is only ergonomic if callers can look up their grant.
+
+**Amendment tasks (REVISED 2026-06-14 — reject not clamp + introspection; supersedes the clamp tasks below):**
+- [x] Verifier: change clamp→REJECT — an out-of-grant claimed permission fails the self-token with a clear error
+      (`permission_not_granted`); subset accepted; absent claim → full ceiling (unchanged).
+      (http/verifier.go: errPermissionNotGranted sentinel; resolveRemoteApplicationSelf returns it on any claimed
+      perm outside the stored ceiling instead of dropping it.)
+- [x] Introspection endpoint: `GET /me/permissions` (RouteCore, behind Required) returns the authenticated
+      caller's GRANTED permission set (the ceiling) + principal type/id/slug + tenant/roles. JWKS principal →
+      ResolveRemoteApplicationAuthority (ceiling resolved by identity, NOT the narrowed token claim); service-token
+      → its claim Permissions; native user → EffectivePermissions in the token's tenant. (http/me_permissions_get.go,
+      registered in http/routes.go.)
+- [x] Tests: over-claim → permission_not_granted; valid subset → accepted with that subset; absent → full ceiling;
+      introspection returns the granted ceiling for a JWKS principal even when the presented token is narrowed,
+      the stored perms for a service-token, and the resolved perms for a native user.
+      (http/remote_application_self_token_test.go: CannotWiden + IgnoresSelfClaimedAuthority assert reject;
+      TestMePermissions{RemoteAppReturnsCeiling,ServiceTokenReturnsStored,NativeUserResolves}.)
+
+**Amendment tasks:**
+- [x] Verifier (`resolveRemoteApplicationSelf`/`ResolveRemoteApplicationAuthority`): read the self-token's
+      permission claim; effective = claim ∩ (direct ∪ role-derived); absent claim → full ceiling; clamp (drop)
+      out-of-grant claimed perms. (http/verifier.go: Verify reads the `permissions` claim — present-but-empty
+      narrows to nothing, absent=nil keeps the ceiling — and passes claimedPerms into resolveRemoteApplicationSelf,
+      which intersects with the stored ceiling from ResolveRemoteApplicationAuthority before populating
+      Claims.Permissions. Tenant/TenantRoles/identity/subject guard unchanged.)
+- [x] Define the self-token permission-claim shape on `core.RemoteApplicationAccessParams`/mint
+      (`MintRemoteApplicationAccessToken`) so a minter can request a subset. (core/remote_application_token.go:
+      added optional `Permissions []string`; non-nil is written as the `permissions` claim — the same key the
+      verifier reads; nil/absent = no claim = full ceiling.)
+- [x] Tests: token narrows to a subset; token cannot widen (out-of-grant claimed perm dropped); absent claim →
+      full ceiling; roles still contribute to the ceiling. (http/remote_application_self_token_test.go:
+      DownScopesToSubset, CannotWiden, AbsentClaimFullCeiling — all green against the test DB.)
+
 ---
 
 # #75: App-specific escape hatch — the delegated-token `attributes` bag as the remote_application→platform contract, with INLINE + REFERENCE claim modes (reference resolves against a generic AuthKit-hosted definition registry)

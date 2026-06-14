@@ -22,6 +22,11 @@ import (
 // a delegated token, so a hostile issuer can't inflate a principal unboundedly.
 const maxDelegatedRoles = 64
 
+// errPermissionNotGranted rejects a JWKS-principal self-token whose `permissions`
+// down-scoping claim names a perm outside the stored grant (#76 amendment): a
+// misconfigured caller fails loudly instead of silently losing the perm.
+var errPermissionNotGranted = errors.New("permission_not_granted")
+
 // Verifier validates JWTs from one or more issuers.
 //
 // For verify-only mode, create with NewVerifier and add issuers via AddIssuer.
@@ -235,8 +240,14 @@ type RemoteApplicationAuthoritySource interface {
 // it maps the VALIDATED issuer to its remote_application, loads that principal's
 // STORED authority (assigned tenant roles + direct permissions), and returns
 // Claims populated the way a service-token-authenticated principal would be. The
-// token's own permission/role claims are never consulted — authority is stored.
-func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tokenTyp string) (Claims, error) {
+// token's own role/tenant claims are never consulted — authority is stored.
+//
+// claimedPerms is the token's `permissions` down-scoping request (#76 amendment):
+// nil => no claim => full stored ceiling; non-nil => effective = the claim, but
+// EVERY claimed perm must be within the stored ceiling — an out-of-grant claimed
+// perm REJECTS the whole token (errPermissionNotGranted), never a widening and
+// never a silent clamp.
+func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tokenTyp string, claimedPerms []string) (Claims, error) {
 	issuer = strings.TrimSpace(issuer)
 	if issuer == "" {
 		return Claims{}, errors.New("bad_issuer")
@@ -264,6 +275,30 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 	memberships, perms, aerr := authority.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 	if aerr != nil {
 		return Claims{}, errors.New("invalid_token")
+	}
+
+	// Down-scoping (#76 amendment): a present `permissions` claim narrows the
+	// stored ceiling to the claimed subset; absent (nil) keeps the full ceiling.
+	// Any claimed perm OUTSIDE the ceiling rejects the whole token — a
+	// misconfigured caller must fail loudly, not silently lose perms.
+	if claimedPerms != nil {
+		ceiling := make(map[string]struct{}, len(perms))
+		for _, p := range perms {
+			ceiling[p] = struct{}{}
+		}
+		eff := make([]string, 0, len(claimedPerms))
+		seen := map[string]struct{}{}
+		for _, p := range claimedPerms {
+			if _, ok := ceiling[p]; !ok {
+				return Claims{}, errPermissionNotGranted
+			}
+			if _, dup := seen[p]; dup {
+				continue
+			}
+			seen[p] = struct{}{}
+			eff = append(eff, p)
+		}
+		perms = eff
 	}
 
 	cl := Claims{
@@ -729,12 +764,20 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	// remote_application by the signature/issuer checks); it carries NEITHER `sub`
 	// NOR `delegated_sub`, so the user-XOR-delegated invariant below is untouched.
 	// Authority is STORED (resolved server-side); any self-claimed
-	// permissions/roles on the token are IGNORED.
+	// roles on the token are IGNORED; a `permissions` claim, if present, may only
+	// DOWN-SCOPE the stored authority (#76 amendment), never widen it.
 	if isRemoteAppTyp {
 		if hasSub || hasDelegatedSub {
 			return Claims{}, errors.New("remote_application_access_has_subject")
 		}
-		return v.resolveRemoteApplicationSelf(context.Background(), strClaim(mapClaims, "iss"), tokenTyp)
+		var claimedPerms []string
+		if _, ok := mapClaims["permissions"]; ok {
+			claimedPerms = strSliceClaim(mapClaims, "permissions")
+			if claimedPerms == nil {
+				claimedPerms = []string{} // present-but-empty => narrow to nothing
+			}
+		}
+		return v.resolveRemoteApplicationSelf(context.Background(), strClaim(mapClaims, "iss"), tokenTyp, claimedPerms)
 	}
 
 	// Invariant: a delegated service token MUST NOT carry a normal `sub` — no
