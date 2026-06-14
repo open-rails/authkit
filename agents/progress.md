@@ -58,11 +58,13 @@ CREATOR user. Re-anchor ownership to the owning ORG: add `remote_applications.te
 
 WHY:
 - Robustness: ownership survives the creator leaving the org (it's the org's, not a person's).
-- Deterministic PAYER resolution (openrails#491): issuer -> remote_app.tenant_id is a single FK hop, so a
-  delegated request resolves to exactly one tenant and thus one PAYER customer — no membership-walk / "first
-  matching membership" ambiguity. NOTE: this resolves the CUSTOMER (payer), NOT the merchant — the merchant
-  is OpenRails's billing namespace (from the issuer registry / serving context), and merchants.owner_tenant_id
-  is ownership-only, never used to resolve from a token.
+- Deterministic MERCHANT resolution (openrails#491): issuer -> remote_app.tenant_id is a single FK hop to
+  exactly ONE tenant; the tenant is the OPERATOR and is 1:1 with its merchant, so a token resolves
+  issuer -> tenant -> merchant (the billing namespace). The actor's customer (payer) is the end-user under
+  that merchant. This SUPERSEDES the current stance (owner_tenant_id "ownership-only, one tenant owns MANY
+  merchants, never used to resolve from a token"): make owner_tenant_id UNIQUE (1:1) + resolution-bearing.
+  No membership-walk / "first matching membership" ambiguity. The tenant = operator (owns merchant +
+  issuers), NOT the customer.
 - Clean separation: the polymorphic `tenant_memberships` then means ONLY "this issuer's self-token gets
   these roles" (#76) — purely auth, fully decoupled from ownership/billing.
 
