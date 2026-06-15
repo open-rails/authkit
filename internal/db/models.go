@@ -8,16 +8,6 @@ import (
 	"time"
 )
 
-// Cross-domain identity anchor (#81): a federated end-user vouched for by a remote_application (issuer). App + billing tables FK -> id. NOT an auth artifact — auth rides the token only.
-type ProfilesDelegatedUser struct {
-	ID                  string
-	RemoteApplicationID string
-	Issuer              string
-	Subject             string
-	FirstSeenAt         time.Time
-	LastSeenAt          time.Time
-}
-
 type ProfilesGlobalRole struct {
 	ID          string
 	Name        string
