@@ -30,7 +30,8 @@ func testPG(t *testing.T) *pgxpool.Pool {
 }
 
 // createTestOrg makes a fresh org for a remote_application fixture and returns
-// its id (#77: org_id is NOT NULL). Cleanup runs after the RA cleanup (LIFO).
+// its id (org_id is OPTIONAL since #80; fixtures still bind one). Cleanup runs
+// after the RA cleanup (LIFO).
 func createTestOrg(t *testing.T, ctx context.Context, svc *Service, pool *pgxpool.Pool, slug string) string {
 	t.Helper()
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)

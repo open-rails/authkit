@@ -88,7 +88,9 @@ the billing-side anchor this mirrors).
 
 # #78: Drop tenant_subjects — the delegated-user registry is not load-bearing
 
-**Completed:** yes
+**Completed:** yes — but PARTIALLY REVERSED by #81 (2026-06-14): the AUTH finding still holds (no verify-path
+read), but downstream APP + BILLING domains DO want a stable FK anchor for the delegated user, so the table
+is restored as `delegated_users` for cross-domain FKs (not for auth). See #81.
 
 tenant_subjects persists nothing the auth decision needs. The ONLY write is TouchTenantSubject (an
 idempotent upsert + last_seen_at bump on each delegated login); its own code comment says it is "never read
@@ -177,10 +179,125 @@ CONSUMER RIPPLE (separate repos, cascade after authkit tags) — HARD CUT, coord
 - [x] Go core/http: Tenant* -> Org*; Claims.Org/OrgID/OrgRoles; ResolveOrgBySlug; ResolveRemoteApplicationOrg; remote_app org_id; login body param `org`.
 - [x] JWT claim: mint + verify ONLY `org`/`org_id`/`org_roles` (HARD CUT — no fallback, no dual-write; `tenant` claim removed; delegated-access guard now checks org/org_id).
 - [x] Routes: org-scoped paths/handlers (/orgs, /orgs/{org}/*, /token/org, /admin/org/*).
-- [x] Tests: build/vet/sqlc green; all tests pass EXCEPT TestOrgInviteNoEscalation — a PRE-EXISTING shared-dev-DB cross-subtest collision (renamed TestTenantInviteNoEscalation): its "accept-time re-check" subtest leaves a pending invite that the "happy path" subtest collides with on the pending unique index; the happy-path subtest passes in isolation. Rename-independent. Preserved OpenRails-side strings (openrails.tenant*, openrails:tenant:*) and stored namespace_state values (registered_tenant/parked_tenant).
+- [x] Tests: build/vet/sqlc green; all tests pass. TestOrgInviteNoEscalation was a test-isolation bug (the "accept-time re-check" subtest correctly leaves a pending invite; the "happy path" subtest reused the same invitee and collided on the pending unique index during SETUP) — FIXED 4564339 by giving the happy-path subtest a distinct invitee; the no-escalation SECURITY invariant was verified intact. Preserved OpenRails-side strings (openrails.tenant*, openrails:tenant:*) and stored namespace_state values (registered_tenant/parked_tenant).
 - [ ] Version bump (breaking -> v0.30.0). Cascade: openrails + tensorhub (+ maybe cozy-art) adapt the org
       rename; doujins + hentai0 DON'T use orgs -> dep bump only. Coordinated deploy (hard cut, no fallback).
 
 **Related**
 openrails#480 (the merchant rename this mirrors), #74/#76/#77/#78 (the de-conflation work this completes the
 naming for), openrails#491 (sequence: rename first, then #491, then ONE fleet cascade carrying both).
+
+---
+
+# #80: remote_application.org_id -> NULLABLE — an issuer need NOT belong to an org
+
+**Completed:** yes
+
+REVERSES #77's `org_id NOT NULL` ("exactly one org"). Per owner (2026-06-14), an issuer is a standalone
+JWKS-signing principal tied to a MERCHANT (on the OpenRails side), and it must be registerable WITHOUT an
+org. Two concrete shapes prove it:
+
+- STANDALONE OpenRails (doujins / hentai0): authkit there has NO users and NO orgs — only ISSUERS
+  ([doujins, hentai0]) tied to the one merchant. authkit just remembers "this is the JWKS for doujins",
+  OpenRails ties the merchant to that issuer. An org would be dead weight. -> org_id MUST be NULL-able.
+- TENSORHUB (federated B2B2C): authkit HAS orgs ([cozy-art, ...]); cozy-art is BOTH an org AND an issuer.
+  Here the issuer IS org-bound. -> org_id is SET.
+- EMBEDDED (doujins/hentai0/cozy-art, and tensorhub for its OWN native users): the embedding app handles
+  ALL security in-process; embedded OpenRails has NO security model of its own and defers entirely to the
+  host. The host's authkit MIDDLEWARE validates the JWT, resolves identity, and attaches it to the request
+  context before calling OpenRails — there is no merchant-auth / issuer step to OpenRails. doujins/hentai0/
+  cozy-art embedded have NO issuers at all (no federation). tensorhub-embedded DOES register issuers — but
+  only for federated sub-customers (cozy-art), never for tensorhub itself. (The host may run ONE OR MORE
+  merchants; "app == one merchant" is the common case, not a rule.)
+
+ORG SEMANTICS (owner, 2026-06-14): an "org" is a grouping of an APP's users / sub-customers, NEVER the app
+itself. doujins is NOT an org in its own authkit and needs none; if it ever used orgs they'd be teams of
+doujins' USERS. In tensorhub, cozy-art is an org precisely because it is a federated sub-customer that
+delegates to its own users (org -> customer/payer, and org-bound issuer).
+
+So org-binding is OPTIONAL, and (key insight, see openrails#491) the PRESENCE of org_id doubles as the
+PAYER-RESOLUTION switch on the billing side:
+  - issuer org-bound (cozy-art)  -> the ORG is the single payer/customer; the token SUBJECT is an INVOKER.
+  - issuer org-less (doujins)    -> each token SUBJECT is its OWN payer/customer (1:1 with the invoker).
+
+**Tasks:**
+- [x] Migration 010: `ALTER TABLE profiles.remote_applications ALTER COLUMN org_id DROP NOT NULL` (FK kept,
+      so a SET value still validates). Idempotent; fresh 001..011 chain green.
+- [x] Core: upsert already passes a nil org_id via sqlc.narg(org_id) + COALESCE read (from the #79 rename);
+      ResolveRemoteApplicationOrg returns "" (not an error) for org-less issuers. POST /orgs flow unaffected.
+- [x] No runtime fixups to drop: ProvisionOrg + POST /orgs both set org_id as a GENUINE "this issuer belongs
+      to this org" binding (the issuer is registered as part of creating that org), not solely to satisfy
+      NOT NULL — kept per spec. Test fixtures keep their (now-optional) org binding; harmless churn avoided.
+- [x] Tests: TestRemoteApplicationOrgOptional — org-LESS issuer (doujins shape) resolves to "" and an
+      org-BOUND issuer (cozy-art shape) resolves to its org id; both upsert + verify.
+
+**Outcome:** org_id nullable (010), core already nil-tolerant, runtime org-binding sets are genuine and kept.
+Build/vet/sqlc/full-suite green.
+
+**Related**
+#77 (set NOT NULL — this reverses it), #79 (org rename), #81 (delegated_users restore), openrails#491
+(org-binding -> payer-resolution switch).
+
+---
+
+# #81: RESTORE profiles.delegated_users — the shared federated-end-user identity primitive (un-drops #78)
+
+**Completed:** yes
+
+REVERSES #78 ("drop tenant_subjects — the delegated-user registry is not load-bearing"). #78 was right that
+AUTH does not need it (the token is the source of truth; no verify-path read). But #78 only asked "does
+auth need it?" — it never asked "do downstream APP + BILLING domains want a stable FK anchor for the
+delegated user?" They DO. The table literally existed before: created as `delegated_users` (001) -> renamed
+`tenant_subjects` (003) -> re-pointed to remote_application_id (004) -> dropped (008). Restore it under its
+ORIGINAL name `delegated_users`, now justified as a CROSS-DOMAIN identity anchor, not an auth artifact.
+
+EVIDENCE (search, 2026-06-14): tensorhub ALREADY references a delegated end-user in FIVE NON-billing tables
+via a soft `delegated_user_id` (no FK today): user_file_objects (media ownership), media_output_events,
+resource_visibility_audit, platform_abuse_events, platform_policy_denials — plus per-delegated-user media
+SCOPING, rate limits, and tier budgets. OpenRails separately wants it for invoker attribution + per-invoker
+spend/abuse caps (openrails#491). A delegated user is fundamentally an IDENTITY ("a federated end-user
+vouched for by issuer X") consumed by BOTH the app and billing -> it belongs in the identity service so
+both FK to it and neither depends on the other. (If it lived in OpenRails, tensorhub's media-OWNERSHIP
+tables would FK into the BILLING service — wrong-way coupling.)
+
+DESIGN:
+- Table `profiles.delegated_users (id uuid PRIMARY KEY DEFAULT uuidv7(), remote_application_id uuid NOT NULL
+  REFERENCES remote_applications(id), issuer text NOT NULL, subject text NOT NULL /* the STABLE
+  merchant-supplied uuid, never a username */, first_seen_at, last_seen_at,
+  UNIQUE(remote_application_id, subject))`.
+- id is uuidv7 (pg18 native — the fleet's UNIVERSAL pk; owner: uuidv7 everywhere, NO uuidv5). uuidv7 is
+  random and CANNOT be content-derived, so idempotency rides the UNIQUE(remote_application_id, subject)
+  natural key, NOT a derived id: `TouchDelegatedUser(ctx, issuer, subject) (id uuid)` does
+  `INSERT ... ON CONFLICT (remote_application_id, subject) DO UPDATE SET last_seen_at=now() RETURNING id`.
+  The id is minted ONCE and RETURNED; callers stamp the returned value (no independent computation). This is
+  the old TouchTenantSubject shape, but now an FK anchor that RETURNS the id, not write-only logging.
+- This REPLACES the two existing content-derivations (both go away): tensorhub `du_`+sha256(issuer\x00sub)[:32]
+  (string) in platform_delegated_identity.go:36, and openrails FederatedCustomerID uuidv5(merchant\x00issuer
+  \x00sub). Callers obtain the id from TouchDelegatedUser, not by hashing.
+- Cross-schema FKs: openrails `billing` tables + tensorhub `public` tables both FK -> profiles.delegated_users(id)
+  (same DB in every deployment). authkit OWNS "who"; it makes NO auth decision off this table (auth still
+  rides the token only — #78's core finding stands).
+
+**Tasks:**
+- [x] Migration 011: recreate profiles.delegated_users (exact shape: id uuid PK DEFAULT uuidv7(),
+      remote_application_id NOT NULL REFERENCES remote_applications(id) ON DELETE CASCADE, issuer, subject,
+      first_seen_at/last_seen_at DEFAULT now(), UNIQUE(remote_application_id, subject)) + issuer index.
+      Idempotent; fresh 001..011 chain green.
+- [x] Core (core/delegated_users.go): `TouchDelegatedUser(ctx, issuer, subject) (string, error)` — resolves
+      remote_application from the validated issuer, upsert ON CONFLICT (remote_application_id, subject) DO
+      UPDATE last_seen_at RETURNING id; reads GetDelegatedUser(issuer, subject) + ListDelegatedUsersForIssuer.
+      Unknown/disabled issuer -> ErrInvalidDelegatedUser. NO verify-path coupling (not wired into middleware).
+- [x] Tests: TestDelegatedUserTouchIdempotent — repeated (issuer, subject) returns the SAME uuidv7 id;
+      get/list find it; last_seen_at >= first_seen_at; unknown issuer fails closed.
+
+**Outcome:** delegated_users restored (011) as a cross-domain FK anchor; uuidv7 pk, idempotency on the
+UNIQUE natural key (no uuidv5/derived id). sqlc regen + build/vet/full-suite green. Consumer cascade
+(openrails#491 invoker_id FK; tensorhub soft du_ -> real FK) is the separate follow-up noted below.
+- [ ] Consumer cascade: openrails#491 stamps invoker_id from TouchDelegatedUser's returned id; tensorhub
+      migrates its soft du_ columns to real FKs — SEPARATE tensorhub-side follow-up. Because the id is now
+      uuidv7 (random), tensorhub remaps by JOIN on (issuer_id, delegated_sub) -> delegated_users.id (NOT a
+      recompute); tensorhub stores both columns alongside each soft du_ ref, so the backfill join is direct.
+
+**Related**
+#78 (drop — this un-drops it), #80 (nullable org_id), openrails#491 (invoker_id FK -> this table; id is
+uuidv7 via TouchDelegatedUser upsert-RETURNING, no uuidv5 derivation — idempotency on UNIQUE natural key).

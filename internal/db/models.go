@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+// Cross-domain identity anchor (#81): a federated end-user vouched for by a remote_application (issuer). App + billing tables FK -> id. NOT an auth artifact — auth rides the token only.
+type ProfilesDelegatedUser struct {
+	ID                  string
+	RemoteApplicationID string
+	Issuer              string
+	Subject             string
+	FirstSeenAt         time.Time
+	LastSeenAt          time.Time
+}
+
 type ProfilesGlobalRole struct {
 	ID          string
 	Name        string
@@ -122,7 +132,8 @@ type ProfilesRemoteApplication struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
-	OrgID       *string
+	// Owning org, OPTIONAL (#80). NULL = org-less issuer (standalone shape, each token subject is its own payer); SET = org-bound issuer (the org is the single payer). FK validates a SET value.
+	OrgID *string
 }
 
 // REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).
