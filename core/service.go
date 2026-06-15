@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -2052,6 +2053,14 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// secretHashEqual compares two secret-derived strings (sha256Hex digests of
+// one-time codes / backup codes) in constant time, so a caller cannot learn how
+// many leading characters matched by measuring response latency. Differing
+// lengths compare unequal without short-circuiting.
+func secretHashEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
 // --- Direct Postgres helpers (profiles schema) ---
 
 type User struct {
@@ -3925,7 +3934,7 @@ func (s *Service) Verify2FAChallenge(ctx context.Context, userID, challenge stri
 	if err != nil || !ok {
 		return false, err
 	}
-	return stored == sha256Hex(challenge), nil
+	return secretHashEqual(stored, sha256Hex(challenge)), nil
 }
 
 // Clear2FAChallenge removes the stored challenge after successful 2FA verification.
@@ -3964,7 +3973,7 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 	// Check if backup code exists
 	found := false
 	for _, hashedCode := range settings.BackupCodes {
-		if hashedCode == hash {
+		if secretHashEqual(hashedCode, hash) {
 			found = true
 			break
 		}
@@ -3977,7 +3986,7 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 	// Remove the used backup code
 	newCodes := make([]string, 0, len(settings.BackupCodes)-1)
 	for _, hashedCode := range settings.BackupCodes {
-		if hashedCode != hash {
+		if !secretHashEqual(hashedCode, hash) {
 			newCodes = append(newCodes, hashedCode)
 		}
 	}
