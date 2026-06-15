@@ -119,14 +119,19 @@ func TestOrgInviteNoEscalation(t *testing.T) {
 		if err := svc.AssignRole(ctx, slug, ownerID, "owner"); err != nil {
 			t.Fatalf("re-promote owner: %v", err)
 		}
-		inv, err := svc.CreateOrgInvite(ctx, slug, inviteeID, ownerID, "member", nil)
+		// Distinct invitee: the re-check sub-test leaves inviteeID with a stuck
+		// pending owner invite (accept fails closed, status stays pending), and
+		// org_invites_pending_org_user_uidx forbids a second pending invite per
+		// (org, user). Reusing inviteeID would collide on setup, not on logic.
+		happyInviteeID := cleanupUser("esc-happy-invitee@example.com")
+		inv, err := svc.CreateOrgInvite(ctx, slug, happyInviteeID, ownerID, "member", nil)
 		if err != nil {
 			t.Fatalf("create member invite: %v", err)
 		}
-		if err := svc.AcceptOrgInvite(ctx, inv.ID, inviteeID); err != nil {
+		if err := svc.AcceptOrgInvite(ctx, inv.ID, happyInviteeID); err != nil {
 			t.Fatalf("accept member invite: %v", err)
 		}
-		roles, err := svc.ReadMemberRoles(ctx, slug, inviteeID)
+		roles, err := svc.ReadMemberRoles(ctx, slug, happyInviteeID)
 		if err != nil {
 			t.Fatalf("read roles: %v", err)
 		}
