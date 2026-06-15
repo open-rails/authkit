@@ -240,9 +240,28 @@ Build/vet/sqlc/full-suite green.
 
 ---
 
-# #81: RESTORE profiles.delegated_users — the shared federated-end-user identity primitive (un-drops #78)
+# #81: delegated_users — RESTORED (011) then REVERTED / RE-DROPPED (invoker is opaque text, no FK)
 
-**Completed:** yes
+**Completed:** restore shipped (011); RE-DROP pending (owner reversal 2026-06-15)
+
+================================================================================
+REVERSAL (owner, 2026-06-15) — DROP delegated_users again. The #81 premise
+("downstream APP + BILLING want a stable FK ANCHOR for the delegated user") was
+WRONG. The INVOKER ("under whose authority an action happened") is a POLYMORPHIC
+principal — native-user | delegated-user | service-token | issuer/JWKS — stored as
+OPAQUE TEXT (a stable uuidv7), with NO foreign key. OpenRails can't FK across
+authkit's four principal tables (separate `profiles` schema) or across apps that
+aren't even co-located, so NOTHING FKs to delegated_users: tensorhub's app columns
+and openrails attribution are all opaque text. #78's "not load-bearing" finding
+STANDS, and not even a registry is warranted — usage visibility = aggregate openrails
+attribution rows BY the opaque invoker text; per-invoker limits = openrails budget
+rows keyed BY the invoker text; authkit needs no invoker table at all.
+ACTION (do it yourself, no sub-agents): new migration DROPs profiles.delegated_users;
+delete core/delegated_users.go (TouchDelegatedUser / GetDelegatedUser /
+ListDelegatedUsersForIssuer) + its sqlc queries + tests; re-run sqlc; re-tag synced
+with openrails. The RESTORE (011) recorded below is now HISTORICAL. See openrails#491
+(the paired `invoker_id uuid FK` -> `invoker text` reversal).
+================================================================================
 
 REVERSES #78 ("drop tenant_subjects — the delegated-user registry is not load-bearing"). #78 was right that
 AUTH does not need it (the token is the source of truth; no verify-path read). But #78 only asked "does
@@ -293,11 +312,14 @@ DESIGN:
 **Outcome:** delegated_users restored (011) as a cross-domain FK anchor; uuidv7 pk, idempotency on the
 UNIQUE natural key (no uuidv5/derived id). sqlc regen + build/vet/full-suite green. Consumer cascade
 (openrails#491 invoker_id FK; tensorhub soft du_ -> real FK) is the separate follow-up noted below.
-- [ ] Consumer cascade: openrails#491 stamps invoker_id from TouchDelegatedUser's returned id; tensorhub
-      migrates its soft du_ columns to real FKs — SEPARATE tensorhub-side follow-up. Because the id is now
-      uuidv7 (random), tensorhub remaps by JOIN on (issuer_id, delegated_sub) -> delegated_users.id (NOT a
-      recompute); tensorhub stores both columns alongside each soft du_ ref, so the backfill join is direct.
+**Re-drop tasks (the reversal — supersedes the restore above):**
+- [ ] New migration: `DROP TABLE IF EXISTS profiles.delegated_users` (idempotent). It carries no
+      load-bearing data (write-mostly; nothing FKs to it now).
+- [ ] Delete core/delegated_users.go (TouchDelegatedUser / GetDelegatedUser / ListDelegatedUsersForIssuer),
+      its sqlc query file + generated code + models entry, and delegated_users_test.go. Re-run sqlc.
+- [ ] Build/vet/full-suite green on a fresh migration chain; re-tag authkit synced with openrails.
 
 **Related**
-#78 (drop — this un-drops it), #80 (nullable org_id), openrails#491 (invoker_id FK -> this table; id is
-uuidv7 via TouchDelegatedUser upsert-RETURNING, no uuidv5 derivation — idempotency on UNIQUE natural key).
+#78 (original drop — #81 un-dropped, this reversal re-drops; #78's finding was right all along),
+#80 (nullable org_id — unaffected, stays), openrails#491 (paired reversal: invoker_id uuid FK -> invoker
+text, no FK), [[invoker-opaque-text-polymorphic]] memory.
