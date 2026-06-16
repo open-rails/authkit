@@ -18,8 +18,8 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 //
 // A delegated service token is AuthKit's standard primitive for resource-service
 // federation: one AuthKit issuer signs a short-lived JWT for an external
-// (delegated) actor, and a resource service accepts it after issuer/JWKS/
-// audience validation. The token represents a delegated actor
+// delegated subject, and a resource service accepts it after issuer/JWKS/
+// audience validation. The token represents a delegated subject
 // (DelegatedSubject) acting under the resource account that the VALIDATED
 // `iss` resolves to in the receiver's issuer registry — the token itself
 // carries no org claims. It NEVER carries a normal `sub` — no local account
@@ -33,7 +33,7 @@ type DelegatedAccessParams struct {
 	// Audiences becomes the `aud` claim: the target resource API(s), e.g.
 	// "openrails", "tensorhub", or "gen-orchestrator".
 	Audiences []string
-	// DelegatedSubject becomes `delegated_sub`: the issuer-side user/actor id.
+	// DelegatedSubject becomes `delegated_sub`: the issuer-side subject id.
 	// Required. No local account is implied in the receiving service.
 	DelegatedSubject string
 	// Permissions becomes the `permissions` claim: an array of resource-defined
@@ -56,7 +56,7 @@ type DelegatedAccessParams struct {
 	// `roles` (a uuid array; prefer the typed Roles field below). Everything
 	// else is free-form per consuming app. Values are arbitrary JSON.
 	Attributes map[string]any
-	// Roles is a convenience for emitting the actor's role UUIDs into
+	// Roles is a convenience for emitting the delegated subject's role UUIDs into
 	// `attributes.roles` (a JSON array of UUID strings). Equivalent to setting
 	// Attributes["roles"] yourself; when both are set this typed field wins.
 	Roles []string
@@ -89,8 +89,8 @@ func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAcces
 // the canonical `delegated_sub`/`permissions`/`attributes` claims, and NEVER
 // sets `sub` — the sub-XOR-delegated_sub invariant is enforced by construction.
 // Receiving services authorize by issuer/resource-account trust plus
-// `permissions`. A top-level `roles` claim is never minted; actor role UUIDs,
-// when carried, ride under `attributes.roles` (see the Roles param).
+// `permissions`. A top-level `roles` claim is never minted; delegated-subject
+// role UUIDs, when carried, ride under `attributes.roles` (see the Roles param).
 //
 // Hosts embedding core.Service should prefer (*Service).MintDelegatedAccessToken
 // so they never construct their own signer or read the PEM.

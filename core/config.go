@@ -119,7 +119,7 @@ type Config struct {
 	// ResourceScopeAuthorizer optionally authorizes host-defined service token resource
 	// scopes during HTTP minting. AuthKit validates only shape/length and stores
 	// resource Kind/ID pairs opaquely; the embedding host owns semantic
-	// no-escalation such as "may this caller mint openrails.tenant_subject=cozy-art".
+	// no-escalation such as "may this caller mint openrails.customer=cozy-art".
 	ResourceScopeAuthorizer ResourceScopeAuthorizer
 
 	// PermissionCatalog is the embedding application's set of valid permission

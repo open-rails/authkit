@@ -108,21 +108,19 @@ type ProfilesRefreshSession struct {
 
 // Federation principals: external systems that authenticate by signing JWTs verified against their JWKS/public keys. Members of orgs with roles via polymorphic org_memberships.
 type ProfilesRemoteApplication struct {
-	ID   string
-	Slug string
-	// Creator-audit only (nullable, SET NULL on user delete). Ownership lives in org_id.
-	OwnerUserID *string
-	Issuer      string
-	JwksUri     string
-	Mode        string
-	PublicKeys  []byte
-	Audiences   []string
-	Enabled     bool
-	Metadata    []byte
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
-	// Owning org, OPTIONAL (#80). NULL = org-less issuer (standalone shape, each token subject is its own payer); SET = org-bound issuer (the org is the single payer). FK validates a SET value.
+	ID         string
+	Slug       string
+	Issuer     string
+	JwksUri    string
+	Mode       string
+	PublicKeys []byte
+	Audiences  []string
+	Enabled    bool
+	Metadata   []byte
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  *time.Time
+	// Optional controlling org. NULL = bootstrap/operator-managed issuer with no AuthKit user/org owner; SET = org-controlled issuer managed through org RBAC.
 	OrgID *string
 }
 

@@ -144,7 +144,7 @@ ORDER BY from_slug ASC;
 
 -- name: PersonalOrgUpsert :one
 INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id, metadata)
-VALUES (sqlc.arg(id)::uuid, $2, true, sqlc.arg(owner_user_id)::uuid, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
+VALUES (sqlc.arg(id)::uuid, $2, true, sqlc.arg(owner_user_id)::uuid, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 ON CONFLICT (owner_user_id) WHERE is_personal = true AND deleted_at IS NULL
 DO UPDATE SET slug = EXCLUDED.slug, updated_at = now()
 RETURNING id::text;

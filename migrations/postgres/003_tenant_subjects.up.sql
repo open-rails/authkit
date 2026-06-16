@@ -1,8 +1,8 @@
 -- Rename profiles.delegated_users -> profiles.tenant_subjects.
 --
 -- The rows are not users: they are opaque (tenant_id, issuer, subject) OIDC
--- subject tuples recording which delegated actors have been accepted under
--- each tenant. The new name matches the claim that carries the actor
+-- subject tuples recording which delegated subjects have been accepted under
+-- each tenant. The new name matches the claim that carries the delegated subject
 -- (`delegated_sub`) and the equivalent table on the resource-server side
 -- (e.g. openrails billing.tenant_subjects).
 ALTER TABLE IF EXISTS profiles.delegated_users RENAME TO tenant_subjects;

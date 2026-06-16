@@ -151,6 +151,22 @@ func (s *Service) ResolveOrgBySlug(ctx context.Context, slug string) (*Org, erro
 	return &Org{ID: ren.ID, Slug: ren.Slug, IsPersonal: ren.IsPersonal, OwnerUserID: ren.OwnerUserID}, nil
 }
 
+// ResolveOrgByID resolves an active org by uuid string.
+func (s *Service) ResolveOrgByID(ctx context.Context, id string) (*Org, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, ErrOrgNotFound
+	}
+	row, err := s.q.OrgSlugAndPersonalByID(ctx, id)
+	if err != nil {
+		return nil, ErrOrgNotFound
+	}
+	return &Org{ID: id, Slug: row.Slug, IsPersonal: row.IsPersonal}, nil
+}
+
 // CreateOrg creates an ownerless org for privileged bootstrap/admin
 // callers. Public self-service org registration must use CreateOrgForUser
 // so the org, owner membership, and owner role are created atomically.

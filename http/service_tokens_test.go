@@ -35,14 +35,14 @@ func TestAccessTokenViewIncludesResources(t *testing.T) {
 		Name:        "ci",
 		Permissions: []string{"openrails:credits:spend"},
 		Resources: []core.ServiceTokenResource{
-			{Kind: "openrails.tenant", ID: "tensorhub"},
-			{Kind: "openrails.tenant_subject", ID: "cozy-art"},
+			{Kind: "openrails.merchant", ID: "tensorhub"},
+			{Kind: "openrails.customer", ID: "cozy-art"},
 		},
 		CreatedAt: created,
 	})
 	require.Equal(t, []core.ServiceTokenResource{
-		{Kind: "openrails.tenant", ID: "tensorhub"},
-		{Kind: "openrails.tenant_subject", ID: "cozy-art"},
+		{Kind: "openrails.merchant", ID: "tensorhub"},
+		{Kind: "openrails.customer", ID: "cozy-art"},
 	}, view.Resources)
 	require.Equal(t, "2026-01-02T03:04:05Z", view.CreatedAt)
 }

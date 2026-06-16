@@ -447,7 +447,7 @@ func (q *Queries) PersonalOrgByOwner(ctx context.Context, ownerUserID string) (P
 
 const personalOrgUpsert = `-- name: PersonalOrgUpsert :one
 INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id, metadata)
-VALUES ($1::uuid, $2, true, $3::uuid, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
+VALUES ($1::uuid, $2, true, $3::uuid, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 ON CONFLICT (owner_user_id) WHERE is_personal = true AND deleted_at IS NULL
 DO UPDATE SET slug = EXCLUDED.slug, updated_at = now()
 RETURNING id::text

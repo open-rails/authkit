@@ -31,7 +31,7 @@ type Claims struct {
 	JTI          string
 
 	// Delegated/org fields. A delegated service token carries the external
-	// actor in DelegatedSubject (claim `delegated_sub`) and NO org claims of
+	// delegated subject in DelegatedSubject (claim `delegated_sub`) and NO org claims of
 	// any kind: the VALIDATED Issuer is the org identity — receivers resolve
 	// their internal org record (slug + uuid) from their issuer registry. It
 	// never carries `sub` (UserID stays empty), so the local-user gate does not
@@ -65,8 +65,8 @@ type Claims struct {
 	// claim is absent.
 	Attributes map[string]json.RawMessage
 
-	// DelegatedRoles are the actor's role UUIDs carried by a delegated service
-	// token under `attributes.roles` (a JSON array of UUID strings). They are
+	// DelegatedRoles are the delegated subject's role UUIDs carried by a
+	// delegated service token under `attributes.roles` (a JSON array of UUID strings). They are
 	// extracted and validated at verify (malformed entries dropped, count
 	// capped) and surfaced on DelegatedPrincipal.Roles. Downstream services use
 	// them as e.g. budget-scope keys; authkit treats them as opaque strings.

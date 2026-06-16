@@ -213,7 +213,7 @@ orgs:
       - name: openrails-runtime
         permissions: ["openrails:entitlements:read"]
         resources:
-          - kind: openrails.tenant
+          - kind: openrails.merchant
             id: cozy-art
         output:
           file: /run/secrets/openrails-runtime-token
@@ -548,7 +548,7 @@ differ only in how much of the claim shape AuthKit owns:
 | Method | Use when | Claim shape |
 | --- | --- | --- |
 | `MintServiceJWT` | First-party machine-to-machine call (`service:<app>` → another app). | **Opinionated.** Forces `token_use=service`, `typ=service+jwt`; you supply `sub`/`aud`/`permissions`/`resources` only. |
-| `MintDelegatedAccessToken` | Cross-service federation — one issuer signs for a delegated actor a receiver accepts after issuer/JWKS/aud checks. | **Opinionated.** Forces `typ=delegated-access+jwt`, writes `delegated_sub`, NEVER sets `sub`. |
+| `MintDelegatedAccessToken` | Cross-service federation — one issuer signs for a delegated subject a receiver accepts after issuer/JWKS/aud checks. | **Opinionated.** Forces `typ=delegated-access+jwt`, writes `delegated_sub`, NEVER sets `sub`. |
 | `MintCustomJWT` | **Escape hatch** — token shapes the two above can't express (e.g. tensorhub capability/worker tokens with `cap_kind`/`grants`/`release_id`, or a worker variant with `aud:["cozy.scheduler"]`). | **Host-owned.** You pass an arbitrary `Claims` map (+ optional `Type`/`Subject`/`Audiences`/`Issuer`). AuthKit owns ONLY `iss`/`iat`/`exp` and the `kid`/`alg` header. |
 
 `MintCustomJWT` is the blessed alternative to reaching for the low-level
@@ -698,12 +698,12 @@ Service JWTs (OIDC/JWKS machine credentials)
 Reserved slug policy
 - Owner namespaces use explicit states:
   - `restricted_name`: slug is blocked in `profiles.owner_reserved_names` and not publicly registrable.
-  - `parked_tenant`: org exists and is platform-held (`metadata.namespace_state=parked_tenant`, `metadata.reserved=true`).
-  - `registered_tenant`: normal org lifecycle (`metadata.namespace_state=registered_tenant`).
+  - `parked_org`: org exists and is platform-held (`metadata.namespace_state=parked_org`, `metadata.reserved=true`).
+  - `registered_org`: normal org lifecycle (`metadata.namespace_state=registered_org`).
 - Public lookup endpoint: `GET /owners/{slug}` returns canonical public metadata for the slug:
   - `requested_slug`: normalized slug from the request.
   - `slug` / `canonical_slug`: current canonical slug when the request resolves to a live or held owner; otherwise the requested slug.
-  - `enabled` / `state`: `registered_user`, `registered_tenant`, `parked_user`, `parked_tenant`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, or `unregistered`.
+  - `enabled` / `state`: `registered_user`, `registered_org`, `parked_user`, `parked_org`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, or `unregistered`.
   - `claimable`: whether the slug can currently be claimed by a new user/org.
   - `renamed`: whether this lookup resolved through rename history.
   - `hold_until`: present for enabled rename reuse holds.
@@ -1217,7 +1217,7 @@ There are three roles, all owned by AuthKit:
 
 A **delegated access JWT** is AuthKit's standard primitive for user or
 org-admin federation: one AuthKit issuer signs a short-lived JWT for an
-external delegated actor, and a resource service (OpenRails, Tensorhub,
+external delegated subject, and a resource service (OpenRails, Tensorhub,
 Gen-Orchestrator, ...) accepts it after issuer/JWKS/audience/resource-account
 validation.
 Mint it with `MintDelegatedAccessToken` / `DelegatedAccessParams`.
@@ -1230,7 +1230,7 @@ Canonical claim contract:
 | `iss` | AuthKit issuer that signed the token | `Claims.Issuer` |
 | `aud` | target resource API (`openrails`, `tensorhub`, `gen-orchestrator`) | (matched at verify) |
 | `org` | target resource-service account slug, e.g. `doujins` in OpenRails | `Claims.Org` |
-| `delegated_sub` | issuer-side actor id, e.g. Paul's Doujins-side subject id; **no local account is implied** | `Claims.DelegatedSubject` |
+| `delegated_sub` | issuer-side subject id, e.g. Paul's Doujins-side subject id; **no local account is implied** | `Claims.DelegatedSubject` |
 | `permissions []string` | resource-defined permission strings (NOT OAuth space-delimited scope) — the **authority source** | `Claims.Permissions` / `HasPermission()` |
 | `attributes {}` | issuer policy metadata, e.g. `{"tier":"cozy_free"}` (arbitrary JSON) | `Claims.Attributes` / `Attribute(key)` |
 | `iat`/`exp`/`nbf`/`jti` | standard timing + token id | `Claims.JTI` |
@@ -1282,8 +1282,8 @@ Recommended OpenRails permission naming uses a service prefix even though
 permissions for several resource services: self-scoped
 `openrails:self:billing:read`, `openrails:self:checkout:create`,
 `openrails:self:subscriptions:cancel`; org/admin
-`openrails:tenant:catalog:write`, `openrails:tenant:payments:refund`,
-`openrails:tenant:admin`. Routes must still check scope semantics, not just
+`openrails:merchant:catalog:write`, `openrails:merchant:payments:refund`,
+`openrails:merchant:admin`. Routes must still check scope semantics, not just
 string presence.
 
 For browser-direct self-service billing, the host app still has one

@@ -55,8 +55,8 @@ func remoteApplicationView(ra core.RemoteApplication) remoteApplicationResponse 
 }
 
 // handleRemoteApplicationRegisterPOST registers or updates a remote_application.
-// Authorization: a global admin, or (for an existing principal) its
-// owner_user_id. A new principal is owned by the registering user.
+// Authorization: global admin for any issuer, otherwise org RBAC for org-owned
+// issuers. Unowned issuers are bootstrap/operator-managed and global-admin only.
 func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
@@ -76,7 +76,7 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 		badRequest(w, "invalid_trust_source")
 		return
 	}
-	owner, ok, err := s.canManageRemoteApplicationByIssuer(r.Context(), claims, body.Issuer)
+	orgID, ok, err := s.canManageRemoteApplicationByIssuer(r.Context(), claims, body.Issuer, body.OrgID)
 	if err != nil {
 		serverErr(w, "remote_application_lookup_failed")
 		return
@@ -91,15 +91,14 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 		enabled = *body.Enabled
 	}
 	ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
-		Slug:        body.Slug,
-		OwnerUserID: owner,
-		OrgID:       body.OrgID,
-		Issuer:      body.Issuer,
-		JWKSURI:     body.JWKSURI,
-		Mode:        body.Mode,
-		PublicKeys:  body.PublicKeys,
-		Audiences:   body.Audiences,
-		Enabled:     enabled,
+		Slug:       body.Slug,
+		OrgID:      orgID,
+		Issuer:     body.Issuer,
+		JWKSURI:    body.JWKSURI,
+		Mode:       body.Mode,
+		PublicKeys: body.PublicKeys,
+		Audiences:  body.Audiences,
+		Enabled:    enabled,
 	})
 	if err != nil {
 		if err == core.ErrInvalidRemoteApplication {
@@ -137,7 +136,7 @@ func (s *Service) handleRemoteApplicationsListGET(w http.ResponseWriter, r *http
 }
 
 // handleRemoteApplicationDeleteDELETE removes a remote_application registration.
-// Authorized by its owner_user_id or a global admin.
+// Authorized by global admin, or by org RBAC for org-owned issuers.
 func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
@@ -151,7 +150,7 @@ func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *
 		badRequest(w, "invalid_request")
 		return
 	}
-	_, ok, err := s.canManageRemoteApplicationByIssuer(r.Context(), claims, issuer)
+	_, ok, err := s.canManageRemoteApplicationByIssuer(r.Context(), claims, issuer, "")
 	if err != nil {
 		serverErr(w, "remote_application_lookup_failed")
 		return
@@ -182,8 +181,8 @@ type remoteApplicationMembershipRequest struct {
 }
 
 // handleRemoteApplicationMembershipPOST binds a remote_application as a member of
-// a org with a role. Authorized: the caller must own BOTH the
-// remote_application and the org (or be a global admin).
+// a org with a role. Authorized: the caller must be able to manage BOTH the
+// remote_application owner org and the target org, or be a global admin.
 func (s *Service) handleRemoteApplicationMembershipPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
@@ -265,7 +264,7 @@ type remoteApplicationPermissionRequest struct {
 }
 
 // handleRemoteApplicationPermissionsGET lists a remote_application's DIRECT
-// permission grants. Authorized by its owner or a global admin.
+// permission grants. Authorized by its owner org or a global admin.
 func (s *Service) handleRemoteApplicationPermissionsGET(w http.ResponseWriter, r *http.Request) {
 	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
@@ -280,7 +279,7 @@ func (s *Service) handleRemoteApplicationPermissionsGET(w http.ResponseWriter, r
 }
 
 // handleRemoteApplicationPermissionPOST grants a direct permission to a
-// remote_application. Authorized by its owner or a global admin.
+// remote_application. Authorized by its owner org or a global admin.
 func (s *Service) handleRemoteApplicationPermissionPOST(w http.ResponseWriter, r *http.Request) {
 	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
@@ -303,7 +302,7 @@ func (s *Service) handleRemoteApplicationPermissionPOST(w http.ResponseWriter, r
 }
 
 // handleRemoteApplicationPermissionDELETE revokes a direct permission from a
-// remote_application. Authorized by its owner or a global admin.
+// remote_application. Authorized by its owner org or a global admin.
 func (s *Service) handleRemoteApplicationPermissionDELETE(w http.ResponseWriter, r *http.Request) {
 	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
@@ -338,7 +337,7 @@ func attributeDefView(d core.RemoteAppAttributeDef) map[string]any {
 
 // handleAttributeDefPutPOST registers/updates an opaque attribute definition for
 // the remote_application (REFERENCE-mode write side, #75). Authorized by the
-// remote_application's owner (it is the authority for its own users' restrictions).
+// remote_application's owner org (it is the authority for its own users' restrictions).
 func (s *Service) handleAttributeDefPutPOST(w http.ResponseWriter, r *http.Request) {
 	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
@@ -408,34 +407,37 @@ func (s *Service) handleAttributeDefGET(w http.ResponseWriter, r *http.Request) 
 // ---------------------------------------------------------------------------
 
 // canManageRemoteApplicationByIssuer reports whether the caller may register or
-// mutate the remote_application with the given issuer, and returns the
-// owner_user_id to persist. A global admin may manage any; otherwise the caller
-// must own an EXISTING principal, or (when none exists yet) becomes its owner.
-func (s *Service) canManageRemoteApplicationByIssuer(ctx context.Context, claims Claims, issuer string) (owner string, ok bool, err error) {
-	uid := strings.TrimSpace(claims.UserID)
+// mutate the remote_application with the given issuer, and returns the org_id to
+// persist. A global admin may manage any. Non-admin callers may only manage
+// org-owned issuers for orgs where they hold org:remote_applications:manage.
+// Unowned issuers are bootstrap/operator-managed and global-admin only.
+func (s *Service) canManageRemoteApplicationByIssuer(ctx context.Context, claims Claims, issuer, requestedOrgID string) (orgID string, ok bool, err error) {
 	existing, gerr := s.svc.GetRemoteApplication(ctx, issuer)
 	if gerr != nil && gerr != core.ErrRemoteApplicationNotFound {
 		return "", false, gerr
 	}
 	if claimsHasGlobalAdmin(claims) {
-		if existing != nil && strings.TrimSpace(existing.OwnerUserID) != "" {
-			return existing.OwnerUserID, true, nil
+		if existing != nil {
+			return strings.TrimSpace(requestedOrgID), true, nil
 		}
-		return uid, true, nil
+		return strings.TrimSpace(requestedOrgID), true, nil
 	}
 	if existing != nil {
-		// Mutating an existing principal requires ownership.
-		if !strings.EqualFold(strings.TrimSpace(existing.OwnerUserID), uid) {
+		orgID = strings.TrimSpace(existing.OrgID)
+		if orgID == "" {
 			return "", false, nil
 		}
-		return existing.OwnerUserID, true, nil
+		return s.canManageRemoteApplicationOrg(ctx, claims, orgID)
 	}
-	// New principal: the registering user owns it.
-	return uid, true, nil
+	orgID = strings.TrimSpace(requestedOrgID)
+	if orgID == "" {
+		return "", false, nil
+	}
+	return s.canManageRemoteApplicationOrg(ctx, claims, orgID)
 }
 
-// authRemoteApplicationBySlug resolves the {slug} path principal and checks the
-// caller owns it (or is a global admin). It writes the error response and
+// authRemoteApplicationBySlug resolves the {slug} path principal and checks
+// org-owner/admin authorization. It writes the error response and
 // returns ok=false on any failure.
 func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Request) (Claims, *core.RemoteApplication, bool) {
 	claims, ok := ClaimsFromContext(r.Context())
@@ -453,15 +455,49 @@ func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Req
 		notFound(w, "remote_application_not_found")
 		return Claims{}, nil, false
 	}
-	if !claimsHasGlobalAdmin(claims) && !strings.EqualFold(strings.TrimSpace(ra.OwnerUserID), strings.TrimSpace(claims.UserID)) {
-		forbidden(w, "forbidden")
-		return Claims{}, nil, false
+	if !claimsHasGlobalAdmin(claims) {
+		orgID := strings.TrimSpace(ra.OrgID)
+		if orgID == "" {
+			forbidden(w, "forbidden")
+			return Claims{}, nil, false
+		}
+		_, ok, err := s.canManageRemoteApplicationOrg(r.Context(), claims, orgID)
+		if err != nil {
+			serverErr(w, "remote_application_owner_lookup_failed")
+			return Claims{}, nil, false
+		}
+		if !ok {
+			forbidden(w, "forbidden")
+			return Claims{}, nil, false
+		}
 	}
 	return claims, ra, true
 }
 
+func (s *Service) canManageRemoteApplicationOrg(ctx context.Context, claims Claims, orgID string) (string, bool, error) {
+	org, err := s.svc.ResolveOrgByID(ctx, strings.TrimSpace(orgID))
+	if err != nil {
+		return "", false, err
+	}
+	if claimsHasGlobalAdmin(claims) {
+		return org.ID, true, nil
+	}
+	if strings.TrimSpace(claims.UserID) == "" {
+		return "", false, nil
+	}
+	ok, err := s.svc.HasPermission(ctx, org.Slug, claims.UserID, core.PermOrgRemoteAppsManage)
+	if err != nil {
+		return "", false, err
+	}
+	if !ok {
+		return "", false, nil
+	}
+	return org.ID, true, nil
+}
+
 // canManageOrgMembership reports whether the caller may assign memberships on
-// a org: a global admin, or a org owner. Returns the canonical slug.
+// a org: a global admin, or a caller with org remote-application management
+// authority. Returns the canonical slug.
 func (s *Service) canManageOrgMembership(ctx context.Context, claims Claims, orgSlug string) (canonical string, ok bool, err error) {
 	if claimsHasGlobalAdmin(claims) {
 		org, e := s.svc.ResolveOrgBySlug(ctx, orgSlug)
@@ -470,11 +506,7 @@ func (s *Service) canManageOrgMembership(ctx context.Context, claims Claims, org
 		}
 		return org.Slug, true, nil
 	}
-	canonical, _, isOwner, err := s.requireOrgOwner(ctx, claims.UserID, orgSlug)
-	if err != nil {
-		return canonical, false, err
-	}
-	return canonical, isOwner, nil
+	return s.requireOrgPermission(ctx, claims, orgSlug, core.PermOrgRemoteAppsManage)
 }
 
 func claimsHasGlobalAdmin(claims Claims) bool {

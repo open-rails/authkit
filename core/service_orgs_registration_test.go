@@ -143,7 +143,7 @@ func TestCreateOrgForUserRejectsOrgLimit(t *testing.T) {
 		if _, err := pool.Exec(ctx, `
 			WITH org AS (
 				INSERT INTO profiles.orgs (id, slug, metadata)
-				VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_tenant', 'reserved', to_jsonb(false)))
+				VALUES ($1::uuid, $2, jsonb_build_object('namespace_state', 'registered_org', 'reserved', to_jsonb(false)))
 				RETURNING id
 			), roles AS (
 				INSERT INTO profiles.org_roles (org_id, role)

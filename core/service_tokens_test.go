@@ -102,8 +102,8 @@ func TestValidServiceTokenPrefix(t *testing.T) {
 
 func TestServiceTokenResourceContract(t *testing.T) {
 	resources, err := normalizeServiceTokenResources([]ServiceTokenResource{
-		{Kind: " openrails.tenant ", ID: " tensorhub "},
-		{Kind: "openrails.tenant_subject", ID: "*"},
+		{Kind: " openrails.merchant ", ID: " tensorhub "},
+		{Kind: "openrails.customer", ID: "*"},
 	})
 	if err != nil {
 		t.Fatalf("normalize resources: %v", err)
@@ -111,7 +111,7 @@ func TestServiceTokenResourceContract(t *testing.T) {
 	if len(resources) != 2 {
 		t.Fatalf("resources len=%d, want 2", len(resources))
 	}
-	if resources[0] != (ServiceTokenResource{Kind: "openrails.tenant", ID: "tensorhub"}) {
+	if resources[0] != (ServiceTokenResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
 		t.Fatalf("trimmed resource = %+v", resources[0])
 	}
 	if resources[1].ID != "*" {
@@ -176,8 +176,8 @@ func TestServiceTokenLifecycle(t *testing.T) {
 
 	// Mint.
 	resources := []ServiceTokenResource{
-		{Kind: "openrails.tenant", ID: "tensorhub"},
-		{Kind: "openrails.tenant_subject", ID: "cozy-art"},
+		{Kind: "openrails.merchant", ID: "tensorhub"},
+		{Kind: "openrails.customer", ID: "cozy-art"},
 	}
 	tok, plaintext, err := svc.MintServiceTokenWithOptions(ctx, slug, ServiceTokenMintOptions{
 		Name:        "ci-token",
@@ -301,7 +301,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 
 	oneResourceTok, oneResourcePlaintext, err := svc.MintServiceTokenWithOptions(ctx, slug, ServiceTokenMintOptions{
 		Name:      "one-resource",
-		Resources: []ServiceTokenResource{{Kind: "openrails.tenant", ID: "tensorhub"}},
+		Resources: []ServiceTokenResource{{Kind: "openrails.merchant", ID: "tensorhub"}},
 	})
 	if err != nil {
 		t.Fatalf("mint one resource: %v", err)
@@ -314,7 +314,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve one resource: %v", err)
 	}
-	if len(oneResolved.Resources) != 1 || oneResolved.Resources[0] != (ServiceTokenResource{Kind: "openrails.tenant", ID: "tensorhub"}) {
+	if len(oneResolved.Resources) != 1 || oneResolved.Resources[0] != (ServiceTokenResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
 		t.Fatalf("one resource resolved = %+v", oneResolved.Resources)
 	}
 }

@@ -28,10 +28,11 @@ const (
 
 	// authkit base org-management permissions. They gate authkit's own
 	// org-management endpoints via the permission system.
-	PermOrgRolesManage   = "org:roles:manage"          // create/modify/delete roles + set role permissions
-	PermOrgMembersManage = "org:members:manage"        // add/remove members + grant/remove their roles
-	PermOrgTokensManage  = "org:service_tokens:manage" // mint/revoke service tokens
-	PermOrgRead          = "org:read"                  // view members/roles/tokens
+	PermOrgRolesManage      = "org:roles:manage"               // create/modify/delete roles + set role permissions
+	PermOrgMembersManage    = "org:members:manage"             // add/remove members + grant/remove their roles
+	PermOrgTokensManage     = "org:service_tokens:manage"      // mint/revoke service tokens
+	PermOrgRemoteAppsManage = "org:remote_applications:manage" // register/update/delete org-owned remote applications
+	PermOrgRead             = "org:read"                       // view members/roles/tokens
 )
 
 // ErrUnknownPermission indicates a permission not present in the catalog.
@@ -44,6 +45,7 @@ func BasePermissions() []PermissionDef {
 		{Name: PermOrgRolesManage, Description: "Create, modify, and delete org roles and their permissions"},
 		{Name: PermOrgMembersManage, Description: "Add/remove org members and grant or remove their roles"},
 		{Name: PermOrgTokensManage, Description: "Mint and revoke service tokens (service tokens)"},
+		{Name: PermOrgRemoteAppsManage, Description: "Register, update, and delete org-owned remote applications"},
 		{Name: PermOrgRead, Description: "View org members, roles, and service tokens"},
 	}
 }
@@ -407,5 +409,5 @@ func UnknownRoleTokenNames(tokens []string, catalog map[string]bool) []string {
 // BaseReservedPermissions lists authkit's own reserved base permissions —
 // the names hosts must include in the catalog they validate seeds against.
 func BaseReservedPermissions() []string {
-	return []string{PermOrgRolesManage, PermOrgMembersManage, PermOrgTokensManage, PermOrgRead}
+	return []string{PermOrgRolesManage, PermOrgMembersManage, PermOrgTokensManage, PermOrgRemoteAppsManage, PermOrgRead}
 }

@@ -121,6 +121,53 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRemoteApplicationOrgOptionalOwnerUserRemoved(t *testing.T) {
+	pool := testPG(t)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	ctx := context.Background()
+
+	var ownerUserColumnCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema='profiles'
+		  AND table_name='remote_applications'
+		  AND column_name='owner_user_id'
+	`).Scan(&ownerUserColumnCount); err != nil {
+		t.Fatalf("inspect remote_applications columns: %v", err)
+	}
+	if ownerUserColumnCount != 0 {
+		t.Fatalf("remote_applications.owner_user_id should not exist after migration")
+	}
+
+	iss := "https://bootstrap.example/issuer"
+	slug := "bootstrap-issuer"
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1 OR issuer=$2`, slug, iss)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1 OR issuer=$2`, slug, iss)
+	})
+
+	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
+		Slug:    slug,
+		Issuer:  iss,
+		JWKSURI: "https://bootstrap.example/jwks.json",
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert org-less remote application: %v", err)
+	}
+	if ra.OrgID != "" {
+		t.Fatalf("org-less remote application OrgID = %q, want empty", ra.OrgID)
+	}
+	orgID, err := svc.ResolveRemoteApplicationOrg(ctx, iss)
+	if err != nil {
+		t.Fatalf("resolve remote application org: %v", err)
+	}
+	if orgID != "" {
+		t.Fatalf("ResolveRemoteApplicationOrg = %q, want empty for bootstrap issuer", orgID)
+	}
+}
+
 func TestUpsertRemoteApplicationValidation(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}) // no PG
 	_, err := svc.UpsertRemoteApplication(context.Background(), RemoteApplication{})

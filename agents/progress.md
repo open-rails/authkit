@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 80
+next_id: 84
 
 ---
 
@@ -15,7 +15,7 @@ next_id: 80
 
 **Completed:** no
 
-Add passkeys (WebAuthn/FIDO2) as a first-class authentication method in authkit, alongside password, OIDC, and SIWS. Passkeys are phishing-resistant, usernameless-capable credentials bound to the relying party (RP) domain. A user can register one or more passkeys and authenticate with them; a successful login mints the SAME access/refresh session as the password path (and honors the optional `tenant` body param).
+Add passkeys (WebAuthn/FIDO2) as a first-class authentication method in authkit, alongside password, OIDC, and SIWS. Passkeys are phishing-resistant, usernameless-capable credentials bound to the relying party (RP) domain. A user can register one or more passkeys and authenticate with them; a successful login mints the SAME access/refresh session as the password path (and honors the optional `org` body param).
 
 LIBRARY: github.com/go-webauthn/webauthn for ceremony options + attestation/assertion verification. authkit owns storage, ephemeral challenge handling, session minting, routing, policy.
 
@@ -38,7 +38,7 @@ NON-GOALS: enterprise/attestation-conveyance policy (accept 'none'); MDS metadat
 - [ ] NEW numbered migration 002_user_passkeys.up.sql: profiles.user_passkeys + indexes (unique credential_id, index user_id). Do NOT append to 001.
 - [ ] Storage: CRUD for user_passkeys (create/list-by-user/get-by-credential-id/update-sign-count+last-used/soft-delete) + per-user user_handle generation & handle->user lookup.
 - [ ] Registration ceremony: begin (CreationOptions, excludeCredentials, ephemeral single-use challenge) + finish (verify attestation, persist). AUTH-gated.
-- [ ] Authentication ceremony: begin (discoverable + username-scoped, anti-enumeration) + finish (verify assertion, sign-count clone-check, update sign_count/last_used, mint access+refresh honoring `tenant`, live-user gate).
+- [ ] Authentication ceremony: begin (discoverable + username-scoped, anti-enumeration) + finish (verify assertion, sign-count clone-check, update sign_count/last_used, mint access+refresh honoring `org`, live-user gate).
 - [ ] Management routes: GET /passkeys (metadata only), DELETE /passkeys/{id}, optional PATCH rename.
 - [ ] RouteGroup RoutePasskeys + registration; challenge state via EphemeralStore (single-use, short TTL) like SIWS.
 - [ ] Rate-limit buckets for register/login begin+finish; anti-enumeration on username-scoped login begin.
@@ -48,49 +48,171 @@ NON-GOALS: enterprise/attestation-conveyance policy (accept 'none'); MDS metadat
 
 ---
 
-# #77: remote_application owned by a TENANT (tenant_id FK), not a user
+# #77: remote_application owned by an ORG (org_id FK), not a user
 
 **Completed:** yes
 
-Today `profiles.remote_applications.owner_user_id -> users` anchors an issuer's ownership to a single
-CREATOR user. Re-anchor ownership to the owning ORG: add `remote_applications.tenant_id -> tenants`
-(NOT NULL). One tenant has MANY remote_applications (issuers); each issuer belongs to exactly ONE tenant.
+`profiles.remote_applications.owner_user_id -> users` has been removed. Issuer ownership is now the
+optional owning ORG: `remote_applications.org_id -> orgs`. One org can own MANY remote_applications
+(issuers). `org_id IS NULL` means bootstrap/operator-managed with no AuthKit user/org owner.
 
 WHY:
 - Robustness: ownership survives the creator leaving the org (it's the org's, not a person's).
-- Operator identity (openrails#491): the MERCHANT is the authenticated OPERATOR — its issuer/tenant in
-  OpenRails-authkit IS the merchant (e.g. tensorhub). issuer -> merchant via the issuer registry; the merchant
+- Operator identity (openrails#491): the MERCHANT is the authenticated OPERATOR — its issuer/AuthKit org in
+  OpenRails-authkit controls the merchant (e.g. tensorhub). issuer -> merchant via the issuer registry; the merchant
   then ASSERTS (customer, actor) for its own namespace (opaque, not re-authenticated). There is NO
-  tenant<->merchant FK; owner_tenant_id stays ownership/admin-only. #77's tenant ownership of the issuer is
+  org<->merchant identity FK; owner_org_id stays ownership/admin-only. #77's org ownership of the issuer is
   the authkit-side admin anchor (who owns the operator's signing key), not a billing-resolution hop.
-- Clean separation: the polymorphic `tenant_memberships` then means ONLY "this issuer's self-token gets
+- Clean separation: the polymorphic `org_memberships` then means ONLY "this issuer's self-token gets
   these roles" (#76) — purely auth, fully decoupled from ownership/billing.
 
-Keep `owner_user_id` as a NULLABLE creator-audit (ON DELETE SET NULL), or drop it.
-
 **Tasks:**
-- [x] Migration (007): add `remote_applications.tenant_id` REFERENCES profiles.tenants; backfill from the
-      creator's personal tenant; SET NOT NULL only if all rows resolve; owner_user_id now nullable, ON
-      DELETE SET NULL (creator-audit).
-- [x] Core: GetRemoteApplication/all reads return tenant_id; upsert persists exactly one tenant; added
-      ResolveRemoteApplicationTenant(issuer). Handlers accept/return tenant_id.
-- [x] tenant_memberships kept roles-only (unchanged); ownership(tenant_id) vs roles(membership) split.
-- [ ] Tests: dedicated issuer->tenant 1:1 / creator-deletion / many-issuers tests NOT added (existing
-      suite passes green; covered structurally by the FK + handler plumbing).
-- [ ] Consumer note: openrails#491 merchantForIssuer switches to the tenant_id FK (separate repo).
+- [x] Migration (007): add the original `remote_applications.tenant_id` transitional FK and backfill from the
+      creator's personal tenant; migration 009 later renames it to `org_id`.
+- [x] Migration (013): remove `remote_applications.owner_user_id`; keep only optional `org_id` owner.
+- [x] Core: GetRemoteApplication/all reads return org_id; upsert persists optional org owner; added
+      ResolveRemoteApplicationOrg(issuer). Handlers accept/return org_id.
+- [x] org_memberships kept roles-only (unchanged); ownership(org_id) vs roles(membership) split.
+- [x] Tests: org-less/bootstrap issuer round-trip proves `org_id` is optional and `owner_user_id` is gone.
+- [x] Consumer note: openrails#491 merchantForIssuer switches to AuthKit `remote_applications.org_id` and maps it
+      to the OpenRails merchant by `merchants.owner_org_id` (verified in OpenRails `internal/controlplane`).
 
 **Related**
 #74 (remote_application table this amends), #76 (membership = roles only, post-split), openrails#491
-(customer/actor split + merchantForIssuer via tenant_id), openrails#480 (owner_tenant_id on merchant —
+(customer/actor split + merchantForIssuer via org_id), openrails#500 (`owner_org_id` on merchant —
 the billing-side anchor this mirrors).
+
+---
+
+# #82: Real-HTTP permission-boundary tests for org-owned remote_application management
+
+**Completed:** yes
+**Status:** COMPLETED 2026-06-15: added `http/TestRemoteApplicationHTTPOrgBoundary`, a DB-backed real-HTTP test that
+mounts the AuthKit API router and proves org-owned remote_application create/update/delete boundaries through real
+tokens and real org RBAC.
+
+Add integration coverage proving that a remote_application trust root is controlled only by the owning org's RBAC, or
+by explicit bootstrap/operator flows when `org_id IS NULL`.
+
+## Current coverage
+
+- `http/TestRemoteApplicationHTTPOrgBoundary` mounts `Service.APIHandler()` with a real Postgres-backed core service and
+  proves:
+  - a user with `org:remote_applications:manage` in org A can create and delete org A remote_application rows;
+  - malformed registration returns `400`;
+  - missing bearer returns `401`;
+  - a user in org A without `org:remote_applications:manage` returns `403`;
+  - a user with manage permission in org B cannot mutate org A's existing issuer;
+  - normal org-scoped user routes cannot create new `org_id`-empty trust roots;
+  - existing `org_id`-empty bootstrap/operator trust roots cannot be deleted by normal org managers;
+  - service tokens, remote_application self-tokens, and delegated-user tokens are rejected with `401`.
+- Core tests prove remote_application round-trip behavior, validation, org-less rows, and `owner_user_id` removal.
+- Verifier tests prove JWKS self-token authority is stored/assigned and cannot widen beyond AuthKit grants.
+- Handler tests cover unauthenticated/delegated-principal rejection and malformed request bodies.
+
+## Gap Addressed
+
+Before this issue, there was no real-HTTP integration suite that logged in or authenticated real principals, mounted
+the AuthKit HTTP routes, and proved `org:remote_applications:manage` boundaries across multiple orgs. That gap is now
+covered by `http/TestRemoteApplicationHTTPOrgBoundary`.
+
+## Tasks
+
+- [x] Add a real HTTP integration test that mounts AuthKit routes with a real service/core store and uses HTTP clients
+      rather than calling handlers directly.
+- [x] Fixture two orgs, users in each org, and roles with/without `org:remote_applications:manage`.
+- [x] Prove a user with `org:remote_applications:manage` in org A can create/update/delete a remote_application owned
+      by org A.
+- [x] Prove a user lacking `org:remote_applications:manage` in org A cannot create/update/delete org A
+      remote_applications.
+- [x] Prove a user with manage permission in org B cannot mutate org A remote_applications.
+- [x] Prove remote_application self-tokens, delegated-user tokens, and service tokens cannot mutate trust roots unless
+      an explicit route is intentionally designed for that principal type.
+- [x] Prove `org_id IS NULL` bootstrap/operator-managed remote_applications are not mutable through normal org-scoped
+      user routes.
+- [x] Assert HTTP status mapping: unresolved/no session => `401`; resolved principal without permission or wrong org
+      => `403`; malformed registration => `400`.
+- [x] Run the new test with `go test` and record the exact command in this issue.
+
+## Verification
+
+- `go test ./http -run TestRemoteApplicationHTTPOrgBoundary -count=1` compiled and ran the package; local DB-backed
+  body skipped because `AUTHKIT_TEST_DATABASE_URL` is not set in this shell.
+
+## Acceptance
+
+- Remote application trust roots cannot be modified by their own JWKS credential.
+- Remote application trust roots cannot be modified by a user in the wrong org.
+- Remote application trust roots can be modified by org principals only through `org:remote_applications:manage`.
+- Bootstrap/operator-managed trust roots remain outside normal org RBAC mutation paths.
+
+---
+
+# #83: Finish AuthKit `tenant` -> `org` cleanup and OpenRails resource-string handoff
+
+**Completed:** yes
+**Status:** COMPLETED 2026-06-15: OpenRails-owned resource strings have been updated to merchant/customer
+vocabulary; AuthKit namespace-state metadata values have been hard-cut from `registered_tenant`/`parked_tenant` to
+`registered_org`/`parked_org` with migration 014. Added the active-code tenant-residue scan gate and verified
+`go test ./...`.
+
+## Rule
+
+- AuthKit organization model: `org`.
+- OpenRails billing/isolation namespace resource strings: `merchant` after openrails#503.
+- Historical migrations may keep `tenant` only when the recorded migration chain requires it.
+- Do not reintroduce user ownership for remote applications; remote applications remain optionally `org_id` owned.
+
+## Current evidence
+
+Initial `tenant` hits were mostly:
+- forced historical migrations before `009_tenant_to_org.up.sql`;
+- comments/tests using OpenRails-owned resource strings like `openrails.tenant`, `openrails.tenant_subject`, and
+  `openrails:tenant:admin`;
+- stored owner namespace-state values `registered_tenant` / `parked_tenant`;
+- a few active comments describing no-escalation examples.
+
+## Dependencies
+
+- Coordinate with OpenRails #503 for final resource/permission names:
+  - `openrails.tenant` -> `openrails.merchant`;
+  - `openrails:tenant:*` -> `openrails:merchant:*`;
+  - `openrails.tenant_subject` -> `openrails.customer`.
+
+## Tasks
+
+- [x] Inventory every active AuthKit `tenant` hit and classify it as:
+      - AuthKit org model residue -> rename to `org`;
+      - OpenRails opaque resource string -> update only when OpenRails #503 lands;
+      - forced migration history -> leave with an explanatory comment;
+      - stale tracker/docs text -> update if active, ignore if historical completed issue text.
+- [x] Update active comments and examples that still use `tenant` for AuthKit orgs.
+- [x] Update AuthKit service-token tests and permission/resource examples from OpenRails legacy strings to the new
+      OpenRails merchant strings once the OpenRails side has cut over.
+- [x] Confirm all JWT/session/login/user/org APIs mint and verify only `org`, `org_id`, and `org_roles`; no `tenant`
+      claim fallback or dual-write exists.
+- [x] Confirm remote_application APIs and generated models expose `org_id`, not `tenant_id`, and that
+      `owner_user_id` remains gone.
+- [x] Decide whether to compact or leave the historical migration chain:
+      - leave `001`/pre-`009` tenant names if fresh migration correctness depends on them;
+      - only compact if migration tooling and existing deployments make it safe.
+- [x] Add a focused scan/test gate that fails on active AuthKit `tenant` identifiers outside the allowlist for forced
+      migrations and coordinated OpenRails legacy-resource strings.
+- [x] Run sqlc/codegen, `go test ./...`, and any migration fresh-apply/idempotency tests.
+
+## Acceptance
+
+- Active AuthKit code and docs no longer use `tenant` for the AuthKit organization model.
+- Any remaining `tenant` text is either forced historical migration text or explicitly tracked OpenRails legacy
+  resource vocabulary pending/remediated through openrails#503.
+- AuthKit and OpenRails agree on final cross-repo strings: AuthKit `org`; OpenRails `merchant`.
 
 ---
 
 # #78: Drop tenant_subjects — the delegated-user registry is not load-bearing
 
-**Completed:** yes — but PARTIALLY REVERSED by #81 (2026-06-14): the AUTH finding still holds (no verify-path
-read), but downstream APP + BILLING domains DO want a stable FK anchor for the delegated user, so the table
-is restored as `delegated_users` for cross-domain FKs (not for auth). See #81.
+**Completed:** yes. The AUTH finding still holds: delegated subjects are not load-bearing AuthKit state. #81 briefly
+restored `delegated_users`, then re-dropped it after the invoker model settled on opaque text with no FK.
 
 tenant_subjects persists nothing the auth decision needs. The ONLY write is TouchTenantSubject (an
 idempotent upsert + last_seen_at bump on each delegated login); its own code comment says it is "never read
@@ -115,8 +237,8 @@ the hot path).
       ALTER/COMMENT hard-reference the table, so removing it from 001 breaks fresh-DB apply; 008 drops it
       last. Verified full 001->008 chain green on a fresh DB.)
 - [x] Confirmed nothing else references it (grep clean across core/http/internal).
-- [ ] If per-subject revocation / #75 reference-mode VALUES are ever wanted, reintroduce a purpose-built
-      table THEN.
+- Future note: if per-subject revocation / #75 reference-mode VALUES are ever wanted, reintroduce a purpose-built
+  table then. That is not part of the current AuthKit delegated-token verifier.
 - [x] Tests: delegated auth + fail-closed unknown/disabled-issuer rejection pass (http suite green); no
       per-request write on the delegated path.
 
@@ -179,9 +301,9 @@ CONSUMER RIPPLE (separate repos, cascade after authkit tags) — HARD CUT, coord
 - [x] Go core/http: Tenant* -> Org*; Claims.Org/OrgID/OrgRoles; ResolveOrgBySlug; ResolveRemoteApplicationOrg; remote_app org_id; login body param `org`.
 - [x] JWT claim: mint + verify ONLY `org`/`org_id`/`org_roles` (HARD CUT — no fallback, no dual-write; `tenant` claim removed; delegated-access guard now checks org/org_id).
 - [x] Routes: org-scoped paths/handlers (/orgs, /orgs/{org}/*, /token/org, /admin/org/*).
-- [x] Tests: build/vet/sqlc green; all tests pass. TestOrgInviteNoEscalation was a test-isolation bug (the "accept-time re-check" subtest correctly leaves a pending invite; the "happy path" subtest reused the same invitee and collided on the pending unique index during SETUP) — FIXED 4564339 by giving the happy-path subtest a distinct invitee; the no-escalation SECURITY invariant was verified intact. Preserved OpenRails-side strings (openrails.tenant*, openrails:tenant:*) and stored namespace_state values (registered_tenant/parked_tenant).
-- [ ] Version bump (breaking -> v0.30.0). Cascade: openrails + tensorhub (+ maybe cozy-art) adapt the org
-      rename; doujins + hentai0 DON'T use orgs -> dep bump only. Coordinated deploy (hard cut, no fallback).
+- [x] Tests: build/vet/sqlc green; all tests pass. TestOrgInviteNoEscalation was a test-isolation bug (the "accept-time re-check" subtest correctly leaves a pending invite; the "happy path" subtest reused the same invitee and collided on the pending unique index during SETUP) — FIXED 4564339 by giving the happy-path subtest a distinct invitee; the no-escalation SECURITY invariant was verified intact. Preserved OpenRails-side strings (openrails.merchant*, openrails:merchant:*); namespace_state values were later hard-cut by #83 / migration 014.
+- [x] Version bump/cascade completed after the hard cut. Current consumers pin AuthKit `v0.34.0`; OpenRails,
+      Tensorhub, Cozy Art, Doujins, and Hentai0 are all past the org-claim rename with no `tenant` fallback.
 
 **Related**
 openrails#480 (the merchant rename this mirrors), #74/#76/#77/#78 (the de-conflation work this completes the
@@ -222,7 +344,7 @@ PAYER-RESOLUTION switch on the billing side:
 
 **Tasks:**
 - [x] Migration 010: `ALTER TABLE profiles.remote_applications ALTER COLUMN org_id DROP NOT NULL` (FK kept,
-      so a SET value still validates). Idempotent; fresh 001..011 chain green.
+      so a SET value still validates). Idempotent; fresh migration chain green.
 - [x] Core: upsert already passes a nil org_id via sqlc.narg(org_id) + COALESCE read (from the #79 rename);
       ResolveRemoteApplicationOrg returns "" (not an error) for org-less issuers. POST /orgs flow unaffected.
 - [x] No runtime fixups to drop: ProvisionOrg + POST /orgs both set org_id as a GENUINE "this issuer belongs
@@ -235,14 +357,15 @@ PAYER-RESOLUTION switch on the billing side:
 Build/vet/sqlc/full-suite green.
 
 **Related**
-#77 (set NOT NULL — this reverses it), #79 (org rename), #81 (delegated_users restore), openrails#491
+#77 (set NOT NULL — this reverses it), #79 (org rename), #81 (delegated_users re-drop), openrails#491
 (org-binding -> payer-resolution switch).
 
 ---
 
 # #81: delegated_users — RESTORED (011) then REVERTED / RE-DROPPED (invoker is opaque text, no FK)
 
-**Completed:** restore shipped (011); RE-DROP pending (owner reversal 2026-06-15)
+**Completed:** yes — restore shipped in 011, then the owner reversal re-dropped `delegated_users` in 012
+after the invoker model settled on opaque text with no FK.
 
 ================================================================================
 REVERSAL (owner, 2026-06-15) — DROP delegated_users again. The #81 premise
@@ -256,11 +379,10 @@ and openrails attribution are all opaque text. #78's "not load-bearing" finding
 STANDS, and not even a registry is warranted — usage visibility = aggregate openrails
 attribution rows BY the opaque invoker text; per-invoker limits = openrails budget
 rows keyed BY the invoker text; authkit needs no invoker table at all.
-ACTION (do it yourself, no sub-agents): new migration DROPs profiles.delegated_users;
-delete core/delegated_users.go (TouchDelegatedUser / GetDelegatedUser /
-ListDelegatedUsersForIssuer) + its sqlc queries + tests; re-run sqlc; re-tag synced
-with openrails. The RESTORE (011) recorded below is now HISTORICAL. See openrails#491
-(the paired `invoker_id uuid FK` -> `invoker text` reversal).
+ACTION DONE: migration 012 drops profiles.delegated_users; core/delegated_users.go,
+its sqlc query file, generated code, and tests are gone. The RESTORE (011) recorded
+below is now HISTORICAL. See openrails#491 (the paired `invoker_id uuid FK` ->
+`invoker text` reversal).
 ================================================================================
 
 REVERSES #78 ("drop tenant_subjects — the delegated-user registry is not load-bearing"). #78 was right that
@@ -309,15 +431,14 @@ DESIGN:
 - [x] Tests: TestDelegatedUserTouchIdempotent — repeated (issuer, subject) returns the SAME uuidv7 id;
       get/list find it; last_seen_at >= first_seen_at; unknown issuer fails closed.
 
-**Outcome:** delegated_users restored (011) as a cross-domain FK anchor; uuidv7 pk, idempotency on the
-UNIQUE natural key (no uuidv5/derived id). sqlc regen + build/vet/full-suite green. Consumer cascade
-(openrails#491 invoker_id FK; tensorhub soft du_ -> real FK) is the separate follow-up noted below.
+**Historical outcome before reversal:** delegated_users was restored in 011 as a cross-domain FK anchor; uuidv7 pk,
+idempotency on the UNIQUE natural key (no uuidv5/derived id). This was superseded by the 012 re-drop above.
 **Re-drop tasks (the reversal — supersedes the restore above):**
-- [ ] New migration: `DROP TABLE IF EXISTS profiles.delegated_users` (idempotent). It carries no
+- [x] New migration 012: `DROP TABLE IF EXISTS profiles.delegated_users CASCADE` (idempotent). It carries no
       load-bearing data (write-mostly; nothing FKs to it now).
-- [ ] Delete core/delegated_users.go (TouchDelegatedUser / GetDelegatedUser / ListDelegatedUsersForIssuer),
+- [x] Delete core/delegated_users.go (TouchDelegatedUser / GetDelegatedUser / ListDelegatedUsersForIssuer),
       its sqlc query file + generated code + models entry, and delegated_users_test.go. Re-run sqlc.
-- [ ] Build/vet/full-suite green on a fresh migration chain; re-tag authkit synced with openrails.
+- [x] Build/full-suite green on the current migration chain (`go test ./...`).
 
 **Related**
 #78 (original drop — #81 un-dropped, this reversal re-drops; #78's finding was right all along),

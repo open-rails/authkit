@@ -33,7 +33,7 @@ func TestEffectivePermsForTokens(t *testing.T) {
 }
 
 func TestIsReservedPermission(t *testing.T) {
-	for _, p := range []string{"org:roles:manage", "org:read", "org:service_tokens:manage"} {
+	for _, p := range []string{"org:roles:manage", "org:read", "org:service_tokens:manage", "org:remote_applications:manage"} {
 		if !IsReservedPermission(p) {
 			t.Errorf("%q should be reserved", p)
 		}
@@ -50,7 +50,7 @@ func TestBasePermissionsPresent(t *testing.T) {
 	for _, d := range BasePermissions() {
 		names[d.Name] = true
 	}
-	for _, want := range []string{PermOrgRolesManage, PermOrgMembersManage, PermOrgTokensManage, PermOrgRead} {
+	for _, want := range []string{PermOrgRolesManage, PermOrgMembersManage, PermOrgTokensManage, PermOrgRemoteAppsManage, PermOrgRead} {
 		if !names[want] {
 			t.Errorf("base permission %q missing", want)
 		}

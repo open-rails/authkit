@@ -16,8 +16,8 @@ type OwnerNamespaceState string
 
 const (
 	OwnerNamespaceStateRestrictedName OwnerNamespaceState = "restricted_name"
-	OwnerNamespaceStateParkedOrg      OwnerNamespaceState = "parked_tenant"
-	OwnerNamespaceStateRegistered     OwnerNamespaceState = "registered_tenant"
+	OwnerNamespaceStateParkedOrg      OwnerNamespaceState = "parked_org"
+	OwnerNamespaceStateRegistered     OwnerNamespaceState = "registered_org"
 )
 
 var (
@@ -195,7 +195,7 @@ func (s *Service) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string)
 	return state, nil
 }
 
-// ParkOrgNamespace parks `slug` as a parked_tenant. Works whether or not the slug
+// ParkOrgNamespace parks `slug` as a parked_org. Works whether or not the slug
 // is currently in owner_reserved_names — any caller-supplied slug is parkable,
 // even bootstrap-reserved names like 'root' or 'admin'. If a reserved-name row
 // exists it's deleted as part of the transaction. Internal-library API only —
@@ -286,7 +286,7 @@ func (s *Service) PromoteParkedOrgToRegistered(ctx context.Context, slug, ownerU
 
 // PromoteReservedNameToRegistered supports direct handoff in one operation:
 //
-//	restricted_name -> parked_tenant -> registered_tenant
+//	restricted_name -> parked_org -> registered_org
 //
 // It is idempotent for already-registered orgs and optionally ensures owner membership.
 func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, ownerUserID string) (orgID string, created bool, err error) {
@@ -518,7 +518,7 @@ func (s *Service) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []str
 // ClaimOrgNamespace claims org ownership for a specific existing user.
 //
 // Rules:
-//   - parked_tenant -> registered_tenant + owner membership assignment
+//   - parked_org -> registered_org + owner membership assignment
 //   - already-registered orgs return ErrOwnerNamespaceAlreadyClaimed
 //   - restricted_name (or missing namespace) creates the org if needed, then claims it
 //   - owner user must exist and not be soft-deleted
@@ -676,7 +676,7 @@ func (s *Service) ParkUserNamespace(ctx context.Context, slug string) (userID, o
 // Behavior:
 //   - If no same-slug user exists, creates one (and a personal org) and marks it claimed.
 //   - Clears user reserved metadata and any restricted-name marker for the slug.
-//   - Forces the user's personal org namespace state to registered_tenant when present.
+//   - Forces the user's personal org namespace state to registered_org when present.
 //   - If a same-slug non-personal org exists, returns ErrInvalidOwnerNamespaceTransition.
 func (s *Service) ClaimUserNamespace(ctx context.Context, slug string) (userID, orgID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {

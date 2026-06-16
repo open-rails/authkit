@@ -52,7 +52,7 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 		ServiceTokens: []OrgManifestServiceToken{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
-			Resources:   []ServiceTokenResource{{Kind: "openrails.tenant", ID: slug}},
+			Resources:   []ServiceTokenResource{{Kind: "openrails.merchant", ID: slug}},
 			Output:      OrgManifestServiceTokenOutput{File: out},
 		}},
 	}}}
@@ -148,7 +148,7 @@ func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T
 		ServiceTokens: []OrgManifestServiceToken{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
-			Resources:   []ServiceTokenResource{{Kind: "openrails.tenant", ID: slug}},
+			Resources:   []ServiceTokenResource{{Kind: "openrails.merchant", ID: slug}},
 			Output:      OrgManifestServiceTokenOutput{File: "runtime"},
 		}},
 	}}}

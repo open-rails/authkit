@@ -270,7 +270,7 @@ func TestPermissionCatalogValidator(t *testing.T) {
 	// Bad token: a permission not in the catalog.
 	bad, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u",
-		Permissions: []string{"openrails:tenant:admin"}, TTL: time.Minute,
+		Permissions: []string{"openrails:merchant:admin"}, TTL: time.Minute,
 	})
 	if _, _, err := v.VerifyDelegatedAccess(bad); err == nil {
 		t.Fatal("expected unknown_permission rejection")

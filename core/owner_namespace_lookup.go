@@ -13,9 +13,9 @@ type OwnerNamespaceLookupStatus string
 
 const (
 	OwnerNamespaceStatusRegisteredUser         OwnerNamespaceLookupStatus = "registered_user"
-	OwnerNamespaceStatusRegisteredOrg          OwnerNamespaceLookupStatus = "registered_tenant"
+	OwnerNamespaceStatusRegisteredOrg          OwnerNamespaceLookupStatus = "registered_org"
 	OwnerNamespaceStatusParkedUser             OwnerNamespaceLookupStatus = "parked_user"
-	OwnerNamespaceStatusParkedOrg              OwnerNamespaceLookupStatus = "parked_tenant"
+	OwnerNamespaceStatusParkedOrg              OwnerNamespaceLookupStatus = "parked_org"
 	OwnerNamespaceStatusRestrictedName         OwnerNamespaceLookupStatus = "restricted_name"
 	OwnerNamespaceStatusRenamedUser            OwnerNamespaceLookupStatus = "renamed_user"
 	OwnerNamespaceStatusRenamedOrg             OwnerNamespaceLookupStatus = "renamed_org"

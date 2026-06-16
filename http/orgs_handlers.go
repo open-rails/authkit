@@ -98,15 +98,14 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 			raSlug = org.Slug
 		}
 		ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
-			Slug:        raSlug,
-			OwnerUserID: claims.UserID,
-			OrgID:       org.ID, // #77: each issuer belongs to exactly one org
-			Issuer:      body.Federation.Issuer,
-			JWKSURI:     body.Federation.JWKSURI,
-			Mode:        body.Federation.Mode,
-			PublicKeys:  body.Federation.PublicKeys,
-			Audiences:   body.Federation.Audiences,
-			Enabled:     true,
+			Slug:       raSlug,
+			OrgID:      org.ID, // #77: each issuer belongs to exactly one org
+			Issuer:     body.Federation.Issuer,
+			JWKSURI:    body.Federation.JWKSURI,
+			Mode:       body.Federation.Mode,
+			PublicKeys: body.Federation.PublicKeys,
+			Audiences:  body.Federation.Audiences,
+			Enabled:    true,
 		})
 		if err == nil {
 			err = s.svc.AddRemoteApplicationMember(r.Context(), org.Slug, ra.ID, "member")

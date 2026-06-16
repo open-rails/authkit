@@ -197,7 +197,7 @@ func TestVerifierAcceptsRegistryLoadedOrgIssuerToken(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "paul-fidika",
-		Permissions:      []string{"openrails:tenant:admin"},
+		Permissions:      []string{"openrails:merchant:admin"},
 		TTL:              time.Minute,
 	})
 	if err != nil {
@@ -237,7 +237,7 @@ func TestVerifierAcceptsLazyLoadedOrgIssuerToken(t *testing.T) {
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "paul-fidika",
-		Permissions:      []string{"openrails:tenant:admin"},
+		Permissions:      []string{"openrails:merchant:admin"},
 		TTL:              time.Minute,
 	})
 	if err != nil {
