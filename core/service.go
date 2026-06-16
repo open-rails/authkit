@@ -2022,7 +2022,15 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 // helpers
 func randB64(n int) string {
 	b := make([]byte, n)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// A crypto/rand failure is unrecoverable, and randB64 backs
+		// security-critical secrets (refresh tokens, password-reset / link /
+		// email-verification tokens, OAuth state and nonce). The previous code
+		// ignored this error, so on RNG failure it would emit a fully
+		// predictable zero-filled token. Fail closed instead of silently
+		// downgrading entropy.
+		panic("authkit: crypto/rand unavailable: " + err.Error())
+	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
