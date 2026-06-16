@@ -213,8 +213,12 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if resolved.TokenID != tok.ID || resolved.KeyID != tok.KeyID || resolved.OrgSlug != slug {
 		t.Fatalf("resolved metadata = %+v, token = %+v", resolved, tok)
 	}
-	if len(resolved.Resources) != 2 || resolved.Resources[0] != resources[0] || resolved.Resources[1] != resources[1] {
-		t.Fatalf("resolved resources = %+v, want ordered by kind/id from %+v", resolved.Resources, resources)
+	wantResources := []ServiceTokenResource{
+		{Kind: "openrails.customer", ID: "cozy-art"},
+		{Kind: "openrails.merchant", ID: "tensorhub"},
+	}
+	if len(resolved.Resources) != len(wantResources) || resolved.Resources[0] != wantResources[0] || resolved.Resources[1] != wantResources[1] {
+		t.Fatalf("resolved resources = %+v, want ordered by kind/id %+v", resolved.Resources, wantResources)
 	}
 
 	// Wrong secret + unknown key_id are both invalid_token (no info leak).

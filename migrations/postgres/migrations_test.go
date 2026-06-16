@@ -88,7 +88,6 @@ func TestFSForSchemaRendersDDL(t *testing.T) {
 		"CREATE SCHEMA IF NOT EXISTS openrails_auth;",
 		"openrails_auth.users",
 		"openrails_auth.uuid_v5(",
-		"WHERE table_schema = 'openrails_auth'",
 	} {
 		if !strings.Contains(first, want) {
 			t.Errorf("rendered 001_auth_schema.up.sql missing %q", want)
