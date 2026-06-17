@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -204,7 +205,13 @@ func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username
 	if err := validateOrgSlug(slug); err != nil {
 		return err
 	}
-	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
+	excludeOrgID := ""
+	if personalOrg, err := s.q.PersonalOrgIDSlugByOwner(ctx, userID); err == nil && strings.EqualFold(strings.TrimSpace(personalOrg.Slug), slug) {
+		excludeOrgID = strings.TrimSpace(personalOrg.ID)
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, excludeOrgID); err != nil {
 		return err
 	}
 

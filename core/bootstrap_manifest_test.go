@@ -126,6 +126,51 @@ func TestReconcileBootstrapManifestSeedsUsersRolesAndOrgMemberships(t *testing.T
 	}
 }
 
+func TestReconcileBootstrapManifestIdempotentWithPersonalOrgAutoCreate(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{
+		Issuer:                 "https://test",
+		AutoCreatePersonalOrgs: true,
+	}, Keyset{}).WithPostgres(pool)
+
+	suffix := time.Now().UnixNano()
+	username := fmt.Sprintf("bootstrap-personal-%d", suffix)
+	orgSlug := fmt.Sprintf("bootstrap-personal-org-%d", suffix)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, orgSlug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
+	})
+
+	manifest := BootstrapManifest{
+		Users: []BootstrapManifestUser{{
+			Ref:           "admin",
+			Email:         username + "@example.com",
+			Username:      username,
+			EmailVerified: true,
+			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
+		}},
+		Orgs: []OrgManifestOrg{{
+			Slug: orgSlug,
+			Memberships: []OrgManifestMembership{{
+				UserRef: "admin",
+				Role:    "owner",
+			}},
+		}},
+	}
+
+	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+	second, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{})
+	if err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	if second.UsersCreated != 0 || second.UsersUpdated != 1 || second.PasswordsKept != 1 {
+		t.Fatalf("second result=%+v", second)
+	}
+}
+
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

@@ -2419,7 +2419,13 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 		return nil, err
 	}
 	slug := ownerSlugFromUsername(username)
-	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, ""); err != nil {
+	excludeOrgID := ""
+	if personalOrg, err := s.q.PersonalOrgIDSlugByOwner(ctx, userID); err == nil && strings.EqualFold(strings.TrimSpace(personalOrg.Slug), slug) {
+		excludeOrgID = strings.TrimSpace(personalOrg.ID)
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, excludeOrgID); err != nil {
 		return nil, err
 	}
 	updatedID, err := s.q.UserImportUpdate(ctx, db.UserImportUpdateParams{
