@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +79,76 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 	}
 	if second.TokensMinted != 0 || second.TokensKept != 1 {
 		t.Fatalf("second result=%+v, want preserved token", second)
+	}
+}
+
+func TestReconcileOrgManifestSeedsIssuerAuthority(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+
+	suffix := time.Now().UnixNano()
+	slug := fmt.Sprintf("manifest-authority-%d", suffix)
+	appSlug := fmt.Sprintf("manifest-authority-app-%d", suffix)
+	issuer := fmt.Sprintf("https://manifest-authority-%d.example", suffix)
+	manifest, err := ParseOrgManifestYAML([]byte(fmt.Sprintf(`
+orgs:
+  - slug: %s
+    roles:
+      - name: operator
+        permissions:
+          - platform:read
+    issuers:
+      - slug: %s
+        issuer: %s
+        jwks_uri: %s/.well-known/jwks.json
+        audiences:
+          - tensorhub
+        role: operator
+        permissions:
+          - platform:write
+`, slug, appSlug, issuer, issuer)))
+	if err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, appSlug)
+	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, appSlug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
+	})
+
+	result, err := svc.ReconcileOrgManifest(ctx, manifest, nil)
+	if err != nil {
+		t.Fatalf("reconcile manifest: %v", err)
+	}
+	if result.Orgs != 1 || result.Roles != 1 || result.Issuers != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	ra, err := svc.GetRemoteApplication(ctx, issuer)
+	if err != nil {
+		t.Fatalf("get remote application: %v", err)
+	}
+	memberships, perms, err := svc.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	if err != nil {
+		t.Fatalf("resolve authority: %v", err)
+	}
+	if !containsString(perms, "platform:read") || !containsString(perms, "platform:write") {
+		t.Fatalf("perms=%v, want role-derived and direct issuer permissions", perms)
+	}
+	if len(memberships) != 1 || memberships[0].Org != slug || !containsString(memberships[0].Roles, "operator") {
+		t.Fatalf("memberships=%+v, want %s/operator", memberships, slug)
+	}
+
+	if _, err := svc.ReconcileOrgManifest(ctx, manifest, nil); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	_, perms, err = svc.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	if err != nil {
+		t.Fatalf("resolve authority after second reconcile: %v", err)
+	}
+	if len(perms) != 2 {
+		t.Fatalf("perms after second reconcile=%v, want no duplicate grants", perms)
 	}
 }
 

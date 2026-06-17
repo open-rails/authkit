@@ -29,13 +29,15 @@ type OrgManifestOrg struct {
 }
 
 type OrgManifestIssuer struct {
-	Slug       string         `json:"slug" yaml:"slug"`
-	Issuer     string         `json:"issuer" yaml:"issuer"`
-	JWKSURI    string         `json:"jwks_uri" yaml:"jwks_uri"`
-	Mode       string         `json:"mode" yaml:"mode"`
-	PublicKeys []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
-	Audiences  []string       `json:"audiences" yaml:"audiences"`
-	Enabled    *bool          `json:"enabled" yaml:"enabled"`
+	Slug        string         `json:"slug" yaml:"slug"`
+	Issuer      string         `json:"issuer" yaml:"issuer"`
+	JWKSURI     string         `json:"jwks_uri" yaml:"jwks_uri"`
+	Mode        string         `json:"mode" yaml:"mode"`
+	PublicKeys  []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
+	Audiences   []string       `json:"audiences" yaml:"audiences"`
+	Role        string         `json:"role" yaml:"role"`
+	Permissions []string       `json:"permissions" yaml:"permissions"`
+	Enabled     *bool          `json:"enabled" yaml:"enabled"`
 }
 
 type OrgManifestRole struct {

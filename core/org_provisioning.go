@@ -22,13 +22,15 @@ type OrgProvisionRequest struct {
 // #74) to register and bind as a member of the org. Slug defaults to the
 // org slug when empty.
 type OrgProvisionIssuer struct {
-	Slug       string
-	Issuer     string
-	JWKSURI    string
-	Mode       string
-	PublicKeys []RemoteAppKey
-	Audiences  []string
-	Enabled    *bool
+	Slug        string
+	Issuer      string
+	JWKSURI     string
+	Mode        string
+	PublicKeys  []RemoteAppKey
+	Audiences   []string
+	Role        string
+	Permissions []string
+	Enabled     *bool
 }
 
 // OrgProvisionRole declares or updates one org role.
@@ -105,6 +107,20 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 	}
 	result.Org = *org
 
+	for _, role := range req.Roles {
+		name := strings.TrimSpace(role.Name)
+		if name == "" {
+			return result, ErrInvalidOrgManifest
+		}
+		if err := s.DefineRole(ctx, org.Slug, name); err != nil {
+			return result, err
+		}
+		if err := s.SetRolePermissions(ctx, org.Slug, name, role.Permissions); err != nil {
+			return result, err
+		}
+		result.Roles++
+	}
+
 	for _, issuer := range req.Issuers {
 		enabled := true
 		if issuer.Enabled != nil {
@@ -127,25 +143,19 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 		if err != nil {
 			return result, err
 		}
-		// Bind the remote_application as a member of the org it federates into.
-		if err := s.AddRemoteApplicationMember(ctx, org.Slug, ra.ID, "member"); err != nil {
+		role := strings.TrimSpace(issuer.Role)
+		if role == "" {
+			role = orgMemberRole
+		}
+		if err := s.AddRemoteApplicationMember(ctx, org.Slug, ra.ID, role); err != nil {
 			return result, err
+		}
+		for _, permission := range issuer.Permissions {
+			if err := s.AddRemoteApplicationPermission(ctx, ra.ID, permission); err != nil {
+				return result, err
+			}
 		}
 		result.Issuers++
-	}
-
-	for _, role := range req.Roles {
-		name := strings.TrimSpace(role.Name)
-		if name == "" {
-			return result, ErrInvalidOrgManifest
-		}
-		if err := s.DefineRole(ctx, org.Slug, name); err != nil {
-			return result, err
-		}
-		if err := s.SetRolePermissions(ctx, org.Slug, name, role.Permissions); err != nil {
-			return result, err
-		}
-		result.Roles++
 	}
 
 	for _, membership := range req.Memberships {
