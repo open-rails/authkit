@@ -143,6 +143,21 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 		})
 	}
 
+	status, body = remoteApplicationBoundaryRequestPath(t, server.URL, "/remote-applications/"+prefix+"-self-token/attribute-defs", http.MethodPost, remoteAppSelfToken, map[string]any{
+		"key":        "tier-1",
+		"definition": map[string]any{"rpm": 10},
+	})
+	require.Equal(t, http.StatusOK, status, body)
+	var attrDef map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &attrDef))
+	require.Equal(t, "tier-1", attrDef["key"])
+
+	status, body = remoteApplicationBoundaryRequestPath(t, server.URL, "/remote-applications/"+prefix+"-app-a/attribute-defs", http.MethodPost, remoteAppSelfToken, map[string]any{
+		"key":        "tier-1",
+		"definition": map[string]any{"rpm": 10},
+	})
+	require.Equal(t, http.StatusForbidden, status, body)
+
 	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodDelete, managerAToken, map[string]any{"issuer": issuerA})
 	require.Equal(t, http.StatusOK, status, body)
 	_, err = coreSvc.GetRemoteApplication(ctx, issuerA)
@@ -181,9 +196,14 @@ func issueBoundaryUserToken(t *testing.T, ctx context.Context, svc *core.Service
 
 func remoteApplicationBoundaryRequest(t *testing.T, baseURL, method, token string, body any) (int, string) {
 	t.Helper()
+	return remoteApplicationBoundaryRequestPath(t, baseURL, "/remote-applications", method, token, body)
+}
+
+func remoteApplicationBoundaryRequestPath(t *testing.T, baseURL, path, method, token string, body any) (int, string) {
+	t.Helper()
 	payload, err := json.Marshal(body)
 	require.NoError(t, err)
-	req, err := http.NewRequest(method, baseURL+"/remote-applications", bytes.NewReader(payload))
+	req, err := http.NewRequest(method, baseURL+path, bytes.NewReader(payload))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {

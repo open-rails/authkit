@@ -336,10 +336,10 @@ func attributeDefView(d core.RemoteAppAttributeDef) map[string]any {
 }
 
 // handleAttributeDefPutPOST registers/updates an opaque attribute definition for
-// the remote_application (REFERENCE-mode write side, #75). Authorized by the
-// remote_application's owner org (it is the authority for its own users' restrictions).
+// the remote_application (REFERENCE-mode write side, #75). Authorized by either
+// the remote_application itself or by the owner org/admin management path.
 func (s *Service) handleAttributeDefPutPOST(w http.ResponseWriter, r *http.Request) {
-	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
+	ra, ok := s.authRemoteApplicationAttributeDefWriter(w, r)
 	if !ok {
 		return
 	}
@@ -365,8 +365,8 @@ func (s *Service) handleAttributeDefPutPOST(w http.ResponseWriter, r *http.Reque
 // version query param, when absent, resolves the latest. Authorized for any
 // authenticated caller (platforms resolve references they were handed).
 func (s *Service) handleAttributeDefGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" {
+	_, ok := ClaimsFromContext(r.Context())
+	if !ok {
 		unauthorized(w, "unauthorized")
 		return
 	}
@@ -472,6 +472,57 @@ func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Req
 		}
 	}
 	return claims, ra, true
+}
+
+// authRemoteApplicationAttributeDefWriter authorizes writes to the opaque
+// attribute-definition registry. Unlike trust/membership/permission management,
+// a remote_application may write definitions for itself because those
+// definitions are its own delegated-token contract. It may not write another
+// remote_application's definitions.
+func (s *Service) authRemoteApplicationAttributeDefWriter(w http.ResponseWriter, r *http.Request) (*core.RemoteApplication, bool) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		unauthorized(w, "unauthorized")
+		return nil, false
+	}
+	slug := strings.TrimSpace(r.PathValue("slug"))
+	if slug == "" {
+		badRequest(w, "invalid_request")
+		return nil, false
+	}
+	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
+	if err != nil {
+		notFound(w, "remote_application_not_found")
+		return nil, false
+	}
+	if claims.IsRemoteApplication() {
+		if strings.TrimSpace(claims.RemoteApplicationID) == strings.TrimSpace(ra.ID) {
+			return ra, true
+		}
+		forbidden(w, "forbidden")
+		return nil, false
+	}
+	if strings.TrimSpace(claims.UserID) == "" {
+		unauthorized(w, "unauthorized")
+		return nil, false
+	}
+	if !claimsHasGlobalAdmin(claims) {
+		orgID := strings.TrimSpace(ra.OrgID)
+		if orgID == "" {
+			forbidden(w, "forbidden")
+			return nil, false
+		}
+		_, ok, err := s.canManageRemoteApplicationOrg(r.Context(), claims, orgID)
+		if err != nil {
+			serverErr(w, "remote_application_owner_lookup_failed")
+			return nil, false
+		}
+		if !ok {
+			forbidden(w, "forbidden")
+			return nil, false
+		}
+	}
+	return ra, true
 }
 
 func (s *Service) canManageRemoteApplicationOrg(ctx context.Context, claims Claims, orgID string) (string, bool, error) {
