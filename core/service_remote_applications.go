@@ -7,6 +7,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -63,6 +65,9 @@ func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteApp
 		if len(keys) > 0 {
 			return "", fmt.Errorf("%w: jwks_uri and public_keys are mutually exclusive — register one trust source, never both", ErrInvalidRemoteApplication)
 		}
+		if err := validateJWKSURI(jwksURI); err != nil {
+			return "", fmt.Errorf("%w: %v", ErrInvalidRemoteApplication, err)
+		}
 	case RemoteAppModeStatic:
 		if len(keys) == 0 {
 			return "", fmt.Errorf("%w: static mode requires a non-empty public_keys list", ErrInvalidRemoteApplication)
@@ -79,6 +84,97 @@ func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteApp
 		return "", fmt.Errorf("%w: unknown mode %q (want jwks|static)", ErrInvalidRemoteApplication, mode)
 	}
 	return mode, nil
+}
+
+// privateCoreCIDRs are address ranges that must never be the target of a
+// jwks_uri fetch — cloud metadata, RFC-1918 private, loopback, link-local.
+// Populated once at init; net.ParseCIDR never fails on these literals.
+var privateCoreCIDRs []*net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"0.0.0.0/8",          // unspecified / "this" network
+		"10.0.0.0/8",         // RFC-1918 private
+		"100.64.0.0/10",      // RFC-6598 carrier-grade NAT
+		"127.0.0.0/8",        // loopback
+		"169.254.0.0/16",     // link-local — AWS/GCP instance metadata
+		"172.16.0.0/12",      // RFC-1918 private
+		"192.168.0.0/16",     // RFC-1918 private
+		"198.18.0.0/15",      // RFC-2544 benchmarking
+		"198.51.100.0/24",    // RFC-5737 documentation
+		"203.0.113.0/24",     // RFC-5737 documentation
+		"240.0.0.0/4",        // reserved (class E)
+		"255.255.255.255/32", // broadcast
+		"::1/128",            // IPv6 loopback
+		"fc00::/7",           // IPv6 unique local
+		"fe80::/10",          // IPv6 link-local
+		"::/128",             // IPv6 unspecified
+	} {
+		_, block, _ := net.ParseCIDR(cidr)
+		privateCoreCIDRs = append(privateCoreCIDRs, block)
+	}
+}
+
+func isCorePrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	for _, block := range privateCoreCIDRs {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateJWKSURI rejects jwks_uri values that are:
+//   - not HTTPS
+//   - pointing at localhost or well-known internal hostnames
+//   - using a literal private/reserved IP address
+//
+// This is a syntactic check (no DNS resolution). The verifier's SSRF-guarding
+// dialer provides a second layer against DNS rebinding at fetch time.
+func validateJWKSURI(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("jwks_uri is not a valid URL: %v", err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("jwks_uri must use https, got %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return errors.New("jwks_uri must have a non-empty host")
+	}
+	// Block well-known internal hostnames by name (case-insensitive).
+	// Covers localhost, cloud-metadata aliases, Docker/Podman host-access
+	// magic names, and any *.docker.internal / *.containers.internal suffix.
+	lower := strings.ToLower(host)
+	switch {
+	case lower == "localhost",
+		strings.HasSuffix(lower, ".localhost"),
+		// Cloud instance metadata
+		lower == "metadata",
+		lower == "metadata.google.internal",
+		lower == "169.254.169.254", // belt-and-suspenders for non-IP literal path
+		// Docker Desktop / Docker Engine host-gateway names
+		lower == "host.docker.internal",
+		lower == "gateway.docker.internal",
+		lower == "kubernetes.docker.internal",
+		lower == "host-gateway",
+		strings.HasSuffix(lower, ".docker.internal"),
+		// Podman / newer OCI runtimes
+		lower == "host.containers.internal",
+		strings.HasSuffix(lower, ".containers.internal"):
+		return fmt.Errorf("jwks_uri host %q is not a public address", host)
+	}
+	// If the host is a literal IP, reject private/reserved ranges immediately.
+	if ip := net.ParseIP(host); ip != nil {
+		if isCorePrivateIP(ip) {
+			return fmt.Errorf("jwks_uri %q resolves to a private/reserved IP — not allowed", host)
+		}
+	}
+	return nil
 }
 
 // validatePublicKeyPEM accepts PKIX ("PUBLIC KEY") and PKCS1 ("RSA PUBLIC

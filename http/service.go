@@ -173,6 +173,7 @@ func NewService(cfg core.Config) (*Service, error) {
 	ver := NewVerifier(
 		WithSkew(5*time.Second),
 		WithServiceTokenPrefix(opts.ServiceTokenPrefix),
+		WithSSRFGuard(),
 	)
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),

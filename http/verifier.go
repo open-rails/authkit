@@ -132,6 +132,14 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 	}
 }
 
+// WithSSRFGuard installs an SSRF-guarding HTTP client that resolves DNS and
+// rejects any private/reserved IP before connecting. Use this on Verifiers that
+// fetch JWKS from user-registered (remote_application) issuers. Production
+// Services created via NewService/NewFromConfig already include this guard.
+func WithSSRFGuard() VerifierOption {
+	return WithHTTPClient(NewSSRFGuardedClient())
+}
+
 // WithOrgMode is a deprecated no-op compatibility shim (authkit issue 60): the
 // global org mode was removed. Org claims are now parsed whenever present.
 // Kept so existing callers compile; scheduled for deletion.
