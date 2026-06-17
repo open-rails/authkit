@@ -197,11 +197,25 @@ func TestCreateOrgForUserRejectsReservedAndParkedNamespace(t *testing.T) {
 	if _, err := svc.CreateOrgForUser(ctx, CreateOrgForUserRequest{Slug: reservedSlug, OwnerUserID: user.ID}); !errors.Is(err, ErrOwnerSlugTaken) {
 		t.Fatalf("reserved slug err=%v, want ErrOwnerSlugTaken", err)
 	}
+	org, err := svc.CreateOrg(ctx, reservedSlug)
+	if err != nil {
+		t.Fatalf("privileged CreateOrg reserved slug: %v", err)
+	}
+	if org.Slug != reservedSlug {
+		t.Fatalf("created org slug=%q, want %q", org.Slug, reservedSlug)
+	}
+	state, err := svc.GetOwnerNamespaceStateBySlug(ctx, reservedSlug)
+	if err != nil {
+		t.Fatalf("GetOwnerNamespaceStateBySlug reserved-created org: %v", err)
+	}
+	if state != OwnerNamespaceStateRegistered {
+		t.Fatalf("reserved-created state=%q, want %q", state, OwnerNamespaceStateRegistered)
+	}
 
 	if _, _, err := svc.ParkOrgNamespace(ctx, parkedSlug); err != nil {
 		t.Fatalf("ParkOrgNamespace: %v", err)
 	}
-	state, err := svc.GetOwnerNamespaceStateBySlug(ctx, parkedSlug)
+	state, err = svc.GetOwnerNamespaceStateBySlug(ctx, parkedSlug)
 	if err != nil {
 		t.Fatalf("GetOwnerNamespaceStateBySlug: %v", err)
 	}

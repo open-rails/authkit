@@ -178,23 +178,39 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	if err := validateOrgSlug(slug); err != nil {
 		return nil, err
 	}
-	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
 		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	conflict, err := s.ownerSlugConflictExistsTx(ctx, tx, slug)
+	if err != nil {
+		return nil, err
+	}
+	if conflict {
+		return nil, ErrOwnerSlugTaken
 	}
 	orgID, err := newUUIDV7String()
 	if err != nil {
 		return nil, err
 	}
-	created, err := s.q.OrgInsert(ctx, db.OrgInsertParams{ID: orgID, Slug: slug})
+	qtx := s.qtx(tx)
+	created, err := qtx.OrgInsert(ctx, db.OrgInsertParams{ID: orgID, Slug: slug})
 	if err != nil {
 		return nil, err
 	}
 	// Ensure the baseline owner/member roles always exist for every org.
-	if err := s.q.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: created.ID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
+	if err := qtx.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: created.ID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
 		return nil, err
 	}
-	// Seed owner=`*` + any app-declared default roles (e.g. admin).
-	if err := s.seedRolePermissionDefaults(ctx, created.ID); err != nil {
+	if err := qtx.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: created.ID, Role: orgOwnerRole, Permission: PermWildcard}); err != nil {
+		return nil, err
+	}
+	if _, err := qtx.OwnerReservedNameDelete(ctx, slug); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return &Org{ID: created.ID, Slug: created.Slug}, nil
