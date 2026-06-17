@@ -331,3 +331,53 @@ func containsAt(s, substr string) bool {
 	}
 	return false
 }
+
+func TestVerifyRejectsMismatchedPublicKey(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := PublicKeyToBase58(pub)
+	input := SignInInput{Domain: "example.com", Address: addr, Nonce: "abc12345", IssuedAt: time.Now().UTC().Format(time.RFC3339)}
+	msg := ConstructMessage(input)
+	sig := ed25519.Sign(priv, []byte(msg))
+
+	// Correct, consistent public key passes.
+	good := SignInOutput{
+		Account:       AccountInfo{Address: addr, PublicKey: pub},
+		Signature:     sig,
+		SignedMessage: []byte(msg),
+	}
+	if err := Verify(input, good); err != nil {
+		t.Fatalf("expected valid verify, got %v", err)
+	}
+
+	// A bogus PublicKey field that does not match the address must be rejected
+	// even though the signature itself is valid for the address.
+	bogus := make([]byte, ed25519.PublicKeySize)
+	bad := good
+	bad.Account.PublicKey = bogus
+	if err := Verify(input, bad); err == nil {
+		t.Fatal("expected error for mismatched public key, got nil")
+	}
+}
+
+func TestVerifyRejectsBadSignatureLength(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := PublicKeyToBase58(pub)
+	input := SignInInput{Domain: "example.com", Address: addr, Nonce: "abc12345", IssuedAt: time.Now().UTC().Format(time.RFC3339)}
+	msg := ConstructMessage(input)
+	sig := ed25519.Sign(priv, []byte(msg))
+
+	out := SignInOutput{
+		Account:       AccountInfo{Address: addr},
+		Signature:     sig[:len(sig)-1], // truncated
+		SignedMessage: []byte(msg),
+	}
+	if err := Verify(input, out); err == nil {
+		t.Fatal("expected error for short signature, got nil")
+	}
+}

@@ -4,6 +4,7 @@
 package siws
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"fmt"
@@ -60,6 +61,12 @@ type ChallengeCache interface {
 
 // Verify checks that the signature is valid for the given input and output.
 // Returns nil if valid, or an error describing the validation failure.
+//
+// Verification authority is always derived from output.Account.Address (the
+// base58 public key). The separate output.Account.PublicKey field, when present,
+// is only cross-checked for consistency with that address and never trusted on
+// its own — an integrator who reads PublicKey after a successful Verify gets the
+// same key that signed the message.
 func Verify(input SignInInput, output SignInOutput) error {
 	// Get public key from address
 	pubKey, err := Base58ToPublicKey(output.Account.Address)
@@ -70,6 +77,20 @@ func Verify(input SignInInput, output SignInOutput) error {
 	// Verify the address in input matches output
 	if input.Address != output.Account.Address {
 		return fmt.Errorf("address mismatch: input=%s output=%s", input.Address, output.Account.Address)
+	}
+
+	// If the wallet also sent the raw public key bytes, they MUST match the key
+	// derived from the address. Otherwise a caller that later trusts
+	// Account.PublicKey could be handed a key that did not sign the message.
+	if len(output.Account.PublicKey) != 0 && !bytes.Equal(output.Account.PublicKey, pubKey) {
+		return fmt.Errorf("public key does not match address")
+	}
+
+	// Reject malformed signatures up front. ed25519.Verify already returns false
+	// for wrong-length signatures, but an explicit guard keeps the contract
+	// consistent with VerifySignature and yields a clearer error.
+	if len(output.Signature) != ed25519.SignatureSize {
+		return fmt.Errorf("invalid signature length: got %d, want %d", len(output.Signature), ed25519.SignatureSize)
 	}
 
 	// Construct the expected message from input
@@ -94,6 +115,10 @@ func VerifySignature(output SignInOutput) error {
 	pubKey, err := Base58ToPublicKey(output.Account.Address)
 	if err != nil {
 		return fmt.Errorf("invalid address: %w", err)
+	}
+
+	if len(output.Account.PublicKey) != 0 && !bytes.Equal(output.Account.PublicKey, pubKey) {
+		return fmt.Errorf("public key does not match address")
 	}
 
 	if len(output.Signature) != ed25519.SignatureSize {
