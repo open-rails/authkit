@@ -115,6 +115,43 @@ func (s *Service) ensureOwnerSlugAvailable(ctx context.Context, slug, excludeUse
 	return nil
 }
 
+func (s *Service) ensureUserOwnerSlugAvailable(ctx context.Context, userID, username string) (string, error) {
+	slug, excludeOrgID, err := s.userOwnerSlugAvailability(ctx, userID, username)
+	if err != nil {
+		return "", err
+	}
+	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, excludeOrgID); err != nil {
+		return "", err
+	}
+	return slug, nil
+}
+
+func (s *Service) userOwnerSlugAvailability(ctx context.Context, userID, username string) (slug, excludeOrgID string, err error) {
+	userID = strings.TrimSpace(userID)
+	slug = ownerSlugFromUsername(username)
+	if userID == "" || slug == "" {
+		return "", "", fmt.Errorf("invalid_user_owner_namespace")
+	}
+	if err := validateOrgSlug(slug); err != nil {
+		return "", "", err
+	}
+
+	// A user's personal org is the org-shaped half of the same owner identity.
+	// It must not make an otherwise idempotent user update look like a namespace
+	// collision with a different owner.
+	personalOrg, err := s.q.PersonalOrgIDSlugByOwner(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return slug, "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if strings.EqualFold(strings.TrimSpace(personalOrg.Slug), slug) {
+		return slug, strings.TrimSpace(personalOrg.ID), nil
+	}
+	return slug, "", nil
+}
+
 func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -202,16 +239,7 @@ func (s *Service) ensurePersonalOrgForUser(ctx context.Context, userID, username
 	if userID == "" || slug == "" {
 		return fmt.Errorf("invalid_personal_org")
 	}
-	if err := validateOrgSlug(slug); err != nil {
-		return err
-	}
-	excludeOrgID := ""
-	if personalOrg, err := s.q.PersonalOrgIDSlugByOwner(ctx, userID); err == nil && strings.EqualFold(strings.TrimSpace(personalOrg.Slug), slug) {
-		excludeOrgID = strings.TrimSpace(personalOrg.ID)
-	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-	if err := s.ensureOwnerSlugAvailable(ctx, slug, userID, excludeOrgID); err != nil {
+	if _, err := s.ensureUserOwnerSlugAvailable(ctx, userID, username); err != nil {
 		return err
 	}
 
