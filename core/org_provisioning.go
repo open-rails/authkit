@@ -22,11 +22,13 @@ type OrgProvisionRequest struct {
 // #74) to register and bind as a member of the org. Slug defaults to the
 // org slug when empty.
 type OrgProvisionIssuer struct {
-	Slug      string
-	Issuer    string
-	JWKSURI   string
-	Audiences []string
-	Enabled   *bool
+	Slug       string
+	Issuer     string
+	JWKSURI    string
+	Mode       string
+	PublicKeys []RemoteAppKey
+	Audiences  []string
+	Enabled    *bool
 }
 
 // OrgProvisionRole declares or updates one org role.
@@ -113,12 +115,14 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 			slug = org.Slug
 		}
 		ra, err := s.UpsertRemoteApplication(ctx, RemoteApplication{
-			Slug:      slug,
-			OrgID:     org.ID, // #77: each issuer belongs to exactly one org
-			Issuer:    issuer.Issuer,
-			JWKSURI:   issuer.JWKSURI,
-			Audiences: issuer.Audiences,
-			Enabled:   enabled,
+			Slug:       slug,
+			OrgID:      org.ID, // #77: each issuer belongs to exactly one org
+			Issuer:     issuer.Issuer,
+			JWKSURI:    issuer.JWKSURI,
+			Mode:       issuer.Mode,
+			PublicKeys: issuer.PublicKeys,
+			Audiences:  issuer.Audiences,
+			Enabled:    enabled,
 		})
 		if err != nil {
 			return result, err

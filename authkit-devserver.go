@@ -39,6 +39,8 @@ type config struct {
 	PermissionCatalog           []string
 	OrgManifestPath             string
 	ReconcileOrgManifestOnStart bool
+	BootstrapManifestPath       string
+	ReconcileBootstrapOnStart   bool
 }
 
 func main() {
@@ -63,13 +65,20 @@ func main() {
 		}
 	case "org-manifest":
 		if len(os.Args) < 3 || strings.TrimSpace(os.Args[2]) != "apply" {
-			fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, org-manifest apply)", strings.Join(os.Args[1:], " ")))
+			fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, bootstrap apply, org-manifest apply)", strings.Join(os.Args[1:], " ")))
 		}
 		if err := runOrgManifestApply(cfg); err != nil {
 			fatal(err)
 		}
+	case "bootstrap":
+		if len(os.Args) < 3 || strings.TrimSpace(os.Args[2]) != "apply" {
+			fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, bootstrap apply, org-manifest apply)", strings.Join(os.Args[1:], " ")))
+		}
+		if err := runBootstrapApply(cfg, os.Args[3:]); err != nil {
+			fatal(err)
+		}
 	default:
-		fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, org-manifest apply)", cmd))
+		fatal(fmt.Errorf("unknown command %q (supported: serve, migrate, bootstrap apply, org-manifest apply)", cmd))
 	}
 }
 
@@ -92,6 +101,8 @@ func loadConfig() (*config, error) {
 		PermissionCatalog:           parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
 		OrgManifestPath:             strings.TrimSpace(envOr("DEVSERVER_ORG_MANIFEST_PATH", "")),
 		ReconcileOrgManifestOnStart: envBool("DEVSERVER_RECONCILE_ORG_MANIFEST_ON_START", false),
+		BootstrapManifestPath:       strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", core.DefaultBootstrapManifestPath)),
+		ReconcileBootstrapOnStart:   envBool("AUTHKIT_BOOTSTRAP_ON_START", false),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")
@@ -144,6 +155,11 @@ func runServe(cfg *config) error {
 		return err
 	}
 	svc.WithPostgres(pg)
+	if cfg.ReconcileBootstrapOnStart {
+		if _, err := reconcileBootstrapManifest(ctx, svc.Core(), cfg.BootstrapManifestPath, false); err != nil {
+			return err
+		}
+	}
 	if cfg.ReconcileOrgManifestOnStart {
 		if _, err := reconcileOrgManifest(ctx, svc.Core(), cfg.OrgManifestPath); err != nil {
 			return err
@@ -223,6 +239,28 @@ func runOrgManifestApply(cfg *config) error {
 	})
 }
 
+func runBootstrapApply(cfg *config, args []string) error {
+	ctx := context.Background()
+	path := strings.TrimSpace(flagValue(args, "--file", "-f", cfg.BootstrapManifestPath))
+	dryRun := flagBool(args, "--dry-run")
+	pg, err := pgxpool.New(ctx, cfg.DBURL)
+	if err != nil {
+		return fmt.Errorf("connect postgres: %w", err)
+	}
+	defer pg.Close()
+
+	svc := core.NewService(core.Options{
+		Issuer:             cfg.Issuer,
+		ServiceTokenPrefix: cfg.ServiceTokenPrefix,
+		PermissionCatalog:  toPermissionDefs(cfg.PermissionCatalog),
+	}, core.Keyset{}).WithPostgres(pg)
+	result, err := reconcileBootstrapManifest(ctx, svc, path, dryRun)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(result)
+}
+
 func reconcileOrgManifest(ctx context.Context, svc *core.Service, path string) (core.OrgManifestResult, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -235,6 +273,22 @@ func reconcileOrgManifest(ctx context.Context, svc *core.Service, path string) (
 	result, err := svc.ReconcileOrgManifest(ctx, manifest, core.FileOrgManifestTokenStore{})
 	if err != nil {
 		return core.OrgManifestResult{}, fmt.Errorf("reconcile org manifest: %w", err)
+	}
+	return result, nil
+}
+
+func reconcileBootstrapManifest(ctx context.Context, svc *core.Service, path string, dryRun bool) (core.BootstrapManifestResult, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = core.DefaultBootstrapManifestPath
+	}
+	manifest, err := core.LoadBootstrapManifestFile(path)
+	if err != nil {
+		return core.BootstrapManifestResult{}, fmt.Errorf("read bootstrap manifest: %w", err)
+	}
+	result, err := svc.ReconcileBootstrapManifest(ctx, manifest, core.FileBootstrapTokenStore{}, core.BootstrapReconcileOptions{DryRun: dryRun})
+	if err != nil {
+		return core.BootstrapManifestResult{}, fmt.Errorf("reconcile bootstrap manifest: %w", err)
 	}
 	return result, nil
 }
@@ -261,6 +315,30 @@ func runMigrations(ctx context.Context, dbURL string) error {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 	return nil
+}
+
+func flagValue(args []string, long, short, def string) string {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		for _, name := range []string{long, short} {
+			if arg == name && i+1 < len(args) {
+				return args[i+1]
+			}
+			if strings.HasPrefix(arg, name+"=") {
+				return strings.TrimPrefix(arg, name+"=")
+			}
+		}
+	}
+	return def
+}
+
+func flagBool(args []string, name string) bool {
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == name {
+			return true
+		}
+	}
+	return false
 }
 
 type mintRequest struct {

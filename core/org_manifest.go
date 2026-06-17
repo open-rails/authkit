@@ -29,11 +29,13 @@ type OrgManifestOrg struct {
 }
 
 type OrgManifestIssuer struct {
-	Slug      string   `json:"slug" yaml:"slug"`
-	Issuer    string   `json:"issuer" yaml:"issuer"`
-	JWKSURI   string   `json:"jwks_uri" yaml:"jwks_uri"`
-	Audiences []string `json:"audiences" yaml:"audiences"`
-	Enabled   *bool    `json:"enabled" yaml:"enabled"`
+	Slug       string         `json:"slug" yaml:"slug"`
+	Issuer     string         `json:"issuer" yaml:"issuer"`
+	JWKSURI    string         `json:"jwks_uri" yaml:"jwks_uri"`
+	Mode       string         `json:"mode" yaml:"mode"`
+	PublicKeys []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
+	Audiences  []string       `json:"audiences" yaml:"audiences"`
+	Enabled    *bool          `json:"enabled" yaml:"enabled"`
 }
 
 type OrgManifestRole struct {
@@ -42,8 +44,11 @@ type OrgManifestRole struct {
 }
 
 type OrgManifestMembership struct {
-	UserID string `json:"user_id" yaml:"user_id"`
-	Role   string `json:"role" yaml:"role"`
+	UserID   string `json:"user_id" yaml:"user_id"`
+	UserRef  string `json:"user_ref,omitempty" yaml:"user_ref,omitempty"`
+	Username string `json:"username,omitempty" yaml:"username,omitempty"`
+	Email    string `json:"email,omitempty" yaml:"email,omitempty"`
+	Role     string `json:"role" yaml:"role"`
 }
 
 type OrgManifestServiceToken struct {
@@ -136,7 +141,18 @@ func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest
 			req.Roles = append(req.Roles, OrgProvisionRole(role))
 		}
 		for _, membership := range org.Memberships {
-			req.Memberships = append(req.Memberships, OrgProvisionMembership(membership))
+			userID, err := s.resolveOrgManifestMembershipUserID(ctx, membership)
+			if err != nil {
+				return result, err
+			}
+			membership.UserID = userID
+			membership.UserRef = ""
+			membership.Username = ""
+			membership.Email = ""
+			req.Memberships = append(req.Memberships, OrgProvisionMembership{
+				UserID: membership.UserID,
+				Role:   membership.Role,
+			})
 		}
 		for _, token := range org.ServiceTokens {
 			if store == nil || token.Output.empty() {

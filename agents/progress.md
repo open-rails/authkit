@@ -7,7 +7,117 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 84
+next_id: 85
+
+---
+
+# #84: First-class AuthKit bootstrap manifest/API/CLI
+
+**Completed:** yes
+
+**Status:** COMPLETED 2026-06-17: implemented `core.BootstrapManifest` as a wrapper over the existing org manifest
+reconciler, added user/global-role/password seeding, user-ref org memberships, static or JWKS issuer trust roots,
+bootstrap token-store aliases, opt-in startup auto-load, `bootstrap apply --file ... [--dry-run]`, docs, focused tests,
+and a real `authkit-devserver` compose E2E that boots from `AUTHKIT_BOOTSTRAP_ON_START=true` and verifies the seeded
+user, service token/API key, JWKS issuer, and static public-key issuer. `org-manifest apply` remains as a compatibility
+command for org-only manifests.
+
+AuthKit already has the core of this idea in `OrgManifest` / `ReconcileOrgManifest` and the devserver-only
+`org-manifest apply` command, but that surface is too narrow and too devserver-shaped for host applications.
+Make bootstrap a first-class AuthKit capability: one declarative auth manifest reconciler, exposed through startup
+auto-load, embedded/library APIs, and a standalone CLI command.
+
+This is the generic authority graph. Host applications such as OpenRails should call AuthKit bootstrap for
+AuthKit-owned state, then apply their own domain layer afterward. OpenRails' extra layer is merchants, merchant-owner
+links, catalog/products/prices/provider mappings, and OpenRails resource references. AuthKit should store opaque
+permissions/resources, but it should not learn what an OpenRails merchant is.
+
+## Current State
+
+- `core.BootstrapManifest` declares users, global roles, orgs, trusted issuers/remote applications, roles, memberships,
+  and generated service tokens. Org state embeds the existing `OrgManifest` shape under `orgs:`.
+- `core.ReconcileBootstrapManifest` seeds users/global roles first, resolves manifest-local `user_ref` values into
+  AuthKit-owned user IDs, then calls `core.ReconcileOrgManifest` for org/provider/token state.
+- `core.ReconcileOrgManifest` still applies org state idempotently under a Postgres advisory lock.
+- `authkit-devserver bootstrap apply --file <path> [--dry-run]` exists. `authkit-devserver org-manifest apply` remains
+  for org-only compatibility.
+- Registration posture already supports locked-down deployments via `NativeUserRegistrationMode` and
+  `OrgRegistrationMode`.
+- Deliberate non-features: password secret references and imported service-token hashes are not built into the manifest;
+  hosts should render secrets before apply or provide their own token store / bootstrap wrapper.
+
+## Desired Shape
+
+- Default bootstrap file path: `/etc/authkit/bootstrap.yaml`.
+- Startup hook: optional, idempotent/additive by default, advisory-locked, and safe for multi-replica startup.
+- Library API: host applications can parse and reconcile a bootstrap manifest directly without shelling out to a
+  devserver binary.
+- Standalone CLI: `authkit bootstrap apply --file <path>` with dry-run/plan output.
+- Existing `OrgManifest` should be evolved or wrapped into the broader `BootstrapManifest`; do not create a parallel
+  second reconciler that drifts from the current org manifest path.
+
+## Manifest Scope
+
+AuthKit-owned bootstrap state:
+
+- users and imported users;
+- password credentials, password-hash imports, or reset-required imported credentials;
+- orgs;
+- roles and role permission sets;
+- user memberships and role assignments;
+- remote applications / trusted issuers / JWKS URIs / static trust roots where supported;
+- remote-application memberships/roles when the issuer is org-owned;
+- generated service tokens with secret output targets;
+- optional imported service-token hashes if explicitly designed and documented;
+- registration posture for private deployments where appropriate.
+
+Host-owned state is out of scope:
+
+- OpenRails merchants, catalog, prices, entitlements, provider mappings, processor credentials, merchant secrets;
+- Tensorhub media/workload/project state;
+- any app-specific meaning of permissions or service-token resource strings.
+
+## Tasks
+
+- [x] Define `core.BootstrapManifest` and decide whether it replaces `OrgManifest` or embeds it as an `orgs:` section.
+      Done: it wraps `OrgManifest` under top-level `orgs:`.
+- [x] Add strict YAML parsing with unknown-field rejection and clear validation errors.
+- [x] Add user seeding/import support: email/phone/username, disabled/banned flags where supported, metadata, and
+      password setup policy.
+- [x] Decide password credential shape: plaintext initial password, imported hash, reset-required placeholder, or
+      secret-reference. Done: supports plaintext, imported hash+algo, and reset-required; secret-reference is explicitly
+      left to host rendering/secret managers.
+- [x] Extend reconciliation to seed orgs, roles, role permissions, memberships, remote applications, and service tokens
+      through the existing core APIs.
+- [x] Preserve the current service-token output-store contract and make token minting idempotent: existing non-empty
+      output means keep, not remint.
+- [x] Add `BootstrapTokenStore`/secret-output naming if the current `OrgManifestTokenStore` becomes too org-specific;
+      keep file-backed output for local/self-hosted and leave Vault/Kubernetes stores host-implementable.
+- [x] Add `core.LoadBootstrapManifestFile`, `core.ParseBootstrapManifestYAML`, and
+      `(*Service).ReconcileBootstrapManifest(ctx, manifest, store, opts)`.
+- [x] Add dry-run/plan support that reports creates/updates/kept tokens without mutating state.
+- [x] Add startup auto-load from `/etc/authkit/bootstrap.yaml`, gated by explicit config/env such as
+      `AUTHKIT_BOOTSTRAP_ON_START=true`; startup mode must be additive and non-destructive.
+- [x] Add a standalone CLI command: `authkit bootstrap apply --file <path> [--dry-run]`.
+- [x] Decide the fate of `authkit-devserver org-manifest apply`: keep as a compatibility alias temporarily, or replace it
+      with the standalone bootstrap command.
+- [x] Ensure all three surfaces call the same reconciler: startup auto-load, library API, and CLI.
+- [x] Add advisory-lock coverage proving concurrent startup/CLI runs do not mint duplicate service tokens.
+- [x] Add tests for idempotency, unknown-field rejection, user/password seeding, role replacement, remote application
+      upsert/disable, token output preservation, dry-run no-op behavior, and standalone devserver startup bootstrap.
+- [x] Update README and API docs with private/closed deployment examples and host-app layering guidance.
+- [x] Add OpenRails integration notes: OpenRails should pass `auth:` through to AuthKit bootstrap, then reconcile
+      merchants/catalog/provider state itself.
+
+## Acceptance
+
+- A private AuthKit deployment can be fully authority-bootstrapped from a YAML file without public registration.
+- Embedded hosts can call the same bootstrap reconciler directly.
+- Standalone AuthKit can run `authkit bootstrap apply --file ./bootstrap.yaml`.
+- AuthKit can optionally auto-apply `/etc/authkit/bootstrap.yaml` on startup when explicitly enabled.
+- Re-running bootstrap is safe and idempotent; generated service tokens are not duplicated.
+- OpenRails no longer needs to hand-roll AuthKit org/user/role/service-token/remote-application seeding once it adopts
+  this API; it only layers merchant/catalog/provider state on top.
 
 ---
 

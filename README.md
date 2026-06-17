@@ -190,12 +190,27 @@ bootstrap, _ := core.ProvisionOrg(ctx, core.OrgProvisionRequest{
 _ = bootstrap.MintedTokens[0].Plaintext // write once to a secret store
 ```
 
-For a closed-registration deployment, the manifest reconciler is the standard
-machine/bootstrap path. It declares orgs, trusted delegated-token issuers,
-roles, optional memberships, trusted issuers, and optional generated opaque
-service tokens, then applies them idempotently under a Postgres advisory lock:
+For a closed-registration deployment, the bootstrap manifest is the standard
+machine/bootstrap path. It declares AuthKit-owned authority state: users,
+global roles, orgs, trusted delegated-token issuers, org roles, memberships,
+and optional generated opaque service tokens. The broader bootstrap reconciler
+wraps the org manifest reconciler rather than forking it, so org/provider token
+behavior stays on one path.
 
 ```yaml
+users:
+  - ref: operator
+    email: ops@example.com
+    username: operator
+    email_verified: true
+    password:
+      plaintext: "change-this-in-your-secret-renderer"
+    global_roles: ["admin"]
+
+global_roles:
+  - slug: admin
+    name: Admin
+
 orgs:
   - slug: cozy-art
     issuers:
@@ -207,7 +222,7 @@ orgs:
       - name: operator
         permissions: ["org:read", "openrails:billing:read"]
     memberships:
-      - user_id: 018f0000-0000-7000-8000-000000000001
+      - user_ref: operator
         role: operator
     service_tokens:
       - name: openrails-runtime
@@ -219,6 +234,13 @@ orgs:
           file: /run/secrets/openrails-runtime-token
 ```
 
+Bootstrap passwords support three explicit modes: `plaintext` initial password
+(hashed by AuthKit), imported `hash` plus `hash_algo`, or `reset_required: true`
+for imported accounts that must go through recovery before login. Secret
+references and imported service-token hashes are intentionally not built in;
+hosts that need Vault/Kubernetes reads should render the manifest or call the
+library API with their own secret handling.
+
 The standalone AuthKit devserver exposes this as both an opt-in startup hook and
 a one-shot deploy-job command:
 
@@ -227,25 +249,26 @@ DEVSERVER_ISSUER=https://auth.example \
 DB_URL=postgres://... \
 DEVSERVER_PERMISSION_CATALOG=openrails:billing:read,openrails:entitlements:read \
 DEVSERVER_TOKEN_PREFIX=cozy \
-DEVSERVER_ORG_MANIFEST_PATH=/manifests/orgs.yaml \
-/authkit-devserver org-manifest apply
+AUTHKIT_BOOTSTRAP_PATH=/manifests/bootstrap.yaml \
+/authkit-devserver bootstrap apply --file /manifests/bootstrap.yaml
 ```
 
-Use `DEVSERVER_RECONCILE_ORG_MANIFEST_ON_START=true` only for local/dev or
+Use `AUTHKIT_BOOTSTRAP_ON_START=true` only for local/dev or
 simple self-hosted deployments. Production systems should usually run the
 one-shot command as a release job, or call `core.ReconcileOrgManifest` from
-their own job with a Vault/Kubernetes-backed `OrgManifestTokenStore`, so API
-pods do not need long-lived secret-write credentials.
+their own job with a Vault/Kubernetes-backed `BootstrapTokenStore`, so API pods
+do not need long-lived secret-write credentials. The older
+`org-manifest apply` command remains as a compatibility alias for org-only
+deployments.
 
 Hosted SaaS deployments can later set both registration modes to `open` and
 mount the `RouteRegister` / `RouteOrgs` groups to enable public signup and
 org onboarding without code changes.
 
-OpenRails' bootstrap flow should call these AuthKit primitives for AuthKit-owned
-objects: user-owned org registration for public SaaS signup, and
-`ProvisionOrg`/`ReconcileOrgManifest` for closed-registration or embedded
-bootstrap. OpenRails still owns OpenRails-specific catalog, prices,
-entitlements, grants, billing, and provider state.
+OpenRails' bootstrap flow should pass its `auth:` section through to AuthKit
+bootstrap for users, orgs, roles, service tokens, and trusted issuers, then
+reconcile OpenRails-owned merchants, catalog, prices, entitlements, grants,
+billing, and provider state itself.
 
 Quick Start (net/http)
 

@@ -37,8 +37,8 @@ const (
 // RemoteAppKey is one entry of a static-mode principal's human-managed key list
 // (stored as jsonb; edited like an authorized_keys file).
 type RemoteAppKey struct {
-	KID          string `json:"kid,omitempty"`
-	PublicKeyPEM string `json:"public_key_pem"`
+	KID          string `json:"kid,omitempty" yaml:"kid,omitempty"`
+	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
 }
 
 // NormalizeRemoteAppTrustSource validates the mutually-exclusive trust source of

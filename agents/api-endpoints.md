@@ -20,6 +20,14 @@ AuthKit returns stable error codes such as `username_too_short`,
 `invalid_email`, `invalid_phone_number`, and `password_too_short`.
 Username rename cooldown responses include `time_until_rename_available`.
 
+Closed/private deployments should seed AuthKit-owned authority through the
+library/CLI bootstrap path, not a public HTTP admin route:
+`core.LoadBootstrapManifestFile`, `core.ParseBootstrapManifestYAML`, and
+`(*Service).ReconcileBootstrapManifest(ctx, manifest, store, opts)`, or
+`authkit bootstrap apply --file ./bootstrap.yaml`. Host applications layer their
+own domain bootstrap after AuthKit has reconciled users, orgs, roles, trusted
+issuers, and service tokens.
+
 ## Authentication Levels
 
 | Level | Description |
