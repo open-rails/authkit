@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -37,27 +39,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	domain := s.solanaDomain
-	if domain == "" {
-		origin := r.Header.Get("Origin")
-		if origin != "" {
-			origin = strings.TrimPrefix(origin, "https://")
-			origin = strings.TrimPrefix(origin, "http://")
-			if idx := strings.Index(origin, "/"); idx > 0 {
-				origin = origin[:idx]
-			}
-			if idx := strings.Index(origin, ":"); idx > 0 {
-				origin = origin[:idx]
-			}
-			domain = origin
-		}
-	}
-	if domain == "" {
-		domain = r.Host
-		if idx := strings.Index(domain, ":"); idx > 0 {
-			domain = domain[:idx]
-		}
-	}
+	domain := siwsRequestDomain(s.solanaDomain, r)
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), s.siwsCache(), domain, address, req.Username)
 	if err != nil {
@@ -69,6 +51,39 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		"issued_at": input.IssuedAt,
 		"message":   siws.ConstructMessage(input),
 	})
+}
+
+
+// siwsRequestDomain resolves the domain bound into the SIWS message the wallet
+// signs. A configured domain (core.Config SolanaDomain) always wins and should
+// be set in production — it is the anti-phishing anchor of the protocol. When it
+// is empty (local/dev convenience), the domain is derived from the request's
+// Origin header, falling back to the Host header, using net/url so userinfo,
+// ports, IPv6 literals and trailing paths are handled correctly instead of by
+// ad-hoc string slicing.
+func siwsRequestDomain(configured string, r *http.Request) string {
+	if d := strings.TrimSpace(configured); d != "" {
+		return d
+	}
+	if r == nil {
+		return ""
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		if u, err := url.Parse(origin); err == nil {
+			if h := u.Hostname(); h != "" {
+				return h
+			}
+		}
+	}
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return ""
+	}
+	// r.Host may carry a port (and IPv6 hosts are bracketed); strip it safely.
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) {
