@@ -91,6 +91,10 @@ type issuerEntry struct {
 	cacheTTL  time.Duration
 	maxStale  time.Duration
 	orgSlug   string
+	// isLocal is true only for the platform's own token signer. Platform-authority
+	// claims (global_roles, org_roles, roles) are trusted only from local issuers;
+	// tokens from remote_application issuers have those claims stripped on verify.
+	isLocal bool
 }
 
 type issuerKeys struct {
@@ -380,6 +384,13 @@ type IssuerOptions struct {
 	// tokens signed by this issuer (tokens carry no org claims). It resolves
 	// the principal's org; it is never compared against token claims.
 	OrgSlug string
+
+	// IsLocal marks this issuer as the platform's own token signer. When true,
+	// platform-authority claims (global_roles, org_roles, roles) are trusted from
+	// tokens it signs. When false (the default for all remote_application issuers),
+	// those claims are stripped on verify — a federated issuer cannot self-assert
+	// global-admin or any other platform-wide role.
+	IsLocal bool
 }
 
 // AddIssuer registers (or updates) a trusted issuer. This is the single
@@ -398,6 +409,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 		cacheTTL:  opts.CacheTTL,
 		maxStale:  opts.MaxStale,
 		orgSlug:   strings.TrimSpace(opts.OrgSlug),
+		isLocal:   opts.IsLocal,
 	}
 
 	v.mu.Lock()
@@ -822,7 +834,14 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		}
 	}
 
-	cl := v.extractClaims(mapClaims)
+	// Resolve isLocal: the token is already cryptographically verified, so
+	// matchIssuer is guaranteed to find it. Default false (fail-safe: strip
+	// platform-authority claims) in the unlikely event of a race.
+	isLocal := false
+	if entry := v.matchIssuer(strClaim(mapClaims, "iss")); entry != nil {
+		isLocal = entry.isLocal
+	}
+	cl := v.extractClaims(mapClaims, isLocal)
 	cl.TokenTyp = tokenTyp
 	return cl, nil
 }
@@ -929,8 +948,12 @@ func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, strin
 	return mapClaims, typ, nil
 }
 
-// extractClaims converts jwt.MapClaims into typed Claims.
-func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
+// extractClaims converts jwt.MapClaims into typed Claims. isLocal must be true
+// only when the token was signed by the platform's own issuer; for all other
+// issuers (remote_application / federated) it must be false, which causes
+// platform-authority claims (global_roles, org_roles, roles) to be stripped so
+// a federated issuer cannot self-assert platform-wide admin.
+func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 	cl := Claims{
 		Issuer: strClaim(mc, "iss"),
 	}
@@ -996,6 +1019,16 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 		if len(cl.OrgRoles) == 0 {
 			cl.OrgRoles = cl.Roles
 		}
+		cl.Roles = nil
+	}
+
+	// AK-C1: strip platform-authority claims for all non-local (federated) issuers.
+	// A remote_application issuer controlling its own JWKS must never be able to
+	// self-assert global_roles, org_roles, or roles and gain platform-admin access.
+	// These claims are only meaningful on tokens from the platform's own signer.
+	if !isLocal {
+		cl.GlobalRoles = nil
+		cl.OrgRoles = nil
 		cl.Roles = nil
 	}
 

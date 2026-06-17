@@ -21,6 +21,7 @@ func TestRequired_OrgScopedRoles_UsesRolesWhenOrgPresent(t *testing.T) {
 		RawKeys: map[string]crypto.PublicKey{
 			signer.KID(): signer.PublicKey(),
 		},
+		IsLocal: true, // platform signer — org-scoped roles must be trusted
 	})
 	require.NoError(t, err)
 

@@ -176,6 +176,7 @@ func NewService(cfg core.Config) (*Service, error) {
 	)
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
+		IsLocal: true,
 	})
 	ver.WithService(coreSvc)
 

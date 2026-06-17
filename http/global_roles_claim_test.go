@@ -17,6 +17,7 @@ func newClaimVerifier(t *testing.T, orgMode string, signer *jwtkit.RSASigner) *V
 	v := NewVerifier(WithOrgMode(orgMode))
 	err := v.AddIssuer("https://example.com", []string{"test-app"}, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+		IsLocal: true, // platform signer — global_roles must be trusted
 	})
 	require.NoError(t, err)
 	return v

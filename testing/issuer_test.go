@@ -107,6 +107,7 @@ func TestTestIssuer_TokenWithRoles(t *testing.T) {
 	verifier := authhttp.NewVerifier(authhttp.WithAlgorithms("RS256"))
 	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
+		IsLocal: true, // TestIssuer simulates the platform signer; roles must be trusted
 	})
 
 	claims, err := verifier.Verify(token)
