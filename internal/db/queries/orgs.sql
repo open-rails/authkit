@@ -180,8 +180,8 @@ SELECT EXISTS(SELECT 1 FROM profiles.org_role_permissions WHERE org_id = sqlc.ar
 -- JWTs verified against its JWKS/public keys (#74).
 
 -- name: RemoteApplicationUpsert :one
-INSERT INTO profiles.remote_applications (slug, org_id, issuer, jwks_uri, mode, public_keys, audiences, enabled)
-VALUES (sqlc.arg(slug), sqlc.narg(org_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(audiences), sqlc.arg(enabled))
+INSERT INTO profiles.remote_applications (slug, org_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled)
+VALUES (sqlc.arg(slug), sqlc.narg(org_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(audiences), sqlc.arg(allowed_origins), sqlc.arg(enabled))
 ON CONFLICT (issuer) DO UPDATE
   SET slug          = EXCLUDED.slug,
       org_id     = EXCLUDED.org_id,
@@ -189,28 +189,29 @@ ON CONFLICT (issuer) DO UPDATE
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
       audiences     = EXCLUDED.audiences,
+      allowed_origins = EXCLUDED.allowed_origins,
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
-RETURNING id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at;
+RETURNING id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at;
 
 -- name: RemoteApplicationByIssuer :one
-SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE issuer = $1 AND deleted_at IS NULL;
 
 -- name: RemoteApplicationBySlug :one
-SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE slug = $1 AND deleted_at IS NULL;
 
 -- name: RemoteApplicationsAll :many
-SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE deleted_at IS NULL
 ORDER BY slug ASC;
 
 -- name: RemoteApplicationsEnabled :many
-SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(org_id::text, '')::text AS org_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE enabled = true AND deleted_at IS NULL
 ORDER BY slug ASC;

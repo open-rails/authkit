@@ -1328,20 +1328,28 @@ JWKS URL to a resource server's accept endpoint:
 fc := authhttp.NewOrgIssuersClient(
     authhttp.WithOrgIssuersAuthToken(ownerAccessToken), // org owner/admin token
 )
-err := fc.RegisterIssuer(ctx, "https://tensorhub.example/api/v1/org-issuers",
+err := fc.RegisterIssuer(ctx, "https://tensorhub.example/api/v1/remote-applications",
     authhttp.OrgIssuersRegistration{
-        Org:      "cozy-art",
-        Issuer: "https://cozy.art",
-        JWKSURI:  "https://cozy.art/.well-known/jwks.json",
+        Slug:           "cozy-art",
+        Issuer:         "https://cozy.art",
+        JWKSURI:        "https://cozy.art/.well-known/jwks.json",
+        AllowedOrigins: []string{"https://cozy.art"},
     })
 ```
 
+`AllowedOrigins` is an exact browser-Origin allow-list for delegated browser
+requests signed by that issuer. CORS preflight can only use the union of enabled
+remote-application origins because it has no JWT; mount
+`authhttp.RequireDelegatedOrigin` after `authhttp.Required` to enforce the real
+request's `Origin` against the verified token issuer.
+
 **Inbound (resource-server side, e.g. tensorhub)** — mount the `RouteOrgIssuers`
-group. `POST /org-issuers` accepts + stores a registration, authorized by
-the **org owner/admin** of the registering org (global admins may register for
-any org); `DELETE /org-issuers` removes one; `GET /org-issuers`
-(global-admin) lists them. This is the AuthKit-owned home for what services used
-to expose as a bespoke `/api/v1/platform/issuers` endpoint.
+group. `POST /remote-applications` accepts + stores a registration, authorized
+by the **org owner/admin** of the registering org (global admins may register
+for any org); `DELETE /remote-applications` removes one; `GET
+/remote-applications` (global-admin) lists them. This is the AuthKit-owned home
+for what services used to expose as a bespoke `/api/v1/platform/issuers`
+endpoint.
 
 #### In-house JWKS — no external push/sync
 

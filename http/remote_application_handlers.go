@@ -20,21 +20,23 @@ type remoteApplicationRegistration struct {
 	// Mode selects the trust source: "jwks" (fetch keys from jwks_uri; preferred)
 	// XOR "static" (human-managed public_keys list). Empty infers from which
 	// field is set. Setting BOTH is rejected — one trust source per principal.
-	Mode       string              `json:"mode,omitempty"`
-	PublicKeys []core.RemoteAppKey `json:"public_keys,omitempty"`
-	Audiences  []string            `json:"audiences,omitempty"`
-	Enabled    *bool               `json:"enabled,omitempty"`
+	Mode           string              `json:"mode,omitempty"`
+	PublicKeys     []core.RemoteAppKey `json:"public_keys,omitempty"`
+	Audiences      []string            `json:"audiences,omitempty"`
+	AllowedOrigins []string            `json:"allowed_origins,omitempty"`
+	Enabled        *bool               `json:"enabled,omitempty"`
 }
 
 type remoteApplicationResponse struct {
-	Slug       string              `json:"slug"`
-	Issuer     string              `json:"issuer"`
-	OrgID      string              `json:"org_id,omitempty"`
-	JWKSURI    string              `json:"jwks_uri,omitempty"`
-	Mode       string              `json:"mode"`
-	PublicKeys []core.RemoteAppKey `json:"public_keys,omitempty"`
-	Audiences  []string            `json:"audiences"`
-	Enabled    bool                `json:"enabled"`
+	Slug           string              `json:"slug"`
+	Issuer         string              `json:"issuer"`
+	OrgID          string              `json:"org_id,omitempty"`
+	JWKSURI        string              `json:"jwks_uri,omitempty"`
+	Mode           string              `json:"mode"`
+	PublicKeys     []core.RemoteAppKey `json:"public_keys,omitempty"`
+	Audiences      []string            `json:"audiences"`
+	AllowedOrigins []string            `json:"allowed_origins"`
+	Enabled        bool                `json:"enabled"`
 }
 
 func remoteApplicationView(ra core.RemoteApplication) remoteApplicationResponse {
@@ -42,15 +44,20 @@ func remoteApplicationView(ra core.RemoteApplication) remoteApplicationResponse 
 	if audiences == nil {
 		audiences = []string{}
 	}
+	allowedOrigins := ra.AllowedOrigins
+	if allowedOrigins == nil {
+		allowedOrigins = []string{}
+	}
 	return remoteApplicationResponse{
-		Slug:       ra.Slug,
-		Issuer:     ra.Issuer,
-		OrgID:      ra.OrgID,
-		JWKSURI:    ra.JWKSURI,
-		Mode:       ra.Mode,
-		PublicKeys: ra.PublicKeys,
-		Audiences:  audiences,
-		Enabled:    ra.Enabled,
+		Slug:           ra.Slug,
+		Issuer:         ra.Issuer,
+		OrgID:          ra.OrgID,
+		JWKSURI:        ra.JWKSURI,
+		Mode:           ra.Mode,
+		PublicKeys:     ra.PublicKeys,
+		Audiences:      audiences,
+		AllowedOrigins: allowedOrigins,
+		Enabled:        ra.Enabled,
 	}
 }
 
@@ -76,6 +83,10 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 		badRequest(w, "invalid_trust_source")
 		return
 	}
+	if _, err := core.NormalizeAllowedOrigins(body.AllowedOrigins); err != nil {
+		badRequest(w, "invalid_allowed_origins")
+		return
+	}
 	orgID, ok, err := s.canManageRemoteApplicationByIssuer(r.Context(), claims, body.Issuer, body.OrgID)
 	if err != nil {
 		serverErr(w, "remote_application_lookup_failed")
@@ -91,14 +102,15 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 		enabled = *body.Enabled
 	}
 	ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
-		Slug:       body.Slug,
-		OrgID:      orgID,
-		Issuer:     body.Issuer,
-		JWKSURI:    body.JWKSURI,
-		Mode:       body.Mode,
-		PublicKeys: body.PublicKeys,
-		Audiences:  body.Audiences,
-		Enabled:    enabled,
+		Slug:           body.Slug,
+		OrgID:          orgID,
+		Issuer:         body.Issuer,
+		JWKSURI:        body.JWKSURI,
+		Mode:           body.Mode,
+		PublicKeys:     body.PublicKeys,
+		Audiences:      body.Audiences,
+		AllowedOrigins: body.AllowedOrigins,
+		Enabled:        enabled,
 	})
 	if err != nil {
 		if err == core.ErrInvalidRemoteApplication {

@@ -121,7 +121,8 @@ type ProfilesRemoteApplication struct {
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time
 	// Optional controlling org. NULL = bootstrap/operator-managed issuer with no AuthKit user/org owner; SET = org-controlled issuer managed through org RBAC.
-	OrgID *string
+	OrgID          *string
+	AllowedOrigins []string
 }
 
 // REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).

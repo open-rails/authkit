@@ -210,6 +210,65 @@ func decodeRemoteAppKeys(raw []byte) []RemoteAppKey {
 	return keys
 }
 
+// NormalizeAllowedOrigin validates one browser Origin value and returns its
+// canonical exact-match form. It accepts only scheme+host(+port), never paths,
+// queries, fragments, userinfo, wildcards, or the special "null" origin.
+func NormalizeAllowedOrigin(origin string) (string, error) {
+	origin = strings.TrimSpace(origin)
+	if origin == "" || strings.EqualFold(origin, "null") || strings.Contains(origin, "*") {
+		return "", ErrInvalidRemoteApplication
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u == nil {
+		return "", ErrInvalidRemoteApplication
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if (scheme != "http" && scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", ErrInvalidRemoteApplication
+	}
+	return scheme + "://" + strings.ToLower(u.Host), nil
+}
+
+// NormalizeAllowedOrigins validates, trims, normalizes, and de-duplicates exact
+// browser origins for a remote_application.
+func NormalizeAllowedOrigins(origins []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(origins))
+	for _, raw := range origins {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		origin, err := NormalizeAllowedOrigin(raw)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[origin]; ok {
+			continue
+		}
+		seen[origin] = struct{}{}
+		out = append(out, origin)
+	}
+	return out, nil
+}
+
+// OriginAllowed reports whether origin exactly matches one of allowedOrigins.
+func OriginAllowed(origin string, allowedOrigins []string) bool {
+	origin, err := NormalizeAllowedOrigin(origin)
+	if err != nil {
+		return false
+	}
+	for _, allowed := range allowedOrigins {
+		allowed, err := NormalizeAllowedOrigin(allowed)
+		if err != nil {
+			continue
+		}
+		if origin == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 // RemoteApplication is a federation principal: an external system that
 // authenticates by signing JWTs verified against its JWKS/public keys. It is
 // optionally owned by an org and may hold org memberships with roles via the
@@ -224,15 +283,16 @@ type RemoteApplication struct {
 	// RemoteAppModeStatic (human-managed PublicKeys list). Never both.
 	Mode string
 	// PublicKeys is the static-mode key list (empty in jwks mode).
-	PublicKeys []RemoteAppKey
-	Audiences  []string
-	Enabled    bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	PublicKeys     []RemoteAppKey
+	Audiences      []string
+	AllowedOrigins []string
+	Enabled        bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func remoteAppFromUpsert(row db.RemoteApplicationUpsertRow) *RemoteApplication {
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
@@ -254,6 +314,10 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if err != nil {
 		return nil, err
 	}
+	allowedOrigins, err := NormalizeAllowedOrigins(in.AllowedOrigins)
+	if err != nil {
+		return nil, err
+	}
 	var keysJSON []byte
 	if mode == RemoteAppModeStatic {
 		keysJSON, err = json.Marshal(in.PublicKeys)
@@ -267,14 +331,15 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	}
 
 	row, err := s.q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
-		Slug:       slug,
-		OrgID:      org,
-		Issuer:     issuer,
-		JwksUri:    jwksURI,
-		Mode:       mode,
-		PublicKeys: keysJSON,
-		Audiences:  dedupeStrings(in.Audiences),
-		Enabled:    in.Enabled,
+		Slug:           slug,
+		OrgID:          org,
+		Issuer:         issuer,
+		JwksUri:        jwksURI,
+		Mode:           mode,
+		PublicKeys:     keysJSON,
+		Audiences:      dedupeStrings(in.Audiences),
+		AllowedOrigins: allowedOrigins,
+		Enabled:        in.Enabled,
 	})
 	if err != nil {
 		return nil, err
@@ -298,7 +363,7 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // ResolveRemoteApplicationOrg returns the owning org_id of the
@@ -328,7 +393,7 @@ func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // ListRemoteApplications returns registered remote_applications. When activeOnly
@@ -344,7 +409,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OrgID: r.OrgID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+			out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OrgID: r.OrgID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, AllowedOrigins: r.AllowedOrigins, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
 		}
 		return out, nil
 	}
@@ -353,7 +418,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OrgID: r.OrgID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+		out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, OrgID: r.OrgID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, AllowedOrigins: r.AllowedOrigins, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil
 }

@@ -68,15 +68,19 @@ func TestOutboundClientPostsRegistration(t *testing.T) {
 
 	fc := NewOrgIssuersClient(WithOrgIssuersAuthToken("owner-token"))
 	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/remote-applications", OrgIssuersRegistration{
-		Slug:    "cozy-art",
-		Issuer:  "https://cozy.example",
-		JWKSURI: "https://cozy.example/.well-known/jwks.json",
+		Slug:           "cozy-art",
+		Issuer:         "https://cozy.example",
+		JWKSURI:        "https://cozy.example/.well-known/jwks.json",
+		AllowedOrigins: []string{"https://Cozy.example"},
 	})
 	if err != nil {
 		t.Fatalf("RegisterIssuer: %v", err)
 	}
 	if got.Slug != "cozy-art" || got.Issuer != "https://cozy.example" || got.JWKSURI != "https://cozy.example/.well-known/jwks.json" {
 		t.Fatalf("body mismatch: %+v", got)
+	}
+	if len(got.AllowedOrigins) != 1 || got.AllowedOrigins[0] != "https://cozy.example" {
+		t.Fatalf("allowed_origins mismatch: %#v", got.AllowedOrigins)
 	}
 	if gotAuth != "Bearer owner-token" {
 		t.Fatalf("auth header=%q", gotAuth)
@@ -105,6 +109,111 @@ func TestOutboundClientValidatesInput(t *testing.T) {
 	}
 	if err := fc.RegisterIssuer(context.Background(), "http://x", OrgIssuersRegistration{Slug: "a"}); err == nil {
 		t.Fatal("expected error for missing issuer/jwks")
+	}
+	if err := fc.RegisterIssuer(context.Background(), "http://x", OrgIssuersRegistration{
+		Slug: "a", Issuer: "https://issuer.example", JWKSURI: "https://issuer.example/jwks",
+		AllowedOrigins: []string{"https://issuer.example/path"},
+	}); err == nil {
+		t.Fatal("expected error for invalid allowed_origins")
+	}
+}
+
+func TestRemoteApplicationCORSUsesEnabledOriginUnion(t *testing.T) {
+	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := jwksServer(t, signer)
+	defer jwks.Close()
+
+	src := &memFederatedSource{items: []core.RemoteApplication{
+		{Slug: "doujins", Issuer: "https://auth.doujins.com", JWKSURI: jwks.URL + "/.well-known/jwks.json", AllowedOrigins: []string{"https://doujins.com"}, Enabled: true},
+		{Slug: "hentai0", Issuer: "https://auth.hentai0.com", JWKSURI: jwks.URL + "/.well-known/jwks.json", AllowedOrigins: []string{"https://hentai0.com"}, Enabled: false},
+	}}
+	ver := NewVerifier(WithOrgMode("multi"))
+	if err := ver.LoadRemoteApplications(context.Background(), src, []string{"openrails"}); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
+	}
+	handler := RemoteApplicationCORS(ver)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	allowed := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodOptions, "/memberships/cancel", nil)
+	req.Header.Set("Origin", "https://doujins.com")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	handler.ServeHTTP(allowed, req)
+	if allowed.Code != http.StatusNoContent {
+		t.Fatalf("allowed preflight status = %d body=%s", allowed.Code, allowed.Body.String())
+	}
+	if got := allowed.Header().Get("Access-Control-Allow-Origin"); got != "https://doujins.com" {
+		t.Fatalf("Access-Control-Allow-Origin = %q", got)
+	}
+
+	disabled := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodOptions, "/memberships/cancel", nil)
+	req.Header.Set("Origin", "https://hentai0.com")
+	handler.ServeHTTP(disabled, req)
+	if disabled.Code != http.StatusForbidden {
+		t.Fatalf("disabled origin preflight status = %d body=%s", disabled.Code, disabled.Body.String())
+	}
+}
+
+func TestRequireDelegatedOriginChecksVerifiedIssuer(t *testing.T) {
+	signer, err := jwtkit.NewRSASigner(2048, "platform-kid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := jwksServer(t, signer)
+	defer jwks.Close()
+
+	iss := "https://auth.doujins.com"
+	aud := []string{"openrails"}
+	src := &memFederatedSource{items: []core.RemoteApplication{{
+		Slug:           "doujins",
+		Issuer:         iss,
+		JWKSURI:        jwks.URL + "/.well-known/jwks.json",
+		AllowedOrigins: []string{"https://doujins.com"},
+		Enabled:        true,
+	}}}
+	ver := NewVerifier(WithOrgMode("multi"))
+	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
+		t.Fatalf("LoadRemoteApplications: %v", err)
+	}
+	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer:           iss,
+		Audiences:        aud,
+		DelegatedSubject: "external-user-1",
+		TTL:              time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	handler := Required(ver)(RequireDelegatedOrigin(ver, true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	for _, tc := range []struct {
+		name   string
+		origin string
+		want   int
+	}{
+		{name: "matching origin", origin: "https://doujins.com", want: http.StatusOK},
+		{name: "no origin server to server", origin: "", want: http.StatusOK},
+		{name: "other merchant origin", origin: "https://hentai0.com", want: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/memberships/cancel", nil)
+			req.Header.Set("Authorization", "Bearer "+tok)
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			handler.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, tc.want, rec.Body.String())
+			}
+		})
 	}
 }
 

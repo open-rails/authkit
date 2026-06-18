@@ -66,6 +66,9 @@ type OrgIssuersRegistration struct {
 	// PublicKeys is the static-mode key list for platforms without a JWKS
 	// endpoint (#74). Mutually exclusive with JWKSURI.
 	PublicKeys []core.RemoteAppKey
+	// AllowedOrigins is the exact browser Origin allow-list the resource server
+	// should accept for delegated browser requests signed by this issuer.
+	AllowedOrigins []string
 }
 
 // RegisterIssuer POSTs this remote_application's registration to the resource
@@ -83,12 +86,17 @@ func (fc *OrgIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string
 	if _, err := core.NormalizeRemoteAppTrustSource(reg.JWKSURI, "", reg.PublicKeys); err != nil {
 		return err
 	}
+	allowedOrigins, err := core.NormalizeAllowedOrigins(reg.AllowedOrigins)
+	if err != nil {
+		return err
+	}
 
 	payload := remoteApplicationRegistration{
-		Slug:       strings.TrimSpace(reg.Slug),
-		Issuer:     strings.TrimSpace(reg.Issuer),
-		JWKSURI:    strings.TrimSpace(reg.JWKSURI),
-		PublicKeys: reg.PublicKeys,
+		Slug:           strings.TrimSpace(reg.Slug),
+		Issuer:         strings.TrimSpace(reg.Issuer),
+		JWKSURI:        strings.TrimSpace(reg.JWKSURI),
+		PublicKeys:     reg.PublicKeys,
+		AllowedOrigins: allowedOrigins,
 	}
 	buf, err := json.Marshal(payload)
 	if err != nil {
