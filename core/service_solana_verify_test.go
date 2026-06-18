@@ -91,6 +91,32 @@ func TestVerifySIWSChallenge_DomainMismatch(t *testing.T) {
 	}
 }
 
+func TestVerifySIWSChallenge_ChainIDMismatch(t *testing.T) {
+	now := time.Now().UTC()
+	cd, parsed, output := signedChallenge(t, "example.com", now.Add(15*time.Minute))
+
+	// Server issued the challenge for a different network than the wallet signed.
+	devnet := "devnet"
+	cd.Input.ChainID = &devnet
+
+	if err := verifySIWSChallenge(cd, parsed, output, now); err == nil {
+		t.Fatal("expected chain id mismatch rejection, got nil")
+	}
+}
+
+func TestVerifySIWSChallenge_URIMismatch(t *testing.T) {
+	now := time.Now().UTC()
+	cd, parsed, output := signedChallenge(t, "example.com", now.Add(15*time.Minute))
+
+	// Server bound a URI the wallet's signed message does not carry.
+	uri := "https://example.com/login"
+	cd.Input.URI = &uri
+
+	if err := verifySIWSChallenge(cd, parsed, output, now); err == nil {
+		t.Fatal("expected uri mismatch rejection, got nil")
+	}
+}
+
 func TestVerifySIWSChallenge_AddressMismatch(t *testing.T) {
 	now := time.Now().UTC()
 	cd, parsed, output := signedChallenge(t, "example.com", now.Add(15*time.Minute))

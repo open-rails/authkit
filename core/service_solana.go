@@ -285,6 +285,22 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 		return fmt.Errorf("domain validation failed: %w", err)
 	}
 
+	// Bind the chainId and URI the wallet signed to the server-issued challenge
+	// when the server set them. Issue #51 hardened SIWS but left this as
+	// optional; binding them closes a cross-network (e.g. devnet vs mainnet) and
+	// cross-context replay gap. Only enforced when present on the challenge so
+	// wallets that omit/reconstruct these fields are not falsely rejected.
+	if want := challengeData.Input.ChainID; want != nil && *want != "" {
+		if parsedInput.ChainID == nil || *parsedInput.ChainID != *want {
+			return fmt.Errorf("chain id mismatch")
+		}
+	}
+	if want := challengeData.Input.URI; want != nil && *want != "" {
+		if parsedInput.URI == nil || *parsedInput.URI != *want {
+			return fmt.Errorf("uri mismatch")
+		}
+	}
+
 	// Verify the message timestamps (issuedAt skew, notBefore, expirationTime).
 	if err := siws.ValidateTimestamps(parsedInput); err != nil {
 		return fmt.Errorf("timestamp validation failed: %w", err)
