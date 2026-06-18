@@ -332,7 +332,7 @@ func (s *Service) consumeTwoFactorCode(ctx context.Context, userID, codeHash str
 	if err != nil || !ok {
 		return false, nil
 	}
-	if data.CodeHash != codeHash {
+	if !secretHashEqual(data.CodeHash, codeHash) {
 		return false, nil
 	}
 	_ = s.ephemDel(ctx, keyTwoFactor+userID)
