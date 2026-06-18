@@ -118,7 +118,13 @@ func WithSkew(d time.Duration) VerifierOption {
 	return func(v *Verifier) { v.skew = d }
 }
 
-// WithAlgorithms sets the allowed JWS algorithms. Default: ["RS256"].
+// WithAlgorithms sets the allowed JWS algorithms, overriding the default set.
+//
+// The default accepts ["RS256", "ES256", "ES384", "ES512", "EdDSA"] so that
+// federated / remote-application issuers signing with EC or Ed25519 keys verify
+// out of the box. The insecure "none" algorithm and all symmetric HMAC
+// algorithms are always rejected regardless of this option. Passing an explicit
+// list narrows the set; passing an empty list rejects every token (fail closed).
 func WithAlgorithms(algs ...string) VerifierOption {
 	return func(v *Verifier) { v.algorithms = algs }
 }
