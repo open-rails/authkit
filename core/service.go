@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	stdlog "log"
 	"net/url"
 	"os"
@@ -2026,14 +2027,26 @@ func randB64(n int) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// randInt returns a cryptographically secure, uniformly distributed integer in
+// [0, max). The previous implementation derived the value as `n % max` over a
+// 32-bit number, which is biased whenever max is not a power of two: for the
+// 6-digit codes generated below (max=10) the low digits 0..5 were measurably
+// more likely than 6..9. It also ignored the rand.Read error, so an RNG failure
+// would have silently produced an all-zero (fully predictable) code. We now use
+// crypto/rand.Int, which performs unbiased rejection sampling internally, and
+// fail closed instead of emitting a guessable value.
 func randInt(max int) int {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	n := int(b[0]) | int(b[1])<<8 | int(b[2])<<16 | int(b[3])<<24
-	if n < 0 {
-		n = -n
+	if max <= 0 {
+		return 0
 	}
-	return n % max
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		// crypto/rand should never fail on supported platforms; if the system
+		// entropy source is broken, panicking is far safer than returning a
+		// predictable verification code.
+		panic(fmt.Sprintf("authkit: secure RNG unavailable while generating code: %v", err))
+	}
+	return int(n.Int64())
 }
 
 // randAlphanumeric generates a random numeric code of length n.
