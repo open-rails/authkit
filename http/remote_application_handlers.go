@@ -117,6 +117,10 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 			badRequest(w, "invalid_request")
 			return
 		}
+		if err == core.ErrReservedIssuer {
+			badRequest(w, "issuer_reserved")
+			return
+		}
 		serverErr(w, "remote_application_register_failed")
 		return
 	}

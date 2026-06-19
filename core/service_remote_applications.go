@@ -22,6 +22,12 @@ var (
 	ErrRemoteApplicationNotFound = errors.New("remote_application_not_found")
 	// ErrInvalidRemoteApplication indicates a malformed registration payload.
 	ErrInvalidRemoteApplication = errors.New("invalid_remote_application")
+	// ErrReservedIssuer indicates an attempt to register a remote_application
+	// under the platform's own issuer string. The platform issuer is the local,
+	// first-party signing identity; allowing a federated remote_application to
+	// claim it would overwrite the trusted local issuer entry (key-swap / auth
+	// DoS — see AK-AUTH-01).
+	ErrReservedIssuer = errors.New("reserved_issuer")
 )
 
 // Remote-application trust modes (#74). A remote_application is a federation
@@ -306,6 +312,15 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	jwksURI := strings.TrimSpace(in.JWKSURI)
 	if slug == "" || issuer == "" {
 		return nil, ErrInvalidRemoteApplication
+	}
+	// AK-AUTH-01: a remote_application must never claim the platform's own
+	// issuer. The verifier keys issuers by string and upserts by issuer, so a
+	// federated registration under the platform issuer would overwrite the
+	// trusted local entry, swapping the platform's signing keys and breaking
+	// verification of all first-party tokens. Reject case-insensitively to deny
+	// trivial host-case bypasses. This guards every caller, including bootstrap.
+	if platformIssuer := strings.TrimSpace(s.opts.Issuer); platformIssuer != "" && strings.EqualFold(issuer, platformIssuer) {
+		return nil, ErrReservedIssuer
 	}
 	if err := validateOrgSlug(slug); err != nil {
 		return nil, ErrInvalidRemoteApplication
