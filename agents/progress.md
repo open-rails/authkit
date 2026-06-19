@@ -13,7 +13,9 @@ next_id: 90
 
 # #89: Bootstrap-user password seed-once + reset_required idempotency
 
-**Completed:** no
+**Completed:** yes
+
+DONE (v0.38.0): `BootstrapUserPassword.Enforce` added (default false = seed-once); password applied only when `created || Enforce`; `Enforce`+`ResetRequired` rejected. Unit test for validation + DB-backed seed-once/enforce behavior test (skips without `AUTHKIT_TEST_DATABASE_URL`).
 
 Independent of OpenRails #527 (OpenRails is removing bootstrap user/password seeding entirely), but a real AuthKit bug for any consumer that seeds users through `ReconcileBootstrapManifest`.
 
@@ -36,6 +38,8 @@ Fix — seed-once by default:
 # #88: Provisioning + authority primitives for OpenRails' merchant model
 
 **Completed:** no
+
+PARTIAL (v0.38.0): (b) CONFIRMED — `owner` is already assignable to a remote_application member (`validateOrgRole`/`canonicalizeOrgRole` accept it, no reserved-role guard); regression test `TestRemoteApplicationOwnerMembershipGrantsWildcard` added (owner→wildcard `*` via `ResolveRemoteApplicationAuthority`). REMAINING: (a) tx-aware provisioning — DEFERRED; OpenRails #527 uses the compensating-delete fallback for now. (c) claim-stripping / `enabled`-kill-switch regression tests — not yet added. (d) optional one-call helper — not done.
 
 Supports OpenRails #527's unified atomic `ProvisionMerchant` (one merchant ↔ one backing org ↔ one issuer-as-owner) and locks in the security invariants the model depends on.
 
@@ -62,7 +66,9 @@ Consumer: OpenRails #527 `ProvisionMerchant` + `merchantForIssuer` simplificatio
 
 # #87: Verify-only AuthKit Service (optional token signer)
 
-**Completed:** no
+**Completed:** yes
+
+DONE (v0.38.0): `Config.VerifyOnly` builds a no-signer Service and skips key discovery; all mint paths return `ErrMissingSigner` (the four Mint* methods already guarded; added the same guard to the access-token path); JWKS serves an empty set; verification + RBAC unaffected. Test `TestVerifyOnlyServiceRejectsMinting` (no DB). Consumed by OpenRails `controlplane.New` (verify-only when no key is discoverable).
 
 Enables OpenRails #527: OpenRails must run as a PURE VERIFIER with no token-signing key when it has no login-capable users (all identity arrives as host-app delegated tokens, or as in-process host-trusted calls in embedded mode). Today `authcore.Config.Keys == nil` triggers auto-discovery (env → /vault/auth → dev-generated), so a Service ALWAYS ends up with a signer.
 
