@@ -128,6 +128,18 @@ type BatchEntitlementsProvider interface {
 	ListEntitlementsBatch(ctx context.Context, userIDs []string) (map[string][]string, error)
 }
 
+// EntitlementFilterProvider is the REVERSE of EntitlementsProvider: given an
+// entitlement key, it returns the subject ids that currently hold it. AuthKit
+// owns the user DIRECTORY; the billing system (OpenRails) owns "who is entitled",
+// so filtering the directory BY entitlement delegates here instead of joining
+// across schemas. Subject ids ARE user ids (UUID-only payable identity). Detected
+// by type assertion on the entitlements provider; when absent, AdminListUsers
+// with an Entitlement filter fails with ErrEntitlementFilterUnavailable so the
+// misconfiguration is loud rather than silently returning everyone.
+type EntitlementFilterProvider interface {
+	ListSubjectsWithEntitlement(ctx context.Context, entitlement string) ([]string, error)
+}
+
 // HashAlgoLegacyResetRequired marks profiles.user_passwords rows migrated from
 // legacy systems whose stored hashes can never verify (DES crypt, md5-crypt,
 // corrupted values). The raw legacy hash is preserved in password_hash for
@@ -3219,68 +3231,174 @@ type AdminListUsersResult struct {
 	Offset int         `json:"offset"`
 }
 
-func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter, search string, onlyDeleted bool) (*AdminListUsersResult, error) {
-	if s.pg == nil {
-		return &AdminListUsersResult{Users: []AdminUser{}, Total: 0, Limit: pageSize, Offset: 0}, nil
-	}
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 || pageSize > 200 {
-		pageSize = 50
-	}
-	offset := (page - 1) * pageSize
+// AdminUserStatus filters the directory by account state.
+type AdminUserStatus string
 
-	// Only support these filters:
-	// "All users", "Super administrators", "Taggers", "Bloggers"
+const (
+	AdminUserStatusActive  AdminUserStatus = "active"  // not deleted, not banned
+	AdminUserStatusBanned  AdminUserStatus = "banned"  // not deleted, currently banned
+	AdminUserStatusDeleted AdminUserStatus = "deleted" // soft-deleted
+	AdminUserStatusAny     AdminUserStatus = "any"     // no deleted/banned predicate
+	// "" (zero value) defaults to non-deleted (the historical "All users" behavior).
+)
 
-	where := []string{}
-	if onlyDeleted {
+// AdminUserSort selects the directory ordering column.
+type AdminUserSort string
+
+const (
+	AdminUserSortCreatedAt AdminUserSort = "created_at" // default
+	AdminUserSortLastLogin AdminUserSort = "last_login"
+	AdminUserSortUsername  AdminUserSort = "username"
+	AdminUserSortEmail     AdminUserSort = "email"
+)
+
+// AdminUserListOptions is the GENERIC admin user-directory query (issue #91). It
+// carries no host product knowledge: Role is any global-role slug, OrgSlug is any
+// org slug, Status/Sort are closed enums. Entitlement filtering delegates to the
+// billing provider (EntitlementFilterProvider), never a cross-schema join.
+type AdminUserListOptions struct {
+	Page        int
+	PageSize    int
+	Search      string          // ILIKE over username/email/phone_number
+	Role        string          // global-role slug (e.g. "admin"); empty = no role filter
+	OrgSlug     string          // org membership; empty = no org filter
+	Status      AdminUserStatus // empty = non-deleted (historical default)
+	Sort        AdminUserSort   // empty = created_at
+	Desc        bool            // true = descending
+	Entitlement string          // empty = no entitlement filter; else provider-backed
+}
+
+// ErrEntitlementFilterUnavailable is returned by AdminListUsers/AdminCountUsers
+// when an Entitlement filter is requested but no EntitlementFilterProvider is
+// configured — fail loud rather than silently return everyone.
+var ErrEntitlementFilterUnavailable = errors.New("authkit: entitlement filtering requires an EntitlementFilterProvider")
+
+func (o AdminUserListOptions) normalize() AdminUserListOptions {
+	if o.Page <= 0 {
+		o.Page = 1
+	}
+	if o.PageSize <= 0 || o.PageSize > 200 {
+		o.PageSize = 50
+	}
+	return o
+}
+
+// adminUserDirectoryQuery builds the shared FROM + WHERE + args for the directory
+// list and count (no ORDER BY / pagination). When an Entitlement filter is set it
+// resolves the subject set via the provider HERE, so list and count agree and the
+// provider is hit once per call.
+func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOptions) (from string, where []string, args []any, err error) {
+	from = "profiles.users u"
+	args = []any{}
+	argIdx := 1
+
+	switch o.Status {
+	case AdminUserStatusActive:
+		where = append(where, "u.deleted_at IS NULL", "u.banned_at IS NULL")
+	case AdminUserStatusBanned:
+		where = append(where, "u.deleted_at IS NULL", "u.banned_at IS NOT NULL")
+	case AdminUserStatusDeleted:
 		where = append(where, "u.deleted_at IS NOT NULL")
-	} else {
+	case AdminUserStatusAny:
+		// no deleted/banned predicate
+	default:
 		where = append(where, "u.deleted_at IS NULL")
 	}
-	args := []interface{}{}
-	argIdx := 1
-	from := "profiles.users u"
-	orderBy := "u.created_at DESC"
-	limitOverride := 0
 
-	switch filter {
-	case "super administrators":
-		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
-		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
-		args = append(args, "admin")
+	if slug := strings.TrimSpace(o.Role); slug != "" {
+		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL AND r.slug = $" + fmt.Sprint(argIdx)
+		args = append(args, slug)
 		argIdx++
-	case "taggers":
-		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
-		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
-		args = append(args, "tagger")
-		argIdx++
-	case "bloggers":
-		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL"
-		where = append(where, "r.slug = $"+fmt.Sprint(argIdx))
-		args = append(args, "blogger")
-		argIdx++
-	case "10 random premium members":
-		// Use a subquery to select 10 random premium user IDs, then join back to users for full data
-		from = "profiles.users u JOIN (SELECT u.id FROM profiles.users u JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL WHERE r.slug = $" + fmt.Sprint(argIdx) + " ORDER BY RANDOM() LIMIT 10) sub ON u.id = sub.id"
-		args = append(args, "premium")
-		argIdx++
-		// No additional where clause needed
-		orderBy = "u.created_at DESC"
-		limitOverride = 0
 	}
 
-	// Search (username, email, phone)
-	if search != "" {
+	if slug := strings.TrimSpace(o.OrgSlug); slug != "" {
+		from += " JOIN profiles.org_memberships m ON m.member_id = u.id::text AND m.member_kind = 'user' JOIN profiles.orgs o ON o.id = m.org_id AND o.deleted_at IS NULL AND o.slug = $" + fmt.Sprint(argIdx)
+		args = append(args, slug)
+		argIdx++
+	}
+
+	if search := strings.TrimSpace(o.Search); search != "" {
 		where = append(where, "(u.username ILIKE $"+fmt.Sprint(argIdx)+" OR u.email ILIKE $"+fmt.Sprint(argIdx)+" OR u.phone_number ILIKE $"+fmt.Sprint(argIdx)+")")
 		args = append(args, "%"+search+"%")
 		argIdx++
 	}
 
-	// Intentionally raw pgx (not sqlc): the filter/search/pagination clauses
-	// are assembled at runtime, which sqlc's static compilation cannot express.
+	if ent := strings.TrimSpace(o.Entitlement); ent != "" {
+		fp, ok := s.entitlements.(EntitlementFilterProvider)
+		if !ok {
+			return "", nil, nil, ErrEntitlementFilterUnavailable
+		}
+		subjects, ferr := fp.ListSubjectsWithEntitlement(ctx, ent)
+		if ferr != nil {
+			return "", nil, nil, fmt.Errorf("authkit: entitlement filter provider failed: %w", ferr)
+		}
+		where = append(where, "u.id::text = ANY($"+fmt.Sprint(argIdx)+"::text[])")
+		args = append(args, subjects)
+		argIdx++
+	}
+
+	if len(where) == 0 {
+		where = append(where, "TRUE")
+	}
+	return from, where, args, nil
+}
+
+// adminUserOrderBy renders a safe ORDER BY (closed enum) with a stable id
+// tiebreaker. Every column referenced is in the SELECT list so SELECT DISTINCT
+// is legal.
+func adminUserOrderBy(o AdminUserListOptions) string {
+	col := "u.created_at"
+	switch o.Sort {
+	case AdminUserSortLastLogin:
+		col = "u.last_login"
+	case AdminUserSortUsername:
+		col = "u.username"
+	case AdminUserSortEmail:
+		col = "u.email"
+	}
+	dir := "ASC"
+	if o.Desc {
+		dir = "DESC"
+	}
+	return col + " " + dir + ", u.id::text " + dir
+}
+
+// AdminCountUsers returns the number of users matching opts (same filters as
+// AdminListUsers, ignoring pagination/sort).
+func (s *Service) AdminCountUsers(ctx context.Context, opts AdminUserListOptions) (int64, error) {
+	if s.pg == nil {
+		return 0, nil
+	}
+	from, where, args, err := s.adminUserDirectoryQuery(ctx, opts)
+	if err != nil {
+		return 0, err
+	}
+	q := db.RewriteSQL("SELECT COUNT(DISTINCT u.id) FROM "+from+" WHERE "+strings.Join(where, " AND "), s.dbSchema())
+	var total int64
+	if err := s.pg.QueryRow(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// AdminListUsers is the generic admin user-directory list (issue #91): generic
+// role/org/status filter + search + sort + offset pagination, with optional
+// provider-backed entitlement filtering. Each row is enriched with role slugs
+// and (via the entitlements provider) entitlement names.
+func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error) {
+	opts = opts.normalize()
+	if s.pg == nil {
+		return &AdminListUsersResult{Users: []AdminUser{}, Total: 0, Limit: opts.PageSize, Offset: 0}, nil
+	}
+	offset := (opts.Page - 1) * opts.PageSize
+
+	from, where, args, err := s.adminUserDirectoryQuery(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Intentionally raw pgx (not sqlc): the filter/search/pagination clauses are
+	// assembled at runtime, which sqlc's static compilation cannot express.
 	// Written against the default "profiles." qualifier and rewritten to the
 	// configured schema, same mechanism as the sqlc path (issue 69).
 	countQuery := db.RewriteSQL("SELECT COUNT(DISTINCT u.id) FROM "+from+" WHERE "+strings.Join(where, " AND "), s.dbSchema())
@@ -3289,14 +3407,10 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 		return nil, err
 	}
 
+	argIdx := len(args) + 1
 	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.discord_username, u.email_verified, u.phone_verified, u.banned_at, u.banned_until, u.ban_reason, u.banned_by, u.deleted_at, u.biography, u.created_at, u.updated_at, u.last_login"
-	query := "SELECT DISTINCT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + orderBy
-	if limitOverride > 0 {
-		query += " LIMIT " + fmt.Sprint(limitOverride)
-	} else {
-		query += " OFFSET $" + fmt.Sprint(argIdx) + " LIMIT $" + fmt.Sprint(argIdx+1)
-		args = append(args, offset, pageSize)
-	}
+	query := "SELECT DISTINCT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + adminUserOrderBy(opts) + " OFFSET $" + fmt.Sprint(argIdx) + " LIMIT $" + fmt.Sprint(argIdx+1)
+	args = append(args, offset, opts.PageSize)
 
 	rows, err := s.pg.Query(ctx, db.RewriteSQL(query, s.dbSchema()), args...)
 	if err != nil {
@@ -3316,7 +3430,7 @@ func (s *Service) AdminListUsers(ctx context.Context, page, pageSize int, filter
 		return nil, err
 	}
 	s.enrichEntitlements(ctx, out)
-	return &AdminListUsersResult{Users: out, Total: total, Limit: pageSize, Offset: offset}, nil
+	return &AdminListUsersResult{Users: out, Total: total, Limit: opts.PageSize, Offset: offset}, nil
 }
 
 // enrichEntitlements fills Entitlements for a page of users: one provider call

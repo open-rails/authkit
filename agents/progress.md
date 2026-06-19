@@ -7,7 +7,64 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 91
+next_id: 92
+
+---
+
+# #91: Generalize the admin user DIRECTORY (list/search/sort/detail) + make billing-enrichment a first-class pluggable filter
+
+**Completed:** no
+
+## Metadata
+
+- Category: feature
+- Status: not_started
+- Passes: false
+
+ACTIVE — needed NOW by ~/doujins's admin dashboard; building it here lets doujins DELETE its bespoke admin-user API and reuse AuthKit (and lets the standalone OpenRails console + cozy-art reuse it too). Cross-repo pair with OpenRails #535 (the reverse entitlement query that backs the entitlement filter) + doujins #414 (the consumer). Decided 2026-06-19 after auditing ~/authkit + ~/doujins.
+
+AuthKit is the USER DIRECTORY for every host app's admin dashboard. Identity lives here; billing state (entitlements/subscriptions/credits) lives in OpenRails and is composed IN via a provider seam. This issue generalizes the directory and turns the existing enrichment seam into a real filter.
+
+## What EXISTS today
+- `core.AdminListUsers(ctx, page, pageSize, filter, search, onlyDeleted)` (`core/service.go:3222`) + `GET /admin/users` (`http/admin_routes.go`): ILIKE search over username/email/phone, pagination, fixed `ORDER BY created_at DESC`.
+- `core.AdminGetUser` detail; ban/unban/role-grant/sessions admin routes.
+- A `BatchEntitlementsProvider` interface called inside `AdminListUsers` (`enrichEntitlements`) — host injects OpenRails as the provider, so list rows already carry `entitlements []string` from billing (one batched call per page). THIS is the right composition seam and already ships in doujins.
+
+## The problems (host-leakage + missing capability)
+- **Product leakage into core:** `AdminListUsers`'s `filter` is HARDCODED to doujins-specific role slugs — `"super administrators"`, `"taggers"`, `"bloggers"`, `"10 random premium members"` (`core/service.go:3249-3273`). AuthKit core must not know host product roles.
+- **Can't filter by entitlement:** the directory filters by AuthKit ROLES only. "Find all premium users" is an OpenRails ENTITLEMENT in another schema, so doujins had to hand-roll a cross-schema `profiles.users ⋈ openrails.entitlements/customers` raw SQL join (`~/doujins internal/api/admin/users/handler.go`) — exactly the schema-coupling we want to kill. The enrichment provider can ENRICH but not FILTER.
+- **Detail endpoint isn't enriched:** `GET /admin/users/:id` returns identity only; billing is NOT enriched (the list is). Hosts merge it client-side (doujins `useAdminUserEdit.ts`). Asymmetric.
+- **Thin per-org listing:** `ListOrgMembers` returns only UUID strings, no detail/pagination.
+- No standalone `CountUsers`, no sort options, no cursor pagination, no generic role/org/status filter.
+
+## Build order (so doujins can adopt incrementally)
+1. Generic directory (no OpenRails dependency) — ships first, unblocks doujins's search/sort/list/detail move.
+2. Provider FILTER seam + detail enrichment — depends on OpenRails #535; lands the premium filter + kills doujins's raw SQL.
+
+## Tasks
+- [x] **(1)** Generalize `AdminListUsers` filtering: removed the hardcoded host role slugs; `AdminListUsers(ctx, AdminUserListOptions)` now takes a generic, composable filter — `Role` (any global-role slug) + `OrgSlug` (any org) + `Status` (active/banned/deleted/any, default non-deleted) + `Search`. No product strings in core. (`core/service.go` `adminUserDirectoryQuery`.)
+- [x] **(1)** Sort options (`AdminUserSort`: created_at/last_login/username/email) + `Desc`, stable `u.id` tiebreaker; offset pagination retained (cursor deferred — offset is fine for admin directories). Handler param `order=asc` flips the default newest-first.
+- [x] **(1)** `AdminCountUsers(ctx, opts)` — real standalone count sharing the same query builder.
+- [~] **(1)** (Optional) richer per-org `ListOrgMembers` with detail+pagination — DEFERRED (the `OrgSlug` filter on `AdminListUsers` already covers "users in org X with detail"; a dedicated members-with-roles endpoint can come with #228 if needed).
+- [x] **(2)** Provider seam extended ENRICH → ENRICH **+ FILTER**: new `EntitlementFilterProvider` interface (`ListSubjectsWithEntitlement(ctx, entitlement) []subjectIDs`); `AdminListUsers(opts.Entitlement=...)` type-asserts the entitlements provider to it, resolves the subject set, and filters `u.id = ANY(...)`. No provider → `ErrEntitlementFilterUnavailable` (fail loud). Backed by OpenRails #535.
+- [x] **(2)** Single-user DETAIL (`AdminGetUser`) already enriches entitlements via `s.ListEntitlements` (the provider) — verified symmetric with the list.
+- [x] Tests: `core/admin_directory_test.go` — DB-validated (real Postgres) search/role/status/sort/pagination/count + provider-backed entitlement filter with a fake provider + `ErrEntitlementFilterUnavailable`. All green. (HTTP handlers `handleAdminUsersListGET`/`handleAdminDeletedUsersListGET` rewritten to the generic params: page/page_size/search/role/org/status/sort/order/entitlement; the `filter` magic-string param is GONE.)
+- [ ] Ship: tag + bump so ~/doujins (#414) + OpenRails embed can consume — do AFTER OpenRails #535 + doujins #414 validate together (one authkit tag for the whole cross-repo change). Pending user OK to commit/tag.
+
+**STATUS: code-complete + DB-validated (2026-06-19).** Only the release (tag+bump) remains, batched with #535/#414.
+
+## Downstream consumer adoption (audited 2026-06-19) — NO required changes
+The only breaking change is the `AdminListUsers(...)` GO signature + the removal of the `filter` query param on `GET /admin/users`. The `AdminUser` JSON shape (roles, entitlements, …) and page/page_size/search are UNCHANGED. Audit of the other consumers:
+- **doujins** (#414): the real adopter — it overrode `/admin/users` to add a raw-SQL premium filter; #414 deletes that and wires the provider filter. (separate issue)
+- **hentai0**: its admin Users page calls `GET /admin/users` with ONLY `page`/`page_size` (no `filter`), and reads `roles`/`entitlements` (enrich path preserved). No Go call to `AdminListUsers`. → bump-safe, NO changes. (Optional future: wire its `OpenRailsEntitlementsProvider` to also implement `EntitlementFilterProvider` + add a `?entitlement=premium` server filter — today it computes premium client-side from the enriched `entitlements`.)
+- **cozy-art**: mounts `authkitgin.RegisterAPI` (so the route exists) but no frontend consumes `/admin/users`; its `EntitlementsProvider` (enrich) is already wired. → bump-safe, NO changes. (Optional future: extend that provider with `EntitlementFilterProvider`.)
+- **tensorhub**: mounts the route, nothing consumes it; no entitlement provider (HTTP client of standalone OpenRails, not embedded). → bump-safe, NO changes. (If it ever needs "users with entitlement X" it uses the OpenRails #535 s2s route, not a Go provider.)
+Net: only doujins needs work (#414); hentai0/cozy-art/tensorhub bump cleanly. The new entitlement-FILTER capability is opt-in everywhere.
+
+## Boundaries (capture in docs)
+- AuthKit owns the directory: only LOCAL AuthKit users (`profiles.users`). Federated/delegated subjects (a remote host's own users, only ever a `delegated_sub` claim) are NOT in this directory — a host using AuthKit as ITS identity provider (doujins-style, users in `profiles.users`) is the case this serves.
+- OpenRails owns billing state keyed by subject and is consumed as the provider — never queried via raw SQL by the host.
+- The host (or OpenRails' own standalone console, OpenRails #228) COMPOSES directory + billing; neither subsystem alone answers "premium users with their detail."
 
 ---
 

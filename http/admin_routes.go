@@ -77,25 +77,40 @@ func (s *Service) handleAdminRolesRevokePOST(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// adminUserListOptionsFromQuery parses the generic directory query params (#91):
+// page, page_size, search, role, org, status, sort, order. `filter` is GONE —
+// the directory is generic now (role/org/status), no host product slugs.
+func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
+	size, _ := strconv.Atoi(q.Get("page_size"))
+	sort := core.AdminUserSort(strings.TrimSpace(q.Get("sort")))
+	// Default newest-first; only an explicit order=asc flips it.
+	desc := !strings.EqualFold(strings.TrimSpace(q.Get("order")), "asc")
+	return core.AdminUserListOptions{
+		Page:        page,
+		PageSize:    size,
+		Search:      strings.TrimSpace(q.Get("search")),
+		Role:        strings.TrimSpace(q.Get("role")),
+		OrgSlug:     strings.TrimSpace(q.Get("org")),
+		Status:      core.AdminUserStatus(strings.TrimSpace(q.Get("status"))),
+		Sort:        sort,
+		Desc:        desc,
+		Entitlement: strings.TrimSpace(q.Get("entitlement")),
+	}
+}
+
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RLAdminUserSessionsList) {
 		return
 	}
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page == 0 {
-		page = 1
-	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
-	if size == 0 {
-		size = 50
-	}
-	filter := r.URL.Query().Get("filter")
-	if filter == "" {
-		filter = "All users"
-	}
-	search := r.URL.Query().Get("search")
-	result, err := s.svc.AdminListUsers(r.Context(), page, size, filter, search, false)
+	opts := adminUserListOptionsFromQuery(r)
+	result, err := s.svc.AdminListUsers(r.Context(), opts)
 	if err != nil {
+		if errors.Is(err, core.ErrEntitlementFilterUnavailable) {
+			badRequest(w, "entitlement_filter_unavailable")
+			return
+		}
 		serverErr(w, "failed_to_list_users")
 		return
 	}
@@ -286,22 +301,15 @@ func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Service) handleAdminDeletedUsersListGET(w http.ResponseWriter, r *http.Request) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page == 0 {
-		page = 1
-	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
-	if size == 0 {
-		size = 50
-	}
-	filter := r.URL.Query().Get("filter")
-	if filter == "" {
-		filter = "All users"
-	}
-	search := r.URL.Query().Get("search")
+	opts := adminUserListOptionsFromQuery(r)
+	opts.Status = core.AdminUserStatusDeleted // this route is the soft-deleted view
 
-	result, err := s.svc.AdminListUsers(r.Context(), page, size, filter, search, true)
+	result, err := s.svc.AdminListUsers(r.Context(), opts)
 	if err != nil {
+		if errors.Is(err, core.ErrEntitlementFilterUnavailable) {
+			badRequest(w, "entitlement_filter_unavailable")
+			return
+		}
 		serverErr(w, "failed_to_list_deleted_users")
 		return
 	}
