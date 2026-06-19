@@ -156,9 +156,9 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | GET | `/tenants/:tenant/me` | AUTH | **Caller's own** membership view: `{roles[], permissions[]}` (membership only — no `tenant:read`; global admin → full catalog) |
 | POST | `/tenants/:tenant/permissions/check` | AUTH | Check permissions for a principal. Body `{permissions[], user_id?}` → `{granted[]}` (requested subset held). Self by default; `user_id` checks another member (`tenant:read`). Global admin holds all. (GCP `testIamPermissions` shape) |
 | POST | `/token/tenant` | AUTH | Mint tenant-scoped service token (`tenant` + `roles`) |
-| POST | `/tenants/:tenant/service-tokens` | AUTH | Mint a service token (`tenant:service_tokens:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms catalog-validated + no-escalation, reserved write/mint `tenant:*` perms + wildcards barred (read-only `tenant:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full token shown ONCE. |
-| GET | `/tenants/:tenant/service-tokens` | AUTH | List the tenant's service tokens (`tenant:service_tokens:manage`; metadata only, includes `resources[]`, never secrets) |
-| DELETE | `/tenants/:tenant/service-tokens/:token_id` | AUTH | Revoke a service token (`tenant:service_tokens:manage`) |
+| POST | `/tenants/:tenant/api-keys` | AUTH | Mint an API key (`tenant:service_tokens:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms catalog-validated + no-escalation, reserved write/mint `tenant:*` perms + wildcards barred (read-only `tenant:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full key shown ONCE. |
+| GET | `/tenants/:tenant/api-keys` | AUTH | List the tenant's API keys (`tenant:service_tokens:manage`; metadata only, includes `resources[]`, never secrets) |
+| DELETE | `/tenants/:tenant/api-keys/:token_id` | AUTH | Revoke an API key (`tenant:service_tokens:manage`) |
 
 > **Tenant RBAC (permission-based).** A role is a set of permissions. Tenant-management
 > endpoints are gated by authkit's **base permissions** (reserved `tenant:`
@@ -180,7 +180,7 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 Long-lived, revocable bearer credentials **owned by a tenant** (not a person), for
 machine/automation callers (CI, the e2e operator CLI, service-to-service). An
-opaque service token acts **as the tenant**: middleware sets `Claims.TenantID`
+API key acts **as the tenant**: middleware sets `Claims.TenantID`
 (immutable tenant uuid — the canonical identifier to persist) + `Claims.Tenant`
 (mutable slug, presentation/logging only) + `Claims.Permissions`
 (the token's app-defined permission strings) and a service marker
@@ -189,8 +189,8 @@ pattern. Permissions are opaque to authkit — the embedding app owns the
 vocabulary and enforces meaning. (Users, by contrast, carry `TenantRoles`; the
 resource server expands role→permission at request time.)
 
-**Presentation.** `Authorization: Bearer <app>st_<key_id>_<secret>`. `<app>` is
-the host's configured `ServiceTokenPrefix` brand (e.g. `cozy` → `cozy_st_…`); empty →
+**Presentation.** `Authorization: Bearer <prefix>_st_<key_id>_<secret>`. `<prefix>` is
+the host's configured `APIKeyPrefix` brand (legacy name: `ServiceTokenPrefix`; e.g. `cozy` → `cozy_st_…`); empty →
 bare `st_`. `key_id` is a non-secret public id for O(1) indexed lookup; only
 `sha256(secret)` is stored. The full token is shown **once** at creation.
 
@@ -274,8 +274,8 @@ outlives its minter, nullable `expires_at`/`revoked_at`, `last_used_at` touched
 best-effort/async) plus `profiles.service_token_resources` for opaque
 Kind/ID scope rows.
 
-**Configuration.** `core.Config.ServiceTokenPrefix` (lowercase alnum, ≤16 chars; empty
-→ `st_`), `core.Config.ServiceTokenMaxTTL` (0 = no cap), and optional
+**Configuration.** `core.Config.APIKeyPrefix` (lowercase alnum, ≤16 chars; empty
+→ `st_`), `core.Config.APIKeyMaxTTL` (0 = no cap), and optional
 `core.Config.ResourceScopeAuthorizer`.
 
 ---
