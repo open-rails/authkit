@@ -175,14 +175,14 @@ authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
   authhttp.RouteUser,     // self-service for existing accounts
 )))
 
-// Bootstrap declared orgs, roles, admins, and service tokens internally via
+// Bootstrap declared orgs, roles, admins, and API keys internally via
 // AuthKit core APIs (unaffected by the public registration modes):
 core := svc.Core()
 admin, _ := core.CreateUser(ctx, "ops@example.com", "operator")
 bootstrap, _ := core.ProvisionOrg(ctx, core.OrgProvisionRequest{
   Slug: "operator",
   Memberships: []core.OrgProvisionMembership{{UserID: admin.ID, Role: "owner"}},
-  ServiceTokens: []core.OrgProvisionServiceToken{{
+  APIKeys: []core.OrgProvisionAPIKey{{
     Name: "ci",
     Permissions: []string{"org:read"},
   }},
@@ -193,7 +193,7 @@ _ = bootstrap.MintedTokens[0].Plaintext // write once to a secret store
 For a closed-registration deployment, the bootstrap manifest is the standard
 machine/bootstrap path. It declares AuthKit-owned authority state: users,
 global roles, orgs, trusted delegated-token issuers, org roles, memberships,
-and optional generated opaque service tokens. The broader bootstrap reconciler
+and optional generated opaque API keys. The broader bootstrap reconciler
 wraps the org manifest reconciler rather than forking it, so org/provider token
 behavior stays on one path.
 
@@ -224,20 +224,20 @@ orgs:
     memberships:
       - user_ref: operator
         role: operator
-    service_tokens:
+    api_keys:
       - name: openrails-runtime
         permissions: ["openrails:entitlements:read"]
         resources:
           - kind: openrails.merchant
             id: cozy-art
         output:
-          file: /run/secrets/openrails-runtime-token
+          file: /run/secrets/openrails-runtime.key
 ```
 
 Bootstrap passwords support three explicit modes: `plaintext` initial password
 (hashed by AuthKit), imported `hash` plus `hash_algo`, or `reset_required: true`
 for imported accounts that must go through recovery before login. Secret
-references and imported service-token hashes are intentionally not built in;
+references and imported API-key hashes are intentionally not built in;
 hosts that need Vault/Kubernetes reads should render the manifest or call the
 library API with their own secret handling.
 
@@ -248,7 +248,7 @@ a one-shot deploy-job command:
 DEVSERVER_ISSUER=https://auth.example \
 DB_URL=postgres://... \
 DEVSERVER_PERMISSION_CATALOG=openrails:billing:read,openrails:entitlements:read \
-DEVSERVER_TOKEN_PREFIX=cozy \
+DEVSERVER_API_KEY_PREFIX=cozy \
 AUTHKIT_BOOTSTRAP_PATH=/manifests/bootstrap.yaml \
 /authkit-devserver bootstrap apply --file /manifests/bootstrap.yaml
 ```
@@ -689,15 +689,15 @@ Orgs
   - A user access token always includes `global_roles` (platform-wide) and a legacy `roles` claim that mirrors `global_roles` (fixed token-shape compatibility). Org-scoped tokens additionally carry `org` + org `roles`/`org_roles`.
   - An app with no orgs simply never mints org-scoped tokens — its tokens carry `roles`/`global_roles` only.
 
-Service Tokens (opaque machine credentials)
-- Long-lived, revocable bearer credentials **owned by a org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). The standard machine-auth primitive (cf. Docker Hub service tokens, Stripe `sk_` keys) — robots should not replay the human password-login path.
-- A service token acts **as the org**: middleware sets `Claims.Org` + `Claims.Permissions` (the token's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `OrgRoles`; the resource server expands role→permission at request time.)
-- Presented as `Authorization: Bearer <app>st_<key_id>_<secret>`, where `<app>` is the host-configured `Config.ServiceTokenPrefix` brand (e.g. `cozy` → `cozy_st_…`; empty → bare `st_`). `key_id` is a non-secret public id for O(1) indexed lookup; only `sha256(secret)` is stored; the full token is shown **once**.
-- Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/org-deleted rejected; non-service-token credentials fall through to JWT). The service token path is separate from the password-login handler, so service tokens **bypass the interactive password-login rate limiter** by design.
-- **Mint authorization is native + permission-based:** minting requires `org:service_tokens:manage`, and authkit validates the requested permissions against the org's effective catalog — each must be a defined permission the caller holds (no escalation; `403 permission_grant_denied`/`400 unknown_permission`), with the reserved write/mint perms (`org:roles:manage`, `org:members:manage`, `org:service_tokens:manage`) and wildcards barred from service tokens (read-only `org:read` is service token-grantable). Permissions are frozen at mint time. A service token can never mint/list/revoke service tokens (no user). See "Org RBAC" below for the catalog + role→permission model.
-- **Resource scopes:** service tokens may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.service_token_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
-- Manage via `POST/GET/DELETE /orgs/:org/service-tokens[/:token_id]`. POST accepts `{name, permissions[], resources?:[{kind,id}], expires_at?}`. Optional `expires_at` (null = non-expiring), capped by `Config.ServiceTokenMaxTTL` when set. Stored in `profiles.service_tokens`.
-- **Leak response:** revoke the token (`DELETE …/service-tokens/:id`) — the `<app>st_` prefix is registrable with secret-scanning/push-protection partners so leaked tokens can be auto-detected.
+API Keys (opaque machine credentials)
+- Long-lived, revocable bearer credentials **owned by a org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). Robots should not replay the human password-login path.
+- An API key acts **as the org**: middleware sets `Claims.Org` + `Claims.Permissions` (the key's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `OrgRoles`; the resource server expands role→permission at request time.)
+- Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeyPrefix` brand (legacy name: `Config.ServiceTokenPrefix`). `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
+- Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/org-deleted rejected; non-API-key credentials fall through to JWT). The API-key path is separate from the password-login handler, so API keys **bypass the interactive password-login rate limiter** by design.
+- **Mint authorization is native + permission-based:** minting requires `org:service_tokens:manage`, and authkit validates the requested permissions against the org's effective catalog — each must be a defined permission the caller holds (no escalation; `403 permission_grant_denied`/`400 unknown_permission`), with the reserved write/mint perms (`org:roles:manage`, `org:members:manage`, `org:service_tokens:manage`) and wildcards barred from API keys (read-only `org:read` is API-key-grantable). Permissions are frozen at mint time. An API key can never mint/list/revoke API keys (no user). See "Org RBAC" below for the catalog + role→permission model.
+- **Resource scopes:** API keys may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.service_token_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
+- Manage via `POST/GET/DELETE /orgs/:org/api-keys[/:token_id]`. POST accepts `{name, permissions[], resources?:[{kind,id}], expires_at?}`. Optional `expires_at` (null = non-expiring), capped by `Config.APIKeyMaxTTL` when set. Stored in `profiles.service_tokens`; legacy `/service-tokens` routes remain as aliases.
+- **Leak response:** revoke the key (`DELETE …/api-keys/:id`) — the application prefix is registrable with secret-scanning/push-protection partners so leaked keys can be auto-detected.
 
 Service JWTs (OIDC/JWKS machine credentials)
 - First-party services with their own AuthKit issuer/JWKS should prefer

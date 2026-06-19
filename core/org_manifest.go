@@ -15,7 +15,7 @@ var ErrInvalidOrgManifest = errors.New("invalid_org_manifest")
 
 // OrgManifest is the DevOps source of truth for closed-registration AuthKit
 // deployments. It declares orgs plus their trusted OIDC issuers, roles, and
-// optional server-to-server service tokens.
+// optional server-to-server API keys.
 type OrgManifest struct {
 	Orgs []OrgManifestOrg `json:"orgs" yaml:"orgs"`
 }
@@ -25,6 +25,7 @@ type OrgManifestOrg struct {
 	Issuers       []OrgManifestIssuer       `json:"issuers" yaml:"issuers"`
 	Roles         []OrgManifestRole         `json:"roles" yaml:"roles"`
 	Memberships   []OrgManifestMembership   `json:"memberships" yaml:"memberships"`
+	APIKeys       []OrgManifestAPIKey       `json:"api_keys" yaml:"api_keys"`
 	ServiceTokens []OrgManifestServiceToken `json:"service_tokens" yaml:"service_tokens"`
 }
 
@@ -54,6 +55,9 @@ type OrgManifestMembership struct {
 	Role     string `json:"role" yaml:"role"`
 }
 
+// OrgManifestAPIKey declares one generated opaque API key.
+type OrgManifestAPIKey = OrgManifestServiceToken
+
 type OrgManifestServiceToken struct {
 	Name        string                        `json:"name" yaml:"name"`
 	Permissions []string                      `json:"permissions" yaml:"permissions"`
@@ -62,9 +66,15 @@ type OrgManifestServiceToken struct {
 	Output      OrgManifestServiceTokenOutput `json:"output" yaml:"output"`
 }
 
+// OrgManifestAPIKeyOutput names where a freshly minted API key should be
+// written.
+type OrgManifestAPIKeyOutput = OrgManifestServiceTokenOutput
+
 // OrgManifestServiceTokenOutput names where a freshly minted token should
 // be written. AuthKit ships a file-backed implementation; Vault/Kubernetes/etc.
 // can implement OrgManifestTokenStore with the same output struct.
+//
+// Deprecated: use OrgManifestAPIKeyOutput for public bootstrap/config surfaces.
 type OrgManifestServiceTokenOutput struct {
 	File       string `json:"file" yaml:"file"`
 	VaultMount string `json:"vault_mount" yaml:"vault_mount"`
@@ -72,8 +82,8 @@ type OrgManifestServiceTokenOutput struct {
 	VaultField string `json:"vault_field" yaml:"vault_field"`
 }
 
-// OrgManifestTokenStore preserves existing non-empty outputs and writes
-// newly minted service-token values. The store owns the output backend.
+// OrgManifestTokenStore preserves existing non-empty outputs and writes newly
+// minted API-key values. The store owns the output backend.
 type OrgManifestTokenStore interface {
 	ReadOrgManifestToken(ctx context.Context, out OrgManifestServiceTokenOutput) (string, error)
 	WriteOrgManifestToken(ctx context.Context, out OrgManifestServiceTokenOutput, token string) error
@@ -99,6 +109,11 @@ func ParseOrgManifestYAML(raw []byte) (OrgManifest, error) {
 	if len(manifest.Orgs) == 0 {
 		return OrgManifest{}, ErrInvalidOrgManifest
 	}
+	for _, org := range manifest.Orgs {
+		if _, err := org.manifestAPIKeys(); err != nil {
+			return OrgManifest{}, err
+		}
+	}
 	return manifest, nil
 }
 
@@ -110,8 +125,8 @@ func ParseOrgManifestYAMLFile(path string) (OrgManifest, error) {
 	return ParseOrgManifestYAML(raw)
 }
 
-// ReconcileOrgManifest idempotently applies orgs, issuers, roles, and
-// service-token outputs. It serializes reconciliation with a Postgres advisory
+// ReconcileOrgManifest idempotently applies orgs, issuers, roles, and API-key
+// outputs. It serializes reconciliation with a Postgres advisory
 // lock so multiple replicas do not mint duplicate bootstrap tokens.
 func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest, store OrgManifestTokenStore) (OrgManifestResult, error) {
 	if err := s.requirePG(); err != nil {
@@ -157,11 +172,15 @@ func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest
 				Role:   membership.Role,
 			})
 		}
-		for _, token := range org.ServiceTokens {
+		apiKeys, err := org.manifestAPIKeys()
+		if err != nil {
+			return result, err
+		}
+		for _, token := range apiKeys {
 			if store == nil || token.Output.empty() {
 				return result, ErrInvalidOrgManifest
 			}
-			req.ServiceTokens = append(req.ServiceTokens, OrgProvisionServiceToken{
+			req.APIKeys = append(req.APIKeys, OrgProvisionAPIKey{
 				Name:        token.Name,
 				Permissions: token.Permissions,
 				Resources:   token.Resources,
@@ -181,6 +200,16 @@ func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest
 		result.TokensKept += applied.TokensKept
 	}
 	return result, nil
+}
+
+func (o OrgManifestOrg) manifestAPIKeys() ([]OrgManifestAPIKey, error) {
+	if len(o.APIKeys) > 0 && len(o.ServiceTokens) > 0 {
+		return nil, ErrInvalidOrgManifest
+	}
+	if len(o.APIKeys) > 0 {
+		return o.APIKeys, nil
+	}
+	return o.ServiceTokens, nil
 }
 
 func (o OrgManifestServiceTokenOutput) empty() bool {

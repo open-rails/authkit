@@ -80,10 +80,18 @@ type Options struct {
 	// SolanaSNSCacheTTL controls when cached SNS metadata is considered stale. Empty defaults to 24 hours.
 	SolanaSNSCacheTTL time.Duration
 
-	// ServiceTokenPrefix is the issuing application's brand prefix for Org
-	// Service Tokens (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
+	// APIKeyPrefix is the issuing application's brand prefix for generated API
+	// keys (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
+	APIKeyPrefix string
+	// ServiceTokenPrefix is the deprecated name for APIKeyPrefix.
+	//
+	// Deprecated: use APIKeyPrefix.
 	ServiceTokenPrefix string
+	// APIKeyMaxTTL caps a minted API key's expiry (0 = no cap).
+	APIKeyMaxTTL time.Duration
 	// ServiceTokenMaxTTL caps a minted service token's expiry (0 = no cap).
+	//
+	// Deprecated: use APIKeyMaxTTL.
 	ServiceTokenMaxTTL time.Duration
 	// ResourceScopeAuthorizer optionally authorizes host-defined service token resource
 	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
@@ -193,6 +201,16 @@ func NewService(opts Options, keys Keyset) *Service {
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
 	}
+	tokenPrefix := strings.TrimSpace(opts.APIKeyPrefix)
+	if tokenPrefix == "" {
+		tokenPrefix = strings.TrimSpace(opts.ServiceTokenPrefix)
+	}
+	opts.APIKeyPrefix = tokenPrefix
+	opts.ServiceTokenPrefix = tokenPrefix
+	if opts.APIKeyMaxTTL == 0 {
+		opts.APIKeyMaxTTL = opts.ServiceTokenMaxTTL
+	}
+	opts.ServiceTokenMaxTTL = opts.APIKeyMaxTTL
 	schema := strings.TrimSpace(opts.Schema)
 	if schema == "" {
 		schema = db.DefaultSchema
@@ -215,6 +233,13 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	// cfg.KeysPath, then the AUTHKIT_KEYS_PATH env var, defaulting to
 	// /vault/auth so existing embedders are unchanged.
 	keySource := cfg.Keys
+	if keySource == nil && cfg.VerifyOnly {
+		// #87: explicit verify-only — NO signer and NO key discovery. Minting
+		// returns ErrMissingSigner; verification, RBAC reads, and the (empty)
+		// JWKS endpoint all work. A pure resource-server / control-plane boots
+		// without any env/file/dev key.
+		keySource = jwtkit.StaticKeySource{}
+	}
 	if keySource == nil {
 		keysPath := strings.TrimSpace(cfg.KeysPath)
 		if keysPath == "" {
@@ -282,9 +307,16 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authkit: invalid OrgRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.OrgRegistrationMode)
 	}
-	tokenPrefix := strings.TrimSpace(cfg.ServiceTokenPrefix)
+	tokenPrefix := strings.TrimSpace(cfg.APIKeyPrefix)
+	if tokenPrefix == "" {
+		tokenPrefix = strings.TrimSpace(cfg.ServiceTokenPrefix)
+	}
 	if !validServiceTokenPrefix(tokenPrefix) {
-		return nil, fmt.Errorf("authkit: invalid ServiceTokenPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", cfg.ServiceTokenPrefix)
+		return nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", tokenPrefix)
+	}
+	maxTTL := cfg.APIKeyMaxTTL
+	if maxTTL == 0 {
+		maxTTL = cfg.ServiceTokenMaxTTL
 	}
 	schema := strings.TrimSpace(cfg.Schema)
 	if schema == "" {
@@ -313,8 +345,10 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		SolanaSNSResolver:          cfg.SolanaSNSResolver,
 		SolanaSNSLookupTimeout:     cfg.SolanaSNSLookupTimeout,
 		SolanaSNSCacheTTL:          cfg.SolanaSNSCacheTTL,
+		APIKeyPrefix:               tokenPrefix,
 		ServiceTokenPrefix:         tokenPrefix,
-		ServiceTokenMaxTTL:         cfg.ServiceTokenMaxTTL,
+		APIKeyMaxTTL:               maxTTL,
+		ServiceTokenMaxTTL:         maxTTL,
 		ResourceScopeAuthorizer:    cfg.ResourceScopeAuthorizer,
 		PermissionCatalog:          cfg.PermissionCatalog,
 		DefaultRoles:               cfg.DefaultRoles,
@@ -580,6 +614,9 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	claims["roles"] = roles
 	for k, v := range extra {
 		claims[k] = v
+	}
+	if s.keys.Active == nil {
+		return "", time.Time{}, ErrMissingSigner // #87: verify-only Service cannot mint
 	}
 	hs, ok := s.keys.Active.(jwtkit.HeaderSigner)
 	if !ok {

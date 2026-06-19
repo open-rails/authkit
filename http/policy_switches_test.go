@@ -213,6 +213,7 @@ func TestOrgManagementDisabled_MutatingRoutesDenied(t *testing.T) {
 		{http.MethodPost, "/orgs/acme/rename"},
 		{http.MethodPost, "/orgs/acme/members"},
 		{http.MethodPost, "/orgs/acme/invites"},
+		{http.MethodPost, "/orgs/acme/api-keys"},
 		{http.MethodPost, "/orgs/acme/service-tokens"},
 		{http.MethodPost, "/me/invites/abc/accept"},
 	}

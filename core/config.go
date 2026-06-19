@@ -86,6 +86,17 @@ type Config struct {
 	// changes.
 	Keys jwtkit.KeySource
 
+	// VerifyOnly constructs the Service with NO active signer (#87): token
+	// MINTING (IssueAccessToken/IssueServiceToken, MintServiceJWT/MintCustomJWT/
+	// MintDelegatedAccessToken, remote_application self-tokens) returns
+	// ErrMissingSigner, while VERIFICATION and all RBAC reads work fully and the
+	// JWKS endpoint serves an empty key set. When true, key auto-discovery is
+	// SKIPPED — no env/file/dev key is required to boot. Ignored when Keys is
+	// non-nil (an explicit KeySource wins). Use it for a pure resource-server /
+	// control-plane deployment that only verifies inbound tokens (e.g. OpenRails
+	// standalone with no login-capable users).
+	VerifyOnly bool
+
 	// KeysPath overrides the filesystem DIRECTORY the local key resolver scans
 	// for keys.json when Keys is nil. Empty defaults to the AUTHKIT_KEYS_PATH
 	// env var, then to /vault/auth, so existing embedders are unchanged. Use it
@@ -101,16 +112,25 @@ type Config struct {
 	// the preferred path for adding custom providers.
 	ProviderDescriptors map[string]authprovider.Provider
 
-	// ServiceTokenPrefix is the issuing application's BRAND prefix for Org
-	// Service Tokens (service tokens). It is a single value per deployment (NOT per-org)
-	// and a free brand choice by the host app — e.g. tensorhub sets "cozy" so
-	// every service token it mints is `cozy_st_<key_id>_<secret>`. The `_st_` type
-	// segment is fixed and not configurable. Empty -> bare `st_`. Must be
-	// lowercase alphanumeric, 1-16 chars. A unique app prefix lets leak
+	// APIKeyPrefix is the issuing application's brand prefix for generated API
+	// keys. It is a single value per deployment (NOT per-org) and a free brand
+	// choice by the host app. Empty defaults to the legacy bare `st_` marker.
+	// Must be lowercase alphanumeric, 1-16 chars. A unique app prefix lets leak
 	// scanners and push-protection partners identify the issuer at a glance.
+	APIKeyPrefix string
+	// ServiceTokenPrefix is the deprecated name for APIKeyPrefix.
+	//
+	// Deprecated: use APIKeyPrefix.
 	ServiceTokenPrefix string
 
+	// APIKeyMaxTTL caps how far in the future a minted API key may expire.
+	// 0 (default) means no cap (keys may be non-expiring). When set, a
+	// requested expiry beyond now+MaxTTL — including a null/no-expiry request —
+	// is capped to now+MaxTTL at mint time.
+	APIKeyMaxTTL time.Duration
 	// ServiceTokenMaxTTL caps how far in the future a minted service token may expire.
+	//
+	// Deprecated: use APIKeyMaxTTL.
 	// 0 (default) means no cap (tokens may be non-expiring). When set, a
 	// requested expiry beyond now+MaxTTL — including a null/no-expiry request —
 	// is capped to now+MaxTTL at mint time.

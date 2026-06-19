@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	})
 
-	out := filepath.Join(t.TempDir(), "token")
+	out := filepath.Join(t.TempDir(), "api.key")
 	enabled := true
 	manifest := OrgManifest{Orgs: []OrgManifestOrg{{
 		Slug: slug,
@@ -50,7 +51,7 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 			Name:        "reader",
 			Permissions: []string{PermOrgRead},
 		}},
-		ServiceTokens: []OrgManifestServiceToken{{
+		APIKeys: []OrgManifestAPIKey{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
 			Resources:   []ServiceTokenResource{{Kind: "openrails.merchant", ID: slug}},
@@ -79,6 +80,26 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 	}
 	if second.TokensMinted != 0 || second.TokensKept != 1 {
 		t.Fatalf("second result=%+v, want preserved token", second)
+	}
+}
+
+func TestParseOrgManifestYAMLRejectsMixedAPIKeysAndServiceTokens(t *testing.T) {
+	_, err := ParseOrgManifestYAML([]byte(`
+orgs:
+  - slug: cozy-art
+    api_keys:
+      - name: runtime
+        permissions: [openrails:admin]
+        output:
+          file: runtime.key
+    service_tokens:
+      - name: legacy
+        permissions: [openrails:admin]
+        output:
+          file: legacy.token
+`))
+	if !errors.Is(err, ErrInvalidOrgManifest) {
+		t.Fatalf("err=%v, want ErrInvalidOrgManifest", err)
 	}
 }
 
@@ -216,7 +237,7 @@ func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T
 	store := &memoryManifestTokenStore{writeDelay: 100 * time.Millisecond}
 	manifest := OrgManifest{Orgs: []OrgManifestOrg{{
 		Slug: slug,
-		ServiceTokens: []OrgManifestServiceToken{{
+		APIKeys: []OrgManifestAPIKey{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
 			Resources:   []ServiceTokenResource{{Kind: "openrails.merchant", ID: slug}},

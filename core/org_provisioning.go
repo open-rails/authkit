@@ -15,6 +15,7 @@ type OrgProvisionRequest struct {
 	Issuers       []OrgProvisionIssuer
 	Roles         []OrgProvisionRole
 	Memberships   []OrgProvisionMembership
+	APIKeys       []OrgProvisionAPIKey
 	ServiceTokens []OrgProvisionServiceToken
 }
 
@@ -48,7 +49,13 @@ type OrgProvisionMembership struct {
 	Role   string
 }
 
+// OrgProvisionAPIKey declares one generated opaque API key.
+type OrgProvisionAPIKey = OrgProvisionServiceToken
+
 // OrgProvisionServiceToken declares one generated opaque service token.
+//
+// Deprecated: use OrgProvisionAPIKey and OrgProvisionRequest.APIKeys for public
+// bootstrap/config surfaces.
 // When Output is empty, the plaintext token is returned in the result. When
 // Output is non-empty and a store is supplied, existing non-empty output is
 // preserved and no new token is minted.
@@ -61,9 +68,14 @@ type OrgProvisionServiceToken struct {
 	Output      OrgManifestServiceTokenOutput
 }
 
-// MintedOrgProvisionServiceToken contains a plaintext generated token. The
+// MintedOrgProvisionAPIKey contains a plaintext generated API key. The
 // value is returned only at creation time and should be written to a secret
 // store by the caller.
+type MintedOrgProvisionAPIKey = MintedOrgProvisionServiceToken
+
+// MintedOrgProvisionServiceToken contains a plaintext generated token.
+//
+// Deprecated: use MintedOrgProvisionAPIKey for public bootstrap/config surfaces.
 type MintedOrgProvisionServiceToken struct {
 	Name      string
 	Metadata  ServiceToken
@@ -183,7 +195,11 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 		result.Memberships++
 	}
 
-	for _, token := range req.ServiceTokens {
+	apiKeys, err := req.apiKeys()
+	if err != nil {
+		return result, err
+	}
+	for _, token := range apiKeys {
 		if !token.Output.empty() {
 			if store == nil {
 				return result, ErrInvalidOrgManifest
@@ -219,4 +235,14 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 	}
 
 	return result, nil
+}
+
+func (r OrgProvisionRequest) apiKeys() ([]OrgProvisionAPIKey, error) {
+	if len(r.APIKeys) > 0 && len(r.ServiceTokens) > 0 {
+		return nil, ErrInvalidOrgManifest
+	}
+	if len(r.APIKeys) > 0 {
+		return r.APIKeys, nil
+	}
+	return r.ServiceTokens, nil
 }

@@ -35,7 +35,7 @@ type config struct {
 	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
 	// catalog) so existing deployments are unaffected; the e2e suite sets
 	// these to exercise the multi-org service token/RBAC surface against a real server.
-	ServiceTokenPrefix          string
+	APIKeyPrefix                string
 	PermissionCatalog           []string
 	OrgManifestPath             string
 	ReconcileOrgManifestOnStart bool
@@ -97,7 +97,7 @@ func loadConfig() (*config, error) {
 		ExpectedAudiences:           expectedAudiences,
 		Environment:                 envOr("DEVSERVER_ENVIRONMENT", "dev"),
 		RegistrationVerification:    core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
-		ServiceTokenPrefix:          strings.TrimSpace(envOr("DEVSERVER_TOKEN_PREFIX", "")),
+		APIKeyPrefix:                strings.TrimSpace(firstEnv("DEVSERVER_API_KEY_PREFIX", "DEVSERVER_TOKEN_PREFIX")),
 		PermissionCatalog:           parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
 		OrgManifestPath:             strings.TrimSpace(envOr("DEVSERVER_ORG_MANIFEST_PATH", "")),
 		ReconcileOrgManifestOnStart: envBool("DEVSERVER_RECONCILE_ORG_MANIFEST_ON_START", false),
@@ -148,7 +148,7 @@ func runServe(cfg *config) error {
 		Keys:                     keySource,
 		Environment:              cfg.Environment,
 		RegistrationVerification: cfg.RegistrationVerification,
-		ServiceTokenPrefix:       cfg.ServiceTokenPrefix,
+		APIKeyPrefix:             cfg.APIKeyPrefix,
 		PermissionCatalog:        toPermissionDefs(cfg.PermissionCatalog),
 	})
 	if err != nil {
@@ -222,9 +222,9 @@ func runOrgManifestApply(cfg *config) error {
 	defer pg.Close()
 
 	svc := core.NewService(core.Options{
-		Issuer:             cfg.Issuer,
-		ServiceTokenPrefix: cfg.ServiceTokenPrefix,
-		PermissionCatalog:  toPermissionDefs(cfg.PermissionCatalog),
+		Issuer:            cfg.Issuer,
+		APIKeyPrefix:      cfg.APIKeyPrefix,
+		PermissionCatalog: toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)
 	result, err := reconcileOrgManifest(ctx, svc, cfg.OrgManifestPath)
 	if err != nil {
@@ -250,9 +250,9 @@ func runBootstrapApply(cfg *config, args []string) error {
 	defer pg.Close()
 
 	svc := core.NewService(core.Options{
-		Issuer:             cfg.Issuer,
-		ServiceTokenPrefix: cfg.ServiceTokenPrefix,
-		PermissionCatalog:  toPermissionDefs(cfg.PermissionCatalog),
+		Issuer:            cfg.Issuer,
+		APIKeyPrefix:      cfg.APIKeyPrefix,
+		PermissionCatalog: toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)
 	result, err := reconcileBootstrapManifest(ctx, svc, path, dryRun)
 	if err != nil {

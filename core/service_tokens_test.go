@@ -100,6 +100,17 @@ func TestValidServiceTokenPrefix(t *testing.T) {
 	}
 }
 
+func TestAPIKeyPrefixAliasesServiceTokenPrefix(t *testing.T) {
+	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "or", APIKeyMaxTTL: time.Hour}, Keyset{})
+	opts := svc.Options()
+	if opts.ServiceTokenPrefix != "or" || opts.APIKeyPrefix != "or" {
+		t.Fatalf("prefix aliases not normalized: %+v", opts)
+	}
+	if opts.ServiceTokenMaxTTL != time.Hour || opts.APIKeyMaxTTL != time.Hour {
+		t.Fatalf("ttl aliases not normalized: %+v", opts)
+	}
+}
+
 func TestServiceTokenResourceContract(t *testing.T) {
 	resources, err := normalizeServiceTokenResources([]ServiceTokenResource{
 		{Kind: " openrails.merchant ", ID: " tensorhub "},

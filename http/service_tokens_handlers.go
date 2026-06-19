@@ -8,16 +8,16 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// Service Token (service token) management endpoints. A service token carries a set of
+// API key management endpoints. An API key carries a set of
 // app-defined PERMISSIONS (opaque to authkit). All three endpoints are gated by
 // the base permission org:service_tokens:manage (owner holds `*`; a platform global
 // admin bypasses). Minting validates the requested permissions against the
 // catalog AND the caller's own effective permissions (no-escalation), and bars
-// wildcards + the write/mint reserved `org:` management permissions from service tokens
-// (a service token does machine work, not org management). Read-only org:read IS
-// service token-grantable (escalation-harmless, for monitoring/audit automation). A
-// service principal (a service token) has no UserID,
-// so it can never reach these handlers — a service token can never mint/list/revoke service tokens.
+// wildcards + the write/mint reserved `org:` management permissions from API
+// keys (an API key does machine work, not org management). Read-only org:read IS
+// API-key-grantable (escalation-harmless, for monitoring/audit automation). A
+// service principal (an API key) has no UserID, so it can never reach these
+// handlers — an API key can never mint/list/revoke API keys.
 
 // accessTokenView is the non-secret JSON shape returned for a service token. The secret
 // is only ever present in the create response's top-level `token` field.
@@ -246,7 +246,10 @@ func (s *Service) handleServiceTokensGET(w http.ResponseWriter, r *http.Request)
 	for _, t := range tokens {
 		views = append(views, toAccessTokenView(t))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"service_tokens": views})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"api_keys":       views,
+		"service_tokens": views,
+	})
 }
 
 func (s *Service) handleServiceTokenDELETE(w http.ResponseWriter, r *http.Request) {

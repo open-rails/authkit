@@ -19,7 +19,7 @@ var ErrInvalidBootstrapManifest = errors.New("invalid_bootstrap_manifest")
 
 // BootstrapManifest is AuthKit's first-class closed-deployment authority
 // manifest. It owns AuthKit state only: users, global roles, orgs, org RBAC,
-// trusted issuers, and generated service-token outputs.
+// trusted issuers, and generated API-key outputs.
 type BootstrapManifest struct {
 	Users       []BootstrapManifestUser       `json:"users" yaml:"users"`
 	GlobalRoles []BootstrapManifestGlobalRole `json:"global_roles" yaml:"global_roles"`
@@ -55,6 +55,13 @@ type BootstrapUserPassword struct {
 	HashAlgo      string         `json:"hash_algo" yaml:"hash_algo"`
 	HashParams    map[string]any `json:"hash_params" yaml:"hash_params"`
 	ResetRequired bool           `json:"reset_required" yaml:"reset_required"`
+	// Enforce makes the password DESIRED-STATE (#89): re-asserted on every
+	// reconcile. Default false = SEED-ONCE — the password is applied only when
+	// the user is first created, so a password rotated out of band (via the
+	// admin API) is never reverted to the manifest value on a later reconcile.
+	// Must not be combined with ResetRequired (forcing a reset every run is
+	// nonsensical).
+	Enforce bool `json:"enforce" yaml:"enforce"`
 }
 
 type BootstrapReconcileOptions struct {
@@ -132,10 +139,14 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		}
 		result.OrgManifest.Orgs = len(orgManifest.Orgs)
 		for _, org := range orgManifest.Orgs {
+			apiKeys, err := org.manifestAPIKeys()
+			if err != nil {
+				return result, err
+			}
 			result.OrgManifest.Issuers += len(org.Issuers)
 			result.OrgManifest.Roles += len(org.Roles)
 			result.OrgManifest.Memberships += len(org.Memberships)
-			result.OrgManifest.TokensMinted += len(org.ServiceTokens)
+			result.OrgManifest.TokensMinted += len(apiKeys)
 		}
 		return result, nil
 	}
@@ -163,12 +174,20 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		}
 		registerBootstrapUserRefs(userRefs, user, applied.ID)
 		if user.Password != nil {
-			set, err := s.applyBootstrapUserPassword(ctx, applied.ID, *user.Password)
-			if err != nil {
-				return result, err
-			}
-			if set {
-				result.PasswordsSet++
+			// Seed-once (#89): apply a manifest password only when the user was
+			// just CREATED, or when the password explicitly opts into
+			// enforce-as-desired-state. Otherwise a password rotated out of band
+			// after the initial seed would be reverted on every reconcile.
+			if created || user.Password.Enforce {
+				set, err := s.applyBootstrapUserPassword(ctx, applied.ID, *user.Password)
+				if err != nil {
+					return result, err
+				}
+				if set {
+					result.PasswordsSet++
+				} else {
+					result.PasswordsKept++
+				}
 			} else {
 				result.PasswordsKept++
 			}
@@ -252,6 +271,11 @@ func validateBootstrapUserPassword(p BootstrapUserPassword) error {
 		modes++
 	}
 	if modes != 1 {
+		return ErrInvalidBootstrapManifest
+	}
+	// enforce-as-desired-state is incompatible with reset_required (#89): a
+	// reset sentinel re-applied every reconcile would force a reset on every run.
+	if p.Enforce && p.ResetRequired {
 		return ErrInvalidBootstrapManifest
 	}
 	return nil
