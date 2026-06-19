@@ -291,7 +291,11 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	}
 	accessTTL := cfg.AccessTokenDuration
 	if accessTTL == 0 {
-		accessTTL = time.Hour
+		// Short default bounds revocation lag (logout / ban / password-change)
+		// to one TTL window; refresh-token rotation re-issues silently. See
+		// authkit #90 — we deliberately rely on this bound instead of a
+		// per-request jti/liveness lookup.
+		accessTTL = 15 * time.Minute
 	}
 	refTTL := cfg.RefreshTokenDuration // 0 or less => indefinite sessions
 

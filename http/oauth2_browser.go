@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	stdlog "log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +17,12 @@ import (
 )
 
 var errProviderAlreadyLinked = errors.New("provider_already_linked")
+
+// errProviderLinkFailed signals that the load-bearing provider-link write failed
+// during an OIDC callback. We fail the callback (rather than reporting success
+// with no persisted link) so the next login can't diverge into a duplicate
+// account or a link-required dead-end. See authkit #90 (AK-IMPL-2c).
+var errProviderLinkFailed = errors.New("provider_link_failed")
 
 // errAccountExistsLinkRequired signals that an OAuth2 identity is not yet linked
 // but its asserted email already belongs to a local account. We refuse to
@@ -206,6 +213,10 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 			registrationDisabled(w)
 			return
 		}
+		if errors.Is(err, errProviderLinkFailed) {
+			serverErr(w, "provider_link_failed")
+			return
+		}
 		serverErr(w, "user_creation_failed")
 		return
 	}
@@ -343,15 +354,26 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 		if uid0, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), cfg.Issuer, info.Subject); err == nil && uid0 != "" && uid0 != sd.LinkUserID {
 			return "", false, errProviderAlreadyLinked
 		}
-		_ = s.svc.LinkProviderByIssuer(r.Context(), sd.LinkUserID, cfg.Issuer, cfg.Name, info.Subject, emailPtr)
+		// The provider link is the load-bearing write: if it fails we must NOT
+		// report success, or the next login won't find the link and will diverge
+		// (duplicate account / link-required dead-end). Fail the callback so the
+		// user retries against a still-consistent state.
+		if err := s.svc.LinkProviderByIssuer(r.Context(), sd.LinkUserID, cfg.Issuer, cfg.Name, info.Subject, emailPtr); err != nil {
+			stdlog.Printf("[authkit/security] error: provider link write failed (user=%s issuer=%s); failing OIDC callback: %v", sd.LinkUserID, cfg.Issuer, err)
+			return "", false, fmt.Errorf("%w: %v", errProviderLinkFailed, err)
+		}
 		if strings.TrimSpace(info.Preferred) != "" {
-			_ = s.svc.SetProviderUsername(r.Context(), sd.LinkUserID, cfg.Issuer, info.Subject, info.Preferred)
+			if err := s.svc.SetProviderUsername(r.Context(), sd.LinkUserID, cfg.Issuer, info.Subject, info.Preferred); err != nil {
+				stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); link succeeded, username not updated: %v", sd.LinkUserID, cfg.Issuer, err)
+			}
 		}
 		return sd.LinkUserID, false, nil
 	}
 	if uid, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), cfg.Issuer, info.Subject); err == nil && uid != "" {
 		if strings.TrimSpace(info.Preferred) != "" {
-			_ = s.svc.SetProviderUsername(r.Context(), uid, cfg.Issuer, info.Subject, info.Preferred)
+			if err := s.svc.SetProviderUsername(r.Context(), uid, cfg.Issuer, info.Subject, info.Preferred); err != nil {
+				stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); login succeeded, username not updated: %v", uid, cfg.Issuer, err)
+			}
 		}
 		return uid, false, nil
 	}
@@ -377,12 +399,24 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 	if err != nil || u == nil {
 		return "", false, errors.New("user_creation_failed")
 	}
-	_ = s.svc.LinkProviderByIssuer(r.Context(), u.ID, cfg.Issuer, cfg.Name, info.Subject, emailPtr)
+	// Link is load-bearing (see branch above). On failure, fail the callback
+	// rather than leaving the just-created user unlinked and reporting success.
+	// NOTE: without a create+link transaction a failure here leaves an orphan
+	// user row (no provider link); logged CRITICAL for cleanup. Follow-up:
+	// atomic create+link (authkit #88 tx-aware provisioning) closes that window.
+	if err := s.svc.LinkProviderByIssuer(r.Context(), u.ID, cfg.Issuer, cfg.Name, info.Subject, emailPtr); err != nil {
+		stdlog.Printf("[authkit/security] CRITICAL: provider link write failed after user creation (orphan user=%s issuer=%s subject=%s); failing OIDC callback — manual cleanup may be required: %v", u.ID, cfg.Issuer, info.Subject, err)
+		return "", false, fmt.Errorf("%w: %v", errProviderLinkFailed, err)
+	}
 	if info.EmailVerified && strings.TrimSpace(info.Email) != "" {
-		_ = s.svc.SetEmailVerified(r.Context(), u.ID, true)
+		if err := s.svc.SetEmailVerified(r.Context(), u.ID, true); err != nil {
+			stdlog.Printf("[authkit/security] warning: SetEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
+		}
 	}
 	if strings.TrimSpace(info.Preferred) != "" {
-		_ = s.svc.SetProviderUsername(r.Context(), u.ID, cfg.Issuer, info.Subject, info.Preferred)
+		if err := s.svc.SetProviderUsername(r.Context(), u.ID, cfg.Issuer, info.Subject, info.Preferred); err != nil {
+			stdlog.Printf("[authkit/security] warning: SetProviderUsername failed for new user %s (cosmetic): %v", u.ID, err)
+		}
 	}
 	return u.ID, true, nil
 }

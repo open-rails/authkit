@@ -56,6 +56,10 @@ type ChallengeCache interface {
 	Put(ctx context.Context, nonce string, data ChallengeData) error
 	Get(ctx context.Context, nonce string) (ChallengeData, bool, error)
 	Del(ctx context.Context, nonce string) error
+	// Consume atomically returns AND deletes a challenge as a single
+	// single-winner operation. SIWS login MUST consume (never Get-then-Del) so a
+	// replayed signed message cannot be verified twice within the challenge TTL.
+	Consume(ctx context.Context, nonce string) (ChallengeData, bool, error)
 }
 
 // Verify checks that the signature is valid for the given input and output.

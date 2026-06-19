@@ -7,7 +7,59 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 90
+next_id: 91
+
+---
+
+# #90: Auth hardening — 15m token TTL, swallowed-error fixes, SIWS atomic consume, hot-reload key rotation
+
+**Completed:** no
+
+From the 2026-06-18 implementation audit (`audit-authkit.md`, AK-IMPL-1/2/3). Scope was deliberately trimmed after review: the audit's `jti`/per-request-liveness store and the key-rotation state-machine/admin-API/DB-table were **rejected as over-engineered** — see "Explicitly dropped" so they don't get re-proposed straight off the audit. Rationale: delegated tokens already default to 15m (`core/delegated.go:108`) and merchant suspension is already immediate (OpenRails `merchantForIssuer` fails closed per request), so revocation lag is bounded by TTL and not worth a per-request revocation store.
+
+## 1. Shorten first-party access-token default to 15m
+`core/service.go` — the `accessTTL == 0 → time.Hour` fallback → `15 * time.Minute`. OpenRails does not override it, so it flows through. Bounds access-token revocation lag (logout / ban / password-change) to ≤15m, which is accepted.
+
+## 2. Swallowed errors on security-critical paths (AK-IMPL-2) — fix differs per site, NOT just "add logging"
+- **2a refresh-reuse family revoke** (`core/service_sessions.go:103`): the reuse attempt is already rejected, but if `revokeFamily` errors the rest of the stolen family stays alive. Make the revoke actually land — log ERROR + alert; retry if cheap. Logging alone is insufficient.
+- **2b disabled-user revoke-all** (`core/service_sessions.go:118`): just log ERROR. Mostly mooted by the 15m TTL (in-flight token dies ≤15m; refresh already blocked by `IsUserAllowed`). Lowest priority.
+- **2c OIDC link + email-verified writes** (`http/oauth2_browser.go:346,348,382`): **flow change.** Today the callback completes as if linked even when the write fails → next OIDC login can't find the link → error or DUPLICATE ACCOUNT (worse: doujins/hentai0 share one auth DB). Fail the callback (return error, user retries) instead of swallowing. Highest priority — data integrity. Verify the duplicate-account path concretely.
+
+Do NOT build the `pending_revocations` retry-queue table the audit suggests — fail-closed + user-retry is simpler; these are rare DB hiccups. Add a queue only if telemetry shows frequent failures.
+
+## 3. SIWS replay — atomic consume (AK-IMPL-2d)
+`siws.ChallengeCache` (`siws/siws.go:55-58`) exposes only `Get`+`Del`; `VerifySIWSAndLogin` (`core/service_solana.go:107,116`) does Get→Del→verify with the Del error swallowed AND Get-then-Del non-atomic → two concurrent requests with the same nonce both pass Get → replay within the 15m challenge TTL.
+- Add atomic `Consume(ctx, nonce) (ChallengeData, bool, error)` to `ChallengeCache` (Redis `GETDEL`/Lua; in-process backend = single-winner delete).
+- Use it in `VerifySIWSAndLogin` in place of Get+Del.
+- Check the same swallowed `_ = s.ephemDel` pattern on other single-use tokens (password reset, email verify, 2FA in `core/ephemeral_data.go`); `TestPasswordResetSessionOneTimeConsume` suggests those may already be handled elsewhere — confirm.
+
+## 4. Hot-reload signing keys — no-reboot rotation (AK-IMPL-3)
+`jwt.StaticKeySource` loads `keys.json` once at boot; rotation requires a process restart, and a multi-replica restart has a cross-replica skew gap. Replace with a reloadable source so rotation is a single file edit (Vault Agent renders the file; app picks it up live).
+- **`ReloadableKeySource`** — `atomic.Pointer[StaticKeySource]`, implements the existing `KeySource` interface (`jwt/keys.go:19` — `ActiveSigner()` / `PublicKeys()`), so `core.Service` construction is unchanged (still takes the interface).
+- **`Reload()`** — re-read via existing `tryLoadFromFilesystem`, VALIDATE (active key present + parseable), then atomic swap. On any read/parse error keep the old keystore + log ERROR (never brick a replica on a truncated/malformed file; also the partial-write guard — Vault Agent renders via temp+rename so reads are atomic anyway).
+- **Background poll** — stat the file mtime every N seconds (configurable, default **10s**), `Reload()` on change.
+- **Accepted tradeoff (in-process fleet skew only):** a few-second cross-replica skew among THIS fleet (server-1 signs new before server-3 has polled → transient 401 → client re-auths → self-heals next poll). Acceptable, so we do NOT build an *in-process keystore* reload-on-unknown-kid backstop.
+- **KEEP the HTTP verifier's existing unknown-kid lazy refetch** (`http/verifier.go:68-73`, `kidRefetchMin` 30s + single-flight) — SEPARATE mechanism, load-bearing for EXTERNAL/federated verifiers (e.g. doujins rotates → an external service holding a stale cached JWKS sees the new `kid`, force-refetches the issuer's JWKS, accepts if now present / rejects if still absent; same path OpenRails uses to verify a federated merchant issuer). Not in scope to change — just don't conflate it with the dropped in-process backstop. The hot-reload above is what makes the issuer's own `/.well-known/jwks.json` publish the rotated key live so that refetch actually finds it.
+- **Runbook (docs, no code):** rotate = edit `keys.json` → new key in `active_*`, move old key's PUBLIC pem into `public_keys` (keeps ≤15m in-flight tokens verifying); delete the old `public_keys` entry a day later. Emergency (suspected compromise): same edit but drop the old public key immediately — all old-key tokens fail after pickup, ≤15m re-auth blast radius.
+
+## Explicitly dropped (do not re-propose from the audit)
+- `jti` claim + per-request liveness lookup + `revoked_jti` table + verifier `RequireSessionLive` middleware (AK-IMPL-1b). A per-request Redis hit defeats stateless verification for sub-15m enforcement nobody needs; 15m TTL is the accepted bound.
+- Key-rotation pending/active/retired state machine + `POST /admin/keys/rotate` + `signing_keys` DB table (AK-IMPL-3). The `public_keys` map + hot-reload covers it.
+- `pending_revocations` retry-queue table (AK-IMPL-2).
+
+**Tasks:**
+- [x] `accessTTL` default 1h → 15m (`core/service.go`).
+- [x] 2a: family-revoke failure logs ERROR + alerts (retry if cheap). `revokeFamilyEnsured` (retry-once + CRITICAL log) at both `ExchangeRefreshToken` variants.
+- [x] 2b: disabled-user revoke failure logs ERROR. Both refresh variants.
+- [x] 2c: OIDC link write failure now fails the callback (`errProviderLinkFailed` → 500 `provider_link_failed`) at both link sites in `resolveOAuthUser`; cosmetic writes (SetProviderUsername/SetEmailVerified) logged not swallowed. Duplicate-account path confirmed (new-user branch: failed link → next login finds no link → duplicate/dead-end). Residual: orphan-user window without atomic create+link — logged CRITICAL, follow-up = authkit #88 tx-aware provisioning.
+- [x] 3: `ChallengeCache.Consume` added (Redis `GETDEL`; memory locked get-and-delete) + interface method; `VerifySIWSAndLogin` now consumes instead of Get+Del. Audit of other single-use `ephemDel` sites: password-reset (`ephemeral_data.go:301/305`), email-verify (`286/281`), 2FA (`331/338`), phone all share the SAME non-atomic Get-then-Del + swallowed-Del pattern. Sequential reuse IS already prevented (Del lands); only the concurrent-race residual remains, and double-consume there gains an attacker little (reset-twice / extra-session, no auth bypass). Deferred — see follow-up below (touches the PUBLIC `EphemeralStore` interface → consumer coordination).
+- [x] 4: `ReloadableKeySource` (`jwt/keys.go`): atomic-pointer swap, validate-before-swap (`loadStaticFromFile` asserts active signer), keep-old-on-error, 10s mtime poll (`DefaultKeyReloadInterval`), `Close()` for lifecycle. Wired into `NewAutoKeySourceWithPath` file branch (env/dev branches unchanged). Consumers calling `NewAutoKeySource` get hot-reload free when keys.json exists.
+- [x] Tests (all green under `-race`): SIWS single-use + concurrent single-winner + TTL-expiry (`storage/memory/siws_cache_test.go`); hot-reload active-key swap + poller pickup + retained retired pubkey + keep-old-on-malformed (`jwt/keys_reload_test.go`). Existing `core`/`http` suites still pass (OIDC link + solana-verify paths unbroken). DEFERRED (low-risk, need DB fault-injection / heavy setup): default-TTL=15m assertion (one-line literal) and 2a/2c revoke/link failure-path assertions.
+- [x] Document the rotation runbook (routine + emergency) → `jwt/KEY_ROTATION.md`.
+
+**Follow-ups (separate issues, intentionally out of scope here):**
+- Atomic `EphemeralStore.Consume` (GETDEL) routed for password-reset / 2FA / email-verify / phone single-use tokens. Deferred: breaks the public `EphemeralStore` interface (consumer coordination) and the concurrent-race residual is low-value. Sequential single-use is already enforced.
+- Atomic create+link in OIDC provisioning (removes the orphan-user window in 2c) — pairs with authkit #88 tx-aware provisioning.
 
 ---
 

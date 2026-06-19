@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	stdlog "log"
 	"net"
 	"strings"
 	"time"
@@ -100,7 +101,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	if err != nil {
 		// Maybe reuse of previous token -> revoke family
 		if prev, e2 := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.opts.Issuer}); e2 == nil {
-			_ = s.revokeFamily(ctx, prev.FamilyID)
+			s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
 			return "", time.Time{}, "", errors.New("refresh token reuse detected")
 		}
 		return "", time.Time{}, "", errors.New("invalid refresh token")
@@ -116,7 +117,9 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		email = *e
 	}
 	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
-		_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil)
+		if rErr := s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil); rErr != nil {
+			stdlog.Printf("[authkit/security] error: failed to revoke sessions for disabled user %s; in-flight access tokens stay valid until expiry (≤access TTL): %v", uid, rErr)
+		}
 		return "", time.Time{}, "", errors.New("user_disabled")
 	}
 
@@ -153,7 +156,7 @@ func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken 
 	if err != nil {
 		// Maybe reuse of previous token -> revoke family
 		if prev, e2 := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.opts.Issuer}); e2 == nil {
-			_ = s.revokeFamily(ctx, prev.FamilyID)
+			s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
 			return "", time.Time{}, "", errors.New("refresh token reuse detected")
 		}
 		return "", time.Time{}, "", errors.New("invalid refresh token")
@@ -169,7 +172,9 @@ func (s *Service) ExchangeRefreshTokenWithOrg(ctx context.Context, refreshToken 
 		email = *e
 	}
 	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
-		_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil)
+		if rErr := s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil); rErr != nil {
+			stdlog.Printf("[authkit/security] error: failed to revoke sessions for disabled user %s; in-flight access tokens stay valid until expiry (≤access TTL): %v", uid, rErr)
+		}
 		return "", time.Time{}, "", errors.New("user_disabled")
 	}
 
@@ -409,6 +414,23 @@ func (s *Service) revokeFamily(ctx context.Context, familyID string) error {
 		s.logSessionRevoked(ctx, r.UserID, r.ID, &reason)
 	}
 	return nil
+}
+
+// revokeFamilyEnsured revokes a session family on refresh-token-reuse detection,
+// retrying once before logging a CRITICAL, page-able security event. The family
+// revoke IS the refresh-token-theft defense (it kills every session descended
+// from a reused refresh token), so a silently-swallowed failure would leave the
+// attacker's stolen-but-rotated tokens valid. The reuse attempt itself is always
+// rejected by the caller; this only ensures the rest of the family dies too.
+func (s *Service) revokeFamilyEnsured(ctx context.Context, familyID, userID string) {
+	if err := s.revokeFamily(ctx, familyID); err == nil {
+		return
+	} else {
+		stdlog.Printf("[authkit/security] error: session family revoke failed after refresh-token reuse (family=%s user=%s); retrying: %v", familyID, userID, err)
+	}
+	if err := s.revokeFamily(ctx, familyID); err != nil {
+		stdlog.Printf("[authkit/security] CRITICAL: session family revoke failed after retry (family=%s user=%s); stolen refresh tokens may remain valid — investigate immediately: %v", familyID, userID, err)
+	}
 }
 
 func (s *Service) hashRefresh(token string) []byte {

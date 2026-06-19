@@ -7,12 +7,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
 	// DefaultAuthKeysPath is the default directory where External Secrets mounts auth keys
 	DefaultAuthKeysPath = "/vault/auth"
+
+	// DefaultKeyReloadInterval is how often a ReloadableKeySource re-stats
+	// keys.json for changes. Short keeps the post-rotation multi-replica skew
+	// window small; the cost is one stat() per tick. See authkit #90.
+	DefaultKeyReloadInterval = 10 * time.Second
 )
 
 // KeySource provides the active signer and public keys for JWKS.
@@ -29,6 +36,135 @@ type StaticKeySource struct {
 
 func (s StaticKeySource) ActiveSigner() Signer                    { return s.Active }
 func (s StaticKeySource) PublicKeys() map[string]crypto.PublicKey { return clonePublicKeyMap(s.Pubs) }
+
+// ReloadableKeySource wraps a file-backed StaticKeySource and hot-reloads it
+// when keys.json changes on disk (e.g. re-rendered by Vault Agent), so signing-
+// key rotation never requires a process restart. It implements KeySource; reads
+// are lock-free via an atomic pointer. A background poller re-stats keys.json at
+// the configured interval and, on change, atomically swaps in a NEW validated
+// keystore. A malformed/unreadable file keeps the last-good keystore — a bad
+// render never bricks signing. See authkit #90 (AK-IMPL-3).
+type ReloadableKeySource struct {
+	path     string // directory containing keys.json
+	interval time.Duration
+	cur      atomic.Pointer[StaticKeySource]
+
+	mu      sync.Mutex // serializes Reload and guards lastMod
+	lastMod time.Time
+
+	done chan struct{}
+	once sync.Once
+}
+
+// NewReloadableFileKeySource loads keys.json from the given directory and starts
+// a background poller that hot-reloads it every interval (<=0 →
+// DefaultKeyReloadInterval). It errors when no valid keys.json is present, so
+// use it only where a file source is expected — env/dev sources don't reload
+// (env is immutable in a running process; generated keys are dev-only).
+func NewReloadableFileKeySource(path string, interval time.Duration) (*ReloadableKeySource, error) {
+	if strings.TrimSpace(path) == "" {
+		path = DefaultAuthKeysPath
+	}
+	if interval <= 0 {
+		interval = DefaultKeyReloadInterval
+	}
+	static, err := loadStaticFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	r := &ReloadableKeySource{path: path, interval: interval, done: make(chan struct{})}
+	r.cur.Store(static)
+	if mod, modErr := r.keyFileModTime(); modErr == nil {
+		r.lastMod = mod
+	}
+	go r.pollLoop()
+	return r, nil
+}
+
+func (r *ReloadableKeySource) ActiveSigner() Signer { return r.cur.Load().ActiveSigner() }
+func (r *ReloadableKeySource) PublicKeys() map[string]crypto.PublicKey {
+	return r.cur.Load().PublicKeys()
+}
+
+func (r *ReloadableKeySource) keyFilePath() string { return filepath.Join(r.path, "keys.json") }
+
+func (r *ReloadableKeySource) keyFileModTime() (time.Time, error) {
+	fi, err := os.Stat(r.keyFilePath())
+	if err != nil {
+		return time.Time{}, err
+	}
+	return fi.ModTime(), nil
+}
+
+// Reload re-reads keys.json, validates it, and atomically swaps it in. On any
+// read/parse/validation failure it KEEPS the current keystore and returns the
+// error — it never serves a partial or empty key set.
+func (r *ReloadableKeySource) Reload() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	static, err := loadStaticFromFile(r.path)
+	if err != nil {
+		return err
+	}
+	r.cur.Store(static)
+	return nil
+}
+
+// Close stops the background poller. Safe to call multiple times; optional for
+// process-lifetime sources (primarily for tests and clean shutdown).
+func (r *ReloadableKeySource) Close() { r.once.Do(func() { close(r.done) }) }
+
+func (r *ReloadableKeySource) pollLoop() {
+	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.done:
+			return
+		case <-ticker.C:
+			mod, err := r.keyFileModTime()
+			if err != nil {
+				continue // transient (e.g. mid-render); keep current keys, retry next tick
+			}
+			r.mu.Lock()
+			unchanged := !mod.After(r.lastMod)
+			r.mu.Unlock()
+			if unchanged {
+				continue
+			}
+			if err := r.Reload(); err != nil {
+				logf("Warning: keys.json reload failed, keeping current signing keys: %v", err)
+				continue
+			}
+			r.mu.Lock()
+			r.lastMod = mod
+			r.mu.Unlock()
+			logf("authkit: reloaded signing keys from %s (rotated active kid into service)", r.keyFilePath())
+		}
+	}
+}
+
+// loadStaticFromFile loads keys.json under path and asserts the concrete
+// StaticKeySource shape that tryLoadFromFilesystem returns. It errors when no
+// keys.json is present (unlike tryLoadFromFilesystem, which returns (nil,nil)),
+// because the reloadable source requires a real file to back it.
+func loadStaticFromFile(path string) (*StaticKeySource, error) {
+	ks, err := tryLoadFromFilesystem(path)
+	if err != nil {
+		return nil, err
+	}
+	if ks == nil {
+		return nil, fmt.Errorf("no keys.json found under %s", path)
+	}
+	static, ok := ks.(StaticKeySource)
+	if !ok {
+		return nil, fmt.Errorf("unexpected key source type %T from %s", ks, path)
+	}
+	if static.Active == nil {
+		return nil, fmt.Errorf("keys.json under %s has no active signer", path)
+	}
+	return &static, nil
+}
 
 // GeneratedKeySource generates and persists RSA keys (for development only).
 type GeneratedKeySource struct {
@@ -167,10 +303,17 @@ func NewAutoKeySourceWithPath(path string) (KeySource, error) {
 		return keySource, nil
 	}
 
-	if keySource, err := FileKeySource(path); err != nil {
-		return nil, fmt.Errorf("failed to load keys from %s: %w", path, err)
-	} else if keySource != nil {
-		return keySource, nil
+	// File branch: when keys.json exists, serve it through a ReloadableKeySource
+	// so signing-key rotation (Vault Agent re-renders the file) takes effect
+	// without a process restart. Falls through to the dev generator only when no
+	// keys.json is present. The poller lives for the process lifetime; callers
+	// needing lifecycle control use NewReloadableFileKeySource directly.
+	if _, statErr := os.Stat(filepath.Join(path, "keys.json")); statErr == nil {
+		rks, err := NewReloadableFileKeySource(path, DefaultKeyReloadInterval)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load keys from %s: %w", path, err)
+		}
+		return rks, nil
 	}
 
 	if isProdEnv() {

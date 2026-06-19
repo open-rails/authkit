@@ -103,17 +103,17 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		return "", time.Time{}, "", "", false, fmt.Errorf("failed to parse signed message: %w", err)
 	}
 
-	// Look up the challenge by nonce
-	challengeData, found, err := cache.Get(ctx, parsedInput.Nonce)
+	// Atomically consume the challenge by nonce (single-use). GETDEL (Redis) /
+	// locked get-and-delete (memory) guarantees only one concurrent caller wins
+	// the nonce, so a replayed signed message within the challenge TTL cannot be
+	// verified twice (closes the AK-IMPL-2d replay window — authkit #90).
+	challengeData, found, err := cache.Consume(ctx, parsedInput.Nonce)
 	if err != nil {
-		return "", time.Time{}, "", "", false, fmt.Errorf("failed to lookup challenge: %w", err)
+		return "", time.Time{}, "", "", false, fmt.Errorf("failed to consume challenge: %w", err)
 	}
 	if !found {
 		return "", time.Time{}, "", "", false, fmt.Errorf("challenge not found or expired")
 	}
-
-	// Delete the nonce immediately (single-use)
-	_ = cache.Del(ctx, parsedInput.Nonce)
 
 	// Run the stateless verification (expiry, address, domain, timestamps,
 	// public-key consistency, signature) against the server-issued challenge.

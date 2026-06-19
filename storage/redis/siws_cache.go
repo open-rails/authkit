@@ -58,3 +58,21 @@ func (c *SIWSCache) Get(ctx context.Context, nonce string) (siws.ChallengeData, 
 func (c *SIWSCache) Del(ctx context.Context, nonce string) error {
 	return c.rdb.Del(ctx, c.key(nonce)).Err()
 }
+
+// Consume atomically retrieves and deletes a challenge (single-use). Redis
+// GETDEL guarantees only one concurrent caller receives the value, so a replayed
+// SIWS signature can't reuse the same nonce within the challenge TTL.
+func (c *SIWSCache) Consume(ctx context.Context, nonce string) (siws.ChallengeData, bool, error) {
+	val, err := c.rdb.GetDel(ctx, c.key(nonce)).Bytes()
+	if err == redis.Nil {
+		return siws.ChallengeData{}, false, nil
+	}
+	if err != nil {
+		return siws.ChallengeData{}, false, err
+	}
+	var d siws.ChallengeData
+	if err := json.Unmarshal(val, &d); err != nil {
+		return siws.ChallengeData{}, false, err
+	}
+	return d, true, nil
+}

@@ -67,6 +67,23 @@ func (c *SIWSCache) Del(ctx context.Context, nonce string) error {
 	return nil
 }
 
+// Consume atomically retrieves and deletes a challenge (single-use). The write
+// lock makes get+delete a single-winner operation, so two concurrent callers
+// presenting the same nonce can't both verify — closing the SIWS replay window.
+func (c *SIWSCache) Consume(ctx context.Context, nonce string) (siws.ChallengeData, bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.data[nonce]
+	if !ok {
+		return siws.ChallengeData{}, false, nil
+	}
+	delete(c.data, nonce) // consume even if expired, so it can't be retried
+	if time.Now().After(entry.expiresAt) {
+		return siws.ChallengeData{}, false, nil
+	}
+	return entry.data, true, nil
+}
+
 // cleanupLoop periodically removes expired entries.
 func (c *SIWSCache) cleanupLoop() {
 	ticker := time.NewTicker(time.Minute)
