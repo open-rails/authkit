@@ -37,9 +37,13 @@ Fix — seed-once by default:
 
 # #88: Provisioning + authority primitives for OpenRails' merchant model
 
-**Completed:** no
+**Completed:** yes
 
-PARTIAL (v0.38.0): (b) CONFIRMED — `owner` is already assignable to a remote_application member (`validateOrgRole`/`canonicalizeOrgRole` accept it, no reserved-role guard); regression test `TestRemoteApplicationOwnerMembershipGrantsWildcard` added (owner→wildcard `*` via `ResolveRemoteApplicationAuthority`). REMAINING: (a) tx-aware provisioning — DEFERRED; OpenRails #527 uses the compensating-delete fallback for now. (c) claim-stripping / `enabled`-kill-switch regression tests — not yet added. (d) optional one-call helper — not done.
+DONE for the #527-blocking scope (v0.38.0):
+- (b) `owner` is assignable to a remote_application member (`validateOrgRole`/`canonicalizeOrgRole` accept it; no reserved-role guard). Regression test `TestRemoteApplicationOwnerMembershipGrantsWildcard` (owner→wildcard `*` via `ResolveRemoteApplicationAuthority`).
+- (c) invariant lock-in — ALREADY COVERED by the existing suite: claim-stripping (`TestDelegatedAccessRejectsRolesClaim`/`RejectsOrgClaim`/`RejectsOrgIDClaim`), `enabled`=false kill-switch (`http/federation_test.go` disabled-issuer → 403; `LoadRemoteApplications` enabledOnly in `verifier_coherence_test`), stored-authority (delegated tests + the new owner-on-RA test). No new tests needed.
+
+OPTIONAL / not needed (deliberately deferred): (a) tx-aware provisioning — OpenRails #527 uses authkit's idempotent `ProvisionOrg` + merchant upsert (re-apply converges), so a single cross-domain tx is not required; (d) one-call org+issuer helper. Reopen if a future consumer needs strict atomicity.
 
 Supports OpenRails #527's unified atomic `ProvisionMerchant` (one merchant ↔ one backing org ↔ one issuer-as-owner) and locks in the security invariants the model depends on.
 
