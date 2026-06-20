@@ -228,8 +228,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 
 		// Remote-application registry (#74, INBOUND accept side). A
 		// remote_application is the federation PRINCIPAL (JWKS-credentialed).
-		// Register/delete authorize on the principal owner inside the handler;
-		// listing is global-admin only for operator visibility.
+		// Register/delete authorize on the issuer's owning org (org RBAC,
+		// org:remote_applications:*) inside the handler (#95).
 		{Method: http.MethodPost, Path: "/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationRegisterPOST))},
 		{Method: http.MethodDelete, Path: "/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationDeleteDELETE))},
 		// A remote_application's org memberships (assigned via the SAME role

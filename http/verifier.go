@@ -91,7 +91,7 @@ type issuerEntry struct {
 	maxStale  time.Duration
 	orgSlug   string
 	// isLocal is true only for the platform's own token signer. Platform-authority
-	// claims (global_roles, org_roles, roles) are trusted only from local issuers;
+	// claims (org_roles, roles) are trusted only from local issuers;
 	// tokens from remote_application issuers have those claims stripped on verify.
 	isLocal bool
 }
@@ -422,7 +422,7 @@ type IssuerOptions struct {
 	OrgSlug string
 
 	// IsLocal marks this issuer as the platform's own token signer. When true,
-	// platform-authority claims (global_roles, org_roles, roles) are trusted from
+	// platform-authority claims (org_roles, roles) are trusted from
 	// tokens it signs. When false (the default for all remote_application issuers),
 	// those claims are stripped on verify — a federated issuer cannot self-assert
 	// global-admin or any other platform-wide role.
@@ -998,7 +998,7 @@ func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, strin
 // extractClaims converts jwt.MapClaims into typed Claims. isLocal must be true
 // only when the token was signed by the platform's own issuer; for all other
 // issuers (remote_application / federated) it must be false, which causes
-// platform-authority claims (global_roles, org_roles, roles) to be stripped so
+// platform-authority claims (org_roles, roles) to be stripped so
 // a federated issuer cannot self-assert platform-wide admin.
 func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 	cl := Claims{
@@ -1069,7 +1069,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 
 	// AK-C1: strip platform-authority claims for all non-local (federated) issuers.
 	// A remote_application issuer controlling its own JWKS must never be able to
-	// self-assert global_roles, org_roles, or roles and gain platform-admin access.
+	// self-assert org_roles or roles and gain platform-admin access.
 	// These claims are only meaningful on tokens from the platform's own signer.
 	if !isLocal {
 		cl.OrgRoles = nil

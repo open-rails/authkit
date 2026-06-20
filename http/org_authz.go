@@ -57,9 +57,9 @@ func (s *Service) requireOrgOwner(ctx context.Context, userID, orgSlug string) (
 }
 
 // requireOrgPermission resolves the org and reports whether the caller holds the
-// given permission there — via any role granted it (owner holds `*`), or a
-// platform global-admin bypass. This is the permission-based gate for
-// org-management endpoints (authkit #46), replacing the hardcoded owner check.
+// given permission there — via any role granted it (owner holds `org:*`). This
+// is the permission-based gate for org-management endpoints (authkit #46),
+// replacing the hardcoded owner check. There is no global-admin bypass (#95).
 func (s *Service) requireOrgPermission(ctx context.Context, claims Claims, orgSlug, perm string) (canonical string, allowed bool, err error) {
 	org, err := s.svc.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {

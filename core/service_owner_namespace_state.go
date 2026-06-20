@@ -379,10 +379,11 @@ func (s *Service) claimParkedOrgToRegistered(ctx context.Context, org *Org, owne
 		return "", ErrOwnerNamespaceAlreadyClaimed
 	}
 	// The park/claim path doesn't go through CreateOrg, so seed the owner role
-	// + its `*` permission here (idempotent). Without this a claimed org (e.g. a
-	// reserved namespace like tensorhub's `root`) has NO role-permissions — not
-	// even owner=* — so its owner holds nothing and only a global-admin bypass
-	// works. App DefaultRoles stay lazy (materialized on first grant).
+	// + its `org:*` permission here (idempotent). Without this a claimed org (e.g.
+	// a reserved namespace like tensorhub's `root`) has NO role-permissions — not
+	// even owner=org:* — so its owner holds nothing and the org is unmanageable
+	// (there is no global-admin bypass, #95). App DefaultRoles stay lazy
+	// (materialized on first grant).
 	if err := s.q.OrgRoleDefine(ctx, db.OrgRoleDefineParams{OrgID: org.ID, Role: orgOwnerRole}); err != nil {
 		return "", err
 	}

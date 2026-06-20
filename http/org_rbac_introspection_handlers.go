@@ -26,8 +26,7 @@ func (s *Service) callerEffectivePermissions(r *http.Request, claims Claims, can
 
 // handleOrgMeGET returns the caller's OWN membership view in the org — roles +
 // effective permissions in one call. Requires membership only: a member may
-// always introspect itself without holding org:read. A global admin gets the
-// full catalog (and no roles, since membership is not required).
+// always introspect itself without holding org:read.
 func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
@@ -72,7 +71,7 @@ func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 // Body: {"permissions":[...]}; returns {"granted":[...]} — the requested subset
 // the principal holds. By default the principal is the caller (a member may
 // always check itself). An optional "user_id" checks another member and
-// requires org:read. A global admin holds everything.
+// requires org:read.
 func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || (strings.TrimSpace(claims.UserID) == "" && !claims.IsService()) {

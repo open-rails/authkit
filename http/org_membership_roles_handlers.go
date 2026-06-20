@@ -55,9 +55,9 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// NO-ESCALATION: assigning a role grants its permissions, so the assigner
-	// must hold every permission the role confers (owner=`*`/global-admin pass).
+	// must hold every permission the role confers (owner=`org:*` passes).
 	// This is what keeps a member with org:members:manage from granting the
-	// `owner` role (which is `*`) and escalating.
+	// `owner` role (which is `org:*`) and escalating.
 	rolePerms, err := s.svc.EffectiveRolePermissions(r.Context(), canonical, body.Role)
 	if err != nil {
 		serverErr(w, "role_permissions_lookup_failed")
