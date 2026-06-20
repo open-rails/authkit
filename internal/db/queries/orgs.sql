@@ -197,6 +197,39 @@ SELECT EXISTS (
    AND p.permission = ANY(sqlc.arg(permissions)::text[])
 );
 
+-- name: OrgUserPermissions :many
+-- Single indexed-JOIN per-request resolution (#95 memoization): every RAW grant
+-- token a user holds in an org across their role, resolving direct + historical
+-- (renamed) slugs in ONE round trip. Mirrors OrgUserHasPermissionToken but
+-- materializes the token set so a request that checks N perms resolves the org
+-- layer ONCE (the gate then matches the cached tokens in-memory). A non-member
+-- yields 0 rows. Globs (`org:*`) stay ONE row — never enumerated.
+WITH resolved AS (
+  SELECT id
+  FROM (
+    SELECT o.id, 0 AS priority, NULL::timestamptz AS renamed_at
+    FROM profiles.orgs o
+    WHERE o.slug = sqlc.arg(org_slug) AND o.deleted_at IS NULL
+    UNION ALL
+    SELECT o.id, 1 AS priority, r.renamed_at
+    FROM profiles.org_renames r
+    JOIN profiles.orgs o ON o.id = r.org_id AND o.deleted_at IS NULL
+    WHERE r.from_slug = sqlc.arg(org_slug)
+  ) candidates
+  ORDER BY priority ASC, renamed_at DESC NULLS LAST
+  LIMIT 1
+)
+SELECT DISTINCT p.permission
+FROM resolved o
+JOIN profiles.org_memberships m
+  ON m.org_id = o.id
+ AND m.member_id = sqlc.arg(user_id)::uuid
+ AND m.member_kind = 'user'
+ AND m.deleted_at IS NULL
+JOIN profiles.org_role_permissions p
+  ON p.org_id = m.org_id
+ AND p.role = m.role;
+
 -- name: OrgRoleExists :one
 SELECT EXISTS(SELECT 1 FROM profiles.org_roles WHERE org_id = sqlc.arg(org_id)::uuid AND role = $2);
 

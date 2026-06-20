@@ -618,6 +618,20 @@ func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
 	return s
 }
 
+// WithDBTXWrapper re-binds the service's querier through wrap, a decorator over
+// the underlying db.DBTX (the schema-rewriting layer over the pool). It exists
+// as a TEST SEAM so a counting/spy DBTX can observe exactly how many statements
+// a code path issues — e.g. proving the #95 per-request permission memoization
+// resolves a layer with ONE query, not N. Must be called AFTER WithPostgres.
+// Production code never wraps the querier, so the hot path is untouched.
+func (s *Service) WithDBTXWrapper(wrap func(db.DBTX) db.DBTX) *Service {
+	if s.pg == nil || wrap == nil {
+		return s
+	}
+	s.q = db.New(wrap(db.ForSchema(s.pg, s.dbSchema())))
+	return s
+}
+
 // Postgres returns the attached pgx pool (may be nil).
 func (s *Service) Postgres() *pgxpool.Pool { return s.pg }
 

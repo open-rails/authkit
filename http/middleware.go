@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
@@ -28,7 +30,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 					unauthorized(w, serr.Error())
 					return
 				}
-				r = r.WithContext(setClaims(r.Context(), scl))
+				r = r.WithContext(core.WithPermissionMemo(setClaims(r.Context(), scl)))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -84,7 +86,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				}
 			}
 
-			r = r.WithContext(setClaims(r.Context(), cl))
+			r = r.WithContext(core.WithPermissionMemo(setClaims(r.Context(), cl)))
 			next.ServeHTTP(w, r)
 		})
 	}

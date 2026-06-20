@@ -345,19 +345,27 @@ func (s *Service) EffectiveRolePermissions(ctx context.Context, orgSlug, role st
 }
 
 // HasPermission reports whether the user holds perm in the org.
+//
+// MEMOIZED (#95): the user's RAW org grant tokens are resolved ONCE per request
+// (single indexed JOIN, rename-aware) and cached on the request-scoped context;
+// the perm is then matched against the cached tokens in-memory with the SAME
+// namespace-anchored glob semantics the SQL cover-token match used. So a handler
+// checking N perms in one request issues exactly ONE org-layer query, not N. The
+// allow/deny result is identical to the previous per-check OrgUserHasPermissionToken
+// query (a stored token covers perm iff it is one of permissionCoverTokens(perm),
+// i.e. permMatches(token, perm)).
 func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	tokens := permissionCoverTokens(perm)
-	if len(tokens) == 0 || strings.TrimSpace(orgSlug) == "" || strings.TrimSpace(userID) == "" {
+	if strings.TrimSpace(perm) == "" || strings.TrimSpace(orgSlug) == "" || strings.TrimSpace(userID) == "" {
 		return false, nil
 	}
-	return s.q.OrgUserHasPermissionToken(ctx, db.OrgUserHasPermissionTokenParams{
-		OrgSlug:     strings.TrimSpace(orgSlug),
-		UserID:      strings.TrimSpace(userID),
-		Permissions: tokens,
-	})
+	tokens, err := s.resolveOrgTokens(ctx, orgSlug, userID)
+	if err != nil {
+		return false, err
+	}
+	return tokensCover(tokens, perm), nil
 }
 
 // ValidateGrant checks a set of permission tokens an actor wants to assign to a

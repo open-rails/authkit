@@ -692,6 +692,65 @@ func (q *Queries) OrgUserHasPermissionToken(ctx context.Context, arg OrgUserHasP
 	return exists, err
 }
 
+const orgUserPermissions = `-- name: OrgUserPermissions :many
+WITH resolved AS (
+  SELECT id
+  FROM (
+    SELECT o.id, 0 AS priority, NULL::timestamptz AS renamed_at
+    FROM profiles.orgs o
+    WHERE o.slug = $2 AND o.deleted_at IS NULL
+    UNION ALL
+    SELECT o.id, 1 AS priority, r.renamed_at
+    FROM profiles.org_renames r
+    JOIN profiles.orgs o ON o.id = r.org_id AND o.deleted_at IS NULL
+    WHERE r.from_slug = $2
+  ) candidates
+  ORDER BY priority ASC, renamed_at DESC NULLS LAST
+  LIMIT 1
+)
+SELECT DISTINCT p.permission
+FROM resolved o
+JOIN profiles.org_memberships m
+  ON m.org_id = o.id
+ AND m.member_id = $1::uuid
+ AND m.member_kind = 'user'
+ AND m.deleted_at IS NULL
+JOIN profiles.org_role_permissions p
+  ON p.org_id = m.org_id
+ AND p.role = m.role
+`
+
+type OrgUserPermissionsParams struct {
+	UserID  string
+	OrgSlug string
+}
+
+// Single indexed-JOIN per-request resolution (#95 memoization): every RAW grant
+// token a user holds in an org across their role, resolving direct + historical
+// (renamed) slugs in ONE round trip. Mirrors OrgUserHasPermissionToken but
+// materializes the token set so a request that checks N perms resolves the org
+// layer ONCE (the gate then matches the cached tokens in-memory). A non-member
+// yields 0 rows. Globs (`org:*`) stay ONE row — never enumerated.
+func (q *Queries) OrgUserPermissions(ctx context.Context, arg OrgUserPermissionsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, orgUserPermissions, arg.UserID, arg.OrgSlug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var permission string
+		if err := rows.Scan(&permission); err != nil {
+			return nil, err
+		}
+		items = append(items, permission)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const remoteAppAttributeDefDelete = `-- name: RemoteAppAttributeDefDelete :execrows
 DELETE FROM profiles.remote_application_attribute_defs
 WHERE remote_application_id = $1::uuid AND key = $2

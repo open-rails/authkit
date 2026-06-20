@@ -256,18 +256,26 @@ func (s *Service) EffectivePlatformPermissions(ctx context.Context, userID strin
 }
 
 // HasPlatformPermission reports whether the user holds perm in the platform layer.
+//
+// MEMOIZED (#95): the user's RAW platform grant tokens are resolved ONCE per
+// request (single indexed JOIN; a regular user has 0 rows in platform_user_roles
+// and never touches the permission table) and cached on the request-scoped
+// context; perm is matched against the cached tokens in-memory with the SAME
+// glob semantics the SQL cover-token match used. N checks in one request → ONE
+// platform-layer query. The allow/deny result is identical to the previous
+// per-check PlatformUserHasPermissionToken query.
 func (s *Service) HasPlatformPermission(ctx context.Context, userID, perm string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	tokens := permissionCoverTokens(perm)
-	if len(tokens) == 0 || strings.TrimSpace(userID) == "" {
+	if strings.TrimSpace(perm) == "" || strings.TrimSpace(userID) == "" {
 		return false, nil
 	}
-	return s.q.PlatformUserHasPermissionToken(ctx, db.PlatformUserHasPermissionTokenParams{
-		UserID:      strings.TrimSpace(userID),
-		Permissions: tokens,
-	})
+	tokens, err := s.resolvePlatformTokens(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return tokensCover(tokens, perm), nil
 }
 
 // ValidatePlatformGrant checks tokens an actor wants to assign to a platform role
