@@ -2,9 +2,11 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 )
 
 func TestEffectivePermsForTokens(t *testing.T) {
@@ -30,6 +32,71 @@ func TestEffectivePermsForTokens(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestPermissionCoverTokens(t *testing.T) {
+	got := permissionCoverTokens("platform:orgs:recover")
+	want := []string{
+		"platform:orgs:recover",
+		"platform:*",
+		"platform:*:recover",
+		"platform:orgs:*",
+		"platform:*:*",
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("permissionCoverTokens=%v want %v", got, want)
+	}
+}
+
+func TestHasPermissionUsesSingleRoleGrantQuery(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{
+		Issuer:      "https://test",
+		Permissions: []PermissionDef{{Name: "repo:read"}},
+	}, Keyset{}).WithPostgres(pool)
+
+	suffix := time.Now().UnixNano()
+	orgSlug := fmt.Sprintf("hot-org-%d", suffix)
+	role := "ops"
+	user, err := svc.CreateUser(ctx, "", fmt.Sprintf("hotuser%d", suffix))
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, orgSlug)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID)
+	})
+	if _, err := svc.CreateOrg(ctx, orgSlug); err != nil {
+		t.Fatalf("CreateOrg: %v", err)
+	}
+	if err := svc.DefineRole(ctx, orgSlug, role); err != nil {
+		t.Fatalf("DefineRole: %v", err)
+	}
+	if err := svc.SetRolePermissions(ctx, orgSlug, role, []string{PermOrgRemoteAppsUpdate, "repo:*"}); err != nil {
+		t.Fatalf("SetRolePermissions: %v", err)
+	}
+	if err := svc.AddMember(ctx, orgSlug, user.ID); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := svc.AssignRole(ctx, orgSlug, user.ID, role); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+
+	ok, err := svc.HasPermission(ctx, orgSlug, user.ID, PermOrgRemoteAppsUpdate)
+	if err != nil || !ok {
+		t.Fatalf("literal HasPermission=(%v,%v), want true,nil", ok, err)
+	}
+	ok, err = svc.HasPermission(ctx, orgSlug, user.ID, "repo:read")
+	if err != nil || !ok {
+		t.Fatalf("glob HasPermission=(%v,%v), want true,nil", ok, err)
+	}
+	ok, err = svc.HasPermission(ctx, orgSlug, user.ID, PermOrgAPIKeysDelete)
+	if err != nil || ok {
+		t.Fatalf("missing HasPermission=(%v,%v), want false,nil", ok, err)
 	}
 }
 

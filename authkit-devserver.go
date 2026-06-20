@@ -37,6 +37,7 @@ type config struct {
 	// these to exercise the multi-org API-key/RBAC surface against a real server.
 	APIKeyPrefix                string
 	PermissionCatalog           []string
+	StaticEntitlements          []string
 	OrgManifestPath             string
 	ReconcileOrgManifestOnStart bool
 	BootstrapManifestPath       string
@@ -99,6 +100,7 @@ func loadConfig() (*config, error) {
 		RegistrationVerification:    core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
 		APIKeyPrefix:                strings.TrimSpace(firstEnv("DEVSERVER_API_KEY_PREFIX", "DEVSERVER_TOKEN_PREFIX")),
 		PermissionCatalog:           parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
+		StaticEntitlements:          parseCSVEnv("DEVSERVER_STATIC_ENTITLEMENTS", nil),
 		OrgManifestPath:             strings.TrimSpace(envOr("DEVSERVER_ORG_MANIFEST_PATH", "")),
 		ReconcileOrgManifestOnStart: envBool("DEVSERVER_RECONCILE_ORG_MANIFEST_ON_START", false),
 		BootstrapManifestPath:       strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", core.DefaultBootstrapManifestPath)),
@@ -149,12 +151,18 @@ func runServe(cfg *config) error {
 		Environment:              cfg.Environment,
 		RegistrationVerification: cfg.RegistrationVerification,
 		APIKeyPrefix:             cfg.APIKeyPrefix,
-		Permissions:        toPermissionDefs(cfg.PermissionCatalog),
+		Permissions:              toPermissionDefs(cfg.PermissionCatalog),
 	})
 	if err != nil {
 		return err
 	}
 	svc.WithPostgres(pg)
+	if len(cfg.StaticEntitlements) > 0 {
+		svc.WithEntitlements(staticDevEntitlements{names: cfg.StaticEntitlements})
+	}
+	if err := svc.Verifier().LoadRemoteApplications(ctx, svc.Core(), cfg.ExpectedAudiences); err != nil {
+		return fmt.Errorf("load remote applications: %w", err)
+	}
 	if cfg.ReconcileBootstrapOnStart {
 		if _, err := reconcileBootstrapManifest(ctx, svc.Core(), cfg.BootstrapManifestPath, false); err != nil {
 			return err
@@ -222,9 +230,9 @@ func runOrgManifestApply(cfg *config) error {
 	defer pg.Close()
 
 	svc := core.NewService(core.Options{
-		Issuer:            cfg.Issuer,
-		APIKeyPrefix:      cfg.APIKeyPrefix,
-		Permissions: toPermissionDefs(cfg.PermissionCatalog),
+		Issuer:       cfg.Issuer,
+		APIKeyPrefix: cfg.APIKeyPrefix,
+		Permissions:  toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)
 	result, err := reconcileOrgManifest(ctx, svc, cfg.OrgManifestPath)
 	if err != nil {
@@ -250,9 +258,9 @@ func runBootstrapApply(cfg *config, args []string) error {
 	defer pg.Close()
 
 	svc := core.NewService(core.Options{
-		Issuer:            cfg.Issuer,
-		APIKeyPrefix:      cfg.APIKeyPrefix,
-		Permissions: toPermissionDefs(cfg.PermissionCatalog),
+		Issuer:       cfg.Issuer,
+		APIKeyPrefix: cfg.APIKeyPrefix,
+		Permissions:  toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)
 	result, err := reconcileBootstrapManifest(ctx, svc, path, dryRun)
 	if err != nil {
@@ -355,6 +363,14 @@ type mintResponse struct {
 	Token     string    `json:"token"`
 	TokenType string    `json:"token_type"`
 	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type staticDevEntitlements struct {
+	names []string
+}
+
+func (p staticDevEntitlements) ListEntitlements(context.Context, string) ([]string, error) {
+	return append([]string(nil), p.names...), nil
 }
 
 func toPermissionDefs(names []string) []core.PermissionDef {

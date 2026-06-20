@@ -212,6 +212,41 @@ func effectivePermsForTokens(tokens []string, catalog map[string]bool) map[strin
 	return out
 }
 
+func permissionCoverTokens(perm string) []string {
+	perm = strings.TrimSpace(perm)
+	if perm == "" || perm == PermWildcard {
+		return nil
+	}
+	parts := strings.Split(perm, ":")
+	out := []string{perm}
+	seen := map[string]bool{perm: true}
+	if len(parts) > 1 && parts[0] != "" && parts[0] != PermWildcard {
+		nsGlob := parts[0] + ":" + PermWildcard
+		out = append(out, nsGlob)
+		seen[nsGlob] = true
+	}
+	if len(parts) > 2 && parts[0] != "" && parts[0] != PermWildcard {
+		// Generate every same-length namespace-anchored glob that could match
+		// this concrete permission. Usually this is four strings total for the
+		// common ns:resource:action shape.
+		max := 1 << (len(parts) - 1)
+		for mask := 1; mask < max; mask++ {
+			candidate := append([]string(nil), parts...)
+			for i := 1; i < len(candidate); i++ {
+				if mask&(1<<(i-1)) != 0 {
+					candidate[i] = PermWildcard
+				}
+			}
+			tok := strings.Join(candidate, ":")
+			if !seen[tok] {
+				out = append(out, tok)
+				seen[tok] = true
+			}
+		}
+	}
+	return out
+}
+
 func sortedKeys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -311,17 +346,18 @@ func (s *Service) EffectiveRolePermissions(ctx context.Context, orgSlug, role st
 
 // HasPermission reports whether the user holds perm in the org.
 func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm string) (bool, error) {
-	perm = strings.TrimSpace(perm)
-	eff, err := s.EffectivePermissions(ctx, orgSlug, userID)
-	if err != nil {
+	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	for _, p := range eff {
-		if p == perm {
-			return true, nil
-		}
+	tokens := permissionCoverTokens(perm)
+	if len(tokens) == 0 || strings.TrimSpace(orgSlug) == "" || strings.TrimSpace(userID) == "" {
+		return false, nil
 	}
-	return false, nil
+	return s.q.OrgUserHasPermissionToken(ctx, db.OrgUserHasPermissionTokenParams{
+		OrgSlug:     strings.TrimSpace(orgSlug),
+		UserID:      strings.TrimSpace(userID),
+		Permissions: tokens,
+	})
 }
 
 // ValidateGrant checks a set of permission tokens an actor wants to assign to a

@@ -118,6 +118,31 @@ func (q *Queries) PlatformRolesList(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const platformUserHasPermissionToken = `-- name: PlatformUserHasPermissionToken :one
+SELECT EXISTS (
+  SELECT 1
+  FROM profiles.platform_user_roles ur
+  JOIN profiles.platform_role_permissions p
+    ON p.role = ur.role
+   AND p.permission = ANY($1::text[])
+  WHERE ur.user_id = $2::uuid
+)
+`
+
+type PlatformUserHasPermissionTokenParams struct {
+	Permissions []string
+	UserID      string
+}
+
+// Hot authz path: one indexed query from user + candidate grant tokens to
+// "allowed?". No full permission-set materialization on every platform gate.
+func (q *Queries) PlatformUserHasPermissionToken(ctx context.Context, arg PlatformUserHasPermissionTokenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, platformUserHasPermissionToken, arg.Permissions, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const platformUserPermissions = `-- name: PlatformUserPermissions :many
 SELECT DISTINCT p.permission
 FROM profiles.platform_user_roles ur

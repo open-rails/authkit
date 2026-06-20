@@ -646,6 +646,52 @@ func (q *Queries) OrgUpdateSlug(ctx context.Context, arg OrgUpdateSlugParams) er
 	return err
 }
 
+const orgUserHasPermissionToken = `-- name: OrgUserHasPermissionToken :one
+WITH resolved AS (
+  SELECT id
+  FROM (
+    SELECT o.id, 0 AS priority, NULL::timestamptz AS renamed_at
+    FROM profiles.orgs o
+    WHERE o.slug = $3 AND o.deleted_at IS NULL
+    UNION ALL
+    SELECT o.id, 1 AS priority, r.renamed_at
+    FROM profiles.org_renames r
+    JOIN profiles.orgs o ON o.id = r.org_id AND o.deleted_at IS NULL
+    WHERE r.from_slug = $3
+  ) candidates
+  ORDER BY priority ASC, renamed_at DESC NULLS LAST
+  LIMIT 1
+)
+SELECT EXISTS (
+  SELECT 1
+  FROM resolved o
+  JOIN profiles.org_memberships m
+    ON m.org_id = o.id
+   AND m.member_id = $1::uuid
+   AND m.member_kind = 'user'
+   AND m.deleted_at IS NULL
+  JOIN profiles.org_role_permissions p
+    ON p.org_id = m.org_id
+   AND p.role = m.role
+   AND p.permission = ANY($2::text[])
+)
+`
+
+type OrgUserHasPermissionTokenParams struct {
+	UserID      string
+	Permissions []string
+	OrgSlug     string
+}
+
+// Hot authz path: one indexed query from org slug + user + candidate grant
+// tokens to "allowed?". Handles direct slug and historical rename resolution.
+func (q *Queries) OrgUserHasPermissionToken(ctx context.Context, arg OrgUserHasPermissionTokenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, orgUserHasPermissionToken, arg.UserID, arg.Permissions, arg.OrgSlug)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const remoteAppAttributeDefDelete = `-- name: RemoteAppAttributeDefDelete :execrows
 DELETE FROM profiles.remote_application_attribute_defs
 WHERE remote_application_id = $1::uuid AND key = $2

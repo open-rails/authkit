@@ -58,6 +58,14 @@ func TestPlatformRBAC(t *testing.T) {
 	if has(eff, PermPlatformUsersDelete) {
 		t.Fatalf("admin must NOT hold users:delete, got %v", eff)
 	}
+	ok, err := svc.HasPlatformPermission(ctx, admin.ID, PermPlatformUsersBan)
+	if err != nil || !ok {
+		t.Fatalf("HasPlatformPermission users:ban=(%v,%v), want true,nil", ok, err)
+	}
+	ok, err = svc.HasPlatformPermission(ctx, admin.ID, PermPlatformUsersDelete)
+	if err != nil || ok {
+		t.Fatalf("HasPlatformPermission users:delete=(%v,%v), want false,nil", ok, err)
+	}
 
 	// --- super-admin: platform:* expands to the whole platform catalog ---
 	super := fmt.Sprintf("super-%d", suffix)
@@ -81,6 +89,10 @@ func TestPlatformRBAC(t *testing.T) {
 			t.Fatalf("super-admin (platform:*) should confer %s, got %v", d.Name, superEff)
 		}
 	}
+	ok, err = svc.HasPlatformPermission(ctx, superUser.ID, PermPlatformOrgsRecover)
+	if err != nil || !ok {
+		t.Fatalf("HasPlatformPermission platform:* recover=(%v,%v), want true,nil", ok, err)
+	}
 
 	// --- regular user (no platform roles) → zero platform authority (short-circuit) ---
 	plain := mkUser("plain")
@@ -90,6 +102,10 @@ func TestPlatformRBAC(t *testing.T) {
 	}
 	if len(plainEff) != 0 {
 		t.Fatalf("regular user must have zero platform perms, got %v", plainEff)
+	}
+	ok, err = svc.HasPlatformPermission(ctx, plain.ID, PermPlatformUsersRead)
+	if err != nil || ok {
+		t.Fatalf("plain HasPlatformPermission=(%v,%v), want false,nil", ok, err)
 	}
 
 	// --- DISJOINT: a platform role REJECTS org:/bare-*/negation/unknown ---

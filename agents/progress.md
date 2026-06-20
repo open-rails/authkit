@@ -272,6 +272,24 @@ NOTE: unify-on-roles is DECIDED (roles-only — see #95): dropping `service_toke
 
 **Completed:** no
 
+HARDENING DONE (2026-06-20):
+- [x] `POST /admin/orgs/{id}/recover` requires a fresh local session after the
+      `platform:orgs:recover` gate. Stale sessions now return
+      `reauth_required`; delegated/remote-application tokens cannot perform the
+      recovery mutation because they have no local refresh-session freshness.
+- [x] Swept legacy token-borne global-admin bypasses: no remaining
+      `claimsHasGlobalAdmin` / `GlobalRoles == admin` authorization bypasses.
+- [x] Hot org permission checks now use one DB round-trip:
+      `OrgUserHasPermissionToken` resolves slug/rename + membership + single
+      role permission grant in one indexed `EXISTS` query.
+- [x] Hot platform permission checks now use one DB round-trip:
+      `PlatformUserHasPermissionToken` checks `platform_user_roles` joined to
+      `platform_role_permissions` in one indexed `EXISTS` query.
+- [x] Tests: live DB HTTP test covers recover permission + stale/fresh reauth;
+      live DB core tests cover org/platform direct and glob checks; Docker
+      Compose E2E covers remote/delegated platform-gate behavior against the
+      running devserver/Postgres stack.
+
 The TARGET AuthKit permission model after the 2026-06-19 design pass with Paul (master design doc). Consolidates the already-split pieces — #92 (rename `PermissionCatalog`→`Permissions`), #93 (remove `!perm` negation), #94 (no-escalation on all grant paths) — plus the model decisions below. Hard-cut, no legacy. Consumer: OpenRails #537.
 
 ## Grammar
@@ -412,7 +430,25 @@ Native-user org-scoped access tokens are being removed entirely. There should be
 
 # #97: Slim normal user access-token claims to session identity only
 
-**Completed:** no
+**Completed:** yes
+
+DONE (2026-06-20): normal AuthKit user access tokens now carry only registered
+JWT identity, `sub`, `sid`, and authoritative short-lived `entitlements`. They
+no longer mint profile or role/global-role snapshots. Consumers were migrated:
+Doujins request context now resolves roles through its DB `UserRoleRepo` and its
+frontend token bootstrap no longer derives role/profile/admin/email state from
+JWT payload fields; Hentai0 request context uses DB roles and its frontend token
+bootstrap no longer derives role/profile/admin/email state from JWT payload
+fields; Cozy Art was swept and had no normal-user role/profile JWT dependency to
+change. Validation: AuthKit `go test ./...`; Doujins
+`go test ./internal/server ./internal/auth/middleware` and
+`pnpm -C frontend exec tsc --noEmit`; Hentai0
+`go test ./internal/auth ./internal/api` and
+`pnpm -C frontend exec tsc -b --noEmit`; live Docker Compose stack
+`go test -tags=e2e ./testing -run TestDevserverE2E -count=1` proves
+password-login and refresh tokens from the running devserver/Postgres keep
+`sub`, `sid`, and authoritative `entitlements` while omitting profile and role
+claims.
 
 Normal AuthKit user access tokens currently carry profile snapshots and authority snapshots:
 `global_roles`, legacy `roles`, `entitlements`, `email`, `email_verified`,
@@ -457,8 +493,9 @@ Known current consumers to migrate first:
 - [x] Audit AuthKit tests/docs and the three consumers (`~/doujins`,
       `~/hentai0`, `~/cozy/cozy-art`) for reads of user-token profile,
       role/global-role, and entitlement claims.
-- [ ] Update consumers so normal-user request context is built from live DB /
-      profile endpoints, not access-token roles/profile/entitlements.
+- [x] Update consumers so normal-user request context is built from live DB /
+      profile endpoints, not access-token roles/profile; token entitlements stay
+      authoritative by design.
 - [x] In AuthKit `IssueAccessToken`, stop minting `global_roles`, `roles`,
       `email`, `email_verified`, `username`, `discord_username`, and
       keep `sid` merging from login/refresh `extra`; keep `entitlements` as an
@@ -471,7 +508,7 @@ Known current consumers to migrate first:
 - [x] Add an AuthKit integration/HTTP test proving login/refresh user access
       tokens contain `sub` + `sid` and do not contain roles, profile fields, or
       authoritative role/profile claims; `entitlements` remains authoritative.
-- [ ] Add focused consumer tests proving admin/premium/profile UI still works
+- [x] Add focused consumer tests proving admin/premium/profile UI still works
       without those token claims.
 
 ---
@@ -488,6 +525,22 @@ accept validated delegated `platform:*`/concrete permission claims while
 preserving live DB checks for local users and continuing to reject delegated role
 claims. Tests cover accepted stored glob authority, out-of-ceiling rejection, and
 claiming broader `platform:*` than stored authority.
+
+LIVE E2E (2026-06-20): `go test -tags=e2e ./testing -run TestDevserverE2E
+-count=1` now seeds a remote_application, org role, membership, and platform
+permission authority into the Docker Compose Postgres stack, signs real
+delegated JWTs, and calls the running devserver. It covers: remote application
+access token accepted with `typ=remote-application-access+jwt`; wrong `typ`
+rejected; delegated `platform:orgs:read` accepted by an admin platform gate
+when covered by stored `platform:*`; delegated `platform:orgs:recover` rejected
+by the recover route's fresh local-session requirement; delegated
+out-of-ceiling concrete permission rejected at verify; delegated broader
+`platform:*` than stored authority rejected at verify; and a delegated token
+without the route's required platform permission failing the platform gate with
+403.
+That live test found and fixed a real DB-backed gap: remote_application
+authority now expands `platform:*` against AuthKit's platform catalog, not only
+the org/app permission catalog.
 
 Delegated JWTs may carry concrete `permissions`, but those permissions must be
 bounded by the issuing remote application's stored DB authority. Today
@@ -548,6 +601,11 @@ README/API docs, and active OpenRails consuming comments/docs were swept to use
 the new name while retaining low-level invariant notes: the token carries neither
 `sub` nor `delegated_sub`; identity is validated `iss -> remote_application`.
 Tests pin the wire constant and wrong-`typ` rejection.
+
+LIVE E2E (2026-06-20): the Docker Compose devserver test signs a real remote
+application access token and proves the running verifier accepts it, then signs
+the same remote-application JWT shape with the wrong JOSE `typ` and proves the
+running server rejects it.
 
 AuthKit already uses JOSE `typ` headers for its JWT classes:
 

@@ -165,6 +165,38 @@ SELECT permission FROM profiles.org_role_permissions
 WHERE org_id = sqlc.arg(org_id)::uuid AND role = $2
 ORDER BY permission ASC;
 
+-- name: OrgUserHasPermissionToken :one
+-- Hot authz path: one indexed query from org slug + user + candidate grant
+-- tokens to "allowed?". Handles direct slug and historical rename resolution.
+WITH resolved AS (
+  SELECT id
+  FROM (
+    SELECT o.id, 0 AS priority, NULL::timestamptz AS renamed_at
+    FROM profiles.orgs o
+    WHERE o.slug = sqlc.arg(org_slug) AND o.deleted_at IS NULL
+    UNION ALL
+    SELECT o.id, 1 AS priority, r.renamed_at
+    FROM profiles.org_renames r
+    JOIN profiles.orgs o ON o.id = r.org_id AND o.deleted_at IS NULL
+    WHERE r.from_slug = sqlc.arg(org_slug)
+  ) candidates
+  ORDER BY priority ASC, renamed_at DESC NULLS LAST
+  LIMIT 1
+)
+SELECT EXISTS (
+  SELECT 1
+  FROM resolved o
+  JOIN profiles.org_memberships m
+    ON m.org_id = o.id
+   AND m.member_id = sqlc.arg(user_id)::uuid
+   AND m.member_kind = 'user'
+   AND m.deleted_at IS NULL
+  JOIN profiles.org_role_permissions p
+    ON p.org_id = m.org_id
+   AND p.role = m.role
+   AND p.permission = ANY(sqlc.arg(permissions)::text[])
+);
+
 -- name: OrgRoleExists :one
 SELECT EXISTS(SELECT 1 FROM profiles.org_roles WHERE org_id = sqlc.arg(org_id)::uuid AND role = $2);
 

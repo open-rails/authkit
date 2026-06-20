@@ -69,6 +69,9 @@ func TestPlatformSecurityHTTP(t *testing.T) {
 	require.NoError(t, coreSvc.AssignPlatformRole(ctx, limitedU.ID, limitedRole))
 
 	superTok := issueBoundaryUserToken(t, ctx, coreSvc, superU)
+	superSessionID, _, _, err := coreSvc.IssueRefreshSession(ctx, superU.ID, "platform-security-test", nil)
+	require.NoError(t, err)
+	superFreshTok := issueBoundaryUserTokenWithSession(t, ctx, coreSvc, superU, superSessionID)
 	limitedTok := issueBoundaryUserToken(t, ctx, coreSvc, limitedU)
 	regularTok := issueBoundaryUserToken(t, ctx, coreSvc, regularU)
 	req := func(method, path, token string, body any) (int, string) {
@@ -122,8 +125,15 @@ func TestPlatformSecurityHTTP(t *testing.T) {
 	// limited admin lacks platform:orgs:recover → 403.
 	status, body = req(http.MethodPost, "/admin/orgs/"+org.ID+"/recover", limitedTok, map[string]any{"new_owner_user_id": superU.ID})
 	require.Equal(t, http.StatusForbidden, status, body)
-	// super-admin holds it → 200, and the org is reset to the new owner.
-	status, body = req(http.MethodPost, "/admin/orgs/"+org.ID+"/recover", superTok, map[string]any{"new_owner_user_id": superU.ID})
+	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour' WHERE id = $1`, superSessionID)
+	require.NoError(t, err)
+	// super-admin holds it, but stale session freshness blocks the sensitive action.
+	status, body = req(http.MethodPost, "/admin/orgs/"+org.ID+"/recover", superFreshTok, map[string]any{"new_owner_user_id": superU.ID})
+	require.Equal(t, http.StatusForbidden, status, body)
+	require.Contains(t, body, "reauth_required")
+	require.NoError(t, coreSvc.MarkSessionAuthenticated(ctx, superU.ID, superSessionID))
+	// super-admin with fresh session → 200, and the org is reset to the new owner.
+	status, body = req(http.MethodPost, "/admin/orgs/"+org.ID+"/recover", superFreshTok, map[string]any{"new_owner_user_id": superU.ID})
 	require.Equal(t, http.StatusOK, status, body)
 
 	// The recovered owner now holds full org authority; the prior owner is demoted.

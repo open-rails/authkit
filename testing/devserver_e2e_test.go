@@ -5,7 +5,9 @@ package testing
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
+	core "github.com/open-rails/authkit/core"
 	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/open-rails/authkit/password"
@@ -119,6 +123,33 @@ func waitForHTTP200(t *testing.T, url string, timeout time.Duration) {
 	t.Fatalf("timed out waiting for %s: %v", url, lastErr)
 }
 
+func waitForHTTP200WithLogs(t *testing.T, c composeCLI, composeFile, overridePath, url string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	cli := &http.Client{Timeout: 2 * time.Second}
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := cli.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+			lastErr = fmt.Errorf("Status=%d", resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	args := []string{"-f", composeFile}
+	if strings.TrimSpace(overridePath) != "" {
+		args = append(args, "-f", overridePath)
+	}
+	args = append(args, "logs", "--no-color", "issuer", "postgres")
+	logs := c.run(t, args...)
+	t.Fatalf("timed out waiting for %s: %v\ncompose logs:\n%s", url, lastErr, logs)
+}
+
 func httpJSON(t *testing.T, method, url string, headers map[string]string, body any) (*http.Response, []byte) {
 	t.Helper()
 	var r io.Reader
@@ -159,6 +190,61 @@ func parsePort(t *testing.T, s string) string {
 	return m[1]
 }
 
+func parseUnverifiedE2EClaims(t *testing.T, token string) jwt.MapClaims {
+	t.Helper()
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil {
+		t.Fatalf("parse token: %v", err)
+	}
+	return claims
+}
+
+func assertSlimE2EUserToken(t *testing.T, token string) {
+	t.Helper()
+	claims := parseUnverifiedE2EClaims(t, token)
+	if strings.TrimSpace(fmt.Sprint(claims["sub"])) == "" {
+		t.Fatalf("access token missing sub: %#v", claims)
+	}
+	if strings.TrimSpace(fmt.Sprint(claims["sid"])) == "" {
+		t.Fatalf("access token missing sid: %#v", claims)
+	}
+	if !claimStringSliceContains(claims["entitlements"], "premium") {
+		t.Fatalf("access token entitlements=%#v, want premium", claims["entitlements"])
+	}
+	for _, forbidden := range []string{"email", "email_verified", "username", "discord_username", "roles", "global_roles", "org_roles"} {
+		if _, ok := claims[forbidden]; ok {
+			t.Fatalf("access token still has %q claim: %#v", forbidden, claims[forbidden])
+		}
+	}
+}
+
+func claimStringSliceContains(v any, want string) bool {
+	switch xs := v.(type) {
+	case []any:
+		for _, x := range xs {
+			if fmt.Sprint(x) == want {
+				return true
+			}
+		}
+	case []string:
+		for _, x := range xs {
+			if x == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func publicKeyPEM(t *testing.T, signer *jwtkit.RSASigner) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(signer.PublicKey())
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
 func TestDevserverE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e in -short")
@@ -182,12 +268,13 @@ func TestDevserverE2E(t *testing.T) {
 
 	override := fmt.Sprintf(`services:
   postgres:
-    ports: []
+    ports: !reset []
   issuer:
-    ports:
+    ports: !override
       - "8080"
     environment:
       DEVSERVER_DEV_MINT_SECRET: %q
+      DEVSERVER_STATIC_ENTITLEMENTS: "premium"
 `, mintSecret)
 	if overridePath != "" {
 		if err := os.WriteFile(overridePath, []byte(override), 0600); err != nil {
@@ -224,7 +311,7 @@ func TestDevserverE2E(t *testing.T) {
 	port := parsePort(t, rawPort)
 	baseURL := "http://127.0.0.1:" + port
 
-	waitForHTTP200(t, baseURL+"/healthz", 90*time.Second)
+	waitForHTTP200WithLogs(t, c, composeFile, overridePath, baseURL+"/healthz", 90*time.Second)
 
 	t.Run("health", func(t *testing.T) {
 		resp, _ := httpJSON(t, http.MethodGet, baseURL+"/healthz", nil, nil)
@@ -341,11 +428,30 @@ func TestDevserverE2E(t *testing.T) {
 			args = append(args, "-f", overridePath)
 		}
 		args = append(args, "exec", "-T", dbService,
-			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql)
+			"psql", "-U", "admin", "-d", "authkit_db", "-v", "ON_ERROR_STOP=1", "-qAt", "-c", sql)
 		return strings.TrimSpace(c.run(t, args...))
 	}
 	sqlString := func(s string) string {
 		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
+	seedPlatformSuperAdmin := func(t *testing.T, userID string) {
+		t.Helper()
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.platform_roles (role) VALUES ('e2e-super-admin') ON CONFLICT DO NOTHING;"+
+				"INSERT INTO profiles.platform_role_permissions (role, permission) VALUES ('e2e-super-admin', 'platform:*') ON CONFLICT DO NOTHING;"+
+				"INSERT INTO profiles.platform_user_roles (user_id, role) VALUES (%s::uuid, 'e2e-super-admin') ON CONFLICT DO NOTHING;",
+			sqlString(userID),
+		))
+	}
+	refreshBaseURL := func(t *testing.T) {
+		t.Helper()
+		args := []string{"-f", composeFile}
+		if strings.TrimSpace(overridePath) != "" {
+			args = append(args, "-f", overridePath)
+		}
+		args = append(args, "port", "issuer", "8080")
+		port = parsePort(t, c.run(t, args...))
+		baseURL = "http://127.0.0.1:" + port
 	}
 	restartIssuer := func(t *testing.T) {
 		t.Helper()
@@ -355,7 +461,8 @@ func TestDevserverE2E(t *testing.T) {
 		}
 		args = append(args, "restart", "issuer")
 		c.run(t, args...)
-		waitForHTTP200(t, baseURL+"/healthz", 90*time.Second)
+		refreshBaseURL(t)
+		waitForHTTP200WithLogs(t, c, composeFile, overridePath, baseURL+"/healthz", 90*time.Second)
 	}
 
 	t.Run("seeded_reserved_slug_blocks_username_update_after_restart", func(t *testing.T) {
@@ -411,11 +518,7 @@ func TestDevserverE2E(t *testing.T) {
 
 	t.Run("admin_gate_db_backed", func(t *testing.T) {
 		userID := "11111111-1111-1111-1111-111111111111"
-		execPSQL(t, "INSERT INTO profiles.global_roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
-		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.global_user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
-			sqlString(userID),
-		))
+		seedPlatformSuperAdmin(t, userID)
 
 		token := mint(t, userID, 300)
 		resp, body := httpJSON(t, http.MethodGet, baseURL+"/api/v1/admin/users", map[string]string{
@@ -423,6 +526,137 @@ func TestDevserverE2E(t *testing.T) {
 		}, nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+
+	t.Run("remote_application_and_delegated_security", func(t *testing.T) {
+		suffix := time.Now().UnixNano()
+		signer, err := jwtkit.NewRSASigner(2048, fmt.Sprintf("remote-e2e-%d", suffix))
+		if err != nil {
+			t.Fatalf("remote signer: %v", err)
+		}
+		remoteIssuer := fmt.Sprintf("https://remote-e2e-%d.example/issuer", suffix)
+		remoteSlug := fmt.Sprintf("remote-e2e-%d", suffix)
+		appOrgSlug := fmt.Sprintf("remote-app-org-%d", suffix)
+		targetOrgSlug := fmt.Sprintf("recover-target-%d", suffix)
+		role := "platform-delegate"
+		keyJSON, err := json.Marshal([]core.RemoteAppKey{{KID: signer.KID(), PublicKeyPEM: publicKeyPEM(t, signer)}})
+		if err != nil {
+			t.Fatalf("marshal key json: %v", err)
+		}
+
+		appOrgID := queryPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.orgs (slug) VALUES (%s) RETURNING id::text;",
+			sqlString(appOrgSlug),
+		))
+		targetOrgID := queryPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.orgs (slug) VALUES (%s) RETURNING id::text;",
+			sqlString(targetOrgSlug),
+		))
+		remoteAppID := queryPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.remote_applications (slug, org_id, issuer, mode, public_keys, audiences, enabled) VALUES (%s, %s::uuid, %s, 'static', %s::jsonb, ARRAY[%s], true) RETURNING id::text;",
+			sqlString(remoteSlug), sqlString(appOrgID), sqlString(remoteIssuer), sqlString(string(keyJSON)), sqlString(aud),
+		))
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.org_roles (org_id, role) VALUES (%s::uuid, %s);"+
+				"INSERT INTO profiles.org_role_permissions (org_id, role, permission) VALUES (%s::uuid, %s, 'platform:*');"+
+				"INSERT INTO profiles.org_memberships (org_id, member_id, member_kind, role) VALUES (%s::uuid, %s::uuid, 'remote_application', %s);",
+			sqlString(appOrgID), sqlString(role),
+			sqlString(appOrgID), sqlString(role),
+			sqlString(appOrgID), sqlString(remoteAppID), sqlString(role),
+		))
+		newOwnerID := "88888888-8888-8888-8888-888888888888"
+		execPSQL(t, fmt.Sprintf(
+			"INSERT INTO profiles.users (id, email, username, email_verified, created_at, updated_at) VALUES (%s, %s, %s, true, '2024-01-01', '2024-01-01') ON CONFLICT (id) DO NOTHING;",
+			sqlString(newOwnerID), sqlString(fmt.Sprintf("recover-owner-%d@example.com", suffix)), sqlString(fmt.Sprintf("recoverowner%d", suffix%1000000000)),
+		))
+
+		delegated := func(t *testing.T, perms ...string) string {
+			t.Helper()
+			tok, err := authhttp.MintDelegatedAccessToken(context.Background(), signer, authhttp.DelegatedAccessParams{
+				Issuer:           remoteIssuer,
+				Audiences:        []string{aud},
+				DelegatedSubject: "external-user-1",
+				Permissions:      perms,
+				TTL:              time.Minute,
+			})
+			if err != nil {
+				t.Fatalf("mint delegated: %v", err)
+			}
+			return tok
+		}
+		whoami := func(t *testing.T, token string) (int, string) {
+			t.Helper()
+			resp, body := httpJSON(t, http.MethodGet, baseURL+"/api/v1/dev/whoami", map[string]string{
+				"Authorization": "Bearer " + token,
+			}, nil)
+			return resp.StatusCode, string(body)
+		}
+		recoverOrg := func(t *testing.T, token string) (int, string) {
+			t.Helper()
+			resp, body := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/orgs/"+targetOrgID+"/recover", map[string]string{
+				"Authorization": "Bearer " + token,
+			}, map[string]any{"new_owner_user_id": newOwnerID})
+			return resp.StatusCode, string(body)
+		}
+		adminOrgs := func(t *testing.T, token string) (int, string) {
+			t.Helper()
+			resp, body := httpJSON(t, http.MethodGet, baseURL+"/api/v1/admin/orgs", map[string]string{
+				"Authorization": "Bearer " + token,
+			}, nil)
+			return resp.StatusCode, string(body)
+		}
+		platformRoles := func(t *testing.T, token string) (int, string) {
+			t.Helper()
+			resp, body := httpJSON(t, http.MethodGet, baseURL+"/api/v1/admin/platform-roles", map[string]string{
+				"Authorization": "Bearer " + token,
+			}, nil)
+			return resp.StatusCode, string(body)
+		}
+
+		remoteToken, err := core.MintRemoteApplicationAccessToken(context.Background(), signer, core.RemoteApplicationAccessParams{
+			Issuer: remoteIssuer, Audiences: []string{aud}, TTL: time.Minute,
+		})
+		if err != nil {
+			t.Fatalf("mint remote app token: %v", err)
+		}
+		if code, body := whoami(t, remoteToken); code != http.StatusOK || !strings.Contains(body, core.PermPlatformOrgsRecover) {
+			t.Fatalf("remote application access token: got %d %s", code, body)
+		}
+		wrongTyp, err := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
+			"iss": remoteIssuer,
+			"aud": []string{aud},
+			"iat": time.Now().Unix(),
+			"exp": time.Now().Add(time.Minute).Unix(),
+		}, map[string]any{"typ": "service+jwt"})
+		if err != nil {
+			t.Fatalf("mint wrong typ: %v", err)
+		}
+		if code, body := whoami(t, wrongTyp); code != http.StatusUnauthorized {
+			t.Fatalf("wrong remote application typ should reject, got %d %s", code, body)
+		}
+
+		if code, body := adminOrgs(t, delegated(t, core.PermPlatformOrgsRead)); code != http.StatusOK {
+			t.Fatalf("delegated platform org read should pass through stored glob authority, got %d %s", code, body)
+		}
+		if code, body := recoverOrg(t, delegated(t, core.PermPlatformOrgsRecover)); code != http.StatusUnauthorized {
+			t.Fatalf("delegated platform recover should require a local fresh session, got %d %s", code, body)
+		}
+
+		execPSQL(t, fmt.Sprintf(
+			"DELETE FROM profiles.org_role_permissions WHERE org_id=%s::uuid AND role=%s;"+
+				"INSERT INTO profiles.org_role_permissions (org_id, role, permission) VALUES (%s::uuid, %s, 'platform:orgs:read');",
+			sqlString(appOrgID), sqlString(role),
+			sqlString(appOrgID), sqlString(role),
+		))
+		if code, body := whoami(t, delegated(t, core.PermPlatformOrgsRecover)); code != http.StatusUnauthorized {
+			t.Fatalf("delegated permission outside stored authority should reject at verify, got %d %s", code, body)
+		}
+		if code, body := whoami(t, delegated(t, "platform:*")); code != http.StatusUnauthorized {
+			t.Fatalf("delegated broader glob than stored authority should reject at verify, got %d %s", code, body)
+		}
+		if code, body := platformRoles(t, delegated(t, core.PermPlatformOrgsRead)); code != http.StatusForbidden {
+			t.Fatalf("delegated token without platform roles permission should fail platform gate, got %d %s", code, body)
 		}
 	})
 
@@ -608,6 +842,7 @@ func TestDevserverE2E(t *testing.T) {
 		if strings.TrimSpace(loginOut.AccessToken) == "" || strings.TrimSpace(loginOut.RefreshToken) == "" {
 			t.Fatalf("expected access_token + refresh_token")
 		}
+		assertSlimE2EUserToken(t, loginOut.AccessToken)
 
 		refreshResp, refreshBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/token", nil, map[string]any{
 			"grant_type":    "refresh_token",
@@ -626,6 +861,7 @@ func TestDevserverE2E(t *testing.T) {
 		if strings.TrimSpace(refreshOut.AccessToken) == "" || strings.TrimSpace(refreshOut.RefreshToken) == "" {
 			t.Fatalf("expected access_token + refresh_token")
 		}
+		assertSlimE2EUserToken(t, refreshOut.AccessToken)
 
 		logoutResp, logoutBody := httpJSON(t, http.MethodDelete, baseURL+"/api/v1/logout", map[string]string{
 			"Authorization": "Bearer " + loginOut.AccessToken,
@@ -805,11 +1041,7 @@ func TestDevserverE2E(t *testing.T) {
 			"UPDATE profiles.users SET banned_at=NULL, deleted_at=NULL WHERE id=%s;",
 			sqlString(adminUserID),
 		))
-		execPSQL(t, "INSERT INTO profiles.global_roles (name, slug) VALUES ('Admin', 'admin') ON CONFLICT (slug) DO NOTHING;")
-		execPSQL(t, fmt.Sprintf(
-			"INSERT INTO profiles.global_user_roles (user_id, role_id) VALUES (%s, profiles.role_id('admin')) ON CONFLICT DO NOTHING;",
-			sqlString(adminUserID),
-		))
+		seedPlatformSuperAdmin(t, adminUserID)
 		adminToken := mint(t, adminUserID, 300)
 
 		// Restrict the slug -> it lands on the owner_reserved_names blocklist.

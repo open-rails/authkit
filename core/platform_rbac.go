@@ -257,17 +257,17 @@ func (s *Service) EffectivePlatformPermissions(ctx context.Context, userID strin
 
 // HasPlatformPermission reports whether the user holds perm in the platform layer.
 func (s *Service) HasPlatformPermission(ctx context.Context, userID, perm string) (bool, error) {
-	perm = strings.TrimSpace(perm)
-	eff, err := s.EffectivePlatformPermissions(ctx, userID)
-	if err != nil {
+	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	for _, p := range eff {
-		if p == perm {
-			return true, nil
-		}
+	tokens := permissionCoverTokens(perm)
+	if len(tokens) == 0 || strings.TrimSpace(userID) == "" {
+		return false, nil
 	}
-	return false, nil
+	return s.q.PlatformUserHasPermissionToken(ctx, db.PlatformUserHasPermissionTokenParams{
+		UserID:      strings.TrimSpace(userID),
+		Permissions: tokens,
+	})
 }
 
 // ValidatePlatformGrant checks tokens an actor wants to assign to a platform role

@@ -199,11 +199,21 @@ func createBoundaryUser(t *testing.T, ctx context.Context, svc *core.Service, us
 
 func issueBoundaryUserToken(t *testing.T, ctx context.Context, svc *core.Service, user *core.User) string {
 	t.Helper()
+	return issueBoundaryUserTokenWithExtra(t, ctx, svc, user, nil)
+}
+
+func issueBoundaryUserTokenWithSession(t *testing.T, ctx context.Context, svc *core.Service, user *core.User, sessionID string) string {
+	t.Helper()
+	return issueBoundaryUserTokenWithExtra(t, ctx, svc, user, map[string]any{"sid": sessionID})
+}
+
+func issueBoundaryUserTokenWithExtra(t *testing.T, ctx context.Context, svc *core.Service, user *core.User, extra map[string]any) string {
+	t.Helper()
 	email := ""
 	if user.Email != nil {
 		email = *user.Email
 	}
-	token, _, err := svc.IssueAccessToken(ctx, user.ID, email, nil)
+	token, _, err := svc.IssueAccessToken(ctx, user.ID, email, extra)
 	require.NoError(t, err)
 	return token
 }

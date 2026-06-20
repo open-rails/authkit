@@ -124,6 +124,9 @@ func (s *Service) handleAdminOrgRecoverPOST(w http.ResponseWriter, r *http.Reque
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsRecover) {
 		return
 	}
+	if !s.requireFreshAuthOrPassword(w, r, claims, "") {
+		return
+	}
 	var body struct {
 		NewOwnerUserID string `json:"new_owner_user_id"`
 	}

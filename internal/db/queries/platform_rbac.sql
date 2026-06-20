@@ -46,6 +46,18 @@ FROM profiles.platform_user_roles ur
 JOIN profiles.platform_role_permissions p ON p.role = ur.role
 WHERE ur.user_id = $1;
 
+-- name: PlatformUserHasPermissionToken :one
+-- Hot authz path: one indexed query from user + candidate grant tokens to
+-- "allowed?". No full permission-set materialization on every platform gate.
+SELECT EXISTS (
+  SELECT 1
+  FROM profiles.platform_user_roles ur
+  JOIN profiles.platform_role_permissions p
+    ON p.role = ur.role
+   AND p.permission = ANY(sqlc.arg(permissions)::text[])
+  WHERE ur.user_id = sqlc.arg(user_id)::uuid
+);
+
 -- name: PlatformUserRoleMembers :many
 -- WHO holds a given platform role (the platform-admin roster read).
 SELECT user_id FROM profiles.platform_user_roles WHERE role = $1 ORDER BY user_id;
