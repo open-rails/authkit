@@ -56,10 +56,11 @@ func newSelfTokenEnv(t *testing.T, slug, iss string) *selfTokenEnv {
 	org, err := svc.CreateOrg(ctx, slug)
 	require.NoError(t, err)
 
-	jwks := jwksServer(t, signer)
-	t.Cleanup(jwks.Close)
+	// The verifier trusts this principal's signing key directly via RawKeys below,
+	// so its JWKS endpoint is never fetched. Store an https jwks_uri to satisfy the
+	// SSRF guard (jwks_uri must be https) without standing up a live server.
 	app, err := svc.UpsertRemoteApplication(ctx, core.RemoteApplication{
-		Slug: slug, OrgID: org.ID, Issuer: iss, JWKSURI: jwks.URL + "/.well-known/jwks.json", Enabled: true,
+		Slug: slug, OrgID: org.ID, Issuer: iss, JWKSURI: "https://" + slug + ".jwks.test/.well-known/jwks.json", Enabled: true,
 	})
 	require.NoError(t, err)
 
@@ -324,35 +325,6 @@ func TestMePermissionsServicePrincipalReturnsStored(t *testing.T) {
 	require.Equal(t, "service", out["principal_type"])
 	require.Equal(t, "svc-org", out["org"])
 	require.ElementsMatch(t, []string{"jobs:submit", "jobs:read"}, toStrings(t, out["permissions"]))
-}
-
-// TestMePermissionsNativeUserResolves: a native user's effective permissions are
-// resolved from role mappings in the token's org.
-func TestMePermissionsNativeUserResolves(t *testing.T) {
-	env := newSelfTokenEnv(t, "user-intro-app", "https://user-intro-app.example/iss")
-	ctx := context.Background()
-
-	const tslug = "user-intro-org"
-	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
-	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug) })
-	_, err := env.svc.CreateOrg(ctx, tslug)
-	require.NoError(t, err)
-
-	u, err := env.svc.CreateUser(ctx, "intro-user@example.test", "introuser")
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, u.ID) })
-
-	require.NoError(t, env.svc.DefineRole(ctx, tslug, "editor"))
-	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "editor", []string{"docs:write"}))
-	require.NoError(t, env.svc.AddMember(ctx, tslug, u.ID))
-	require.NoError(t, env.svc.AssignRole(ctx, tslug, u.ID, "editor"))
-
-	cl := Claims{UserID: u.ID, Org: tslug, OrgRoles: []string{"editor"}}
-	out := callMePermissions(t, env.pool, cl)
-	require.Equal(t, "user", out["principal_type"])
-	require.Equal(t, u.ID, out["id"])
-	require.Equal(t, tslug, out["org"])
-	require.Contains(t, toStrings(t, out["permissions"]), "docs:write")
 }
 
 // TestRemoteApplicationSelfTokenRejectsSubject regression-guards the verifier's

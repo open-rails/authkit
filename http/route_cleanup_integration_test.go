@@ -108,7 +108,12 @@ func TestRouteCleanupHardCutsThroughAPIHandler(t *testing.T) {
 	}
 }
 
-func TestNamespaceLookupReturnsSameSlugUserAndOrg(t *testing.T) {
+// TestNamespaceLookupReturnsOwnerForTakenSlug: GET /namespaces/{slug} for a slug
+// owned by a user returns that user; the org side is absent and neither kind is
+// claimable. Usernames and org slugs share ONE owner-namespace (#96 — see
+// ownerSlugAvailable, which checks both), so a username and a same-slug org can
+// never both be created through the public API; the slug is simply taken.
+func TestNamespaceLookupReturnsOwnerForTakenSlug(t *testing.T) {
 	ctx := context.Background()
 	pool := routeCleanupPG(t)
 	const slug = "same-slug-96"
@@ -128,8 +133,10 @@ func TestNamespaceLookupReturnsSameSlugUserAndOrg(t *testing.T) {
 
 	user, err := svc.svc.CreateUser(ctx, slug+"@example.com", slug)
 	require.NoError(t, err)
+	require.NotEmpty(t, user.ID)
+	// Creating an org with the same slug is rejected — the username already holds it.
 	_, err = svc.svc.CreateOrgForUser(ctx, core.CreateOrgForUserRequest{Slug: slug, OwnerUserID: user.ID})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, core.ErrOwnerSlugTaken)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, slug)
@@ -155,8 +162,7 @@ func TestNamespaceLookupReturnsSameSlugUserAndOrg(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.NotNil(t, resp.User)
 	require.Equal(t, slug, resp.User.Username)
-	require.NotNil(t, resp.Org)
-	require.Equal(t, slug, resp.Org.Slug)
+	require.Nil(t, resp.Org)
 	require.False(t, resp.Claimable.User)
 	require.False(t, resp.Claimable.Org)
 }
