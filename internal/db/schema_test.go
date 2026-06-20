@@ -31,9 +31,9 @@ func TestValidSchemaName(t *testing.T) {
 }
 
 func TestRewriteSQL(t *testing.T) {
-	in := "SELECT u.id FROM profiles.users u JOIN profiles.global_user_roles r ON r.user_id = u.id"
+	in := "SELECT u.id FROM profiles.users u JOIN profiles.platform_user_roles r ON r.user_id = u.id"
 	got := RewriteSQL(in, "other_auth")
-	want := "SELECT u.id FROM other_auth.users u JOIN other_auth.global_user_roles r ON r.user_id = u.id"
+	want := "SELECT u.id FROM other_auth.users u JOIN other_auth.platform_user_roles r ON r.user_id = u.id"
 	if got != want {
 		t.Fatalf("RewriteSQL = %q, want %q", got, want)
 	}
@@ -77,7 +77,7 @@ func TestForSchemaRewritesGeneratedQueries(t *testing.T) {
 
 	_, _ = q.UserByEmail(ctx, "user@example.com")
 	_, _ = q.OrgBySlug(ctx, "acme")
-	_, _ = q.GlobalUserHasActiveRole(ctx, GlobalUserHasActiveRoleParams{UserID: "00000000-0000-0000-0000-000000000000", Slug: "admin"})
+	_, _ = q.PlatformUserPermissions(ctx, "00000000-0000-0000-0000-000000000000")
 	_, _ = q.UserProviderSlugs(ctx, "00000000-0000-0000-0000-000000000000")
 
 	if len(rec.sqls) == 0 {

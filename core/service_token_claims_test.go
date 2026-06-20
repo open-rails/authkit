@@ -51,33 +51,52 @@ func TestIssueAccessToken_TypHeader(t *testing.T) {
 	require.Equal(t, jwtkit.AccessTokenType, header["typ"])
 }
 
-// global_roles is emitted in BOTH single and multi-org mode (additive).
-func TestIssueAccessToken_GlobalRolesClaim_BothModes(t *testing.T) {
-	for _, mode := range []string{"single", "multi"} {
+// The legacy global-roles plane was hard-cut: platform/org authority is resolved
+// at request time from the platform/org RBAC tables, never snapshotted into the
+// access token. Assert the dead claims are GONE so a regression that re-adds them
+// fails here.
+func TestIssueAccessToken_NoLegacyRoleClaims(t *testing.T) {
+	for _, mode := range []string{"single", "multi", ""} {
 		mode := mode
-		t.Run(mode, func(t *testing.T) {
+		t.Run("mode="+mode, func(t *testing.T) {
 			s, pub := newClaimTestService(t, mode)
 			tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
 			require.NoError(t, err)
 			cl := parseClaimsNoValidate(t, tok, pub)
 			_, ok := cl["global_roles"]
-			require.True(t, ok, "global_roles claim must be present in %s mode", mode)
+			require.False(t, ok, "global_roles claim must be gone (hard-cut)")
+			_, ok = cl["roles"]
+			require.False(t, ok, "legacy roles claim must be gone (hard-cut)")
+			_, ok = cl["org_roles"]
+			require.False(t, ok, "user access token must not carry org_roles")
 		})
 	}
 }
 
-// (issue 60) The legacy `roles` claim is emitted on a user access token
-// (mirrors global_roles) as fixed token-shape compatibility, independent of
-// org memberships. User access tokens carry no org_roles.
-func TestIssueAccessToken_LegacyRolesClaim_AlwaysPresent(t *testing.T) {
+func TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements(t *testing.T) {
 	s, pub := newClaimTestService(t, "")
-	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
+	s.WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}})
+
+	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{
+		"sid": "session-1",
+	})
 	require.NoError(t, err)
+
 	cl := parseClaimsNoValidate(t, tok, pub)
-	_, ok := cl["roles"]
-	require.True(t, ok, "legacy roles claim must be present on a user access token")
-	_, ok = cl["global_roles"]
-	require.True(t, ok, "global_roles claim must be present")
-	_, ok = cl["org_roles"]
-	require.False(t, ok, "user access token must not carry org_roles")
+	require.Equal(t, "user", cl["sub"])
+	require.Equal(t, "session-1", cl["sid"])
+	require.ElementsMatch(t, []any{"premium"}, cl["entitlements"])
+
+	for _, forbidden := range []string{
+		"email",
+		"email_verified",
+		"username",
+		"discord_username",
+		"roles",
+		"global_roles",
+		"org_roles",
+	} {
+		_, ok := cl[forbidden]
+		require.False(t, ok, "%s claim must not be minted on normal user access tokens", forbidden)
+	}
 }

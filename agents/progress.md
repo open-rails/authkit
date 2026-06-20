@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 98
+next_id: 100
 
 ---
 
@@ -395,21 +395,22 @@ Normal AuthKit user access tokens currently carry profile snapshots and authorit
 `global_roles`, legacy `roles`, `entitlements`, `email`, `email_verified`,
 `username`, `discord_username`, plus `sid` supplied by login/refresh paths.
 
-This is backwards for the new authorization model. User permissions and roles are
-live DB state, not token authority. Profile data belongs on `/me` /
-`/me/bootstrap`, not in every bearer token. Entitlements are at best a short-lived
-UX hint; if they gate access, they must be resolved live by the host or through
-the proper billing/provider path.
+This is backwards for the new authorization model for roles/profile data. User
+permissions and roles are live DB state, not token authority. Profile data
+belongs on `/me` / `/me/bootstrap`, not in every bearer token. Entitlements are
+different: the entitlement claim is an authoritative short-lived snapshot issued
+by AuthKit's configured entitlements provider. A later DB check may improve
+freshness/revocation behavior, but it does not make the JWT entitlement claim a
+mere UI hint.
 
 Target token shape for normal user access tokens:
 - Keep registered claims: `iss`, `sub`, `aud`, `iat`, `exp`.
 - Keep `sid` for now. It is session identity used by logout, reauth/freshness,
   session-preserving password changes, and host session context.
+- Keep `entitlements` as an authoritative short-lived snapshot.
 - Remove `global_roles` and `roles`.
 - Remove profile claims: `email`, `email_verified`, `username`,
   `discord_username`.
-- Remove `entitlements` unless a consumer audit proves it must stay as a
-  documented non-authoritative UI hint. Default plan: remove it too.
 
 Do not change delegated/service token shapes in this issue. Delegated/service
 tokens intentionally carry explicit `permissions` / attributes for their own
@@ -437,7 +438,8 @@ Known current consumers to migrate first:
       profile endpoints, not access-token roles/profile/entitlements.
 - [ ] In AuthKit `IssueAccessToken`, stop minting `global_roles`, `roles`,
       `email`, `email_verified`, `username`, `discord_username`, and
-      `entitlements`; keep `sid` merging from login/refresh `extra`.
+      keep `sid` merging from login/refresh `extra`; keep `entitlements` as an
+      authoritative short-lived snapshot.
 - [ ] Keep `Claims` parsing backward-tolerant only if needed for third-party
       inbound tokens, but stop documenting those fields as normal AuthKit
       user-token output.
@@ -445,6 +447,99 @@ Known current consumers to migrate first:
       for user profile/bootstrap state.
 - [ ] Add an AuthKit integration/HTTP test proving login/refresh user access
       tokens contain `sub` + `sid` and do not contain roles, profile fields, or
-      entitlements.
+      authoritative role/profile claims; `entitlements` remains authoritative.
 - [ ] Add focused consumer tests proving admin/premium/profile UI still works
       without those token claims.
+
+---
+
+# #98: Validate delegated JWT permissions against remote-application stored authority
+
+**Completed:** no
+
+Delegated JWTs may carry concrete `permissions`, but those permissions must be
+bounded by the issuing remote application's stored DB authority. Today
+remote-application self tokens are down-scoped against stored authority, but
+delegated tokens are only catalog-validated. That is not enough: a remote app
+must not be able to mint any catalog-valid `platform:*` or `org:*` permission
+for its delegated users.
+
+Target model:
+- Remote application stored authority is the ceiling.
+- Delegated JWT `permissions` are concrete requested permissions, not role
+  claims.
+- Verification resolves `iss` -> remote application -> stored authority, then
+  rejects any delegated permission outside that ceiling.
+- Platform gates may accept either a local user with live DB platform permission
+  or a delegated token whose `permissions` claim has already been validated
+  against the remote application's stored authority.
+- Do not add delegated platform-role claims. Roles are local assignment
+  structure; delegated tokens carry concrete down-scoped permissions.
+
+Example:
+
+```json
+{
+  "delegated_sub": "external-user-123",
+  "permissions": ["platform:orgs:recover"]
+}
+```
+
+This is valid only when the issuer remote application already has authority for
+`platform:orgs:recover`.
+
+**Tasks:**
+- [ ] Audit delegated verification and confirm where `permissions` are currently
+      catalog-validated without stored-authority intersection.
+- [ ] Add verifier-time delegated permission ceiling check: resolve issuer
+      remote application, load its effective stored authority, and reject
+      out-of-ceiling claims.
+- [ ] Support glob matching consistently with the permission model
+      (`platform:*` may cover `platform:orgs:recover`; bare `*` stays invalid).
+- [ ] Teach platform gates to accept validated delegated permission claims for
+      `platform:*` checks, alongside local-user live DB platform permissions.
+- [ ] Keep platform role claims rejected/ignored on delegated tokens.
+- [ ] Tests: delegated token within issuer authority passes a platform gate;
+      delegated token claiming a permission outside issuer authority is rejected
+      at verify; catalog-valid but unassigned `platform:*` cannot be minted by a
+      weaker remote application.
+
+---
+
+# #99: Canonicalize remote application access token naming
+
+**Completed:** no
+
+AuthKit already uses JOSE `typ` headers for its JWT classes:
+
+- normal user access token: `typ=access+jwt`
+- delegated access token: `typ=delegated-access+jwt`
+- remote application acting as itself: `typ=remote-application-access+jwt`
+
+It also has a separate service-JWT shape: `typ=service+jwt` plus
+`token_use=service`. That is not the same thing as a remote application access
+token, and API keys are opaque shared secrets with DB-resolved authority, not
+JWTs.
+
+The remote-application self-token already has the right wire value, but docs and
+comments still use several names: "remote_application self-token", "JWKS
+principal self-token", and "SELF-token". Standardize product/API language on
+**remote application access token** and keep the wire type as
+`remote-application-access+jwt`.
+
+**Tasks:**
+- [ ] Keep `jwtkit.RemoteApplicationAccessTokenType =
+      "remote-application-access+jwt"` as the canonical JOSE `typ` value.
+- [ ] Rename comments/docs from "remote_application self-token" / "JWKS
+      principal self-token" to "remote application access token" where the
+      user-facing concept is being described.
+- [ ] Keep lower-level implementation comments only where they clarify the
+      invariant: the token carries neither `sub` nor `delegated_sub`; identity is
+      the validated `iss -> remote_application`.
+- [ ] Update README / API docs token taxonomy:
+      user access token, delegated access token, remote application access token,
+      service JWT, API key.
+- [ ] Sweep OpenRails comments/docs that consume this AuthKit token type and use
+      the same name.
+- [ ] Add/keep tests proving `RemoteApplicationAccessTokenType` is
+      `remote-application-access+jwt` and verifier rejects the wrong `typ`.

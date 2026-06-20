@@ -599,11 +599,9 @@ func (s *Service) canManageOrgMembership(ctx context.Context, claims Claims, org
 	return s.requireOrgPermission(ctx, claims, orgSlug, core.PermOrgRemoteAppsUpdate)
 }
 
-func claimsHasGlobalAdmin(claims Claims) bool {
-	for _, r := range claims.GlobalRoles {
-		if strings.EqualFold(strings.TrimSpace(r), "admin") {
-			return true
-		}
-	}
-	return false
-}
+// claimsHasGlobalAdmin always reports false: the legacy global-admin plane was
+// removed (#95). There is no cross-org admin bypass — platform-admins manage
+// orgs as ENTITIES via /admin/orgs/*, never their internals; org authority is
+// org-membership only. (Call sites collapse to org-perm checks; they are being
+// cleaned up.)
+func claimsHasGlobalAdmin(Claims) bool { return false }

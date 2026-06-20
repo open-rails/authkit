@@ -18,8 +18,16 @@ const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 var ErrInvalidBootstrapManifest = errors.New("invalid_bootstrap_manifest")
 
 // BootstrapManifest is AuthKit's first-class closed-deployment authority
-// manifest. It owns AuthKit state only: users, global roles, orgs, org RBAC,
+// manifest. It owns AuthKit state only: users, platform roles, orgs, org RBAC,
 // trusted issuers, and generated API-key outputs.
+//
+// The legacy "global roles" plane was hard-cut in favor of Layer-2 platform
+// RBAC (profiles.platform_roles + `platform:*` perms). The manifest still uses
+// the `global_roles` field names for backward compatibility, but they now seed
+// and assign PLATFORM roles: a role named "admin" maps onto the seeded platform
+// super-admin (platform:*), and any other name is defined as an empty platform
+// role (no perms until set explicitly). The legacy role name/description fields
+// no longer have a target column and are accepted-but-ignored.
 type BootstrapManifest struct {
 	Users       []BootstrapManifestUser       `json:"users" yaml:"users"`
 	GlobalRoles []BootstrapManifestGlobalRole `json:"global_roles" yaml:"global_roles"`
@@ -40,9 +48,16 @@ type BootstrapManifestUser struct {
 	BannedBy      *string                `json:"banned_by" yaml:"banned_by"`
 	Metadata      map[string]any         `json:"metadata" yaml:"metadata"`
 	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
-	GlobalRoles   []string               `json:"global_roles" yaml:"global_roles"`
+	// GlobalRoles assigns platform roles to this user by name (hard-cut: was the
+	// legacy global-roles plane). "admin" mints the platform super-admin
+	// (platform:*); any other name is assigned as a same-named platform role.
+	GlobalRoles []string `json:"global_roles" yaml:"global_roles"`
 }
 
+// BootstrapManifestGlobalRole declares a platform role to define. Only Slug is
+// meaningful now (the role name); Name/Description are accepted for backward
+// compatibility but ignored, since platform roles have no name/description
+// columns. "admin" seeds the super-admin role (platform:*).
 type BootstrapManifestGlobalRole struct {
 	Name        string  `json:"name" yaml:"name"`
 	Slug        string  `json:"slug" yaml:"slug"`

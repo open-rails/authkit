@@ -528,23 +528,16 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 
 // IssueAccessToken builds and signs an access token (JWT) for the given user.
 // Includes core registered claims plus:
-// - roles/global_roles (platform-wide role snapshot)
-// - entitlements (snapshot)
-// - email, username, discord_username (if available)
+// - entitlements (authoritative short-lived snapshot)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
 func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (token string, expiresAt time.Time, err error) {
+	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
 	expiresAt = base.ExpiresAt.Time
-	// globalRoles are the user's platform-wide roles. They are emitted in the
-	// `global_roles` claim so consumers can do global-admin authorization.
-	var globalRoles []string
-	if s.pg != nil {
-		globalRoles = s.listRoleSlugsByUser(ctx, userID)
-	}
-	// roles is the legacy claim (authkit issue 60): a user access token mirrors
-	// global_roles into `roles` as fixed token-shape compatibility for consumers
-	// that read `roles`.
-	roles := globalRoles
+	// Platform/org authority is no longer carried as a token claim: the legacy
+	// `global_roles`/`roles` plane was hard-cut in favor of Layer-2 platform RBAC
+	// (profiles.platform_roles + platform:* perms), which is resolved at request
+	// time from the DB, not snapshotted into the access token.
 	var ents []string
 	if s.entitlements != nil {
 		var entErr error
@@ -558,9 +551,8 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 			ents = nil
 		}
 	}
-	// Attempt to fetch username/email fresh from DB if possible
-	var username *string
-	var emailVerified bool
+	// Keep the live-user gate even though profile fields no longer ride in the
+	// token: banned/deleted users must not receive fresh access tokens.
 	if s.pg != nil {
 		u, uErr := s.getUserByID(ctx, userID)
 		if uErr != nil {
@@ -572,16 +564,6 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 		if err := s.ensureUserAccess(ctx, u); err != nil {
 			return "", time.Time{}, err
 		}
-		if u.Email != nil && *u.Email != "" {
-			email = *u.Email
-		}
-		username = u.Username
-		emailVerified = u.EmailVerified
-	}
-	// Best-effort fetch of discord username (prefer profiles.users.discord_username; fallback to provider profile)
-	var discord string
-	if du, duErr := s.getDiscordUsername(ctx, userID); duErr == nil {
-		discord = du
 	}
 
 	claims := map[string]any{
@@ -590,17 +572,8 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 		"aud": base.Audience,
 		"iat": base.IssuedAt.Time.Unix(),
 		"exp": base.ExpiresAt.Time.Unix(),
-		// identity and profile snapshots for convenience
-		"email":            email,
-		"email_verified":   emailVerified,
-		"username":         username,
-		"discord_username": discord,
-		"entitlements":     ents,
+		"entitlements": ents,
 	}
-	// global_roles is the canonical platform-wide roles claim.
-	claims["global_roles"] = globalRoles
-	// roles (legacy) mirrors global_roles on every user access token (issue 60).
-	claims["roles"] = roles
 	for k, v := range extra {
 		claims[k] = v
 	}
@@ -2962,28 +2935,33 @@ func (s *Service) createResetToken(ctx context.Context, userID, tokenHash string
 	return fmt.Errorf("ephemeral store not configured")
 }
 
+// listRoleSlugsByUser returns a user's platform role names. The legacy global
+// roles plane was hard-cut; "roles" in the admin directory now means a user's
+// Layer-2 platform roles (profiles.platform_user_roles).
 func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
 	if s.pg == nil {
 		return nil
 	}
-	slugs, err := s.q.GlobalRoleSlugsByUser(ctx, userID)
+	roles, err := s.PlatformRolesForUser(ctx, userID)
 	if err != nil {
 		return nil
 	}
-	var out []string
-	for _, slug := range slugs {
-		if strings.EqualFold(strings.TrimSpace(slug), "owner") {
-			continue
-		}
-		out = append(out, slug)
-	}
-	return out
+	return roles
 }
 
 var ErrReservedRoleSlug = errors.New("reserved_role_slug")
-var ErrCannotRemoveLastAdminRole = errors.New("cannot_remove_last_admin_role")
 var ErrUserRoleNotFound = errors.New("user_role_not_found")
 
+// ErrCannotRemoveLastAdminRole is retained for the admin HTTP adapter's error
+// mapping. The platform layer has no "last admin" lock (super-admin is seeded
+// out-of-band via the bootstrap manifest), so core no longer returns it, but
+// the exported symbol stays so dependents keep compiling.
+var ErrCannotRemoveLastAdminRole = errors.New("cannot_remove_last_admin_role")
+
+// assignRoleBySlug grants a user a platform role by name (defining the role if
+// it does not yet exist). A manifest/admin role named "admin" is mapped onto the
+// platform super-admin (platform:*); any other name becomes a same-named
+// platform role with no perms until they are set explicitly.
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
 	if strings.EqualFold(strings.TrimSpace(slug), "owner") {
 		return ErrReservedRoleSlug
@@ -2991,93 +2969,59 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 	if s.pg == nil {
 		return nil
 	}
-	roleID, err := s.q.GlobalRoleIDBySlug(ctx, slug)
-	if err != nil {
+	role := strings.ToLower(strings.TrimSpace(slug))
+	if role == "admin" {
+		return s.EnsurePlatformSuperAdmin(ctx, userID)
+	}
+	if err := s.DefinePlatformRole(ctx, role); err != nil {
 		return err
 	}
-	userRoleID, err := newUUIDV7String()
-	if err != nil {
-		return err
-	}
-	return s.q.GlobalUserRoleInsert(ctx, db.GlobalUserRoleInsertParams{ID: userRoleID, UserID: userID, RoleID: roleID})
+	return s.AssignPlatformRole(ctx, userID, role)
 }
 
+// upsertRoleBySlug defines a platform role by name. The legacy global-role
+// name/description fields no longer exist; "admin" seeds the super-admin role
+// (platform:*) and every other name is defined as an empty platform role.
 func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
 	if s.pg == nil {
 		return nil
 	}
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	if slug == "" {
+	_ = name
+	_ = description
+	role := strings.ToLower(strings.TrimSpace(slug))
+	if role == "" {
 		return fmt.Errorf("invalid_role")
 	}
-	if slug == "owner" {
+	if role == "owner" {
 		return ErrReservedRoleSlug
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = slug
+	if role == "admin" {
+		if err := s.DefinePlatformRole(ctx, PlatformSuperAdminRole); err != nil {
+			return err
+		}
+		return s.SetPlatformRolePermissions(ctx, PlatformSuperAdminRole, []string{PlatformSuperAdminGrant})
 	}
-	return s.q.GlobalRoleUpsert(ctx, db.GlobalRoleUpsertParams{Name: name, Slug: slug, Description: description})
+	return s.DefinePlatformRole(ctx, role)
 }
 
+// removeRoleBySlug revokes a user's platform role by name. "admin" maps onto the
+// super-admin role.
 func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) error {
 	if s.pg == nil {
 		return nil
 	}
-	roleSlug := strings.ToLower(strings.TrimSpace(slug))
-	if roleSlug == "admin" {
-		return s.removeAdminRoleIfNotLast(ctx, userID)
+	role := strings.ToLower(strings.TrimSpace(slug))
+	if role == "admin" {
+		role = PlatformSuperAdminRole
 	}
-	n, err := s.q.GlobalUserRoleDeleteBySlug(ctx, db.GlobalUserRoleDeleteBySlugParams{UserID: userID, Slug: roleSlug})
+	removed, err := s.UnassignPlatformRole(ctx, userID, role)
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+	if !removed {
 		return ErrUserRoleNotFound
 	}
 	return nil
-}
-
-func (s *Service) removeAdminRoleIfNotLast(ctx context.Context, userID string) error {
-	tx, err := s.pg.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	qtx := s.qtx(tx)
-
-	roleID, err := qtx.GlobalAdminRoleIDForUpdate(ctx)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrUserRoleNotFound
-		}
-		return err
-	}
-
-	hasRole, err := qtx.GlobalUserRoleExists(ctx, db.GlobalUserRoleExistsParams{UserID: userID, RoleID: roleID})
-	if err != nil {
-		return err
-	}
-	if !hasRole {
-		return ErrUserRoleNotFound
-	}
-
-	activeAdminCount, err := qtx.GlobalActiveAdminCount(ctx, roleID)
-	if err != nil {
-		return err
-	}
-	if activeAdminCount <= 1 {
-		return ErrCannotRemoveLastAdminRole
-	}
-
-	n, err := qtx.GlobalUserRoleDelete(ctx, db.GlobalUserRoleDeleteParams{UserID: userID, RoleID: roleID})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrUserRoleNotFound
-	}
-	return tx.Commit(ctx)
 }
 
 // Exported wrappers for admin endpoints
@@ -3236,7 +3180,12 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 	}
 
 	if slug := strings.TrimSpace(o.Role); slug != "" {
-		from += " JOIN profiles.global_user_roles ur ON ur.user_id = u.id JOIN profiles.global_roles r ON ur.role_id = r.id AND r.deleted_at IS NULL AND r.slug = $" + fmt.Sprint(argIdx)
+		// "role" now filters on a user's Layer-2 platform role (the legacy global
+		// roles plane was hard-cut). admin == the seeded super-admin role.
+		if strings.EqualFold(slug, "admin") {
+			slug = PlatformSuperAdminRole
+		}
+		from += " JOIN profiles.platform_user_roles pur ON pur.user_id = u.id AND pur.role = $" + fmt.Sprint(argIdx)
 		args = append(args, slug)
 		argIdx++
 	}

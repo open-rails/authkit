@@ -19,64 +19,6 @@ type adminUsersListResponse struct {
 	HasMore bool             `json:"has_more"`
 }
 
-func (s *Service) handleAdminRolesGrantPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLAdminRolesGrant) {
-		return
-	}
-	var req struct {
-		UserID string `json:"user_id"`
-		Role   string `json:"role"`
-	}
-	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Role == "" {
-		badRequest(w, "invalid_request")
-		return
-	}
-	if s.svc == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "roles_unavailable"})
-		return
-	}
-	if err := s.svc.AssignRoleBySlug(r.Context(), req.UserID, req.Role); err != nil {
-		if errors.Is(err, core.ErrReservedRoleSlug) {
-			badRequest(w, "reserved_role")
-			return
-		}
-		serverErr(w, "assign_failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (s *Service) handleAdminRolesRevokePOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLAdminRolesRevoke) {
-		return
-	}
-	var req struct {
-		UserID string `json:"user_id"`
-		Role   string `json:"role"`
-	}
-	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Role == "" {
-		badRequest(w, "invalid_request")
-		return
-	}
-	if s.svc == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "roles_unavailable"})
-		return
-	}
-	if err := s.svc.RemoveRoleBySlug(r.Context(), req.UserID, req.Role); err != nil {
-		if errors.Is(err, core.ErrCannotRemoveLastAdminRole) {
-			sendErr(w, http.StatusConflict, "cannot_remove_last_admin")
-			return
-		}
-		if errors.Is(err, core.ErrUserRoleNotFound) {
-			notFound(w, "user_role_not_found")
-			return
-		}
-		serverErr(w, "revoke_failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 // adminUserListOptionsFromQuery parses the generic directory query params (#91):
 // page, page_size, search, role, org, status, sort, order. `filter` is GONE —
 // the directory is generic now (role/org/status), no host product slugs.

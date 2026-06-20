@@ -8,24 +8,6 @@ import (
 	"time"
 )
 
-type ProfilesGlobalRole struct {
-	ID          string
-	Name        string
-	Slug        string
-	Description *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
-}
-
-type ProfilesGlobalUserRole struct {
-	ID        string
-	UserID    string
-	RoleID    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
 type ProfilesOrg struct {
 	ID          string
 	Slug        string

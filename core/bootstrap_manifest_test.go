@@ -59,7 +59,9 @@ func TestReconcileBootstrapManifestSeedsUsersRolesAndOrgMemberships(t *testing.T
 	roleSlug := fmt.Sprintf("bootstrap-role-%d", suffix)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, orgSlug)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.global_roles WHERE slug=$1`, roleSlug)
+		// The legacy global-roles plane is gone; manifest roles are now platform
+		// roles (profiles.platform_roles + platform_user_roles).
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.platform_roles WHERE role=$1`, roleSlug)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
 	})
 
@@ -109,7 +111,7 @@ func TestReconcileBootstrapManifestSeedsUsersRolesAndOrgMemberships(t *testing.T
 		t.Fatalf("seeded password check: %v", err)
 	}
 	if roles := svc.ListRoleSlugsByUser(ctx, user.ID); !containsString(roles, roleSlug) {
-		t.Fatalf("global roles=%v, want %q", roles, roleSlug)
+		t.Fatalf("platform roles=%v, want %q", roles, roleSlug)
 	}
 	if orgRoles, err := svc.ReadMemberRoles(ctx, orgSlug, user.ID); err != nil {
 		t.Fatalf("list member roles: %v", err)

@@ -10,10 +10,10 @@ import (
 // Platform RBAC HTTP layer (#95, Layer 2). These are the platform-admin
 // endpoints — managing the `platform:` directory plane (platform roles + the
 // platform-admin roster). They gate IN-HANDLER on `platform:` permissions via
-// requirePlatformPermission; authority comes ONLY from a platform role assigned
-// to the caller's user (a service/delegated principal has no UserID, so it can
-// never pass — delegated tokens are barred from platform authority by
-// construction). The first super-admin (`platform:*`) is seeded out-of-band
+// requirePlatformPermission; authority comes from either a live platform role
+// assigned to a local user or a delegated access token whose concrete
+// permissions were already validated against the issuer remote application's
+// stored authority. The first super-admin (`platform:*`) is seeded out-of-band
 // (bootstrap/manifest), exactly like an org's first `owner`.
 
 // requirePlatformPermission gates a platform-admin endpoint: the caller must
@@ -21,6 +21,13 @@ import (
 // and returns false when not permitted. There is NO org/global-admin bypass —
 // the two layers are disjoint, so platform authority is platform-role-only.
 func (s *Service) requirePlatformPermission(w http.ResponseWriter, r *http.Request, claims Claims, perm string) bool {
+	if claims.IsDelegatedAccessToken() {
+		if claims.HasPermission(perm) {
+			return true
+		}
+		forbidden(w, "forbidden")
+		return false
+	}
 	if strings.TrimSpace(claims.UserID) == "" {
 		forbidden(w, "forbidden")
 		return false

@@ -451,6 +451,12 @@ func EffectivePermsForTokens(tokens []string, catalog map[string]bool) map[strin
 	return effectivePermsForTokens(tokens, catalog)
 }
 
+// PermissionTokenCovers reports whether a stored grant token covers a requested
+// permission token using AuthKit's namespace-anchored glob semantics.
+func PermissionTokenCovers(grant, requested string) bool {
+	return permMatches(strings.TrimSpace(grant), strings.TrimSpace(requested))
+}
+
 // UnknownRoleTokenNames returns every grant token that expands to NOTHING in the
 // catalog (a bare `*`, a typo'd literal, or a glob matching no catalog perm) —
 // validate seeds with this at startup or in tests and treat a non-empty result

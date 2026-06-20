@@ -18,9 +18,6 @@ type Claims struct {
 	DiscordUsername string
 	SessionID       string
 	Roles           []string
-	// GlobalRoles are the user's GLOBAL (platform-wide) roles, carried in the
-	// `global_roles` claim. Use these for global-admin authorization decisions.
-	GlobalRoles []string
 	// OrgRoles are roles scoped to the org named in Org when a trusted token
 	// authority provides org role claims.
 	OrgRoles     []string
@@ -231,12 +228,11 @@ func (c Claims) AttributeIsReference(key string) bool {
 	return ok
 }
 
-// HasPermission reports whether the claims carry the exact permission string.
-// Receiving services should layer scope semantics on top — string presence
-// alone is not authorization.
+// HasPermission reports whether the claims carry a permission token covering
+// the requested concrete permission.
 func (c Claims) HasPermission(perm string) bool {
 	for _, p := range c.Permissions {
-		if p == perm {
+		if core.PermissionTokenCovers(p, perm) {
 			return true
 		}
 	}

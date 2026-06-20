@@ -85,9 +85,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	}
 	selected := routeGroupSet(groups)
 	required := Required(s.verifier)
-	admin := func(h http.Handler) http.Handler {
-		return required(RequireAdminInSchema(s.svc.Postgres(), s.svc.Schema())(h))
-	}
 	// platformGated gates a /admin/* route on a specific Layer-2 `platform:`
 	// permission (#95) — the platform RBAC plane is the SOLE admin authority, in
 	// place of the legacy global-admin gate. Authenticated (required) first, then
@@ -183,8 +180,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/solana/login", Group: RouteSolana, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
 		{Method: http.MethodPost, Path: "/solana/link", Group: RouteSolana, Handler: required(http.HandlerFunc(s.handleSolanaLinkPOST))},
 
-		{Method: http.MethodPost, Path: "/admin/roles/grant", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminRolesGrantPOST))},
-		{Method: http.MethodPost, Path: "/admin/roles/revoke", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminRolesRevokePOST))},
 		// Layer-2 Platform RBAC admin API (#95). Authenticated; each handler gates
 		// IN-HANDLER on the specific `platform:` permission (requirePlatformPermission)
 		// — NOT the legacy RequireAdmin gate. Define platform roles, then grant them
@@ -237,7 +232,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// listing is global-admin only for operator visibility.
 		{Method: http.MethodPost, Path: "/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationRegisterPOST))},
 		{Method: http.MethodDelete, Path: "/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationDeleteDELETE))},
-		{Method: http.MethodGet, Path: "/remote-applications", Group: RouteOrgIssuers, Handler: admin(http.HandlerFunc(s.handleRemoteApplicationsListGET))},
 		// A remote_application's org memberships (assigned via the SAME role
 		// machinery as users).
 		{Method: http.MethodPost, Path: "/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipPOST))},

@@ -66,9 +66,9 @@ func (s *Service) requireOrgPermission(ctx context.Context, claims Claims, orgSl
 		return "", false, err
 	}
 	canonical = org.Slug
-	if claimsHasGlobalAdmin(claims) {
-		return canonical, true, nil
-	}
+	// #95 disjoint model: org authority is ORG-membership only — there is no
+	// global/platform-admin bypass into an org (a platform-admin manages orgs as
+	// entities via /admin/orgs/*, never their internals).
 	if strings.TrimSpace(claims.UserID) == "" {
 		return canonical, false, nil
 	}

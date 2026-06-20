@@ -100,62 +100,6 @@ CREATE INDEX IF NOT EXISTS user_providers_user_id_idx ON profiles.user_providers
 CREATE INDEX IF NOT EXISTS user_providers_user_id_provider_slug_idx
   ON profiles.user_providers (user_id, provider_slug);
 
-CREATE TABLE IF NOT EXISTS profiles.global_roles (
-  id uuid PRIMARY KEY DEFAULT uuidv7(),
-  name text NOT NULL,
-  slug text NOT NULL UNIQUE,
-  description text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz,
-  CONSTRAINT global_roles_slug_not_owner_chk CHECK (lower(slug) <> 'owner')
-);
-
-CREATE OR REPLACE FUNCTION profiles.trg_global_roles_set_id_from_slug() RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  NEW.id := profiles.role_id(NEW.slug);
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS global_roles_set_id_from_slug ON profiles.global_roles;
-CREATE TRIGGER global_roles_set_id_from_slug
-  BEFORE INSERT ON profiles.global_roles
-  FOR EACH ROW
-  EXECUTE FUNCTION profiles.trg_global_roles_set_id_from_slug();
-
-CREATE OR REPLACE FUNCTION profiles.trg_global_roles_slug_immutable() RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  IF NEW.slug IS DISTINCT FROM OLD.slug THEN
-    RAISE EXCEPTION 'profiles.global_roles.slug is immutable';
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS global_roles_slug_immutable ON profiles.global_roles;
-CREATE TRIGGER global_roles_slug_immutable
-  BEFORE UPDATE OF slug ON profiles.global_roles
-  FOR EACH ROW
-  EXECUTE FUNCTION profiles.trg_global_roles_slug_immutable();
-
-INSERT INTO profiles.global_roles (name, slug, description)
-VALUES ('Admin', 'admin', 'Global platform administrator')
-ON CONFLICT (slug) DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS profiles.global_user_roles (
-  id uuid PRIMARY KEY DEFAULT uuidv7(),
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
-  role_id uuid NOT NULL REFERENCES profiles.global_roles(id) ON DELETE CASCADE,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (user_id, role_id)
-);
-
 CREATE TABLE IF NOT EXISTS profiles.refresh_sessions (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,

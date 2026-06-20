@@ -248,10 +248,78 @@ type RemoteApplicationAuthoritySource interface {
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []core.OrgMembership, permissions []string, err error)
 }
 
-// resolveRemoteApplicationSelf authenticates a JWKS principal SELF-token (#76):
+// remoteApplicationAuthority maps a validated issuer to its remote_application
+// and loads the stored authority assigned to that application.
+func (v *Verifier) remoteApplicationAuthority(ctx context.Context, issuer string) (*core.RemoteApplication, []core.OrgMembership, []string, error) {
+	issuer = strings.TrimSpace(issuer)
+	if issuer == "" {
+		return nil, nil, nil, errors.New("bad_issuer")
+	}
+	var src RemoteApplicationSource
+	if v.fedSource != nil {
+		src = v.fedSource
+	} else {
+		src = v.enrich
+	}
+	if src == nil {
+		return nil, nil, nil, errors.New("invalid_token")
+	}
+
+	ra, err := src.GetRemoteApplication(ctx, issuer)
+	if err != nil || ra == nil {
+		return nil, nil, nil, errors.New("bad_issuer")
+	}
+
+	var authority RemoteApplicationAuthoritySource
+	if authSrc, ok := src.(RemoteApplicationAuthoritySource); ok {
+		authority = authSrc
+	} else {
+		authority = v.enrich
+	}
+	if authority == nil {
+		return nil, nil, nil, errors.New("invalid_token")
+	}
+	memberships, perms, err := authority.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	if err != nil {
+		return nil, nil, nil, errors.New("invalid_token")
+	}
+	return ra, memberships, perms, nil
+}
+
+func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string, error) {
+	if claimedPerms == nil {
+		return authorityPerms, nil
+	}
+	eff := make([]string, 0, len(claimedPerms))
+	seen := map[string]struct{}{}
+	for _, p := range claimedPerms {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		ok := false
+		for _, grant := range authorityPerms {
+			if core.PermissionTokenCovers(grant, p) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil, errPermissionNotGranted
+		}
+		if _, dup := seen[p]; dup {
+			continue
+		}
+		seen[p] = struct{}{}
+		eff = append(eff, p)
+	}
+	return eff, nil
+}
+
+// resolveRemoteApplicationSelf authenticates a remote application access token:
 // it maps the VALIDATED issuer to its remote_application, loads that principal's
 // STORED authority (assigned org roles + direct permissions), and returns
-// Claims populated the way a API-key-authenticated principal would be. The
+// Claims populated the way an API-key-authenticated principal would be. The
 // token's own role/org claims are never consulted — authority is stored.
 //
 // claimedPerms is the token's `permissions` down-scoping request (#76 amendment):
@@ -260,57 +328,18 @@ type RemoteApplicationAuthoritySource interface {
 // perm REJECTS the whole token (errPermissionNotGranted), never a widening and
 // never a silent clamp.
 func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tokenTyp string, claimedPerms []string) (Claims, error) {
-	issuer = strings.TrimSpace(issuer)
-	if issuer == "" {
-		return Claims{}, errors.New("bad_issuer")
-	}
-	if v.enrich == nil {
-		return Claims{}, errors.New("invalid_token")
-	}
-	// Identity: the registered remote_application for this issuer.
-	var ra *core.RemoteApplication
-	var err error
-	if v.fedSource != nil {
-		ra, err = v.fedSource.GetRemoteApplication(ctx, issuer)
-	} else {
-		ra, err = v.enrich.GetRemoteApplication(ctx, issuer)
-	}
-	if err != nil || ra == nil {
-		return Claims{}, errors.New("bad_issuer")
-	}
-
-	// STORED authority — never the token's self-claimed permissions/roles.
-	var authority RemoteApplicationAuthoritySource = v.enrich
-	if src, ok := v.fedSource.(RemoteApplicationAuthoritySource); ok {
-		authority = src
-	}
-	memberships, perms, aerr := authority.ResolveRemoteApplicationAuthority(ctx, ra.ID)
-	if aerr != nil {
-		return Claims{}, errors.New("invalid_token")
+	ra, memberships, perms, err := v.remoteApplicationAuthority(ctx, issuer)
+	if err != nil {
+		return Claims{}, err
 	}
 
 	// Down-scoping (#76 amendment): a present `permissions` claim narrows the
 	// stored ceiling to the claimed subset; absent (nil) keeps the full ceiling.
 	// Any claimed perm OUTSIDE the ceiling rejects the whole token — a
 	// misconfigured caller must fail loudly, not silently lose perms.
-	if claimedPerms != nil {
-		ceiling := make(map[string]struct{}, len(perms))
-		for _, p := range perms {
-			ceiling[p] = struct{}{}
-		}
-		eff := make([]string, 0, len(claimedPerms))
-		seen := map[string]struct{}{}
-		for _, p := range claimedPerms {
-			if _, ok := ceiling[p]; !ok {
-				return Claims{}, errPermissionNotGranted
-			}
-			if _, dup := seen[p]; dup {
-				continue
-			}
-			seen[p] = struct{}{}
-			eff = append(eff, p)
-		}
-		perms = eff
+	perms, err = permissionsWithinAuthority(claimedPerms, perms)
+	if err != nil {
+		return Claims{}, err
 	}
 
 	cl := Claims{
@@ -851,6 +880,17 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	}
 	cl := v.extractClaims(mapClaims, isLocal)
 	cl.TokenTyp = tokenTyp
+	if isDelegatedAccessTyp && len(cl.Permissions) > 0 {
+		_, _, authorityPerms, err := v.remoteApplicationAuthority(context.Background(), cl.Issuer)
+		if err != nil {
+			return Claims{}, err
+		}
+		perms, err := permissionsWithinAuthority(cl.Permissions, authorityPerms)
+		if err != nil {
+			return Claims{}, err
+		}
+		cl.Permissions = perms
+	}
 	return cl, nil
 }
 
@@ -1009,10 +1049,10 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
 
-	// Split global/org role claims (additive). `global_roles` carries
-	// platform-wide roles; `org_roles` carries roles scoped to Org when present
-	// from a trusted authority.
-	cl.GlobalRoles = strSliceClaim(mc, "global_roles")
+	// `org_roles` carries roles scoped to Org when present from a trusted
+	// authority. (The legacy `global_roles` claim was removed in #95 — platform
+	// authority is resolved from the platform RBAC tables at request time, never
+	// from a token claim.)
 	if oroles := strSliceClaim(mc, "org_roles"); len(oroles) > 0 {
 		cl.OrgRoles = oroles
 	}
@@ -1033,7 +1073,6 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 	// self-assert global_roles, org_roles, or roles and gain platform-admin access.
 	// These claims are only meaningful on tokens from the platform's own signer.
 	if !isLocal {
-		cl.GlobalRoles = nil
 		cl.OrgRoles = nil
 		cl.Roles = nil
 	}

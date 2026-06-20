@@ -301,8 +301,6 @@ func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
 		{name: "admin user session revoke", method: http.MethodPost, path: "/admin/users/user-id/sessions/revoke", want: http.StatusUnauthorized},
 		{name: "admin ban", method: http.MethodPost, path: "/admin/users/ban", body: `{}`, want: http.StatusUnauthorized},
 		{name: "admin unban", method: http.MethodPost, path: "/admin/users/unban", body: `{}`, want: http.StatusUnauthorized},
-		{name: "admin role grant", method: http.MethodPost, path: "/admin/roles/grant", body: `{}`, want: http.StatusUnauthorized},
-		{name: "admin role revoke", method: http.MethodPost, path: "/admin/roles/revoke", body: `{}`, want: http.StatusUnauthorized},
 	}
 
 	for _, tt := range tests {

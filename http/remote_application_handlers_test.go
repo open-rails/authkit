@@ -33,18 +33,6 @@ func TestInboundHandlerRejectsBadRequest(t *testing.T) {
 	}
 }
 
-func TestClaimsHasGlobalAdmin(t *testing.T) {
-	if !claimsHasGlobalAdmin(Claims{GlobalRoles: []string{"admin"}}) {
-		t.Fatal("expected admin detection")
-	}
-	if claimsHasGlobalAdmin(Claims{GlobalRoles: []string{"member"}}) {
-		t.Fatal("did not expect admin for member")
-	}
-	if claimsHasGlobalAdmin(Claims{}) {
-		t.Fatal("did not expect admin for empty roles")
-	}
-}
-
 // TestInboundHandlerRejectsDelegatedPrincipal locks the human-only rule:
 // trust-config mutation requires a human session. A delegated/API key
 // carries no `sub` (UserID stays empty), so it must be rejected with 401 even

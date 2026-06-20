@@ -49,9 +49,12 @@ func (s *Service) ValidateInviteRoleGrant(ctx context.Context, orgSlug, grantorU
 	if err != nil {
 		return err
 	}
-	// Global admins may grant any role; otherwise the grantor's own effective
-	// permissions must cover the role (ValidateGrant computes the superset).
-	grantorAll, _ := s.q.GlobalUserHasActiveRole(ctx, db.GlobalUserHasActiveRoleParams{UserID: grantorUserID, Slug: "admin"})
+	// Platform admins may grant any role; otherwise the grantor's own effective
+	// permissions must cover the role (ValidateGrant computes the superset). The
+	// legacy global-admin bypass is now a Layer-2 platform check: a platform
+	// super-admin holds platform:orgs:update (via platform:*), so they bypass the
+	// org-grantor superset check just like the old global admin did.
+	grantorAll, _ := s.HasPlatformPermission(ctx, grantorUserID, PermPlatformOrgsUpdate)
 	if _, offending, verr := s.ValidateGrant(ctx, orgSlug, grantorUserID, rolePerms, grantorAll); verr != nil {
 		return verr
 	} else if len(offending) > 0 {

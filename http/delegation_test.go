@@ -3,22 +3,65 @@ package authhttp
 import (
 	"context"
 	"crypto"
+	"errors"
 	"testing"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-func newDelegatedTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *Verifier {
+type delegatedTestRemoteApplicationSource struct {
+	app         core.RemoteApplication
+	permission  []string
+	membership  []core.OrgMembership
+}
+
+func newDelegatedAuthorityTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string, permissions []string) *Verifier {
 	t.Helper()
 	v := NewVerifier(WithOrgMode("multi"))
+	v.fedSource = &delegatedTestRemoteApplicationSource{
+		app: core.RemoteApplication{
+			ID:      "remote-app-1",
+			Slug:    "remote-app",
+			Issuer:  iss,
+			Enabled: true,
+		},
+		permission: permissions,
+	}
 	if err := v.AddIssuer(iss, aud, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}); err != nil {
 		t.Fatalf("AddIssuer: %v", err)
 	}
 	return v
+}
+
+func newDelegatedTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *Verifier {
+	t.Helper()
+	return newDelegatedAuthorityTestVerifier(t, signer, iss, aud, []string{"openrails:*", "tensorhub:*", "platform:*"})
+}
+
+func (s *delegatedTestRemoteApplicationSource) ListRemoteApplications(ctx context.Context, enabledOnly bool) ([]core.RemoteApplication, error) {
+	if enabledOnly && !s.app.Enabled {
+		return nil, nil
+	}
+	return []core.RemoteApplication{s.app}, nil
+}
+
+func (s *delegatedTestRemoteApplicationSource) GetRemoteApplication(ctx context.Context, issuer string) (*core.RemoteApplication, error) {
+	if issuer != s.app.Issuer {
+		return nil, errors.New("not_found")
+	}
+	return &s.app, nil
+}
+
+func (s *delegatedTestRemoteApplicationSource) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]core.OrgMembership, []string, error) {
+	if appID != s.app.ID {
+		return nil, nil, errors.New("not_found")
+	}
+	return s.membership, s.permission, nil
 }
 
 func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {

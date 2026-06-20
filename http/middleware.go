@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
@@ -106,36 +104,8 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAdmin verifies admin role directly in Postgres. It assumes the
-// default "profiles" schema; hosts that configure core.Config.Schema should
-// use RequireAdminInSchema with svc.Schema().
-func RequireAdmin(pg *pgxpool.Pool) func(http.Handler) http.Handler {
-	return RequireAdminInSchema(pg, "")
-}
-
-// RequireAdminInSchema is RequireAdmin against AuthKit tables in the given
-// schema (empty means the default "profiles").
-func RequireAdminInSchema(pg *pgxpool.Pool, schema string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if pg == nil {
-				forbidden(w, "forbidden")
-				return
-			}
-			cl, err := getClaims(r.Context())
-			if err != nil || cl.UserID == "" {
-				forbidden(w, "forbidden")
-				return
-			}
-			isAdmin, err := IsAdminInSchema(r.Context(), pg, schema, cl.UserID)
-			if err == nil && isAdmin {
-				next.ServeHTTP(w, r)
-				return
-			}
-			forbidden(w, "forbidden")
-		})
-	}
-}
+// (RequireAdmin / RequireAdminInSchema removed in #95 — the global-roles admin
+// gate is gone; /admin/* routes gate on `platform:` perms via requirePlatformPermission.)
 
 // RequireEntitlement gates a handler on the presence of a single entitlement in
 // the verified claims (case-insensitive, see Claims.HasEntitlement). It must run

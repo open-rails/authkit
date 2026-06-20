@@ -110,8 +110,11 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	})
 	require.Equal(t, http.StatusForbidden, status, body)
 
+	// #95: remote-apps are org-nested (no org-less issuers). Bind to orgB so
+	// managerA (orgA) still can't manage it — verifying cross-org isolation.
 	_, err = coreSvc.UpsertRemoteApplication(ctx, core.RemoteApplication{
 		Slug:    prefix + "-bootstrap",
+		OrgID:   orgB.ID,
 		Issuer:  "https://" + prefix + "-bootstrap.example/issuer",
 		JWKSURI: "https://example.com/bootstrap-jwks.json",
 		Enabled: true,
