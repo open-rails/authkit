@@ -10,10 +10,11 @@ import (
 // handleMePermissionsGET is the "what are my permissions" introspection endpoint
 // (#76 amendment): an authenticated principal reads its OWN GRANTED permission set
 // — the CEILING — plus its identity/type. A caller uses this to discover its full
-// grant before minting a down-scoped self-token (reject-on-over-claim is only
-// ergonomic if a caller can look up its grant). For a JWKS-principal self-token it
-// returns the STORED grant (direct ∪ role-derived) resolved by principal identity,
-// NOT the possibly-narrowed Permissions of the presented token.
+// grant before minting a down-scoped remote application access token
+// (reject-on-over-claim is only ergonomic if a caller can look up its grant). For
+// a remote application access token it returns the STORED grant (direct ∪
+// role-derived) resolved by principal identity, NOT the possibly-narrowed
+// Permissions of the presented token.
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
@@ -24,7 +25,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 
 	switch {
 	case claims.IsRemoteApplication():
-		// JWKS principal: return the CEILING resolved by identity, not the
+		// Remote application: return the CEILING resolved by identity, not the
 		// narrowed token claim, so the caller can discover its full grant.
 		memberships, perms, err := s.svc.ResolveRemoteApplicationAuthority(ctx, claims.RemoteApplicationID)
 		if err != nil {

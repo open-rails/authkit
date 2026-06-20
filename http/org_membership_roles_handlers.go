@@ -63,7 +63,7 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 		serverErr(w, "role_permissions_lookup_failed")
 		return
 	}
-	if _, offending, verr := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, rolePerms, claimsHasGlobalAdmin(claims)); verr != nil {
+	if _, offending, verr := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, rolePerms, false); verr != nil {
 		serverErr(w, "permission_validate_failed")
 		return
 	} else if len(offending) > 0 {

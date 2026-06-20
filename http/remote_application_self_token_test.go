@@ -17,9 +17,9 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// selfTokenEnv wires a DB-backed verifier for the JWKS-principal SELF-token path
-// (#76): a registered remote_application, the verifier trusting its external
-// signing key, and the core.Service that resolves its STORED authority.
+// selfTokenEnv wires a DB-backed verifier for the remote application access
+// token path (#76): a registered remote_application, the verifier trusting its
+// external signing key, and the core.Service that resolves its STORED authority.
 type selfTokenEnv struct {
 	pool   *pgxpool.Pool
 	svc    *core.Service
@@ -83,8 +83,9 @@ func (e *selfTokenEnv) mint(t *testing.T) string {
 	return tok
 }
 
-// mintScoped mints a self-token carrying a `permissions` down-scoping claim (#76
-// amendment). A nil perms slice means "no claim" (full ceiling).
+// mintScoped mints a remote application access token carrying a `permissions`
+// down-scoping claim (#76 amendment). A nil perms slice means "no claim" (full
+// ceiling).
 func (e *selfTokenEnv) mintScoped(t *testing.T, perms []string) string {
 	t.Helper()
 	tok, err := core.MintRemoteApplicationAccessToken(context.Background(), e.signer, core.RemoteApplicationAccessParams{
@@ -95,9 +96,9 @@ func (e *selfTokenEnv) mintScoped(t *testing.T, perms []string) string {
 }
 
 // TestRemoteApplicationSelfTokenResolvesStoredAuthority is the core #76 case: a
-// JWKS principal self-token authenticates AS the remote_application and resolves
-// its ASSIGNED authority — direct permissions UNION role-derived permissions —
-// and exposes its org role. Self-claimed authority on the token is ignored.
+// remote application access token authenticates AS the remote_application and
+// resolves its ASSIGNED role-derived authority. Role claims in the token are
+// ignored.
 func TestRemoteApplicationSelfTokenResolvesStoredAuthority(t *testing.T) {
 	env := newSelfTokenEnv(t, "self-app", "https://self-app.example/iss")
 	ctx := context.Background()
@@ -108,12 +109,10 @@ func TestRemoteApplicationSelfTokenResolvesStoredAuthority(t *testing.T) {
 	_, err := env.svc.CreateOrg(ctx, tslug)
 	require.NoError(t, err)
 
-	// A role that bundles a permission, assigned to the principal.
+	// A role that bundles permissions, assigned to the principal.
 	require.NoError(t, env.svc.DefineRole(ctx, tslug, "catalog-admin"))
-	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "catalog-admin", []string{"catalog:write"}))
+	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "catalog-admin", []string{"catalog:write", "billing:read"}))
 	require.NoError(t, env.svc.AddRemoteApplicationMember(ctx, tslug, env.app.ID, "catalog-admin"))
-	// A DIRECT permission grant.
-	require.NoError(t, env.svc.AddRemoteApplicationPermission(ctx, env.app.ID, "billing:read"))
 
 	cl, err := env.ver.Verify(env.mint(t))
 	require.NoError(t, err)
@@ -121,12 +120,12 @@ func TestRemoteApplicationSelfTokenResolvesStoredAuthority(t *testing.T) {
 	require.True(t, cl.IsRemoteApplication())
 	require.False(t, cl.IsService())
 	require.False(t, cl.IsDelegated())
-	require.Empty(t, cl.UserID, "self-token implies no local user")
+	require.Empty(t, cl.UserID, "remote application access token implies no local user")
 	require.Equal(t, env.app.ID, cl.RemoteApplicationID)
 	require.Equal(t, "self-app", cl.RemoteApplicationSlug)
 	require.Equal(t, tslug, cl.Org)
 	require.Contains(t, cl.OrgRoles, "catalog-admin")
-	// Effective permissions = role-derived ∪ direct.
+	// Effective permissions are role-derived.
 	require.ElementsMatch(t, []string{"catalog:write", "billing:read"}, cl.Permissions)
 }
 
@@ -170,32 +169,36 @@ func TestRemoteApplicationSelfTokenIgnoresSelfClaimedAuthority(t *testing.T) {
 	require.Contains(t, err.Error(), "permission_not_granted")
 }
 
-// TestRemoteApplicationSelfTokenGrantTakesEffect proves assigning then removing a
-// direct permission is reflected on the next verify.
-func TestRemoteApplicationSelfTokenGrantTakesEffect(t *testing.T) {
+// TestRemoteApplicationSelfTokenRoleGrantTakesEffect proves assigning then
+// removing an org role is reflected on the next verify.
+func TestRemoteApplicationSelfTokenRoleGrantTakesEffect(t *testing.T) {
 	env := newSelfTokenEnv(t, "grant-app", "https://grant-app.example/iss")
 	ctx := context.Background()
+	const tslug = "grant-org"
+	_, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug)
+	t.Cleanup(func() { _, _ = env.pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, tslug) })
+	_, err := env.svc.CreateOrg(ctx, tslug)
+	require.NoError(t, err)
+	require.NoError(t, env.svc.DefineRole(ctx, tslug, "runner"))
+	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "runner", []string{"jobs:submit"}))
 
 	cl, err := env.ver.Verify(env.mint(t))
 	require.NoError(t, err)
 	require.Empty(t, cl.Permissions)
 
-	require.NoError(t, env.svc.AddRemoteApplicationPermission(ctx, env.app.ID, "jobs:submit"))
+	require.NoError(t, env.svc.AddRemoteApplicationMember(ctx, tslug, env.app.ID, "runner"))
 	cl, err = env.ver.Verify(env.mint(t))
 	require.NoError(t, err)
 	require.Equal(t, []string{"jobs:submit"}, cl.Permissions)
 
-	removed, err := env.svc.RemoveRemoteApplicationPermission(ctx, env.app.ID, "jobs:submit")
-	require.NoError(t, err)
-	require.True(t, removed)
+	require.NoError(t, env.svc.RemoveRemoteApplicationMember(ctx, tslug, env.app.ID))
 	cl, err = env.ver.Verify(env.mint(t))
 	require.NoError(t, err)
 	require.Empty(t, cl.Permissions)
 }
 
-// seedCeiling assigns a remote_application a role-derived perm (catalog:write via
-// a role) plus a direct perm (billing:read), giving a ceiling of both. Returns
-// the org slug for cleanup-aware callers.
+// seedCeiling assigns a remote_application a role whose permissions create a
+// ceiling of catalog:write + billing:read.
 func seedCeiling(t *testing.T, env *selfTokenEnv, tslug string) {
 	t.Helper()
 	ctx := context.Background()
@@ -204,9 +207,8 @@ func seedCeiling(t *testing.T, env *selfTokenEnv, tslug string) {
 	_, err := env.svc.CreateOrg(ctx, tslug)
 	require.NoError(t, err)
 	require.NoError(t, env.svc.DefineRole(ctx, tslug, "catalog-admin"))
-	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "catalog-admin", []string{"catalog:write"}))
+	require.NoError(t, env.svc.SetRolePermissions(ctx, tslug, "catalog-admin", []string{"catalog:write", "billing:read"}))
 	require.NoError(t, env.svc.AddRemoteApplicationMember(ctx, tslug, env.app.ID, "catalog-admin"))
-	require.NoError(t, env.svc.AddRemoteApplicationPermission(ctx, env.app.ID, "billing:read"))
 }
 
 // TestRemoteApplicationSelfTokenDownScopesToSubset (#76 amendment): a `permissions`
@@ -236,9 +238,10 @@ func TestRemoteApplicationSelfTokenCannotWiden(t *testing.T) {
 	require.Contains(t, err.Error(), "permission_not_granted")
 }
 
-// TestRemoteApplicationSelfTokenAbsentClaimFullCeiling (#76 amendment) regression-
-// guards the v0.28.0 behavior: a self-token with NO `permissions` claim resolves
-// the FULL stored ceiling (direct ∪ role-derived) — backward-compatible.
+// TestRemoteApplicationSelfTokenAbsentClaimFullCeiling (#76 amendment)
+// regression-guards the v0.28.0 behavior: a remote application access token with
+// NO `permissions` claim resolves the FULL stored role-derived ceiling —
+// backward-compatible.
 func TestRemoteApplicationSelfTokenAbsentClaimFullCeiling(t *testing.T) {
 	env := newSelfTokenEnv(t, "absent-app", "https://absent-app.example/iss")
 	seedCeiling(t, env, "absent-org")
@@ -285,9 +288,9 @@ func toStrings(t *testing.T, v any) []string {
 }
 
 // TestMePermissionsRemoteAppReturnsCeiling (#76 amendment): the introspection
-// endpoint returns a JWKS principal's full GRANTED ceiling resolved by identity —
-// NOT the (narrowed) Permissions of the presented token — so a caller can discover
-// its grant before minting a valid down-scoped token.
+// endpoint returns a remote application's full GRANTED ceiling resolved by
+// identity — NOT the (narrowed) Permissions of the presented token — so a caller
+// can discover its grant before minting a valid down-scoped token.
 func TestMePermissionsRemoteAppReturnsCeiling(t *testing.T) {
 	env := newSelfTokenEnv(t, "intro-app", "https://intro-app.example/iss")
 	seedCeiling(t, env, "intro-org")
@@ -353,8 +356,8 @@ func TestMePermissionsNativeUserResolves(t *testing.T) {
 }
 
 // TestRemoteApplicationSelfTokenRejectsSubject regression-guards the verifier's
-// subject invariant (verifier.go:666 family): a self-token must carry neither
-// `sub` nor `delegated_sub`.
+// subject invariant: a remote application access token must carry neither `sub`
+// nor `delegated_sub`.
 func TestRemoteApplicationSelfTokenRejectsSubject(t *testing.T) {
 	env := newSelfTokenEnv(t, "subj-app", "https://subj-app.example/iss")
 	now := time.Now()
@@ -368,6 +371,6 @@ func TestRemoteApplicationSelfTokenRejectsSubject(t *testing.T) {
 		}, map[string]any{"typ": RemoteApplicationAccessTokenType})
 		require.NoError(t, err)
 		_, err = env.ver.Verify(tok)
-		require.Error(t, err, "self-token with %s must be rejected", subjectClaim)
+		require.Error(t, err, "remote application access token with %s must be rejected", subjectClaim)
 	}
 }

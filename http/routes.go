@@ -236,11 +236,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// machinery as users).
 		{Method: http.MethodPost, Path: "/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipPOST))},
 		{Method: http.MethodDelete, Path: "/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipDELETE))},
-		// Direct permission grants (#76): the JWKS principal's STORED authority for
-		// acting AS ITSELF, alongside its role-derived permissions.
-		{Method: http.MethodGet, Path: "/remote-applications/{slug}/permissions", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationPermissionsGET))},
-		{Method: http.MethodPost, Path: "/remote-applications/{slug}/permissions", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationPermissionPOST))},
-		{Method: http.MethodDelete, Path: "/remote-applications/{slug}/permissions", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationPermissionDELETE))},
 		// Attribute definition registry (#75): write side (remote_app authors)
 		// + read/resolve side (any platform resolving a token reference).
 		{Method: http.MethodPost, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefPutPOST))},

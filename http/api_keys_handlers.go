@@ -131,11 +131,10 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.svc.AuthorizeAPIKeyResources(r.Context(), core.ResourceScopeAuthorizationRequest{
-		OrgSlug:          canonical,
-		ActorUserID:      claims.UserID,
-		Permissions:      permissions,
-		Resources:        resources,
-		ActorGlobalAdmin: claimsHasGlobalAdmin(claims),
+		OrgSlug:     canonical,
+		ActorUserID: claims.UserID,
+		Permissions: permissions,
+		Resources:   resources,
 	}); err != nil {
 		switch err.Error() {
 		case "invalid_resource":
@@ -205,7 +204,7 @@ func (s *Service) authorizeAPIKeyMint(w http.ResponseWriter, r *http.Request, cl
 	if !gateOK {
 		return "", false
 	}
-	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, permissions, claimsHasGlobalAdmin(claims))
+	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, permissions, false)
 	if err != nil {
 		serverErr(w, "permission_validate_failed")
 		return "", false

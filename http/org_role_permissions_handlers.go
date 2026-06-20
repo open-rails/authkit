@@ -52,8 +52,7 @@ func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 	}
 	// NO-ESCALATION + catalog validation: every permission must be defined and
 	// within the assigner's own effective permissions.
-	actorAll := claimsHasGlobalAdmin(claims)
-	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, body.Permissions, actorAll)
+	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, body.Permissions, false)
 	if err != nil {
 		serverErr(w, "permission_validate_failed")
 		return

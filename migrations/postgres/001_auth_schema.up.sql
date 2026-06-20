@@ -296,18 +296,6 @@ CREATE INDEX IF NOT EXISTS raad_app_key_idx
 COMMENT ON TABLE profiles.remote_application_attribute_defs IS
   'REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).';
 
-CREATE TABLE IF NOT EXISTS profiles.remote_application_permissions (
-  remote_application_id uuid NOT NULL REFERENCES profiles.remote_applications(id) ON DELETE CASCADE,
-  permission text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (remote_application_id, permission),
-  CONSTRAINT rap_permission_format_chk CHECK (char_length(permission) BETWEEN 1 AND 256)
-);
-CREATE INDEX IF NOT EXISTS rap_app_idx
-  ON profiles.remote_application_permissions (remote_application_id);
-COMMENT ON TABLE profiles.remote_application_permissions IS
-  'Direct permissions assigned to a remote_application principal (#76): STORED authority for the JWKS self-token, mirroring service_token_permissions. Opaque to AuthKit.';
-
 CREATE TABLE IF NOT EXISTS profiles.service_tokens (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   org_id uuid NOT NULL REFERENCES profiles.orgs(id) ON DELETE CASCADE,

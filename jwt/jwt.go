@@ -11,15 +11,14 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-// AuthKit JOSE `typ` header values. These separate ordinary AuthKit access
-// tokens from delegated access tokens before claims are mapped into principals.
+// AuthKit JOSE `typ` header values. These separate AuthKit JWT classes before
+// claims are mapped into principals.
 const (
 	AccessTokenType          = "access+jwt"
 	DelegatedAccessTokenType = "delegated-access+jwt"
-	// RemoteApplicationAccessTokenType is the JOSE `typ` for a JWKS principal's
-	// SELF-token (#76): a remote_application signs a JWT whose subject is itself.
-	// Distinct typ keeps the sub/delegated_sub invariant intact — a self-token
-	// carries neither (identity is the validated `iss` -> remote_application).
+	// RemoteApplicationAccessTokenType is the JOSE `typ` for a remote application
+	// access token. It carries neither sub nor delegated_sub; identity is the
+	// validated iss -> remote_application mapping.
 	RemoteApplicationAccessTokenType = "remote-application-access+jwt"
 )
 

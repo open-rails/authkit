@@ -22,9 +22,8 @@ import (
 // a delegated token, so a hostile issuer can't inflate a principal unboundedly.
 const maxDelegatedRoles = 64
 
-// errPermissionNotGranted rejects a JWKS-principal self-token whose `permissions`
-// down-scoping claim names a perm outside the stored grant (#76 amendment): a
-// misconfigured caller fails loudly instead of silently losing the perm.
+// errPermissionNotGranted rejects a token whose `permissions` claim names a
+// permission outside the issuer remote application's stored grant.
 var errPermissionNotGranted = errors.New("permission_not_granted")
 
 // Verifier validates JWTs from one or more issuers.
@@ -241,9 +240,9 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	}, true, nil
 }
 
-// RemoteApplicationAuthoritySource resolves a JWKS principal's STORED authority
-// (#76): its org memberships (slug + role names) and effective permission set
-// (direct grants ∪ role-derived). *core.Service satisfies it.
+// RemoteApplicationAuthoritySource resolves a remote application's STORED
+// authority (#76): its org memberships (slug + role names) and effective
+// permission set (direct grants ∪ role-derived). *core.Service satisfies it.
 type RemoteApplicationAuthoritySource interface {
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []core.OrgMembership, permissions []string, err error)
 }
@@ -258,7 +257,7 @@ func (v *Verifier) remoteApplicationAuthority(ctx context.Context, issuer string
 	var src RemoteApplicationSource
 	if v.fedSource != nil {
 		src = v.fedSource
-	} else {
+	} else if v.enrich != nil {
 		src = v.enrich
 	}
 	if src == nil {
@@ -273,7 +272,7 @@ func (v *Verifier) remoteApplicationAuthority(ctx context.Context, issuer string
 	var authority RemoteApplicationAuthoritySource
 	if authSrc, ok := src.(RemoteApplicationAuthoritySource); ok {
 		authority = authSrc
-	} else {
+	} else if v.enrich != nil {
 		authority = v.enrich
 	}
 	if authority == nil {
@@ -808,11 +807,11 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, DelegatedAccessTokenType)
 	isRemoteAppTyp := strings.EqualFold(tokenTyp, RemoteApplicationAccessTokenType)
 
-	// JWKS principal SELF-token (#76): a remote_application acting AS ITSELF. Its
-	// identity is the VALIDATED `iss` (already mapped to a registered
-	// remote_application by the signature/issuer checks); it carries NEITHER `sub`
-	// NOR `delegated_sub`, so the user-XOR-delegated invariant below is untouched.
-	// Authority is STORED (resolved server-side); any self-claimed
+	// Remote application access token (#76): a remote_application acting AS
+	// ITSELF. Its identity is the VALIDATED `iss` (already mapped to a registered
+	// remote_application by the signature/issuer checks); it carries NEITHER
+	// `sub` NOR `delegated_sub`, so the user-XOR-delegated invariant below is
+	// untouched. Authority is STORED (resolved server-side); any self-claimed
 	// roles on the token are IGNORED; a `permissions` claim, if present, may only
 	// DOWN-SCOPE the stored authority (#76 amendment), never widen it.
 	if isRemoteAppTyp {

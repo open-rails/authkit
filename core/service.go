@@ -567,11 +567,11 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	}
 
 	claims := map[string]any{
-		"iss": s.opts.Issuer,
-		"sub": base.Subject,
-		"aud": base.Audience,
-		"iat": base.IssuedAt.Time.Unix(),
-		"exp": base.ExpiresAt.Time.Unix(),
+		"iss":          s.opts.Issuer,
+		"sub":          base.Subject,
+		"aud":          base.Audience,
+		"iat":          base.IssuedAt.Time.Unix(),
+		"exp":          base.ExpiresAt.Time.Unix(),
 		"entitlements": ents,
 	}
 	for k, v := range extra {

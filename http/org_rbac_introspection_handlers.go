@@ -39,19 +39,6 @@ func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	if claimsHasGlobalAdmin(claims) {
-		org, err := s.svc.ResolveOrgBySlug(r.Context(), orgSlug)
-		if err != nil {
-			s.writeOrgLookupErr(w, err)
-			return
-		}
-		names := make([]string, 0)
-		for _, d := range s.svc.Permissions() {
-			names = append(names, d.Name)
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"org": org.Slug, "roles": []string{}, "permissions": names})
-		return
-	}
 	canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)
 	if err != nil {
 		s.writeOrgLookupErr(w, err)
@@ -121,10 +108,6 @@ func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Re
 			return
 		}
 		held = perms
-	case claimsHasGlobalAdmin(claims):
-		// Self-check by a global admin: holds everything requested.
-		writeJSON(w, http.StatusOK, map[string]any{"granted": requested})
-		return
 	default:
 		// Self-check: caller must be a member of the org.
 		canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)

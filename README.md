@@ -515,8 +515,9 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 
 **One key per app.** Each embedding app owns exactly **one** JWT signing keypair —
 its issuer identity, the only thing on its JWKS (plus retiring keys during
-rotation). That single key signs **all** of the app's JWTs: user
-access/refresh tokens, first-party service JWTs, and delegated access JWTs.
+rotation). That single key signs **all** of the app's JWTs: user access tokens,
+first-party service JWTs, delegated access tokens, and remote application access
+tokens.
 They differ only in claims (`aud`, `sub`/`delegated_sub`, `token_use`), never in
 key. No app should manage a second JWT key.
 
@@ -550,6 +551,11 @@ sjwt, _, _ := svc.MintServiceJWT(ctx, core.ServiceJWTMintOptions{
     Audiences: []string{"tensorhub"},
 })
 
+// Remote application access token (registered remote_application acting as itself):
+rat, _ := svc.MintRemoteApplicationAccessToken(ctx, core.RemoteApplicationAccessParams{
+    Audiences: []string{"openrails"},
+})
+
 // Arbitrary first-party claims (escape hatch — host owns the claim semantics):
 cjwt, _ := svc.MintCustomJWT(ctx, core.CustomJWTMintOptions{
     Type:      "worker-capability+jwt",
@@ -564,7 +570,7 @@ cjwt, _ := svc.MintCustomJWT(ctx, core.CustomJWTMintOptions{
 }) // iss/iat/exp + kid header owned by AuthKit; the host owns everything else
 ```
 
-**Three mint entry points — pick the most constrained one that fits.** All three
+**Four mint entry points — pick the most constrained one that fits.** All four
 sign through the one internal key (same JWKS, same `kid`/`alg` header); they
 differ only in how much of the claim shape AuthKit owns:
 
@@ -572,6 +578,7 @@ differ only in how much of the claim shape AuthKit owns:
 | --- | --- | --- |
 | `MintServiceJWT` | First-party machine-to-machine call (`service:<app>` → another app). | **Opinionated.** Forces `token_use=service`, `typ=service+jwt`; you supply `sub`/`aud`/`permissions`/`resources` only. |
 | `MintDelegatedAccessToken` | Cross-service federation — one issuer signs for a delegated subject a receiver accepts after issuer/JWKS/aud checks. | **Opinionated.** Forces `typ=delegated-access+jwt`, writes `delegated_sub`, NEVER sets `sub`. |
+| `MintRemoteApplicationAccessToken` | Registered remote_application acting as itself through stored AuthKit authority. | **Opinionated.** Forces `typ=remote-application-access+jwt`, writes neither `sub` nor `delegated_sub`; verifier resolves authority from the registered issuer row. |
 | `MintCustomJWT` | **Escape hatch** — token shapes the two above can't express (e.g. tensorhub capability/worker tokens with `cap_kind`/`grants`/`release_id`, or a worker variant with `aud:["cozy.scheduler"]`). | **Host-owned.** You pass an arbitrary `Claims` map (+ optional `Type`/`Subject`/`Audiences`/`Issuer`). AuthKit owns ONLY `iss`/`iat`/`exp` and the `kid`/`alg` header. |
 
 `MintCustomJWT` is the blessed alternative to reaching for the low-level
@@ -639,6 +646,16 @@ Token/session model
   cookie parsing in middleware, CSRF protection, cookie-setting callback
   behavior, and different frontend refresh/logout assumptions.
 
+Token taxonomy
+
+| Credential | Wire signal | Authority source |
+| --- | --- | --- |
+| User access token | JWT `typ=access+jwt` | Local user identity, session id, and authoritative short-lived entitlements in the token; profile/org/role data comes from `/user/me`, `/me/bootstrap`, and live DB lookups. |
+| Delegated access token | JWT `typ=delegated-access+jwt` + `delegated_sub` | Concrete `permissions` claim, validated against the issuer remote application's stored authority. |
+| Remote application access token | JWT `typ=remote-application-access+jwt`, no `sub` or `delegated_sub` | Stored authority for the registered remote_application resolved from validated `iss`. |
+| Service JWT | JWT `typ=service+jwt` + `token_use=service` | Receiver intersects requested permissions/resources with server-side grants for the issuer/subject. |
+| API key | Opaque `<prefix>_st_<key_id>_<secret>` bearer string | Stored DB permissions/resources resolved by hashing and looking up the presented secret. |
+
 Admin Gate (DB-backed)
 
 - Use `authhttp.RequireAdmin(pg)` to strictly enforce admin access using the database.
@@ -685,8 +702,12 @@ Orgs
     - Users accept/decline via `/me/org-invites/:invite_id/accept|decline`.
   - Org management is **permission-based RBAC** (a role = a set of permissions). authkit is the generic engine: it ships **base permissions** in the reserved `org:` namespace (`org:roles:manage`, `org:members:manage`, `org:api_keys:manage`, `org:read`) that gate all org-management endpoints, stores per-org role→permission assignments, computes `EffectivePermissions`, and enforces no-escalation + permission validation. The embedding app declares its own permission set (`Config.Permissions`) + optional default roles (`Config.DefaultRoles`, e.g. an `admin` = `*` minus `{org:roles:manage, org:members:manage}`); effective permission set = base ∪ app. The `owner` role is hardcoded and seeded with `*` (all), protected, and cannot be removed as the last owner. Permissions are opaque to authkit — the app owns their meaning and enforces them at its own endpoints via `core.EffectivePermissions`. Caller org membership is returned by `GET /orgs/:org` as `{role, permissions}`. Roles are RESTful resources: `GET /orgs/:org/roles/:role` (detail), `PUT /orgs/:org/roles/:role` (idempotent create-or-replace, body `{permissions[]}`), `DELETE /orgs/:org/roles/:role`; members likewise (`DELETE /orgs/:org/members/:user_id`). Invitee self-routes live at top-level `/me/org-invites` (cross-org — the invitee isn't a member yet).
 - Token claim shape (uniform; no mode):
-  - A user access token includes `global_roles` (platform-wide) and a legacy `roles` claim that mirrors `global_roles` (fixed token-shape compatibility).
-  - Org membership and permission checks are resolved server-side from the route org and stored memberships.
+  - A user access token includes registered JWT claims, `sub`, `sid`, and
+    authoritative short-lived `entitlements`.
+  - User access tokens do not include `global_roles`, `roles`, `org_roles`,
+    `email`, `email_verified`, `username`, or `discord_username`.
+  - Org membership, role, permission, and profile data are resolved server-side
+    from `/user/me`, `/me/bootstrap`, route org state, and stored memberships.
 
 API Keys (opaque machine credentials)
 - Long-lived, revocable shared-secret bearer credentials **owned by an org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). Robots should not replay the human password-login path. These are symmetric secrets with assigned permissions/resources; they are not JWKS URLs, public keys, or issuer registrations.

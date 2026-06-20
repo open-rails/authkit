@@ -12,14 +12,13 @@ import (
 // delegated access token.
 const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 
-// AccessTokenType is the canonical JOSE `typ` header value for an AuthKit
-// API key.
+// AccessTokenType is the canonical JOSE `typ` header value for an AuthKit user
+// access token.
 const AccessTokenType = jwtkit.AccessTokenType
 
-// RemoteApplicationAccessTokenType is the JOSE `typ` for a JWKS principal's
-// SELF-token (#76): a remote_application signs a JWT whose subject is itself,
-// and AuthKit grants it the STORED authority WE ASSIGNED (its org roles +
-// direct permissions), never what the token self-claims.
+// RemoteApplicationAccessTokenType is the JOSE `typ` for a remote application
+// access token. AuthKit resolves authority from the stored remote_application
+// assignment, never from role claims in the token.
 const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 
 // DelegatedAccessParams describes a delegated access token to mint. It is an

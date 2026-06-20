@@ -71,6 +71,20 @@ Notes:
 | POST | `/token` | PUBLIC | Refresh user access token |
 | POST | `/sessions/current` | PUBLIC | Get current session info |
 
+Token taxonomy:
+- User access token: JWT `typ=access+jwt`; carries `sub`, `sid`, and
+  authoritative short-lived `entitlements`, not profile or role claims.
+- Delegated access token: JWT `typ=delegated-access+jwt`; carries
+  `delegated_sub` and concrete `permissions` validated against the issuer
+  remote application's stored authority.
+- Remote application access token: JWT
+  `typ=remote-application-access+jwt`; carries neither `sub` nor
+  `delegated_sub`; identity and authority come from validated
+  `iss -> remote_application`.
+- Service JWT: JWT `typ=service+jwt` plus `token_use=service`; receiver
+  intersects requested permissions/resources with server-side grants.
+- API key: opaque bearer secret; permissions/resources are resolved from DB.
+
 Reserved slug policy:
 - Reserved owner slugs are seeded in DB migrations as reserved user + personal-org placeholders.
 - Public APIs do not use a hardcoded slug denylist; reserved slug claims are rejected by normal in-use/owner-namespace conflicts.

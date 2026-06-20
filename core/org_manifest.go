@@ -37,7 +37,6 @@ type OrgManifestIssuer struct {
 	Audiences      []string       `json:"audiences" yaml:"audiences"`
 	AllowedOrigins []string       `json:"allowed_origins" yaml:"allowed_origins"`
 	Role           string         `json:"role" yaml:"role"`
-	Permissions    []string       `json:"permissions" yaml:"permissions"`
 	Enabled        *bool          `json:"enabled" yaml:"enabled"`
 }
 

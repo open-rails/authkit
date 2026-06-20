@@ -70,8 +70,9 @@ type Claims struct {
 	DelegatedRoles []string
 
 	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
-	// AuthKit user access token; "delegated-access+jwt" identifies a delegated access
-	// token.
+	// AuthKit user access token; "delegated-access+jwt" identifies a delegated
+	// access token; "remote-application-access+jwt" identifies a remote
+	// application access token.
 	TokenTyp string
 
 	// TokenType marks the credential class. Empty for ordinary user JWTs;
@@ -91,11 +92,11 @@ type Claims struct {
 	// resource constraints; resource-aware hosts decide whether to require them.
 	Resources []core.APIKeyResource
 
-	// RemoteApplicationID / RemoteApplicationSlug identify the JWKS PRINCIPAL a
-	// self-token (#76) authenticated as: a remote_application acting AS ITSELF.
-	// Populated ONLY for RemoteApplicationTokenType claims, resolved server-side
-	// from the validated `iss` (never from a self-asserted token claim). The
-	// principal's Permissions/OrgRoles carry its STORED, assigned authority.
+	// RemoteApplicationID / RemoteApplicationSlug identify the remote_application
+	// authenticated by a remote application access token. Populated ONLY for
+	// RemoteApplicationTokenType claims, resolved server-side from the validated
+	// `iss` (never from a self-asserted token claim). The principal's
+	// Permissions/OrgRoles carry its STORED, assigned authority.
 	RemoteApplicationID   string
 	RemoteApplicationSlug string
 }
@@ -104,10 +105,10 @@ type Claims struct {
 // machine credential that acts as the org, not a user.
 const ServicePrincipalType = "service"
 
-// RemoteApplicationTokenType is the TokenType value carried by a JWKS principal
-// SELF-token (#76): a remote_application acting AS ITSELF. Like a service
-// principal it carries Permissions + OrgRoles (its STORED authority) but no
-// UserID; the live-user enrichment/ban gate is skipped (there is no user).
+// RemoteApplicationTokenType is the TokenType value carried by a remote
+// application access token: a remote_application acting AS ITSELF. Like a
+// service principal it carries Permissions + OrgRoles (its STORED authority)
+// but no UserID; the live-user enrichment/ban gate is skipped (there is no user).
 const RemoteApplicationTokenType = "remote_application"
 
 // IsService reports whether these claims represent a service principal, as
@@ -116,8 +117,8 @@ func (c Claims) IsService() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), ServicePrincipalType)
 }
 
-// IsRemoteApplication reports whether these claims represent a JWKS principal
-// (a remote_application) authenticated via its SELF-token (#76).
+// IsRemoteApplication reports whether these claims represent a remote
+// application authenticated via a remote application access token.
 func (c Claims) IsRemoteApplication() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), RemoteApplicationTokenType)
 }

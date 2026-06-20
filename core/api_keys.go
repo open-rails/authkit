@@ -151,11 +151,10 @@ type APIKeyMintOptions struct {
 // API-key mint route receives resource scopes. AuthKit has already validated shape
 // and permission no-escalation before this hook runs.
 type ResourceScopeAuthorizationRequest struct {
-	OrgSlug          string
-	ActorUserID      string
-	Permissions      []string
-	Resources        []APIKeyResource
-	ActorGlobalAdmin bool
+	OrgSlug     string
+	ActorUserID string
+	Permissions []string
+	Resources   []APIKeyResource
 }
 
 // ResourceScopeAuthorizer is an optional host callback for API-key resource-scope

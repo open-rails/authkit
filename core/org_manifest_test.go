@@ -125,8 +125,6 @@ orgs:
         audiences:
           - tensorhub
         role: operator
-        permissions:
-          - platform:write
 `, slug, appSlug, issuer, issuer)))
 	if err != nil {
 		t.Fatalf("parse manifest: %v", err)
@@ -153,8 +151,9 @@ orgs:
 	if err != nil {
 		t.Fatalf("resolve authority: %v", err)
 	}
-	if !containsString(perms, "platform:read") || !containsString(perms, "platform:write") {
-		t.Fatalf("perms=%v, want role-derived and direct issuer permissions", perms)
+	// Authority is role-derived ONLY (#95): the operator role expands to platform:read.
+	if len(perms) != 1 || !containsString(perms, "platform:read") {
+		t.Fatalf("perms=%v, want role-derived [platform:read] only", perms)
 	}
 	if len(memberships) != 1 || memberships[0].Org != slug || !containsString(memberships[0].Roles, "operator") {
 		t.Fatalf("memberships=%+v, want %s/operator", memberships, slug)
@@ -167,7 +166,7 @@ orgs:
 	if err != nil {
 		t.Fatalf("resolve authority after second reconcile: %v", err)
 	}
-	if len(perms) != 2 {
+	if len(perms) != 1 {
 		t.Fatalf("perms after second reconcile=%v, want no duplicate grants", perms)
 	}
 }

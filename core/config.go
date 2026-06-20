@@ -88,7 +88,7 @@ type Config struct {
 
 	// VerifyOnly constructs the Service with NO active signer (#87): token
 	// MINTING (IssueAccessToken, MintServiceJWT/MintCustomJWT/
-	// MintDelegatedAccessToken, remote_application self-tokens) returns
+	// MintDelegatedAccessToken, remote application access tokens) returns
 	// ErrMissingSigner, while VERIFICATION and all RBAC reads work fully and the
 	// JWKS endpoint serves an empty key set. When true, key auto-discovery is
 	// SKIPPED — no env/file/dev key is required to boot. Ignored when Keys is

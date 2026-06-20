@@ -5,10 +5,12 @@ import (
 	"crypto"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
@@ -257,6 +259,15 @@ func TestPermissionsValidator(t *testing.T) {
 	if err := v.AddIssuer(iss, aud, IssuerOptions{RawKeys: rawKey(signer)}); err != nil {
 		t.Fatal(err)
 	}
+	v.fedSource = &delegatedTestRemoteApplicationSource{
+		app: core.RemoteApplication{
+			ID:      "remote-app-1",
+			Slug:    "remote-app",
+			Issuer:  iss,
+			Enabled: true,
+		},
+		permission: []string{"openrails:self:billing:read", "openrails:merchant:admin"},
+	}
 
 	// Good token: only catalog perms.
 	good, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
@@ -274,6 +285,70 @@ func TestPermissionsValidator(t *testing.T) {
 	})
 	if _, _, err := v.VerifyDelegatedAccess(bad); err == nil {
 		t.Fatal("expected unknown_permission rejection")
+	}
+}
+
+func TestDelegatedAccessPermissionsMustFitRemoteApplicationAuthority(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	aud := []string{"openrails"}
+	v := newDelegatedAuthorityTestVerifier(t, signer, iss, aud, []string{"platform:orgs:read"})
+
+	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer:           iss,
+		Audiences:        aud,
+		DelegatedSubject: "u",
+		Permissions:      []string{core.PermPlatformOrgsRecover},
+		TTL:              time.Minute,
+	})
+	if _, _, err := v.VerifyDelegatedAccess(tok); err == nil || err.Error() != "permission_not_granted" {
+		t.Fatalf("expected permission_not_granted, got %v", err)
+	}
+}
+
+func TestDelegatedAccessStoredAuthorityGlobCoversConcretePermission(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	aud := []string{"openrails"}
+	v := newDelegatedAuthorityTestVerifier(t, signer, iss, aud, []string{"platform:*"})
+
+	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer:           iss,
+		Audiences:        aud,
+		DelegatedSubject: "u",
+		Permissions:      []string{core.PermPlatformOrgsRecover},
+		TTL:              time.Minute,
+	})
+	cl, _, err := v.VerifyDelegatedAccess(tok)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !cl.HasPermission(core.PermPlatformOrgsRecover) {
+		t.Fatal("expected concrete platform permission")
+	}
+
+	req := httptest.NewRequest("POST", "/admin/orgs/acme/recover", nil)
+	rr := httptest.NewRecorder()
+	if ok := (&Service{}).requirePlatformPermission(rr, req, cl, core.PermPlatformOrgsRecover); !ok {
+		t.Fatalf("delegated platform permission did not pass platform gate: status=%d", rr.Code)
+	}
+}
+
+func TestDelegatedAccessCannotClaimBroaderPlatformGlobThanStoredAuthority(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	aud := []string{"openrails"}
+	v := newDelegatedAuthorityTestVerifier(t, signer, iss, aud, []string{"platform:orgs:read"})
+
+	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		Issuer:           iss,
+		Audiences:        aud,
+		DelegatedSubject: "u",
+		Permissions:      []string{"platform:*"},
+		TTL:              time.Minute,
+	})
+	if _, _, err := v.VerifyDelegatedAccess(tok); err == nil || err.Error() != "permission_not_granted" {
+		t.Fatalf("expected permission_not_granted, got %v", err)
 	}
 }
 

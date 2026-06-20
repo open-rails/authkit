@@ -37,6 +37,12 @@ func TestRSASignerRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRemoteApplicationAccessTokenType(t *testing.T) {
+	if RemoteApplicationAccessTokenType != "remote-application-access+jwt" {
+		t.Fatalf("RemoteApplicationAccessTokenType = %q", RemoteApplicationAccessTokenType)
+	}
+}
+
 func TestECDSASignerRoundTripES256(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

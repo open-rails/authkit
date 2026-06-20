@@ -13,9 +13,9 @@ import (
 )
 
 type delegatedTestRemoteApplicationSource struct {
-	app         core.RemoteApplication
-	permission  []string
-	membership  []core.OrgMembership
+	app        core.RemoteApplication
+	permission []string
+	membership []core.OrgMembership
 }
 
 func newDelegatedAuthorityTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string, permissions []string) *Verifier {
@@ -183,5 +183,24 @@ func TestVerifyRejectsDelegatedSubWithoutDelegatedTyp(t *testing.T) {
 	_, err := newDelegatedTestVerifier(t, signer, iss, []string{"tensorhub"}).Verify(tok)
 	if err == nil || err.Error() != "delegated_access_wrong_typ" {
 		t.Fatalf("expected delegated_access_wrong_typ, got %v", err)
+	}
+}
+
+func TestVerifyRejectsRemoteApplicationAccessTokenWithWrongTyp(t *testing.T) {
+	signer, _ := jwtkit.NewRSASigner(2048, "k")
+	iss := "https://cozy.example"
+	now := time.Now()
+	tok, err := signer.SignWithHeaders(context.Background(), jwt.MapClaims{
+		"iss": iss,
+		"aud": []string{"openrails"},
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
+	}, map[string]any{"typ": "service+jwt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
+	if err == nil || err.Error() != "unsupported_token_typ" {
+		t.Fatalf("expected unsupported_token_typ, got %v", err)
 	}
 }

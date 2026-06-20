@@ -59,6 +59,10 @@ func (c *countingSource) GetRemoteApplication(_ context.Context, issuerID string
 	return nil, core.ErrRemoteApplicationNotFound
 }
 
+func (c *countingSource) ResolveRemoteApplicationAuthority(_ context.Context, appID string) ([]core.OrgMembership, []string, error) {
+	return nil, []string{"openrails:*", "tensorhub:*", "platform:*"}, nil
+}
+
 func (c *countingSource) getCount(issuerID string) int32 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -165,6 +169,9 @@ func (l *listEmptyGetFull) ListRemoteApplications(context.Context, bool) ([]core
 }
 func (l *listEmptyGetFull) GetRemoteApplication(ctx context.Context, issuerID string) (*core.RemoteApplication, error) {
 	return l.inner.GetRemoteApplication(ctx, issuerID)
+}
+func (l *listEmptyGetFull) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]core.OrgMembership, []string, error) {
+	return l.inner.ResolveRemoteApplicationAuthority(ctx, appID)
 }
 
 // (b) Unknown issuer fails AND is negatively cached: the source is not consulted

@@ -135,13 +135,6 @@ type ProfilesRemoteApplicationAttributeDef struct {
 	UpdatedAt           time.Time
 }
 
-// Direct permissions assigned to a remote_application principal (#76): STORED authority for the JWKS self-token, mirroring service_token_permissions. Opaque to AuthKit.
-type ProfilesRemoteApplicationPermission struct {
-	RemoteApplicationID string
-	Permission          string
-	CreatedAt           time.Time
-}
-
 type ProfilesServiceToken struct {
 	ID         string
 	OrgID      string

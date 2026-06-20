@@ -41,6 +41,10 @@ func (m *memFederatedSource) GetRemoteApplication(_ context.Context, issuerID st
 	return nil, core.ErrRemoteApplicationNotFound
 }
 
+func (m *memFederatedSource) ResolveRemoteApplicationAuthority(_ context.Context, appID string) ([]core.OrgMembership, []string, error) {
+	return nil, []string{"openrails:*", "tensorhub:*"}, nil
+}
+
 // jwksServer serves a single signer's JWKS, returning its base URL.
 func jwksServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Server {
 	t.Helper()

@@ -225,7 +225,30 @@ SECURITY MODEL:
 
 # #94: Enforce the no-escalation invariant on EVERY grant path + a found gap (remote-app direct grant) — code + tests
 
-**Completed:** no
+**Completed:** yes
+
+DONE (2026-06-20): delegated access-token `permissions` are now verified against
+the issuer remote application's stored authority before platform gates can trust
+them. The same namespace-anchored glob matcher backs remote application access
+tokens, delegated access tokens, and `Claims.HasPermission`. Platform gates now
+accept validated delegated `platform:*`/concrete permission claims while
+preserving live DB checks for local users and continuing to reject delegated role
+claims. Tests cover accepted stored glob authority, out-of-ceiling rejection, and
+claiming broader `platform:*` than stored authority.
+
+AuthKit-side implemented: `IssueAccessToken` no longer mints profile or role
+claims for normal user access tokens; it keeps `sid` from caller extras and
+authoritative short-lived `entitlements`. README/API docs now point profile,
+bootstrap, org membership, role, and permission state to live endpoints/DB state.
+Regression coverage:
+`TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements` and
+`TestPasswordLoginAndRefreshMintSlimUserAccessTokens`.
+
+Consumer migration remains open. A 2026-06-20 sweep still found downstream
+references that need a real consumer pass before this issue can close:
+Doujins `internal/auth/middleware/user_context.go` still falls back to
+`claims.Roles`; Hentai0 `internal/auth/provider_authkit.go` still copies
+`claims.Roles`; both repos have comments/docs around `profiles.global_roles`.
 
 CRITICAL INVARIANT (Paul, "checked doubly so"): **you can never grant a permission you do not yourself hold.** A caller with `org:members:manage` / `org:roles:manage` / `org:remote_applications:manage` / `org:api_keys:manage` must NOT be able to hand a member, role, API key, or remote application any permission outside their own effective set — blocking escalation (handing out `owner`/`org:*`, or `root:*`, that the grantor lacks). Enforced by `ValidateGrant` (returns `offending` for perms the actor lacks; `owner`/`org:*` passes within its org, a `global`-scoped operator passes, and the bootstrap system-actor passes).
 
@@ -431,21 +454,21 @@ Known current consumers to migrate first:
   AuthKit hard-cut.
 
 **Tasks:**
-- [ ] Audit AuthKit tests/docs and the three consumers (`~/doujins`,
+- [x] Audit AuthKit tests/docs and the three consumers (`~/doujins`,
       `~/hentai0`, `~/cozy/cozy-art`) for reads of user-token profile,
       role/global-role, and entitlement claims.
 - [ ] Update consumers so normal-user request context is built from live DB /
       profile endpoints, not access-token roles/profile/entitlements.
-- [ ] In AuthKit `IssueAccessToken`, stop minting `global_roles`, `roles`,
+- [x] In AuthKit `IssueAccessToken`, stop minting `global_roles`, `roles`,
       `email`, `email_verified`, `username`, `discord_username`, and
       keep `sid` merging from login/refresh `extra`; keep `entitlements` as an
       authoritative short-lived snapshot.
-- [ ] Keep `Claims` parsing backward-tolerant only if needed for third-party
+- [x] Keep `Claims` parsing backward-tolerant only if needed for third-party
       inbound tokens, but stop documenting those fields as normal AuthKit
       user-token output.
-- [ ] Update `/me`, `/me/bootstrap`, and docs so they are the supported source
+- [x] Update `/me`, `/me/bootstrap`, and docs so they are the supported source
       for user profile/bootstrap state.
-- [ ] Add an AuthKit integration/HTTP test proving login/refresh user access
+- [x] Add an AuthKit integration/HTTP test proving login/refresh user access
       tokens contain `sub` + `sid` and do not contain roles, profile fields, or
       authoritative role/profile claims; `entitlements` remains authoritative.
 - [ ] Add focused consumer tests proving admin/premium/profile UI still works
@@ -455,7 +478,16 @@ Known current consumers to migrate first:
 
 # #98: Validate delegated JWT permissions against remote-application stored authority
 
-**Completed:** no
+**Completed:** yes
+
+DONE (2026-06-20): delegated access-token `permissions` are now verified against
+the issuer remote application's stored authority before platform gates can trust
+them. The same namespace-anchored glob matcher backs remote application access
+tokens, delegated access tokens, and `Claims.HasPermission`. Platform gates now
+accept validated delegated `platform:*`/concrete permission claims while
+preserving live DB checks for local users and continuing to reject delegated role
+claims. Tests cover accepted stored glob authority, out-of-ceiling rejection, and
+claiming broader `platform:*` than stored authority.
 
 Delegated JWTs may carry concrete `permissions`, but those permissions must be
 bounded by the issuing remote application's stored DB authority. Today
@@ -489,17 +521,17 @@ This is valid only when the issuer remote application already has authority for
 `platform:orgs:recover`.
 
 **Tasks:**
-- [ ] Audit delegated verification and confirm where `permissions` are currently
+- [x] Audit delegated verification and confirm where `permissions` are currently
       catalog-validated without stored-authority intersection.
-- [ ] Add verifier-time delegated permission ceiling check: resolve issuer
+- [x] Add verifier-time delegated permission ceiling check: resolve issuer
       remote application, load its effective stored authority, and reject
       out-of-ceiling claims.
-- [ ] Support glob matching consistently with the permission model
+- [x] Support glob matching consistently with the permission model
       (`platform:*` may cover `platform:orgs:recover`; bare `*` stays invalid).
-- [ ] Teach platform gates to accept validated delegated permission claims for
+- [x] Teach platform gates to accept validated delegated permission claims for
       `platform:*` checks, alongside local-user live DB platform permissions.
-- [ ] Keep platform role claims rejected/ignored on delegated tokens.
-- [ ] Tests: delegated token within issuer authority passes a platform gate;
+- [x] Keep platform role claims rejected/ignored on delegated tokens.
+- [x] Tests: delegated token within issuer authority passes a platform gate;
       delegated token claiming a permission outside issuer authority is rejected
       at verify; catalog-valid but unassigned `platform:*` cannot be minted by a
       weaker remote application.
@@ -508,7 +540,14 @@ This is valid only when the issuer remote application already has authority for
 
 # #99: Canonicalize remote application access token naming
 
-**Completed:** no
+**Completed:** yes
+
+DONE (2026-06-20): the canonical product/API name is now **remote application
+access token** with JOSE `typ=remote-application-access+jwt`. AuthKit comments,
+README/API docs, and active OpenRails consuming comments/docs were swept to use
+the new name while retaining low-level invariant notes: the token carries neither
+`sub` nor `delegated_sub`; identity is validated `iss -> remote_application`.
+Tests pin the wire constant and wrong-`typ` rejection.
 
 AuthKit already uses JOSE `typ` headers for its JWT classes:
 
@@ -527,19 +566,18 @@ principal self-token", and "SELF-token". Standardize product/API language on
 **remote application access token** and keep the wire type as
 `remote-application-access+jwt`.
 
-**Tasks:**
-- [ ] Keep `jwtkit.RemoteApplicationAccessTokenType =
+- [x] Keep `jwtkit.RemoteApplicationAccessTokenType =
       "remote-application-access+jwt"` as the canonical JOSE `typ` value.
-- [ ] Rename comments/docs from "remote_application self-token" / "JWKS
+- [x] Rename comments/docs from "remote_application self-token" / "JWKS
       principal self-token" to "remote application access token" where the
       user-facing concept is being described.
-- [ ] Keep lower-level implementation comments only where they clarify the
+- [x] Keep lower-level implementation comments only where they clarify the
       invariant: the token carries neither `sub` nor `delegated_sub`; identity is
       the validated `iss -> remote_application`.
-- [ ] Update README / API docs token taxonomy:
+- [x] Update README / API docs token taxonomy:
       user access token, delegated access token, remote application access token,
       service JWT, API key.
-- [ ] Sweep OpenRails comments/docs that consume this AuthKit token type and use
+- [x] Sweep OpenRails comments/docs that consume this AuthKit token type and use
       the same name.
-- [ ] Add/keep tests proving `RemoteApplicationAccessTokenType` is
+- [x] Add/keep tests proving `RemoteApplicationAccessTokenType` is
       `remote-application-access+jwt` and verifier rejects the wrong `typ`.

@@ -32,7 +32,6 @@ type OrgProvisionIssuer struct {
 	// browser requests signed by this issuer.
 	AllowedOrigins []string
 	Role           string
-	Permissions    []string
 	Enabled        *bool
 }
 
@@ -153,11 +152,6 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 		}
 		if err := s.AddRemoteApplicationMember(ctx, org.Slug, ra.ID, role); err != nil {
 			return result, err
-		}
-		for _, permission := range issuer.Permissions {
-			if err := s.AddRemoteApplicationPermission(ctx, ra.ID, permission); err != nil {
-				return result, err
-			}
 		}
 		result.Issuers++
 	}
