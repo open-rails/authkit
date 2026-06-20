@@ -182,16 +182,25 @@ func TestDevserverRBACE2E(t *testing.T) {
 		execSQL(t, sql)
 	}
 	// newOrg creates a fresh org and seeds the standard role set used across the
-	// ported suite: owner=`*`, deployer, tokenmgr, tokenmgr-noread.
+	// ported suite (#95 namespace): owner=`org:*`, deployer, tokenmgr,
+	// tokenmgr-noread. An API key now holds exactly ONE org role, so the suite also
+	// seeds key-target roles (key-deploy / key-audit / key-ops) that the key binds.
 	newOrg := func(t *testing.T) (slug, id string) {
 		t.Helper()
 		slug = fmt.Sprintf("api-key-e2e-%d", time.Now().UnixNano())
 		id = execSQL(t, fmt.Sprintf(
 			"INSERT INTO profiles.orgs (slug) VALUES (%s) RETURNING id::text;", sqlStr(slug)))
-		seedRole(t, id, "owner", "*")
+		seedRole(t, id, "owner", "org:*")
 		seedRole(t, id, "deployer", "endpoint:deploy")
-		seedRole(t, id, "tokenmgr", "org:api_keys:manage", "endpoint:deploy", "org:read")
-		seedRole(t, id, "tokenmgr-noread", "org:api_keys:manage", "endpoint:deploy")
+		seedRole(t, id, "tokenmgr", "org:api_keys:create", "endpoint:deploy", "org:members:read")
+		seedRole(t, id, "tokenmgr-noread", "org:api_keys:create", "endpoint:deploy")
+		// Roles an API key can BE bound to (the key references one role).
+		seedRole(t, id, "key-deploy", "endpoint:deploy")
+		seedRole(t, id, "key-deploy-read", "endpoint:deploy", "endpoint:read")
+		seedRole(t, id, "key-audit", "org:members:read") // read-only reserved → grantable
+		seedRole(t, id, "key-ops", "endpoint:deploy", "endpoint:read", "repo:read")
+		seedRole(t, id, "key-bogus", "bogus:perm")
+		seedRole(t, id, "key-wildcard", "org:*") // confers write perms → barred from a key
 		return slug, id
 	}
 
@@ -206,16 +215,19 @@ func TestDevserverRBACE2E(t *testing.T) {
 		addMember(t, id, owner, "owner")
 		ownerJWT := mint(t, owner)
 
-		// owner holds `*`, so may grant any catalog permission.
-		code, body := req(t, http.MethodPost, base, ownerJWT, `{"name":"ci","permissions":["endpoint:deploy","endpoint:read"]}`)
+		// owner holds `org:*`, so may bind a key to any role whose perms it covers.
+		// The key holds ONE role (key-deploy-read); its perms resolve from the role.
+		code, body := req(t, http.MethodPost, base, ownerJWT, `{"name":"ci","role":"key-deploy-read"}`)
 		mustCode(t, http.StatusCreated, code, body)
 		var minted struct {
 			ID          string   `json:"id"`
 			Token       string   `json:"token"`
+			Role        string   `json:"role"`
 			Permissions []string `json:"permissions"`
 		}
 		decode(t, body, &minted)
 		has(t, minted.Token, "cozy_st_")
+		has(t, body, `"role":"key-deploy-read"`)
 		has(t, body, "endpoint:deploy")
 		has(t, body, "endpoint:read")
 
@@ -242,7 +254,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 		has(t, body, "endpoint:read")
 
 		// A API key cannot mint another API key (management requires a real user).
-		code, body = req(t, http.MethodPost, base, minted.Token, `{"name":"x","permissions":["endpoint:deploy"]}`)
+		code, body = req(t, http.MethodPost, base, minted.Token, `{"name":"x","role":"key-deploy"}`)
 		mustCode(t, http.StatusUnauthorized, code, body)
 
 		// Revoke -> the API key stops working -> deleting again is 404.
@@ -259,57 +271,57 @@ func TestDevserverRBACE2E(t *testing.T) {
 		slug, id := newOrg(t)
 		base := "/orgs/" + slug + "/api-keys"
 		deployer := addUser(t, "api-key-deployer-"+slug)
-		addMember(t, id, deployer, "deployer") // endpoint:deploy, NOT org:api_keys:manage
+		addMember(t, id, deployer, "deployer") // endpoint:deploy, NOT org:api_keys:create
 		tokenmgr := addUser(t, "api-key-tokenmgr-"+slug)
-		addMember(t, id, tokenmgr, "tokenmgr") // org:api_keys:manage + endpoint:deploy + org:read
+		addMember(t, id, tokenmgr, "tokenmgr") // org:api_keys:create + endpoint:deploy + org:members:read
 
-		// caller without org:api_keys:manage cannot mint
-		code, body := req(t, http.MethodPost, base, mint(t, deployer), `{"name":"x","permissions":["endpoint:deploy"]}`)
+		// caller without org:api_keys:create cannot mint
+		code, body := req(t, http.MethodPost, base, mint(t, deployer), `{"name":"x","role":"key-deploy"}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "forbidden")
 
-		// tokenmgr mints a permission it holds
-		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"ok","permissions":["endpoint:deploy"]}`)
+		// tokenmgr binds a key to a role whose perms it holds
+		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"ok","role":"key-deploy"}`)
 		mustCode(t, http.StatusCreated, code, body)
 
-		// no-escalation: tokenmgr cannot grant a permission it lacks
-		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["endpoint:read"]}`)
+		// no-escalation: tokenmgr cannot bind a role conferring a perm it lacks
+		// (key-deploy-read confers endpoint:read, which tokenmgr does not hold)
+		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","role":"key-deploy-read"}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "permission_grant_denied")
 		has(t, body, "endpoint:read")
 
-		// unknown permission rejected
-		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["bogus:perm"]}`)
+		// a role that does not exist is rejected
+		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","role":"no-such-role"}`)
+		mustCode(t, http.StatusBadRequest, code, body)
+		has(t, body, "unknown_role")
+
+		// a role conferring an unknown permission is rejected
+		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","role":"key-bogus"}`)
 		mustCode(t, http.StatusBadRequest, code, body)
 		has(t, body, "unknown_permission")
 
-		// reserved write/mint org:* perms are never grantable to an API key
-		for _, p := range []string{"org:roles:manage", "org:members:manage", "org:api_keys:manage"} {
-			code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["`+p+`"]}`)
-			mustCode(t, http.StatusForbidden, code, body)
-			has(t, body, "permission_not_grantable_to_api_key")
-		}
+		// a role conferring reserved WRITE / wildcard perms is never grantable to a key
+		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","role":"key-wildcard"}`)
+		mustCode(t, http.StatusForbidden, code, body)
+		has(t, body, "role_not_grantable_to_api_key")
 
-		// read-only org:read IS grantable to an API key
-		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"audit-bot","permissions":["org:read"]}`)
+		// a role conferring only read-only reserved perms IS grantable to a key
+		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"audit-bot","role":"key-audit"}`)
 		mustCode(t, http.StatusCreated, code, body)
-		has(t, body, "org:read")
+		has(t, body, "org:members:read")
 
-		// org:read still subject to no-escalation (noread lacks it)
+		// the read role is still subject to no-escalation (noread lacks org:members:read)
 		noread := addUser(t, "api-key-noread-"+slug)
 		addMember(t, id, noread, "tokenmgr-noread")
-		code, body = req(t, http.MethodPost, base, mint(t, noread), `{"name":"x","permissions":["org:read"]}`)
+		code, body = req(t, http.MethodPost, base, mint(t, noread), `{"name":"x","role":"key-audit"}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "permission_grant_denied")
 
-		// wildcard not grantable to an API key
-		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["*"]}`)
-		mustCode(t, http.StatusForbidden, code, body)
-		has(t, body, "permission_not_grantable_to_api_key")
-
-		// global admin (asserted via the token's global_roles claim) may mint any catalog permission
-		admin := addUser(t, "api-key-gadmin-"+slug)
-		code, body = req(t, http.MethodPost, base, mint(t, admin, "admin"), `{"name":"ops","permissions":["endpoint:deploy","endpoint:read","repo:read"]}`)
+		// owner holds org:* → may bind a key to a multi-perm role it fully covers
+		owner := addUser(t, "api-key-ops-owner-"+slug)
+		addMember(t, id, owner, "owner")
+		code, body = req(t, http.MethodPost, base, mint(t, owner), `{"name":"ops","role":"key-ops"}`)
 		mustCode(t, http.StatusCreated, code, body)
 	})
 

@@ -146,12 +146,8 @@ type ProfilesServiceToken struct {
 	LastUsedAt *time.Time
 	ExpiresAt  *time.Time
 	RevokedAt  *time.Time
-}
-
-type ProfilesServiceTokenPermission struct {
-	ServiceTokenID string
-	Permission     string
-	CreatedAt      time.Time
+	// The single org role this API key holds. Effective permissions are resolved from the role (org_role_permissions) at use time — edit the role to change every key that holds it. Resource-scope is a separate binding (service_token_resources).
+	Role string
 }
 
 type ProfilesServiceTokenResource struct {

@@ -51,10 +51,10 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 			Permissions: []string{PermOrgSettingsRead},
 		}},
 		APIKeys: []OrgManifestAPIKey{{
-			Name:        "runtime",
-			Permissions: []string{"openrails:entitlements:read"},
-			Resources:   []APIKeyResource{{Kind: "openrails.merchant", ID: slug}},
-			Output:      OrgManifestAPIKeyOutput{File: out},
+			Name:      "runtime",
+			Role:      "reader",
+			Resources: []APIKeyResource{{Kind: "openrails.merchant", ID: slug}},
+			Output:    OrgManifestAPIKeyOutput{File: out},
 		}},
 	}}}
 
@@ -88,12 +88,12 @@ orgs:
   - slug: cozy-art
     api_keys:
       - name: runtime
-        permissions: [openrails:admin]
+        role: admin
         output:
           file: runtime.key
     service_tokens:
       - name: legacy
-        permissions: [openrails:admin]
+        role: admin
         output:
           file: legacy.token
 `))
@@ -235,11 +235,15 @@ func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T
 	store := &memoryManifestTokenStore{writeDelay: 100 * time.Millisecond}
 	manifest := OrgManifest{Orgs: []OrgManifestOrg{{
 		Slug: slug,
+		Roles: []OrgManifestRole{{
+			Name:        "reader",
+			Permissions: []string{PermOrgSettingsRead},
+		}},
 		APIKeys: []OrgManifestAPIKey{{
-			Name:        "runtime",
-			Permissions: []string{"openrails:entitlements:read"},
-			Resources:   []APIKeyResource{{Kind: "openrails.merchant", ID: slug}},
-			Output:      OrgManifestAPIKeyOutput{File: "runtime"},
+			Name:      "runtime",
+			Role:      "reader",
+			Resources: []APIKeyResource{{Kind: "openrails.merchant", ID: slug}},
+			Output:    OrgManifestAPIKeyOutput{File: "runtime"},
 		}},
 	}}}
 

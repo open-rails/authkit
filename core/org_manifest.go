@@ -53,13 +53,16 @@ type OrgManifestMembership struct {
 	Role     string `json:"role" yaml:"role"`
 }
 
-// OrgManifestAPIKey declares one generated opaque API key.
+// OrgManifestAPIKey declares one generated opaque API key. The key holds exactly
+// ONE org role (#95): `role` must name a role declared under the same org's
+// `roles:` (or a pre-existing org role). Effective permissions resolve from the
+// role at use time. Resource-scope is a separate binding.
 type OrgManifestAPIKey struct {
-	Name        string                  `json:"name" yaml:"name"`
-	Permissions []string                `json:"permissions" yaml:"permissions"`
-	Resources   []APIKeyResource        `json:"resources" yaml:"resources"`
-	ExpiresAt   *time.Time              `json:"expires_at" yaml:"expires_at"`
-	Output      OrgManifestAPIKeyOutput `json:"output" yaml:"output"`
+	Name      string                  `json:"name" yaml:"name"`
+	Role      string                  `json:"role" yaml:"role"`
+	Resources []APIKeyResource        `json:"resources" yaml:"resources"`
+	ExpiresAt *time.Time              `json:"expires_at" yaml:"expires_at"`
+	Output    OrgManifestAPIKeyOutput `json:"output" yaml:"output"`
 }
 
 // OrgManifestAPIKeyOutput names where a freshly minted API key should be
@@ -172,11 +175,11 @@ func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest
 				return result, ErrInvalidOrgManifest
 			}
 			req.APIKeys = append(req.APIKeys, OrgProvisionAPIKey{
-				Name:        token.Name,
-				Permissions: token.Permissions,
-				Resources:   token.Resources,
-				ExpiresAt:   token.ExpiresAt,
-				Output:      token.Output,
+				Name:      token.Name,
+				Role:      token.Role,
+				Resources: token.Resources,
+				ExpiresAt: token.ExpiresAt,
+				Output:    token.Output,
 			})
 		}
 		applied, err := s.ProvisionOrg(ctx, req, store)

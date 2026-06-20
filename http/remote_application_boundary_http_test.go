@@ -131,10 +131,15 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	status, body = remoteApplicationBoundaryDelete(t, server.URL, orgB.Slug, prefix+"-bootstrap", managerAToken)
 	require.Equal(t, http.StatusForbidden, status, body)
 
+	// An API key holds exactly ONE org role (#95). Define a role and bind the key
+	// to it; the exact perm is irrelevant to this test (the key is a machine
+	// credential and must be rejected regardless).
+	require.NoError(t, coreSvc.DefineRole(ctx, orgA.Slug, "remote-app-mgr"))
+	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgA.Slug, "remote-app-mgr", []string{core.PermOrgRemoteAppsUpdate}))
 	_, servicePlaintext, err := coreSvc.MintAPIKeyWithOptions(ctx, orgA.Slug, core.APIKeyMintOptions{
-		Name:        prefix + "-api-key",
-		Permissions: []string{core.PermOrgRemoteAppsUpdate},
-		CreatedBy:   ownerA.ID,
+		Name:      prefix + "-api-key",
+		Role:      "remote-app-mgr",
+		CreatedBy: ownerA.ID,
 	})
 	require.NoError(t, err)
 	remoteAppSelfToken := mintBoundaryRemoteApplicationSelfToken(t, ctx, coreSvc, verifier, prefix, orgA)

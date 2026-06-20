@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -185,18 +186,30 @@ func TestAPIKeyLifecycle(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE id=$1::uuid`, orgID) })
 
+	// An API key holds exactly ONE org role (#95). Define a "deployer" role whose
+	// permission resolves (as a literal) to the same "deployer" the test asserts.
+	if err := svc.DefineRole(ctx, slug, "deployer"); err != nil {
+		t.Fatalf("define role: %v", err)
+	}
+	if err := svc.SetRolePermissions(ctx, slug, "deployer", []string{"deployer"}); err != nil {
+		t.Fatalf("set role perms: %v", err)
+	}
+
 	// Mint.
 	resources := []APIKeyResource{
 		{Kind: "openrails.merchant", ID: "tensorhub"},
 		{Kind: "openrails.customer", ID: "cozy-art"},
 	}
 	tok, plaintext, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
-		Name:        "ci-token",
-		Permissions: []string{"deployer"},
-		Resources:   resources,
+		Name:      "ci-token",
+		Role:      "deployer",
+		Resources: resources,
 	})
 	if err != nil {
 		t.Fatalf("mint: %v", err)
+	}
+	if tok.Role != "deployer" {
+		t.Fatalf("minted role = %q, want deployer", tok.Role)
 	}
 	if !strings.HasPrefix(plaintext, "cozy_st_") {
 		t.Fatalf("token %q lacks branded marker", plaintext)
@@ -253,9 +266,18 @@ func TestAPIKeyLifecycle(t *testing.T) {
 	}
 	if _, _, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
 		Name:      "dupe-resource",
+		Role:      "deployer",
 		Resources: []APIKeyResource{{Kind: "repo", ID: "alpha"}, {Kind: "repo", ID: "alpha"}},
 	}); err == nil || err.Error() != "duplicate_resource" {
 		t.Fatalf("duplicate resource mint err=%v, want duplicate_resource", err)
+	}
+
+	// A role that does not exist in the org is rejected.
+	if _, _, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
+		Name: "no-such-role",
+		Role: "ghost",
+	}); err == nil || err.Error() != "unknown_role" {
+		t.Fatalf("unknown role mint err=%v, want unknown_role", err)
 	}
 
 	// Expiry rejection (force past expiry).
@@ -281,13 +303,13 @@ func TestAPIKeyLifecycle(t *testing.T) {
 
 	// Past expiry at mint time is rejected.
 	past := time.Now().Add(-time.Hour)
-	if _, _, err := svc.MintAPIKey(ctx, slug, "bad", nil, "", &past); err == nil {
+	if _, _, err := svc.MintAPIKey(ctx, slug, "bad", "deployer", "", &past); err == nil {
 		t.Fatalf("mint with past expiry should fail")
 	}
 
 	// Host max-TTL caps a no-expiry request.
 	capped := NewService(Options{Issuer: "https://test", APIKeyMaxTTL: time.Hour}, Keyset{}).WithPostgres(pool)
-	tok2, _, err := capped.MintAPIKey(ctx, slug, "capped", nil, "", nil)
+	tok2, _, err := capped.MintAPIKey(ctx, slug, "capped", "deployer", "", nil)
 	if err != nil {
 		t.Fatalf("mint capped: %v", err)
 	}
@@ -298,7 +320,7 @@ func TestAPIKeyLifecycle(t *testing.T) {
 		t.Fatalf("capped expiry out of range: %v", d)
 	}
 
-	legacyTok, legacyPlaintext, err := svc.MintAPIKey(ctx, slug, "legacy-wrapper", []string{"deployer"}, "", nil)
+	legacyTok, legacyPlaintext, err := svc.MintAPIKey(ctx, slug, "legacy-wrapper", "deployer", "", nil)
 	if err != nil {
 		t.Fatalf("mint legacy wrapper: %v", err)
 	}
@@ -316,6 +338,7 @@ func TestAPIKeyLifecycle(t *testing.T) {
 
 	oneResourceTok, oneResourcePlaintext, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
 		Name:      "one-resource",
+		Role:      "deployer",
 		Resources: []APIKeyResource{{Kind: "openrails.merchant", ID: "tensorhub"}},
 	})
 	if err != nil {
@@ -331,5 +354,103 @@ func TestAPIKeyLifecycle(t *testing.T) {
 	}
 	if len(oneResolved.Resources) != 1 || oneResolved.Resources[0] != (APIKeyResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
 		t.Fatalf("one resource resolved = %+v", oneResolved.Resources)
+	}
+}
+
+// TestAPIKeyEffectivePermsFollowRole proves the #95 unification: an API key's
+// effective permissions are resolved FROM its org ROLE at verify time, so editing
+// the role changes the key's authority — the whole point. Resource-scope stays an
+// orthogonal binding. Skips without AUTHKIT_TEST_DATABASE_URL.
+func TestAPIKeyEffectivePermsFollowRole(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{
+		Issuer:      "https://test",
+		APIKeyPrefix: "cozy",
+		Permissions: []PermissionDef{
+			{Name: "jobs:read"}, {Name: "jobs:write"},
+		},
+	}, Keyset{}).WithPostgres(pool)
+
+	slug := fmt.Sprintf("api-key-role-follow-%d", time.Now().UnixNano())
+	var orgID string
+	if err := pool.QueryRow(ctx, `INSERT INTO profiles.orgs (slug) VALUES ($1) RETURNING id::text`, slug).Scan(&orgID); err != nil {
+		t.Fatalf("insert org: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE id=$1::uuid`, orgID) })
+
+	if err := svc.DefineRole(ctx, slug, "worker"); err != nil {
+		t.Fatalf("define role: %v", err)
+	}
+	if err := svc.SetRolePermissions(ctx, slug, "worker", []string{"jobs:read"}); err != nil {
+		t.Fatalf("set role perms: %v", err)
+	}
+
+	tok, plaintext, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
+		Name:      "worker-key",
+		Role:      "worker",
+		Resources: []APIKeyResource{{Kind: "repo", ID: "alpha"}},
+	})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	keyID, secret, ok := ParseAPIKey("cozy", plaintext)
+	if !ok || keyID != tok.KeyID {
+		t.Fatalf("parse minted key failed")
+	}
+
+	// At mint time the key resolves to the role's single perm.
+	r1, err := svc.ResolveAPIKeyWithResources(ctx, keyID, secret)
+	if err != nil {
+		t.Fatalf("resolve 1: %v", err)
+	}
+	if r1.Role != "worker" {
+		t.Fatalf("resolved role = %q, want worker", r1.Role)
+	}
+	if len(r1.Permissions) != 1 || r1.Permissions[0] != "jobs:read" {
+		t.Fatalf("perms 1 = %v, want [jobs:read]", r1.Permissions)
+	}
+	// Resource-scope is an orthogonal binding, unaffected by the role.
+	if len(r1.Resources) != 1 || r1.Resources[0] != (APIKeyResource{Kind: "repo", ID: "alpha"}) {
+		t.Fatalf("resources = %+v, want [{repo alpha}]", r1.Resources)
+	}
+
+	// EDIT the role — add a permission. The SAME key (no re-mint) now resolves to
+	// the new set: authority follows the role, never frozen into the key.
+	if err := svc.SetRolePermissions(ctx, slug, "worker", []string{"jobs:read", "jobs:write"}); err != nil {
+		t.Fatalf("edit role perms: %v", err)
+	}
+	r2, err := svc.ResolveAPIKeyWithResources(ctx, keyID, secret)
+	if err != nil {
+		t.Fatalf("resolve 2: %v", err)
+	}
+	if len(r2.Permissions) != 2 || !containsString(r2.Permissions, "jobs:read") || !containsString(r2.Permissions, "jobs:write") {
+		t.Fatalf("perms 2 = %v, want [jobs:read jobs:write] after role edit", r2.Permissions)
+	}
+	// Resource-scope did NOT change when the role changed.
+	if len(r2.Resources) != 1 || r2.Resources[0] != (APIKeyResource{Kind: "repo", ID: "alpha"}) {
+		t.Fatalf("resources after role edit = %+v, want unchanged", r2.Resources)
+	}
+}
+
+// TestServiceTokenPermissionsTableDropped proves the direct-grant plane is gone
+// (#95): the profiles.service_token_permissions table no longer exists.
+func TestServiceTokenPermissionsTableDropped(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	var reg *string
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('profiles.service_token_permissions')::text`).Scan(&reg); err != nil {
+		t.Fatalf("to_regclass: %v", err)
+	}
+	if reg != nil {
+		t.Fatalf("profiles.service_token_permissions still exists (%q); the direct-grant plane must be dropped", *reg)
+	}
+	// And the role column the keys now reference IS present.
+	var hasRole bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='profiles' AND table_name='service_tokens' AND column_name='role')`).Scan(&hasRole); err != nil {
+		t.Fatalf("column check: %v", err)
+	}
+	if !hasRole {
+		t.Fatalf("profiles.service_tokens.role column missing")
 	}
 }

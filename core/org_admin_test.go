@@ -57,7 +57,7 @@ func TestRecoverOrg(t *testing.T) {
 	}
 
 	// Plant a (compromised) api-key and remote-app under the org.
-	if _, err := pool.Exec(ctx, `INSERT INTO profiles.service_tokens (org_id, key_id, secret_hash, name) VALUES ($1,$2,$3,$4)`,
+	if _, err := pool.Exec(ctx, `INSERT INTO profiles.service_tokens (org_id, key_id, secret_hash, name, role) VALUES ($1,$2,$3,$4,'owner')`,
 		org.ID, fmt.Sprintf("key-%d", suffix), "hash", "ci"); err != nil {
 		t.Fatalf("insert api-key: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestRecoverOrgRejectsMissingNewOwnerBeforeMutating(t *testing.T) {
 	if err := svc.AssignRole(ctx, orgSlug, u.ID, "owner"); err != nil {
 		t.Fatalf("assign owner: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO profiles.service_tokens (org_id, key_id, secret_hash, name) VALUES ($1,$2,$3,$4)`,
+	if _, err := pool.Exec(ctx, `INSERT INTO profiles.service_tokens (org_id, key_id, secret_hash, name, role) VALUES ($1,$2,$3,$4,'owner')`,
 		org.ID, fmt.Sprintf("missing-owner-key-%d", suffix), "hash", "ci"); err != nil {
 		t.Fatalf("insert api-key: %v", err)
 	}

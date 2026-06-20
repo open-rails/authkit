@@ -8,23 +8,27 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// API key management endpoints. An API key carries a set of
-// app-defined PERMISSIONS (opaque to authkit). All three endpoints are gated by
-// the base permission org:api_keys:manage (owner holds `*`; a platform global
-// admin bypasses). Minting validates the requested permissions against the
-// catalog AND the caller's own effective permissions (no-escalation), and bars
-// wildcards + the write/mint reserved `org:` management permissions from API
-// keys (an API key does machine work, not org management). Read-only org:read IS
-// API-key-grantable (escalation-harmless, for monitoring/audit automation). A
+// API key management endpoints. An API key holds exactly ONE org ROLE (#95); its
+// effective permissions are resolved FROM that role at use time (edit the role to
+// change every key). Minting gates on org:api_keys:create, validates the role
+// EXISTS in the org, enforces NO-ESCALATION (the minter must hold every permission
+// the role confers), and bars a role that confers wildcards / reserved `org:`
+// write-management permissions from an API key (an API key does machine work, not
+// org management). A role that confers only read-only reserved perms (e.g.
+// `org:*:read`) is API-key-grantable (escalation-harmless, for monitoring/audit
+// automation). The bespoke-permission use case is served by a custom org role. A
 // service principal (an API key) has no UserID, so it can never reach these
 // handlers — an API key can never mint/list/revoke API keys.
 
 // apiKeyView is the non-secret JSON shape returned for an API key. The secret
-// is only ever present in the create response's top-level `token` field.
+// is only ever present in the create response's top-level `token` field. Role is
+// the single org role the key holds; Permissions is that role's resolved effective
+// set (a convenience projection — edit the role to change it).
 type apiKeyView struct {
 	ID          string                `json:"id"`
 	KeyID       string                `json:"key_id"`
 	Name        string                `json:"name"`
+	Role        string                `json:"role"`
 	Permissions []string              `json:"permissions"`
 	Resources   []core.APIKeyResource `json:"resources"`
 	CreatedBy   string                `json:"created_by,omitempty"`
@@ -54,6 +58,7 @@ func toAPIKeyView(t core.APIKey) apiKeyView {
 		ID:          t.ID,
 		KeyID:       t.KeyID,
 		Name:        t.Name,
+		Role:        t.Role,
 		Permissions: perms,
 		Resources:   resources,
 		CreatedBy:   t.CreatedBy,
@@ -98,10 +103,10 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        string                `json:"name"`
-		Permissions []string              `json:"permissions"`
-		Resources   []core.APIKeyResource `json:"resources"`
-		ExpiresAt   string                `json:"expires_at"`
+		Name      string                `json:"name"`
+		Role      string                `json:"role"`
+		Resources []core.APIKeyResource `json:"resources"`
+		ExpiresAt string                `json:"expires_at"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, "invalid_request")
@@ -109,6 +114,11 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(body.Name) == "" {
 		badRequest(w, "missing_name")
+		return
+	}
+	role := strings.TrimSpace(body.Role)
+	if role == "" {
+		badRequest(w, "missing_role")
 		return
 	}
 
@@ -122,18 +132,18 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &parsed
 	}
 
-	permissions := cleanStrings(body.Permissions)
 	resources := body.Resources
 
-	// Authorize the mint + the permission grant.
-	canonical, ok := s.authorizeAPIKeyMint(w, r, claims, orgSlug, permissions)
+	// Authorize the mint + the role grant. Returns the role's resolved effective
+	// permissions (for the resource-scope no-escalation hook).
+	canonical, rolePerms, ok := s.authorizeAPIKeyMint(w, r, claims, orgSlug, role)
 	if !ok {
 		return
 	}
 	if err := s.svc.AuthorizeAPIKeyResources(r.Context(), core.ResourceScopeAuthorizationRequest{
 		OrgSlug:     canonical,
 		ActorUserID: claims.UserID,
-		Permissions: permissions,
+		Permissions: rolePerms,
 		Resources:   resources,
 	}); err != nil {
 		switch err.Error() {
@@ -148,11 +158,11 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tok, plaintext, err := s.svc.MintAPIKeyWithOptions(r.Context(), canonical, core.APIKeyMintOptions{
-		Name:        body.Name,
-		Permissions: permissions,
-		Resources:   resources,
-		CreatedBy:   claims.UserID,
-		ExpiresAt:   expiresAt,
+		Name:      body.Name,
+		Role:      role,
+		Resources: resources,
+		CreatedBy: claims.UserID,
+		ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		switch err.Error() {
@@ -160,6 +170,10 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, "invalid_expiry")
 		case "missing_name":
 			badRequest(w, "missing_name")
+		case "invalid_role":
+			badRequest(w, "invalid_role")
+		case "unknown_role":
+			sendErrData(w, http.StatusBadRequest, "unknown_role", map[string]any{"role": role})
 		case "invalid_resource":
 			badRequest(w, "invalid_resource")
 		case "duplicate_resource":
@@ -172,9 +186,11 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 
 	view := toAPIKeyView(tok)
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":          view.ID,
-		"key_id":      view.KeyID,
-		"name":        view.Name,
+		"id":     view.ID,
+		"key_id": view.KeyID,
+		"name":   view.Name,
+		"role":   view.Role,
+		// The role's resolved effective permissions, surfaced for convenience.
 		"permissions": view.Permissions,
 		"resources":   view.Resources,
 		"created_at":  view.CreatedAt,
@@ -185,39 +201,67 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 }
 
 // authorizeAPIKeyMint gates minting on org:api_keys:create and validates the
-// requested permissions: they must be permissions the caller itself holds
-// (no-escalation) — never a bare `*` or reserved `org:` write permissions (an
-// API key does machine work, not org management; read globs like `org:*:read`
-// are allowed). Negation was removed in #93 — positive grants only.
-func (s *Service) authorizeAPIKeyMint(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug string, permissions []string) (canonical string, ok bool) {
+// requested ROLE (#95). The role must EXIST in the org. NO-ESCALATION: the minter
+// must hold every permission the role confers (the role's RAW grant tokens are
+// validated against the minter's effective set via ValidateGrant). The role must
+// also not confer anything an API key may not hold — a bare `*` or a reserved
+// `org:` WRITE-management permission (an API key does machine work, not org
+// management; read globs like `org:*:read` are fine). Returns the role's resolved
+// effective permission set for the resource-scope hook. Negation was removed in
+// #93 — positive grants only.
+func (s *Service) authorizeAPIKeyMint(w http.ResponseWriter, r *http.Request, claims Claims, orgSlug, role string) (canonical string, rolePerms []string, ok bool) {
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgAPIKeysCreate)
+	if !gateOK {
+		return "", nil, false
+	}
+	// The role must exist; surface its RAW grant tokens (literals + globs) so
+	// no-escalation expands them exactly like a role assignment.
+	roleTokens, err := s.svc.GetRolePermissions(r.Context(), canonical, role)
+	if err != nil {
+		serverErr(w, "permission_validate_failed")
+		return "", nil, false
+	}
+	exists, err := s.svc.OrgRoleExists(r.Context(), canonical, role)
+	if err != nil {
+		serverErr(w, "permission_validate_failed")
+		return "", nil, false
+	}
+	if !exists {
+		sendErrData(w, http.StatusBadRequest, "unknown_role", map[string]any{"role": role})
+		return "", nil, false
+	}
+	// Resolve the role to its CONCRETE effective permission set; an API key may
+	// not hold a wildcard or a reserved write-management perm.
+	rolePerms, err = s.svc.EffectiveRolePermissions(r.Context(), canonical, role)
+	if err != nil {
+		serverErr(w, "permission_validate_failed")
+		return "", nil, false
+	}
 	var notGrantable []string
-	for _, p := range permissions {
+	for _, p := range rolePerms {
 		if p == core.PermWildcard || (core.IsReservedPermission(p) && !core.IsAPIKeyGrantableReservedPermission(p)) {
 			notGrantable = append(notGrantable, p)
 		}
 	}
 	if len(notGrantable) > 0 {
-		sendErrData(w, http.StatusForbidden, "permission_not_grantable_to_api_key", map[string]any{"offending_permissions": notGrantable})
-		return "", false
+		sendErrData(w, http.StatusForbidden, "role_not_grantable_to_api_key", map[string]any{"role": role, "offending_permissions": notGrantable})
+		return "", nil, false
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgAPIKeysCreate)
-	if !gateOK {
-		return "", false
-	}
-	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, permissions, false)
+	// No-escalation: the minter must hold everything the role's tokens confer.
+	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, roleTokens, false)
 	if err != nil {
 		serverErr(w, "permission_validate_failed")
-		return "", false
+		return "", nil, false
 	}
 	if len(unknown) > 0 {
 		sendErrData(w, http.StatusBadRequest, "unknown_permission", map[string]any{"unknown_permissions": unknown})
-		return "", false
+		return "", nil, false
 	}
 	if len(offending) > 0 {
 		sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{"offending_permissions": offending})
-		return "", false
+		return "", nil, false
 	}
-	return canonical, true
+	return canonical, rolePerms, true
 }
 
 func (s *Service) handleAPIKeysGET(w http.ResponseWriter, r *http.Request) {

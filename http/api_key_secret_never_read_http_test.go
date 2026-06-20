@@ -70,12 +70,16 @@ func TestAPIKeySecretNeverReturnedByReadHTTP(t *testing.T) {
 
 	base := "/orgs/" + org.Slug + "/api-keys"
 
+	// An API key holds exactly ONE org ROLE (#95). Define a read-only "auditor"
+	// role conferring org:members:read — a catalog perm the owner holds (org:*) and
+	// grantable to an API key (read-only, escalation-harmless).
+	require.NoError(t, coreSvc.DefineRole(ctx, org.Slug, "auditor"))
+	require.NoError(t, coreSvc.SetRolePermissions(ctx, org.Slug, "auditor", []string{core.PermOrgMembersRead}))
+
 	// Mint an API key over HTTP and capture the one-time plaintext `token`.
-	// org:members:read is a catalog perm the owner holds (org:*) and is grantable
-	// to an API key (read-only, escalation-harmless).
 	status, body := req(http.MethodPost, base, map[string]any{
-		"name":        prefix + "-ci",
-		"permissions": []string{core.PermOrgMembersRead},
+		"name": prefix + "-ci",
+		"role": "auditor",
 	})
 	require.Equal(t, http.StatusCreated, status, body)
 
@@ -107,7 +111,7 @@ func TestAPIKeySecretNeverReturnedByReadHTTP(t *testing.T) {
 	require.NotEmpty(t, keys, "the minted key must appear in the list")
 
 	allowed := map[string]bool{
-		"id": true, "key_id": true, "name": true, "permissions": true,
+		"id": true, "key_id": true, "name": true, "role": true, "permissions": true,
 		"resources": true, "created_by": true, "created_at": true,
 		"last_used_at": true, "expires_at": true, "revoked_at": true,
 		// resource entries:

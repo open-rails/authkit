@@ -11,7 +11,7 @@ import (
 )
 
 const aPIKeyByKeyID = `-- name: APIKeyByKeyID :one
-SELECT t.id::text AS id, t.secret_hash, t.expires_at, t.revoked_at,
+SELECT t.id::text AS id, t.secret_hash, t.role, t.expires_at, t.revoked_at,
        o.id::text AS org_id, o.slug, o.deleted_at AS org_deleted_at
 FROM profiles.service_tokens t
 JOIN profiles.orgs o ON o.id = t.org_id
@@ -21,6 +21,7 @@ WHERE t.key_id = $1
 type APIKeyByKeyIDRow struct {
 	ID           string
 	SecretHash   []byte
+	Role         string
 	ExpiresAt    *time.Time
 	RevokedAt    *time.Time
 	OrgID        string
@@ -34,6 +35,7 @@ func (q *Queries) APIKeyByKeyID(ctx context.Context, keyID string) (APIKeyByKeyI
 	err := row.Scan(
 		&i.ID,
 		&i.SecretHash,
+		&i.Role,
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.OrgID,
@@ -46,8 +48,8 @@ func (q *Queries) APIKeyByKeyID(ctx context.Context, keyID string) (APIKeyByKeyI
 const aPIKeyInsert = `-- name: APIKeyInsert :one
 
 INSERT INTO profiles.service_tokens
-  (org_id, key_id, secret_hash, name, created_by, expires_at)
-VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6)
+  (org_id, key_id, secret_hash, name, role, created_by, expires_at)
+VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7)
 RETURNING id::text, created_at
 `
 
@@ -56,6 +58,7 @@ type APIKeyInsertParams struct {
 	KeyID      string
 	SecretHash []byte
 	Name       string
+	Role       string
 	CreatedBy  *string
 	ExpiresAt  *time.Time
 }
@@ -66,92 +69,24 @@ type APIKeyInsertRow struct {
 }
 
 // API key queries (core/api_keys.go).
+//
+// An API key holds exactly ONE org role (#95). Its effective permissions are
+// resolved FROM that role (profiles.org_role_permissions) at use time, so the
+// queries here only ever carry the role NAME — never a per-key permission list.
+// There is no service_token_permissions table.
 func (q *Queries) APIKeyInsert(ctx context.Context, arg APIKeyInsertParams) (APIKeyInsertRow, error) {
 	row := q.db.QueryRow(ctx, aPIKeyInsert,
 		arg.OrgID,
 		arg.KeyID,
 		arg.SecretHash,
 		arg.Name,
+		arg.Role,
 		arg.CreatedBy,
 		arg.ExpiresAt,
 	)
 	var i APIKeyInsertRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
 	return i, err
-}
-
-const aPIKeyPermissionInsert = `-- name: APIKeyPermissionInsert :exec
-INSERT INTO profiles.service_token_permissions (service_token_id, permission)
-VALUES ($1::uuid, $2)
-`
-
-type APIKeyPermissionInsertParams struct {
-	ApiKeyID   string
-	Permission string
-}
-
-func (q *Queries) APIKeyPermissionInsert(ctx context.Context, arg APIKeyPermissionInsertParams) error {
-	_, err := q.db.Exec(ctx, aPIKeyPermissionInsert, arg.ApiKeyID, arg.Permission)
-	return err
-}
-
-const aPIKeyPermissionsByAPIKeyID = `-- name: APIKeyPermissionsByAPIKeyID :many
-SELECT permission
-FROM profiles.service_token_permissions
-WHERE service_token_id = $1::uuid
-ORDER BY permission
-`
-
-func (q *Queries) APIKeyPermissionsByAPIKeyID(ctx context.Context, apiKeyID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, aPIKeyPermissionsByAPIKeyID, apiKeyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var permission string
-		if err := rows.Scan(&permission); err != nil {
-			return nil, err
-		}
-		items = append(items, permission)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const aPIKeyPermissionsByAPIKeyIDs = `-- name: APIKeyPermissionsByAPIKeyIDs :many
-SELECT service_token_id::text AS api_key_id, permission
-FROM profiles.service_token_permissions
-WHERE service_token_id = ANY($1::uuid[])
-ORDER BY service_token_id::text, permission
-`
-
-type APIKeyPermissionsByAPIKeyIDsRow struct {
-	ApiKeyID   string
-	Permission string
-}
-
-func (q *Queries) APIKeyPermissionsByAPIKeyIDs(ctx context.Context, ids []string) ([]APIKeyPermissionsByAPIKeyIDsRow, error) {
-	rows, err := q.db.Query(ctx, aPIKeyPermissionsByAPIKeyIDs, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []APIKeyPermissionsByAPIKeyIDsRow
-	for rows.Next() {
-		var i APIKeyPermissionsByAPIKeyIDsRow
-		if err := rows.Scan(&i.ApiKeyID, &i.Permission); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const aPIKeyResourceInsert = `-- name: APIKeyResourceInsert :exec
@@ -264,7 +199,8 @@ func (q *Queries) APIKeyTouchLastUsed(ctx context.Context, id string) error {
 }
 
 const aPIKeysByOrg = `-- name: APIKeysByOrg :many
-SELECT id::text, key_id, name, COALESCE(created_by::text, '')::text AS created_by,
+SELECT id::text, key_id, name, role,
+       COALESCE(created_by::text, '')::text AS created_by,
        created_at, last_used_at, expires_at, revoked_at
 FROM profiles.service_tokens
 WHERE org_id = $1::uuid
@@ -275,6 +211,7 @@ type APIKeysByOrgRow struct {
 	ID         string
 	KeyID      string
 	Name       string
+	Role       string
 	CreatedBy  string
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
@@ -295,6 +232,7 @@ func (q *Queries) APIKeysByOrg(ctx context.Context, orgID string) ([]APIKeysByOr
 			&i.ID,
 			&i.KeyID,
 			&i.Name,
+			&i.Role,
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.LastUsedAt,

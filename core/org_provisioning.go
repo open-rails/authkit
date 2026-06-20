@@ -48,16 +48,18 @@ type OrgProvisionMembership struct {
 }
 
 // OrgProvisionAPIKey declares one generated opaque API key.
+// The key holds exactly ONE org role (#95): Role must name a role provisioned in
+// the same org (req.Roles) or a pre-existing org role.
 // When Output is empty, the plaintext token is returned in the result. When
 // Output is non-empty and a store is supplied, existing non-empty output is
 // preserved and no new token is minted.
 type OrgProvisionAPIKey struct {
-	Name        string
-	Permissions []string
-	Resources   []APIKeyResource
-	ExpiresAt   *time.Time
-	CreatedBy   string
-	Output      OrgManifestAPIKeyOutput
+	Name      string
+	Role      string
+	Resources []APIKeyResource
+	ExpiresAt *time.Time
+	CreatedBy string
+	Output    OrgManifestAPIKeyOutput
 }
 
 // MintedOrgProvisionAPIKey contains a plaintext generated API key. The
@@ -196,11 +198,11 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 			}
 		}
 		metadata, plaintext, err := s.MintAPIKeyWithOptions(ctx, org.Slug, APIKeyMintOptions{
-			Name:        token.Name,
-			Permissions: token.Permissions,
-			Resources:   token.Resources,
-			CreatedBy:   token.CreatedBy,
-			ExpiresAt:   token.ExpiresAt,
+			Name:      token.Name,
+			Role:      token.Role,
+			Resources: token.Resources,
+			CreatedBy: token.CreatedBy,
+			ExpiresAt: token.ExpiresAt,
 		})
 		if err != nil {
 			return result, err

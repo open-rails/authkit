@@ -83,7 +83,7 @@ Token taxonomy:
   `iss -> remote_application`.
 - Service JWT: JWT `typ=service+jwt` plus `token_use=service`; receiver
   intersects requested permissions/resources with server-side grants.
-- API key: opaque bearer secret; permissions/resources are resolved from DB.
+- API key: opaque bearer secret; it holds ONE org role (#95) and its permissions resolve FROM that role at verify time; resources are a separate per-key binding.
 
 Reserved slug policy:
 - Reserved owner slugs are seeded in DB migrations as reserved user + personal-org placeholders.
@@ -169,7 +169,7 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | DELETE | `/orgs/:org/members/:user_id/roles` | AUTH | Unassign role (`org:members:manage`; cannot remove last owner) |
 | GET | `/permissions` | AUTH | The permission set: authkit base permissions ∪ the app-declared permissions |
 | GET | `/orgs/:org/members/:user_id/permissions` | AUTH | A member's effective permissions (`org:read`) |
-| POST | `/orgs/:org/api-keys` | AUTH | Mint an API key (`org:api_keys:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms permission-validated + no-escalation, reserved write/mint `org:*` perms + wildcards barred (read-only `org:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full key shown ONCE. |
+| POST | `/orgs/:org/api-keys` | AUTH | Mint an API key (`org:api_keys:create`). Body `{name, role, resources?:[{kind,id}], expires_at?}` — `role` is a single org role slug (#95); the key's perms resolve FROM the role at use time. AuthKit validates the role exists + no-escalation (the minter holds everything the role confers), and bars a role conferring wildcards / reserved write-management `org:*` perms (read-only reserved like `org:*:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full key shown ONCE; response also surfaces the resolved `permissions`. |
 | GET | `/orgs/:org/api-keys` | AUTH | List the org's API keys (`org:api_keys:manage`; metadata only, includes `resources[]`, never secrets) |
 | DELETE | `/orgs/:org/api-keys/:token_id` | AUTH | Revoke an API key (`org:api_keys:manage`) |
 

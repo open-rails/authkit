@@ -256,6 +256,19 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
+// OrgRoleExists reports whether role is defined in the org. Used by the API-key
+// mint path to return a precise "unknown_role" error before relying on the DB FK.
+func (s *Service) OrgRoleExists(ctx context.Context, orgSlug, role string) (bool, error) {
+	if err := s.requirePG(); err != nil {
+		return false, err
+	}
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	if err != nil {
+		return false, err
+	}
+	return s.q.OrgRoleExists(ctx, db.OrgRoleExistsParams{OrgID: org.ID, Role: canonicalizeOrgRole(role)})
+}
+
 // GetRolePermissions returns a role's RAW permission tokens (literals and
 // namespace-anchored globs such as `org:*`).
 func (s *Service) GetRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
