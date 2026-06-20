@@ -62,13 +62,13 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, coreSvc.DefineRole(ctx, orgA.Slug, "remote-app-manager"))
-	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgA.Slug, "remote-app-manager", []string{core.PermOrgRemoteAppsUpdate}))
+	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgA.Slug, "remote-app-manager", []string{"org:remote_applications:*"}))
 	require.NoError(t, coreSvc.AddMember(ctx, orgA.Slug, managerA.ID))
 	require.NoError(t, coreSvc.AssignRole(ctx, orgA.Slug, managerA.ID, "remote-app-manager"))
 	require.NoError(t, coreSvc.AddMember(ctx, orgA.Slug, viewerA.ID))
 
 	require.NoError(t, coreSvc.DefineRole(ctx, orgB.Slug, "remote-app-manager"))
-	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgB.Slug, "remote-app-manager", []string{core.PermOrgRemoteAppsUpdate}))
+	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgB.Slug, "remote-app-manager", []string{"org:remote_applications:*"}))
 	require.NoError(t, coreSvc.AddMember(ctx, orgB.Slug, managerB.ID))
 	require.NoError(t, coreSvc.AssignRole(ctx, orgB.Slug, managerB.ID, "remote-app-manager"))
 
@@ -77,41 +77,49 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	managerBToken := issueBoundaryUserToken(t, ctx, coreSvc, managerB)
 
 	issuerA := "https://" + prefix + "-app-a.example/issuer"
-	status, body := remoteApplicationBoundaryRequest(t, server.URL, http.MethodPost, "", map[string]any{
-		"slug": "missing-auth", "issuer": issuerA, "org_id": orgA.ID, "jwks_uri": "https://example.com/jwks.json",
+	// No auth → 401 (before any org gate).
+	status, body := remoteApplicationBoundaryRegister(t, server.URL, orgA.Slug, "", map[string]any{
+		"slug": "missing-auth", "issuer": issuerA, "jwks_uri": "https://example.com/jwks.json",
 	})
 	require.Equal(t, http.StatusUnauthorized, status, body)
 
-	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodPost, managerAToken, map[string]any{
-		"slug": prefix + "-bad", "org_id": orgA.ID, "jwks_uri": "https://example.com/jwks.json",
+	// managerA, body missing issuer → 400: validation runs before the DB gate.
+	status, body = remoteApplicationBoundaryRegister(t, server.URL, orgA.Slug, managerAToken, map[string]any{
+		"slug": prefix + "-bad", "jwks_uri": "https://example.com/jwks.json",
 	})
 	require.Equal(t, http.StatusBadRequest, status, body)
 
-	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodPost, managerAToken, map[string]any{
-		"slug": prefix + "-app-a", "issuer": issuerA, "org_id": orgA.ID, "jwks_uri": "https://example.com/jwks.json",
+	// managerA registers app-a under orgA's path → 200, owned by orgA.
+	status, body = remoteApplicationBoundaryRegister(t, server.URL, orgA.Slug, managerAToken, map[string]any{
+		"slug": prefix + "-app-a", "issuer": issuerA, "jwks_uri": "https://example.com/jwks.json",
 	})
 	require.Equal(t, http.StatusOK, status, body)
 	registered, err := coreSvc.GetRemoteApplication(ctx, issuerA)
 	require.NoError(t, err)
 	require.Equal(t, orgA.ID, registered.OrgID)
 
-	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodPost, viewerAToken, map[string]any{
-		"slug": prefix + "-viewer", "issuer": "https://" + prefix + "-viewer.example/issuer", "org_id": orgA.ID, "jwks_uri": "https://example.com/viewer-jwks.json",
+	// viewerA is a member of orgA but holds no org:remote_applications:* → 403.
+	status, body = remoteApplicationBoundaryRegister(t, server.URL, orgA.Slug, viewerAToken, map[string]any{
+		"slug": prefix + "-viewer", "issuer": "https://" + prefix + "-viewer.example/issuer", "jwks_uri": "https://example.com/viewer-jwks.json",
 	})
 	require.Equal(t, http.StatusForbidden, status, body)
 
-	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodPost, managerBToken, map[string]any{
-		"slug": prefix + "-app-a", "issuer": issuerA, "org_id": orgB.ID, "jwks_uri": "https://example.com/cross-jwks.json",
+	// managerB manages orgB, but issuerA is already owned by orgA. Re-registering
+	// it under orgB is an anti-takeover conflict → 409 (never a silent re-bind).
+	status, body = remoteApplicationBoundaryRegister(t, server.URL, orgB.Slug, managerBToken, map[string]any{
+		"slug": prefix + "-app-a", "issuer": issuerA, "jwks_uri": "https://example.com/cross-jwks.json",
+	})
+	require.Equal(t, http.StatusConflict, status, body)
+
+	// managerA can't register in orgB (an org it doesn't manage) → 403. The org
+	// is the PATH, so there is no org-less registration at all.
+	status, body = remoteApplicationBoundaryRegister(t, server.URL, orgB.Slug, managerAToken, map[string]any{
+		"slug": prefix + "-cross", "issuer": "https://" + prefix + "-cross.example/issuer", "jwks_uri": "https://example.com/cross2-jwks.json",
 	})
 	require.Equal(t, http.StatusForbidden, status, body)
 
-	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodPost, managerAToken, map[string]any{
-		"slug": prefix + "-unowned-new", "issuer": "https://" + prefix + "-unowned-new.example/issuer", "jwks_uri": "https://example.com/unowned-jwks.json",
-	})
-	require.Equal(t, http.StatusForbidden, status, body)
-
-	// #95: remote-apps are org-nested (no org-less issuers). Bind to orgB so
-	// managerA (orgA) still can't manage it — verifying cross-org isolation.
+	// Bind a bootstrap issuer to orgB so managerA (orgA) can't delete it —
+	// cross-org isolation on the slug-addressed delete path.
 	_, err = coreSvc.UpsertRemoteApplication(ctx, core.RemoteApplication{
 		Slug:    prefix + "-bootstrap",
 		OrgID:   orgB.ID,
@@ -120,9 +128,7 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 		Enabled: true,
 	})
 	require.NoError(t, err)
-	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodDelete, managerAToken, map[string]any{
-		"issuer": "https://" + prefix + "-bootstrap.example/issuer",
-	})
+	status, body = remoteApplicationBoundaryDelete(t, server.URL, orgB.Slug, prefix+"-bootstrap", managerAToken)
 	require.Equal(t, http.StatusForbidden, status, body)
 
 	_, servicePlaintext, err := coreSvc.MintAPIKeyWithOptions(ctx, orgA.Slug, core.APIKeyMintOptions{
@@ -133,19 +139,23 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	require.NoError(t, err)
 	remoteAppSelfToken := mintBoundaryRemoteApplicationSelfToken(t, ctx, coreSvc, verifier, prefix, orgA)
 	delegatedToken := mintBoundaryDelegatedToken(t, verifier, prefix)
+	// A machine credential (API key / remote-app self / delegated) carries no
+	// human UserID, so it can never mutate the trust registry → 401.
 	for name, token := range map[string]string{
 		"api-key":                 servicePlaintext,
 		"remote-application-self": remoteAppSelfToken,
 		"delegated-token":         delegatedToken,
 	} {
 		t.Run("rejects "+name, func(t *testing.T) {
-			status, body := remoteApplicationBoundaryRequest(t, server.URL, http.MethodPost, token, map[string]any{
-				"slug": prefix + "-" + name, "issuer": "https://" + prefix + "-" + name + ".example/issuer", "org_id": orgA.ID, "jwks_uri": "https://example.com/credential-jwks.json",
+			status, body := remoteApplicationBoundaryRegister(t, server.URL, orgA.Slug, token, map[string]any{
+				"slug": prefix + "-" + name, "issuer": "https://" + prefix + "-" + name + ".example/issuer", "jwks_uri": "https://example.com/credential-jwks.json",
 			})
 			require.Equal(t, http.StatusUnauthorized, status, body)
 		})
 	}
 
+	// Attribute-defs stay FLAT (token-contract layer): a remote-app self-token
+	// may author its OWN defs but not another issuer's.
 	status, body = remoteApplicationBoundaryRequestPath(t, server.URL, "/remote-applications/"+prefix+"-self-token/attribute-defs", http.MethodPost, remoteAppSelfToken, map[string]any{
 		"key":        "tier-1",
 		"definition": map[string]any{"rpm": 10},
@@ -161,7 +171,8 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	})
 	require.Equal(t, http.StatusForbidden, status, body)
 
-	status, body = remoteApplicationBoundaryRequest(t, server.URL, http.MethodDelete, managerAToken, map[string]any{"issuer": issuerA})
+	// managerA deletes app-a under orgA's path (slug-addressed) → 200, gone.
+	status, body = remoteApplicationBoundaryDelete(t, server.URL, orgA.Slug, prefix+"-app-a", managerAToken)
 	require.Equal(t, http.StatusOK, status, body)
 	_, err = coreSvc.GetRemoteApplication(ctx, issuerA)
 	require.ErrorIs(t, err, core.ErrRemoteApplicationNotFound)
@@ -197,9 +208,14 @@ func issueBoundaryUserToken(t *testing.T, ctx context.Context, svc *core.Service
 	return token
 }
 
-func remoteApplicationBoundaryRequest(t *testing.T, baseURL, method, token string, body any) (int, string) {
+func remoteApplicationBoundaryRegister(t *testing.T, baseURL, orgSlug, token string, body any) (int, string) {
 	t.Helper()
-	return remoteApplicationBoundaryRequestPath(t, baseURL, "/remote-applications", method, token, body)
+	return remoteApplicationBoundaryRequestPath(t, baseURL, "/orgs/"+orgSlug+"/remote-applications", http.MethodPost, token, body)
+}
+
+func remoteApplicationBoundaryDelete(t *testing.T, baseURL, orgSlug, slug, token string) (int, string) {
+	t.Helper()
+	return remoteApplicationBoundaryRequestPath(t, baseURL, "/orgs/"+orgSlug+"/remote-applications/"+slug, http.MethodDelete, token, nil)
 }
 
 func remoteApplicationBoundaryRequestPath(t *testing.T, baseURL, path, method, token string, body any) (int, string) {

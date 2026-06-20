@@ -61,9 +61,11 @@ func remoteApplicationView(ra core.RemoteApplication) remoteApplicationResponse 
 	}
 }
 
-// handleRemoteApplicationRegisterPOST registers or updates a remote_application.
-// Authorization: org RBAC only — the caller must hold org:remote_applications:*
-// on the issuer's owning org. Every issuer is org-owned (#95).
+// handleRemoteApplicationRegisterPOST registers or updates a remote_application
+// nested under POST /orgs/{org}/remote-applications (#95 — org-nested like
+// api-keys). The owning org comes from the PATH, NOT the body; the caller must
+// hold org:remote_applications:create on it. Body validation runs before the
+// DB gate so malformed requests fail fast without a lookup.
 func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
@@ -87,13 +89,20 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 		badRequest(w, "invalid_allowed_origins")
 		return
 	}
-	orgID, ok, err := s.canManageRemoteApplicationByIssuer(r.Context(), claims, body.Issuer, body.OrgID)
-	if err != nil {
-		serverErr(w, "remote_application_lookup_failed")
+	orgID, ok := s.gateOrgRemoteApps(w, r, claims, core.PermOrgRemoteAppsCreate)
+	if !ok {
 		return
 	}
-	if !ok {
-		forbidden(w, "forbidden")
+	// Anti-takeover: an issuer is owned by exactly one org. If it already exists
+	// under a DIFFERENT org, this org may not re-bind it (the path org is
+	// authoritative, never the body).
+	if existing, gerr := s.svc.GetRemoteApplication(r.Context(), body.Issuer); gerr == nil && existing != nil {
+		if strings.TrimSpace(existing.OrgID) != orgID {
+			sendErrData(w, http.StatusConflict, "issuer_owned_by_other_org", map[string]any{})
+			return
+		}
+	} else if gerr != nil && gerr != core.ErrRemoteApplicationNotFound {
+		serverErr(w, "remote_application_lookup_failed")
 		return
 	}
 
@@ -128,32 +137,31 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusOK, remoteApplicationView(*ra))
 }
 
-// handleRemoteApplicationDeleteDELETE removes a remote_application registration.
-// Authorized by org RBAC: the caller must hold org:remote_applications:* on the
-// issuer's owning org.
+// handleRemoteApplicationDeleteDELETE removes a remote_application registration
+// addressed by DELETE /orgs/{org}/remote-applications/{slug} (#95). The caller
+// must hold org:remote_applications:delete on {org}, and {slug} must be owned by
+// it (a cross-org slug 404s, never revealing existence).
 func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	var body remoteApplicationRegistration
-	_ = decodeJSON(r, &body)
-	issuer := strings.TrimSpace(body.Issuer)
-	if issuer == "" {
+	orgID, ok := s.gateOrgRemoteApps(w, r, claims, core.PermOrgRemoteAppsDelete)
+	if !ok {
+		return
+	}
+	slug := strings.TrimSpace(r.PathValue("slug"))
+	if slug == "" {
 		badRequest(w, "invalid_request")
 		return
 	}
-	_, ok, err := s.canManageRemoteApplicationByIssuer(r.Context(), claims, issuer, "")
-	if err != nil {
-		serverErr(w, "remote_application_lookup_failed")
+	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
+	if err != nil || strings.TrimSpace(ra.OrgID) != orgID {
+		notFound(w, "remote_application_not_found")
 		return
 	}
-	if !ok {
-		forbidden(w, "forbidden")
-		return
-	}
-	if err := s.svc.DeleteRemoteApplication(r.Context(), issuer); err != nil {
+	if err := s.svc.DeleteRemoteApplication(r.Context(), ra.Issuer); err != nil {
 		if err == core.ErrRemoteApplicationNotFound {
 			notFound(w, "remote_application_not_found")
 			return
@@ -162,7 +170,7 @@ func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *
 		return
 	}
 	if s.verifier != nil {
-		s.verifier.RemoveIssuer(issuer)
+		s.verifier.RemoveIssuer(ra.Issuer)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
@@ -332,37 +340,51 @@ func (s *Service) handleAttributeDefGET(w http.ResponseWriter, r *http.Request) 
 // Authorization helpers
 // ---------------------------------------------------------------------------
 
-// canManageRemoteApplicationByIssuer reports whether the caller may register or
-// mutate the remote_application with the given issuer, and returns the org_id to
-// persist. Authority is ORG RBAC only: the caller must hold
-// org:remote_applications:* on the issuer's owning org. Every issuer is
-// org-owned (#95 — org_id is NOT NULL); there is no global-admin bypass and no
-// unowned/operator-managed issuer.
-func (s *Service) canManageRemoteApplicationByIssuer(ctx context.Context, claims Claims, issuer, requestedOrgID string) (orgID string, ok bool, err error) {
-	existing, gerr := s.svc.GetRemoteApplication(ctx, issuer)
-	if gerr != nil && gerr != core.ErrRemoteApplicationNotFound {
-		return "", false, gerr
+// gateOrgRemoteApps resolves the {org} path segment, enforces `perm` (an
+// org:remote_applications:* permission) on it for the caller, and returns the
+// org_id. It writes the standard error response and returns ok=false on any
+// failure. This is the shared org-RBAC gate for the org-nested remote-app
+// management routes (#95 — register/delete/memberships under /orgs/{org}/...).
+func (s *Service) gateOrgRemoteApps(w http.ResponseWriter, r *http.Request, claims Claims, perm string) (orgID string, ok bool) {
+	orgSlug := strings.TrimSpace(r.PathValue("org"))
+	if orgSlug == "" {
+		badRequest(w, "invalid_request")
+		return "", false
 	}
-	if existing != nil {
-		// Already registered: authority is its owning org (org_id NOT NULL).
-		return s.canManageRemoteApplicationOrg(ctx, claims, strings.TrimSpace(existing.OrgID))
+	org, err := s.svc.ResolveOrgBySlug(r.Context(), orgSlug)
+	if err != nil {
+		if err == core.ErrOrgNotFound {
+			notFound(w, "org_not_found")
+		} else {
+			serverErr(w, "org_lookup_failed")
+		}
+		return "", false
 	}
-	// Registering a new issuer: the caller must name the owning org and hold
-	// org:remote_applications:* there.
-	orgID = strings.TrimSpace(requestedOrgID)
-	if orgID == "" {
-		return "", false, nil
+	allowed, err := s.svc.HasPermission(r.Context(), org.Slug, claims.UserID, perm)
+	if err != nil {
+		serverErr(w, "permission_check_failed")
+		return "", false
 	}
-	return s.canManageRemoteApplicationOrg(ctx, claims, orgID)
+	if !allowed {
+		forbidden(w, "forbidden")
+		return "", false
+	}
+	return org.ID, true
 }
 
-// authRemoteApplicationBySlug resolves the {slug} path principal and checks
-// org-owner/admin authorization. It writes the error response and
-// returns ok=false on any failure.
+// authRemoteApplicationBySlug resolves the {org}/{slug} membership-route
+// principal: it enforces org:remote_applications:update on the {org} path
+// segment (the issuer's OWNING org) and verifies {slug} is owned by it (a
+// cross-org slug 404s). It writes the error response and returns ok=false on any
+// failure.
 func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Request) (Claims, *core.RemoteApplication, bool) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
+		return Claims{}, nil, false
+	}
+	orgID, ok := s.gateOrgRemoteApps(w, r, claims, core.PermOrgRemoteAppsUpdate)
+	if !ok {
 		return Claims{}, nil, false
 	}
 	slug := strings.TrimSpace(r.PathValue("slug"))
@@ -371,20 +393,8 @@ func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Req
 		return Claims{}, nil, false
 	}
 	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
-	if err != nil {
+	if err != nil || strings.TrimSpace(ra.OrgID) != orgID {
 		notFound(w, "remote_application_not_found")
-		return Claims{}, nil, false
-	}
-	orgID := strings.TrimSpace(ra.OrgID)
-	if orgID == "" {
-		forbidden(w, "forbidden")
-		return Claims{}, nil, false
-	}
-	if _, ok, err := s.canManageRemoteApplicationOrg(r.Context(), claims, orgID); err != nil {
-		serverErr(w, "remote_application_owner_lookup_failed")
-		return Claims{}, nil, false
-	} else if !ok {
-		forbidden(w, "forbidden")
 		return Claims{}, nil, false
 	}
 	return claims, ra, true

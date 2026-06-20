@@ -227,17 +227,22 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/org/claim", Group: RouteAdmin, Handler: notFoundHandler},
 
 		// Remote-application registry (#74, INBOUND accept side). A
-		// remote_application is the federation PRINCIPAL (JWKS-credentialed).
-		// Register/delete authorize on the issuer's owning org (org RBAC,
-		// org:remote_applications:*) inside the handler (#95).
-		{Method: http.MethodPost, Path: "/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationRegisterPOST))},
-		{Method: http.MethodDelete, Path: "/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationDeleteDELETE))},
+		// remote_application is the federation PRINCIPAL (JWKS-credentialed) and a
+		// pure ORG-NESTED sub-resource, exactly like api-keys (#95): the owning
+		// org is in the PATH and management gates in-handler on
+		// org:remote_applications:{create,update,delete}. Every issuer is org-owned
+		// (org_id NOT NULL); there is no flat/global route and no global-admin.
+		{Method: http.MethodPost, Path: "/orgs/{org}/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationRegisterPOST))},
+		{Method: http.MethodDelete, Path: "/orgs/{org}/remote-applications/{slug}", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationDeleteDELETE))},
 		// A remote_application's org memberships (assigned via the SAME role
-		// machinery as users).
-		{Method: http.MethodPost, Path: "/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipPOST))},
-		{Method: http.MethodDelete, Path: "/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipDELETE))},
-		// Attribute definition registry (#75): write side (remote_app authors)
-		// + read/resolve side (any platform resolving a token reference).
+		// machinery as users); {org} is the issuer's owning org.
+		{Method: http.MethodPost, Path: "/orgs/{org}/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipPOST))},
+		{Method: http.MethodDelete, Path: "/orgs/{org}/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipDELETE))},
+		// Attribute definition registry (#75) — the federation token-CONTRACT
+		// layer, NOT org management: the write is self-authored by the
+		// remote_application and the read resolves a token reference for ANY
+		// authenticated platform (no org context). Addressed by issuer {slug}
+		// globally, so these stay flat (not org-nested).
 		{Method: http.MethodPost, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefPutPOST))},
 		{Method: http.MethodGet, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefGET))},
 	}

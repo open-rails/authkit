@@ -71,7 +71,7 @@ func TestOutboundClientPostsRegistration(t *testing.T) {
 	defer srv.Close()
 
 	fc := NewOrgIssuersClient(WithOrgIssuersAuthToken("owner-token"))
-	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/remote-applications", OrgIssuersRegistration{
+	err := fc.RegisterIssuer(context.Background(), srv.URL+"/api/v1/orgs/cozy-art/remote-applications", OrgIssuersRegistration{
 		Slug:           "cozy-art",
 		Issuer:         "https://cozy.example",
 		JWKSURI:        "https://cozy.example/.well-known/jwks.json",
