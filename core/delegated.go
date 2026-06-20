@@ -11,12 +11,12 @@ import (
 )
 
 // DelegatedAccessTokenType is the canonical JOSE `typ` header value for a
-// delegated service token.
+// delegated access token.
 const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 
-// DelegatedAccessParams describes a delegated service token to mint.
+// DelegatedAccessParams describes a delegated access token to mint.
 //
-// A delegated service token is AuthKit's standard primitive for resource-service
+// A delegated access token is AuthKit's standard primitive for resource-service
 // federation: one AuthKit issuer signs a short-lived JWT for an external
 // delegated subject, and a resource service accepts it after issuer/JWKS/
 // audience validation. The token represents a delegated subject
@@ -68,7 +68,7 @@ type DelegatedAccessParams struct {
 	NotBefore time.Time
 }
 
-// MintDelegatedAccessToken signs a canonical delegated service token using the
+// MintDelegatedAccessToken signs a canonical delegated access token using the
 // Service's internal signer. The host passes claims/params only and NEVER
 // touches the private key. When p.Issuer is empty it defaults to the Service's
 // configured Issuer. See the package-level MintDelegatedAccessToken for the
@@ -84,7 +84,7 @@ func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAcces
 	return MintDelegatedAccessToken(ctx, signer, p)
 }
 
-// MintDelegatedAccessToken signs a canonical delegated service token with an
+// MintDelegatedAccessToken signs a canonical delegated access token with an
 // explicit signer. It stamps the `typ=delegated-access+jwt` JOSE header, writes
 // the canonical `delegated_sub`/`permissions`/`attributes` claims, and NEVER
 // sets `sub` — the sub-XOR-delegated_sub invariant is enforced by construction.
@@ -166,7 +166,7 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	if !p.NotBefore.IsZero() {
 		claims["nbf"] = p.NotBefore.Unix()
 	}
-	// Invariant: a delegated service token must never carry `sub`.
+	// Invariant: a delegated access token must never carry `sub`.
 	delete(claims, "sub")
 
 	headers := map[string]any{"typ": DelegatedAccessTokenType}

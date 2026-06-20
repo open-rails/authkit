@@ -20,12 +20,12 @@ func (s *Service) handleOrgsListGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type orgItem struct {
-		Org   string   `json:"org"`
-		Roles []string `json:"roles"`
+		Org  string `json:"org"`
+		Role string `json:"role"`
 	}
 	out := make([]orgItem, 0, len(mems))
 	for _, m := range mems {
-		out = append(out, orgItem{Org: m.Org, Roles: m.Roles})
+		out = append(out, orgItem{Org: m.Org, Role: firstRole(m.Roles)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orgs": out})
 }
@@ -167,7 +167,42 @@ func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMovedPermanently)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"org": canonical})
+	org, err := s.svc.ResolveOrgBySlug(r.Context(), canonical)
+	if err != nil {
+		serverErr(w, "org_lookup_failed")
+		return
+	}
+	roles, err := s.svc.ReadMemberRoles(r.Context(), canonical, claims.UserID)
+	if err != nil {
+		serverErr(w, "org_membership_lookup_failed")
+		return
+	}
+	perms, err := s.svc.EffectivePermissions(r.Context(), canonical, claims.UserID)
+	if err != nil {
+		serverErr(w, "permissions_lookup_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"org": map[string]any{
+			"id":            org.ID,
+			"slug":          org.Slug,
+			"is_personal":   org.IsPersonal,
+			"owner_user_id": org.OwnerUserID,
+		},
+		"membership": map[string]any{
+			"role":        firstRole(roles),
+			"permissions": nonNil(perms),
+		},
+	})
+}
+
+func firstRole(roles []string) string {
+	for _, role := range roles {
+		if role = strings.TrimSpace(role); role != "" {
+			return role
+		}
+	}
+	return ""
 }
 
 func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {

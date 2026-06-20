@@ -32,7 +32,7 @@ const (
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
 // attached. Path parameters use net/http ServeMux syntax, e.g.
-// "/owners/{slug}".
+// "/namespaces/{slug}".
 type RouteSpec struct {
 	Method  string
 	Path    string
@@ -93,7 +93,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 
 	routes := []RouteSpec{
 		{Method: http.MethodPost, Path: "/token", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
-		{Method: http.MethodGet, Path: "/providers", Group: RouteCore, Handler: http.HandlerFunc(s.handleProvidersGET)},
+		{Method: http.MethodGet, Path: "/identity-providers", Group: RouteCore, Handler: http.HandlerFunc(s.handleProvidersGET)},
 		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		// "What are my permissions" introspection (#76 amendment): the caller's
@@ -107,6 +107,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/email/password/reset/confirm-link", Group: RoutePassword, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmLinkPOST)},
 		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
 		{Method: http.MethodPost, Path: "/phone/password/reset/confirm", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST)},
+		{Method: http.MethodPost, Path: "/phone/password/reset/confirm-link", Group: RoutePassword, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmLinkPOST)},
 
 		{Method: http.MethodPost, Path: "/register", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
 		{Method: http.MethodGet, Path: "/register/availability", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
@@ -114,7 +115,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
 		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
-		{Method: http.MethodGet, Path: "/owners/{slug}", Group: RouteOwners, Handler: http.HandlerFunc(s.handleOwnerNamespaceInfoGET)},
+		{Method: http.MethodGet, Path: "/namespaces/{slug}", Group: RouteOwners, Handler: http.HandlerFunc(s.handleOwnerNamespaceInfoGET)},
 
 		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyRequestPOST)},
 		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmPOST)},
@@ -129,7 +130,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/user/sessions/{id}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionDELETE))},
 		{Method: http.MethodDelete, Path: "/user/sessions", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionsDELETE))},
 		{Method: http.MethodGet, Path: "/user/me", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
-		{Method: http.MethodGet, Path: "/user/bootstrap", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBootstrapGET))},
+		{Method: http.MethodGet, Path: "/me/bootstrap", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBootstrapGET))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-locale", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPreferredLocalePATCH))},
 		{Method: http.MethodPost, Path: "/user/email/change/request", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeRequestPOST))},
@@ -205,11 +206,9 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 
 	// When public org onboarding/management is disabled, wrap the mutating
 	// org-facing routes with a stable org_management_disabled deny handler.
-	// Read-only org routes (listing, lookup, role/permission reads,
-	// introspection) and the org-scoped token route stay available so existing
-	// members can still authenticate and inspect their orgs. Embedded
-	// bootstrap/admin core APIs are unaffected (they never traverse these HTTP
-	// handlers).
+	// Read-only org routes stay available so existing members can inspect their
+	// orgs. Embedded bootstrap/admin core APIs are unaffected (they never
+	// traverse these HTTP handlers).
 	orgMgmt := func(method, path string, h http.Handler) http.Handler {
 		if !s.publicOrgManagementDisabled() {
 			return h
@@ -228,8 +227,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// gate.
 	{
 		routes = append(routes,
-			RouteSpec{Method: http.MethodPost, Path: "/token/org", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAuthTokenOrgPOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsListGET))},
+			RouteSpec{Method: http.MethodGet, Path: "/me/orgs", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsListGET))},
 			RouteSpec{Method: http.MethodPost, Path: "/orgs", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsCreatePOST))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsGetGET))},
 			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/rename", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsRenamePOST))},
@@ -239,27 +237,21 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/invites", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInvitesGET))},
 			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/invites", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInvitesPOST))},
 			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/invites/{invite_id}/revoke", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteRevokePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/me/invites", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleUserInvitesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/me/invites/{invite_id}/accept", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteAcceptPOST))},
-			RouteSpec{Method: http.MethodPost, Path: "/me/invites/{invite_id}/decline", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteDeclinePOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/me/org-invites", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleUserInvitesGET))},
+			RouteSpec{Method: http.MethodPost, Path: "/me/org-invites/{invite_id}/accept", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteAcceptPOST))},
+			RouteSpec{Method: http.MethodPost, Path: "/me/org-invites/{invite_id}/decline", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteDeclinePOST))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRolesGET))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/roles/{role}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRoleGET))},
 			RouteSpec{Method: http.MethodPut, Path: "/orgs/{org}/roles/{role}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRolePUT))},
 			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/roles/{role}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRolesDELETE))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleServiceTokensPOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleServiceTokensGET))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/api-keys/{token_id}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleServiceTokenDELETE))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/service-tokens", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleServiceTokensPOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/service-tokens", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleServiceTokensGET))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/service-tokens/{token_id}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleServiceTokenDELETE))},
+			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeysPOST))},
+			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeysGET))},
+			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/api-keys/{token_id}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeyDELETE))},
 			RouteSpec{Method: http.MethodGet, Path: "/permissions", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handlePermissionCatalogGET))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/permissions", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberPermissionsGET))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesGET))},
 			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesPOST))},
 			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesDELETE))},
-			// Introspection (#46 follow-up): self (/me) + permission check.
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/me", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMeGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/permissions/check", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgPermissionCheckPOST))},
 		)
 	}
 
@@ -280,9 +272,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 // isPublicOrgManagementRoute reports whether (method, path) is a public
 // org-facing onboarding/management route gated by OrgRegistrationMode.
 // These are the mutating org routes (creation, rename, invites, member changes,
-// role changes, service token management) plus invite acceptance/decline. Read-only org
-// routes and the org-scoped token route are intentionally excluded so existing
-// members can still authenticate and inspect their orgs.
+// role changes, API key management) plus invite acceptance/decline. Read-only org
+// routes are intentionally excluded so existing members can inspect their orgs.
 func isPublicOrgManagementRoute(method, path string) bool {
 	switch method {
 	case http.MethodGet:
@@ -290,12 +281,7 @@ func isPublicOrgManagementRoute(method, path string) bool {
 		// reads, introspection).
 		return false
 	case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
-		// The org-scoped token exchange (`POST /token/org`) is authentication,
-		// not org management — keep it available for existing members.
-		if method == http.MethodPost && path == "/token/org" {
-			return false
-		}
-		return strings.HasPrefix(path, "/orgs") || strings.HasPrefix(path, "/me/invites")
+		return strings.HasPrefix(path, "/orgs") || strings.HasPrefix(path, "/me/org-invites")
 	default:
 		return false
 	}

@@ -7,7 +7,7 @@ import (
 
 // TestRemoteApplicationDirectPermissions exercises the direct-permission grant
 // (#76): add (idempotent) -> list -> remove, the STORED authority surface that
-// mirrors service_token_permissions.
+// mirrors API-key permission storage.
 func TestRemoteApplicationDirectPermissions(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()

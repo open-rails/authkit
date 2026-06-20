@@ -87,7 +87,7 @@ func TestDelegatedAccessRejectsNormalSub(t *testing.T) {
 	}
 	_, err = newDelegatedTestVerifier(t, signer, iss, []string{"openrails"}).Verify(tok)
 	if err == nil {
-		t.Fatal("expected rejection of service token with sub")
+		t.Fatal("expected rejection of API key with sub")
 	}
 	// Either invariant may fire (both sub+delegated_sub here); both are rejects.
 	if err.Error() != "conflicting_subject" && err.Error() != "access_token_has_sub" {
@@ -116,7 +116,7 @@ func TestDelegatedAccessRejectsSubOnlyAccessToken(t *testing.T) {
 }
 
 // TestDelegatedAccessRejectsSubPlusDelegatedSub covers the explicit
-// both-subjects reject for a delegated service token (no typ header path).
+// both-subjects reject for a delegated access token (no typ header path).
 func TestDelegatedAccessRejectsSubPlusDelegatedSub(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"

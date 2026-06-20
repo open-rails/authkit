@@ -40,7 +40,7 @@ type ServiceJWTClaims struct {
 	JTI         string
 	TokenUse    string
 	Permissions []string
-	Resources   []ServiceTokenResource
+	Resources   []APIKeyResource
 	Scope       []string
 }
 
@@ -49,7 +49,7 @@ type ServiceJWTMintOptions struct {
 	Subject     string
 	Audiences   []string
 	Permissions []string
-	Resources   []ServiceTokenResource
+	Resources   []APIKeyResource
 	Lifetime    time.Duration
 	NotBefore   time.Time
 	IssuedAt    time.Time
@@ -80,7 +80,7 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 		return "", ServiceJWTClaims{}, ErrInvalidServiceJWT
 	}
 	permissions := dedupeStrings(opts.Permissions)
-	resources, err := normalizeServiceTokenResources(opts.Resources)
+	resources, err := normalizeAPIKeyResources(opts.Resources)
 	if err != nil {
 		return "", ServiceJWTClaims{}, err
 	}

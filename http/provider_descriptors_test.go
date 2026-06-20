@@ -145,7 +145,7 @@ func TestProvidersGETReturnsConfiguredProvidersOnly(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/providers", nil)
+	r := httptest.NewRequest(http.MethodGet, "/identity-providers", nil)
 	s.handleProvidersGET(w, r)
 	require.Equal(t, http.StatusOK, w.Code)
 

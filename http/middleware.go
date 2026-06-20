@@ -18,14 +18,14 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Service Token (service token) branch, BEFORE JWT verification.
-			// If the bearer token carries the configured service-token marker it is
+			// API-key branch, BEFORE JWT verification.
+			// If the bearer token carries the configured API-key marker it is
 			// resolved against the DB as a service principal; a shaped-but-invalid
-			// service token is rejected here rather than mistakenly re-tried as a JWT. The
-			// password-login rate limiter lives on a different code path, so service tokens
+			// API key is rejected here rather than mistakenly re-tried as a JWT. The
+			// password-login rate limiter lives on a different code path, so API keys
 			// bypass it by design. Service principals carry no UserID, so the
 			// live-user enrichment/ban gate below is skipped for them.
-			if scl, matched, serr := v.resolveServiceToken(r.Context(), tokenStr); matched {
+			if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
 				if serr != nil {
 					unauthorized(w, serr.Error())
 					return
@@ -64,8 +64,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				}
 
 				// (issue 60) Role enrichment: if a non-delegated token carries no roles,
-				// supply the user's canonical global roles. No org-mode gate; a
-				// org-scoped token already carries org roles so this won't fire.
+				// supply the user's canonical global roles.
 				if len(cl.Roles) == 0 {
 					if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
 						cl.Roles = rs

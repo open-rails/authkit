@@ -8,31 +8,31 @@ import (
 	"time"
 )
 
-func TestServiceTokenMarker(t *testing.T) {
-	if got := ServiceTokenMarker(""); got != "st_" {
+func TestAPIKeyMarker(t *testing.T) {
+	if got := APIKeyMarker(""); got != "st_" {
 		t.Fatalf("empty prefix marker = %q, want %q", got, "st_")
 	}
-	if got := ServiceTokenMarker("cozy"); got != "cozy_st_" {
+	if got := APIKeyMarker("cozy"); got != "cozy_st_" {
 		t.Fatalf("branded marker = %q, want %q", got, "cozy_st_")
 	}
-	if got := ServiceTokenMarker("  cozy  "); got != "cozy_st_" {
+	if got := APIKeyMarker("  cozy  "); got != "cozy_st_" {
 		t.Fatalf("trimmed marker = %q, want %q", got, "cozy_st_")
 	}
 }
 
-func TestFormatParseServiceTokenRoundTrip(t *testing.T) {
+func TestFormatParseAPIKeyRoundTrip(t *testing.T) {
 	cases := []struct{ prefix, keyID, secret string }{
 		{"", "abc123KEYID00000", "SECRETvalue123base62"},
 		{"cozy", "abc123KEYID00000", "SECRETvalue123base62"},
 	}
 	for _, tc := range cases {
-		full := FormatServiceToken(tc.prefix, tc.keyID, tc.secret)
-		if !HasServiceTokenPrefix(tc.prefix, full) {
-			t.Fatalf("HasServiceTokenPrefix(%q, %q) = false", tc.prefix, full)
+		full := FormatAPIKey(tc.prefix, tc.keyID, tc.secret)
+		if !HasAPIKeyPrefix(tc.prefix, full) {
+			t.Fatalf("HasAPIKeyPrefix(%q, %q) = false", tc.prefix, full)
 		}
-		keyID, secret, ok := ParseServiceToken(tc.prefix, full)
+		keyID, secret, ok := ParseAPIKey(tc.prefix, full)
 		if !ok {
-			t.Fatalf("ParseServiceToken(%q, %q) ok=false", tc.prefix, full)
+			t.Fatalf("ParseAPIKey(%q, %q) ok=false", tc.prefix, full)
 		}
 		if keyID != tc.keyID || secret != tc.secret {
 			t.Fatalf("round-trip mismatch: got (%q,%q) want (%q,%q)", keyID, secret, tc.keyID, tc.secret)
@@ -40,7 +40,7 @@ func TestFormatParseServiceTokenRoundTrip(t *testing.T) {
 	}
 }
 
-func TestParseServiceTokenRejects(t *testing.T) {
+func TestParseAPIKeyRejects(t *testing.T) {
 	cases := []struct {
 		name, prefix, token string
 	}{
@@ -52,8 +52,8 @@ func TestParseServiceTokenRejects(t *testing.T) {
 		{"empty key", "", "st__secret"},
 	}
 	for _, tc := range cases {
-		if _, _, ok := ParseServiceToken(tc.prefix, tc.token); ok {
-			t.Errorf("%s: ParseServiceToken(%q,%q) ok=true, want false", tc.name, tc.prefix, tc.token)
+		if _, _, ok := ParseAPIKey(tc.prefix, tc.token); ok {
+			t.Errorf("%s: ParseAPIKey(%q,%q) ok=true, want false", tc.name, tc.prefix, tc.token)
 		}
 	}
 }
@@ -78,7 +78,7 @@ func TestRandBase62(t *testing.T) {
 	}
 }
 
-func TestValidServiceTokenPrefix(t *testing.T) {
+func TestValidAPIKeyPrefix(t *testing.T) {
 	cases := []struct {
 		prefix string
 		valid  bool
@@ -94,25 +94,25 @@ func TestValidServiceTokenPrefix(t *testing.T) {
 		{"co zy", false},             // space
 	}
 	for _, tc := range cases {
-		if got := validServiceTokenPrefix(tc.prefix); got != tc.valid {
-			t.Errorf("validServiceTokenPrefix(%q) = %v, want %v", tc.prefix, got, tc.valid)
+		if got := validAPIKeyPrefix(tc.prefix); got != tc.valid {
+			t.Errorf("validAPIKeyPrefix(%q) = %v, want %v", tc.prefix, got, tc.valid)
 		}
 	}
 }
 
-func TestAPIKeyPrefixAliasesServiceTokenPrefix(t *testing.T) {
+func TestAPIKeyPrefixAndTTLConfigured(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "or", APIKeyMaxTTL: time.Hour}, Keyset{})
 	opts := svc.Options()
-	if opts.ServiceTokenPrefix != "or" || opts.APIKeyPrefix != "or" {
-		t.Fatalf("prefix aliases not normalized: %+v", opts)
+	if opts.APIKeyPrefix != "or" {
+		t.Fatalf("prefix not normalized: %+v", opts)
 	}
-	if opts.ServiceTokenMaxTTL != time.Hour || opts.APIKeyMaxTTL != time.Hour {
-		t.Fatalf("ttl aliases not normalized: %+v", opts)
+	if opts.APIKeyMaxTTL != time.Hour {
+		t.Fatalf("ttl not normalized: %+v", opts)
 	}
 }
 
-func TestServiceTokenResourceContract(t *testing.T) {
-	resources, err := normalizeServiceTokenResources([]ServiceTokenResource{
+func TestAPIKeyResourceContract(t *testing.T) {
+	resources, err := normalizeAPIKeyResources([]APIKeyResource{
 		{Kind: " openrails.merchant ", ID: " tensorhub "},
 		{Kind: "openrails.customer", ID: "*"},
 	})
@@ -122,20 +122,20 @@ func TestServiceTokenResourceContract(t *testing.T) {
 	if len(resources) != 2 {
 		t.Fatalf("resources len=%d, want 2", len(resources))
 	}
-	if resources[0] != (ServiceTokenResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
+	if resources[0] != (APIKeyResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
 		t.Fatalf("trimmed resource = %+v", resources[0])
 	}
 	if resources[1].ID != "*" {
 		t.Fatalf("wildcard-looking ID should be stored opaquely, got %+v", resources[1])
 	}
 
-	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "org", ID: "x"}, {Kind: "org", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "org", ID: "x"}, {Kind: "org", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
 		t.Fatalf("duplicate err=%v, want duplicate_resource", err)
 	}
-	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "", ID: "x"}}); err == nil || err.Error() != "invalid_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "", ID: "x"}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("empty kind err=%v, want invalid_resource", err)
 	}
-	if _, err := normalizeServiceTokenResources([]ServiceTokenResource{{Kind: "org", ID: strings.Repeat("x", serviceTokenResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "org", ID: strings.Repeat("x", apiKeyResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("long id err=%v, want invalid_resource", err)
 	}
 }
@@ -148,17 +148,17 @@ func TestResourceScopeAuthorizer(t *testing.T) {
 			if req.OrgSlug != "acme" || req.ActorUserID != "user-1" {
 				t.Fatalf("unexpected request identity: %+v", req)
 			}
-			if len(req.Resources) != 1 || req.Resources[0] != (ServiceTokenResource{Kind: "repo", ID: "alpha"}) {
+			if len(req.Resources) != 1 || req.Resources[0] != (APIKeyResource{Kind: "repo", ID: "alpha"}) {
 				t.Fatalf("unexpected resources: %+v", req.Resources)
 			}
 			allowed = true
 			return nil
 		},
 	}, Keyset{})
-	err := svc.AuthorizeServiceTokenResources(context.Background(), ResourceScopeAuthorizationRequest{
+	err := svc.AuthorizeAPIKeyResources(context.Background(), ResourceScopeAuthorizationRequest{
 		OrgSlug:     " acme ",
 		ActorUserID: " user-1 ",
-		Resources:   []ServiceTokenResource{{Kind: " repo ", ID: " alpha "}},
+		Resources:   []APIKeyResource{{Kind: " repo ", ID: " alpha "}},
 	})
 	if err != nil {
 		t.Fatalf("authorize resources: %v", err)
@@ -168,16 +168,16 @@ func TestResourceScopeAuthorizer(t *testing.T) {
 	}
 }
 
-// TestServiceTokenLifecycle exercises mint -> resolve -> list -> revoke ->
+// TestAPIKeyLifecycle exercises mint -> resolve -> list -> revoke ->
 // rejected against a real database. Skips when AUTHKIT_TEST_DATABASE_URL is
 // unset. created_by is left nil (audit-only, ON DELETE SET NULL) so the test
 // needs no user fixture.
-func TestServiceTokenLifecycle(t *testing.T) {
+func TestAPIKeyLifecycle(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
-	const slug = "service-token-lifecycle-test"
+	const slug = "service-key-lifecycle-test"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
 	var orgID string
 	if err := pool.QueryRow(ctx, `INSERT INTO profiles.orgs (slug) VALUES ($1) RETURNING id::text`, slug).Scan(&orgID); err != nil {
@@ -186,11 +186,11 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE id=$1::uuid`, orgID) })
 
 	// Mint.
-	resources := []ServiceTokenResource{
+	resources := []APIKeyResource{
 		{Kind: "openrails.merchant", ID: "tensorhub"},
 		{Kind: "openrails.customer", ID: "cozy-art"},
 	}
-	tok, plaintext, err := svc.MintServiceTokenWithOptions(ctx, slug, ServiceTokenMintOptions{
+	tok, plaintext, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
 		Name:        "ci-token",
 		Permissions: []string{"deployer"},
 		Resources:   resources,
@@ -201,13 +201,13 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if !strings.HasPrefix(plaintext, "cozy_st_") {
 		t.Fatalf("token %q lacks branded marker", plaintext)
 	}
-	keyID, secret, ok := ParseServiceToken("cozy", plaintext)
+	keyID, secret, ok := ParseAPIKey("cozy", plaintext)
 	if !ok || keyID != tok.KeyID {
-		t.Fatalf("ParseServiceToken recovered (%q,ok=%v), want key %q", keyID, ok, tok.KeyID)
+		t.Fatalf("ParseAPIKey recovered (%q,ok=%v), want key %q", keyID, ok, tok.KeyID)
 	}
 
 	// Resolve success.
-	gotOrg, gotScopes, err := svc.ResolveServiceToken(ctx, keyID, secret)
+	gotOrg, gotScopes, err := svc.ResolveAPIKey(ctx, keyID, secret)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -217,14 +217,14 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if len(gotScopes) != 1 || gotScopes[0] != "deployer" {
 		t.Fatalf("resolve scopes = %v, want [deployer]", gotScopes)
 	}
-	resolved, err := svc.ResolveServiceTokenWithResources(ctx, keyID, secret)
+	resolved, err := svc.ResolveAPIKeyWithResources(ctx, keyID, secret)
 	if err != nil {
 		t.Fatalf("resolve with resources: %v", err)
 	}
-	if resolved.TokenID != tok.ID || resolved.KeyID != tok.KeyID || resolved.OrgSlug != slug {
+	if resolved.APIKeyID != tok.ID || resolved.KeyID != tok.KeyID || resolved.OrgSlug != slug {
 		t.Fatalf("resolved metadata = %+v, token = %+v", resolved, tok)
 	}
-	wantResources := []ServiceTokenResource{
+	wantResources := []APIKeyResource{
 		{Kind: "openrails.customer", ID: "cozy-art"},
 		{Kind: "openrails.merchant", ID: "tensorhub"},
 	}
@@ -233,15 +233,15 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	}
 
 	// Wrong secret + unknown key_id are both invalid_token (no info leak).
-	if _, _, err := svc.ResolveServiceToken(ctx, keyID, "wrongsecret"); !errors.Is(err, ErrInvalidAccessToken) {
+	if _, _, err := svc.ResolveAPIKey(ctx, keyID, "wrongsecret"); !errors.Is(err, ErrInvalidAccessToken) {
 		t.Fatalf("wrong secret err = %v, want ErrInvalidAccessToken", err)
 	}
-	if _, _, err := svc.ResolveServiceToken(ctx, "nonexistentkey0", secret); !errors.Is(err, ErrInvalidAccessToken) {
+	if _, _, err := svc.ResolveAPIKey(ctx, "nonexistentkey0", secret); !errors.Is(err, ErrInvalidAccessToken) {
 		t.Fatalf("unknown key err = %v, want ErrInvalidAccessToken", err)
 	}
 
 	// List returns metadata only (the struct has no secret field).
-	list, err := svc.ListServiceTokens(ctx, slug)
+	list, err := svc.ListAPIKeys(ctx, slug)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -251,9 +251,9 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if len(list[0].Resources) != 2 {
 		t.Fatalf("list resources = %+v, want 2 resources", list[0].Resources)
 	}
-	if _, _, err := svc.MintServiceTokenWithOptions(ctx, slug, ServiceTokenMintOptions{
+	if _, _, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
 		Name:      "dupe-resource",
-		Resources: []ServiceTokenResource{{Kind: "repo", ID: "alpha"}, {Kind: "repo", ID: "alpha"}},
+		Resources: []APIKeyResource{{Kind: "repo", ID: "alpha"}, {Kind: "repo", ID: "alpha"}},
 	}); err == nil || err.Error() != "duplicate_resource" {
 		t.Fatalf("duplicate resource mint err=%v, want duplicate_resource", err)
 	}
@@ -262,32 +262,32 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE profiles.service_tokens SET expires_at=now()-interval '1 hour' WHERE id=$1::uuid`, tok.ID); err != nil {
 		t.Fatalf("expire: %v", err)
 	}
-	if _, _, err := svc.ResolveServiceToken(ctx, keyID, secret); !errors.Is(err, ErrAccessTokenExpired) {
+	if _, _, err := svc.ResolveAPIKey(ctx, keyID, secret); !errors.Is(err, ErrAccessTokenExpired) {
 		t.Fatalf("expired err = %v, want ErrAccessTokenExpired", err)
 	}
 	_, _ = pool.Exec(ctx, `UPDATE profiles.service_tokens SET expires_at=NULL WHERE id=$1::uuid`, tok.ID)
 
 	// Revoke -> subsequent resolve is token_revoked; second revoke is a no-op.
-	revoked, err := svc.RevokeServiceToken(ctx, slug, tok.ID)
+	revoked, err := svc.RevokeAPIKey(ctx, slug, tok.ID)
 	if err != nil || !revoked {
 		t.Fatalf("revoke = (%v,%v), want (true,nil)", revoked, err)
 	}
-	if _, _, err := svc.ResolveServiceToken(ctx, keyID, secret); !errors.Is(err, ErrAccessTokenRevoked) {
+	if _, _, err := svc.ResolveAPIKey(ctx, keyID, secret); !errors.Is(err, ErrAccessTokenRevoked) {
 		t.Fatalf("revoked err = %v, want ErrAccessTokenRevoked", err)
 	}
-	if again, _ := svc.RevokeServiceToken(ctx, slug, tok.ID); again {
+	if again, _ := svc.RevokeAPIKey(ctx, slug, tok.ID); again {
 		t.Fatalf("second revoke returned true, want false")
 	}
 
 	// Past expiry at mint time is rejected.
 	past := time.Now().Add(-time.Hour)
-	if _, _, err := svc.MintServiceToken(ctx, slug, "bad", nil, "", &past); err == nil {
+	if _, _, err := svc.MintAPIKey(ctx, slug, "bad", nil, "", &past); err == nil {
 		t.Fatalf("mint with past expiry should fail")
 	}
 
 	// Host max-TTL caps a no-expiry request.
-	capped := NewService(Options{Issuer: "https://test", ServiceTokenMaxTTL: time.Hour}, Keyset{}).WithPostgres(pool)
-	tok2, _, err := capped.MintServiceToken(ctx, slug, "capped", nil, "", nil)
+	capped := NewService(Options{Issuer: "https://test", APIKeyMaxTTL: time.Hour}, Keyset{}).WithPostgres(pool)
+	tok2, _, err := capped.MintAPIKey(ctx, slug, "capped", nil, "", nil)
 	if err != nil {
 		t.Fatalf("mint capped: %v", err)
 	}
@@ -298,15 +298,15 @@ func TestServiceTokenLifecycle(t *testing.T) {
 		t.Fatalf("capped expiry out of range: %v", d)
 	}
 
-	legacyTok, legacyPlaintext, err := svc.MintServiceToken(ctx, slug, "legacy-wrapper", []string{"deployer"}, "", nil)
+	legacyTok, legacyPlaintext, err := svc.MintAPIKey(ctx, slug, "legacy-wrapper", []string{"deployer"}, "", nil)
 	if err != nil {
 		t.Fatalf("mint legacy wrapper: %v", err)
 	}
-	legacyKeyID, legacySecret, ok := ParseServiceToken("cozy", legacyPlaintext)
+	legacyKeyID, legacySecret, ok := ParseAPIKey("cozy", legacyPlaintext)
 	if !ok || legacyKeyID != legacyTok.KeyID {
-		t.Fatalf("ParseServiceToken legacy recovered (%q,ok=%v), want key %q", legacyKeyID, ok, legacyTok.KeyID)
+		t.Fatalf("ParseAPIKey legacy recovered (%q,ok=%v), want key %q", legacyKeyID, ok, legacyTok.KeyID)
 	}
-	legacyResolved, err := svc.ResolveServiceTokenWithResources(ctx, legacyKeyID, legacySecret)
+	legacyResolved, err := svc.ResolveAPIKeyWithResources(ctx, legacyKeyID, legacySecret)
 	if err != nil {
 		t.Fatalf("resolve legacy wrapper with resources: %v", err)
 	}
@@ -314,22 +314,22 @@ func TestServiceTokenLifecycle(t *testing.T) {
 		t.Fatalf("legacy resources = %+v, want empty", legacyResolved.Resources)
 	}
 
-	oneResourceTok, oneResourcePlaintext, err := svc.MintServiceTokenWithOptions(ctx, slug, ServiceTokenMintOptions{
+	oneResourceTok, oneResourcePlaintext, err := svc.MintAPIKeyWithOptions(ctx, slug, APIKeyMintOptions{
 		Name:      "one-resource",
-		Resources: []ServiceTokenResource{{Kind: "openrails.merchant", ID: "tensorhub"}},
+		Resources: []APIKeyResource{{Kind: "openrails.merchant", ID: "tensorhub"}},
 	})
 	if err != nil {
 		t.Fatalf("mint one resource: %v", err)
 	}
-	oneKeyID, oneSecret, ok := ParseServiceToken("cozy", oneResourcePlaintext)
+	oneKeyID, oneSecret, ok := ParseAPIKey("cozy", oneResourcePlaintext)
 	if !ok || oneKeyID != oneResourceTok.KeyID {
-		t.Fatalf("ParseServiceToken one-resource recovered (%q,ok=%v), want key %q", oneKeyID, ok, oneResourceTok.KeyID)
+		t.Fatalf("ParseAPIKey one-resource recovered (%q,ok=%v), want key %q", oneKeyID, ok, oneResourceTok.KeyID)
 	}
-	oneResolved, err := svc.ResolveServiceTokenWithResources(ctx, oneKeyID, oneSecret)
+	oneResolved, err := svc.ResolveAPIKeyWithResources(ctx, oneKeyID, oneSecret)
 	if err != nil {
 		t.Fatalf("resolve one resource: %v", err)
 	}
-	if len(oneResolved.Resources) != 1 || oneResolved.Resources[0] != (ServiceTokenResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
+	if len(oneResolved.Resources) != 1 || oneResolved.Resources[0] != (APIKeyResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
 		t.Fatalf("one resource resolved = %+v", oneResolved.Resources)
 	}
 }

@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,7 +26,7 @@ orgs:
 func TestReconcileOrgManifestIdempotent(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
 	const slug = "manifest-test"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
@@ -49,13 +48,13 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 		}},
 		Roles: []OrgManifestRole{{
 			Name:        "reader",
-			Permissions: []string{PermOrgRead},
+			Permissions: []string{PermOrgSettingsRead},
 		}},
 		APIKeys: []OrgManifestAPIKey{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
-			Resources:   []ServiceTokenResource{{Kind: "openrails.merchant", ID: slug}},
-			Output:      OrgManifestServiceTokenOutput{File: out},
+			Resources:   []APIKeyResource{{Kind: "openrails.merchant", ID: slug}},
+			Output:      OrgManifestAPIKeyOutput{File: out},
 		}},
 	}}}
 
@@ -63,7 +62,7 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if first.Orgs != 1 || first.Issuers != 1 || first.Roles != 1 || first.TokensMinted != 1 || first.TokensKept != 0 {
+	if first.Orgs != 1 || first.Issuers != 1 || first.Roles != 1 || first.APIKeysMinted != 1 || first.APIKeysKept != 0 {
 		t.Fatalf("first result=%+v", first)
 	}
 	raw, err := os.ReadFile(out)
@@ -78,12 +77,12 @@ func TestReconcileOrgManifestIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second reconcile: %v", err)
 	}
-	if second.TokensMinted != 0 || second.TokensKept != 1 {
+	if second.APIKeysMinted != 0 || second.APIKeysKept != 1 {
 		t.Fatalf("second result=%+v, want preserved token", second)
 	}
 }
 
-func TestParseOrgManifestYAMLRejectsMixedAPIKeysAndServiceTokens(t *testing.T) {
+func TestParseOrgManifestYAMLRejectsLegacyAPIKeysField(t *testing.T) {
 	_, err := ParseOrgManifestYAML([]byte(`
 orgs:
   - slug: cozy-art
@@ -98,8 +97,8 @@ orgs:
         output:
           file: legacy.token
 `))
-	if !errors.Is(err, ErrInvalidOrgManifest) {
-		t.Fatalf("err=%v, want ErrInvalidOrgManifest", err)
+	if err == nil || !strings.Contains(err.Error(), "service_tokens") {
+		t.Fatalf("err=%v, want unknown service_tokens field", err)
 	}
 }
 
@@ -227,8 +226,8 @@ func TestReconcileOrgManifestUpdatesAndDisablesIssuer(t *testing.T) {
 func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svcA := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
-	svcB := NewService(Options{Issuer: "https://test", ServiceTokenPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
+	svcA := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
+	svcB := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
 
 	const slug = "manifest-lock"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
@@ -240,8 +239,8 @@ func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T
 		APIKeys: []OrgManifestAPIKey{{
 			Name:        "runtime",
 			Permissions: []string{"openrails:entitlements:read"},
-			Resources:   []ServiceTokenResource{{Kind: "openrails.merchant", ID: slug}},
-			Output:      OrgManifestServiceTokenOutput{File: "runtime"},
+			Resources:   []APIKeyResource{{Kind: "openrails.merchant", ID: slug}},
+			Output:      OrgManifestAPIKeyOutput{File: "runtime"},
 		}},
 	}}}
 
@@ -280,10 +279,10 @@ func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T
 		JOIN profiles.orgs t ON t.id = st.org_id
 		WHERE t.slug=$1
 	`, slug).Scan(&tokenCount); err != nil {
-		t.Fatalf("count service tokens: %v", err)
+		t.Fatalf("count API keys: %v", err)
 	}
 	if tokenCount != 1 {
-		t.Fatalf("service token rows=%d, want 1", tokenCount)
+		t.Fatalf("API key rows=%d, want 1", tokenCount)
 	}
 }
 
@@ -294,7 +293,7 @@ type memoryManifestTokenStore struct {
 	writeDelay time.Duration
 }
 
-func (m *memoryManifestTokenStore) ReadOrgManifestToken(_ context.Context, out OrgManifestServiceTokenOutput) (string, error) {
+func (m *memoryManifestTokenStore) ReadOrgManifestToken(_ context.Context, out OrgManifestAPIKeyOutput) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.values == nil {
@@ -303,7 +302,7 @@ func (m *memoryManifestTokenStore) ReadOrgManifestToken(_ context.Context, out O
 	return m.values[out.File], nil
 }
 
-func (m *memoryManifestTokenStore) WriteOrgManifestToken(_ context.Context, out OrgManifestServiceTokenOutput, token string) error {
+func (m *memoryManifestTokenStore) WriteOrgManifestToken(_ context.Context, out OrgManifestAPIKeyOutput, token string) error {
 	m.writes.Add(1)
 	if m.writeDelay > 0 {
 		time.Sleep(m.writeDelay)

@@ -8,7 +8,7 @@ import (
 )
 
 func TestEffectivePermsForTokens(t *testing.T) {
-	cat := map[string]bool{"a": true, "b": true, "c": true, "org:read": true}
+	cat := map[string]bool{"app:a": true, "app:b": true, "org:members:read": true, "org:roles:update": true}
 	get := func(toks ...string) []string {
 		return sortedKeys(effectivePermsForTokens(toks, cat))
 	}
@@ -17,11 +17,12 @@ func TestEffectivePermsForTokens(t *testing.T) {
 		toks []string
 		want []string
 	}{
-		{"wildcard = all catalog", []string{"*"}, []string{"a", "b", "c", "org:read"}},
-		{"wildcard minus exclusion", []string{"*", "!b"}, []string{"a", "c", "org:read"}},
-		{"concrete only", []string{"a", "c"}, []string{"a", "c"}},
+		{"bare wildcard is invalid", []string{"*"}, []string{}},
+		{"namespace wildcard", []string{"org:*"}, []string{"org:members:read", "org:roles:update"}},
+		{"read wildcard", []string{"org:*:read"}, []string{"org:members:read"}},
+		{"concrete only", []string{"app:a", "org:roles:update"}, []string{"app:a", "org:roles:update"}},
 		{"empty", nil, []string{}},
-		{"exclusion without wildcard removes from positives", []string{"a", "b", "!b"}, []string{"a"}},
+		{"negation tokens are ignored", []string{"app:a", "app:b", "!app:b"}, []string{"app:a", "app:b"}},
 	}
 	for _, tc := range cases {
 		got := get(tc.toks...)
@@ -33,7 +34,7 @@ func TestEffectivePermsForTokens(t *testing.T) {
 }
 
 func TestIsReservedPermission(t *testing.T) {
-	for _, p := range []string{"org:roles:manage", "org:read", "org:service_tokens:manage", "org:remote_applications:manage"} {
+	for _, p := range []string{PermOrgRolesUpdate, PermOrgSettingsRead, PermOrgAPIKeysCreate, PermOrgRemoteAppsUpdate} {
 		if !IsReservedPermission(p) {
 			t.Errorf("%q should be reserved", p)
 		}
@@ -50,7 +51,25 @@ func TestBasePermissionsPresent(t *testing.T) {
 	for _, d := range BasePermissions() {
 		names[d.Name] = true
 	}
-	for _, want := range []string{PermOrgRolesManage, PermOrgMembersManage, PermOrgTokensManage, PermOrgRemoteAppsManage, PermOrgRead} {
+	for _, want := range []string{
+		PermOrgMembersCreate,
+		PermOrgMembersRead,
+		PermOrgMembersUpdate,
+		PermOrgMembersDelete,
+		PermOrgRolesCreate,
+		PermOrgRolesRead,
+		PermOrgRolesUpdate,
+		PermOrgRolesDelete,
+		PermOrgAPIKeysCreate,
+		PermOrgAPIKeysRead,
+		PermOrgAPIKeysDelete,
+		PermOrgRemoteAppsCreate,
+		PermOrgRemoteAppsRead,
+		PermOrgRemoteAppsUpdate,
+		PermOrgRemoteAppsDelete,
+		PermOrgSettingsRead,
+		PermOrgSettingsUpdate,
+	} {
 		if !names[want] {
 			t.Errorf("base permission %q missing", want)
 		}
@@ -73,13 +92,13 @@ func TestValidateGrant_ResourceScopedPrefix(t *testing.T) {
 		tok         string
 		wantUnknown bool
 	}{
-		{"repo:read", false},              // exact catalog hit
-		{"repo:write:my-model", false},    // scoped; base repo:write in catalog
-		{"endpoint:invoke:my-llm", false}, // scoped; base endpoint:invoke in catalog
-		{"repo:read:a/b", false},          // name with a slash is fine
-		{"repo:bogus", true},              // not in catalog
-		{"repo:bogus:x", true},            // scoped base repo:bogus not in catalog
-		{"dataset:read:x", true},          // scoped base dataset:read not in catalog
+		{"repo:read", false},             // exact catalog hit
+		{"repo:write:my-model", true},    // scoped tokens must be declared explicitly
+		{"endpoint:invoke:my-llm", true}, // scoped tokens must be declared explicitly
+		{"repo:read:a/b", true},          // scoped tokens must be declared explicitly
+		{"repo:bogus", true},             // not in catalog
+		{"repo:bogus:x", true},           // scoped base repo:bogus not in catalog
+		{"dataset:read:x", true},         // scoped base dataset:read not in catalog
 	}
 	for _, c := range cases {
 		unknown, _, err := svc.ValidateGrant(ctx, "org", "actor", []string{c.tok}, true)

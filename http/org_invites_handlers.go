@@ -19,7 +19,7 @@ func (s *Service) handleOrgInvitesGET(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
 	if !gateOK {
 		return
 	}
@@ -43,7 +43,7 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersCreate)
 	if !gateOK {
 		return
 	}
@@ -58,7 +58,7 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	// NO-ESCALATION at invite time: an invite grants its role's permissions on
 	// accept, so the inviter must hold every permission the role confers. This
-	// stops a member with only org:members:manage from minting an `owner`
+	// stops a member with only member-create authority from minting an `owner`
 	// (=`*`) invite. The same check runs again at accept time (the inviter may be
 	// demoted before the invite is accepted). Same primitive as the direct
 	// role-grant handler (handleOrgMemberRolesPOST).
@@ -100,7 +100,7 @@ func (s *Service) handleOrgInviteRevokePOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersDelete)
 	if !gateOK {
 		return
 	}

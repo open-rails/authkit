@@ -21,14 +21,14 @@ func TestRegisterRoutesSetsPathValues(t *testing.T) {
 
 	RegisterRoutes(v1, []authhttp.RouteSpec{{
 		Method: http.MethodGet,
-		Path:   "/owners/{slug}",
+		Path:   "/namespaces/{slug}",
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(r.PathValue("slug")))
 		}),
 	}}, nil)
 
 	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/owners/cozy", nil))
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/cozy", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "cozy", rec.Body.String())

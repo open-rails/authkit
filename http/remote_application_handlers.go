@@ -548,7 +548,7 @@ func (s *Service) canManageRemoteApplicationOrg(ctx context.Context, claims Clai
 	if strings.TrimSpace(claims.UserID) == "" {
 		return "", false, nil
 	}
-	ok, err := s.svc.HasPermission(ctx, org.Slug, claims.UserID, core.PermOrgRemoteAppsManage)
+	ok, err := s.svc.HasPermission(ctx, org.Slug, claims.UserID, core.PermOrgRemoteAppsUpdate)
 	if err != nil {
 		return "", false, err
 	}
@@ -569,7 +569,7 @@ func (s *Service) canManageOrgMembership(ctx context.Context, claims Claims, org
 		}
 		return org.Slug, true, nil
 	}
-	return s.requireOrgPermission(ctx, claims, orgSlug, core.PermOrgRemoteAppsManage)
+	return s.requireOrgPermission(ctx, claims, orgSlug, core.PermOrgRemoteAppsUpdate)
 }
 
 func claimsHasGlobalAdmin(claims Claims) bool {

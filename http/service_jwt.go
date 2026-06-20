@@ -21,7 +21,7 @@ type ServiceJWTPrincipal struct {
 	Org         string
 	Audiences   []string
 	Permissions []string
-	Resources   []core.ServiceTokenResource
+	Resources   []core.APIKeyResource
 	JTI         string
 	ExpiresAt   time.Time
 }
@@ -258,7 +258,7 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 	}
 }
 
-func serviceJWTResources(v any) ([]core.ServiceTokenResource, error) {
+func serviceJWTResources(v any) ([]core.APIKeyResource, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -266,7 +266,7 @@ func serviceJWTResources(v any) ([]core.ServiceTokenResource, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resources []core.ServiceTokenResource
+	var resources []core.APIKeyResource
 	if err := json.Unmarshal(raw, &resources); err != nil {
 		return nil, err
 	}

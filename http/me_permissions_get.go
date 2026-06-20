@@ -51,22 +51,13 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		})
 
 	case strings.TrimSpace(claims.UserID) != "":
-		// Native user: resolve effective permissions in the token's org.
-		perms := claims.Permissions
-		if t := strings.TrimSpace(claims.Org); t != "" {
-			resolved, err := s.svc.EffectivePermissions(ctx, t, claims.UserID)
-			if err != nil {
-				serverErr(w, "permissions_lookup_failed")
-				return
-			}
-			perms = resolved
-		}
+		// Native user: principal-level only. Org membership authority is read
+		// from GET /orgs/{org}.
 		writeJSON(w, http.StatusOK, map[string]any{
 			"principal_type": "user",
 			"id":             claims.UserID,
-			"org":            claims.Org,
-			"roles":          nonNil(claims.OrgRoles),
-			"permissions":    nonNil(perms),
+			"roles":          nonNil(claims.Roles),
+			"permissions":    nonNil(claims.Permissions),
 		})
 
 	default:

@@ -35,8 +35,8 @@ type Verifier struct {
 	skew       time.Duration
 	algorithms []string
 
-	// tokenPrefix is the host application's service token brand prefix (see core.Config
-	// ServiceTokenPrefix). Used to detect Service Tokens in the middleware
+	// tokenPrefix is the host application's API-key brand prefix (see core.Config
+	// APIKeyPrefix). Used to detect API keys in the middleware
 	// before JWT verification. Empty -> bare "st_".
 	tokenPrefix string
 
@@ -72,7 +72,7 @@ type Verifier struct {
 	kidRefetchFlight map[string]*sync.WaitGroup
 	kidRefetchMin    time.Duration
 
-	// Delegated-service-token validation hooks (optional). permValidator checks
+	// Delegated-access-token validation hooks (optional). permValidator checks
 	// `permissions` against the resource server's catalog; attrValidator checks
 	// `attributes` against a policy schema. Run only by VerifyDelegatedAccess.
 	permValidator PermissionValidator
@@ -149,20 +149,20 @@ func WithOrgMode(string) VerifierOption {
 	return func(*Verifier) {}
 }
 
-// WithServiceTokenPrefix sets the host application's Service Token (service token)
-// brand prefix used to detect service tokens in the middleware. Empty -> bare "st_".
-func WithServiceTokenPrefix(prefix string) VerifierOption {
+// WithAPIKeyPrefix sets the host application's API-key brand prefix used to
+// detect opaque shared-secret API keys in the middleware. Empty -> bare "st_".
+func WithAPIKeyPrefix(prefix string) VerifierOption {
 	return func(v *Verifier) { v.tokenPrefix = strings.TrimSpace(prefix) }
 }
 
-// PermissionValidator validates a delegated service token's `permissions`
+// PermissionValidator validates a delegated access token's `permissions`
 // against the receiving service's own permission catalog. Return an error to
-// reject the token. Called only for delegated service tokens.
+// reject the token. Called only for delegated access tokens.
 type PermissionValidator func(permissions []string) error
 
-// AttributesValidator validates a delegated service token's `attributes` against
+// AttributesValidator validates a delegated access token's `attributes` against
 // the receiving service's policy schema. Return an error to reject the token.
-// Called only for delegated service tokens.
+// Called only for delegated access tokens.
 type AttributesValidator func(attributes map[string]json.RawMessage) error
 
 // WithPermissionCatalog installs a validator that VerifyDelegatedAccess runs
@@ -201,24 +201,24 @@ func WithAttributeHydration(resolver AttributeDefResolver) VerifierOption {
 	}
 }
 
-// resolveServiceToken handles Service Tokens (service tokens). It returns
-// matched=true when the bearer token carries the configured service-token marker — in
+// resolveAPIKey handles opaque shared-secret API keys. It returns matched=true
+// when the bearer token carries the configured API-key marker, in
 // which case the caller MUST NOT fall through to JWT verification — along with
 // service-principal Claims on success or a sanitized error on failure. When the
-// token is not a service token, matched is false and the caller proceeds to JWT verify.
-func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Claims, matched bool, err error) {
-	if !core.HasServiceTokenPrefix(v.tokenPrefix, token) {
+// token is not an API key, matched is false and the caller proceeds to JWT verify.
+func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, matched bool, err error) {
+	if !core.HasAPIKeyPrefix(v.tokenPrefix, token) {
 		return Claims{}, false, nil
 	}
-	// Shaped like a service token: from here we never fall through to JWT verification.
+	// Shaped like an API key: from here we never fall through to JWT verification.
 	if v.enrich == nil {
 		return Claims{}, true, errors.New("invalid_token")
 	}
-	keyID, secret, ok := core.ParseServiceToken(v.tokenPrefix, token)
+	keyID, secret, ok := core.ParseAPIKey(v.tokenPrefix, token)
 	if !ok {
 		return Claims{}, true, errors.New("invalid_token")
 	}
-	resolved, rerr := v.enrich.ResolveServiceTokenWithResources(ctx, keyID, secret)
+	resolved, rerr := v.enrich.ResolveAPIKeyWithResources(ctx, keyID, secret)
 	if rerr != nil {
 		switch {
 		case errors.Is(rerr, core.ErrAccessTokenRevoked):
@@ -237,7 +237,7 @@ func (v *Verifier) resolveServiceToken(ctx context.Context, token string) (cl Cl
 		OrgID:       resolved.OrgID,
 		Permissions: resolved.Permissions,
 		Resources:   resolved.Resources,
-		TokenType:   ServiceTokenType,
+		TokenType:   ServicePrincipalType,
 	}, true, nil
 }
 
@@ -251,7 +251,7 @@ type RemoteApplicationAuthoritySource interface {
 // resolveRemoteApplicationSelf authenticates a JWKS principal SELF-token (#76):
 // it maps the VALIDATED issuer to its remote_application, loads that principal's
 // STORED authority (assigned org roles + direct permissions), and returns
-// Claims populated the way a service-token-authenticated principal would be. The
+// Claims populated the way a API-key-authenticated principal would be. The
 // token's own role/org claims are never consulted — authority is stored.
 //
 // claimedPerms is the token's `permissions` down-scoping request (#76 amendment):
@@ -767,7 +767,7 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	}
 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
-	// service token (`delegated_sub`) — never both. Reject the ambiguous case.
+	// API key (`delegated_sub`) — never both. Reject the ambiguous case.
 	if strClaim(mapClaims, "sub") != "" && strClaim(mapClaims, "delegated_sub") != "" {
 		return Claims{}, errors.New("conflicting_subject")
 	}
@@ -800,9 +800,9 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		return v.resolveRemoteApplicationSelf(context.Background(), strClaim(mapClaims, "iss"), tokenTyp, claimedPerms)
 	}
 
-	// Invariant: a delegated service token MUST NOT carry a normal `sub` — no
+	// Invariant: a delegated access token MUST NOT carry a normal `sub` — no
 	// local account may be implied. Reject it explicitly so a misconfigured
-	// issuer can't slip a local subject into a service token.
+	// issuer can't slip a local subject into a API key.
 	if isDelegatedAccessTyp && strClaim(mapClaims, "sub") != "" {
 		return Claims{}, errors.New("access_token_has_sub")
 	}
@@ -857,7 +857,7 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 // VerifyDelegatedAccess verifies a token, requires it to be a delegated access
 // token, and runs any configured permission/attributes validators. It returns
 // the typed Claims and the DelegatedPrincipal. Use it on resource servers that
-// only accept delegated service tokens and want catalog/policy enforcement.
+// only accept delegated access tokens and want catalog/policy enforcement.
 func (v *Verifier) VerifyDelegatedAccess(tokenStr string) (Claims, DelegatedPrincipal, error) {
 	cl, err := v.Verify(tokenStr)
 	if err != nil {
@@ -938,7 +938,7 @@ func (v *Verifier) defaultAttributeResolver(ctx context.Context, issuer, _key, r
 }
 
 // verifyClaimsWithHeader is VerifyClaims plus the JOSE `typ` header value, so
-// Verify can enforce delegated-service-token typing. The header is read from the
+// Verify can enforce delegated-access-token typing. The header is read from the
 // already-verified token; callers must not trust typ for security decisions
 // beyond what the signature and registered-issuer checks already guarantee.
 func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, string, error) {
@@ -969,7 +969,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 	cl.DelegatedSubject = strClaim(mc, "delegated_sub")
 	cl.Org = strClaim(mc, "org")
 	// NO cl.OrgID here: org uuids never ride in JWTs. Claims.OrgID is
-	// only set by the opaque service-token DB resolution path.
+	// only set by the opaque API-key DB resolution path.
 	cl.Email = strClaim(mc, "email")
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.Username = strClaim(mc, "username")
@@ -990,7 +990,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 	cl.Attributes = rawAttributesClaim(mc, "attributes")
 
 	if cl.IsDelegated() {
-		// Canonical delegated service tokens carry tier under attributes.tier.
+		// Canonical delegated access tokens carry tier under attributes.tier.
 		if tier := rawStringAttribute(cl.Attributes, "tier"); tier != "" {
 			cl.UserTier = tier
 		}
@@ -1009,19 +1009,17 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
 
-	// Split global/org role claims (additive). `global_roles` carries the user's
-	// platform-wide roles in both single and multi-org mode; `org_roles` carries
-	// roles scoped to the org on an org-scoped token.
+	// Split global/org role claims (additive). `global_roles` carries
+	// platform-wide roles; `org_roles` carries roles scoped to Org when present
+	// from a trusted authority.
 	cl.GlobalRoles = strSliceClaim(mc, "global_roles")
 	if oroles := strSliceClaim(mc, "org_roles"); len(oroles) > 0 {
 		cl.OrgRoles = oroles
 	}
 
-	// (issue 60) Whenever a org claim is present, the legacy `roles` claim is
-	// org-scoped — derive OrgRoles from it when the explicit `org_roles`
-	// claim is absent (older tokens). No org-mode gate. Delegated tokens keep
-	// their roles on Roles (the org principal carries its own roles), so only
-	// shuffle for native-user tokens.
+	// (issue 60) If a trusted non-delegated token carries Org plus legacy
+	// `roles`, derive OrgRoles from it when explicit `org_roles` is absent.
+	// Delegated tokens keep their roles on Roles.
 	if !cl.IsDelegated() &&
 		strings.TrimSpace(cl.Org) != "" && len(cl.Roles) > 0 {
 		if len(cl.OrgRoles) == 0 {

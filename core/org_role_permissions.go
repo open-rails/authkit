@@ -9,68 +9,150 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Org RBAC (authkit #46): roles are NAMES (profiles.org_roles) plus a set of
+// Org RBAC (authkit #46/#95): roles are NAMES (profiles.org_roles) plus a set of
 // permission strings (profiles.org_role_permissions). Permissions are OPAQUE to
 // authkit — the embedding app declares its catalog and authkit adds a base set;
 // authkit only stores / serves / validates set-membership, never meaning.
+//
+// Permission grammar (#95): `<namespace>:<resource>:<action>`, lowercase, three
+// colon-separated segments. Actions are CRUD (`create`/`read`/`update`/`delete`).
+// GRANT tokens may be namespace-anchored GLOBS — `org:*`, `org:members:*`,
+// `org:*:read` — where `*` is a wildcard for a whole segment. A BARE standalone
+// `*` is REJECTED (globs must carry a namespace prefix). There is NO negation
+// (the `!perm` exclusion operator was removed in #93 — positive grants only).
 
 const (
-	// PermWildcard in a role's permission set means "all catalog permissions".
+	// PermWildcard is the wildcard CHARACTER used inside namespace-anchored
+	// globs (`org:*`, `org:members:*`, `org:*:read`, `platform:*`). A bare
+	// standalone `*` is NOT a valid grant — it is rejected everywhere.
 	PermWildcard = "*"
-	// permExcludePrefix marks an exclusion token (e.g. "!org:roles:manage"),
-	// used with `*` to express "everything except". Exclusions only subtract.
-	permExcludePrefix = "!"
 
 	// reservedPermissionPrefix is the namespace authkit owns for its base
 	// org-management permissions; app catalogs must not declare under it, and
-	// service tokens may not be scoped to them.
+	// API keys may not be scoped to its write actions.
 	reservedPermissionPrefix = "org:"
 
-	// authkit base org-management permissions. They gate authkit's own
-	// org-management endpoints via the permission system.
-	PermOrgRolesManage      = "org:roles:manage"               // create/modify/delete roles + set role permissions
-	PermOrgMembersManage    = "org:members:manage"             // add/remove members + grant/remove their roles
-	PermOrgTokensManage     = "org:service_tokens:manage"      // mint/revoke service tokens
-	PermOrgRemoteAppsManage = "org:remote_applications:manage" // register/update/delete org-owned remote applications
-	PermOrgRead             = "org:read"                       // view members/roles/tokens
+	// authkit base org-management permissions, granular CRUD per resource
+	// (#95). They gate authkit's own org-management endpoints. Old coarse
+	// `org:<resource>:manage` + `org:read` were RETIRED in favor of these
+	// concrete actions plus globs (`org:members:*`, `org:*:read`).
+	PermOrgMembersCreate = "org:members:create" // add a member
+	PermOrgMembersRead   = "org:members:read"   // list members + their roles
+	PermOrgMembersUpdate = "org:members:update" // change a member's roles
+	PermOrgMembersDelete = "org:members:delete" // remove a member
+
+	PermOrgRolesCreate = "org:roles:create" // define a role
+	PermOrgRolesRead   = "org:roles:read"   // list roles + their perms
+	PermOrgRolesUpdate = "org:roles:update" // set perms / rename a role
+	PermOrgRolesDelete = "org:roles:delete" // delete a role
+
+	PermOrgAPIKeysCreate = "org:api_keys:create" // mint an API key
+	PermOrgAPIKeysRead   = "org:api_keys:read"   // list API-key metadata (NEVER the secret)
+	PermOrgAPIKeysDelete = "org:api_keys:delete" // revoke an API key (no update — immutable; rotate = create+delete)
+
+	PermOrgRemoteAppsCreate = "org:remote_applications:create" // register an org-owned remote application
+	PermOrgRemoteAppsRead   = "org:remote_applications:read"   // list + detail
+	PermOrgRemoteAppsUpdate = "org:remote_applications:update" // edit config / origins / memberships
+	PermOrgRemoteAppsDelete = "org:remote_applications:delete" // delete
+
+	PermOrgSettingsRead   = "org:settings:read"   // read the org's own name/profile (GET /orgs/{org})
+	PermOrgSettingsUpdate = "org:settings:update" // rename / edit metadata (POST /orgs/{org}/rename)
+
+	// OrgOwnerGrant is the apex grant held by the prebuilt `owner` role: every
+	// permission in the `org:` namespace for that ONE org (#95 — tightened from
+	// a bare `*`). It covers AuthKit's base resources AND every host-declared
+	// `org:<resource>` perm in a single grant, but can NEVER reach the separate
+	// `platform:` layer.
+	OrgOwnerGrant = "org:*"
 )
 
 // ErrUnknownPermission indicates a permission not present in the catalog.
 var ErrUnknownPermission = errors.New("unknown_permission")
 
 // BasePermissions are the org-management permissions authkit defines for every
-// embedding app (reserved `org:` namespace).
+// embedding app (reserved `org:` namespace), granular CRUD per resource (#95).
 func BasePermissions() []PermissionDef {
 	return []PermissionDef{
-		{Name: PermOrgRolesManage, Description: "Create, modify, and delete org roles and their permissions"},
-		{Name: PermOrgMembersManage, Description: "Add/remove org members and grant or remove their roles"},
-		{Name: PermOrgTokensManage, Description: "Mint and revoke service tokens (service tokens)"},
-		{Name: PermOrgRemoteAppsManage, Description: "Register, update, and delete org-owned remote applications"},
-		{Name: PermOrgRead, Description: "View org members, roles, and service tokens"},
+		{Name: PermOrgMembersCreate, Description: "Add an org member"},
+		{Name: PermOrgMembersRead, Description: "List org members and their roles"},
+		{Name: PermOrgMembersUpdate, Description: "Change an org member's roles"},
+		{Name: PermOrgMembersDelete, Description: "Remove an org member"},
+
+		{Name: PermOrgRolesCreate, Description: "Define an org role"},
+		{Name: PermOrgRolesRead, Description: "List org roles and their permissions"},
+		{Name: PermOrgRolesUpdate, Description: "Set permissions on / rename an org role"},
+		{Name: PermOrgRolesDelete, Description: "Delete an org role"},
+
+		{Name: PermOrgAPIKeysCreate, Description: "Mint an API key"},
+		{Name: PermOrgAPIKeysRead, Description: "List API-key metadata (never the secret)"},
+		{Name: PermOrgAPIKeysDelete, Description: "Revoke an API key"},
+
+		{Name: PermOrgRemoteAppsCreate, Description: "Register an org-owned remote application"},
+		{Name: PermOrgRemoteAppsRead, Description: "List and inspect org-owned remote applications"},
+		{Name: PermOrgRemoteAppsUpdate, Description: "Edit an org-owned remote application"},
+		{Name: PermOrgRemoteAppsDelete, Description: "Delete an org-owned remote application"},
+
+		{Name: PermOrgSettingsRead, Description: "Read the org's own name and profile"},
+		{Name: PermOrgSettingsUpdate, Description: "Rename and edit the org's own metadata"},
 	}
 }
 
 // IsReservedPermission reports whether name is in authkit's reserved base
-// namespace (an app catalog may not redefine these; service tokens may not hold them
-// unless service token-grantable, see IsServiceTokenGrantableReservedPermission).
+// namespace (an app catalog may not redefine the base resource names; API keys
+// may not hold the write actions, see IsAPIKeyGrantableReservedPermission).
 func IsReservedPermission(name string) bool {
 	return strings.HasPrefix(strings.TrimSpace(name), reservedPermissionPrefix)
 }
 
-// serviceTokenGrantableReservedPermissions are the reserved base permissions a service token MAY
-// hold. Only read-only perms qualify: the write/mint management perms
-// (org:roles:manage, org:members:manage, org:service_tokens:manage) stay user-only so
-// a service token can never bootstrap broader authority — it cannot mint another service token,
-// redefine roles, or alter membership. org:read is escalation-harmless and
-// unblocks read-only automation (monitoring/audit bots listing members/roles).
-var serviceTokenGrantableReservedPermissions = map[string]bool{
-	PermOrgRead: true,
+// IsAPIKeyGrantableReservedPermission reports whether a reserved `org:`
+// permission may be granted to an API key. Only READ actions qualify: an API
+// key can never hold a write/manage perm, so it can never mint another API key,
+// redefine roles, or alter membership — read-only automation (monitoring/audit
+// bots) is the only escalation-harmless case. Accepts literals (`org:roles:read`)
+// and read globs (`org:*:read`). Returns false for non-reserved names.
+func IsAPIKeyGrantableReservedPermission(name string) bool {
+	name = strings.TrimSpace(name)
+	if !IsReservedPermission(name) {
+		return false
+	}
+	return strings.HasSuffix(name, ":read")
 }
 
-// IsServiceTokenGrantableReservedPermission reports whether a reserved `org:` permission
-// may be granted to a service token. Returns false for non-reserved names.
-func IsServiceTokenGrantableReservedPermission(name string) bool {
-	return serviceTokenGrantableReservedPermissions[strings.TrimSpace(name)]
+// permMatches reports whether a GRANT token authorizes a CONCRETE permission.
+// The grant may be a literal (`org:members:read`) or a namespace-anchored glob
+// where `*` wildcards a whole segment (`org:members:*`, `org:*:read`, `org:*`).
+// The namespace (segment 0) must be a literal — a bare `*` (or a `*` namespace)
+// never matches. A two-segment glob `ns:*` matches every concrete `ns:…` perm.
+func permMatches(grant, concrete string) bool {
+	grant = strings.TrimSpace(grant)
+	concrete = strings.TrimSpace(concrete)
+	if grant == "" || grant == PermWildcard {
+		return false // bare "*" is not a valid grant — it never matches
+	}
+	g := strings.Split(grant, ":")
+	c := strings.Split(concrete, ":")
+	if g[0] == "" || g[0] == PermWildcard {
+		return false // namespace must be a literal prefix (namespace-anchored)
+	}
+	// Two-segment namespace-wide glob: `ns:*` covers every `ns:<resource>:<action>`.
+	if len(g) == 2 && g[1] == PermWildcard {
+		return len(c) >= 1 && c[0] == g[0]
+	}
+	if len(g) != len(c) {
+		return false
+	}
+	for i := range g {
+		if i == 0 {
+			if g[i] != c[i] {
+				return false
+			}
+			continue
+		}
+		if g[i] != PermWildcard && g[i] != c[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Catalog returns the full permission catalog: authkit base permissions plus the
@@ -100,33 +182,22 @@ func (s *Service) catalogSet() map[string]bool {
 	return m
 }
 
-// effectivePermsForTokens expands one role's stored tokens against the catalog:
-// `*` => every catalog permission; `!p` => remove p; otherwise the literal
-// permission. Returns the resulting set.
+// effectivePermsForTokens expands one role's stored grant tokens against the
+// catalog into the set of CONCRETE permissions it confers: every catalog perm
+// matched by a literal or glob token (#95). A bare `*` and any token matching
+// nothing in the catalog are dropped. No negation (#93).
 func effectivePermsForTokens(tokens []string, catalog map[string]bool) map[string]bool {
 	out := map[string]bool{}
-	excl := map[string]bool{}
-	star := false
 	for _, t := range tokens {
 		t = strings.TrimSpace(t)
-		switch {
-		case t == "":
+		if t == "" || t == PermWildcard {
 			continue
-		case t == PermWildcard:
-			star = true
-		case strings.HasPrefix(t, permExcludePrefix):
-			excl[strings.TrimSpace(strings.TrimPrefix(t, permExcludePrefix))] = true
-		default:
-			out[t] = true
 		}
-	}
-	if star {
 		for p := range catalog {
-			out[p] = true
+			if permMatches(t, p) {
+				out[p] = true
+			}
 		}
-	}
-	for p := range excl {
-		delete(out, p)
 	}
 	return out
 }
@@ -140,8 +211,8 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-// GetRolePermissions returns a role's RAW permission tokens (may include `*` and
-// `!p` exclusions).
+// GetRolePermissions returns a role's RAW permission tokens (literals and
+// namespace-anchored globs such as `org:*`).
 func (s *Service) GetRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -218,8 +289,8 @@ func (s *Service) EffectivePermissions(ctx context.Context, orgSlug, userID stri
 }
 
 // EffectiveRolePermissions returns a single role's permissions expanded against
-// the catalog (`*` => all, `!p` => exclude). Used to enforce no-escalation when
-// assigning a role to a member (the assigner must hold everything the role grants).
+// the catalog (globs included). Used to enforce no-escalation when assigning a
+// role to a member (the assigner must hold everything the role grants).
 func (s *Service) EffectiveRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
 	toks, err := s.GetRolePermissions(ctx, orgSlug, role)
 	if err != nil {
@@ -244,16 +315,17 @@ func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm strin
 }
 
 // ValidateGrant checks a set of permission tokens an actor wants to assign to a
-// role: every concrete permission must be in the catalog (else returned in
-// unknown) AND within the actor's effective permissions (else returned in
-// offending); `*` requires the actor to effectively hold the whole catalog;
-// `!p` exclusions only subtract and are always allowed. `actorAll` short-circuits
-// the no-escalation check for an actor known to hold everything (e.g. a platform
-// global admin). Returns (unknown, offending).
+// role (#94 no-escalation, #95 glob model). Each token must EXPAND to at least
+// one catalog permission (else returned in unknown — a bare `*`, a typo, or a
+// glob matching nothing is invalid). No-escalation: the actor must already hold
+// EVERY concrete permission the token expands to (else the token is returned in
+// offending) — so granting `org:members:*` requires holding all of
+// `org:members:*`. `actorAll` short-circuits the no-escalation check for an
+// actor known to hold everything (bootstrap system-actor / platform admin).
+// Returns (unknown, offending).
 func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
 	catalog := s.catalogSet()
 	var actorEff map[string]bool
-	actorHoldsAll := actorAll
 	if !actorAll {
 		eff, e := s.EffectivePermissions(ctx, orgSlug, actorUserID)
 		if e != nil {
@@ -263,51 +335,36 @@ func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string
 		for _, p := range eff {
 			actorEff[p] = true
 		}
-		actorHoldsAll = len(catalog) > 0 && len(actorEff) >= len(catalog) && supersetOf(actorEff, catalog)
 	}
 	for _, t := range dedupeStrings(tokens) {
-		switch {
-		case t == PermWildcard:
-			if !actorHoldsAll {
+		if t == PermWildcard {
+			unknown = append(unknown, t) // bare "*" is not a valid grant
+			continue
+		}
+		// Expand the token against the catalog. A literal hits itself; a glob
+		// hits every matching concrete perm.
+		expansion := make([]string, 0)
+		for p := range catalog {
+			if permMatches(t, p) {
+				expansion = append(expansion, p)
+			}
+		}
+		if len(expansion) == 0 {
+			unknown = append(unknown, t)
+			continue
+		}
+		if actorAll {
+			continue
+		}
+		// No-escalation: the actor must hold every concrete perm this token confers.
+		for _, p := range expansion {
+			if !actorEff[p] {
 				offending = append(offending, t)
-			}
-		case strings.HasPrefix(t, permExcludePrefix):
-			// exclusion only narrows; nothing to validate.
-		default:
-			// A concrete permission is valid if it is in the catalog, OR it is
-			// a RESOURCE-SCOPED grant "<resource>:<action>:<name>" whose
-			// "<resource>:<action>" base is in the catalog (e.g. repo:write:my-model
-			// validates against repo:write). The app interprets the <name>;
-			// authkit only checks the base is a real permission. Reserved
-			// 3-segment base perms (org:roles:manage, ...) match catalog[t]
-			// directly and are not re-split.
-			base := t
-			if !catalog[t] {
-				if parts := strings.SplitN(t, ":", 3); len(parts) == 3 {
-					base = parts[0] + ":" + parts[1]
-				}
-			}
-			if !catalog[base] {
-				unknown = append(unknown, t)
-				continue
-			}
-			// No-escalation: the actor must hold the exact scoped perm OR its
-			// org-wide base (holding repo:write lets you grant repo:write:x).
-			if !actorAll && !actorEff[t] && !actorEff[base] {
-				offending = append(offending, t)
+				break
 			}
 		}
 	}
 	return unknown, offending, nil
-}
-
-func supersetOf(have, want map[string]bool) bool {
-	for w := range want {
-		if !have[w] {
-			return false
-		}
-	}
-	return true
 }
 
 func dedupeStrings(in []string) []string {
@@ -324,14 +381,14 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// seedRolePermissionDefaults seeds the built-in owner role permissions (`*`) for
-// a freshly created (or claimed) org. App-declared DefaultRoles are NOT
+// seedRolePermissionDefaults seeds the built-in owner role permission (`org:*`,
+// #95) for a freshly created (or claimed) org. App-declared DefaultRoles are NOT
 // seeded eagerly — they are role TEMPLATES for human teammates and are
 // materialized LAZILY the first time the role is granted (see
 // materializeDefaultRole), so a solo org carries no dormant app-role
 // scaffolding. Idempotent.
 func (s *Service) seedRolePermissionDefaults(ctx context.Context, orgID string) error {
-	return s.q.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: orgID, Role: orgOwnerRole, Permission: PermWildcard})
+	return s.q.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: orgID, Role: orgOwnerRole, Permission: OrgOwnerGrant})
 }
 
 // materializeDefaultRole lazily seeds an app-declared DefaultRole's permission
@@ -372,42 +429,53 @@ func (s *Service) materializeDefaultRole(ctx context.Context, orgID, role string
 	return nil
 }
 
-// EffectivePermsForTokens is the EXPORTED token evaluator: it expands one
-// role's stored tokens against a catalog exactly the way authkit resolves
-// permissions at request time (`*` => every catalog permission; `!p` =>
-// remove p; otherwise the literal permission).
+// EffectivePermsForTokens is the EXPORTED token evaluator: it expands one role's
+// stored grant tokens against a catalog exactly the way authkit resolves
+// permissions at request time (literals + namespace-anchored globs; no negation,
+// no bare `*`; #93/#95).
 //
-// Hosts should use THIS function in security tests that lock their seeded
-// role definitions, instead of replicating the semantics: a replicated
-// evaluator drifts, and drift in permission semantics fails silently (the
-// 2026-06-10 incident: a host's admin role excluded org-era names that no
-// longer matched anything, silently expanding admin to ALL permissions).
+// Hosts should use THIS function in security tests that lock their seeded role
+// definitions, instead of replicating the semantics: a replicated evaluator
+// drifts, and drift in permission semantics fails silently.
 func EffectivePermsForTokens(tokens []string, catalog map[string]bool) map[string]bool {
 	return effectivePermsForTokens(tokens, catalog)
 }
 
-// UnknownRoleTokenNames returns every concrete name referenced by tokens
-// (inclusions AND `!p` exclusions) that is absent from catalog. Unknown
-// EXCLUSIONS are the dangerous case: they subtract nothing, so a role meant
-// to be narrowed silently keeps the permission — validate seeds with this at
-// startup or in tests and treat a non-empty result as a hard error.
+// UnknownRoleTokenNames returns every grant token that expands to NOTHING in the
+// catalog (a bare `*`, a typo'd literal, or a glob matching no catalog perm) —
+// validate seeds with this at startup or in tests and treat a non-empty result
+// as a hard error so a role never references a permission that doesn't exist.
 func UnknownRoleTokenNames(tokens []string, catalog map[string]bool) []string {
 	var unknown []string
 	for _, t := range tokens {
 		t = strings.TrimSpace(t)
-		if t == "" || t == PermWildcard {
+		if t == "" {
 			continue
 		}
-		name := strings.TrimSpace(strings.TrimPrefix(t, permExcludePrefix))
-		if !catalog[name] {
+		if t == PermWildcard {
+			unknown = append(unknown, t)
+			continue
+		}
+		matched := false
+		for p := range catalog {
+			if permMatches(t, p) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
 			unknown = append(unknown, t)
 		}
 	}
 	return unknown
 }
 
-// BaseReservedPermissions lists authkit's own reserved base permissions —
-// the names hosts must include in the catalog they validate seeds against.
+// BaseReservedPermissions lists authkit's own reserved base permissions — the
+// concrete names hosts must include in the catalog they validate seeds against.
 func BaseReservedPermissions() []string {
-	return []string{PermOrgRolesManage, PermOrgMembersManage, PermOrgTokensManage, PermOrgRemoteAppsManage, PermOrgRead}
+	out := make([]string, 0, len(BasePermissions()))
+	for _, d := range BasePermissions() {
+		out = append(out, d.Name)
+	}
+	return out
 }

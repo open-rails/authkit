@@ -66,9 +66,9 @@ func TestIssueAccessToken_GlobalRolesClaim_BothModes(t *testing.T) {
 	}
 }
 
-// (issue 60) The legacy `roles` claim is now ALWAYS emitted on a user access
-// token (mirrors global_roles) as a fixed token-shape compatibility, independent
-// of orgs. A plain (non-org) token still carries no org_roles.
+// (issue 60) The legacy `roles` claim is emitted on a user access token
+// (mirrors global_roles) as fixed token-shape compatibility, independent of
+// org memberships. User access tokens carry no org_roles.
 func TestIssueAccessToken_LegacyRolesClaim_AlwaysPresent(t *testing.T) {
 	s, pub := newClaimTestService(t, "")
 	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
@@ -78,36 +78,6 @@ func TestIssueAccessToken_LegacyRolesClaim_AlwaysPresent(t *testing.T) {
 	require.True(t, ok, "legacy roles claim must be present on a user access token")
 	_, ok = cl["global_roles"]
 	require.True(t, ok, "global_roles claim must be present")
-	// plain service token (no org) carries no org_roles
 	_, ok = cl["org_roles"]
-	require.False(t, ok, "plain service token must not carry org_roles")
-}
-
-// An org-scoped token (the claim shape IssueServiceToken builds) carries
-// global_roles AND org_roles, and keeps the legacy `roles` claim populated.
-func TestIssueAccessToken_OrgScoped_CarriesGlobalAndOrgRoles(t *testing.T) {
-	s, pub := newClaimTestService(t, "multi")
-	// Mirror the extra map IssueServiceToken assembles for an org-scoped token.
-	extra := map[string]any{
-		"org":       "acme",
-		"roles":     []string{"editor"},
-		"org_roles": []string{"editor"},
-	}
-	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", extra)
-	require.NoError(t, err)
-	cl := parseClaimsNoValidate(t, tok, pub)
-
-	_, ok := cl["global_roles"]
-	require.True(t, ok, "org-scoped token must carry global_roles")
-
-	orgRoles, ok := cl["org_roles"].([]any)
-	require.True(t, ok, "org-scoped token must carry org_roles")
-	require.Len(t, orgRoles, 1)
-	require.Equal(t, "editor", orgRoles[0])
-
-	// legacy roles claim still populated for back-compat
-	legacy, ok := cl["roles"].([]any)
-	require.True(t, ok, "org-scoped token must keep legacy roles claim")
-	require.Len(t, legacy, 1)
-	require.Equal(t, "editor", legacy[0])
+	require.False(t, ok, "user access token must not carry org_roles")
 }

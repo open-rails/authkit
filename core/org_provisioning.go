@@ -11,12 +11,11 @@ import (
 // for embedded hosts. It is additive/upsert by design: omitted objects are left
 // alone, never removed.
 type OrgProvisionRequest struct {
-	Slug          string
-	Issuers       []OrgProvisionIssuer
-	Roles         []OrgProvisionRole
-	Memberships   []OrgProvisionMembership
-	APIKeys       []OrgProvisionAPIKey
-	ServiceTokens []OrgProvisionServiceToken
+	Slug        string
+	Issuers     []OrgProvisionIssuer
+	Roles       []OrgProvisionRole
+	Memberships []OrgProvisionMembership
+	APIKeys     []OrgProvisionAPIKey
 }
 
 // OrgProvisionIssuer declares one remote_application (federation principal,
@@ -50,49 +49,38 @@ type OrgProvisionMembership struct {
 }
 
 // OrgProvisionAPIKey declares one generated opaque API key.
-type OrgProvisionAPIKey = OrgProvisionServiceToken
-
-// OrgProvisionServiceToken declares one generated opaque service token.
-//
-// Deprecated: use OrgProvisionAPIKey and OrgProvisionRequest.APIKeys for public
-// bootstrap/config surfaces.
 // When Output is empty, the plaintext token is returned in the result. When
 // Output is non-empty and a store is supplied, existing non-empty output is
 // preserved and no new token is minted.
-type OrgProvisionServiceToken struct {
+type OrgProvisionAPIKey struct {
 	Name        string
 	Permissions []string
-	Resources   []ServiceTokenResource
+	Resources   []APIKeyResource
 	ExpiresAt   *time.Time
 	CreatedBy   string
-	Output      OrgManifestServiceTokenOutput
+	Output      OrgManifestAPIKeyOutput
 }
 
 // MintedOrgProvisionAPIKey contains a plaintext generated API key. The
 // value is returned only at creation time and should be written to a secret
 // store by the caller.
-type MintedOrgProvisionAPIKey = MintedOrgProvisionServiceToken
-
-// MintedOrgProvisionServiceToken contains a plaintext generated token.
-//
-// Deprecated: use MintedOrgProvisionAPIKey for public bootstrap/config surfaces.
-type MintedOrgProvisionServiceToken struct {
+type MintedOrgProvisionAPIKey struct {
 	Name      string
-	Metadata  ServiceToken
+	Metadata  APIKey
 	Plaintext string
-	Output    OrgManifestServiceTokenOutput
+	Output    OrgManifestAPIKeyOutput
 }
 
 // OrgProvisionResult summarizes one additive provisioning operation.
 type OrgProvisionResult struct {
-	Org          Org
-	Created      bool
-	Issuers      int
-	Roles        int
-	Memberships  int
-	TokensMinted int
-	TokensKept   int
-	MintedTokens []MintedOrgProvisionServiceToken
+	Org           Org
+	Created       bool
+	Issuers       int
+	Roles         int
+	Memberships   int
+	APIKeysMinted int
+	APIKeysKept   int
+	MintedAPIKeys []MintedOrgProvisionAPIKey
 }
 
 // ProvisionOrg applies privileged org provisioning for embedded hosts
@@ -209,11 +197,11 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 				return result, err
 			}
 			if strings.TrimSpace(existing) != "" {
-				result.TokensKept++
+				result.APIKeysKept++
 				continue
 			}
 		}
-		metadata, plaintext, err := s.MintServiceTokenWithOptions(ctx, org.Slug, ServiceTokenMintOptions{
+		metadata, plaintext, err := s.MintAPIKeyWithOptions(ctx, org.Slug, APIKeyMintOptions{
 			Name:        token.Name,
 			Permissions: token.Permissions,
 			Resources:   token.Resources,
@@ -228,8 +216,8 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 				return result, err
 			}
 		}
-		result.TokensMinted++
-		result.MintedTokens = append(result.MintedTokens, MintedOrgProvisionServiceToken{
+		result.APIKeysMinted++
+		result.MintedAPIKeys = append(result.MintedAPIKeys, MintedOrgProvisionAPIKey{
 			Name: token.Name, Metadata: metadata, Plaintext: plaintext, Output: token.Output,
 		})
 	}
@@ -238,11 +226,5 @@ func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, sto
 }
 
 func (r OrgProvisionRequest) apiKeys() ([]OrgProvisionAPIKey, error) {
-	if len(r.APIKeys) > 0 && len(r.ServiceTokens) > 0 {
-		return nil, ErrInvalidOrgManifest
-	}
-	if len(r.APIKeys) > 0 {
-		return r.APIKeys, nil
-	}
-	return r.ServiceTokens, nil
+	return r.APIKeys, nil
 }

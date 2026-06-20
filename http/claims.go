@@ -19,34 +19,32 @@ type Claims struct {
 	SessionID       string
 	Roles           []string
 	// GlobalRoles are the user's GLOBAL (platform-wide) roles, carried in the
-	// `global_roles` claim in both single and multi-org mode. Use these for
-	// global-admin authorization decisions.
+	// `global_roles` claim. Use these for global-admin authorization decisions.
 	GlobalRoles []string
-	// OrgRoles are the roles scoped to the org named in Org, carried in the
-	// `org_roles` claim on org-scoped tokens. Use these for org-scoped authz.
+	// OrgRoles are roles scoped to the org named in Org when a trusted token
+	// authority provides org role claims.
 	OrgRoles     []string
 	Entitlements []string
 	Issuer       string
 	UserTier     string
 	JTI          string
 
-	// Delegated/org fields. A delegated service token carries the external
+	// Delegated/org fields. A delegated access token carries the external
 	// delegated subject in DelegatedSubject (claim `delegated_sub`) and NO org claims of
 	// any kind: the VALIDATED Issuer is the org identity — receivers resolve
 	// their internal org record (slug + uuid) from their issuer registry. It
 	// never carries `sub` (UserID stays empty), so the local-user gate does not
 	// apply.
 	//
-	// Org carries the `org` claim of org-scoped ACCESS tokens (and the
-	// slug of opaque service tokens, resolved server-side); on delegated access
-	// tokens the claim is forbidden and Org stays empty. OrgID is
-	// populated ONLY for opaque service tokens via the receiver's own DB
-	// resolution — never from a JWT claim.
+	// Org carries the slug of opaque API keys, resolved server-side. On delegated
+	// access tokens the claim is forbidden and Org stays empty. OrgID is
+	// populated ONLY for opaque API keys via the receiver's own DB resolution —
+	// never from a JWT claim.
 	Org              string
 	OrgID            string
 	DelegatedSubject string
 
-	// Attributes is the `attributes` claim of a delegated service token: the
+	// Attributes is the `attributes` claim of a delegated access token: the
 	// canonical app-specific ESCAPE HATCH (#75). It is an object of issuer-
 	// asserted, NAMESPACED, OPAQUE key/values that AuthKit transports and
 	// optionally shape-validates (WithAttributesPolicy) but NEVER interprets —
@@ -66,7 +64,7 @@ type Claims struct {
 	Attributes map[string]json.RawMessage
 
 	// DelegatedRoles are the delegated subject's role UUIDs carried by a
-	// delegated service token under `attributes.roles` (a JSON array of UUID strings). They are
+	// delegated access token under `attributes.roles` (a JSON array of UUID strings). They are
 	// extracted and validated at verify (malformed entries dropped, count
 	// capped) and surfaced on DelegatedPrincipal.Roles. Downstream services use
 	// them as e.g. budget-scope keys; authkit treats them as opaque strings.
@@ -75,26 +73,26 @@ type Claims struct {
 	DelegatedRoles []string
 
 	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
-	// AuthKit service token; "delegated-access+jwt" identifies a delegated access
+	// AuthKit user access token; "delegated-access+jwt" identifies a delegated access
 	// token.
 	TokenTyp string
 
 	// TokenType marks the credential class. Empty for ordinary user JWTs;
-	// "service" for an Service Token (service token) acting AS THE ORG. A
+	// "service" for an API-key service principal acting as the org. A
 	// service principal carries Org + Permissions but no UserID, so the live-user
 	// ban/enrichment gate is skipped (there is no user to look up).
 	TokenType string
 
 	// Permissions are the app-defined permission strings a service principal
-	// (service token) carries directly — the PBAC grant. Empty for user principals, whose
+	// carries directly — the PBAC grant. Empty for user principals, whose
 	// authority is expressed as OrgRoles that the resource server expands to
 	// permissions at request time. authkit treats permission strings as opaque.
 	Permissions []string
 
 	// Resources are opaque host-defined resource scopes carried by an
-	// Service Token. Empty means the service token has no AuthKit-stored
+	// API key. Empty means the service principal has no AuthKit-stored
 	// resource constraints; resource-aware hosts decide whether to require them.
-	Resources []core.ServiceTokenResource
+	Resources []core.APIKeyResource
 
 	// RemoteApplicationID / RemoteApplicationSlug identify the JWKS PRINCIPAL a
 	// self-token (#76) authenticated as: a remote_application acting AS ITSELF.
@@ -105,9 +103,9 @@ type Claims struct {
 	RemoteApplicationSlug string
 }
 
-// ServiceTokenType is the TokenType value carried by an Org Access
-// Token (service token) — a machine credential that acts as the org, not a user.
-const ServiceTokenType = "service"
+// ServicePrincipalType is the TokenType value carried by an opaque API key: a
+// machine credential that acts as the org, not a user.
+const ServicePrincipalType = "service"
 
 // RemoteApplicationTokenType is the TokenType value carried by a JWKS principal
 // SELF-token (#76): a remote_application acting AS ITSELF. Like a service
@@ -115,10 +113,10 @@ const ServiceTokenType = "service"
 // UserID; the live-user enrichment/ban gate is skipped (there is no user).
 const RemoteApplicationTokenType = "remote_application"
 
-// IsService reports whether these claims represent a service principal (an
-// Service Token), as opposed to a human user or delegated subject.
+// IsService reports whether these claims represent a service principal, as
+// opposed to a human user or delegated subject.
 func (c Claims) IsService() bool {
-	return strings.EqualFold(strings.TrimSpace(c.TokenType), ServiceTokenType)
+	return strings.EqualFold(strings.TrimSpace(c.TokenType), ServicePrincipalType)
 }
 
 // IsRemoteApplication reports whether these claims represent a JWKS principal
@@ -164,7 +162,7 @@ func (c Claims) IsDelegated() bool {
 }
 
 // IsDelegatedAccessToken reports whether these claims represent a delegated
-// service token. The canonical signal is the `typ=delegated-access+jwt` JOSE
+// access token. The canonical signal is the `typ=delegated-access+jwt` JOSE
 // header plus a delegated subject and no local user subject.
 func (c Claims) IsDelegatedAccessToken() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenTyp), DelegatedAccessTokenType) &&
@@ -188,9 +186,9 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 	}, true
 }
 
-// DelegatedAccess is the canonical accessor for a delegated service token's
+// DelegatedAccess is the canonical accessor for a delegated access token's
 // principal. It returns the typed DelegatedPrincipal and true only when the
-// claims are a delegated service token (see IsDelegatedAccessToken).
+// claims are a delegated access token (see IsDelegatedAccessToken).
 func (c Claims) DelegatedAccess() (DelegatedPrincipal, bool) {
 	if !c.IsDelegatedAccessToken() {
 		return DelegatedPrincipal{}, false
@@ -198,7 +196,7 @@ func (c Claims) DelegatedAccess() (DelegatedPrincipal, bool) {
 	return c.Delegated()
 }
 
-// Attribute returns the raw JSON value of a single delegated-service-token
+// Attribute returns the raw JSON value of a single delegated-access-token
 // attribute and whether it was present. The value is opaque (#75): the caller
 // decides whether it is an INLINE definition (a JSON object/array) or a
 // REFERENCE (a JSON string key) — see AttributeIsReference / AttributeReference.

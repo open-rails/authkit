@@ -307,12 +307,12 @@ func TestMePermissionsRemoteAppReturnsCeiling(t *testing.T) {
 	require.ElementsMatch(t, []string{"catalog:write", "billing:read"}, toStrings(t, out["permissions"]))
 }
 
-// TestMePermissionsServiceTokenReturnsStored: a service principal's stored
+// TestMePermissionsServicePrincipalReturnsStored: a service principal's stored
 // permissions ride on its claims and are echoed back.
-func TestMePermissionsServiceTokenReturnsStored(t *testing.T) {
+func TestMePermissionsServicePrincipalReturnsStored(t *testing.T) {
 	env := newSelfTokenEnv(t, "svc-intro-app", "https://svc-intro-app.example/iss")
 	cl := Claims{
-		TokenType:   ServiceTokenType,
+		TokenType:   ServicePrincipalType,
 		Org:         "svc-org",
 		OrgRoles:    []string{"runner"},
 		Permissions: []string{"jobs:submit", "jobs:read"},

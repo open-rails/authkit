@@ -31,7 +31,7 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 		ExpectedAudiences:        []string{"authkit-boundary"},
 		AccessTokenDuration:      time.Hour,
 		RegistrationVerification: core.RegistrationVerificationNone,
-		ServiceTokenPrefix:       "authkit",
+		APIKeyPrefix:             "authkit",
 	}, core.Keyset{
 		Active:     signer,
 		PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
@@ -62,13 +62,13 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, coreSvc.DefineRole(ctx, orgA.Slug, "remote-app-manager"))
-	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgA.Slug, "remote-app-manager", []string{core.PermOrgRemoteAppsManage}))
+	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgA.Slug, "remote-app-manager", []string{core.PermOrgRemoteAppsUpdate}))
 	require.NoError(t, coreSvc.AddMember(ctx, orgA.Slug, managerA.ID))
 	require.NoError(t, coreSvc.AssignRole(ctx, orgA.Slug, managerA.ID, "remote-app-manager"))
 	require.NoError(t, coreSvc.AddMember(ctx, orgA.Slug, viewerA.ID))
 
 	require.NoError(t, coreSvc.DefineRole(ctx, orgB.Slug, "remote-app-manager"))
-	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgB.Slug, "remote-app-manager", []string{core.PermOrgRemoteAppsManage}))
+	require.NoError(t, coreSvc.SetRolePermissions(ctx, orgB.Slug, "remote-app-manager", []string{core.PermOrgRemoteAppsUpdate}))
 	require.NoError(t, coreSvc.AddMember(ctx, orgB.Slug, managerB.ID))
 	require.NoError(t, coreSvc.AssignRole(ctx, orgB.Slug, managerB.ID, "remote-app-manager"))
 
@@ -122,16 +122,16 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	})
 	require.Equal(t, http.StatusForbidden, status, body)
 
-	_, servicePlaintext, err := coreSvc.MintServiceTokenWithOptions(ctx, orgA.Slug, core.ServiceTokenMintOptions{
-		Name:        prefix + "-service-token",
-		Permissions: []string{core.PermOrgRemoteAppsManage},
+	_, servicePlaintext, err := coreSvc.MintAPIKeyWithOptions(ctx, orgA.Slug, core.APIKeyMintOptions{
+		Name:        prefix + "-api-key",
+		Permissions: []string{core.PermOrgRemoteAppsUpdate},
 		CreatedBy:   ownerA.ID,
 	})
 	require.NoError(t, err)
 	remoteAppSelfToken := mintBoundaryRemoteApplicationSelfToken(t, ctx, coreSvc, verifier, prefix, orgA)
 	delegatedToken := mintBoundaryDelegatedToken(t, verifier, prefix)
 	for name, token := range map[string]string{
-		"service-token":           servicePlaintext,
+		"api-key":                 servicePlaintext,
 		"remote-application-self": remoteAppSelfToken,
 		"delegated-token":         delegatedToken,
 	} {

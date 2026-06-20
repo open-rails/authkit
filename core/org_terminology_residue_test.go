@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestNoActiveTenantTerminologyResidue(t *testing.T) {
+func TestNoActiveOrgTerminologyResidue(t *testing.T) {
 	root := repoRoot(t)
 	checked := []string{"README.md", "core", "http", "internal"}
 	for _, rel := range checked {
@@ -48,7 +48,7 @@ func checkTenantResidueFile(t *testing.T, root, path string) {
 	if err != nil {
 		t.Fatalf("rel %s: %v", path, err)
 	}
-	if rel == filepath.Join("core", "tenant_residue_test.go") {
+	if rel == filepath.Join("core", "org_terminology_residue_test.go") {
 		return
 	}
 	data, err := os.ReadFile(path)

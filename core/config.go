@@ -87,7 +87,7 @@ type Config struct {
 	Keys jwtkit.KeySource
 
 	// VerifyOnly constructs the Service with NO active signer (#87): token
-	// MINTING (IssueAccessToken/IssueServiceToken, MintServiceJWT/MintCustomJWT/
+	// MINTING (IssueAccessToken, MintServiceJWT/MintCustomJWT/
 	// MintDelegatedAccessToken, remote_application self-tokens) returns
 	// ErrMissingSigner, while VERIFICATION and all RBAC reads work fully and the
 	// JWKS endpoint serves an empty key set. When true, key auto-discovery is
@@ -118,25 +118,14 @@ type Config struct {
 	// Must be lowercase alphanumeric, 1-16 chars. A unique app prefix lets leak
 	// scanners and push-protection partners identify the issuer at a glance.
 	APIKeyPrefix string
-	// ServiceTokenPrefix is the deprecated name for APIKeyPrefix.
-	//
-	// Deprecated: use APIKeyPrefix.
-	ServiceTokenPrefix string
 
 	// APIKeyMaxTTL caps how far in the future a minted API key may expire.
 	// 0 (default) means no cap (keys may be non-expiring). When set, a
 	// requested expiry beyond now+MaxTTL — including a null/no-expiry request —
 	// is capped to now+MaxTTL at mint time.
 	APIKeyMaxTTL time.Duration
-	// ServiceTokenMaxTTL caps how far in the future a minted service token may expire.
-	//
-	// Deprecated: use APIKeyMaxTTL.
-	// 0 (default) means no cap (tokens may be non-expiring). When set, a
-	// requested expiry beyond now+MaxTTL — including a null/no-expiry request —
-	// is capped to now+MaxTTL at mint time.
-	ServiceTokenMaxTTL time.Duration
 
-	// ResourceScopeAuthorizer optionally authorizes host-defined service token resource
+	// ResourceScopeAuthorizer optionally authorizes host-defined API-key resource
 	// scopes during HTTP minting. AuthKit validates only shape/length and stores
 	// resource Kind/ID pairs opaquely; the embedding host owns semantic
 	// no-escalation such as "may this caller mint openrails.customer=cozy-art".
@@ -145,17 +134,17 @@ type Config struct {
 	// PermissionCatalog is the embedding application's set of valid permission
 	// strings (e.g. tensorhub's `endpoint:revise`, `repo:create`). authkit merges
 	// this with its own base permissions (the reserved `org:` namespace) to form
-	// the catalog it validates role/service token grants against. Permissions are opaque to
+	// the catalog it validates role/API-key grants against. Permissions are opaque to
 	// authkit — it never interprets their meaning. Names must not collide with
 	// the reserved `org:` base permissions.
 	PermissionCatalog []PermissionDef
 
 	// DefaultRoles are role templates seeded into every org at creation, in
-	// addition to the built-in `owner` role (which is always seeded with `*`).
-	// e.g. tensorhub declares `admin` = {"*", "!org:roles:manage",
-	// "!org:members:manage"} (everything an owner has except role + membership
-	// management). Permission tokens: a concrete permission, `*` (all), or
-	// `!perm` (exclude).
+	// addition to the built-in `owner` role (which is always seeded with
+	// `org:*`). Permission tokens are concrete perms (`org:members:read`) or
+	// namespace-anchored globs (`org:*`, `org:members:*`, `org:*:read`). There
+	// is NO bare `*` and NO `!perm` negation — positive grants only (#93/#95).
+	// e.g. a least-privilege `admin` = {"org:members:*", "org:roles:read"}.
 	DefaultRoles []DefaultRole
 }
 
@@ -167,7 +156,8 @@ type PermissionDef struct {
 }
 
 // DefaultRole is a role template seeded into every org at creation: a role name
-// and its permission set (tokens may include `*` and `!perm` exclusions).
+// and its permission set (tokens are concrete perms or namespace-anchored globs
+// like `org:*`/`org:*:read`; no bare `*`, no `!perm` negation).
 type DefaultRole struct {
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`

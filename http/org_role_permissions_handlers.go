@@ -48,7 +48,7 @@ func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesUpdate)
 	if !gateOK {
 		return
 	}
@@ -96,7 +96,7 @@ func (s *Service) handleOrgMemberPermissionsGET(w http.ResponseWriter, r *http.R
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
 	if !gateOK {
 		return
 	}

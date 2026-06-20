@@ -27,31 +27,31 @@ func TestClaimsIsService(t *testing.T) {
 	require.False(t, Claims{TokenType: "service"}.IsDelegated())
 }
 
-func TestAccessTokenViewIncludesResources(t *testing.T) {
+func TestAPIKeyViewIncludesResources(t *testing.T) {
 	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	view := toAccessTokenView(core.ServiceToken{
+	view := toAPIKeyView(core.APIKey{
 		ID:          "tok_1",
 		KeyID:       "key_1",
 		Name:        "ci",
 		Permissions: []string{"openrails:credits:spend"},
-		Resources: []core.ServiceTokenResource{
+		Resources: []core.APIKeyResource{
 			{Kind: "openrails.merchant", ID: "tensorhub"},
 			{Kind: "openrails.customer", ID: "cozy-art"},
 		},
 		CreatedAt: created,
 	})
-	require.Equal(t, []core.ServiceTokenResource{
+	require.Equal(t, []core.APIKeyResource{
 		{Kind: "openrails.merchant", ID: "tensorhub"},
 		{Kind: "openrails.customer", ID: "cozy-art"},
 	}, view.Resources)
 	require.Equal(t, "2026-01-02T03:04:05Z", view.CreatedAt)
 }
 
-// TestServiceTokenMiddlewareDetectionAndFallthrough verifies that the Required middleware
-// routes tokens carrying the configured service-token marker to the (DB-backed) service-token path,
-// while ordinary JWTs still fall through to JWT verification even when a service token
+// TestAPIKeyMiddlewareDetectionAndFallthrough verifies that the Required middleware
+// routes tokens carrying the configured API-key marker to the DB-backed API-key path,
+// while ordinary JWTs still fall through to JWT verification even when an API key
 // prefix is configured.
-func TestServiceTokenMiddlewareDetectionAndFallthrough(t *testing.T) {
+func TestAPIKeyMiddlewareDetectionAndFallthrough(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 
@@ -74,25 +74,25 @@ func TestServiceTokenMiddlewareDetectionAndFallthrough(t *testing.T) {
 	}
 
 	t.Run("branded prefix: valid JWT falls through and passes", func(t *testing.T) {
-		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithServiceTokenPrefix("cozy"))
+		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithAPIKeyPrefix("cozy"))
 		require.Equal(t, http.StatusOK, call(v, validJWT()).Code)
 	})
 
-	t.Run("service-token-shaped token is routed to service-token path (not JWT) and rejected without a store", func(t *testing.T) {
-		// No service attached -> the service-token path cannot resolve and returns
-		// invalid_token. The key point: it is handled by the service-token branch, never
+	t.Run("API-key-shaped token is routed to the API-key path (not JWT) and rejected without a store", func(t *testing.T) {
+		// No service attached -> the API-key path cannot resolve and returns
+		// invalid_token. The key point: it is handled by the API-key branch, never
 		// parsed as a JWT.
-		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithServiceTokenPrefix("cozy"))
+		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithAPIKeyPrefix("cozy"))
 		w := call(v, "cozy_st_somekeyid_somesecretvalue")
 		require.Equal(t, http.StatusUnauthorized, w.Code)
 		require.JSONEq(t, `{"error":"invalid_token"}`, w.Body.String())
 	})
 
-	t.Run("wrong app prefix is NOT a service token and falls through to JWT verify", func(t *testing.T) {
+	t.Run("wrong app prefix is NOT an API key and falls through to JWT verify", func(t *testing.T) {
 		// With prefix "cozy" the marker is "cozy_st_"; a bare "st_..." token is
-		// not a service token for this app, so it falls through to JWT verification (and
+		// not an API key for this app, so it falls through to JWT verification (and
 		// fails there as an unparseable JWT).
-		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithServiceTokenPrefix("cozy"))
+		v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"}, WithAPIKeyPrefix("cozy"))
 		w := call(v, "st_keyid_secret")
 		require.Equal(t, http.StatusUnauthorized, w.Code)
 		require.JSONEq(t, `{"error":"invalid_token"}`, w.Body.String())

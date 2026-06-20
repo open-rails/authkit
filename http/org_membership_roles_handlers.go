@@ -19,7 +19,7 @@ func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
 	if !gateOK {
 		return
 	}
@@ -43,7 +43,7 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersUpdate)
 	if !gateOK {
 		return
 	}
@@ -89,7 +89,7 @@ func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Requ
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersManage)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersUpdate)
 	if !gateOK {
 		return
 	}

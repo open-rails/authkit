@@ -248,7 +248,7 @@ func TestVerifierLoadsOrgIssuerAndValidates(t *testing.T) {
 		t.Fatalf("LoadRemoteApplications: %v", err)
 	}
 
-	// Platform mints a delegated service token.
+	// Platform mints a delegated access token.
 	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,

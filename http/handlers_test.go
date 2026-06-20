@@ -279,6 +279,7 @@ func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
 		{name: "email password reset confirm link", method: http.MethodPost, path: "/email/password/reset/confirm-link", body: `{}`, want: http.StatusBadRequest},
 		{name: "email password reset confirm", method: http.MethodPost, path: "/email/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
 		{name: "phone password reset request", method: http.MethodPost, path: "/phone/password/reset/request", body: `{}`, want: http.StatusInternalServerError},
+		{name: "phone password reset confirm link", method: http.MethodPost, path: "/phone/password/reset/confirm-link", body: `{}`, want: http.StatusBadRequest},
 		{name: "phone password reset confirm", method: http.MethodPost, path: "/phone/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
 		{name: "user me", method: http.MethodGet, path: "/user/me", want: http.StatusUnauthorized},
 		{name: "user sessions list", method: http.MethodGet, path: "/user/sessions", want: http.StatusUnauthorized},
@@ -381,10 +382,15 @@ func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/user/bootstrap", nil)
+	r := httptest.NewRequest(http.MethodGet, "/me/bootstrap", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/user/bootstrap", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAPIHandler_PublicOwnerNamespaceLookup_DoesNotRequireAuth(t *testing.T) {
@@ -392,10 +398,15 @@ func TestAPIHandler_PublicOwnerNamespaceLookup_DoesNotRequireAuth(t *testing.T) 
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/owners/%20", nil)
+	r := httptest.NewRequest(http.MethodGet, "/namespaces/%20", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/owners/%20", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {

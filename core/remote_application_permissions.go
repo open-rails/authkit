@@ -10,7 +10,7 @@ import (
 // Direct-permission grants for a JWKS principal (#76). A remote_application's
 // STORED authority is the union of these direct permissions and the permissions
 // its assigned org roles expand to (RemoteApplicationOrgRoles ->
-// org_role_permissions). Mirrors service_token_permissions: authority is what
+// org_role_permissions). Mirrors API-key permission storage: authority is what
 // WE ASSIGNED, never what a self-signed token claims.
 
 // AddRemoteApplicationPermission grants a direct permission to a

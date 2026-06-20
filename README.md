@@ -145,10 +145,9 @@ sessions all keep working. Embedded bootstrap/admin creation through exported
 core APIs (`CreateUser`, `ImportUser`) still works.
 
 Any non-open org *registration* mode denies the public org-facing mutation routes
-(org creation/rename, invites, member changes, role changes, service token
+(org creation/rename, invites, member changes, role changes, API key
 management routes) with a stable `org_management_disabled` error. Read-only
-org routes and the org-scoped token exchange (`POST /token/org`) stay
-available for existing members. Embedded core/bootstrap code can still ensure
+org routes stay available for existing members. Embedded core/bootstrap code can still ensure
 initial orgs, roles, admins, trusted issuers, and generated opaque service
 tokens through the privileged provisioning API (`ProvisionOrg`) or the org
 manifest reconciler. Public org creation uses `CreateOrgForUser`; lower
@@ -266,7 +265,7 @@ mount the `RouteRegister` / `RouteOrgs` groups to enable public signup and
 org onboarding without code changes.
 
 OpenRails' bootstrap flow should pass its `auth:` section through to AuthKit
-bootstrap for users, orgs, roles, service tokens, and trusted issuers, then
+bootstrap for users, orgs, roles, API keys, and trusted issuers, then
 reconcile OpenRails-owned merchants, catalog, prices, entitlements, grants,
 billing, and provider state itself.
 
@@ -351,6 +350,7 @@ External identity providers
 - Built-in providers (`google`, `apple`, `discord`, `github`) can still be enabled with `core.Config.Providers` by passing client IDs/secrets.
 - For custom providers, prefer `core.Config.ProviderDescriptors`. OIDC providers are usually pure configuration because identity claims are standardized. OAuth2 providers are pure configuration when their userinfo JSON can be mapped with dot paths.
 - Apple uses the same descriptor model, but its client secret is a signed JWT. Use `ClientSecret.Strategy: "apple_jwt"` with Apple team/key/private-key fields.
+- `GET /identity-providers` returns the enabled external identity-provider list for frontends.
 
 ```go
 cfg.ProviderDescriptors = map[string]authprovider.Provider{
@@ -405,7 +405,7 @@ cfg.ProviderDescriptors = map[string]authprovider.Provider{
 
 Entitlements Provider (Optional)
 
-AuthKit can include entitlements (e.g., "premium", "pro") in JWT service tokens if you provide an `EntitlementsProvider`. This is useful for billing/subscription systems where entitlements are stored outside the `profiles` schema.
+AuthKit can include entitlements (e.g., "premium", "pro") in service JWTs if you provide an `EntitlementsProvider`. This is useful for billing/subscription systems where entitlements are stored outside the `profiles` schema.
 
 **Interface:**
 ```go
@@ -674,34 +674,33 @@ Orgs
   - Users can belong to 0, 1, or many orgs simultaneously.
   - Org slug renames create aliases; handlers accept either current slug or alias on `:org`.
   - Username renames preserve old owner paths via user slug aliases; personal org slug aliases are also retained.
-  - Default service tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
+  - User access tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
   - `GET /user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
-  - `GET /user/bootstrap` returns canonical personal org + org memberships in one call.
-  - Org-scoped service tokens include `org` + `roles` (single org only), minted whenever the user is a member (rejected otherwise) — no mode gate.
-    - Mint explicitly: `POST /token/org`
-    - Or mint at login/refresh by providing `org` in the request body (accepted on every deployment; the legacy `org_not_supported` rejection is gone).
+  - `GET /me/bootstrap` returns canonical personal org + org memberships in one call.
+  - `GET /me/orgs` lists the current user's org memberships with a single `role` per org.
+  - `GET /orgs/:org` returns org metadata plus the caller's `{role, permissions}` for that org.
   - Invitation workflow:
     - Org owners create/list/revoke invites with `/orgs/:org/invites`.
-    - Users list their invites via `GET /me/invites` (cross-org).
-    - Users accept/decline via `/me/invites/:invite_id/accept|decline`.
-  - Org management is **permission-based RBAC** (a role = a set of permissions). authkit is the generic engine: it ships **base permissions** in the reserved `org:` namespace (`org:roles:manage`, `org:members:manage`, `org:service_tokens:manage`, `org:read`) that gate all org-management endpoints, stores per-org role→permission assignments, computes `EffectivePermissions`, and enforces no-escalation + catalog validation. The embedding app declares its own permission catalog (`Config.PermissionCatalog`) + optional default roles (`Config.DefaultRoles`, e.g. an `admin` = `*` minus `{org:roles:manage, org:members:manage}`); effective catalog = base ∪ app. The `owner` role is hardcoded and seeded with `*` (all), protected, and cannot be removed as the last owner. Permissions are opaque to authkit — the app owns their meaning and enforces them at its own endpoints via `core.EffectivePermissions`. Introspection endpoints complement the management API: `GET /orgs/:org/me` (self-read of `{roles, permissions}`, membership only — no `org:read`) and `POST /orgs/:org/permissions/check` (a `testIamPermissions`-style "does this principal hold X?" → `{granted[]}`). Roles are RESTful resources: `GET /orgs/:org/roles/:role` (detail), `PUT /orgs/:org/roles/:role` (idempotent create-or-replace, body `{permissions[]}`), `DELETE /orgs/:org/roles/:role`; members likewise (`DELETE /orgs/:org/members/:user_id`). Invitee self-routes live at top-level `/me/invites` (cross-org — the invitee isn't a member yet).
+    - Users list their invites via `GET /me/org-invites` (cross-org).
+    - Users accept/decline via `/me/org-invites/:invite_id/accept|decline`.
+  - Org management is **permission-based RBAC** (a role = a set of permissions). authkit is the generic engine: it ships **base permissions** in the reserved `org:` namespace (`org:roles:manage`, `org:members:manage`, `org:api_keys:manage`, `org:read`) that gate all org-management endpoints, stores per-org role→permission assignments, computes `EffectivePermissions`, and enforces no-escalation + catalog validation. The embedding app declares its own permission catalog (`Config.PermissionCatalog`) + optional default roles (`Config.DefaultRoles`, e.g. an `admin` = `*` minus `{org:roles:manage, org:members:manage}`); effective catalog = base ∪ app. The `owner` role is hardcoded and seeded with `*` (all), protected, and cannot be removed as the last owner. Permissions are opaque to authkit — the app owns their meaning and enforces them at its own endpoints via `core.EffectivePermissions`. Caller org membership is returned by `GET /orgs/:org` as `{role, permissions}`. Roles are RESTful resources: `GET /orgs/:org/roles/:role` (detail), `PUT /orgs/:org/roles/:role` (idempotent create-or-replace, body `{permissions[]}`), `DELETE /orgs/:org/roles/:role`; members likewise (`DELETE /orgs/:org/members/:user_id`). Invitee self-routes live at top-level `/me/org-invites` (cross-org — the invitee isn't a member yet).
 - Token claim shape (uniform; no mode):
-  - A user access token always includes `global_roles` (platform-wide) and a legacy `roles` claim that mirrors `global_roles` (fixed token-shape compatibility). Org-scoped tokens additionally carry `org` + org `roles`/`org_roles`.
-  - An app with no orgs simply never mints org-scoped tokens — its tokens carry `roles`/`global_roles` only.
+  - A user access token includes `global_roles` (platform-wide) and a legacy `roles` claim that mirrors `global_roles` (fixed token-shape compatibility).
+  - Org membership and permission checks are resolved server-side from the route org and stored memberships.
 
 API Keys (opaque machine credentials)
-- Long-lived, revocable bearer credentials **owned by a org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). Robots should not replay the human password-login path.
+- Long-lived, revocable shared-secret bearer credentials **owned by an org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). Robots should not replay the human password-login path. These are symmetric secrets with assigned permissions/resources; they are not JWKS URLs, public keys, or issuer registrations.
 - An API key acts **as the org**: middleware sets `Claims.Org` + `Claims.Permissions` (the key's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `OrgRoles`; the resource server expands role→permission at request time.)
-- Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeyPrefix` brand (legacy name: `Config.ServiceTokenPrefix`). `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
+- Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeyPrefix` brand. `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
 - Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/org-deleted rejected; non-API-key credentials fall through to JWT). The API-key path is separate from the password-login handler, so API keys **bypass the interactive password-login rate limiter** by design.
-- **Mint authorization is native + permission-based:** minting requires `org:service_tokens:manage`, and authkit validates the requested permissions against the org's effective catalog — each must be a defined permission the caller holds (no escalation; `403 permission_grant_denied`/`400 unknown_permission`), with the reserved write/mint perms (`org:roles:manage`, `org:members:manage`, `org:service_tokens:manage`) and wildcards barred from API keys (read-only `org:read` is API-key-grantable). Permissions are frozen at mint time. An API key can never mint/list/revoke API keys (no user). See "Org RBAC" below for the catalog + role→permission model.
+- **Mint authorization is native + permission-based:** minting requires `org:api_keys:manage`, and authkit validates the requested permissions against the org's effective catalog — each must be a defined permission the caller holds (no escalation; `403 permission_grant_denied`/`400 unknown_permission`), with the reserved write/mint perms (`org:roles:manage`, `org:members:manage`, `org:api_keys:manage`) and wildcards barred from API keys (read-only `org:read` is API-key-grantable). Permissions are frozen at mint time. An API key can never mint/list/revoke API keys (no user). See "Org RBAC" below for the catalog + role→permission model.
 - **Resource scopes:** API keys may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.service_token_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
-- Manage via `POST/GET/DELETE /orgs/:org/api-keys[/:token_id]`. POST accepts `{name, permissions[], resources?:[{kind,id}], expires_at?}`. Optional `expires_at` (null = non-expiring), capped by `Config.APIKeyMaxTTL` when set. Stored in `profiles.service_tokens`; legacy `/service-tokens` routes remain as aliases.
+- Manage via `POST/GET/DELETE /orgs/:org/api-keys[/:token_id]`. POST accepts `{name, permissions[], resources?:[{kind,id}], expires_at?}`. Optional `expires_at` (null = non-expiring), capped by `Config.APIKeyMaxTTL` when set. Stored in `profiles.service_tokens`.
 - **Leak response:** revoke the key (`DELETE …/api-keys/:id`) — the application prefix is registrable with secret-scanning/push-protection partners so leaked keys can be auto-detected.
 
 Service JWTs (OIDC/JWKS machine credentials)
 - First-party services with their own AuthKit issuer/JWKS should prefer
-  short-lived service JWTs over generated opaque service tokens. The caller mints
+  short-lived service JWTs over generated opaque API keys. The caller mints
   a 15-minute JWT with `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`,
   `token_use=service`, and `permissions: []`, caches it in memory until near
   expiry, and sends it as `Authorization: Bearer <jwt>`.
@@ -714,7 +713,7 @@ Service JWTs (OIDC/JWKS machine credentials)
   permissions/resources but does not grant them; resource servers such as
   OpenRails must intersect them with server-side grants for the issuer/subject.
 - Use service JWTs for callers that can publish an issuer/JWKS, such as
-  Doujins/Hentai0 -> OpenRails. Use opaque service tokens for generated
+  Doujins/Hentai0 -> OpenRails. Use opaque API keys for generated
   API-key-like credentials, non-OIDC clients, bootstrap scripts, and manual
   integrations.
 
@@ -723,14 +722,12 @@ Reserved slug policy
   - `restricted_name`: slug is blocked in `profiles.owner_reserved_names` and not publicly registrable.
   - `parked_org`: org exists and is platform-held (`metadata.namespace_state=parked_org`, `metadata.reserved=true`).
   - `registered_org`: normal org lifecycle (`metadata.namespace_state=registered_org`).
-- Public lookup endpoint: `GET /owners/{slug}` returns canonical public metadata for the slug:
+- Public lookup endpoint: `GET /namespaces/{slug}` returns public namespace metadata for the slug:
   - `requested_slug`: normalized slug from the request.
-  - `slug` / `canonical_slug`: current canonical slug when the request resolves to a live or held owner; otherwise the requested slug.
-  - `enabled` / `state`: `registered_user`, `registered_org`, `parked_user`, `parked_org`, `restricted_name`, `renamed_user`, `renamed_org`, `held_by_deleted_user`, `held_by_deleted_org`, `held_by_recent_user_rename`, `held_by_recent_org_rename`, or `unregistered`.
-  - `claimable`: whether the slug can currently be claimed by a new user/org.
+  - `slug`: current canonical slug when the request resolves to a live or held namespace; otherwise the requested slug.
+  - `claimable`: `{user, org}` booleans.
   - `renamed`: whether this lookup resolved through rename history.
-  - `hold_until`: present for enabled rename reuse holds.
-  - `entity_kind`: `none`, `org`, `user`, or `org_and_user`
+  - `hold_until`: present for rename reuse holds.
   - optional `org` and/or `user` payloads when records exist.
 - The PostgreSQL baseline schema creates `profiles.owner_reserved_names` and seeds canonical restricted names (`admin`, `superuser`, `root`, `sudo`) directly.
 - Public register/create/rename/org-create/org-rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
@@ -748,6 +745,7 @@ Verification delivery and expiry
   - Phone verify link token: `POST /phone/verify/confirm-link` with `{"token":"..."}`
   - Email password reset link handoff: `POST /email/password/reset/confirm-link` with `{"token":"..."}` returns `{"ok":true,"reset_session":"..."}`
   - Email password reset confirm: `POST /email/password/reset/confirm` with `{"reset_session":"...","new_password":"..."}`
+  - Phone password reset link handoff: `POST /phone/password/reset/confirm-link` with `{"token":"..."}` returns `{"ok":true,"reset_session":"..."}`
 - AuthKit API routes are prefix-neutral. Your API can live under a prefix (recommended: `/api/v1`); do not add an extra `/auth` segment when embedding AuthKit.
 
 Identity validation policy
@@ -921,6 +919,7 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /phone/verify/confirm
   - POST /phone/verify/confirm-link
   - POST /phone/password/reset/request
+  - POST /phone/password/reset/confirm-link ({token} -> {reset_session})
   - POST /phone/password/reset/confirm ({reset_session, new_password})
 - Sessions:
   - POST /token { grant_type: "refresh_token", refresh_token }
@@ -968,7 +967,7 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /admin/account/park (`{kind:"org"|"user",slug}`)
   - POST /admin/account/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
 - Public owner-namespace lookup:
-  - GET /owners/:slug → canonical owner metadata + `enabled`/`claimable`
+  - GET /namespaces/:slug → typed public namespace metadata + per-kind `claimable`
 - Solana wallet authentication (SIWS):
   - POST /solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
   - POST /solana/login → {access_token, refresh_token, user}
@@ -1022,6 +1021,7 @@ Frontend (React) quick guide
   - POST /email/password/reset/confirm-link with `{token}` → {reset_session}
   - POST /email/password/reset/confirm with `{reset_session, new_password}` → {ok: true}
   - POST /phone/password/reset/request with `{phone_number}` → check SMS for reset instructions
+  - POST /phone/password/reset/confirm-link with `{token}` → {reset_session}
   - POST /phone/password/reset/confirm with `{reset_session, new_password}` → {ok: true}
 - OIDC
   - Start: window.location = `/oidc/${provider}/login`.
@@ -1170,7 +1170,7 @@ AuthKit-powered APIs (e.g., spacex), without mounting any auth routes.
 
 ### Accepting Tokens From Multiple Issuers
 
-SpaceX accepts service tokens from multiple issuers; both tesla.com and x.com.
+SpaceX accepts JWTs from multiple issuers; both tesla.com and x.com.
 
 ```go
 

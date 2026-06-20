@@ -50,7 +50,7 @@ var reservedCustomClaims = map[string]struct{}{
 // CustomJWTMintOptions controls minting of a JWT with an arbitrary first-party
 // claim set. This is AuthKit's documented escape hatch: the HOST owns the claim
 // semantics, and the verifier side MUST understand them. Prefer the constrained,
-// opinionated paths — MintServiceJWT (machine-to-machine service token) and
+// opinionated paths — MintServiceJWT (machine-to-machine service JWT) and
 // MintDelegatedAccessToken (cross-service delegated access) — whenever they fit;
 // reach for MintCustomJWT only for token shapes those can't express (e.g.
 // tensorhub capability/worker tokens with `cap_kind`/`grants`/`release_id`).

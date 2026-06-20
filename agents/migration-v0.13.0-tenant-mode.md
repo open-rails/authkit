@@ -21,7 +21,7 @@ not by a mode flag.
 - Token claims are uniform: a user access token always carries `global_roles` and
   a legacy `roles` claim mirroring it; tenant-scoped tokens additionally carry
   `tenant` + tenant roles. (Previously `roles` was single-mode only.)
-- `IssueServiceToken` / refresh-with-tenant are membership-gated, not mode-gated.
+- `IssueOrgAccessToken` / refresh-with-org are membership-gated, not mode-gated.
 - Removed the `WithPostgres` multi→single downgrade panic.
 
 ## Consumer steps

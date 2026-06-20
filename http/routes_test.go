@@ -27,21 +27,45 @@ func TestAPIRoutesIncludePreferredLocaleUserRoute(t *testing.T) {
 	s := newTestService(t)
 
 	requireRoute(t, s.APIRoutes(RouteUser), http.MethodPatch, "/user/preferred-locale")
+	requireRoute(t, s.APIRoutes(RouteUser), http.MethodGet, "/me/bootstrap")
+	requireNoRoute(t, s.APIRoutes(RouteUser), http.MethodGet, "/user/bootstrap")
+}
+
+func TestAPIRoutesIncludeNamespaceLookup(t *testing.T) {
+	s := newTestService(t)
+
+	requireRoute(t, s.APIRoutes(RouteOwners), http.MethodGet, "/namespaces/{slug}")
+	requireNoRoute(t, s.APIRoutes(RouteOwners), http.MethodGet, "/owners/{slug}")
+}
+
+func TestAPIRoutesIncludePhonePasswordResetConfirmLink(t *testing.T) {
+	s := newTestService(t)
+
+	requireRoute(t, s.APIRoutes(RoutePassword), http.MethodPost, "/phone/password/reset/confirm-link")
 }
 
 func TestAPIRoutesIncludeProviderDiscovery(t *testing.T) {
 	s := newTestService(t)
 
-	requireRoute(t, s.APIRoutes(RouteCore), http.MethodGet, "/providers")
-	requireRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/providers")
+	requireRoute(t, s.APIRoutes(RouteCore), http.MethodGet, "/identity-providers")
+	requireRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/identity-providers")
+	requireNoRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/providers")
 }
 
 // (issue 60) Org routes are always registered under RouteOrgs — no
 // org-mode gate; the host controls exposure by mounting the group.
 func TestAPIRoutesOrgRoutesAlwaysRegistered(t *testing.T) {
 	s := newTestServiceWithOrgMode(t, "")
-	requireRoute(t, s.APIRoutes(), http.MethodPost, "/token/org")
+	requireNoRoute(t, s.APIRoutes(), http.MethodPost, "/token/org")
+	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/me/orgs")
 	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/orgs/{org}/members")
+	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/orgs")
+	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/orgs/{org}/me")
+	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodPost, "/orgs/{org}/permissions/check")
+	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/me/org-invites")
+	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodPost, "/me/org-invites/{invite_id}/accept")
+	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodPost, "/me/org-invites/{invite_id}/decline")
+	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/me/invites")
 }
 
 func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {

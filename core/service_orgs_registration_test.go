@@ -251,7 +251,7 @@ func TestProvisionOrgBypassesPublicRegistrationMode(t *testing.T) {
 		Issuers: []OrgProvisionIssuer{{
 			Issuer: "https://" + slug + ".example", JWKSURI: "https://" + slug + ".example/jwks", Audiences: []string{"openrails"}, Enabled: &enabled,
 		}},
-		Roles: []OrgProvisionRole{{Name: "admin", Permissions: []string{PermOrgRead}}},
+		Roles: []OrgProvisionRole{{Name: "admin", Permissions: []string{PermOrgSettingsRead}}},
 		Memberships: []OrgProvisionMembership{{
 			UserID: user.ID, Role: "admin",
 		}},

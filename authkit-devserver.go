@@ -34,7 +34,7 @@ type config struct {
 	Environment              string
 	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
 	// catalog) so existing deployments are unaffected; the e2e suite sets
-	// these to exercise the multi-org service token/RBAC surface against a real server.
+	// these to exercise the multi-org API-key/RBAC surface against a real server.
 	APIKeyPrefix                string
 	PermissionCatalog           []string
 	OrgManifestPath             string
@@ -184,7 +184,7 @@ func runServe(cfg *config) error {
 			devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret).ServeHTTP(w, r)
 			return
 		}
-		// Dev-only: reflect the authenticated principal (user OR service/service token)
+		// Dev-only: reflect the authenticated principal (user OR API-key service principal)
 		// so E2E tests can assert how a token resolved through the real verifier.
 		if cfg.DevMode && r.Method == http.MethodGet && r.URL.Path == apiPrefix+"/dev/whoami" {
 			devWhoamiHandler(svc).ServeHTTP(w, r)
@@ -231,11 +231,11 @@ func runOrgManifestApply(cfg *config) error {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(map[string]int{
-		"orgs":          result.Orgs,
-		"issuers":       result.Issuers,
-		"roles":         result.Roles,
-		"tokens_minted": result.TokensMinted,
-		"tokens_kept":   result.TokensKept,
+		"orgs":            result.Orgs,
+		"issuers":         result.Issuers,
+		"roles":           result.Roles,
+		"api_keys_minted": result.APIKeysMinted,
+		"api_keys_kept":   result.APIKeysKept,
 	})
 }
 
@@ -371,8 +371,8 @@ func toPermissionDefs(names []string) []core.PermissionDef {
 }
 
 // devWhoamiHandler reflects the authenticated principal as resolved by the real
-// verifier (JWT user OR branded service/service token token), behind the standard auth
-// middleware. Dev-only; used by the RBAC E2E suite to assert service token resolution.
+// verifier (JWT user OR branded API key), behind the standard auth middleware.
+// Dev-only; used by the RBAC E2E suite to assert API-key resolution.
 func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 	reflect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cl, ok := authhttp.ClaimsFromContext(r.Context())

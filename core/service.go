@@ -83,19 +83,11 @@ type Options struct {
 	// APIKeyPrefix is the issuing application's brand prefix for generated API
 	// keys (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
 	APIKeyPrefix string
-	// ServiceTokenPrefix is the deprecated name for APIKeyPrefix.
-	//
-	// Deprecated: use APIKeyPrefix.
-	ServiceTokenPrefix string
 	// APIKeyMaxTTL caps a minted API key's expiry (0 = no cap).
 	APIKeyMaxTTL time.Duration
-	// ServiceTokenMaxTTL caps a minted service token's expiry (0 = no cap).
-	//
-	// Deprecated: use APIKeyMaxTTL.
-	ServiceTokenMaxTTL time.Duration
-	// ResourceScopeAuthorizer optionally authorizes host-defined service token resource
+	// ResourceScopeAuthorizer optionally authorizes host-defined API-key resource
 	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
-	// opaquely for callers who may manage service tokens for the org.
+	// opaquely for callers who may manage API keys for the org.
 	ResourceScopeAuthorizer ResourceScopeAuthorizer
 	// PermissionCatalog is the app's permission vocabulary (merged with authkit's
 	// base `org:` permissions). DefaultRoles are role templates seeded per org.
@@ -213,16 +205,7 @@ func NewService(opts Options, keys Keyset) *Service {
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
 	}
-	tokenPrefix := strings.TrimSpace(opts.APIKeyPrefix)
-	if tokenPrefix == "" {
-		tokenPrefix = strings.TrimSpace(opts.ServiceTokenPrefix)
-	}
-	opts.APIKeyPrefix = tokenPrefix
-	opts.ServiceTokenPrefix = tokenPrefix
-	if opts.APIKeyMaxTTL == 0 {
-		opts.APIKeyMaxTTL = opts.ServiceTokenMaxTTL
-	}
-	opts.ServiceTokenMaxTTL = opts.APIKeyMaxTTL
+	opts.APIKeyPrefix = strings.TrimSpace(opts.APIKeyPrefix)
 	schema := strings.TrimSpace(opts.Schema)
 	if schema == "" {
 		schema = db.DefaultSchema
@@ -324,16 +307,10 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("authkit: invalid OrgRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.OrgRegistrationMode)
 	}
 	tokenPrefix := strings.TrimSpace(cfg.APIKeyPrefix)
-	if tokenPrefix == "" {
-		tokenPrefix = strings.TrimSpace(cfg.ServiceTokenPrefix)
-	}
-	if !validServiceTokenPrefix(tokenPrefix) {
+	if !validAPIKeyPrefix(tokenPrefix) {
 		return nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", tokenPrefix)
 	}
 	maxTTL := cfg.APIKeyMaxTTL
-	if maxTTL == 0 {
-		maxTTL = cfg.ServiceTokenMaxTTL
-	}
 	schema := strings.TrimSpace(cfg.Schema)
 	if schema == "" {
 		schema = db.DefaultSchema
@@ -362,9 +339,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		SolanaSNSLookupTimeout:     cfg.SolanaSNSLookupTimeout,
 		SolanaSNSCacheTTL:          cfg.SolanaSNSCacheTTL,
 		APIKeyPrefix:               tokenPrefix,
-		ServiceTokenPrefix:         tokenPrefix,
 		APIKeyMaxTTL:               maxTTL,
-		ServiceTokenMaxTTL:         maxTTL,
 		ResourceScopeAuthorizer:    cfg.ResourceScopeAuthorizer,
 		PermissionCatalog:          cfg.PermissionCatalog,
 		DefaultRoles:               cfg.DefaultRoles,
@@ -372,9 +347,9 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	return NewService(opts, ks), nil
 }
 
-// validServiceTokenPrefix reports whether p is an acceptable service token application prefix:
+// validAPIKeyPrefix reports whether p is an acceptable API-key application prefix:
 // empty (-> bare st_) or 1-16 lowercase alphanumeric characters.
-func validServiceTokenPrefix(p string) bool {
+func validAPIKeyPrefix(p string) bool {
 	if p == "" {
 		return true
 	}
@@ -553,7 +528,7 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 
 // IssueAccessToken builds and signs an access token (JWT) for the given user.
 // Includes core registered claims plus:
-// - roles (snapshot, org_mode=single only)
+// - roles/global_roles (platform-wide role snapshot)
 // - entitlements (snapshot)
 // - email, username, discord_username (if available)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
@@ -561,16 +536,14 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
 	expiresAt = base.ExpiresAt.Time
 	// globalRoles are the user's platform-wide roles. They are emitted in the
-	// `global_roles` claim in BOTH single and multi-org mode so consumers can do
-	// global-admin authorization from any service token.
+	// `global_roles` claim so consumers can do global-admin authorization.
 	var globalRoles []string
 	if s.pg != nil {
 		globalRoles = s.listRoleSlugsByUser(ctx, userID)
 	}
-	// roles is the legacy claim (authkit issue 60): a user access token always
-	// mirrors global_roles into `roles` as a fixed token-shape compatibility for
-	// consumers that read `roles`. This is independent of orgs — org-scoped
-	// service tokens carry org roles instead (see IssueServiceToken).
+	// roles is the legacy claim (authkit issue 60): a user access token mirrors
+	// global_roles into `roles` as fixed token-shape compatibility for consumers
+	// that read `roles`.
 	roles := globalRoles
 	var ents []string
 	if s.entitlements != nil {
@@ -640,49 +613,6 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	}
 	tok, err := hs.SignWithHeaders(ctx, claims, map[string]any{"typ": jwtkit.AccessTokenType})
 	return tok, expiresAt, err
-}
-
-// IssueServiceToken builds and signs a org-scoped service token (JWT) for the
-// given user. Valid whenever the user is a member of the org (issue 60: orgs
-// are always supported; no global mode gate). The token includes:
-// - org_id (immutable org uuid — the canonical identifier)
-// - org (mutable slug, presentation/logging only)
-// - roles (snapshot for that org)
-func (s *Service) IssueServiceToken(ctx context.Context, userID, email, orgSlug string, extra map[string]any) (token string, expiresAt time.Time, err error) {
-	if s.pg == nil {
-		return "", time.Time{}, fmt.Errorf("postgres not configured")
-	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	// Membership check + roles snapshot.
-	member, err := s.q.OrgMembershipExists(ctx, db.OrgMembershipExistsParams{OrgID: org.ID, UserID: userID})
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	if !member {
-		return "", time.Time{}, ErrNotOrgMember
-	}
-	orgRoles, err := s.ReadMemberRoles(ctx, org.Slug, userID)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	// org + roles (legacy) preserve existing behavior; org_roles is the new
-	// explicit org-scoped claim. global_roles is added by IssueAccessToken.
-	claims := map[string]any{
-		"org_id":    org.ID,
-		"org":       org.Slug,
-		"roles":     orgRoles,
-		"org_roles": orgRoles,
-	}
-	if extra == nil {
-		extra = map[string]any{}
-	}
-	for k, v := range claims {
-		extra[k] = v
-	}
-	return s.IssueAccessToken(ctx, userID, email, extra)
 }
 
 // --- Refresh tokens are implemented via server-side sessions in service_sessions.go ---

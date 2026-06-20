@@ -35,7 +35,7 @@ func TestVerifyServiceJWTValidToken(t *testing.T) {
 		Subject:     "service:hentai0-runtime",
 		Audiences:   []string{"openrails"},
 		Permissions: []string{"openrails:entitlements:read"},
-		Resources:   []core.ServiceTokenResource{{Kind: "openrails.merchant", ID: "hentai0"}},
+		Resources:   []core.APIKeyResource{{Kind: "openrails.merchant", ID: "hentai0"}},
 		JTI:         "jti-1",
 	})
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestVerifyServiceJWTValidToken(t *testing.T) {
 	require.Equal(t, "service:hentai0-runtime", claims.Subject)
 	require.Equal(t, "hentai0", principal.Org)
 	require.Equal(t, []string{"openrails:entitlements:read"}, principal.Permissions)
-	require.Equal(t, []core.ServiceTokenResource{{Kind: "openrails.merchant", ID: "hentai0"}}, principal.Resources)
+	require.Equal(t, []core.APIKeyResource{{Kind: "openrails.merchant", ID: "hentai0"}}, principal.Resources)
 }
 
 func TestVerifyServiceJWTRejections(t *testing.T) {

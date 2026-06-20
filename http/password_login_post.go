@@ -22,7 +22,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		Password string `json:"password"`
 		Org      string `json:"org"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
+	if err := decodeJSON(r, &req); err != nil || req.Password == "" || strings.TrimSpace(req.Org) != "" {
 		badRequest(w, "invalid_request")
 		return
 	}
@@ -368,22 +368,6 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			serverErr(w, "token_issue_failed")
 			return
 		}
-		if strings.TrimSpace(req.Org) != "" {
-			token, exp, err = s.svc.IssueServiceToken(r.Context(), finalUserID, emailForToken, req.Org, map[string]any{"sid": sid})
-			if err != nil {
-				if errors.Is(err, core.ErrNotOrgMember) {
-					forbidden(w, "not_org_member")
-					return
-				}
-				if errors.Is(err, core.ErrOrgNotFound) {
-					notFound(w, "org_not_found")
-					return
-				}
-				serverErr(w, "token_issue_failed")
-				return
-			}
-		}
-
 		writeJSON(w, http.StatusOK, map[string]any{
 			"access_token":  token,
 			"token_type":    "Bearer",

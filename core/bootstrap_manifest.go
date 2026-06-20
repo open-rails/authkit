@@ -80,7 +80,7 @@ type BootstrapManifestResult struct {
 }
 
 type BootstrapTokenStore = OrgManifestTokenStore
-type BootstrapServiceTokenOutput = OrgManifestServiceTokenOutput
+type BootstrapAPIKeyOutput = OrgManifestAPIKeyOutput
 type FileBootstrapTokenStore = FileOrgManifestTokenStore
 
 func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
@@ -139,14 +139,14 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		}
 		result.OrgManifest.Orgs = len(orgManifest.Orgs)
 		for _, org := range orgManifest.Orgs {
-			apiKeys, err := org.manifestAPIKeys()
+			apiKeys, err := org.apiKeys()
 			if err != nil {
 				return result, err
 			}
 			result.OrgManifest.Issuers += len(org.Issuers)
 			result.OrgManifest.Roles += len(org.Roles)
 			result.OrgManifest.Memberships += len(org.Memberships)
-			result.OrgManifest.TokensMinted += len(apiKeys)
+			result.OrgManifest.APIKeysMinted += len(apiKeys)
 		}
 		return result, nil
 	}

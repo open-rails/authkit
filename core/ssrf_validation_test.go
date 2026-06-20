@@ -10,8 +10,8 @@ func TestValidateJWKSURI_Accepted(t *testing.T) {
 	valid := []string{
 		"https://auth.example.com/.well-known/jwks.json",
 		"https://auth.example.com:8443/jwks",
-		"https://1.2.3.4/jwks",   // public IP literal (ARIN/APNIC range)
-		"https://8.8.8.8/jwks",   // Google DNS — clearly public
+		"https://1.2.3.4/jwks", // public IP literal (ARIN/APNIC range)
+		"https://8.8.8.8/jwks", // Google DNS — clearly public
 		"https://sub.domain.example.com/path/to/jwks",
 	}
 	for _, u := range valid {

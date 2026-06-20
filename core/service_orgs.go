@@ -204,7 +204,7 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	if err := qtx.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: created.ID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
 		return nil, err
 	}
-	if err := qtx.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: created.ID, Role: orgOwnerRole, Permission: PermWildcard}); err != nil {
+	if err := qtx.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: created.ID, Role: orgOwnerRole, Permission: OrgOwnerGrant}); err != nil {
 		return nil, err
 	}
 	if _, err := qtx.OwnerReservedNameDelete(ctx, slug); err != nil {
@@ -272,7 +272,7 @@ func (s *Service) CreateOrgForUser(ctx context.Context, req CreateOrgForUserRequ
 	if err := qtx.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: created.ID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
 		return nil, err
 	}
-	if err := qtx.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: created.ID, Role: orgOwnerRole, Permission: PermWildcard}); err != nil {
+	if err := qtx.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: created.ID, Role: orgOwnerRole, Permission: OrgOwnerGrant}); err != nil {
 		return nil, err
 	}
 	if err := qtx.OrgMembershipUpsertRole(ctx, db.OrgMembershipUpsertRoleParams{OrgID: created.ID, UserID: ownerUserID, Role: orgOwnerRole}); err != nil {

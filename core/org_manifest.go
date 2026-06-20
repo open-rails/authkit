@@ -21,12 +21,11 @@ type OrgManifest struct {
 }
 
 type OrgManifestOrg struct {
-	Slug          string                    `json:"slug" yaml:"slug"`
-	Issuers       []OrgManifestIssuer       `json:"issuers" yaml:"issuers"`
-	Roles         []OrgManifestRole         `json:"roles" yaml:"roles"`
-	Memberships   []OrgManifestMembership   `json:"memberships" yaml:"memberships"`
-	APIKeys       []OrgManifestAPIKey       `json:"api_keys" yaml:"api_keys"`
-	ServiceTokens []OrgManifestServiceToken `json:"service_tokens" yaml:"service_tokens"`
+	Slug        string                  `json:"slug" yaml:"slug"`
+	Issuers     []OrgManifestIssuer     `json:"issuers" yaml:"issuers"`
+	Roles       []OrgManifestRole       `json:"roles" yaml:"roles"`
+	Memberships []OrgManifestMembership `json:"memberships" yaml:"memberships"`
+	APIKeys     []OrgManifestAPIKey     `json:"api_keys" yaml:"api_keys"`
 }
 
 type OrgManifestIssuer struct {
@@ -56,26 +55,19 @@ type OrgManifestMembership struct {
 }
 
 // OrgManifestAPIKey declares one generated opaque API key.
-type OrgManifestAPIKey = OrgManifestServiceToken
-
-type OrgManifestServiceToken struct {
-	Name        string                        `json:"name" yaml:"name"`
-	Permissions []string                      `json:"permissions" yaml:"permissions"`
-	Resources   []ServiceTokenResource        `json:"resources" yaml:"resources"`
-	ExpiresAt   *time.Time                    `json:"expires_at" yaml:"expires_at"`
-	Output      OrgManifestServiceTokenOutput `json:"output" yaml:"output"`
+type OrgManifestAPIKey struct {
+	Name        string                  `json:"name" yaml:"name"`
+	Permissions []string                `json:"permissions" yaml:"permissions"`
+	Resources   []APIKeyResource        `json:"resources" yaml:"resources"`
+	ExpiresAt   *time.Time              `json:"expires_at" yaml:"expires_at"`
+	Output      OrgManifestAPIKeyOutput `json:"output" yaml:"output"`
 }
 
 // OrgManifestAPIKeyOutput names where a freshly minted API key should be
 // written.
-type OrgManifestAPIKeyOutput = OrgManifestServiceTokenOutput
-
-// OrgManifestServiceTokenOutput names where a freshly minted token should
-// be written. AuthKit ships a file-backed implementation; Vault/Kubernetes/etc.
+// AuthKit ships a file-backed implementation; Vault/Kubernetes/etc.
 // can implement OrgManifestTokenStore with the same output struct.
-//
-// Deprecated: use OrgManifestAPIKeyOutput for public bootstrap/config surfaces.
-type OrgManifestServiceTokenOutput struct {
+type OrgManifestAPIKeyOutput struct {
 	File       string `json:"file" yaml:"file"`
 	VaultMount string `json:"vault_mount" yaml:"vault_mount"`
 	VaultPath  string `json:"vault_path" yaml:"vault_path"`
@@ -85,17 +77,17 @@ type OrgManifestServiceTokenOutput struct {
 // OrgManifestTokenStore preserves existing non-empty outputs and writes newly
 // minted API-key values. The store owns the output backend.
 type OrgManifestTokenStore interface {
-	ReadOrgManifestToken(ctx context.Context, out OrgManifestServiceTokenOutput) (string, error)
-	WriteOrgManifestToken(ctx context.Context, out OrgManifestServiceTokenOutput, token string) error
+	ReadOrgManifestToken(ctx context.Context, out OrgManifestAPIKeyOutput) (string, error)
+	WriteOrgManifestToken(ctx context.Context, out OrgManifestAPIKeyOutput, token string) error
 }
 
 type OrgManifestResult struct {
-	Orgs         int
-	Issuers      int
-	Roles        int
-	Memberships  int
-	TokensMinted int
-	TokensKept   int
+	Orgs          int
+	Issuers       int
+	Roles         int
+	Memberships   int
+	APIKeysMinted int
+	APIKeysKept   int
 }
 
 // ParseOrgManifestYAML parses a org manifest and rejects unknown fields.
@@ -110,7 +102,7 @@ func ParseOrgManifestYAML(raw []byte) (OrgManifest, error) {
 		return OrgManifest{}, ErrInvalidOrgManifest
 	}
 	for _, org := range manifest.Orgs {
-		if _, err := org.manifestAPIKeys(); err != nil {
+		if _, err := org.apiKeys(); err != nil {
 			return OrgManifest{}, err
 		}
 	}
@@ -172,7 +164,7 @@ func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest
 				Role:   membership.Role,
 			})
 		}
-		apiKeys, err := org.manifestAPIKeys()
+		apiKeys, err := org.apiKeys()
 		if err != nil {
 			return result, err
 		}
@@ -196,23 +188,17 @@ func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest
 		result.Issuers += applied.Issuers
 		result.Roles += applied.Roles
 		result.Memberships += applied.Memberships
-		result.TokensMinted += applied.TokensMinted
-		result.TokensKept += applied.TokensKept
+		result.APIKeysMinted += applied.APIKeysMinted
+		result.APIKeysKept += applied.APIKeysKept
 	}
 	return result, nil
 }
 
-func (o OrgManifestOrg) manifestAPIKeys() ([]OrgManifestAPIKey, error) {
-	if len(o.APIKeys) > 0 && len(o.ServiceTokens) > 0 {
-		return nil, ErrInvalidOrgManifest
-	}
-	if len(o.APIKeys) > 0 {
-		return o.APIKeys, nil
-	}
-	return o.ServiceTokens, nil
+func (o OrgManifestOrg) apiKeys() ([]OrgManifestAPIKey, error) {
+	return o.APIKeys, nil
 }
 
-func (o OrgManifestServiceTokenOutput) empty() bool {
+func (o OrgManifestAPIKeyOutput) empty() bool {
 	return strings.TrimSpace(o.File) == "" &&
 		strings.TrimSpace(o.VaultMount) == "" &&
 		strings.TrimSpace(o.VaultPath) == "" &&
@@ -224,7 +210,7 @@ func (o OrgManifestServiceTokenOutput) empty() bool {
 // OrgManifestTokenStore with narrower deploy-time credentials.
 type FileOrgManifestTokenStore struct{}
 
-func (FileOrgManifestTokenStore) ReadOrgManifestToken(_ context.Context, out OrgManifestServiceTokenOutput) (string, error) {
+func (FileOrgManifestTokenStore) ReadOrgManifestToken(_ context.Context, out OrgManifestAPIKeyOutput) (string, error) {
 	path := strings.TrimSpace(out.File)
 	if path == "" {
 		return "", ErrInvalidOrgManifest
@@ -239,7 +225,7 @@ func (FileOrgManifestTokenStore) ReadOrgManifestToken(_ context.Context, out Org
 	return strings.TrimSpace(string(raw)), nil
 }
 
-func (FileOrgManifestTokenStore) WriteOrgManifestToken(_ context.Context, out OrgManifestServiceTokenOutput, token string) error {
+func (FileOrgManifestTokenStore) WriteOrgManifestToken(_ context.Context, out OrgManifestAPIKeyOutput, token string) error {
 	path := strings.TrimSpace(out.File)
 	if path == "" || strings.TrimSpace(token) == "" {
 		return ErrInvalidOrgManifest

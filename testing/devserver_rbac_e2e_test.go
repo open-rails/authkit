@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// TestDevserverRBACE2E exercises the org RBAC / service token surface (authkit #46)
+// TestDevserverRBACE2E exercises the org RBAC / API key surface (authkit #46)
 // against the REAL devserver binary running in multi-org mode with an app
 // permission catalog, over real HTTP and a real Postgres. It is the realistic
 // replacement for the former in-process http/*_db_test.go suite: org/role/
@@ -23,11 +23,11 @@ import (
 //
 // The devserver is configured via the override below:
 //   - DEVSERVER_ORG_MODE=multi          -> mounts the /orgs/... route group
-//   - DEVSERVER_TOKEN_PREFIX=cozy        -> service tokens are "cozy_st_..." branded tokens
+//   - DEVSERVER_TOKEN_PREFIX=cozy        -> API keys are "cozy_st_..." branded tokens
 //   - DEVSERVER_PERMISSION_CATALOG=...   -> app permissions the catalog accepts
 //
 // User tokens come from the dev mint endpoint; global-admin is asserted via the
-// minted token's global_roles claim (the service token-mint bypass is token-based), while
+// minted token's global_roles claim (the api-key-mint bypass is token-based), while
 // org membership/roles/permissions are resolved from the DB.
 func TestDevserverRBACE2E(t *testing.T) {
 	if testing.Short() {
@@ -90,7 +90,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 		return strings.TrimSpace(c.run(t, args...))
 	}
 
-	// mint returns a user service token via the dev mint endpoint. Pass
+	// mint returns a user API key via the dev mint endpoint. Pass
 	// globalRoles to populate the global_roles claim (e.g. "admin").
 	mint := func(t *testing.T, sub string, globalRoles ...string) string {
 		t.Helper()
@@ -148,7 +148,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 		}
 	}
 
-	// --- seeding helpers (mirror the former service tokenTestEnv) ---
+	// --- seeding helpers (mirror the former API keyTestEnv) ---
 
 	addUser := func(t *testing.T, username string) string {
 		t.Helper()
@@ -185,24 +185,24 @@ func TestDevserverRBACE2E(t *testing.T) {
 	// ported suite: owner=`*`, deployer, tokenmgr, tokenmgr-noread.
 	newOrg := func(t *testing.T) (slug, id string) {
 		t.Helper()
-		slug = fmt.Sprintf("service token-e2e-%d", time.Now().UnixNano())
+		slug = fmt.Sprintf("api-key-e2e-%d", time.Now().UnixNano())
 		id = execSQL(t, fmt.Sprintf(
 			"INSERT INTO profiles.orgs (slug) VALUES (%s) RETURNING id::text;", sqlStr(slug)))
 		seedRole(t, id, "owner", "*")
 		seedRole(t, id, "deployer", "endpoint:deploy")
-		seedRole(t, id, "tokenmgr", "org:service_tokens:manage", "endpoint:deploy", "org:read")
-		seedRole(t, id, "tokenmgr-noread", "org:service_tokens:manage", "endpoint:deploy")
+		seedRole(t, id, "tokenmgr", "org:api_keys:manage", "endpoint:deploy", "org:read")
+		seedRole(t, id, "tokenmgr-noread", "org:api_keys:manage", "endpoint:deploy")
 		return slug, id
 	}
 
 	// ---------------------------------------------------------------------
-	// Ported from http/service_tokens_db_test.go
+	// Ported from the DB-backed API-key lifecycle test.
 	// ---------------------------------------------------------------------
 
-	t.Run("service token_lifecycle", func(t *testing.T) {
+	t.Run("API key_lifecycle", func(t *testing.T) {
 		slug, id := newOrg(t)
-		base := "/orgs/" + slug + "/service-tokens"
-		owner := addUser(t, "service token-owner-"+slug)
+		base := "/orgs/" + slug + "/api-keys"
+		owner := addUser(t, "api-key-owner-"+slug)
 		addMember(t, id, owner, "owner")
 		ownerJWT := mint(t, owner)
 
@@ -219,7 +219,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 		has(t, body, "endpoint:deploy")
 		has(t, body, "endpoint:read")
 
-		// service token authenticates as the org with its permissions (service principal).
+		// API key authenticates as the org with its permissions (service principal).
 		code, body = req(t, http.MethodGet, "/dev/whoami", minted.Token, "")
 		mustCode(t, http.StatusOK, code, body)
 		var who struct {
@@ -233,7 +233,7 @@ func TestDevserverRBACE2E(t *testing.T) {
 			t.Fatalf("whoami org=%q want %q", who.Org, slug)
 		}
 		if !who.IsService {
-			t.Fatalf("whoami is_service=false, want true for a service token")
+			t.Fatalf("whoami is_service=false, want true for an API key")
 		}
 		if who.UserID != "" {
 			t.Fatalf("whoami user_id=%q, want empty for a service principal", who.UserID)
@@ -241,11 +241,11 @@ func TestDevserverRBACE2E(t *testing.T) {
 		has(t, body, "endpoint:deploy")
 		has(t, body, "endpoint:read")
 
-		// A service token cannot mint another service token (management requires a real user).
+		// A API key cannot mint another API key (management requires a real user).
 		code, body = req(t, http.MethodPost, base, minted.Token, `{"name":"x","permissions":["endpoint:deploy"]}`)
 		mustCode(t, http.StatusUnauthorized, code, body)
 
-		// Revoke -> the service token stops working -> deleting again is 404.
+		// Revoke -> the API key stops working -> deleting again is 404.
 		code, body = req(t, http.MethodDelete, base+"/"+minted.ID, ownerJWT, "")
 		mustCode(t, http.StatusOK, code, body)
 		code, body = req(t, http.MethodGet, "/dev/whoami", minted.Token, "")
@@ -255,15 +255,15 @@ func TestDevserverRBACE2E(t *testing.T) {
 		mustCode(t, http.StatusNotFound, code, body)
 	})
 
-	t.Run("service token_mint_authorization", func(t *testing.T) {
+	t.Run("API key_mint_authorization", func(t *testing.T) {
 		slug, id := newOrg(t)
-		base := "/orgs/" + slug + "/service-tokens"
-		deployer := addUser(t, "service token-deployer-"+slug)
-		addMember(t, id, deployer, "deployer") // endpoint:deploy, NOT org:service_tokens:manage
-		tokenmgr := addUser(t, "service token-tokenmgr-"+slug)
-		addMember(t, id, tokenmgr, "tokenmgr") // org:service_tokens:manage + endpoint:deploy + org:read
+		base := "/orgs/" + slug + "/api-keys"
+		deployer := addUser(t, "api-key-deployer-"+slug)
+		addMember(t, id, deployer, "deployer") // endpoint:deploy, NOT org:api_keys:manage
+		tokenmgr := addUser(t, "api-key-tokenmgr-"+slug)
+		addMember(t, id, tokenmgr, "tokenmgr") // org:api_keys:manage + endpoint:deploy + org:read
 
-		// caller without org:service_tokens:manage cannot mint
+		// caller without org:api_keys:manage cannot mint
 		code, body := req(t, http.MethodPost, base, mint(t, deployer), `{"name":"x","permissions":["endpoint:deploy"]}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "forbidden")
@@ -283,32 +283,32 @@ func TestDevserverRBACE2E(t *testing.T) {
 		mustCode(t, http.StatusBadRequest, code, body)
 		has(t, body, "unknown_permission")
 
-		// reserved write/mint org:* perms are never grantable to a service token
-		for _, p := range []string{"org:roles:manage", "org:members:manage", "org:service_tokens:manage"} {
+		// reserved write/mint org:* perms are never grantable to an API key
+		for _, p := range []string{"org:roles:manage", "org:members:manage", "org:api_keys:manage"} {
 			code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["`+p+`"]}`)
 			mustCode(t, http.StatusForbidden, code, body)
-			has(t, body, "permission_not_grantable_to_service_token")
+			has(t, body, "permission_not_grantable_to_api_key")
 		}
 
-		// read-only org:read IS grantable to a service token
+		// read-only org:read IS grantable to an API key
 		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"audit-bot","permissions":["org:read"]}`)
 		mustCode(t, http.StatusCreated, code, body)
 		has(t, body, "org:read")
 
 		// org:read still subject to no-escalation (noread lacks it)
-		noread := addUser(t, "service token-noread-"+slug)
+		noread := addUser(t, "api-key-noread-"+slug)
 		addMember(t, id, noread, "tokenmgr-noread")
 		code, body = req(t, http.MethodPost, base, mint(t, noread), `{"name":"x","permissions":["org:read"]}`)
 		mustCode(t, http.StatusForbidden, code, body)
 		has(t, body, "permission_grant_denied")
 
-		// wildcard not grantable to a service token
+		// wildcard not grantable to an API key
 		code, body = req(t, http.MethodPost, base, mint(t, tokenmgr), `{"name":"x","permissions":["*"]}`)
 		mustCode(t, http.StatusForbidden, code, body)
-		has(t, body, "permission_not_grantable_to_service_token")
+		has(t, body, "permission_not_grantable_to_api_key")
 
 		// global admin (asserted via the token's global_roles claim) may mint any catalog permission
-		admin := addUser(t, "service token-gadmin-"+slug)
+		admin := addUser(t, "api-key-gadmin-"+slug)
 		code, body = req(t, http.MethodPost, base, mint(t, admin, "admin"), `{"name":"ops","permissions":["endpoint:deploy","endpoint:read","repo:read"]}`)
 		mustCode(t, http.StatusCreated, code, body)
 	})
@@ -448,56 +448,39 @@ func TestDevserverRBACE2E(t *testing.T) {
 
 		org := "/orgs/" + slug
 
-		// self GET /me returns roles + permissions without org:read
-		code, body := req(t, http.MethodGet, org+"/me", depJWT, "")
+		// GET /orgs/{org} returns caller membership from the normal user token.
+		code, body := req(t, http.MethodGet, org, depJWT, "")
 		mustCode(t, http.StatusOK, code, body)
 		var me struct {
-			Roles       []string `json:"roles"`
-			Permissions []string `json:"permissions"`
+			Org struct {
+				Slug string `json:"slug"`
+			} `json:"org"`
+			Membership struct {
+				Role        string   `json:"role"`
+				Permissions []string `json:"permissions"`
+			} `json:"membership"`
 		}
 		decode(t, body, &me)
-		if len(me.Roles) != 1 || me.Roles[0] != "deployer" {
-			t.Fatalf("me.roles=%v want [deployer]", me.Roles)
+		if me.Org.Slug != slug {
+			t.Fatalf("org.slug=%q want %q", me.Org.Slug, slug)
 		}
-		if len(me.Permissions) != 1 || me.Permissions[0] != "endpoint:deploy" {
-			t.Fatalf("me.permissions=%v want [endpoint:deploy]", me.Permissions)
+		if me.Membership.Role != "deployer" {
+			t.Fatalf("membership.role=%q want deployer", me.Membership.Role)
+		}
+		if len(me.Membership.Permissions) != 1 || me.Membership.Permissions[0] != "endpoint:deploy" {
+			t.Fatalf("membership.permissions=%v want [endpoint:deploy]", me.Membership.Permissions)
 		}
 
-		// non-member /me is forbidden
+		// Deleted introspection/check endpoints stay gone.
+		code, body = req(t, http.MethodGet, org+"/me", depJWT, "")
+		mustCode(t, http.StatusNotFound, code, body)
+		code, body = req(t, http.MethodPost, org+"/permissions/check", depJWT, `{"permissions":["endpoint:deploy"]}`)
+		mustCode(t, http.StatusNotFound, code, body)
+
+		// non-member org lookup is forbidden
 		stranger := addUser(t, "intro-stranger-"+slug)
-		code, body = req(t, http.MethodGet, org+"/me", mint(t, stranger), "")
+		code, body = req(t, http.MethodGet, org, mint(t, stranger), "")
 		mustCode(t, http.StatusForbidden, code, body)
-
-		// permission check (self): granted subset only
-		code, body = req(t, http.MethodPost, org+"/permissions/check", depJWT, `{"permissions":["endpoint:deploy","endpoint:read","repo:read"]}`)
-		mustCode(t, http.StatusOK, code, body)
-		var chk struct {
-			Granted []string `json:"granted"`
-		}
-		decode(t, body, &chk)
-		if len(chk.Granted) != 1 || chk.Granted[0] != "endpoint:deploy" {
-			t.Fatalf("granted=%v want [endpoint:deploy]", chk.Granted)
-		}
-
-		// permission check for another member requires org:read
-		code, body = req(t, http.MethodPost, org+"/permissions/check", depJWT, `{"permissions":["endpoint:deploy"],"user_id":"`+owner+`"}`)
-		mustCode(t, http.StatusForbidden, code, body)
-
-		// owner can check another member (holds org:read via *)
-		code, body = req(t, http.MethodPost, org+"/permissions/check", ownerJWT, `{"permissions":["endpoint:deploy","endpoint:read"],"user_id":"`+dep+`"}`)
-		mustCode(t, http.StatusOK, code, body)
-		chk.Granted = nil
-		decode(t, body, &chk)
-		if len(chk.Granted) != 1 || chk.Granted[0] != "endpoint:deploy" {
-			t.Fatalf("granted=%v want [endpoint:deploy] (dep has deploy, not read)", chk.Granted)
-		}
-
-		// global admin self-check holds everything requested
-		ga := addUser(t, "intro-ga-"+slug) // not even a member
-		code, body = req(t, http.MethodPost, org+"/permissions/check", mint(t, ga, "admin"), `{"permissions":["endpoint:deploy","repo:read"]}`)
-		mustCode(t, http.StatusOK, code, body)
-		has(t, body, "endpoint:deploy")
-		has(t, body, "repo:read")
 
 		// single-role GET returns name + permissions
 		code, body = req(t, http.MethodGet, org+"/roles/deployer", ownerJWT, "")

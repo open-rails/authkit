@@ -32,18 +32,18 @@ type ownerNamespaceUserPublicInfo struct {
 
 type ownerNamespaceLookupResponse struct {
 	OK            bool                          `json:"ok"`
-	Slug          string                        `json:"slug"`
 	RequestedSlug string                        `json:"requested_slug"`
-	CanonicalSlug string                        `json:"canonical_slug"`
-	State         string                        `json:"state"`
-	Status        string                        `json:"status"`
-	Claimable     bool                          `json:"claimable"`
-	Exists        bool                          `json:"exists"`
-	EntityKind    string                        `json:"entity_kind"`
+	Slug          string                        `json:"slug"`
 	Renamed       bool                          `json:"renamed"`
 	HoldUntil     *time.Time                    `json:"hold_until,omitempty"`
+	Claimable     ownerNamespaceClaimableInfo   `json:"claimable"`
 	Org           *ownerNamespaceOrgPublicInfo  `json:"org,omitempty"`
 	User          *ownerNamespaceUserPublicInfo `json:"user,omitempty"`
+}
+
+type ownerNamespaceClaimableInfo struct {
+	User bool `json:"user"`
+	Org  bool `json:"org"`
 }
 
 func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Request) {
@@ -67,16 +67,14 @@ func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Req
 
 	resp := ownerNamespaceLookupResponse{
 		OK:            true,
-		Slug:          strings.TrimSpace(lookup.CanonicalSlug),
 		RequestedSlug: strings.TrimSpace(lookup.RequestedSlug),
-		CanonicalSlug: strings.TrimSpace(lookup.CanonicalSlug),
-		State:         string(lookup.Status),
-		Status:        string(lookup.Status),
-		Claimable:     lookup.Claimable,
-		Exists:        lookup.Exists,
-		EntityKind:    strings.TrimSpace(lookup.EntityKind),
+		Slug:          strings.TrimSpace(lookup.CanonicalSlug),
 		Renamed:       lookup.Renamed,
 		HoldUntil:     lookup.HoldUntil,
+		Claimable: ownerNamespaceClaimableInfo{
+			User: lookup.Claimable && lookup.User == nil,
+			Org:  lookup.Claimable && lookup.Org == nil,
+		},
 	}
 	if lookup.Org != nil {
 		resp.Org = &ownerNamespaceOrgPublicInfo{

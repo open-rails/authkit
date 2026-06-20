@@ -9,11 +9,11 @@ import (
 )
 
 // DelegatedAccessTokenType is the canonical JOSE `typ` header value for a
-// delegated service token.
+// delegated access token.
 const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 
 // AccessTokenType is the canonical JOSE `typ` header value for an AuthKit
-// service token.
+// API key.
 const AccessTokenType = jwtkit.AccessTokenType
 
 // RemoteApplicationAccessTokenType is the JOSE `typ` for a JWKS principal's
@@ -22,13 +22,13 @@ const AccessTokenType = jwtkit.AccessTokenType
 // direct permissions), never what the token self-claims.
 const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 
-// DelegatedAccessParams describes a delegated service token to mint. It is an
+// DelegatedAccessParams describes a delegated access token to mint. It is an
 // alias for core.DelegatedAccessParams; the canonical definition (and the
 // (*core.Service).MintDelegatedAccessToken mint method) live in package core so
 // hosts can mint through the Service's internal signer without touching keys.
 type DelegatedAccessParams = core.DelegatedAccessParams
 
-// MintDelegatedAccessToken signs a canonical delegated service token with an
+// MintDelegatedAccessToken signs a canonical delegated access token with an
 // explicit signer. It is a thin re-export of core.MintDelegatedAccessToken;
 // embedders holding a *core.Service should prefer
 // (*core.Service).MintDelegatedAccessToken so they never construct a signer.

@@ -448,7 +448,7 @@ func TestDevserverE2E(t *testing.T) {
 	})
 
 	// loginAndRefreshSession logs a user in with email+password and returns their
-	// service token and refresh token (a live refresh session).
+	// API key and refresh token (a live refresh session).
 	loginAndRefreshSession := func(t *testing.T, email, pass string) (accessToken, refreshToken string) {
 		t.Helper()
 		loginResp, loginBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/password/login", nil, map[string]any{
@@ -675,19 +675,19 @@ func TestDevserverE2E(t *testing.T) {
 		type ownerLookupOut struct {
 			Slug          string `json:"slug"`
 			RequestedSlug string `json:"requested_slug"`
-			CanonicalSlug string `json:"canonical_slug"`
-			Status        string `json:"Status"`
-			Claimable     bool   `json:"claimable"`
-			EntityKind    string `json:"entity_kind"`
-			Renamed       bool   `json:"renamed"`
-			User          *struct {
+			Claimable     struct {
+				User bool `json:"user"`
+				Org  bool `json:"org"`
+			} `json:"claimable"`
+			Renamed bool `json:"renamed"`
+			User    *struct {
 				ID       string `json:"id"`
 				Username string `json:"username"`
 			} `json:"user"`
 		}
 		lookupOwner := func(t *testing.T, slug string) ownerLookupOut {
 			t.Helper()
-			ownersResp, ownersBody := httpJSON(t, http.MethodGet, baseURL+"/api/v1/owners/"+slug, nil, nil)
+			ownersResp, ownersBody := httpJSON(t, http.MethodGet, baseURL+"/api/v1/namespaces/"+slug, nil, nil)
 			if ownersResp.StatusCode != http.StatusOK {
 				t.Fatalf("owners lookup for %q got %d: %s", slug, ownersResp.StatusCode, string(ownersBody))
 			}
@@ -726,9 +726,7 @@ func TestDevserverE2E(t *testing.T) {
 		ownersOut := lookupOwner(t, a)
 		if ownersOut.Slug != cSlug ||
 			ownersOut.RequestedSlug != a ||
-			ownersOut.CanonicalSlug != cSlug ||
-			ownersOut.Status != "renamed_user" ||
-			ownersOut.Claimable ||
+			ownersOut.Claimable.User ||
 			!ownersOut.Renamed ||
 			ownersOut.User == nil ||
 			ownersOut.User.ID != ownerID ||
@@ -743,11 +741,11 @@ func TestDevserverE2E(t *testing.T) {
 
 		execPSQL(t, fmt.Sprintf("UPDATE profiles.users SET deleted_at=now() WHERE id=%s;", sqlString(ownerID)))
 		deletedCurrent := lookupOwner(t, cSlug)
-		if deletedCurrent.Status != "held_by_deleted_user" || deletedCurrent.Claimable || deletedCurrent.User != nil {
+		if deletedCurrent.Claimable.User || deletedCurrent.User != nil {
 			t.Fatalf("soft-deleted current username should be held but not resolve as a live user, got: %+v", deletedCurrent)
 		}
 		recentDeletedRename := lookupOwner(t, a)
-		if recentDeletedRename.Status != "held_by_recent_user_rename" || recentDeletedRename.Claimable || recentDeletedRename.User != nil {
+		if recentDeletedRename.Claimable.User || recentDeletedRename.User != nil {
 			t.Fatalf("recent historical username for a soft-deleted user should remain held, got: %+v", recentDeletedRename)
 		}
 		body = renameUser(t, claimantToken, cSlug, http.StatusBadRequest)
@@ -760,7 +758,7 @@ func TestDevserverE2E(t *testing.T) {
 			sqlString(ownerID), sqlString(a),
 		))
 		expiredDeletedRename := lookupOwner(t, a)
-		if expiredDeletedRename.Status != "unregistered" || !expiredDeletedRename.Claimable || expiredDeletedRename.User != nil {
+		if !expiredDeletedRename.Claimable.User || expiredDeletedRename.User != nil {
 			t.Fatalf("expired historical username for a soft-deleted user should be claimable, got: %+v", expiredDeletedRename)
 		}
 		renameUser(t, claimantToken, a, http.StatusOK)

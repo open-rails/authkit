@@ -15,7 +15,7 @@ import (
 // gated as noted.
 
 // callerEffectivePermissions resolves the concrete permission set of the CALLER
-// in the given (already-canonical) org. A service principal (service token) carries its
+// in the given (already-canonical) org. A service principal (API key) carries its
 // permissions directly in claims; a user's set is computed from role mappings.
 func (s *Service) callerEffectivePermissions(r *http.Request, claims Claims, canonicalOrg string) ([]string, error) {
 	if claims.IsService() {
@@ -111,8 +111,7 @@ func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Re
 	target := strings.TrimSpace(body.UserID)
 	switch {
 	case target != "" && target != claims.UserID:
-		// Checking another member requires org:read.
-		canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+		canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
 		if !gateOK {
 			return
 		}
@@ -159,7 +158,7 @@ func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Re
 }
 
 // handleOrgRoleGET returns a single role's detail (name + permission tokens) in
-// one call. Gated org:read. 404 if the role is not defined in the org.
+// one call. Gated by role read permission. 404 if the role is not defined in the org.
 func (s *Service) handleOrgRoleGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
@@ -172,7 +171,7 @@ func (s *Service) handleOrgRoleGET(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid_request")
 		return
 	}
-	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRead)
+	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesRead)
 	if !gateOK {
 		return
 	}

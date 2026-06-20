@@ -8,6 +8,69 @@
 
 ---
 
+# #91: Generalize the admin user DIRECTORY (list/search/sort/detail) + make billing-enrichment a first-class pluggable filter
+
+**Completed:** yes
+
+## Metadata
+
+- Category: feature
+- Status: completed
+- Passes: true
+
+AuthKit is the USER DIRECTORY for every host app's admin dashboard. Identity lives here; billing state (entitlements/subscriptions/credits) lives in OpenRails and is composed IN via a provider seam. This issue generalizes the directory and turns the existing enrichment seam into a real filter.
+
+## Tasks
+- [x] **(1)** Generalize `AdminListUsers` filtering: removed the hardcoded host role slugs; `AdminListUsers(ctx, AdminUserListOptions)` now takes a generic, composable filter — `Role` (any global-role slug) + `OrgSlug` (any org) + `Status` (active/banned/deleted/any, default non-deleted) + `Search`. No product strings in core. (`core/service.go` `adminUserDirectoryQuery`.)
+- [x] **(1)** Sort options (`AdminUserSort`: created_at/last_login/username/email) + `Desc`, stable `u.id` tiebreaker; offset pagination retained (cursor deferred — offset is fine for admin directories). Handler param `order=asc` flips the default newest-first.
+- [x] **(1)** `AdminCountUsers(ctx, opts)` — real standalone count sharing the same query builder.
+- [~] **(1)** (Optional) richer per-org `ListOrgMembers` with detail+pagination — DEFERRED (the `OrgSlug` filter on `AdminListUsers` already covers "users in org X with detail"; a dedicated members-with-roles endpoint can come with #228 if needed).
+- [x] **(2)** Provider seam extended ENRICH → ENRICH **+ FILTER**: new `EntitlementFilterProvider` interface (`ListSubjectsWithEntitlement(ctx, entitlement) []subjectIDs`); `AdminListUsers(opts.Entitlement=...)` type-asserts the entitlements provider to it, resolves the subject set, and filters `u.id = ANY(...)`. No provider → `ErrEntitlementFilterUnavailable` (fail loud). Backed by OpenRails #535.
+- [x] **(2)** Single-user DETAIL (`AdminGetUser`) already enriches entitlements via `s.ListEntitlements` (the provider) — verified symmetric with the list.
+- [x] Tests: `core/admin_directory_test.go` covers real-Postgres search/role/status/sort/pagination/count + provider-backed entitlement filter with a fake provider + `ErrEntitlementFilterUnavailable`; this environment has no `AUTHKIT_TEST_DATABASE_URL`, so the DB-backed test is present but skipped here. Focused non-DB checks pass.
+- [~] Ship: tag + bump is downstream adoption/release work for OpenRails #535 + doujins #414, not remaining AuthKit implementation work.
+
+**STATUS: completed in AuthKit (2026-06-20).** Verified with `go test ./core ./storage/memory ./jwt ./siws`; `go test -race ./storage/memory ./jwt`; DB-backed directory coverage is gated on `AUTHKIT_TEST_DATABASE_URL`.
+
+## Downstream consumer adoption (audited 2026-06-19) — NO required changes
+The only breaking change is the `AdminListUsers(...)` GO signature + the removal of the `filter` query param on `GET /admin/users`. The `AdminUser` JSON shape (roles, entitlements, …) and page/page_size/search are UNCHANGED. Audit of the other consumers:
+- **doujins** (#414): the real adopter — it overrode `/admin/users` to add a raw-SQL premium filter; #414 deletes that and wires the provider filter. (separate issue)
+- **hentai0**: its admin Users page calls `GET /admin/users` with ONLY `page`/`page_size` (no `filter`), and reads `roles`/`entitlements` (enrich path preserved). No Go call to `AdminListUsers`. → bump-safe, NO changes. (Optional future: wire its `OpenRailsEntitlementsProvider` to also implement `EntitlementFilterProvider` + add a `?entitlement=premium` server filter — today it computes premium client-side from the enriched `entitlements`.)
+- **cozy-art**: mounts `authkitgin.RegisterAPI` (so the route exists) but no frontend consumes `/admin/users`; its `EntitlementsProvider` (enrich) is already wired. → bump-safe, NO changes. (Optional future: extend that provider with `EntitlementFilterProvider`.)
+- **tensorhub**: mounts the route, nothing consumes it; no entitlement provider (HTTP client of standalone OpenRails, not embedded). → bump-safe, NO changes. (If it ever needs "users with entitlement X" it uses the OpenRails #535 s2s route, not a Go provider.)
+Net: only doujins needs work (#414); hentai0/cozy-art/tensorhub bump cleanly. The new entitlement-FILTER capability is opt-in everywhere.
+
+## Boundaries
+- AuthKit owns the directory: only LOCAL AuthKit users (`profiles.users`). Federated/delegated subjects (a remote host's own users, only ever a `delegated_sub` claim) are NOT in this directory — a host using AuthKit as ITS identity provider (doujins-style, users in `profiles.users`) is the case this serves.
+- OpenRails owns billing state keyed by subject and is consumed as the provider — never queried via raw SQL by the host.
+- The host (or OpenRails' own standalone console, OpenRails #228) COMPOSES directory + billing; neither subsystem alone answers "premium users with their detail."
+
+---
+
+# #90: Auth hardening — 15m token TTL, swallowed-error fixes, SIWS atomic consume, hot-reload key rotation
+
+**Completed:** yes
+
+From the 2026-06-18 implementation audit (`audit-authkit.md`, AK-IMPL-1/2/3). Scope was deliberately trimmed after review: the audit's `jti`/per-request-liveness store and the key-rotation state-machine/admin-API/DB-table were **rejected as over-engineered** — see "Explicitly dropped" so they don't get re-proposed straight off the audit. Rationale: delegated tokens already default to 15m (`core/delegated.go:108`) and merchant suspension is already immediate (OpenRails `merchantForIssuer` fails closed per request), so revocation lag is bounded by TTL and not worth a per-request revocation store.
+
+## Tasks
+- [x] `accessTTL` default 1h → 15m (`core/service.go`).
+- [x] 2a: family-revoke failure logs ERROR + alerts (retry if cheap). `revokeFamilyEnsured` (retry-once + CRITICAL log) at both `ExchangeRefreshToken` variants.
+- [x] 2b: disabled-user revoke failure logs ERROR. Both refresh variants.
+- [x] 2c: OIDC link write failure now fails the callback (`errProviderLinkFailed` → 500 `provider_link_failed`) at both link sites in `resolveOAuthUser`; cosmetic writes (SetProviderUsername/SetEmailVerified) logged not swallowed. Duplicate-account path confirmed (new-user branch: failed link → next login finds no link → duplicate/dead-end). Residual: orphan-user window without atomic create+link — logged CRITICAL, follow-up = authkit #88 tx-aware provisioning.
+- [x] 3: `ChallengeCache.Consume` added (Redis `GETDEL`; memory locked get-and-delete) + interface method; `VerifySIWSAndLogin` now consumes instead of Get+Del. Audit of other single-use `ephemDel` sites: password-reset (`ephemeral_data.go:301/305`), email-verify (`286/281`), 2FA (`331/338`), phone all share the SAME non-atomic Get-then-Del + swallowed-Del pattern. Sequential reuse IS already prevented (Del lands); only the concurrent-race residual remains, and double-consume there gains an attacker little (reset-twice / extra-session, no auth bypass). Deferred — see follow-up below (touches the PUBLIC `EphemeralStore` interface → consumer coordination).
+- [x] 4: `ReloadableKeySource` (`jwt/keys.go`): atomic-pointer swap, validate-before-swap (`loadStaticFromFile` asserts active signer), keep-old-on-error, 10s mtime poll (`DefaultKeyReloadInterval`), `Close()` for lifecycle. Wired into `NewAutoKeySourceWithPath` file branch (env/dev branches unchanged). Consumers calling `NewAutoKeySource` get hot-reload free when keys.json exists.
+- [x] Tests: SIWS single-use + concurrent single-winner + TTL-expiry (`storage/memory/siws_cache_test.go`, green under `-race`); hot-reload active-key swap + poller pickup + retained retired pubkey + keep-old-on-malformed (`jwt/keys_reload_test.go`, green under `-race`); default-TTL=15m assertion (`core/service_ttl_test.go`). DEFERRED (low-risk, need DB fault-injection / heavy setup): 2a/2c revoke/link failure-path assertions.
+- [x] Document the rotation runbook (routine + emergency) → `jwt/KEY_ROTATION.md`.
+
+**STATUS: completed in AuthKit (2026-06-20).** Verified with `go test ./core ./storage/memory ./jwt ./siws`; `go test -race ./storage/memory ./jwt`.
+
+**Follow-ups (separate issues, intentionally out of scope here):**
+- Atomic `EphemeralStore.Consume` (GETDEL) routed for password-reset / 2FA / email-verify / phone single-use tokens. Deferred: breaks the public `EphemeralStore` interface (consumer coordination) and the concurrent-race residual is low-value. Sequential single-use is already enforced.
+- Atomic create+link in OIDC provisioning (removes the orphan-user window in 2c) — pairs with authkit #88 tx-aware provisioning.
+
+---
+
 # #1: Admin undelete user (restore soft-deleted users)
 
 **Completed:** yes
@@ -1621,7 +1684,7 @@ Depends on nothing; consumed by tensorhub #369 and e2e #94.
 
 **Tasks:**
 - [x] Add `Claims.Permissions []string`; middleware sets it for service token principals (repoint from the #43 TenantRoles reuse). User principals keep roles in TenantRoles, Permissions empty.
-- [x] Rename service token `scopes`→`permissions` across MintServiceToken/List/Resolve, the request/response JSON, and the `service_tokens` column (migration: rename column `scopes`→`permissions`). Values are opaque app permission strings.
+- [x] Rename service token `scopes`→`permissions` across MintAPIKey/List/Resolve, the request/response JSON, and the `service_tokens` column (migration: rename column `scopes`→`permissions`). Values are opaque app permission strings.
 - [x] Define `service tokenGrantAuthorizer` interface { CanGrantservice token(ctx, caller, tenant string, permissions []string) (allowed bool, offending []string, err error) } + `Withservice tokenGrantAuthorizer` Service option.
 - [x] POST /tenants/{tenant}/access-tokens: call the authorizer for mint authority + permission grant; owner-only fallback when none configured. Return 403 with offending permissions named on denial.
 - [x] Remove the tenant-role-subset no-escalation check from the handler (now the hook's job); keep service-principal-cannot-mint guard.
@@ -1783,12 +1846,12 @@ Motivation: OpenRails needs service tokens that can be tenant-wide (`tenant=tens
 Current service token model:
 - Token is opaque: `<prefix>st_<key_id>_<secret>`.
 - AuthKit stores tenant ownership, permissions, expiry/revocation, and last-used state.
-- `ResolveServiceToken` returns tenant slug + permissions.
+- `ResolveAPIKey` returns tenant slug + permissions.
 
 Target service token model:
 - Token remains opaque and revocable.
 - AuthKit stores zero or more resource-scope grants alongside the token.
-- `ResolveServiceToken` returns tenant slug + permissions + resource scopes.
+- `ResolveAPIKey` returns tenant slug + permissions + resource scopes.
 - Existing tokens with no resource scopes keep working as tenant-wide tokens unless a host opts into requiring scopes.
 
 Example OpenRails interpretation:
@@ -1798,13 +1861,13 @@ Example OpenRails interpretation:
 AuthKit must not interpret OpenRails resource kinds. Resource kind/id strings are host-defined and opaque to AuthKit, like app-defined permission strings. AuthKit owns storage, mint/list/resolve/revoke APIs, no-escalation checks where applicable, and contract shape. Host apps own semantic enforcement.
 
 **Tasks:**
-- [x] Define the service token resource-scope contract: stable type names (`ServiceTokenResource{Kind, ID}`), exact-match storage semantics, no wildcard-by-default except explicit host-provided ids such as `*`, and no AuthKit interpretation of host resource kinds.
+- [x] Define the service token resource-scope contract: stable type names (`APIKeyResource{Kind, ID}`), exact-match storage semantics, no wildcard-by-default except explicit host-provided ids such as `*`, and no AuthKit interpretation of host resource kinds.
 - [x] Add a NEW numbered Postgres migration, not a 001 edit: create `profiles.service_token_resources` keyed by service token id, with `kind`, `resource_id`, timestamps, uniqueness on `(token_id, kind, resource_id)`, and an index for token lookup.
-- [x] Extend core types: add `Resources []ServiceTokenResource` to `ServiceToken`; add `ResolvedServiceToken` with tenant slug, permissions, resources, token id, and key id metadata without breaking existing callers.
-- [x] Add mint options for resources without changing the opaque token format: `MintServiceTokenWithOptions`; keep the existing `MintServiceToken` wrapper for compatibility.
-- [x] Update `ListServiceTokens` to include resource-scope metadata, never secrets.
-- [x] Update `ResolveServiceToken` flow to load resources in the same resolution path as permissions and return them through `ResolveServiceTokenWithResources`. Expiry, revocation, tenant-deleted checks, last_used_at update, and constant-time secret comparison remain unchanged.
-- [x] Decide and implement compatibility behavior: existing `ResolveServiceToken(ctx, keyID, secret) -> (tenant, permissions, err)` stays as a wrapper, while the new resource-aware resolver returns resources; docs note resource-aware hosts must use the new resolver / middleware claims.
+- [x] Extend core types: add `Resources []APIKeyResource` to `ServiceToken`; add `ResolvedAPIKey` with tenant slug, permissions, resources, token id, and key id metadata without breaking existing callers.
+- [x] Add mint options for resources without changing the opaque token format: `MintAPIKeyWithOptions`; keep the existing `MintAPIKey` wrapper for compatibility.
+- [x] Update `ListAPIKeys` to include resource-scope metadata, never secrets.
+- [x] Update `ResolveAPIKey` flow to load resources in the same resolution path as permissions and return them through `ResolveAPIKeyWithResources`. Expiry, revocation, tenant-deleted checks, last_used_at update, and constant-time secret comparison remain unchanged.
+- [x] Decide and implement compatibility behavior: existing `ResolveAPIKey(ctx, keyID, secret) -> (tenant, permissions, err)` stays as a wrapper, while the new resource-aware resolver returns resources; docs note resource-aware hosts must use the new resolver / middleware claims.
 - [x] Add optional HTTP support on POST `/tenants/{tenant}/service-tokens`: accept `resources` as an array of `{kind,id}`; validate shape and length only. GET returns resources. DELETE/revoke is unchanged.
 - [x] Preserve no-escalation for permissions. Resource-scope escalation is host-defined, so AuthKit accepts an optional host `ResourceScopeAuthorizer` callback for HTTP minting; without one, route-level creation allows resources only for callers already allowed to manage service tokens for the tenant.
 - [x] Tests: mint/list/resolve tokens with no resources, one resource, multiple resources, duplicate resource rejection, revoke/expiry still enforced, resource metadata never includes secrets, existing API wrappers continue to work.
@@ -1903,7 +1966,7 @@ Make native-user registration and tenant registration separate host-controlled m
 Standardize AuthKit authorization around OIDC delegated JWTs for browser/direct calls and opaque tenant-owned service tokens for server-to-server calls. Current pass renamed OAT contracts to service-token contracts and kept delegated JWTs/service tokens as distinct principal types.
 
 **Tasks:**
-- [x] Rename ResolvedOrgAccessToken/OrgAccessToken contracts to ResolvedServiceToken/ServiceToken.
+- [x] Rename ResolvedOrgAccessToken/OrgAccessToken contracts to ResolvedAPIKey/ServiceToken.
 - [x] Keep service token values opaque and revocable; token string now uses st_ marker, not oat_.
 - [x] Keep service tokens tenant-owned and separate from native users/delegated users.
 - [x] Keep delegated JWT claims using OIDC iss/aud plus tenant/delegated_sub and reject legacy org delegated claims.
@@ -2090,7 +2153,7 @@ NON-GOALS: ClickHouse queries (sqlc supports postgres/mysql/sqlite only); changi
 - [x] Type mapping. Done 2026-06-09: overrides uuid->string (+nullable *string), pg_catalog.timestamptz->time.Time (+nullable *time.Time), citext + public.citext->string (+nullable *string; the public.-qualified form is required for extension types), emit_pointers_for_null_types for everything else; policy documented in sqlc.yaml header comment.
 - [x] Precondition. Done 2026-06-09: identity.NewStore(pg, schema) -> NewStore(pg) hard cut (matches the repo's org->tenant breaking-change style); all identity SQL now hardcodes profiles.* like core/.
 - [x] Pilot on identity/. Done 2026-06-09, amended 2026-06-10: 9 queries in internal/db/queries/identity.sql; store.go fully on db.Queries (uuid.UUID <-> string at the boundary); renames.go Forward* converted. ListTenantRenameHistory/ListUserRenameHistory selected to_slug/renamed_by columns that NO schema defines (not authkit's, not any host's) and had zero callers anywhere — dead AND broken since issue #58 shipped a different schema than designed; deleted outright (with RenameHop) instead of keeping them as raw-pgx holdouts. identity/ is now 100% sqlc.
-- [x] Wire db.Queries into core.Service. Done 2026-06-09: Service.q (*db.Queries) initialized in WithPostgres (single assignment point); every pgx.Tx call site converted to s.q.WithTx(tx) — CreateTenantForUser, renameTenantSlugImpl, SetRolePermissions, MintServiceTokenWithOptions, transitionTenantInvite, updateUsernameImpl, removeAdminRoleIfNotLast, ReserveAccount, Park/Restrict/Unrestrict namespace flows.
+- [x] Wire db.Queries into core.Service. Done 2026-06-09: Service.q (*db.Queries) initialized in WithPostgres (single assignment point); every pgx.Tx call site converted to s.q.WithTx(tx) — CreateTenantForUser, renameTenantSlugImpl, SetRolePermissions, MintAPIKeyWithOptions, transitionTenantInvite, updateUsernameImpl, removeAdminRoleIfNotLast, ReserveAccount, Park/Restrict/Unrestrict namespace flows.
 - [x] Migrate core/ domain by domain. Done 2026-06-09: all ~200 queries lifted into internal/db/queries/{sessions,tenants,tenant_invites,service_tokens,owner_namespace,reserved_accounts,users,global_roles,providers,twofactor}.sql; inline SQL + Scan code deleted. Two intentional raw-pgx holdouts, both annotated in code: AdminListUsers (runtime-assembled filter/search/pagination SQL) and ReconcileTenantManifest (session-scoped pg_advisory_lock requires a pinned conn). Full test suite green after each domain.
 - [x] Sweep remaining packages. Done 2026-06-09: the 4 real DB sites outside core/identity were all in http/ (admin_util HasRoleDBCheck, reauth provider lookups, user_me_get linked providers) — converted via db.New(pool); authkit-devserver's migration glob/exec replaced by migrations.Apply; ratelimit/redis (.Exec is a Redis pipeline) and riverjobs (test-only SQL) need nothing.
 - [x] CI guard. Done 2026-06-09: .github/workflows/sqlc.yml spins up postgres:18-alpine, applies migrations/postgres/*.up.sql, and runs `make sqlc-check` (sqlc generate + sqlc vet with the db-prepare rule, then `git diff --exit-code -- internal/db` so drift fails CI).

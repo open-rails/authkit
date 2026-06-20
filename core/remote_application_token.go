@@ -16,7 +16,7 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 
 // Programmatic access — two credential types, both STORED-authority (#76):
 //
-//   - service token (core/service_tokens.go): a shared secret / API key; we
+//   - API key: a shared secret; we
 //     store sha256(secret) + its assigned permissions.
 //   - JWKS principal SELF-token (this file): a remote_application signs its own
 //     JWT; we verify it against the principal's registered JWKS and grant the

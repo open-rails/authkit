@@ -9,7 +9,7 @@ import (
 )
 
 // isPrivilegedOrgRole reports whether an org role may perform org management
-// (members, roles, invites, service tokens). `owner` is the only role authkit
+// (members, roles, invites, API keys). `owner` is the only role authkit
 // hardcodes as privileged; any `admin` or finer-grained authority is the
 // platform's concern, not authkit's.
 func isPrivilegedOrgRole(role string) bool {

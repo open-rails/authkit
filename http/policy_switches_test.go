@@ -214,8 +214,7 @@ func TestOrgManagementDisabled_MutatingRoutesDenied(t *testing.T) {
 		{http.MethodPost, "/orgs/acme/members"},
 		{http.MethodPost, "/orgs/acme/invites"},
 		{http.MethodPost, "/orgs/acme/api-keys"},
-		{http.MethodPost, "/orgs/acme/service-tokens"},
-		{http.MethodPost, "/me/invites/abc/accept"},
+		{http.MethodPost, "/me/org-invites/abc/accept"},
 	}
 	for _, tc := range cases {
 		w := httptest.NewRecorder()
@@ -226,8 +225,8 @@ func TestOrgManagementDisabled_MutatingRoutesDenied(t *testing.T) {
 	}
 }
 
-// Read-only org routes and the org-scoped token route stay available (they
-// require auth, so they reject with 401, NOT org_management_disabled).
+// Read-only org routes stay available (they require auth, so they reject with
+// 401, NOT org_management_disabled).
 func TestOrgManagementDisabled_ReadRoutesStillAvailable(t *testing.T) {
 	s := newTestServiceWithPolicy(t, core.RegistrationModeOpen, core.RegistrationModeManifestOnly)
 	h := s.APIHandler()
@@ -236,9 +235,8 @@ func TestOrgManagementDisabled_ReadRoutesStillAvailable(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/orgs"},
+		{http.MethodGet, "/me/orgs"},
 		{http.MethodGet, "/orgs/acme/members"},
-		{http.MethodPost, "/token/org"},
 	}
 	for _, tc := range cases {
 		w := httptest.NewRecorder()

@@ -16,61 +16,61 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Service Tokens (service tokens): long-lived, revocable bearer credentials
-// owned by an org (not a person), for machine/automation callers. A service token carries
+// API keys: long-lived, revocable shared-secret bearer credentials
+// owned by an org (not a person), for machine/automation callers. An API key carries
 // a set of app-defined PERMISSION strings (opaque to authkit; the embedding app
 // defines and enforces what each one means). See agents #43 (lifecycle) and #44
 // (permission model).
 
 var (
-	// ErrInvalidAccessToken indicates a service token that does not exist, has a bad
+	// ErrInvalidAccessToken indicates an API key that does not exist, has a bad
 	// secret, or whose owning org is gone. Deliberately indistinguishable from
 	// a malformed token so callers learn nothing from the error.
 	ErrInvalidAccessToken = errors.New("invalid_token")
-	// ErrAccessTokenRevoked indicates the service token was explicitly revoked.
+	// ErrAccessTokenRevoked indicates the API key was explicitly revoked.
 	ErrAccessTokenRevoked = errors.New("token_revoked")
-	// ErrAccessTokenExpired indicates the service token is past its expires_at.
+	// ErrAccessTokenExpired indicates the API key is past its expires_at.
 	ErrAccessTokenExpired = errors.New("token_expired")
 )
 
 const (
-	// serviceTokenTypeSegment is the FIXED, non-configurable type tag. The full marker is
+	// apiKeyTypeSegment is the FIXED, non-configurable type tag. The full marker is
 	// "<app>_st_" when an app prefix is set, or bare "st_" when it is empty.
-	serviceTokenTypeSegment    = "st_"
-	serviceTokenKeyIDLen       = 16  // base62 chars; non-secret public lookup id
-	serviceTokenSecretLen      = 43  // base62 chars ~= 256 bits of entropy
-	serviceTokenResourceMaxLen = 128 // DB check constraint; resource strings are host-defined.
+	apiKeyTypeSegment    = "st_"
+	apiKeyKeyIDLen       = 16  // base62 chars; non-secret public lookup id
+	apiKeySecretLen      = 43  // base62 chars ~= 256 bits of entropy
+	apiKeyResourceMaxLen = 128 // DB check constraint; resource strings are host-defined.
 )
 
 const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
-// ServiceTokenMarker returns the leading marker that identifies a service token for the given
+// APIKeyMarker returns the leading marker that identifies an API key for the given
 // application prefix: "<prefix>_st_" when prefix is non-empty, else "st_".
-func ServiceTokenMarker(prefix string) string {
+func APIKeyMarker(prefix string) string {
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" {
-		return serviceTokenTypeSegment
+		return apiKeyTypeSegment
 	}
-	return prefix + "_" + serviceTokenTypeSegment
+	return prefix + "_" + apiKeyTypeSegment
 }
 
-// HasServiceTokenPrefix reports whether token carries the service-token marker for prefix. Used by
-// middleware to route to the service-token path before attempting JWT verification.
-func HasServiceTokenPrefix(prefix, token string) bool {
-	return strings.HasPrefix(token, ServiceTokenMarker(prefix))
+// HasAPIKeyPrefix reports whether token carries the API-key marker for prefix.
+// Used by middleware to route to the API-key path before attempting JWT verification.
+func HasAPIKeyPrefix(prefix, token string) bool {
+	return strings.HasPrefix(token, APIKeyMarker(prefix))
 }
 
-// FormatServiceToken assembles the full presented token: <marker><key_id>_<secret>.
-func FormatServiceToken(prefix, keyID, secret string) string {
-	return ServiceTokenMarker(prefix) + keyID + "_" + secret
+// FormatAPIKey assembles the full presented token: <marker><key_id>_<secret>.
+func FormatAPIKey(prefix, keyID, secret string) string {
+	return APIKeyMarker(prefix) + keyID + "_" + secret
 }
 
-// ParseServiceToken splits a presented token into its key_id and secret. key_id and
+// ParseAPIKey splits a presented token into its key_id and secret. key_id and
 // secret are base62 (no underscores), so the first "_" after the marker is the
 // unambiguous delimiter. ok is false if the token lacks the marker or either
 // part is empty.
-func ParseServiceToken(prefix, token string) (keyID, secret string, ok bool) {
-	marker := ServiceTokenMarker(prefix)
+func ParseAPIKey(prefix, token string) (keyID, secret string, ok bool) {
+	marker := APIKeyMarker(prefix)
 	if !strings.HasPrefix(token, marker) {
 		return "", "", false
 	}
@@ -100,14 +100,14 @@ func sha256Raw(s string) []byte {
 	return sum[:]
 }
 
-// ServiceToken is the non-secret metadata view of a service token. The secret is never
+// APIKey is the non-secret metadata view of an API key. The secret is never
 // stored or returned after creation.
-type ServiceToken struct {
+type APIKey struct {
 	ID          string
 	KeyID       string
 	Name        string
 	Permissions []string
-	Resources   []ServiceTokenResource
+	Resources   []APIKeyResource
 	CreatedBy   string
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
@@ -115,56 +115,56 @@ type ServiceToken struct {
 	RevokedAt   *time.Time
 }
 
-// ServiceTokenResource is one opaque, host-defined resource scope carried by
-// a service token. AuthKit stores and returns the exact Kind/ID pair but does not
+// APIKeyResource is one opaque, host-defined resource scope carried by
+// an API key. AuthKit stores and returns the exact Kind/ID pair but does not
 // interpret it. Hosts own resource semantics, including any wildcard-looking IDs
 // such as "*".
-type ServiceTokenResource struct {
+type APIKeyResource struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id"`
 }
 
-// ResolvedServiceToken is the resource-aware service token resolution result.
-type ResolvedServiceToken struct {
-	TokenID string
-	KeyID   string
+// ResolvedAPIKey is the resource-aware API-key resolution result.
+type ResolvedAPIKey struct {
+	APIKeyID string
+	KeyID    string
 	// OrgID is the immutable org uuid — the canonical identifier for
 	// persistence and cross-service references. OrgSlug is the mutable
 	// human-readable name, for presentation/logging only.
 	OrgID       string
 	OrgSlug     string
 	Permissions []string
-	Resources   []ServiceTokenResource
+	Resources   []APIKeyResource
 }
 
-// ServiceTokenMintOptions is the resource-aware service token mint request. The token
+// APIKeyMintOptions is the resource-aware API-key mint request. The token
 // format remains unchanged; resources are stored beside the opaque credential.
-type ServiceTokenMintOptions struct {
+type APIKeyMintOptions struct {
 	Name        string
 	Permissions []string
-	Resources   []ServiceTokenResource
+	Resources   []APIKeyResource
 	CreatedBy   string
 	ExpiresAt   *time.Time
 }
 
 // ResourceScopeAuthorizationRequest is passed to a host callback when the HTTP
-// service token mint route receives resource scopes. AuthKit has already validated shape
+// API-key mint route receives resource scopes. AuthKit has already validated shape
 // and permission no-escalation before this hook runs.
 type ResourceScopeAuthorizationRequest struct {
 	OrgSlug          string
 	ActorUserID      string
 	Permissions      []string
-	Resources        []ServiceTokenResource
+	Resources        []APIKeyResource
 	ActorGlobalAdmin bool
 }
 
-// ResourceScopeAuthorizer is an optional host callback for service token resource-scope
+// ResourceScopeAuthorizer is an optional host callback for API-key resource-scope
 // no-escalation. Return an error to deny minting. AuthKit treats resource kinds
 // and IDs as opaque and never interprets their semantics itself.
 type ResourceScopeAuthorizer func(ctx context.Context, req ResourceScopeAuthorizationRequest) error
 
-func (s *Service) AuthorizeServiceTokenResources(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
-	resources, err := normalizeServiceTokenResources(req.Resources)
+func (s *Service) AuthorizeAPIKeyResources(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
+	resources, err := normalizeAPIKeyResources(req.Resources)
 	if err != nil {
 		return err
 	}
@@ -178,16 +178,16 @@ func (s *Service) AuthorizeServiceTokenResources(ctx context.Context, req Resour
 	return s.opts.ResourceScopeAuthorizer(ctx, req)
 }
 
-func normalizeServiceTokenResources(in []ServiceTokenResource) ([]ServiceTokenResource, error) {
+func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 	if in == nil {
-		return []ServiceTokenResource{}, nil
+		return []APIKeyResource{}, nil
 	}
 	seen := make(map[string]bool, len(in))
-	out := make([]ServiceTokenResource, 0, len(in))
+	out := make([]APIKeyResource, 0, len(in))
 	for _, r := range in {
 		kind := strings.TrimSpace(r.Kind)
 		id := strings.TrimSpace(r.ID)
-		if kind == "" || id == "" || len(kind) > serviceTokenResourceMaxLen || len(id) > serviceTokenResourceMaxLen {
+		if kind == "" || id == "" || len(kind) > apiKeyResourceMaxLen || len(id) > apiKeyResourceMaxLen {
 			return nil, errors.New("invalid_resource")
 		}
 		key := kind + "\x00" + id
@@ -195,18 +195,18 @@ func normalizeServiceTokenResources(in []ServiceTokenResource) ([]ServiceTokenRe
 			return nil, errors.New("duplicate_resource")
 		}
 		seen[key] = true
-		out = append(out, ServiceTokenResource{Kind: kind, ID: id})
+		out = append(out, APIKeyResource{Kind: kind, ID: id})
 	}
 	return out, nil
 }
 
-// MintServiceToken inserts a new service token for the org and returns its metadata plus
+// MintAPIKey inserts a new API key for the org and returns its metadata plus
 // the full plaintext token (shown ONCE). permissions must already be authorized
 // by the caller (the grant decision lives in the HTTP handler / host hook).
-// expiresAt is optional (nil = no expiry) and is capped to ServiceTokenMaxTTL
+// expiresAt is optional (nil = no expiry) and is capped to APIKeyMaxTTL
 // when set.
-func (s *Service) MintServiceToken(ctx context.Context, orgSlug, name string, permissions []string, createdBy string, expiresAt *time.Time) (ServiceToken, string, error) {
-	return s.MintServiceTokenWithOptions(ctx, orgSlug, ServiceTokenMintOptions{
+func (s *Service) MintAPIKey(ctx context.Context, orgSlug, name string, permissions []string, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
+	return s.MintAPIKeyWithOptions(ctx, orgSlug, APIKeyMintOptions{
 		Name:        name,
 		Permissions: permissions,
 		CreatedBy:   createdBy,
@@ -214,44 +214,44 @@ func (s *Service) MintServiceToken(ctx context.Context, orgSlug, name string, pe
 	})
 }
 
-// MintServiceTokenWithOptions inserts a new service token using the resource-aware mint
+// MintAPIKeyWithOptions inserts a new API key using the resource-aware mint
 // contract. Permissions and resources must already be authorized by the caller.
-func (s *Service) MintServiceTokenWithOptions(ctx context.Context, orgSlug string, opts ServiceTokenMintOptions) (ServiceToken, string, error) {
+func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
-		return ServiceToken{}, "", err
+		return APIKey{}, "", err
 	}
 	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
 	if err != nil {
-		return ServiceToken{}, "", err
+		return APIKey{}, "", err
 	}
 	name := strings.TrimSpace(opts.Name)
 	if name == "" {
-		return ServiceToken{}, "", errors.New("missing_name")
+		return APIKey{}, "", errors.New("missing_name")
 	}
 	permissions := opts.Permissions
 	if permissions == nil {
 		permissions = []string{}
 	}
-	resources, err := normalizeServiceTokenResources(opts.Resources)
+	resources, err := normalizeAPIKeyResources(opts.Resources)
 	if err != nil {
-		return ServiceToken{}, "", err
+		return APIKey{}, "", err
 	}
 
 	now := time.Now().UTC()
 	expiresAt := opts.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
-		return ServiceToken{}, "", errors.New("invalid_expiry")
+		return APIKey{}, "", errors.New("invalid_expiry")
 	}
-	if maxTTL := s.opts.ServiceTokenMaxTTL; maxTTL > 0 {
+	if maxTTL := s.opts.APIKeyMaxTTL; maxTTL > 0 {
 		capAt := now.Add(maxTTL)
 		if expiresAt == nil || expiresAt.After(capAt) {
 			expiresAt = &capAt
 		}
 	}
 
-	secret, err := randBase62(serviceTokenSecretLen)
+	secret, err := randBase62(apiKeySecretLen)
 	if err != nil {
-		return ServiceToken{}, "", err
+		return APIKey{}, "", err
 	}
 	secretHash := sha256Raw(secret)
 
@@ -262,18 +262,18 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, orgSlug strin
 
 	// key_id is unique; retry a few times on the (astronomically unlikely)
 	// collision rather than failing the request.
-	var out ServiceToken
+	var out APIKey
 	for attempt := 0; attempt < 5; attempt++ {
-		keyID, err := randBase62(serviceTokenKeyIDLen)
+		keyID, err := randBase62(apiKeyKeyIDLen)
 		if err != nil {
-			return ServiceToken{}, "", err
+			return APIKey{}, "", err
 		}
 		tx, err := s.pg.Begin(ctx)
 		if err != nil {
-			return ServiceToken{}, "", err
+			return APIKey{}, "", err
 		}
 		qtx := s.qtx(tx)
-		ins, err := qtx.ServiceTokenInsert(ctx, db.ServiceTokenInsertParams{
+		ins, err := qtx.APIKeyInsert(ctx, db.APIKeyInsertParams{
 			OrgID:      org.ID,
 			KeyID:      keyID,
 			SecretHash: secretHash,
@@ -287,25 +287,25 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, orgSlug strin
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "key_id") {
 				continue // key_id collision; regenerate
 			}
-			return ServiceToken{}, "", err
+			return APIKey{}, "", err
 		}
 		id := ins.ID
 		for _, permission := range dedupeStrings(permissions) {
-			if err := qtx.ServiceTokenPermissionInsert(ctx, db.ServiceTokenPermissionInsertParams{ServiceTokenID: id, Permission: permission}); err != nil {
+			if err := qtx.APIKeyPermissionInsert(ctx, db.APIKeyPermissionInsertParams{ApiKeyID: id, Permission: permission}); err != nil {
 				_ = tx.Rollback(ctx)
-				return ServiceToken{}, "", err
+				return APIKey{}, "", err
 			}
 		}
 		for _, r := range resources {
-			if err := qtx.ServiceTokenResourceInsert(ctx, db.ServiceTokenResourceInsertParams{TokenID: id, Kind: r.Kind, ResourceID: r.ID}); err != nil {
+			if err := qtx.APIKeyResourceInsert(ctx, db.APIKeyResourceInsertParams{ApiKeyID: id, Kind: r.Kind, ResourceID: r.ID}); err != nil {
 				_ = tx.Rollback(ctx)
-				return ServiceToken{}, "", err
+				return APIKey{}, "", err
 			}
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return ServiceToken{}, "", err
+			return APIKey{}, "", err
 		}
-		out = ServiceToken{
+		out = APIKey{
 			ID:          id,
 			KeyID:       keyID,
 			Name:        name,
@@ -315,15 +315,15 @@ func (s *Service) MintServiceTokenWithOptions(ctx context.Context, orgSlug strin
 			CreatedAt:   ins.CreatedAt,
 			ExpiresAt:   expiresAt,
 		}
-		return out, FormatServiceToken(s.opts.ServiceTokenPrefix, keyID, secret), nil
+		return out, FormatAPIKey(s.opts.APIKeyPrefix, keyID, secret), nil
 	}
-	return ServiceToken{}, "", errors.New("key_id_generation_failed")
+	return APIKey{}, "", errors.New("key_id_generation_failed")
 }
 
-// ListServiceTokens returns metadata for every service token of the org (including
+// ListAPIKeys returns metadata for every API key of the org (including
 // revoked/expired ones, so an admin can see and clean them up). The secret is
 // never returned.
-func (s *Service) ListServiceTokens(ctx context.Context, orgSlug string) ([]ServiceToken, error) {
+func (s *Service) ListAPIKeys(ctx context.Context, orgSlug string) ([]APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
@@ -331,13 +331,13 @@ func (s *Service) ListServiceTokens(ctx context.Context, orgSlug string) ([]Serv
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ServiceTokensByOrg(ctx, org.ID)
+	rows, err := s.q.APIKeysByOrg(ctx, org.ID)
 	if err != nil {
 		return nil, err
 	}
-	var out []ServiceToken
+	var out []APIKey
 	for _, r := range rows {
-		out = append(out, ServiceToken{
+		out = append(out, APIKey{
 			ID:         r.ID,
 			KeyID:      r.KeyID,
 			Name:       r.Name,
@@ -348,19 +348,19 @@ func (s *Service) ListServiceTokens(ctx context.Context, orgSlug string) ([]Serv
 			RevokedAt:  r.RevokedAt,
 		})
 	}
-	if err := s.loadServiceTokenPermissions(ctx, out); err != nil {
+	if err := s.loadAPIKeyPermissions(ctx, out); err != nil {
 		return nil, err
 	}
-	if err := s.loadServiceTokenResources(ctx, out); err != nil {
+	if err := s.loadAPIKeyResources(ctx, out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// RevokeServiceToken marks the service token revoked. It is scoped to the org so a
+// RevokeAPIKey marks the API key revoked. It is scoped to the org so a
 // token cannot be revoked from a different org. Returns false if no matching,
 // not-already-revoked token exists.
-func (s *Service) RevokeServiceToken(ctx context.Context, orgSlug, tokenID string) (bool, error) {
+func (s *Service) RevokeAPIKey(ctx context.Context, orgSlug, tokenID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
@@ -368,66 +368,66 @@ func (s *Service) RevokeServiceToken(ctx context.Context, orgSlug, tokenID strin
 	if err != nil {
 		return false, err
 	}
-	n, err := s.q.ServiceTokenRevoke(ctx, db.ServiceTokenRevokeParams{ID: strings.TrimSpace(tokenID), OrgID: org.ID})
+	n, err := s.q.APIKeyRevoke(ctx, db.APIKeyRevokeParams{ID: strings.TrimSpace(tokenID), OrgID: org.ID})
 	if err != nil {
 		return false, err
 	}
 	return n > 0, nil
 }
 
-// ResolveServiceToken validates a presented service token (key_id + secret) and returns
+// ResolveAPIKey validates a presented API key (key_id + secret) and returns
 // the owning org's current slug and the token's frozen permissions. It performs
 // an indexed lookup by key_id, a constant-time secret compare, and revoked /
 // expired / org-deleted checks, then best-effort async-touches last_used_at.
-func (s *Service) ResolveServiceToken(ctx context.Context, keyID, secret string) (orgSlug string, permissions []string, err error) {
-	resolved, err := s.ResolveServiceTokenWithResources(ctx, keyID, secret)
+func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (orgSlug string, permissions []string, err error) {
+	resolved, err := s.ResolveAPIKeyWithResources(ctx, keyID, secret)
 	if err != nil {
 		return "", nil, err
 	}
 	return resolved.OrgSlug, resolved.Permissions, nil
 }
 
-// ResolveServiceTokenWithResources validates a presented service token and returns the
+// ResolveAPIKeyWithResources validates a presented API key and returns the
 // full resource-aware result. Existing tokens with no resources return an empty
 // Resources slice and remain org-wide for hosts that use the compatibility
 // resolver.
-func (s *Service) ResolveServiceTokenWithResources(ctx context.Context, keyID, secret string) (ResolvedServiceToken, error) {
+func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
-		return ResolvedServiceToken{}, err
+		return ResolvedAPIKey{}, err
 	}
-	row, err := s.q.ServiceTokenByKeyID(ctx, keyID)
+	row, err := s.q.APIKeyByKeyID(ctx, keyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ResolvedServiceToken{}, ErrInvalidAccessToken
+			return ResolvedAPIKey{}, ErrInvalidAccessToken
 		}
-		return ResolvedServiceToken{}, err
+		return ResolvedAPIKey{}, err
 	}
 
 	// Constant-time secret comparison.
 	if subtle.ConstantTimeCompare(row.SecretHash, sha256Raw(secret)) != 1 {
-		return ResolvedServiceToken{}, ErrInvalidAccessToken
+		return ResolvedAPIKey{}, ErrInvalidAccessToken
 	}
 	if row.RevokedAt != nil {
-		return ResolvedServiceToken{}, ErrAccessTokenRevoked
+		return ResolvedAPIKey{}, ErrAccessTokenRevoked
 	}
 	if row.ExpiresAt != nil && !row.ExpiresAt.After(time.Now().UTC()) {
-		return ResolvedServiceToken{}, ErrAccessTokenExpired
+		return ResolvedAPIKey{}, ErrAccessTokenExpired
 	}
 	if row.OrgDeletedAt != nil {
-		return ResolvedServiceToken{}, ErrInvalidAccessToken
+		return ResolvedAPIKey{}, ErrInvalidAccessToken
 	}
 
 	s.touchAccessTokenAsync(row.ID)
-	gotPerms, err := s.listServiceTokenPermissions(ctx, row.ID)
+	gotPerms, err := s.listAPIKeyPermissions(ctx, row.ID)
 	if err != nil {
-		return ResolvedServiceToken{}, err
+		return ResolvedAPIKey{}, err
 	}
-	resources, err := s.listServiceTokenResources(ctx, row.ID)
+	resources, err := s.listAPIKeyResources(ctx, row.ID)
 	if err != nil {
-		return ResolvedServiceToken{}, err
+		return ResolvedAPIKey{}, err
 	}
-	return ResolvedServiceToken{
-		TokenID:     row.ID,
+	return ResolvedAPIKey{
+		APIKeyID:    row.ID,
 		KeyID:       keyID,
 		OrgID:       row.OrgID,
 		OrgSlug:     row.Slug,
@@ -442,11 +442,11 @@ func (s *Service) touchAccessTokenAsync(id string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = s.q.ServiceTokenTouchLastUsed(ctx, id)
+		_ = s.q.APIKeyTouchLastUsed(ctx, id)
 	}()
 }
 
-func (s *Service) loadServiceTokenPermissions(ctx context.Context, tokens []ServiceToken) error {
+func (s *Service) loadAPIKeyPermissions(ctx context.Context, tokens []APIKey) error {
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -457,20 +457,20 @@ func (s *Service) loadServiceTokenPermissions(ctx context.Context, tokens []Serv
 		ids = append(ids, tokens[i].ID)
 		byID[tokens[i].ID] = i
 	}
-	rows, err := s.q.ServiceTokenPermissionsByTokenIDs(ctx, ids)
+	rows, err := s.q.APIKeyPermissionsByAPIKeyIDs(ctx, ids)
 	if err != nil {
 		return err
 	}
 	for _, r := range rows {
-		if i, ok := byID[r.ServiceTokenID]; ok {
+		if i, ok := byID[r.ApiKeyID]; ok {
 			tokens[i].Permissions = append(tokens[i].Permissions, r.Permission)
 		}
 	}
 	return nil
 }
 
-func (s *Service) listServiceTokenPermissions(ctx context.Context, tokenID string) ([]string, error) {
-	perms, err := s.q.ServiceTokenPermissionsByTokenID(ctx, strings.TrimSpace(tokenID))
+func (s *Service) listAPIKeyPermissions(ctx context.Context, tokenID string) ([]string, error) {
+	perms, err := s.q.APIKeyPermissionsByAPIKeyID(ctx, strings.TrimSpace(tokenID))
 	if err != nil {
 		return nil, err
 	}
@@ -480,37 +480,37 @@ func (s *Service) listServiceTokenPermissions(ctx context.Context, tokenID strin
 	return perms, nil
 }
 
-func (s *Service) loadServiceTokenResources(ctx context.Context, tokens []ServiceToken) error {
+func (s *Service) loadAPIKeyResources(ctx context.Context, tokens []APIKey) error {
 	if len(tokens) == 0 {
 		return nil
 	}
 	ids := make([]string, 0, len(tokens))
 	byID := make(map[string]int, len(tokens))
 	for i := range tokens {
-		tokens[i].Resources = []ServiceTokenResource{}
+		tokens[i].Resources = []APIKeyResource{}
 		ids = append(ids, tokens[i].ID)
 		byID[tokens[i].ID] = i
 	}
-	rows, err := s.q.ServiceTokenResourcesByTokenIDs(ctx, ids)
+	rows, err := s.q.APIKeyResourcesByAPIKeyIDs(ctx, ids)
 	if err != nil {
 		return err
 	}
 	for _, r := range rows {
-		if i, ok := byID[r.TokenID]; ok {
-			tokens[i].Resources = append(tokens[i].Resources, ServiceTokenResource{Kind: r.Kind, ID: r.ResourceID})
+		if i, ok := byID[r.ApiKeyID]; ok {
+			tokens[i].Resources = append(tokens[i].Resources, APIKeyResource{Kind: r.Kind, ID: r.ResourceID})
 		}
 	}
 	return nil
 }
 
-func (s *Service) listServiceTokenResources(ctx context.Context, tokenID string) ([]ServiceTokenResource, error) {
-	rows, err := s.q.ServiceTokenResourcesByTokenID(ctx, strings.TrimSpace(tokenID))
+func (s *Service) listAPIKeyResources(ctx context.Context, tokenID string) ([]APIKeyResource, error) {
+	rows, err := s.q.APIKeyResourcesByAPIKeyID(ctx, strings.TrimSpace(tokenID))
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ServiceTokenResource, 0, len(rows))
+	out := make([]APIKeyResource, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, ServiceTokenResource{Kind: r.Kind, ID: r.ResourceID})
+		out = append(out, APIKeyResource{Kind: r.Kind, ID: r.ResourceID})
 	}
 	return out, nil
 }

@@ -81,7 +81,7 @@ func TestReconcileBootstrapManifestSeedsUsersRolesAndOrgMemberships(t *testing.T
 			Slug: orgSlug,
 			Roles: []OrgManifestRole{{
 				Name:        "operator",
-				Permissions: []string{PermOrgRead},
+				Permissions: []string{PermOrgSettingsRead},
 			}},
 			Memberships: []OrgManifestMembership{{
 				UserRef: "admin",

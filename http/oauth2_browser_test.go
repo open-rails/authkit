@@ -26,7 +26,7 @@ func TestExchangeOAuthCodeSendsGitHubPKCEVerifier(t *testing.T) {
 		require.Equal(t, "https://auth.example/oidc/github/callback", r.Form.Get("redirect_uri"))
 		gotVerifier = r.Form.Get("code_verifier")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token": "github-service-token",
+			"access_token": "github-access-token",
 			"token_type":   "bearer",
 			"scope":        "read:user,user:email",
 		})
@@ -43,7 +43,7 @@ func TestExchangeOAuthCodeSendsGitHubPKCEVerifier(t *testing.T) {
 		"pkce-verifier",
 	)
 	require.NoError(t, err)
-	require.Equal(t, "github-service-token", token.AccessToken)
+	require.Equal(t, "github-access-token", token.AccessToken)
 	require.Equal(t, "bearer", token.TokenType)
 	require.Equal(t, "pkce-verifier", gotVerifier)
 }
@@ -53,7 +53,7 @@ func TestFetchGitHubUserInfoUsesNumericIDAndVerifiedPrimaryEmail(t *testing.T) {
 	var userURL string
 	var emailURL string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "bearer github-service-token", r.Header.Get("Authorization"))
+		require.Equal(t, "bearer github-access-token", r.Header.Get("Authorization"))
 		require.Equal(t, "application/vnd.github+json", r.Header.Get("Accept"))
 		switch r.URL.Path {
 		case "/user":
@@ -84,7 +84,7 @@ func TestFetchGitHubUserInfoUsesNumericIDAndVerifiedPrimaryEmail(t *testing.T) {
 	info, err := s.fetchOAuthUserInfo(
 		httptest.NewRequest(http.MethodGet, "/", nil),
 		provider,
-		oauth2TokenResp{AccessToken: "github-service-token", TokenType: "bearer"},
+		oauth2TokenResp{AccessToken: "github-access-token", TokenType: "bearer"},
 	)
 	require.NoError(t, err)
 	require.Equal(t, "12345", info.Subject)

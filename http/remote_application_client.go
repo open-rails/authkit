@@ -23,7 +23,7 @@ type OrgIssuersClient struct {
 	httpClient *http.Client
 	// AuthToken, when set, is sent as a Bearer token on the registration
 	// request. The accept endpoint authorizes by org owner/admin, so this must
-	// be a service token for a user who owns the org being registered.
+	// be a API key for a user who owns the org being registered.
 	authToken string
 }
 

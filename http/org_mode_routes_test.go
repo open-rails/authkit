@@ -1,8 +1,6 @@
 package authhttp
 
 import (
-	"bytes"
-	"context"
 	"crypto"
 	"net/http"
 	"net/http/httptest"
@@ -41,40 +39,26 @@ func newTestServiceWithOrgMode(t *testing.T, mode string) *Service {
 	return &Service{svc: coreSvc, verifier: ver}
 }
 
-// (issue 60) Org routes are always registered (no org-mode gate); the host
-// controls exposure by mounting the RouteOrgs group. They require auth.
-func TestAPIHandler_TokenOrg_RouteAlwaysRegistered(t *testing.T) {
+func TestAPIHandler_TokenOrg_RouteRemoved(t *testing.T) {
 	s := newTestServiceWithOrgMode(t, "")
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/token/org", bytes.NewReader([]byte(`{"org":"acme"}`)))
+	r := httptest.NewRequest(http.MethodPost, "/token/org", nil)
 	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAPIHandler_OrgInviteRoutes_AlwaysRegistered(t *testing.T) {
 	s := newTestServiceWithOrgMode(t, "")
 	h := s.APIHandler()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/me/invites", nil)
+	r := httptest.NewRequest(http.MethodGet, "/me/org-invites", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
-}
 
-func TestAPIHandler_TokenOrg_InvalidRequest(t *testing.T) {
-	s := newTestServiceWithOrgMode(t, "multi")
-	h := s.APIHandler()
-
-	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
-	require.NoError(t, err)
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/token/org", bytes.NewReader([]byte(`{}`)))
-	r.Header.Set("Authorization", "Bearer "+tok)
-	r.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/me/invites", nil)
 	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Equal(t, http.StatusNotFound, w.Code)
 }

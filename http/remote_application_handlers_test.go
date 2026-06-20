@@ -46,7 +46,7 @@ func TestClaimsHasGlobalAdmin(t *testing.T) {
 }
 
 // TestInboundHandlerRejectsDelegatedPrincipal locks the human-only rule:
-// trust-config mutation requires a human session. A delegated/service token
+// trust-config mutation requires a human session. A delegated/API key
 // carries no `sub` (UserID stays empty), so it must be rejected with 401 even
 // though it is a VALID authenticated principal for other routes — a stolen
 // platform signing key must not be able to re-point trust at attacker

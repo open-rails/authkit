@@ -7,116 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 92
-
----
-
-# #91: Generalize the admin user DIRECTORY (list/search/sort/detail) + make billing-enrichment a first-class pluggable filter
-
-**Completed:** no
-
-## Metadata
-
-- Category: feature
-- Status: not_started
-- Passes: false
-
-ACTIVE — needed NOW by ~/doujins's admin dashboard; building it here lets doujins DELETE its bespoke admin-user API and reuse AuthKit (and lets the standalone OpenRails console + cozy-art reuse it too). Cross-repo pair with OpenRails #535 (the reverse entitlement query that backs the entitlement filter) + doujins #414 (the consumer). Decided 2026-06-19 after auditing ~/authkit + ~/doujins.
-
-AuthKit is the USER DIRECTORY for every host app's admin dashboard. Identity lives here; billing state (entitlements/subscriptions/credits) lives in OpenRails and is composed IN via a provider seam. This issue generalizes the directory and turns the existing enrichment seam into a real filter.
-
-## What EXISTS today
-- `core.AdminListUsers(ctx, page, pageSize, filter, search, onlyDeleted)` (`core/service.go:3222`) + `GET /admin/users` (`http/admin_routes.go`): ILIKE search over username/email/phone, pagination, fixed `ORDER BY created_at DESC`.
-- `core.AdminGetUser` detail; ban/unban/role-grant/sessions admin routes.
-- A `BatchEntitlementsProvider` interface called inside `AdminListUsers` (`enrichEntitlements`) — host injects OpenRails as the provider, so list rows already carry `entitlements []string` from billing (one batched call per page). THIS is the right composition seam and already ships in doujins.
-
-## The problems (host-leakage + missing capability)
-- **Product leakage into core:** `AdminListUsers`'s `filter` is HARDCODED to doujins-specific role slugs — `"super administrators"`, `"taggers"`, `"bloggers"`, `"10 random premium members"` (`core/service.go:3249-3273`). AuthKit core must not know host product roles.
-- **Can't filter by entitlement:** the directory filters by AuthKit ROLES only. "Find all premium users" is an OpenRails ENTITLEMENT in another schema, so doujins had to hand-roll a cross-schema `profiles.users ⋈ openrails.entitlements/customers` raw SQL join (`~/doujins internal/api/admin/users/handler.go`) — exactly the schema-coupling we want to kill. The enrichment provider can ENRICH but not FILTER.
-- **Detail endpoint isn't enriched:** `GET /admin/users/:id` returns identity only; billing is NOT enriched (the list is). Hosts merge it client-side (doujins `useAdminUserEdit.ts`). Asymmetric.
-- **Thin per-org listing:** `ListOrgMembers` returns only UUID strings, no detail/pagination.
-- No standalone `CountUsers`, no sort options, no cursor pagination, no generic role/org/status filter.
-
-## Build order (so doujins can adopt incrementally)
-1. Generic directory (no OpenRails dependency) — ships first, unblocks doujins's search/sort/list/detail move.
-2. Provider FILTER seam + detail enrichment — depends on OpenRails #535; lands the premium filter + kills doujins's raw SQL.
-
-## Tasks
-- [x] **(1)** Generalize `AdminListUsers` filtering: removed the hardcoded host role slugs; `AdminListUsers(ctx, AdminUserListOptions)` now takes a generic, composable filter — `Role` (any global-role slug) + `OrgSlug` (any org) + `Status` (active/banned/deleted/any, default non-deleted) + `Search`. No product strings in core. (`core/service.go` `adminUserDirectoryQuery`.)
-- [x] **(1)** Sort options (`AdminUserSort`: created_at/last_login/username/email) + `Desc`, stable `u.id` tiebreaker; offset pagination retained (cursor deferred — offset is fine for admin directories). Handler param `order=asc` flips the default newest-first.
-- [x] **(1)** `AdminCountUsers(ctx, opts)` — real standalone count sharing the same query builder.
-- [~] **(1)** (Optional) richer per-org `ListOrgMembers` with detail+pagination — DEFERRED (the `OrgSlug` filter on `AdminListUsers` already covers "users in org X with detail"; a dedicated members-with-roles endpoint can come with #228 if needed).
-- [x] **(2)** Provider seam extended ENRICH → ENRICH **+ FILTER**: new `EntitlementFilterProvider` interface (`ListSubjectsWithEntitlement(ctx, entitlement) []subjectIDs`); `AdminListUsers(opts.Entitlement=...)` type-asserts the entitlements provider to it, resolves the subject set, and filters `u.id = ANY(...)`. No provider → `ErrEntitlementFilterUnavailable` (fail loud). Backed by OpenRails #535.
-- [x] **(2)** Single-user DETAIL (`AdminGetUser`) already enriches entitlements via `s.ListEntitlements` (the provider) — verified symmetric with the list.
-- [x] Tests: `core/admin_directory_test.go` — DB-validated (real Postgres) search/role/status/sort/pagination/count + provider-backed entitlement filter with a fake provider + `ErrEntitlementFilterUnavailable`. All green. (HTTP handlers `handleAdminUsersListGET`/`handleAdminDeletedUsersListGET` rewritten to the generic params: page/page_size/search/role/org/status/sort/order/entitlement; the `filter` magic-string param is GONE.)
-- [ ] Ship: tag + bump so ~/doujins (#414) + OpenRails embed can consume — do AFTER OpenRails #535 + doujins #414 validate together (one authkit tag for the whole cross-repo change). Pending user OK to commit/tag.
-
-**STATUS: code-complete + DB-validated (2026-06-19).** Only the release (tag+bump) remains, batched with #535/#414.
-
-## Downstream consumer adoption (audited 2026-06-19) — NO required changes
-The only breaking change is the `AdminListUsers(...)` GO signature + the removal of the `filter` query param on `GET /admin/users`. The `AdminUser` JSON shape (roles, entitlements, …) and page/page_size/search are UNCHANGED. Audit of the other consumers:
-- **doujins** (#414): the real adopter — it overrode `/admin/users` to add a raw-SQL premium filter; #414 deletes that and wires the provider filter. (separate issue)
-- **hentai0**: its admin Users page calls `GET /admin/users` with ONLY `page`/`page_size` (no `filter`), and reads `roles`/`entitlements` (enrich path preserved). No Go call to `AdminListUsers`. → bump-safe, NO changes. (Optional future: wire its `OpenRailsEntitlementsProvider` to also implement `EntitlementFilterProvider` + add a `?entitlement=premium` server filter — today it computes premium client-side from the enriched `entitlements`.)
-- **cozy-art**: mounts `authkitgin.RegisterAPI` (so the route exists) but no frontend consumes `/admin/users`; its `EntitlementsProvider` (enrich) is already wired. → bump-safe, NO changes. (Optional future: extend that provider with `EntitlementFilterProvider`.)
-- **tensorhub**: mounts the route, nothing consumes it; no entitlement provider (HTTP client of standalone OpenRails, not embedded). → bump-safe, NO changes. (If it ever needs "users with entitlement X" it uses the OpenRails #535 s2s route, not a Go provider.)
-Net: only doujins needs work (#414); hentai0/cozy-art/tensorhub bump cleanly. The new entitlement-FILTER capability is opt-in everywhere.
-
-## Boundaries (capture in docs)
-- AuthKit owns the directory: only LOCAL AuthKit users (`profiles.users`). Federated/delegated subjects (a remote host's own users, only ever a `delegated_sub` claim) are NOT in this directory — a host using AuthKit as ITS identity provider (doujins-style, users in `profiles.users`) is the case this serves.
-- OpenRails owns billing state keyed by subject and is consumed as the provider — never queried via raw SQL by the host.
-- The host (or OpenRails' own standalone console, OpenRails #228) COMPOSES directory + billing; neither subsystem alone answers "premium users with their detail."
-
----
-
-# #90: Auth hardening — 15m token TTL, swallowed-error fixes, SIWS atomic consume, hot-reload key rotation
-
-**Completed:** no
-
-From the 2026-06-18 implementation audit (`audit-authkit.md`, AK-IMPL-1/2/3). Scope was deliberately trimmed after review: the audit's `jti`/per-request-liveness store and the key-rotation state-machine/admin-API/DB-table were **rejected as over-engineered** — see "Explicitly dropped" so they don't get re-proposed straight off the audit. Rationale: delegated tokens already default to 15m (`core/delegated.go:108`) and merchant suspension is already immediate (OpenRails `merchantForIssuer` fails closed per request), so revocation lag is bounded by TTL and not worth a per-request revocation store.
-
-## 1. Shorten first-party access-token default to 15m
-`core/service.go` — the `accessTTL == 0 → time.Hour` fallback → `15 * time.Minute`. OpenRails does not override it, so it flows through. Bounds access-token revocation lag (logout / ban / password-change) to ≤15m, which is accepted.
-
-## 2. Swallowed errors on security-critical paths (AK-IMPL-2) — fix differs per site, NOT just "add logging"
-- **2a refresh-reuse family revoke** (`core/service_sessions.go:103`): the reuse attempt is already rejected, but if `revokeFamily` errors the rest of the stolen family stays alive. Make the revoke actually land — log ERROR + alert; retry if cheap. Logging alone is insufficient.
-- **2b disabled-user revoke-all** (`core/service_sessions.go:118`): just log ERROR. Mostly mooted by the 15m TTL (in-flight token dies ≤15m; refresh already blocked by `IsUserAllowed`). Lowest priority.
-- **2c OIDC link + email-verified writes** (`http/oauth2_browser.go:346,348,382`): **flow change.** Today the callback completes as if linked even when the write fails → next OIDC login can't find the link → error or DUPLICATE ACCOUNT (worse: doujins/hentai0 share one auth DB). Fail the callback (return error, user retries) instead of swallowing. Highest priority — data integrity. Verify the duplicate-account path concretely.
-
-Do NOT build the `pending_revocations` retry-queue table the audit suggests — fail-closed + user-retry is simpler; these are rare DB hiccups. Add a queue only if telemetry shows frequent failures.
-
-## 3. SIWS replay — atomic consume (AK-IMPL-2d)
-`siws.ChallengeCache` (`siws/siws.go:55-58`) exposes only `Get`+`Del`; `VerifySIWSAndLogin` (`core/service_solana.go:107,116`) does Get→Del→verify with the Del error swallowed AND Get-then-Del non-atomic → two concurrent requests with the same nonce both pass Get → replay within the 15m challenge TTL.
-- Add atomic `Consume(ctx, nonce) (ChallengeData, bool, error)` to `ChallengeCache` (Redis `GETDEL`/Lua; in-process backend = single-winner delete).
-- Use it in `VerifySIWSAndLogin` in place of Get+Del.
-- Check the same swallowed `_ = s.ephemDel` pattern on other single-use tokens (password reset, email verify, 2FA in `core/ephemeral_data.go`); `TestPasswordResetSessionOneTimeConsume` suggests those may already be handled elsewhere — confirm.
-
-## 4. Hot-reload signing keys — no-reboot rotation (AK-IMPL-3)
-`jwt.StaticKeySource` loads `keys.json` once at boot; rotation requires a process restart, and a multi-replica restart has a cross-replica skew gap. Replace with a reloadable source so rotation is a single file edit (Vault Agent renders the file; app picks it up live).
-- **`ReloadableKeySource`** — `atomic.Pointer[StaticKeySource]`, implements the existing `KeySource` interface (`jwt/keys.go:19` — `ActiveSigner()` / `PublicKeys()`), so `core.Service` construction is unchanged (still takes the interface).
-- **`Reload()`** — re-read via existing `tryLoadFromFilesystem`, VALIDATE (active key present + parseable), then atomic swap. On any read/parse error keep the old keystore + log ERROR (never brick a replica on a truncated/malformed file; also the partial-write guard — Vault Agent renders via temp+rename so reads are atomic anyway).
-- **Background poll** — stat the file mtime every N seconds (configurable, default **10s**), `Reload()` on change.
-- **Accepted tradeoff (in-process fleet skew only):** a few-second cross-replica skew among THIS fleet (server-1 signs new before server-3 has polled → transient 401 → client re-auths → self-heals next poll). Acceptable, so we do NOT build an *in-process keystore* reload-on-unknown-kid backstop.
-- **KEEP the HTTP verifier's existing unknown-kid lazy refetch** (`http/verifier.go:68-73`, `kidRefetchMin` 30s + single-flight) — SEPARATE mechanism, load-bearing for EXTERNAL/federated verifiers (e.g. doujins rotates → an external service holding a stale cached JWKS sees the new `kid`, force-refetches the issuer's JWKS, accepts if now present / rejects if still absent; same path OpenRails uses to verify a federated merchant issuer). Not in scope to change — just don't conflate it with the dropped in-process backstop. The hot-reload above is what makes the issuer's own `/.well-known/jwks.json` publish the rotated key live so that refetch actually finds it.
-- **Runbook (docs, no code):** rotate = edit `keys.json` → new key in `active_*`, move old key's PUBLIC pem into `public_keys` (keeps ≤15m in-flight tokens verifying); delete the old `public_keys` entry a day later. Emergency (suspected compromise): same edit but drop the old public key immediately — all old-key tokens fail after pickup, ≤15m re-auth blast radius.
-
-## Explicitly dropped (do not re-propose from the audit)
-- `jti` claim + per-request liveness lookup + `revoked_jti` table + verifier `RequireSessionLive` middleware (AK-IMPL-1b). A per-request Redis hit defeats stateless verification for sub-15m enforcement nobody needs; 15m TTL is the accepted bound.
-- Key-rotation pending/active/retired state machine + `POST /admin/keys/rotate` + `signing_keys` DB table (AK-IMPL-3). The `public_keys` map + hot-reload covers it.
-- `pending_revocations` retry-queue table (AK-IMPL-2).
-
-**Tasks:**
-- [x] `accessTTL` default 1h → 15m (`core/service.go`).
-- [x] 2a: family-revoke failure logs ERROR + alerts (retry if cheap). `revokeFamilyEnsured` (retry-once + CRITICAL log) at both `ExchangeRefreshToken` variants.
-- [x] 2b: disabled-user revoke failure logs ERROR. Both refresh variants.
-- [x] 2c: OIDC link write failure now fails the callback (`errProviderLinkFailed` → 500 `provider_link_failed`) at both link sites in `resolveOAuthUser`; cosmetic writes (SetProviderUsername/SetEmailVerified) logged not swallowed. Duplicate-account path confirmed (new-user branch: failed link → next login finds no link → duplicate/dead-end). Residual: orphan-user window without atomic create+link — logged CRITICAL, follow-up = authkit #88 tx-aware provisioning.
-- [x] 3: `ChallengeCache.Consume` added (Redis `GETDEL`; memory locked get-and-delete) + interface method; `VerifySIWSAndLogin` now consumes instead of Get+Del. Audit of other single-use `ephemDel` sites: password-reset (`ephemeral_data.go:301/305`), email-verify (`286/281`), 2FA (`331/338`), phone all share the SAME non-atomic Get-then-Del + swallowed-Del pattern. Sequential reuse IS already prevented (Del lands); only the concurrent-race residual remains, and double-consume there gains an attacker little (reset-twice / extra-session, no auth bypass). Deferred — see follow-up below (touches the PUBLIC `EphemeralStore` interface → consumer coordination).
-- [x] 4: `ReloadableKeySource` (`jwt/keys.go`): atomic-pointer swap, validate-before-swap (`loadStaticFromFile` asserts active signer), keep-old-on-error, 10s mtime poll (`DefaultKeyReloadInterval`), `Close()` for lifecycle. Wired into `NewAutoKeySourceWithPath` file branch (env/dev branches unchanged). Consumers calling `NewAutoKeySource` get hot-reload free when keys.json exists.
-- [x] Tests (all green under `-race`): SIWS single-use + concurrent single-winner + TTL-expiry (`storage/memory/siws_cache_test.go`); hot-reload active-key swap + poller pickup + retained retired pubkey + keep-old-on-malformed (`jwt/keys_reload_test.go`). Existing `core`/`http` suites still pass (OIDC link + solana-verify paths unbroken). DEFERRED (low-risk, need DB fault-injection / heavy setup): default-TTL=15m assertion (one-line literal) and 2a/2c revoke/link failure-path assertions.
-- [x] Document the rotation runbook (routine + emergency) → `jwt/KEY_ROTATION.md`.
-
-**Follow-ups (separate issues, intentionally out of scope here):**
-- Atomic `EphemeralStore.Consume` (GETDEL) routed for password-reset / 2FA / email-verify / phone single-use tokens. Deferred: breaks the public `EphemeralStore` interface (consumer coordination) and the concurrent-race residual is low-value. Sequential single-use is already enforced.
-- Atomic create+link in OIDC provisioning (removes the orphan-user window in 2c) — pairs with authkit #88 tx-aware provisioning.
+next_id: 97
 
 ---
 
@@ -202,13 +93,13 @@ Consumer: OpenRails `controlplane.New` makes the signing key optional — key pr
 
 ---
 
-# #86: Rename long-lived service tokens to API keys in public surfaces
+# #86: Rename long-lived machine credentials to API keys in public surfaces
 
 **Completed:** yes
 
 AuthKit's long-lived `profiles.service_tokens` are API keys in product terms: opaque bearer credentials stored as a hash, revocable, expirable, scoped to org permissions/resources, and used by machines via `Authorization: Bearer ...`.
 
-Problem: "service token" collides with JWT access tokens and delegated service tokens. Keep the storage/internal implementation name for now; change the public/bootstrap terminology to API keys.
+Problem: the previous public name collided with user access tokens, delegated access tokens, service JWTs, and remote applications/issuers. Keep the storage/sqlc implementation name for now; change the public/bootstrap terminology to API keys.
 
 Target public shape:
 
@@ -229,24 +120,24 @@ orgs:
 
 Rules:
 - `api_keys` is the preferred manifest/bootstrap field.
-- `service_tokens` may be accepted only as a temporary deprecated alias if needed for existing manifests; do not document it.
+- `service_tokens` is rejected as an unknown legacy manifest field; do not accept or document it.
 - API keys are org-owned, not user-owned. `created_by` is audit only.
 - `permissions` and `resources` keep the existing meaning.
 - `output` writes the plaintext once; existing non-empty output means keep, do not mint.
 - Current presented keys still use the existing `<prefix>_st_<key_id>_<secret>` mechanics.
 - `prefix` is configured once by the issuing app/deployment through `APIKeyPrefix`, e.g. OpenRails can use `or`, Tensorhub can use `th`, Doujins can use `dj`.
 - Prefix has no authorization meaning; DB metadata owns org, permissions, resources, expiry, and revocation.
-- Prefix validation stays boring: lowercase letters/numbers, short, no underscores, no tenant/user data, no secrets.
-- Do not rename DB tables/functions in this issue unless it is mechanically free.
+- Prefix validation stays boring: lowercase letters/numbers, short, no underscores, no org/user data, no secrets.
+- Do not rename DB tables/sqlc methods in this issue unless it is mechanically free.
 
 **Tasks:**
-- [x] Add `api_keys` to `OrgManifestOrg`, mapped to the existing service-token provisioning implementation.
-- [x] Reject manifests that specify both `api_keys` and `service_tokens` for the same org.
-- [x] Add `APIKeyPrefix` / `APIKeyMaxTTL`; keep existing `ServiceTokenPrefix` / `ServiceTokenMaxTTL` as deprecated aliases.
+- [x] Add `api_keys` to `OrgManifestOrg`, mapped to the existing storage implementation.
+- [x] Reject legacy `service_tokens` manifest fields.
+- [x] Add `APIKeyPrefix` / `APIKeyMaxTTL`; remove the old public config aliases.
 - [x] Expose/document the API-key prefix as the self-describing app/deployment prefix (`or`, `th`, `dj`).
-- [x] Add `/orgs/{org}/api-keys` route aliases while keeping `/service-tokens` during the terminology cut.
+- [x] Add `/orgs/{org}/api-keys` routes and remove the old route spelling.
 - [x] Rename public docs/comments/API text to API keys for the long-lived opaque credential.
-- [x] Tests: `api_keys` mints/keeps like current `service_tokens`; mixed `api_keys` + `service_tokens` fails explicitly; `/api-keys` route is gated like the legacy route.
+- [x] Tests: `api_keys` mints/keeps through the existing storage path; legacy `service_tokens` fails explicitly; `/api-keys` route is gated by `org:api_keys:manage`.
 
 Follow-up if we want the simplified public key string:
 - Mint new API keys as `<prefix>_<base64url_secret>`.
@@ -257,7 +148,7 @@ Follow-up if we want the simplified public key string:
 
 # #45: Passkey (WebAuthn/FIDO2) authentication — register, login, manage
 
-**Completed:** no
+**Completed:** yes
 
 Add passkeys (WebAuthn/FIDO2) as a first-class authentication method in authkit, alongside password, OIDC, and SIWS. Passkeys are phishing-resistant, usernameless-capable credentials bound to the relying party (RP) domain. A user can register one or more passkeys and authenticate with them; a successful login mints the SAME access/refresh session as the password path (and honors the optional `org` body param).
 
@@ -271,7 +162,7 @@ STORAGE: new profiles.user_passkeys (id uuidv7, user_id fk, credential_id bytea 
 
 SECURITY: RPID/origin phishing-resistance (library-enforced); sign-count regression -> reject (clone); single-use short-TTL challenges; anti-enumeration on username-scoped login begin; rate-limit begin+finish; live-user ban/deleted gate on login.
 
-MIGRATION PACKAGING (do it right): add profiles.user_passkeys as a NEW NUMBERED migration (002_user_passkeys.up.sql), NOT appended to the consolidated 001 file — migratekit is name-tracked and won't re-apply 001 to DBs that already recorded it, so tables added to 001 never reach existing deployments (the service_tokens gotcha). A new numbered file IS applied to existing DBs.
+MIGRATION PACKAGING (do it right): add profiles.user_passkeys as a NEW NUMBERED migration (002_user_passkeys.up.sql), NOT appended to the consolidated 001 file — migratekit is name-tracked and won't re-apply 001 to DBs that already recorded it, so tables added to 001 never reach existing deployments. A new numbered file IS applied to existing DBs.
 
 ROUTES (new RouteGroup RoutePasskeys): POST /passkeys/register/begin (AUTH), POST /passkeys/register/finish (AUTH), POST /passkeys/login/begin (PUBLIC), POST /passkeys/login/finish (PUBLIC), GET /passkeys (AUTH; metadata only), DELETE /passkeys/{id} (AUTH), PATCH /passkeys/{id} rename (AUTH, optional).
 
@@ -298,13 +189,13 @@ NON-GOALS: enterprise/attestation-conveyance policy (accept 'none'); MDS metadat
 
 Add browser origin policy to `remote_application`, keyed to the same issuer trust record used for delegated JWT verification. AuthKit should own both the policy and the middleware/helpers that enforce it; OpenRails and host apps should mount AuthKit-provided plumbing rather than re-implement issuer/CORS logic.
 
-Problem found during the OpenRails config audit: OpenRails has a `merchant_cors` shape that looks per-merchant, but its current behavior is only a flattened global CORS allow-list. That does not enforce "a Doujins delegated-user request for Doujins may only come from doujins.com"; it only says "this browser origin may call this OpenRails instance." In public merchant registration, where Doujins and Evil can both register valid issuers and allowed origins, preflight CORS adds no tenant-isolation value because the preflight has no JWT issuer. Auth still protects data; CORS is compatibility/browser hardening, not authorization.
+Problem found during the OpenRails config audit: OpenRails has a `merchant_cors` shape that looks per-merchant, but its current behavior is only a flattened global CORS allow-list. That does not enforce "a Doujins delegated-user request for Doujins may only come from doujins.com"; it only says "this browser origin may call this OpenRails instance." In public merchant registration, where Doujins and Evil can both register valid issuers and allowed origins, preflight CORS adds no merchant-isolation value because the preflight has no JWT issuer. Auth still protects data; CORS is compatibility/browser hardening, not authorization.
 
 CURRENT OPENRAILS WIRING:
 - `config.MerchantCORS` is only consumed by `Config.AllowedCORSOrigins()`, which unions `cors_origins` + all merchant origins.
 - Standalone (`newPublicEngine`), embedded net/http (`embedhttp.Assembler`), and embedded gin self-service all pass that union into generic CORS middleware before auth.
 - The delegated browser surfaces (`/v1/self/*` and `/v1/merchant-admin/*`) already resolve `ResolvedDelegated.Issuer` and pin the merchant from that validated issuer, but they do not check `Origin` against the issuer.
-- Webhooks and service-token/server-to-server routes should not use this browser-origin policy.
+- Webhooks and API-key/server-to-server routes should not use this browser-origin policy.
 
 The right source of truth is AuthKit's `remote_application`: it already binds `issuer -> JWKS/static keys -> audiences -> enabled -> org owner`. For browser-delegated traffic, the issuer that signed the delegated JWT should also define the exact browser origins allowed to present that issuer's tokens. Example: issuer `https://auth.doujins.com` may allow `https://doujins.com` and `https://www.doujins.com`; issuer `https://auth.hentai0.com` may allow only Hentai0 origins.
 
@@ -329,3 +220,216 @@ SECURITY MODEL:
 - [x] Add a tiny helper such as `OriginAllowedForIssuer(ctx, issuer, origin)` or equivalent lookup; it should return false for unknown/disabled issuers and true for empty origin only when the caller opts into non-browser allowance.
 - [x] Open OpenRails follow-up issue #519: remove `merchant_cors` and use AuthKit-provided CORS/delegated middleware or `DelegatedAuthenticator` integration. OpenRails should not own delegated issuer-origin policy.
 - [x] Tests: register remote_application with origins, reject malformed origins, AuthKit CORS preflight allows only the enabled-origin union, disabled/unknown issuer fails closed, and delegated middleware rejects `issuer A + origin B`.
+
+---
+
+# #92: Rename `PermissionCatalog` → `Permissions` (purge the "catalog" homonym from RBAC vocabulary)
+
+**Completed:** yes
+
+`core.Config.PermissionCatalog []PermissionDef` is the embedding app's declared set of valid permission strings — the registry AuthKit validates role/grant writes against (`ValidateGrant`'s `unknown` return is exactly this membership check). The word "catalog" collides badly with host product domains: OpenRails has a *product catalog* and a permission literally named `catalog:write`, so `PermissionCatalog` misreads as "permissions on the catalog" when it means "the registry of all permissions."
+
+Decision (2026-06-19, with Paul): rename to `Permissions`. It is the NIST RBAC formal term (the set PRMS), matches GitHub's "permissions", and pairs cleanly with the sibling field `DefaultRoles []DefaultRole`. The element type `PermissionDef` is unchanged; the type already disambiguates a *definition* list (`[]PermissionDef`) from a *grant* list (`[]string`), so the bare name is unambiguous in context.
+
+Scope: AuthKit-internal naming ONLY — NOT a model change. AuthKit's resource model (resource-scoped grants `resource:action:name` + `APIKeyResource{Kind,ID}`) and its opaque-string treatment already exist and stay exactly as-is. Out of scope (separate host-side issues, do not do here): OpenRails dropping the `openrails:` permission prefix + renaming its OWN `Catalog()` — that is **OpenRails #537** (the permission-string hard-cut to `resource:action` + `self`/`merchant`/`platform` tiers), which DEPLOYS IN LOCKSTEP with this rename (hard-cut, no compat window) — and migrating doujins/hentai0 onto AuthKit-as-RBAC-authority (passing a non-empty `Permissions`).
+
+Rules:
+- The field rename is a breaking change to `core.Config`. OpenRails is the ONLY setter (`controlplane/service.go` passes `PermissionCatalog: Catalog()`), so update it in the same change. doujins/hentai0 leave the field empty and are unaffected.
+- Keep the public JSON response key `"permissions"` (the permission-catalog GET already uses it — no wire break there).
+- Do NOT touch OpenRails' own `Catalog()` function or its `openrails:catalog:*` permissions — "catalog" is a legitimate product concept in the host; this issue only removes it from AuthKit's generic RBAC vocabulary.
+
+**Tasks:**
+- [ ] Rename `core.Config.PermissionCatalog` → `Permissions` (type stays `[]PermissionDef`); update the options-struct mirror in `core/service.go` (the `PermissionCatalog: cfg.PermissionCatalog` copy + its field).
+- [ ] Rename the exported accessor `Service.Catalog()` → `Permissions()` and the internal `catalogSet()` → `knownPermissions()`; update `EffectivePermissions` / `effectivePermsForTokens` / `ValidateGrant` references.
+- [ ] Rename the permission-catalog GET handler (`handlePermissionCatalogGET`) and any route/comment literal containing "catalog"; keep the response body keyed on `"permissions"`.
+- [ ] Sweep comments/docs: "permission catalog" → "permission set"/"permissions"; reserve "catalog" for host product domains.
+- [ ] Update the sole consumer: OpenRails `controlplane/service.go` `PermissionCatalog: Catalog()` → `Permissions: Catalog()`.
+- [ ] Build + tests green in authkit; confirm doujins/hentai0 compile unaffected (they do not set the field).
+- [ ] Land in lockstep with **OpenRails #537** — the consumer flips `PermissionCatalog`→`Permissions` in the SAME deploy as its `openrails:`-prefix hard-cut; hard-cut, no compat window (Paul).
+
+---
+
+# #93: Remove the `!perm` negation operator from permission evaluation (positive grants only)
+
+**Completed:** no
+
+Decision (2026-06-19, Paul): drop negation from AuthKit's permission model. The evaluator special-cases exclusion tokens — `!perm` subtracts a permission from a `*`/role grant (Azure-`NotActions`-style). It is the sketchiest part of the model: pure RBAC is additive-only (Kubernetes has no deny; the NIST RBAC model is positive grants only), "what can X do?" becomes a set-subtraction, and it already caused a real fail-OPEN bug — tensorhub's admin role seed carried `!org:roles:manage` referencing a renamed perm, which matched nothing, so the exclusion silently no-op'd and the "restricted" admin held ALL permissions. Keep the `*` wildcard CHARACTER for namespace-anchored globs (`org:*`, `root:*`); remove ONLY negation. (The BARE `*` god-grant is dropped separately in #95 — `owner` becomes `org:*`.)
+
+Safe to remove — nothing uses it: doujins/hentai0 checked clean (no wildcard+exclusion role seeds), tensorhub's `!`-token was the bug (removed), and OpenRails' operator role stores an ENUMERATED list (computes `all − platform` in Go, never stores `*`+`!`). Pairs with the role-definition policy in **OpenRails #537** (roles positively enumerated; `*` break-glass-only; `!perm` banned).
+
+Behavior after removal: a `!`-prefixed token is no longer special-cased — it is an ordinary permission string, not in any catalog, so `ValidateGrant` rejects it as `unknown` (fail-CLOSED) instead of silently narrowing a grant. `*` (all-perms wildcard) is unchanged.
+
+UPDATE (#95): POSITIVE globs (`org:*`, `org:members:*`, `org:*:read`, AWS-IAM style) are now FIRST-CLASS — the earlier "`*` break-glass-only" stance is superseded. Only NEGATION (`!perm`) is removed; positive wildcards stay and expand.
+
+This is a BEHAVIOR change, so it is OUT of #92's scope (which is naming-only).
+
+**Tasks:**
+- [ ] Remove the `!perm` branch from `effectivePermsForTokens` (the `permExcludePrefix` handling); keep the glob `*` expansion for namespace-anchored globs (`org:*` → all `org:` perms); the BARE `*` god-token is dropped (#95).
+- [ ] `ValidateGrant`: drop the "exclusion only narrows; nothing to validate" skip so a `!`-prefixed token falls through to the catalog check → `unknown` (rejected).
+- [ ] Remove the `permExcludePrefix` constant + any exclusion docs/comments.
+- [ ] Tests: a role/grant with `!perm` now FAILS validation (fail-closed) instead of silently granting everything; `*` still expands to the full catalog; positively-enumerated roles unchanged. `UnknownRoleTokenNames` now simply flags the `!`-token as unknown.
+- [ ] Sweep: confirm no live role seed / bootstrap manifest in authkit or any consumer uses `!` (grep); none expected.
+
+---
+
+# #94: Enforce the no-escalation invariant on EVERY grant path + a found gap (remote-app direct grant) — code + tests
+
+**Completed:** no
+
+CRITICAL INVARIANT (Paul, "checked doubly so"): **you can never grant a permission you do not yourself hold.** A caller with `org:members:manage` / `org:roles:manage` / `org:remote_applications:manage` / `org:api_keys:manage` must NOT be able to hand a member, role, API key, or remote application any permission outside their own effective set — blocking escalation (handing out `owner`/`org:*`, or `root:*`, that the grantor lacks). Enforced by `ValidateGrant` (returns `offending` for perms the actor lacks; `owner`/`org:*` passes within its org, a `global`-scoped operator passes, and the bootstrap system-actor passes).
+
+**GAP FOUND (2026-06-19):** the remote-application DIRECT permission-grant path does NOT call `ValidateGrant`. `handleRemoteApplicationPermissionPOST` (`http/remote_application_handlers.go:295`) only checks catalog MEMBERSHIP (`AddRemoteApplicationPermission` → `ErrUnknownPermission`) — it does NOT check no-escalation. So anyone who can manage a remote application can grant it ANY catalog permission, including perms the grantor lacks (`root:*`, …); the remote-app then acts with escalated authority. Real escalation hole.
+
+Coverage today — HAVE the check: role-perm set (`org_role_permissions_handlers.go:58`), role assign-to-member (`org_membership_roles_handlers.go:66`), API-key mint (`api_keys_handlers.go:209`), org invite (`service_org_invites.go:55`). MISSING: remote-app direct grant.
+
+Root cause: `ValidateGrant` is enforced in the HTTP handlers, NOT in the core mutators (`AddRemoteApplicationPermission`, `AssignRole`, `SetRolePermissions`, `MintServiceToken`). So any NEW grant path that forgets the check is a silent escalation hole — exactly what happened here.
+
+**Tasks:**
+- [ ] FIX the gap: add `ValidateGrant` to `handleRemoteApplicationPermissionPOST`; reject 403 `permission_grant_denied` when `offending` is non-empty (mirror the role/API-key paths).
+- [ ] Defense-in-depth: enforce no-escalation in the CORE grant mutators too, with an explicit trusted/`SystemActor` bypass for bootstrap/manifest seeding (which legitimately seeds `owner`=`org:*` that nobody holds yet). HTTP keeps its check (belt + suspenders) so the invariant can't be lost by a future handler.
+- [ ] Comprehensive tests, ONE per grant path: a grantor holding a STRICT SUBSET cannot grant outside it (→ 403/`offending`); `owner`(`org:*`) / a global operator CAN; granting any perm the grantor lacks is blocked. Cover member-role assign, role-perm set, API-key mint, org invite, AND remote-app direct grant.
+- [ ] Regression test locking THIS gap: a remote-app manager lacking `root:users:ban` cannot grant it to a remote application.
+
+NOTE: unify-on-roles is DECIDED (roles-only — see #95): dropping `service_token_permissions` + `remote_application_permissions` direct lists DELETES the remote-app/API-key direct-grant paths and closes this whole class by construction. Until that lands, every direct-grant path MUST call `ValidateGrant`. Also: with globs first-class (#95), `ValidateGrant` must EXPAND globs when checking no-escalation — granting `org:members:*` requires the grantor to effectively hold all of `org:members:*`.
+
+---
+
+# #95: RBAC permission model — granular CRUD + positive glob wildcards + owner/operator apex + `org:` shared namespace + unify-on-roles
+
+**Completed:** no
+
+The TARGET AuthKit permission model after the 2026-06-19 design pass with Paul (master design doc). Consolidates the already-split pieces — #92 (rename `PermissionCatalog`→`Permissions`), #93 (remove `!perm` negation), #94 (no-escalation on all grant paths) — plus the model decisions below. Hard-cut, no legacy. Consumer: OpenRails #537.
+
+## Grammar
+- Permissions are `<namespace>:<resource>:<action>`, lowercase, colon-separated.
+- **Actions are CRUD: `{create, read, update, delete}`.** `read` = list + get-detail (ONE action; secrets are NEVER returned by any read). No separate `list`; no `:manage` action. (Paul chose `read` over `list` — more conventional; remember it also implies list.)
+- **Positive GLOB wildcards are first-class (AWS-IAM style; `*` is a wildcard CHARACTER) — but globs MUST be namespace-anchored. There is NO bare `*`:**
+  - `org:*` — everything under `org:` (the org owner).
+  - `org:members:*` — all CRUD on members ("manage" with NO manage perm).
+  - `org:*:read` — read across all org resources ("view-all" with NO viewer role).
+  - `platform:*` — all platform-layer (Layer 2) operations.
+  - **NO bare `*`** (Paul, 2026-06-19): a standalone `*` god-token is DROPPED — "everything" is `org:*` + `platform:*` (the two namespaces/layers), stated explicitly. A grant must have a namespace prefix before any `*` → reject a bare `*`. Bonus: a future new namespace is then NEVER silently auto-granted.
+- **No `:manage` permission, and no manage/viewer ROLE bundles** — the globs above express "all CRUD on X" and "read all" directly (Paul: "you don't need `:manage`, `org:members:*` already means it").
+- **Negation (`!perm`) is BANNED** (#93) — the ONLY removed operator. Net: positive globs + literals, **allow-only, no deny**. Negation's silent-no-op fail-open is gone; globs are purely additive (a glob auto-includes a newly-added matching catalog perm — intended for coarse grants; use specific perms for least-privilege).
+
+## TWO LAYERS (Kubernetes `Role` vs `ClusterRole` — Paul, 2026-06-19)
+Org authority and platform authority are **different object TYPES**, not the same grant with a hidden scope — "maximum obviousness." **This SUPERSEDES the earlier `is_global` org + `@ scope` approach (both DROPPED), and `root:` → `platform:`.**
+
+**Layer 1 — Org RBAC (the `Role` layer; exists today).** A user is a MEMBER of an org with org-role(s) (`org_memberships` → `org_roles` → `org_role_permissions`). Org roles grant **`org:<resource>:<action>`**, scoped to THAT org. `owner` = `org:*` (everything in that ONE org); reusable across orgs (the same role definition works in any org you're a member of). Resources: `members`/`roles`/`api_keys`/`remote_applications` + host resources (OpenRails `org:credits:*`, tensorhub `org:repo:*`). Globs apply within the layer (`org:*`, `org:members:*`, `org:*:read`).
+
+**Layer 2 — Platform RBAC (the `ClusterRole` layer; NEW — super-admins only).** A user is ASSIGNED platform-role(s) **directly — no org involved.** A **completely separate object type: NEW tables `platform_roles` / `platform_role_permissions` / `platform_user_roles`** — NOT the `orgs` table, NO `is_global` flag, NO special org name. A platform role can't be created or assigned through the org system, so **you can't get platform power by being added to an org.** Platform roles grant **ONLY `platform:<resource>:<action>`** — platform/DIRECTORY resources that manage *entities*, with no per-org form: `platform:users:*` (the account directory — ban/edit/delete an account), `platform:orgs:*` (the org directory — rename/transfer-owner/soft-delete + slug lifecycle + anti-takeover **recover** of any org; NO admin-create), `platform:roles:*` (define platform roles), `platform:members:*` (the platform-admin roster), `platform:metrics:*`. **ENTITY-LEVEL ONLY (Paul 2026-06-20): a platform-admin manages orgs as whole entities at a high level and NEVER their day-to-day internals — NOT members, role definitions, api-keys, or remote-applications, not even read-only.** The ONE sanctioned reach inside is **`platform:orgs:recover`** — a coarse all-or-nothing anti-takeover reset (defined below), never granular internal management. (api-keys + remote-applications are org-nested sub-resources, not platform resources.)
+
+**A platform role does NOT grant `org:` perms** (Paul, 2026-06-20 — corrected; the two namespaces are DISJOINT). A platform admin manages the *account / org as an ENTITY* (ban a user, suspend a merchant) but **cannot act INSIDE an org** (read cozy's billing, `org:credits:*`) and **cannot act AS a user** — it does NOT inherit what org members can do. Acting inside an org requires actual org MEMBERSHIP (deliberate) or an explicit, audited break-glass. A host needing a genuine cross-org power defines a `platform:` resource for it (e.g. tensorhub `platform:repos:moderate`), never blanket `org:*`. **Stricter than k8s `cluster-admin` on purpose** — least privilege: the platform team runs the platform, not every tenant's private data.
+
+**super-admin** = a platform role holding `platform:*` = full DIRECTORY authority (all users + orgs + metrics; `reserved-names` + `recover` fold under `orgs`). For day-to-day administration of a specific org's internals it still must be added as a MEMBER (deliberate) — the ONLY direct reach-in is the coarse `platform:orgs:recover` anti-takeover reset.
+
+**Two DISJOINT namespaces, one per layer — no overlap.** `org:` perms exist ONLY in org roles (one org, via membership); `platform:` perms exist ONLY in platform roles (the directory). No string is shared across layers, so there is no "same perm, different scope" subtlety: a perm's namespace tells you its layer, and the layer is a different table. So there is NO `@ scope`, NO `is_global`, NO bare `*`, and NO cross-org `org:*`. AuthKit owns the two layers + their enforcement; the app still owns what any perm MEANS. **Delete the old global-roles-as-flags plane + app-local role→perm maps** (the doujins drift source) — both layers are AuthKit-owned roles now.
+
+## Platform layer — examples + boundaries
+- **Examples (separate layers, separate namespaces):** cozy owner → **org**-role `org:*` (everything in cozy); directory auditor → **platform**-role `platform:users:read` + `platform:orgs:read` (read the user + org DIRECTORIES — NOT any org's internal data); support desk → **platform**-role `platform:users:read` + `platform:users:update`; super-admin → **platform**-role `platform:*` (full directory authority — still not inside any org).
+- **No ambiguity — by STRUCTURE + DISJOINT namespaces.** Org grants and platform grants come from DIFFERENT TABLES (`org_role_permissions` vs `platform_role_permissions`) into DIFFERENT FIELDS of the principal: `org_grants` (keyed by org, `org:` perms only) vs `platform_grants` (flat, `platform:` perms only). The namespaces don't overlap: an `org:` perm can ONLY come from an org membership; a `platform:` perm can ONLY come from a platform role. So a regular user (nothing in `platform_user_roles`) has empty `platform_grants` and is denied every `platform:` route; a platform admin (no org memberships) has empty `org_grants` and can't touch any org's internals. Platform roles get human names (`super-admin`/`support-desk`/`platform-auditor`) for audit readability — but the TABLE + namespace are the boundary.
+- **Globs are namespace-anchored (no bare `*`):** `org:*`, `org:members:*`, `org:*:read`, `platform:*`, `platform:users:*`. A grant must have a namespace prefix before any `*`; "everything a platform role can hold" = `platform:*` (it CANNOT hold `org:*`), never a standalone `*`.
+- **`users` (account) ≠ `members` (org membership).** Banning is a platform op: `POST /admin/users/{id}/ban` gates on **`platform:users:ban`**; removing someone from an org is `org:members:delete`.
+- **Who gets platform roles:** users / API keys / remote-apps, assigned a platform role DIRECTLY (`platform_user_roles`). **Delegated/federated tokens are BARRED** from platform roles (verifier allowlist — a tenant can never mint itself platform authority).
+- **Single-tenant apps** (doujins/hentai0/cozy-art): app users + staff live in the ORG layer (one org); the *operators* (you) hold **platform** roles. **Multi-tenant** (tensorhub): customer orgs are normal orgs; tensorhub staff hold platform roles. Either way platform authority is the separate layer, never an org.
+
+## `org:` is the SHARED per-org namespace
+- REVERSES the old "`org:` is reserved, hosts must use `merchant:`." `org:` now means "scoped to one org," and BOTH AuthKit's base perms AND the host's per-org resources live there.
+- AuthKit reserves only the RESOURCE NAMES inside it: `members`, `roles`, `api_keys`, `remote_applications`, `settings` (the org's own name/profile). The host owns every other `org:<resource>` (tensorhub `org:repo:*`, OpenRails `org:credits:*`, …).
+- `owner == org:*` therefore covers AuthKit management AND host resources in one grant.
+- Cross-org / platform capabilities live in the SEPARATE `platform:` namespace (Layer 2 / `platform_roles`) — a different object type — so an org `owner` (`org:*`) can never reach platform authority.
+
+## AuthKit base perms → granular CRUD
+| resource | create | read (=list+detail) | update | delete |
+|---|---|---|---|---|
+| members | add | list members + roles | change role | remove |
+| roles | define | list roles + perms | set perms / rename | delete |
+| api_keys | mint | list metadata (NEVER secret) | — (immutable; rotate = create+delete) | revoke |
+| remote_applications | register | list + detail | edit config / origins | delete |
+| settings | — | read org (`GET /orgs/{org}`) | rename / edit metadata (`POST /orgs/{org}/rename`) | — |
+
+(`org:settings` has no create/delete — the org *entity* is created/soft-deleted at the directory level via `platform:orgs:*`, Layer 2; `org:settings` is just the owner editing their own org's name/profile.) Old coarse perms RETIRED: `org:<resource>:manage` → glob `org:<resource>:*`; coarse `org:read` → glob `org:*:read`.
+
+The **`platform:`** namespace (Layer-2 platform-only resources, granted in `platform_roles`) — the resources with NO per-org form. Full native catalog:
+
+| `platform:` resource | actions | gates / notes |
+|---|---|---|
+| `users` | read, update, ban, delete | the global account directory (`/admin/users/*`). `users`=account ≠ `org:members`=membership. |
+| `orgs` | read, update (rename + transfer-owner), delete (SOFT), reserved-names, recover | the **org-admin** surface — administer ANY org as an ENTITY at **`/admin/orgs/*`**; **entity-level ONLY** (NO day-to-day member/role/api-key/remote-app internals, not even read-only — those are org-side, break-glass via membership). DISTINCT from a user self-managing their OWN org (`/orgs/{org}/*` via `org:settings:*`, Layer 1). `read` = the org directory (list/search/inspect any org); `update` = rename + transfer-owner (surgical reassign, keeps the team); `delete` = SOFT (`orgs.deleted_at`, restorable → doubles as suspend). `reserved-names` (folded IN from a standalone perm, Paul 2026-06-20) = restrict/unrestrict/park/claim over the org SLUG pool — justified because the owner-namespace IS org-backed (parking a "user" slug mints a personal org); ONE perm for all those slug ops. **`recover`** = the **anti-takeover / account-recovery** reset for a compromised org (Paul 2026-06-20): ATOMICALLY revoke ALL the org's api-keys, disable ALL its remote-applications, demote ALL current members (strip every role), and assign `owner` to one specified rightful-owner — bad actors locked out, good owner restored. Coarse all-or-nothing (NOT granular internal management); heavily audited; separately grantable. **No `create`** — org creation is self-service (`POST /orgs`) or park/claim, never an admin-mint (mirrors `platform:users`). **No `suspend`** — soft-delete is the reversible disable. AuthKit's soft-delete does NOT cascade APP-owned resources (OpenRails billing / tensorhub repos) — the app reacts to org-deletion for its own cleanup. || `roles` | create, read, update, delete | DEFINE platform roles + their perms (the `platform_roles` / `platform_role_permissions` definitions). Parallels `org:roles`. |
+| `members` | create (add), read (list), delete (remove) | the **platform-admin roster** — WHO holds platform roles (`platform_user_roles`; `/admin/roles/{grant,revoke}`). Renamed from `assignments` (Paul 2026-06-20: parallels `org:members`; "assignment" didn't read right). DISTINCT from `platform:users` (the directory of ALL accounts) — `platform:members` is just the admin team (the platform behaves like a root org whose members are the admins). **The single most dangerous perm — it mints new platform-admins** — split from `roles` (define ≠ assign) and guarded hardest (no-escalation: can't grant a platform perm you don't hold). |
+| `metrics` | read | platform metrics. |
+
+**Why org-less remote-apps are latent — the payer model (verified in `controlplane/customer.go` #491, Paul 2026-06-20).** A payer is one of THREE: **native** (a regular AuthKit user / embedded caller — the subject UUID *is* the payer id; invoker = payer = self-pay); **org-bound** (`UNIQUE(merchant, org_id)` — the ORG is the payer, ANY member invokes on its behalf → **invoker ≠ payer = real delegation**); **org-less federated** (`UNIQUE(merchant, issuer, subject)` — a FOREIGN subject vouched for by an org-less remote-app; each self-pays). Paul's framing holds exactly: invoker ≠ payer (true delegation) happens ONLY in the org-bound branch, and there an org member is EITHER a remote-application (machine) OR a role-assigned user (human) — both polymorphic `org_memberships` rows. An "org-less payer" is therefore just **self-pay**, which a native AuthKit user already covers; the org-less-remote-app path only buys per-subject billing for a host with its OWN identity system — which none of the 4 consumers is. Hence (DECIDED, Paul 2026-06-20) there is **no org-less remote-app at all** — `remote_applications.org_id` becomes **NOT NULL** and remote-apps are modeled as a pure **org-nested sub-resource, exactly like api-keys** (an issuer "attached to nothing" makes as little sense as an api-key attached to nothing). Proof by the standalone case: if doujins runs OpenRails standalone, it seeds itself as a remote issuer — but it must ALSO seed its own org + merchant to have anything to bill, so the issuer is org-attached by construction. Consequences: drop `platform:remote_applications` ENTIRELY (no platform resource, no row above); move the flat `/remote-applications` routes under `/orgs/{org}/remote-applications` (org in the PATH, like api-keys); delete the global `GET /remote-applications` admin list and the org-less branch in `canManageRemoteApplicationByIssuer`. (If the operator ever wants a federation-trust audit view — "which external issuers can mint tokens against my platform" — add it later as a read-only audit/metrics endpoint, NOT a managed resource; api-keys has no such view either, so default is to omit it.)
+
+## Unify principals on ROLES (drop direct permission lists)
+- users / API keys / remote_applications ALL get permissions via **role(s)** — ONE grant path, already no-escalation-guarded (#94).
+- **Resource-scope is a separate per-principal binding** (API key `Resources{Kind,ID}`, remote-app org/issuer) — orthogonal to *what* perms.
+- **DROP** `service_token_permissions` + `remote_application_permissions` direct lists. Bespoke set → custom role. This DELETES the direct-grant paths, closing the #94 escalation class by construction. DECIDED (Paul): API keys + remote-apps get ROLES, not arbitrary permission bundles — so adding/removing a permission later is a ONE-PLACE change (edit the role), not a sweep across every key. (Tradeoff accepted: some role proliferation for one-off machine creds.)
+
+## Tasks
+**Design FROZEN 2026-06-20 (Paul) — the decisions above are locked; the checkboxes below are the implementation breakdown (hard-cut, no legacy).**
+- [ ] Glob matching in `effectivePermsForTokens` + `ValidateGrant`: `*` as an AWS-style wildcard CHAR in namespace-anchored globs (`org:*`, `org:members:*`, `org:*:read`, `platform:*`, `platform:users:*`); REJECT a bare standalone `*`; allow-only, no negation (#93). No-escalation EXPANDS globs (granting `org:members:*` requires holding all of `org:members:*`).
+- [ ] Granularize base perms per resource (`org:` = members/roles/api_keys/remote_applications × CRUD, in ORG roles; `platform:` = users(read/update/ban/delete)/orgs(read/update/delete/reserved-names/recover)/roles/members/metrics, in PLATFORM roles — api_keys + remote_applications are NOT platform resources, org-only); retire `…:manage` + coarse `org:read`; handlers gate on the specific action. Add the `platform:users:*` account-admin surface (ban/read/delete) distinct from `org:members:*`, and `platform:orgs:reserved-names` over `/admin/orgs/{restrict,unrestrict,park,claim}` (no `/accounts/` bucket; folds the old standalone `platform:reserved-names`).
+- [ ] Make `org:` the shared per-org namespace; reserve only the 4 resource names; allow host-defined `org:<resource>` perms.
+- [ ] **Remote-applications → pure org sub-resource (Paul 2026-06-20; same shape as api-keys).** Migration: `profiles.remote_applications.org_id` → **NOT NULL** (drop the org-less category entirely; greenfield single-baseline → edit the baseline + the `COMMENT`). Move the FLAT routes (`POST/DELETE/GET /remote-applications`, org_id in body) → **`/orgs/{org}/remote-applications`** (org in the PATH), gated in-handler on `org:remote_applications:*`. DELETE the global `GET /remote-applications` admin-list route + the `admin(...)` wrapper + the org-less branch in `canManageRemoteApplicationByIssuer`. Confirm the verifier still loads issuers globally by `iss` (nesting is management-only, not a verification change). No consumer change — OpenRails #527 bootstrap already provisions each issuer under its merchant's backing org.
+- [ ] Tighten prebuilt `owner` role from `*` → `org:*` (Layer 1). Build **Layer 2 — Platform RBAC**: new tables `platform_roles` / `platform_role_permissions` / `platform_user_roles` (NOT the orgs table; NO `is_global`, NO `@ scope`). Assign platform roles to users / API keys / remote-apps DIRECTLY; a platform role grants **ONLY `platform:*`** (directory resources) — it does NOT grant `org:*` (the two namespaces are DISJOINT; the platform admin manages entities, never acts inside an org or as a user); super-admin = `platform:*`. ValidateGrant REJECTS an `org:` perm on a platform role and a `platform:` perm on an org role. Bar delegated/federated tokens from platform roles (verifier allowlist). NO bare `*`; globs namespace-anchored.
+- [ ] Collapse `read`/`list` to a single `read` action; secrets never returned by any read.
+- [ ] Unify principals on roles; drop `service_token_permissions` + `remote_application_permissions` direct lists; resource-scope stays a separate binding.
+- [ ] **Efficient lookup (CONTRACT: ≤ 1 DB round-trip per request).** Resolve a principal's grants per layer via a SINGLE indexed JOIN — platform: `SELECT permission FROM platform_user_roles ur JOIN platform_role_permissions p ON p.platform_role = ur.platform_role WHERE ur.user_id = $1`; org: the analogue with `org_id` + `member_id`. Index the join columns (`platform_user_roles.user_id`, `platform_role_permissions.platform_role`, and the org equivalents). **Memoize per request:** resolve each layer's grant set ONCE at request start, stash in the request context, and have every gate match the cached set — a handler checking N perms does 1 resolution, not N. Globs keep the set tiny (a `platform:*` role = ONE row, never enumerated); the match itself is in-memory glob/prefix (µs). Regular users short-circuit (0 rows in `platform_user_roles` → no second step). OPTIONAL, only for extreme throughput: a short-TTL (5–30s) per-principal cache invalidated on role change — but the DEFAULT stays request-time resolution (instant revocation, never-stale grants; perms are NEVER baked into the JWT).
+- [ ] Tests: glob expansion + no-escalation over globs; `owner`=`org:*` covers a host-defined `org:repo:*`; a platform role REJECTS any `org:` perm and an org role REJECTS any `platform:` perm (DISJOINT namespaces); a platform admin can't read any org's internal data nor act as a user; `platform:users:ban` gates the account-ban route; secrets unreadable; a delegated/federated token can NEVER hold a platform-role grant; **a handler with N perm-checks issues exactly ONE resolution query (memoization holds).**
+- [ ] **Build the `/admin/orgs/*` org-admin surface (Paul 2026-06-20 — the missing org-management routes).** Mirrors `/admin/users/*`; **entity-level ONLY** (NO day-to-day member/role/api-key/remote-app internals, not even read-only — break-glass via membership), with the single coarse exception `recover` (below). Routes → perm: `GET /admin/orgs` (directory — paginated, search by slug, filter state/personal) → `platform:orgs:read`; `GET /admin/orgs/deleted` → `platform:orgs:read`; `GET /admin/orgs/{org}` (entity detail: slug/owner/is_personal/state/member-count/timestamps) → `platform:orgs:read`; `POST /admin/orgs/{org}/rename` → `platform:orgs:update`; `POST /admin/orgs/{org}/transfer-owner` (surgical reassign — owner-left / white-glove, keeps the team) → `platform:orgs:update`; `DELETE /admin/orgs/{org}` (SOFT) → `platform:orgs:delete`; `POST /admin/orgs/{org}/restore` → `platform:orgs:delete`; `POST /admin/orgs/{restrict,unrestrict,park,claim}` (org SLUG lifecycle; park/claim take `kind: org|user` in the body — user-kind mints a personal org) → `platform:orgs:reserved-names` (folds the old standalone perm; replaces the dead 404 `POST /admin/org/{park,claim}` stubs AND the old `/admin/account(s)/*` paths; reuses `handleAdminAccountPark/Claim/RestrictPOST`); **`POST /admin/orgs/{org}/recover` (anti-takeover reset — body `{new_owner_user_id}`: ATOMICALLY revoke ALL api-keys, disable ALL remote-apps, demote ALL members, assign owner to the rightful user → lock the attacker out, restore the good owner) → `platform:orgs:recover`** (separately grantable; max-audited). **DROP `platform:orgs:create`** (self-service or park/claim, never an admin-mint). ALL slug-lifecycle + recover live under `/admin/orgs/*` (NO `/admin/users/{park,claim}`, NO `/admin/reserved-names/*`, NO `/accounts/`); then delete the old `/admin/account(s)/*` + dead `/admin/org/*` routes + the dead `POST /admin/users/toggle-active` stub (NO active/inactive concept — ban + soft-delete are the only account states).
+- [ ] **Routes + naming.** The platform surface is **`/admin/*`** (Paul 2026-06-20: `/platform/*` reads too vague; `/admin/` is the explicit operator-console prefix — and there's NO URL collision, because per-org admin lives under `/orgs/{org}/*`, never under `/admin/`). The gate stays **`requirePlatformPermission`** (NOT `RequireAdmin*`) and the perm namespace stays **`platform:`** — the disjoint Layer-2 plane — even though the URL says `/admin`; role name = **platform-admin**. **FOUR gate tiers** (Paul: self routes are a more primitive check — they have no target, they just modify the caller): **public** (ungated) · **self** (authenticated-only; acts on the caller, no target → IDOR-proof by construction) · **org** (`org:` perm for the path `{org}`) · **platform** (`platform:` perm). Platform routes → perm: `GET /admin/users*` → `platform:users:read`; `/admin/users/{ban,unban}` → `platform:users:ban`; `/admin/users/{set-*, */password-reset, */sessions/revoke}` → `platform:users:update`; `DELETE /admin/users/{id}` + `/restore` → `platform:users:delete`; **`/admin/orgs/*` (org-admin, entity-level: directory + rename/transfer-owner/soft-delete + slug lifecycle + anti-takeover recover)** → `platform:orgs:{read,update,delete,reserved-names,recover}`; the slug lifecycle `/admin/orgs/{restrict,unrestrict,park,claim}` (park/claim take `kind: org|user`) → `platform:orgs:reserved-names`, and `/admin/orgs/{org}/recover` → `platform:orgs:recover` (NO `/accounts/` bucket, NO `/admin/users/park`, NO `/admin/reserved-names/*` — all folded under `/admin/orgs`); `/admin/roles/{grant,revoke}` (assign/unassign a platform-admin) → `platform:members:{create,delete}` (define-a-role is the separate `platform:roles:*`). **No remote-application route under `/admin/`** — remote-apps are org-nested (below). ORG routes gate IN-HANDLER on the `org:` perm for the path `{org}` (`/orgs/{org}/members*` → `org:members:*`, `/roles*` → `org:roles:*`, `/api-keys*` → `org:api_keys:*`, **`/orgs/{org}/remote-applications*` → `org:remote_applications:*` (NEW home — moved from the flat `/remote-applications`, nested like api-keys)**, `GET /{org}` + `/rename` → `org:settings:{read,update}`, `/invites*` → `org:members:*`). SELF routes (`/user/*`, `/me/*`, own 2FA/sessions) → authenticated-only. PUBLIC routes (login/register/reset/verify/availability/owner-lookup) ungated.
+
+#92/#93/#94 are the already-split sub-pieces of this model. Consumer reframe: OpenRails #537 (merchant→`org:`, platform super-admin → the `platform:` layer); then the doujins/tensorhub/cozy-art string flips.
+
+---
+
+# #96: Public/self route cleanup — phone reset, identity providers, namespaces, orgs
+
+**Completed:** yes
+
+## Metadata
+
+- Category: bug/cleanup
+- Status: done
+- Passes: true
+
+Phone password reset currently sends a reset token/link by SMS (`RequestPhonePasswordReset` → `SendPasswordResetLink`), but the public route table only exposes `POST /phone/password/reset/{request,confirm}`. Email has the browser handoff route `POST /email/password/reset/confirm-link` that consumes the token and returns a short-lived `reset_session`; phone lacks the matching public token-consume route even though `POST /phone/password/reset/confirm` expects `reset_session + new_password`.
+
+Provider discovery is also too vague as `GET /providers`. Hard-cut it to `GET /identity-providers` because the list includes enabled external identity providers across OIDC and OAuth2; do NOT keep `/providers` as an alias.
+
+`GET /owners/{slug}` also collapses two valid resources into one "owner" answer. A username and an org slug can legitimately match (for example a user `cozy` and org `cozy`), so hard-cut it to `GET /namespaces/{slug}` with an explicit typed response shape: `user`, `org`, and per-kind `claimable` fields. Do NOT keep `/owners/{slug}` as an alias.
+
+`GET /user/bootstrap` is a current-caller bootstrap bundle, not a target-user resource. Hard-cut it to `GET /me/bootstrap` so the URL matches the rest of the self namespace; do NOT keep `/user/bootstrap` as an alias.
+
+Native-user org-scoped access tokens are being removed entirely. There should be one normal user auth token, not one token per org membership. Delete `POST /token/org` and remove optional `org` token-minting from `/token` and `/password/login`; org authorization should resolve from the route/path + server-side membership/role/permission lookup, not from an org baked into the access token. Remove docs/tests/comments that describe native-user "org-scoped access tokens". This is separate from delegated/federated token models, which remain governed by their own issuer/subject/resource authority. `/me/permissions` becomes principal-level only. Per-org caller info lives directly on `GET /orgs/{org}`, which returns org metadata plus the caller's single `role` and effective permissions. The org membership model is one role per org membership, so response shapes should use `role: string`, not `roles: []`.
+
+`GET /orgs/{org}/me` and `POST /orgs/{org}/permissions/check` are redundant once `GET /orgs/{org}` returns role + permissions. Delete both; frontends can check `permissions.includes(...)`, and backend handlers still enforce permissions server-side.
+
+`GET /orgs` is a current-caller membership listing, not a platform-wide org directory. Hard-cut it to `GET /me/orgs`; keep `POST /orgs` unchanged for self-service org creation.
+
+`/me/invites` is specifically org invites, not a generic inbox. Hard-cut it to `/me/org-invites` including accept/decline child routes; do NOT keep `/me/invites` as an alias.
+
+## Tasks
+
+- [x] Add `POST /phone/password/reset/confirm-link` as an alias to the existing password-reset token handoff handler (`token` → `reset_session`).
+- [x] Hard-cut `GET /providers` → `GET /identity-providers` in route registration and tests; remove old `/providers` support.
+- [x] Hard-cut `GET /owners/{slug}` → `GET /namespaces/{slug}`; remove old `/owners/{slug}` support.
+- [x] Hard-cut `GET /user/bootstrap` → `GET /me/bootstrap`; remove old `/user/bootstrap` support.
+- [x] Delete `POST /token/org`.
+- [x] Remove optional `org` request handling from `POST /token` and `POST /password/login`; no org-scoped access-token mint path remains.
+- [x] Delete org-scoped token helpers/claims that only exist for that model (`ExchangeRefreshTokenWithOrg`, `IssueOrgAccessToken`, `org`/`org_roles`/legacy org `roles` claim minting), or leave only compatibility-free internals if another active path proves it still needs them.
+- [x] Sweep docs/tests/comments for native-user "org-scoped access token" language and remove it; do not conflate this with delegated/federated token authority.
+- [x] Make `/me/permissions` principal-level only.
+- [x] Change `GET /orgs/{org}` to return org metadata plus caller membership `{role, permissions}`.
+- [x] Delete `GET /orgs/{org}/me` and `POST /orgs/{org}/permissions/check`.
+- [x] Hard-cut `GET /orgs` → `GET /me/orgs`; remove old `/orgs` list support while keeping `POST /orgs` as self-service org creation.
+- [x] Hard-cut `GET /me/invites` and `POST /me/invites/{invite_id}/{accept,decline}` → `/me/org-invites...`; remove old `/me/invites` support.
+- [x] Redesign namespace lookup response to avoid a single `status`/`entity_kind`/`canonical_slug` winner: return typed `user`, `org`, and `claimable` fields so user+org same-slug cases are explicit.
+- [x] Document the phone reset route, identity-provider route rename, namespace lookup rename/shape, bootstrap route rename, org-scoped-token removal, `/me/orgs` rename, `/me/org-invites` rename, and org lookup response shape in `README.md` and `agents/api-endpoints.md`.
+- [x] Add one HTTP route/handler test proving phone confirm-link consumes a reset token and returns `reset_session`.
+- [x] Add one route test proving `/identity-providers` exists and `/providers` is gone.
+- [x] Add one namespace route/response test proving `/namespaces/{slug}` can represent same-slug user+org without collapsing to one owner, and `/owners/{slug}` is gone.
+- [x] Add one route test proving `/me/bootstrap` exists and `/user/bootstrap` is gone.
+- [x] Add route/API tests proving `/token/org` is gone, `/token` and `/password/login` reject/ignore `org`, `/me/permissions` is not org-scoped, `GET /orgs/{org}` returns org `role` + permissions, `/orgs/{org}/me` and `/orgs/{org}/permissions/check` are gone, `/me/orgs` exists, and `GET /orgs` is gone.
+- [x] Add route tests proving `/me/org-invites` accept/decline routes exist and `/me/invites` is gone.

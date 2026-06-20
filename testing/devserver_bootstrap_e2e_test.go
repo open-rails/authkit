@@ -71,14 +71,14 @@ orgs:
       - name: operator
         permissions:
           - org:read
-          - org:service_tokens:manage
+          - org:api_keys:manage
           - endpoint:deploy
           - repo:read
           - openrails:catalog:write
     memberships:
       - user_ref: operator
         role: operator
-    service_tokens:
+    api_keys:
       - name: bootstrap-runtime
         permissions:
           - endpoint:deploy
@@ -96,10 +96,10 @@ orgs:
 	}
 	tokenOutputPath := filepath.Join(mountDir, "runtime-token")
 	if err := os.WriteFile(tokenOutputPath, nil, 0o666); err != nil {
-		t.Fatalf("precreate service token output: %v", err)
+		t.Fatalf("precreate API key output: %v", err)
 	}
 	if err := os.Chmod(tokenOutputPath, 0o666); err != nil {
-		t.Fatalf("chmod service token output: %v", err)
+		t.Fatalf("chmod API key output: %v", err)
 	}
 
 	composeFile := filepath.Join(t.TempDir(), "docker-compose.bootstrap.yaml")
@@ -201,17 +201,17 @@ volumes:
 
 	tokenRaw, err := os.ReadFile(filepath.Join(mountDir, "runtime-token"))
 	if err != nil {
-		t.Fatalf("read generated service token: %v", err)
+		t.Fatalf("read generated API key: %v", err)
 	}
 	serviceToken := strings.TrimSpace(string(tokenRaw))
 	if !strings.HasPrefix(serviceToken, "cozy_st_") {
-		t.Fatalf("generated service token has wrong marker: %q", serviceToken)
+		t.Fatalf("generated API key has wrong marker: %q", serviceToken)
 	}
 	whoResp, whoBody := httpJSON(t, http.MethodGet, api+"/dev/whoami", map[string]string{
 		"Authorization": "Bearer " + serviceToken,
 	}, nil)
 	if whoResp.StatusCode != http.StatusOK {
-		t.Fatalf("bootstrap service token /dev/whoami: expected 200, got %d: %s", whoResp.StatusCode, string(whoBody))
+		t.Fatalf("bootstrap API key /dev/whoami: expected 200, got %d: %s", whoResp.StatusCode, string(whoBody))
 	}
 	var who struct {
 		Org         string   `json:"org"`
@@ -227,7 +227,7 @@ volumes:
 	}
 	for _, perm := range []string{"endpoint:deploy", "repo:read", "openrails:catalog:write"} {
 		if !stringInSlice(who.Permissions, perm) {
-			t.Fatalf("service token permissions=%v, want %q", who.Permissions, perm)
+			t.Fatalf("API key permissions=%v, want %q", who.Permissions, perm)
 		}
 	}
 

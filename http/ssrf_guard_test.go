@@ -21,10 +21,10 @@ func TestIsPrivateIP(t *testing.T) {
 		"192.168.0.1", "192.168.255.255",
 		"169.254.169.254", // AWS/GCP metadata
 		"169.254.0.1",
-		"100.64.0.1",      // carrier-grade NAT
-		"::1",             // IPv6 loopback
-		"fe80::1",         // IPv6 link-local
-		"fc00::1",         // IPv6 unique local
+		"100.64.0.1", // carrier-grade NAT
+		"::1",        // IPv6 loopback
+		"fe80::1",    // IPv6 link-local
+		"fc00::1",    // IPv6 unique local
 		"0.0.0.0",
 	}
 	for _, s := range blocked {

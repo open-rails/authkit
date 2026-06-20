@@ -91,7 +91,7 @@ func (s *Service) GenerateSIWSChallenge(ctx context.Context, cache siws.Challeng
 }
 
 // VerifySIWSAndLogin verifies a SIWS signature and logs in or creates a user.
-// Returns service token, expiry, refresh token, user ID, and whether a new user was created.
+// Returns access token, expiry, refresh token, user ID, and whether a new user was created.
 func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (accessToken string, expiresAt time.Time, refreshToken, userID string, created bool, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", "", false, fmt.Errorf("postgres not configured")
