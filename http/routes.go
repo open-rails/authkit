@@ -3,6 +3,8 @@ package authhttp
 import (
 	"net/http"
 	"strings"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 // RouteGroup identifies a prefix-neutral AuthKit route capability. Host
@@ -86,7 +88,27 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	admin := func(h http.Handler) http.Handler {
 		return required(RequireAdminInSchema(s.svc.Postgres(), s.svc.Schema())(h))
 	}
+	// platformGated gates a /admin/* route on a specific Layer-2 `platform:`
+	// permission (#95) — the platform RBAC plane is the SOLE admin authority, in
+	// place of the legacy global-admin gate. Authenticated (required) first, then
+	// the in-handler platform-permission check; no global-admin bypass.
+	platformGated := func(perm string, h http.Handler) http.Handler {
+		return required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := ClaimsFromContext(r.Context())
+			if !ok {
+				unauthorized(w, "unauthorized")
+				return
+			}
+			if !s.requirePlatformPermission(w, r, claims, perm) {
+				return
+			}
+			h.ServeHTTP(w, r)
+		}))
+	}
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
+	// notFoundHandler explicitly 404s a removed path that an adjacent wildcard
+	// route would otherwise capture (e.g. POST /admin/users/toggle-active would
+	// match GET /admin/users/{user_id} → 405). These are 404 sentinels.
 	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "not_found")
 	})
@@ -183,24 +205,29 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/admin/orgs/{id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgDELETE))},
 		{Method: http.MethodPost, Path: "/admin/orgs/{id}/restore", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRestorePOST))},
 		{Method: http.MethodPost, Path: "/admin/orgs/{id}/recover", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRecoverPOST))},
-		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersListGET))},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserGET))},
-		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersBanPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersUnbanPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-email", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersSetEmailPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-username", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersSetUsernamePOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-password", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersSetPasswordPOST))},
+		// User-admin directory (#95): hard-cut to platform RBAC — gated on
+		// platform:users:* (read/ban/update/delete). The legacy global-admin gate
+		// is GONE; the platform plane is the sole admin authority.
+		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminUsersListGET))},
+		{Method: http.MethodGet, Path: "/admin/users/deleted", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminDeletedUsersListGET))},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminUserGET))},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminUserSigninsGET))},
+		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersBan, http.HandlerFunc(s.handleAdminUsersBanPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersBan, http.HandlerFunc(s.handleAdminUsersUnbanPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/set-email", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUsersSetEmailPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/set-username", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUsersSetUsernamePOST))},
+		{Method: http.MethodPost, Path: "/admin/users/set-password", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUsersSetPasswordPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUserSessionsRevokePOST))},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUserPasswordResetPOST))},
+		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersDelete, http.HandlerFunc(s.handleAdminUserDeleteDELETE))},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersDelete, http.HandlerFunc(s.handleAdminUserRestorePOST))},
+		// Reserved-name slug lifecycle (#95): gated on platform:orgs:reserved-names.
+		{Method: http.MethodPost, Path: "/admin/accounts/restrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsRestrictPOST))},
+		{Method: http.MethodPost, Path: "/admin/accounts/unrestrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST))},
+		{Method: http.MethodPost, Path: "/admin/account/park", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountParkPOST))},
+		{Method: http.MethodPost, Path: "/admin/account/claim", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountClaimPOST))},
+		// 404 sentinels for removed routes that adjacent wildcards would capture.
 		{Method: http.MethodPost, Path: "/admin/users/toggle-active", Group: RouteAdmin, Handler: notFoundHandler},
-		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserDeleteDELETE))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserRestorePOST))},
-		{Method: http.MethodGet, Path: "/admin/users/deleted", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminDeletedUsersListGET))},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserSigninsGET))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserSessionsRevokePOST))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserPasswordResetPOST))},
-		{Method: http.MethodPost, Path: "/admin/accounts/restrict", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountsRestrictPOST))},
-		{Method: http.MethodPost, Path: "/admin/accounts/unrestrict", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST))},
-		{Method: http.MethodPost, Path: "/admin/account/park", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountParkPOST))},
-		{Method: http.MethodPost, Path: "/admin/account/claim", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminAccountClaimPOST))},
 		{Method: http.MethodPost, Path: "/admin/org/park", Group: RouteAdmin, Handler: notFoundHandler},
 		{Method: http.MethodPost, Path: "/admin/org/claim", Group: RouteAdmin, Handler: notFoundHandler},
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -147,6 +148,12 @@ func (s *Service) RecoverOrg(ctx context.Context, orgID, newOwnerUserID string) 
 	newOwnerUserID = strings.TrimSpace(newOwnerUserID)
 	if orgID == "" || newOwnerUserID == "" {
 		return res, ErrRecoverInvalid
+	}
+	if _, err := s.getUserByID(ctx, newOwnerUserID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return res, ErrUserNotFound
+		}
+		return res, err
 	}
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {

@@ -137,6 +137,10 @@ func (s *Service) handleAdminOrgRecoverPOST(w http.ResponseWriter, r *http.Reque
 			badRequest(w, "invalid_request")
 			return
 		}
+		if err == core.ErrUserNotFound {
+			notFound(w, "user_not_found")
+			return
+		}
 		serverErr(w, "org_recover_failed")
 		return
 	}

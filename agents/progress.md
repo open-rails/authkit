@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 97
+next_id: 98
 
 ---
 
@@ -384,3 +384,67 @@ Native-user org-scoped access tokens are being removed entirely. There should be
 - [x] Add one route test proving `/me/bootstrap` exists and `/user/bootstrap` is gone.
 - [x] Add route/API tests proving `/token/org` is gone, `/token` and `/password/login` reject/ignore `org`, `/me/permissions` is not org-scoped, `GET /orgs/{org}` returns org `role` + permissions, `/orgs/{org}/me` and `/orgs/{org}/permissions/check` are gone, `/me/orgs` exists, and `GET /orgs` is gone.
 - [x] Add route tests proving `/me/org-invites` accept/decline routes exist and `/me/invites` is gone.
+
+---
+
+# #97: Slim normal user access-token claims to session identity only
+
+**Completed:** no
+
+Normal AuthKit user access tokens currently carry profile snapshots and authority snapshots:
+`global_roles`, legacy `roles`, `entitlements`, `email`, `email_verified`,
+`username`, `discord_username`, plus `sid` supplied by login/refresh paths.
+
+This is backwards for the new authorization model. User permissions and roles are
+live DB state, not token authority. Profile data belongs on `/me` /
+`/me/bootstrap`, not in every bearer token. Entitlements are at best a short-lived
+UX hint; if they gate access, they must be resolved live by the host or through
+the proper billing/provider path.
+
+Target token shape for normal user access tokens:
+- Keep registered claims: `iss`, `sub`, `aud`, `iat`, `exp`.
+- Keep `sid` for now. It is session identity used by logout, reauth/freshness,
+  session-preserving password changes, and host session context.
+- Remove `global_roles` and `roles`.
+- Remove profile claims: `email`, `email_verified`, `username`,
+  `discord_username`.
+- Remove `entitlements` unless a consumer audit proves it must stay as a
+  documented non-authoritative UI hint. Default plan: remove it too.
+
+Do not change delegated/service token shapes in this issue. Delegated/service
+tokens intentionally carry explicit `permissions` / attributes for their own
+models; this issue is only about normal AuthKit human-user access tokens minted
+by `IssueAccessToken`.
+
+Known current consumers to migrate first:
+- Doujins reads `Claims.GlobalRoles` / `Claims.Roles`, `Claims.Username`, and
+  `Claims.Entitlements` into request context. Move roles/permissions to
+  DB-backed middleware/enrichment and profile display to `/me`.
+- Hentai0 server reads `Claims.Roles`, `Claims.Username`, and
+  `Claims.Entitlements`; its frontend also decodes token payload fields for
+  `isAdmin`, `isPremium`, email, username, and email verification. Move frontend
+  state to `/me` / profile fetch and server authorization to DB-backed role /
+  entitlement lookup.
+- Cozy Art mostly uses `Claims.UserID` / `Claims.SessionID` for normal-user
+  paths; verify no profile/role/entitlement token dependency remains before the
+  AuthKit hard-cut.
+
+**Tasks:**
+- [ ] Audit AuthKit tests/docs and the three consumers (`~/doujins`,
+      `~/hentai0`, `~/cozy/cozy-art`) for reads of user-token profile,
+      role/global-role, and entitlement claims.
+- [ ] Update consumers so normal-user request context is built from live DB /
+      profile endpoints, not access-token roles/profile/entitlements.
+- [ ] In AuthKit `IssueAccessToken`, stop minting `global_roles`, `roles`,
+      `email`, `email_verified`, `username`, `discord_username`, and
+      `entitlements`; keep `sid` merging from login/refresh `extra`.
+- [ ] Keep `Claims` parsing backward-tolerant only if needed for third-party
+      inbound tokens, but stop documenting those fields as normal AuthKit
+      user-token output.
+- [ ] Update `/me`, `/me/bootstrap`, and docs so they are the supported source
+      for user profile/bootstrap state.
+- [ ] Add an AuthKit integration/HTTP test proving login/refresh user access
+      tokens contain `sub` + `sid` and do not contain roles, profile fields, or
+      entitlements.
+- [ ] Add focused consumer tests proving admin/premium/profile UI still works
+      without those token claims.

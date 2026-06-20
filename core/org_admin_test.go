@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -106,5 +107,46 @@ func TestRecoverOrg(t *testing.T) {
 	}
 	if liveKeys != 0 || liveApps != 0 {
 		t.Fatalf("recover left live creds: keys=%d apps=%d", liveKeys, liveApps)
+	}
+}
+
+func TestRecoverOrgRejectsMissingNewOwnerBeforeMutating(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	suffix := time.Now().UnixNano()
+
+	orgSlug := fmt.Sprintf("missing-owner-recover-%d", suffix)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, orgSlug) })
+	org, err := svc.CreateOrg(ctx, orgSlug)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	u, err := svc.CreateUser(ctx, fmt.Sprintf("existing-%d@test.example", suffix), fmt.Sprintf("existing%d", suffix))
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, u.ID) })
+	if err := svc.AddMember(ctx, orgSlug, u.ID); err != nil {
+		t.Fatalf("add member: %v", err)
+	}
+	if err := svc.AssignRole(ctx, orgSlug, u.ID, "owner"); err != nil {
+		t.Fatalf("assign owner: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO profiles.service_tokens (org_id, key_id, secret_hash, name) VALUES ($1,$2,$3,$4)`,
+		org.ID, fmt.Sprintf("missing-owner-key-%d", suffix), "hash", "ci"); err != nil {
+		t.Fatalf("insert api-key: %v", err)
+	}
+
+	_, err = svc.RecoverOrg(ctx, org.ID, "00000000-0000-0000-0000-000000000001")
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("recover error = %v, want %v", err, ErrUserNotFound)
+	}
+	var liveKeys int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.service_tokens WHERE org_id=$1 AND revoked_at IS NULL`, org.ID).Scan(&liveKeys); err != nil {
+		t.Fatalf("count keys: %v", err)
+	}
+	if liveKeys != 1 {
+		t.Fatalf("missing-owner recover mutated org: live keys=%d, want 1", liveKeys)
 	}
 }
