@@ -196,10 +196,21 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// ENTITY — directory, soft-delete/restore, and the anti-takeover `recover`
 		// reset. Entity-level only; each handler gates on the specific platform:orgs perm.
 		{Method: http.MethodGet, Path: "/admin/orgs", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgsListGET))},
+		{Method: http.MethodGet, Path: "/admin/orgs/deleted", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgsDeletedListGET))},
 		{Method: http.MethodGet, Path: "/admin/orgs/{id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgGET))},
 		{Method: http.MethodDelete, Path: "/admin/orgs/{id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgDELETE))},
+		{Method: http.MethodPost, Path: "/admin/orgs/{id}/rename", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRenamePOST))},
+		{Method: http.MethodPost, Path: "/admin/orgs/{id}/transfer-owner", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgTransferOwnerPOST))},
 		{Method: http.MethodPost, Path: "/admin/orgs/{id}/restore", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRestorePOST))},
 		{Method: http.MethodPost, Path: "/admin/orgs/{id}/recover", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRecoverPOST))},
+		// Org SLUG lifecycle (#95): relocated from the old /admin/account(s)/* paths
+		// to live under /admin/orgs/*. park/claim take `kind: org|user` in the body
+		// (user-kind mints a personal org). Gate: platform:orgs:reserved-names. These
+		// are single-segment literals, so they never collide with /admin/orgs/{id}/*.
+		{Method: http.MethodPost, Path: "/admin/orgs/restrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsRestrictPOST))},
+		{Method: http.MethodPost, Path: "/admin/orgs/unrestrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST))},
+		{Method: http.MethodPost, Path: "/admin/orgs/park", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountParkPOST))},
+		{Method: http.MethodPost, Path: "/admin/orgs/claim", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountClaimPOST))},
 		// User-admin directory (#95): hard-cut to platform RBAC — gated on
 		// platform:users:* (read/ban/update/delete). The legacy global-admin gate
 		// is GONE; the platform plane is the sole admin authority.
@@ -216,15 +227,12 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUserPasswordResetPOST))},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersDelete, http.HandlerFunc(s.handleAdminUserDeleteDELETE))},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersDelete, http.HandlerFunc(s.handleAdminUserRestorePOST))},
-		// Reserved-name slug lifecycle (#95): gated on platform:orgs:reserved-names.
-		{Method: http.MethodPost, Path: "/admin/accounts/restrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsRestrictPOST))},
-		{Method: http.MethodPost, Path: "/admin/accounts/unrestrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST))},
-		{Method: http.MethodPost, Path: "/admin/account/park", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountParkPOST))},
-		{Method: http.MethodPost, Path: "/admin/account/claim", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountClaimPOST))},
 		// 404 sentinels for removed routes that adjacent wildcards would capture.
+		// The slug lifecycle moved from /admin/account(s)/* → /admin/orgs/* (above);
+		// the old paths are gone entirely (no wildcard captures them, so no sentinel
+		// is needed). The /admin/org/{park,claim} stubs are likewise superseded by
+		// the real /admin/orgs/{park,claim} routes.
 		{Method: http.MethodPost, Path: "/admin/users/toggle-active", Group: RouteAdmin, Handler: notFoundHandler},
-		{Method: http.MethodPost, Path: "/admin/org/park", Group: RouteAdmin, Handler: notFoundHandler},
-		{Method: http.MethodPost, Path: "/admin/org/claim", Group: RouteAdmin, Handler: notFoundHandler},
 
 		// Remote-application registry (#74, INBOUND accept side). A
 		// remote_application is the federation PRINCIPAL (JWKS-credentialed) and a

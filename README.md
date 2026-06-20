@@ -982,11 +982,20 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - GET /admin/users/deleted
   - GET /admin/users/:user_id/signins
   - POST /admin/users/:user_id/sessions/revoke
-- Admin owner-namespace lifecycle (admin only):
-  - POST /admin/accounts/restrict (batch add slugs to restricted-name list)
-  - POST /admin/accounts/unrestrict (batch remove slugs from restricted-name list)
-  - POST /admin/account/park (`{kind:"org"|"user",slug}`)
-  - POST /admin/account/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
+- Org-admin surface (platform RBAC, entity-level):
+  - GET /admin/orgs (directory; `search`/`include_deleted`) → platform:orgs:read
+  - GET /admin/orgs/deleted (list soft-deleted orgs) → platform:orgs:read
+  - GET /admin/orgs/:id (org entity detail) → platform:orgs:read
+  - POST /admin/orgs/:id/rename (`{new_slug}`; no 72h cooldown) → platform:orgs:update
+  - POST /admin/orgs/:id/transfer-owner (`{new_owner_user_id}`; surgical, keeps the team) → platform:orgs:update
+  - DELETE /admin/orgs/:id (soft-delete) / POST /admin/orgs/:id/restore → platform:orgs:delete
+  - POST /admin/orgs/:id/recover (`{new_owner_user_id}`; anti-takeover reset) → platform:orgs:recover
+  - (no platform org-create route — org creation is self-service: POST /orgs)
+- Admin owner-namespace slug lifecycle (under /admin/orgs/\*; platform:orgs:reserved-names):
+  - POST /admin/orgs/restrict (batch add slugs to restricted-name list)
+  - POST /admin/orgs/unrestrict (batch remove slugs from restricted-name list)
+  - POST /admin/orgs/park (`{kind:"org"|"user",slug}`)
+  - POST /admin/orgs/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
 - Public owner-namespace lookup:
   - GET /namespaces/:slug → typed public namespace metadata + per-kind `claimable`
 - Solana wallet authentication (SIWS):

@@ -36,6 +36,35 @@ func (s *Service) handleAdminOrgsListGET(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"orgs": orgs})
 }
 
+// handleAdminOrgsDeletedListGET lists soft-deleted orgs (the directory's
+// deleted view). Gate: platform:orgs:read. Reuses AdminListOrgs with
+// include_deleted; the soft-deleted rows carry a non-nil deleted_at.
+func (s *Service) handleAdminOrgsDeletedListGET(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		unauthorized(w, "unauthorized")
+		return
+	}
+	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsRead) {
+		return
+	}
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(strings.TrimSpace(q.Get("limit")))
+	offset, _ := strconv.Atoi(strings.TrimSpace(q.Get("offset")))
+	all, err := s.svc.AdminListOrgs(r.Context(), q.Get("search"), true, int32(limit), int32(offset))
+	if err != nil {
+		serverErr(w, "orgs_list_failed")
+		return
+	}
+	orgs := make([]core.OrgAdminSummary, 0, len(all))
+	for _, o := range all {
+		if o.DeletedAt != nil {
+			orgs = append(orgs, o)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"orgs": orgs})
+}
+
 func (s *Service) handleAdminOrgGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
@@ -60,6 +89,96 @@ func (s *Service) handleAdminOrgGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// handleAdminOrgRenamePOST renames any org as a platform admin (the admin-side
+// equivalent of /orgs/{org}/rename). Gate: platform:orgs:update. Uses the
+// admin-override rename path (RenameOrgSlugForce) so the 72h self-service
+// cooldown does not apply to operator action.
+func (s *Service) handleAdminOrgRenamePOST(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		unauthorized(w, "unauthorized")
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsUpdate) {
+		return
+	}
+	var body struct {
+		NewSlug string `json:"new_slug"`
+	}
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewSlug) == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if err := s.svc.RenameOrgSlugForce(r.Context(), id, body.NewSlug, claims.UserID); err != nil {
+		switch err {
+		case core.ErrOrgNotFound:
+			notFound(w, "org_not_found")
+		case core.ErrPersonalOrgLocked:
+			badRequest(w, "personal_org_locked")
+		case core.ErrOwnerSlugTaken:
+			badRequest(w, "owner_slug_taken")
+		case core.ErrInvalidOrgSlug:
+			badRequest(w, "invalid_slug")
+		default:
+			serverErr(w, "org_rename_failed")
+		}
+		return
+	}
+	renamed, err := s.svc.ResolveOrgByID(r.Context(), id)
+	if err != nil {
+		serverErr(w, "org_lookup_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": renamed.Slug})
+}
+
+// handleAdminOrgTransferOwnerPOST surgically reassigns an org's owner (the
+// owner-left / white-glove path that keeps the team). Body: {new_owner_user_id}.
+// Gate: platform:orgs:update. Demotes the prior owner(s) and assigns `owner`
+// (org:*) to the new owner; all other members keep their roles.
+func (s *Service) handleAdminOrgTransferOwnerPOST(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		unauthorized(w, "unauthorized")
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsUpdate) {
+		return
+	}
+	var body struct {
+		NewOwnerUserID string `json:"new_owner_user_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewOwnerUserID) == "" {
+		badRequest(w, "invalid_request")
+		return
+	}
+	res, err := s.svc.TransferOrgOwner(r.Context(), id, body.NewOwnerUserID)
+	if err != nil {
+		switch err {
+		case core.ErrRecoverInvalid:
+			badRequest(w, "invalid_request")
+		case core.ErrOrgNotFound:
+			notFound(w, "org_not_found")
+		case core.ErrUserNotFound:
+			notFound(w, "user_not_found")
+		default:
+			serverErr(w, "org_transfer_owner_failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Service) handleAdminOrgDELETE(w http.ResponseWriter, r *http.Request) {

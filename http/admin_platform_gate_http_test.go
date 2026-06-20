@@ -93,10 +93,17 @@ func TestAdminPlatformGateHTTP(t *testing.T) {
 	status, body = req(http.MethodPost, "/admin/users/ban", limitedTok, map[string]any{"user_id": regularU.ID})
 	require.Equal(t, http.StatusForbidden, status, body)
 
-	// 5. POST /admin/accounts/restrict needs platform:orgs:reserved-names:
-	//    regular user → 403; super-admin → 200.
-	status, body = req(http.MethodPost, "/admin/accounts/restrict", regularTok, map[string]any{"slugs": []string{prefix + "-sometestslug"}})
+	// 5. POST /admin/orgs/restrict needs platform:orgs:reserved-names (relocated
+	//    from the old /admin/accounts/restrict): regular user → 403; super-admin → 200.
+	status, body = req(http.MethodPost, "/admin/orgs/restrict", regularTok, map[string]any{"slugs": []string{prefix + "-sometestslug"}})
 	require.Equal(t, http.StatusForbidden, status, body)
-	status, body = req(http.MethodPost, "/admin/accounts/restrict", superTok, map[string]any{"slugs": []string{prefix + "-sometestslug"}})
+	status, body = req(http.MethodPost, "/admin/orgs/restrict", superTok, map[string]any{"slugs": []string{prefix + "-sometestslug"}})
 	require.Equal(t, http.StatusOK, status, body)
+
+	// 6. The OLD /admin/account(s)/* paths are gone entirely (relocated to
+	//    /admin/orgs/*). Even the super-admin gets 404 — the routes no longer exist.
+	for _, p := range []string{"/admin/accounts/restrict", "/admin/accounts/unrestrict", "/admin/account/park", "/admin/account/claim"} {
+		status, body = req(http.MethodPost, p, superTok, map[string]any{"slugs": []string{prefix + "-x"}})
+		require.Equal(t, http.StatusNotFound, status, p+": "+body)
+	}
 }

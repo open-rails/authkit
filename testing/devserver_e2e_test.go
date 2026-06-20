@@ -1045,7 +1045,7 @@ func TestDevserverE2E(t *testing.T) {
 		adminToken := mint(t, adminUserID, 300)
 
 		// Restrict the slug -> it lands on the owner_reserved_names blocklist.
-		restrictResp, restrictBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/restrict", map[string]string{
+		restrictResp, restrictBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/orgs/restrict", map[string]string{
 			"Authorization": "Bearer " + adminToken,
 		}, map[string]any{
 			"slugs": []string{reservedSlug},
@@ -1077,7 +1077,7 @@ func TestDevserverE2E(t *testing.T) {
 		}
 
 		// Restricting again reports it as already restricted, not newly restricted.
-		restrictAgainResp, restrictAgainBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/restrict", map[string]string{
+		restrictAgainResp, restrictAgainBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/orgs/restrict", map[string]string{
 			"Authorization": "Bearer " + adminToken,
 		}, map[string]any{
 			"slugs": []string{reservedSlug},
@@ -1090,7 +1090,7 @@ func TestDevserverE2E(t *testing.T) {
 		}
 
 		// Unrestrict frees the slug.
-		unrestrictResp, unrestrictBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/accounts/unrestrict", map[string]string{
+		unrestrictResp, unrestrictBody := httpJSON(t, http.MethodPost, baseURL+"/api/v1/admin/orgs/unrestrict", map[string]string{
 			"Authorization": "Bearer " + adminToken,
 		}, map[string]any{
 			"slugs": []string{reservedSlug},

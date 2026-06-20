@@ -452,28 +452,44 @@ func TestAPIHandler_AdminUsersToggleActiveRoute_Removed(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestAPIHandler_AdminAccountParkRoute_RequiresAuth(t *testing.T) {
+// The slug lifecycle relocated to /admin/orgs/* (#95). The new park/claim routes
+// require auth (401), and the OLD /admin/account/* paths are gone entirely (404).
+func TestAPIHandler_AdminOrgsParkRoute_RequiresAuth(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/admin/account/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/orgs/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+
+	// Old path is removed.
+	wOld := httptest.NewRecorder()
+	rOld := httptest.NewRequest(http.MethodPost, "/admin/account/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
+	rOld.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(wOld, rOld)
+	require.Equal(t, http.StatusNotFound, wOld.Code)
 }
 
-func TestAPIHandler_AdminAccountClaimRoute_RequiresAuth(t *testing.T) {
+func TestAPIHandler_AdminOrgsClaimRoute_RequiresAuth(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/admin/account/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
+	r := httptest.NewRequest(http.MethodPost, "/admin/orgs/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+
+	// Old path is removed.
+	wOld := httptest.NewRecorder()
+	rOld := httptest.NewRequest(http.MethodPost, "/admin/account/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
+	rOld.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(wOld, rOld)
+	require.Equal(t, http.StatusNotFound, wOld.Code)
 }
 
 func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {

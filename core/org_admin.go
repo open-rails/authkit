@@ -132,6 +132,62 @@ func (s *Service) RestoreOrg(ctx context.Context, orgID string) (bool, error) {
 	return n > 0, nil
 }
 
+// TransferOrgOwnerResult reports the owner reassignment a transfer-owner made.
+type TransferOrgOwnerResult struct {
+	PriorOwnersDemoted int64  `json:"prior_owners_demoted"`
+	NewOwnerUserID     string `json:"new_owner_user_id"`
+}
+
+// TransferOrgOwner is the SURGICAL owner reassignment (#95, platform:orgs:update)
+// — the white-glove "owner-left" path that keeps the team intact (unlike the
+// coarse `recover` reset, which strips every member). ATOMICALLY: demote ALL
+// current `owner`-role members to `member`, then assign the prebuilt `owner`
+// role (= exactly `org:*`) to the new owner. The new owner becomes a member if
+// they weren't already; every other member keeps their role. Validates the new
+// owner exists (→ ErrUserNotFound) and the org exists (→ ErrOrgNotFound).
+func (s *Service) TransferOrgOwner(ctx context.Context, orgID, newOwnerUserID string) (TransferOrgOwnerResult, error) {
+	var res TransferOrgOwnerResult
+	if err := s.requirePG(); err != nil {
+		return res, err
+	}
+	orgID = strings.TrimSpace(orgID)
+	newOwnerUserID = strings.TrimSpace(newOwnerUserID)
+	if orgID == "" || newOwnerUserID == "" {
+		return res, ErrRecoverInvalid
+	}
+	if _, err := s.ResolveOrgByID(ctx, orgID); err != nil {
+		return res, err
+	}
+	if _, err := s.getUserByID(ctx, newOwnerUserID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return res, ErrUserNotFound
+		}
+		return res, err
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return res, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+
+	// Ensure the prebuilt owner/member roles exist (defensive — older orgs).
+	if err = qtx.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: orgID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
+		return res, err
+	}
+	if res.PriorOwnersDemoted, err = qtx.OrgDemoteAllOwners(ctx, db.OrgDemoteAllOwnersParams{OrgID: orgID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
+		return res, err
+	}
+	if err = qtx.OrgMembershipUpsertRole(ctx, db.OrgMembershipUpsertRoleParams{OrgID: orgID, UserID: newOwnerUserID, Role: orgOwnerRole}); err != nil {
+		return res, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return res, err
+	}
+	res.NewOwnerUserID = newOwnerUserID
+	return res, nil
+}
+
 // RecoverOrg is the ANTI-TAKEOVER reset for a compromised org (#95). ATOMICALLY:
 // revoke ALL the org's api-keys, disable ALL its remote-applications, demote ALL
 // current members (strip every role assignment), restore a clean `owner` role

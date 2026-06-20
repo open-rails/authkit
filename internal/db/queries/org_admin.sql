@@ -39,3 +39,14 @@ WHERE id = sqlc.arg(id)::uuid AND deleted_at IS NOT NULL;
 -- name: OrgMemberCountByOrg :one
 SELECT COUNT(*) FROM profiles.org_memberships
 WHERE org_id = sqlc.arg(org_id)::uuid AND deleted_at IS NULL;
+
+-- OrgDemoteAllOwners demotes every current owner-role member to the member
+-- role. Used by transfer-owner to strip the prior owner(s) before assigning
+-- the new one. Reports how many rows changed.
+-- name: OrgDemoteAllOwners :execrows
+UPDATE profiles.org_memberships
+SET role = sqlc.arg(member_role), updated_at = now()
+WHERE org_id = sqlc.arg(org_id)::uuid
+  AND member_kind = 'user'
+  AND role = sqlc.arg(owner_role)
+  AND deleted_at IS NULL;

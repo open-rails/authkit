@@ -353,11 +353,21 @@ Kind/ID scope rows.
 | GET | `/admin/users/deleted` | ADMIN | List deleted users |
 | GET | `/admin/users/:user_id/signins` | ADMIN | List recent signin events for a user |
 | POST | `/admin/users/:user_id/sessions/revoke` | ADMIN | Revoke all refresh sessions for a target user |
-| POST | `/admin/accounts/restrict` | ADMIN | Restrict owner namespace slugs (`{slugs:[...]}`) |
-| POST | `/admin/accounts/unrestrict` | ADMIN | Remove owner namespace restrictions (`{slugs:[...]}`) |
-| POST | `/admin/account/park` | ADMIN | Park account namespace (`{kind:"org"|"user",slug}`) |
-| POST | `/admin/account/claim` | ADMIN | Claim account namespace (`{kind:"org"|"user",slug,...}`; `owner_user_id` required when `kind="org"`) |
+| GET | `/admin/orgs` | `platform:orgs:read` | Org directory (paginated, `search`/`include_deleted`) |
+| GET | `/admin/orgs/deleted` | `platform:orgs:read` | List soft-deleted orgs |
+| GET | `/admin/orgs/:id` | `platform:orgs:read` | Org entity detail (slug/is_personal/member-count) |
+| POST | `/admin/orgs/:id/rename` | `platform:orgs:update` | Rename an org as platform admin (no 72h cooldown; `{new_slug}`) |
+| POST | `/admin/orgs/:id/transfer-owner` | `platform:orgs:update` | Surgical owner reassignment, keeps the team (`{new_owner_user_id}`) |
+| DELETE | `/admin/orgs/:id` | `platform:orgs:delete` | Soft-delete an org |
+| POST | `/admin/orgs/:id/restore` | `platform:orgs:delete` | Restore a soft-deleted org |
+| POST | `/admin/orgs/:id/recover` | `platform:orgs:recover` | Anti-takeover reset (`{new_owner_user_id}`; max-audited) |
+| POST | `/admin/orgs/restrict` | `platform:orgs:reserved-names` | Restrict owner namespace slugs (`{slugs:[...]}`) |
+| POST | `/admin/orgs/unrestrict` | `platform:orgs:reserved-names` | Remove owner namespace restrictions (`{slugs:[...]}`) |
+| POST | `/admin/orgs/park` | `platform:orgs:reserved-names` | Park a namespace (`{kind:"org"|"user",slug}`) |
+| POST | `/admin/orgs/claim` | `platform:orgs:reserved-names` | Claim a namespace (`{kind:"org"|"user",slug,...}`; `owner_user_id` required when `kind="org"`) |
 | GET | `/namespaces/:slug` | PUBLIC | Fetch public namespace metadata: `requested_slug`, `slug`, `renamed`, optional `hold_until`, typed `user`/`org`, and `claimable.user`/`claimable.org` |
+
+The org slug lifecycle (`restrict`/`unrestrict`/`park`/`claim`) and the org-admin surface live under `/admin/orgs/*`; the old `/admin/account(s)/*` paths are removed. There is intentionally NO platform org-create route — org creation is self-service (`POST /orgs`).
 
 Namespace lookup returns typed resources instead of one owner winner; a same-slug user and org can both appear in the response.
 

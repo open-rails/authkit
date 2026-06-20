@@ -27,6 +27,32 @@ func (q *Queries) APIKeyRevokeAllByOrg(ctx context.Context, orgID string) (int64
 	return result.RowsAffected(), nil
 }
 
+const orgDemoteAllOwners = `-- name: OrgDemoteAllOwners :execrows
+UPDATE profiles.org_memberships
+SET role = $1, updated_at = now()
+WHERE org_id = $2::uuid
+  AND member_kind = 'user'
+  AND role = $3
+  AND deleted_at IS NULL
+`
+
+type OrgDemoteAllOwnersParams struct {
+	MemberRole string
+	OrgID      string
+	OwnerRole  string
+}
+
+// OrgDemoteAllOwners demotes every current owner-role member to the member
+// role. Used by transfer-owner to strip the prior owner(s) before assigning
+// the new one. Reports how many rows changed.
+func (q *Queries) OrgDemoteAllOwners(ctx context.Context, arg OrgDemoteAllOwnersParams) (int64, error) {
+	result, err := q.db.Exec(ctx, orgDemoteAllOwners, arg.MemberRole, arg.OrgID, arg.OwnerRole)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const orgMemberCountByOrg = `-- name: OrgMemberCountByOrg :one
 SELECT COUNT(*) FROM profiles.org_memberships
 WHERE org_id = $1::uuid AND deleted_at IS NULL
