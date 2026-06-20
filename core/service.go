@@ -89,10 +89,10 @@ type Options struct {
 	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
 	// opaquely for callers who may manage API keys for the org.
 	ResourceScopeAuthorizer ResourceScopeAuthorizer
-	// PermissionCatalog is the app's permission vocabulary (merged with authkit's
+	// Permissions is the app's permission vocabulary (merged with authkit's
 	// base `org:` permissions). DefaultRoles are role templates seeded per org.
-	PermissionCatalog []PermissionDef
-	DefaultRoles      []DefaultRole
+	Permissions  []PermissionDef
+	DefaultRoles []DefaultRole
 }
 
 // Keyset holds the active signer and the public keys exposed via JWKS.
@@ -341,7 +341,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		APIKeyPrefix:               tokenPrefix,
 		APIKeyMaxTTL:               maxTTL,
 		ResourceScopeAuthorizer:    cfg.ResourceScopeAuthorizer,
-		PermissionCatalog:          cfg.PermissionCatalog,
+		Permissions:                cfg.Permissions,
 		DefaultRoles:               cfg.DefaultRoles,
 	}
 	return NewService(opts, ks), nil

@@ -46,7 +46,7 @@ func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		names := make([]string, 0)
-		for _, d := range s.svc.Catalog() {
+		for _, d := range s.svc.Permissions() {
 			names = append(names, d.Name)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"org": org.Slug, "roles": []string{}, "permissions": names})

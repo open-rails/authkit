@@ -8,6 +8,53 @@
 
 ---
 
+# #92: Rename `PermissionCatalog` → `Permissions` (purge the "catalog" homonym from RBAC vocabulary)
+
+**Completed:** yes
+
+## Metadata
+
+- Category: cleanup/breaking-api
+- Status: completed
+- Passes: true
+
+AuthKit's generic RBAC vocabulary no longer uses the overloaded "permission catalog" name. The public JSON response key remains `"permissions"`; OpenRails keeps its own product/domain `Catalog()` function and `openrails:catalog:*` permissions.
+
+## Tasks
+- [x] Renamed `core.Config.PermissionCatalog` → `Permissions`; updated the `Options` mirror and config construction.
+- [x] Renamed `Service.Catalog()` → `Permissions()` and `catalogSet()` → `knownPermissions()`.
+- [x] Renamed `handlePermissionCatalogGET` → `handlePermissionsGET`; `/permissions` response shape is unchanged.
+- [x] Renamed the delegated verifier option `WithPermissionCatalog` → `WithPermissions`.
+- [x] Swept AuthKit docs/comments for the old permission-catalog vocabulary.
+- [x] Updated OpenRails consumer call sites: `Permissions: Catalog()` and `authhttp.WithPermissions(...)`.
+
+**STATUS: completed in AuthKit (2026-06-20).** Verified with `go test ./core ./http`. OpenRails consumer checked against the local AuthKit checkout with a temporary modfile: `go test -modfile=/tmp/... ./internal/controlplane -run 'TestDelegated|TestCatalog'`.
+
+---
+
+# #93: Remove the `!perm` negation operator from permission evaluation (positive grants only)
+
+**Completed:** yes
+
+## Metadata
+
+- Category: security/cleanup
+- Status: completed
+- Passes: true
+
+Decision (2026-06-19, Paul): drop negation from AuthKit's permission model. The evaluator no longer supports exclusion tokens; grants are positive-only literals or namespace-anchored globs.
+
+## Tasks
+- [x] Removed the `!perm` exclusion branch/constant from permission evaluation; there is no `permExcludePrefix` in live code.
+- [x] `effectivePermsForTokens` treats `!`-prefixed stored tokens as invalid and grants nothing from them.
+- [x] `ValidateGrant` rejects `!`-prefixed tokens as `unknown` (fail-closed).
+- [x] `UnknownRoleTokenNames` reports `!`-prefixed tokens as unknown.
+- [x] Positive globs still work (`org:*`, `org:*:read`, `app:*`); bare `*` remains invalid.
+
+**STATUS: completed in AuthKit (2026-06-20).** Verified with `go test ./core` and focused `go test ./core -run 'TestEffectivePermsForTokens|TestValidateGrantRejectsNegationToken|TestUnknownExclusionsAreDetectable|TestValidateGrant'`.
+
+---
+
 # #91: Generalize the admin user DIRECTORY (list/search/sort/detail) + make billing-enrichment a first-class pluggable filter
 
 **Completed:** yes

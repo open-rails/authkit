@@ -131,13 +131,13 @@ type Config struct {
 	// no-escalation such as "may this caller mint openrails.customer=cozy-art".
 	ResourceScopeAuthorizer ResourceScopeAuthorizer
 
-	// PermissionCatalog is the embedding application's set of valid permission
+	// Permissions is the embedding application's set of valid permission
 	// strings (e.g. tensorhub's `endpoint:revise`, `repo:create`). authkit merges
 	// this with its own base permissions (the reserved `org:` namespace) to form
-	// the catalog it validates role/API-key grants against. Permissions are opaque to
-	// authkit — it never interprets their meaning. Names must not collide with
-	// the reserved `org:` base permissions.
-	PermissionCatalog []PermissionDef
+	// the permission set it validates role/API-key grants against. Permissions
+	// are opaque to authkit — it never interprets their meaning. Names must not
+	// collide with the reserved `org:` base permissions.
+	Permissions []PermissionDef
 
 	// DefaultRoles are role templates seeded into every org at creation, in
 	// addition to the built-in `owner` role (which is always seeded with
@@ -148,7 +148,7 @@ type Config struct {
 	DefaultRoles []DefaultRole
 }
 
-// PermissionDef is one entry in the permission catalog: an opaque permission
+// PermissionDef is one entry in the permission set: an opaque permission
 // string plus a human-readable description (surfaced to admin UIs).
 type PermissionDef struct {
 	Name        string `json:"name"`

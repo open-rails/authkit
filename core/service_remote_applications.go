@@ -325,10 +325,14 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 			return nil, ErrInvalidRemoteApplication
 		}
 	}
-	var org *string
-	if t := strings.TrimSpace(in.OrgID); t != "" {
-		org = &t
+	// #95: remote-applications are a pure ORG sub-resource — org_id is REQUIRED.
+	// There is no org-less / operator-managed issuer; an issuer "attached to
+	// nothing" is rejected so every issuer maps to one merchant via its org.
+	t := strings.TrimSpace(in.OrgID)
+	if t == "" {
+		return nil, fmt.Errorf("%w: org_id is required (remote-applications are org-nested)", ErrInvalidRemoteApplication)
 	}
+	org := &t
 
 	row, err := s.q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
 		Slug:           slug,

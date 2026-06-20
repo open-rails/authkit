@@ -238,14 +238,14 @@ func TestDelegatedAccessRejectsRolesClaim(t *testing.T) {
 	}
 }
 
-// TestPermissionCatalogValidator rejects tokens with unknown permissions.
-func TestPermissionCatalogValidator(t *testing.T) {
+// TestPermissionsValidator rejects tokens with unknown permissions.
+func TestPermissionsValidator(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"
 	aud := []string{"openrails"}
 	catalog := map[string]bool{"openrails:self:billing:read": true}
 	v := NewVerifier(
-		WithPermissionCatalog(func(perms []string) error {
+		WithPermissions(func(perms []string) error {
 			for _, p := range perms {
 				if !catalog[p] {
 					return errors.New("unknown_permission")

@@ -43,8 +43,8 @@ func TestCreateOrgForUserCreatesOwnerAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRolePermissions: %v", err)
 	}
-	if len(perms) != 1 || perms[0] != PermWildcard {
-		t.Fatalf("owner perms=%v, want *", perms)
+	if len(perms) != 1 || perms[0] != OrgOwnerGrant {
+		t.Fatalf("owner perms=%v, want %s", perms, OrgOwnerGrant)
 	}
 	defined, err := svc.ListOrgDefinedRoles(ctx, slug)
 	if err != nil {

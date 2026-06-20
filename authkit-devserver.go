@@ -149,7 +149,7 @@ func runServe(cfg *config) error {
 		Environment:              cfg.Environment,
 		RegistrationVerification: cfg.RegistrationVerification,
 		APIKeyPrefix:             cfg.APIKeyPrefix,
-		PermissionCatalog:        toPermissionDefs(cfg.PermissionCatalog),
+		Permissions:        toPermissionDefs(cfg.PermissionCatalog),
 	})
 	if err != nil {
 		return err
@@ -224,7 +224,7 @@ func runOrgManifestApply(cfg *config) error {
 	svc := core.NewService(core.Options{
 		Issuer:            cfg.Issuer,
 		APIKeyPrefix:      cfg.APIKeyPrefix,
-		PermissionCatalog: toPermissionDefs(cfg.PermissionCatalog),
+		Permissions: toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)
 	result, err := reconcileOrgManifest(ctx, svc, cfg.OrgManifestPath)
 	if err != nil {
@@ -252,7 +252,7 @@ func runBootstrapApply(cfg *config, args []string) error {
 	svc := core.NewService(core.Options{
 		Issuer:            cfg.Issuer,
 		APIKeyPrefix:      cfg.APIKeyPrefix,
-		PermissionCatalog: toPermissionDefs(cfg.PermissionCatalog),
+		Permissions: toPermissionDefs(cfg.PermissionCatalog),
 	}, core.Keyset{}).WithPostgres(pg)
 	result, err := reconcileBootstrapManifest(ctx, svc, path, dryRun)
 	if err != nil {

@@ -58,13 +58,16 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 		t.Fatalf("remote_application should hold owner role in %s, got memberships=%+v", orgSlug, memberships)
 	}
 
-	gotWildcard := false
+	// owner = `org:*` (#95, tightened from a bare `*`), which EXPANDS to AuthKit's
+	// full org base perm set for the remote_application member — full authority
+	// over its merchant's org (but never the separate `platform:` layer).
+	have := map[string]bool{}
 	for _, p := range perms {
-		if p == PermWildcard {
-			gotWildcard = true
-		}
+		have[p] = true
 	}
-	if !gotWildcard {
-		t.Fatalf("owner role should confer wildcard %q, got perms=%v", PermWildcard, perms)
+	for _, d := range BasePermissions() {
+		if !have[d.Name] {
+			t.Fatalf("owner role should confer full org authority (missing %s); got perms=%v", d.Name, perms)
+		}
 	}
 }

@@ -22,7 +22,7 @@ func TestEffectivePermsForTokens(t *testing.T) {
 		{"read wildcard", []string{"org:*:read"}, []string{"org:members:read"}},
 		{"concrete only", []string{"app:a", "org:roles:update"}, []string{"app:a", "org:roles:update"}},
 		{"empty", nil, []string{}},
-		{"negation tokens are ignored", []string{"app:a", "app:b", "!app:b"}, []string{"app:a", "app:b"}},
+		{"negation tokens do not grant", []string{"app:a", "app:b", "!app:b"}, []string{"app:a", "app:b"}},
 	}
 	for _, tc := range cases {
 		got := get(tc.toks...)
@@ -82,7 +82,7 @@ func TestBasePermissionsPresent(t *testing.T) {
 // Uses actorAll=true so only the catalog/prefix validation runs (no DB).
 func TestValidateGrant_ResourceScopedPrefix(t *testing.T) {
 	svc := NewService(Options{
-		PermissionCatalog: []PermissionDef{
+		Permissions: []PermissionDef{
 			{Name: "repo:read"}, {Name: "repo:write"}, {Name: "endpoint:invoke"},
 		},
 	}, Keyset{})
@@ -108,5 +108,22 @@ func TestValidateGrant_ResourceScopedPrefix(t *testing.T) {
 		if got := len(unknown) > 0; got != c.wantUnknown {
 			t.Errorf("%s: unknown=%v, want %v (unknown=%v)", c.tok, got, c.wantUnknown, unknown)
 		}
+	}
+}
+
+func TestValidateGrantRejectsNegationToken(t *testing.T) {
+	svc := NewService(Options{
+		Permissions: []PermissionDef{{Name: "app:b"}},
+	}, Keyset{})
+
+	unknown, offending, err := svc.ValidateGrant(context.Background(), "org", "actor", []string{"!app:b"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unknown) != 1 || unknown[0] != "!app:b" {
+		t.Fatalf("unknown=%v, want [!app:b]", unknown)
+	}
+	if len(offending) != 0 {
+		t.Fatalf("offending=%v, want none", offending)
 	}
 }

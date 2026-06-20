@@ -155,15 +155,15 @@ func permMatches(grant, concrete string) bool {
 	return true
 }
 
-// Catalog returns the full permission catalog: authkit base permissions plus the
-// app-declared catalog (deduped, base wins on collision).
-func (s *Service) Catalog() []PermissionDef {
+// Permissions returns the full permission set: authkit base permissions plus
+// the app-declared permissions (deduped, base wins on collision).
+func (s *Service) Permissions() []PermissionDef {
 	out := append([]PermissionDef{}, BasePermissions()...)
 	seen := map[string]bool{}
 	for _, d := range out {
 		seen[d.Name] = true
 	}
-	for _, d := range s.opts.PermissionCatalog {
+	for _, d := range s.opts.Permissions {
 		n := strings.TrimSpace(d.Name)
 		if n == "" || seen[n] {
 			continue
@@ -174,9 +174,9 @@ func (s *Service) Catalog() []PermissionDef {
 	return out
 }
 
-func (s *Service) catalogSet() map[string]bool {
+func (s *Service) knownPermissions() map[string]bool {
 	m := map[string]bool{}
-	for _, d := range s.Catalog() {
+	for _, d := range s.Permissions() {
 		m[d.Name] = true
 	}
 	return m
@@ -190,14 +190,24 @@ func effectivePermsForTokens(tokens []string, catalog map[string]bool) map[strin
 	out := map[string]bool{}
 	for _, t := range tokens {
 		t = strings.TrimSpace(t)
-		if t == "" || t == PermWildcard {
+		if t == "" || t == PermWildcard || strings.HasPrefix(t, "!") {
+			continue // invalid grant token — never expand it
+		}
+		if strings.Contains(t, PermWildcard) {
+			// Namespace-anchored glob: expand against the catalog — only
+			// concrete catalog perms can match a glob (`org:*` → every `org:` perm).
+			for p := range catalog {
+				if permMatches(t, p) {
+					out[p] = true
+				}
+			}
 			continue
 		}
-		for p := range catalog {
-			if permMatches(t, p) {
-				out[p] = true
-			}
-		}
+		// Literal grant: the principal holds exactly this permission. The
+		// catalog gates grants at WRITE time (ValidateGrant); at read time a
+		// stored literal is honored as-is (incl. host perms + directly-seeded
+		// machine grants), never silently dropped.
+		out[t] = true
 	}
 	return out
 }
@@ -274,7 +284,7 @@ func (s *Service) EffectivePermissions(ctx context.Context, orgSlug, userID stri
 	if err != nil {
 		return nil, err
 	}
-	catalog := s.catalogSet()
+	catalog := s.knownPermissions()
 	eff := map[string]bool{}
 	for _, role := range roles {
 		toks, err := s.GetRolePermissions(ctx, orgSlug, role)
@@ -296,7 +306,7 @@ func (s *Service) EffectiveRolePermissions(ctx context.Context, orgSlug, role st
 	if err != nil {
 		return nil, err
 	}
-	return sortedKeys(effectivePermsForTokens(toks, s.catalogSet())), nil
+	return sortedKeys(effectivePermsForTokens(toks, s.knownPermissions())), nil
 }
 
 // HasPermission reports whether the user holds perm in the org.
@@ -324,7 +334,7 @@ func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm strin
 // actor known to hold everything (bootstrap system-actor / platform admin).
 // Returns (unknown, offending).
 func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
-	catalog := s.catalogSet()
+	catalog := s.knownPermissions()
 	var actorEff map[string]bool
 	if !actorAll {
 		eff, e := s.EffectivePermissions(ctx, orgSlug, actorUserID)
@@ -337,8 +347,8 @@ func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string
 		}
 	}
 	for _, t := range dedupeStrings(tokens) {
-		if t == PermWildcard {
-			unknown = append(unknown, t) // bare "*" is not a valid grant
+		if t == PermWildcard || strings.HasPrefix(t, "!") {
+			unknown = append(unknown, t) // invalid grant token
 			continue
 		}
 		// Expand the token against the catalog. A literal hits itself; a glob
@@ -452,7 +462,7 @@ func UnknownRoleTokenNames(tokens []string, catalog map[string]bool) []string {
 		if t == "" {
 			continue
 		}
-		if t == PermWildcard {
+		if t == PermWildcard || strings.HasPrefix(t, "!") {
 			unknown = append(unknown, t)
 			continue
 		}

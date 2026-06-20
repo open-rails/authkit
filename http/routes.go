@@ -99,6 +99,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// "What are my permissions" introspection (#76 amendment): the caller's
 		// GRANTED ceiling + identity, for any programmatic principal.
 		{Method: http.MethodGet, Path: "/me/permissions", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleMePermissionsGET))},
+		// Caller's OWN effective Layer-2 platform permissions (#95 self introspection).
+		{Method: http.MethodGet, Path: "/me/platform-permissions", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleMePlatformPermissionsGET))},
 		{Method: http.MethodPost, Path: "/reauth/password", Group: RoutePassword, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
 
 		{Method: http.MethodPost, Path: "/password/login", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
@@ -161,6 +163,26 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 
 		{Method: http.MethodPost, Path: "/admin/roles/grant", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminRolesGrantPOST))},
 		{Method: http.MethodPost, Path: "/admin/roles/revoke", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminRolesRevokePOST))},
+		// Layer-2 Platform RBAC admin API (#95). Authenticated; each handler gates
+		// IN-HANDLER on the specific `platform:` permission (requirePlatformPermission)
+		// — NOT the legacy RequireAdmin gate. Define platform roles, then grant them
+		// to users (minting platform-admins). The first super-admin (`platform:*`) is
+		// seeded out-of-band (bootstrap/manifest), like an org's first owner.
+		{Method: http.MethodGet, Path: "/admin/platform-roles", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRolesGET))},
+		{Method: http.MethodGet, Path: "/admin/platform-roles/{role}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleGET))},
+		{Method: http.MethodPut, Path: "/admin/platform-roles/{role}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRolePUT))},
+		{Method: http.MethodDelete, Path: "/admin/platform-roles/{role}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleDELETE))},
+		{Method: http.MethodGet, Path: "/admin/platform-roles/{role}/members", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleMembersGET))},
+		{Method: http.MethodPost, Path: "/admin/platform-roles/{role}/grant", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleGrantPOST))},
+		{Method: http.MethodPost, Path: "/admin/platform-roles/{role}/revoke", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleRevokePOST))},
+		// Org-admin surface (#95, platform:orgs:*). Administer ANY org as an
+		// ENTITY — directory, soft-delete/restore, and the anti-takeover `recover`
+		// reset. Entity-level only; each handler gates on the specific platform:orgs perm.
+		{Method: http.MethodGet, Path: "/admin/orgs", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgsListGET))},
+		{Method: http.MethodGet, Path: "/admin/orgs/{id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgGET))},
+		{Method: http.MethodDelete, Path: "/admin/orgs/{id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgDELETE))},
+		{Method: http.MethodPost, Path: "/admin/orgs/{id}/restore", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRestorePOST))},
+		{Method: http.MethodPost, Path: "/admin/orgs/{id}/recover", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRecoverPOST))},
 		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersListGET))},
 		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUserGET))},
 		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: admin(http.HandlerFunc(s.handleAdminUsersBanPOST))},
@@ -247,7 +269,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeysPOST))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeysGET))},
 			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/api-keys/{token_id}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeyDELETE))},
-			RouteSpec{Method: http.MethodGet, Path: "/permissions", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handlePermissionCatalogGET))},
+			RouteSpec{Method: http.MethodGet, Path: "/permissions", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handlePermissionsGET))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/permissions", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberPermissionsGET))},
 			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesGET))},
 			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesPOST))},

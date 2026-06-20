@@ -38,7 +38,7 @@ type DelegatedAccessParams struct {
 	DelegatedSubject string
 	// Permissions becomes the `permissions` claim: an array of resource-defined
 	// permission strings (NOT OAuth's space-delimited `scope`). Receiving
-	// services validate these against their own permission catalog.
+	// services validate these against their own permission set.
 	Permissions []string
 	// Attributes becomes the `attributes` claim: the canonical app-specific
 	// ESCAPE HATCH (#75). An object of issuer-asserted, NAMESPACED, OPAQUE

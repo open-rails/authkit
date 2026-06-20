@@ -7,27 +7,25 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// Org RBAC management endpoints (authkit #46). Roles are sets of permissions;
-// authkit stores them opaquely and validates against the catalog (its base
-// `org:` permissions UNION the app-declared catalog). Management is gated by the
-// base permissions: org:roles:manage to edit a role's permissions, org:read to
-// view. owner holds `*` (all) so it passes; a platform global admin bypasses.
+// Org RBAC management endpoints. Roles are sets of permissions; authkit stores
+// them opaquely and validates against its base `org:` permissions UNION the
+// app-declared permissions.
 
-// handlePermissionCatalogGET returns the full permission catalog (base + app).
+// handlePermissionsGET returns the full permission set (base + app).
 // Any authenticated user may read it (it's just the vocabulary).
-func (s *Service) handlePermissionCatalogGET(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handlePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, "unauthorized")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"permissions": s.svc.Catalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"permissions": s.svc.Permissions()})
 }
 
 // handleOrgRolePUT is idempotent create-or-replace for a role: it defines the
 // role name if absent and sets its permission set in one call (REST resource
 // PUT, replacing the old POST /roles + PUT /roles/{role}/permissions pair).
-// Gated org:roles:manage with catalog validation + no-escalation. Read the
+// Gated by org role update permission with validation + no-escalation. Read the
 // result back via GET /orgs/{org}/roles/{role}.
 func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())

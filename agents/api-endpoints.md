@@ -148,23 +148,23 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | POST | `/me/org-invites/:invite_id/decline` | AUTH | Decline org invite as current user |
 | GET | `/orgs/:org/roles` | AUTH | List defined roles (`org:read`) |
 | GET | `/orgs/:org/roles/:role` | AUTH | A role's detail: name + permissions (`org:read`); 404 if undefined |
-| PUT | `/orgs/:org/roles/:role` | AUTH | Create-or-replace a role: body `{permissions[]}` (`org:roles:manage`; catalog-validated + no-escalation). Idempotent — defines the role name and sets its perms in one call |
+| PUT | `/orgs/:org/roles/:role` | AUTH | Create-or-replace a role: body `{permissions[]}` (`org:roles:manage`; permission-validated + no-escalation). Idempotent — defines the role name and sets its perms in one call |
 | DELETE | `/orgs/:org/roles/:role` | AUTH | Delete a role (`org:roles:manage`; `owner` protected) |
 | GET | `/orgs/:org/members/:user_id/roles` | AUTH | Read member roles (`org:read`) |
 | POST | `/orgs/:org/members/:user_id/roles` | AUTH | Assign role to member (`org:members:manage`; no-escalation: the role's permissions must be ⊆ the assigner's, so granting `owner` requires owner) |
 | DELETE | `/orgs/:org/members/:user_id/roles` | AUTH | Unassign role (`org:members:manage`; cannot remove last owner) |
-| GET | `/permissions` | AUTH | The permission catalog: authkit base permissions ∪ the app-declared catalog |
+| GET | `/permissions` | AUTH | The permission set: authkit base permissions ∪ the app-declared permissions |
 | GET | `/orgs/:org/members/:user_id/permissions` | AUTH | A member's effective permissions (`org:read`) |
-| POST | `/orgs/:org/api-keys` | AUTH | Mint an API key (`org:api_keys:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms catalog-validated + no-escalation, reserved write/mint `org:*` perms + wildcards barred (read-only `org:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full key shown ONCE. |
+| POST | `/orgs/:org/api-keys` | AUTH | Mint an API key (`org:api_keys:manage`). Body `{name, permissions[], resources?:[{kind,id}], expires_at?}`; perms permission-validated + no-escalation, reserved write/mint `org:*` perms + wildcards barred (read-only `org:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full key shown ONCE. |
 | GET | `/orgs/:org/api-keys` | AUTH | List the org's API keys (`org:api_keys:manage`; metadata only, includes `resources[]`, never secrets) |
 | DELETE | `/orgs/:org/api-keys/:token_id` | AUTH | Revoke an API key (`org:api_keys:manage`) |
 
 > **Org RBAC (permission-based).** A role is a set of permissions. Org-management
 > endpoints are gated by authkit's **base permissions** (reserved `org:`
 > namespace): `org:roles:manage`, `org:members:manage`, `org:api_keys:manage`,
-> `org:read`. The embedding app declares its own permission catalog
-> (`core.Config.PermissionCatalog`) + optional default roles
-> (`core.Config.DefaultRoles`); the effective catalog = base ∪ app. The `owner`
+> `org:read`. The embedding app declares its own permission set
+> (`core.Config.Permissions`) + optional default roles
+> (`core.Config.DefaultRoles`); the effective permission set = base ∪ app. The `owner`
 > role is hardcoded and seeded with `*` (all permissions); other roles are
 > app/org-defined. Permission tokens in a role: a concrete permission, `*` (all),
 > or `!perm` (exclude). All assignment/grant is **no-escalation** (you can only
@@ -203,7 +203,7 @@ human login path).
 
 **Mint authorization (native, permission-based).** Minting requires
 `org:api_keys:manage`. authkit validates the requested permissions itself against
-the org's effective catalog: each must be a defined permission (else `400
+the org's effective permission set: each must be a defined permission (else `400
 unknown_permission`) the caller themselves holds (else `403
 permission_grant_denied`, offending named) — no privilege escalation. The
 reserved **write/mint** management permissions (`org:roles:manage`,
@@ -371,7 +371,7 @@ reject missing, unknown, or cross-profile `typ` values. Delegated access JWTs
 must not carry legacy claims such as `org`, `roles`, or
 top-level `user_tier`; those are rejected. Resource servers should validate them
 with `Verifier.VerifyDelegatedAccess`, optionally installing
-permission-catalog and attributes-policy hooks. Org issuers loaded from
+permissions and attributes-policy hooks. Org issuers loaded from
 this store are bound to their registered `org_slug`; delegated tokens claiming
 another resource account are rejected with `resource_account_issuer_mismatch`.
 For browser-direct OpenRails billing, a host app should expose its own

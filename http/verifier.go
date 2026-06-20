@@ -156,7 +156,7 @@ func WithAPIKeyPrefix(prefix string) VerifierOption {
 }
 
 // PermissionValidator validates a delegated access token's `permissions`
-// against the receiving service's own permission catalog. Return an error to
+// against the receiving service's own permissions. Return an error to
 // reject the token. Called only for delegated access tokens.
 type PermissionValidator func(permissions []string) error
 
@@ -165,10 +165,10 @@ type PermissionValidator func(permissions []string) error
 // Called only for delegated access tokens.
 type AttributesValidator func(attributes map[string]json.RawMessage) error
 
-// WithPermissionCatalog installs a validator that VerifyDelegatedAccess runs
+// WithPermissions installs a validator that VerifyDelegatedAccess runs
 // against the token's `permissions`. Use it to ensure every permission string
-// belongs to this resource server's catalog.
-func WithPermissionCatalog(fn PermissionValidator) VerifierOption {
+// belongs to this resource server's permissions.
+func WithPermissions(fn PermissionValidator) VerifierOption {
 	return func(v *Verifier) { v.permValidator = fn }
 }
 

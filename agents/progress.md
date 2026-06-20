@@ -223,55 +223,6 @@ SECURITY MODEL:
 
 ---
 
-# #92: Rename `PermissionCatalog` → `Permissions` (purge the "catalog" homonym from RBAC vocabulary)
-
-**Completed:** yes
-
-`core.Config.PermissionCatalog []PermissionDef` is the embedding app's declared set of valid permission strings — the registry AuthKit validates role/grant writes against (`ValidateGrant`'s `unknown` return is exactly this membership check). The word "catalog" collides badly with host product domains: OpenRails has a *product catalog* and a permission literally named `catalog:write`, so `PermissionCatalog` misreads as "permissions on the catalog" when it means "the registry of all permissions."
-
-Decision (2026-06-19, with Paul): rename to `Permissions`. It is the NIST RBAC formal term (the set PRMS), matches GitHub's "permissions", and pairs cleanly with the sibling field `DefaultRoles []DefaultRole`. The element type `PermissionDef` is unchanged; the type already disambiguates a *definition* list (`[]PermissionDef`) from a *grant* list (`[]string`), so the bare name is unambiguous in context.
-
-Scope: AuthKit-internal naming ONLY — NOT a model change. AuthKit's resource model (resource-scoped grants `resource:action:name` + `APIKeyResource{Kind,ID}`) and its opaque-string treatment already exist and stay exactly as-is. Out of scope (separate host-side issues, do not do here): OpenRails dropping the `openrails:` permission prefix + renaming its OWN `Catalog()` — that is **OpenRails #537** (the permission-string hard-cut to `resource:action` + `self`/`merchant`/`platform` tiers), which DEPLOYS IN LOCKSTEP with this rename (hard-cut, no compat window) — and migrating doujins/hentai0 onto AuthKit-as-RBAC-authority (passing a non-empty `Permissions`).
-
-Rules:
-- The field rename is a breaking change to `core.Config`. OpenRails is the ONLY setter (`controlplane/service.go` passes `PermissionCatalog: Catalog()`), so update it in the same change. doujins/hentai0 leave the field empty and are unaffected.
-- Keep the public JSON response key `"permissions"` (the permission-catalog GET already uses it — no wire break there).
-- Do NOT touch OpenRails' own `Catalog()` function or its `openrails:catalog:*` permissions — "catalog" is a legitimate product concept in the host; this issue only removes it from AuthKit's generic RBAC vocabulary.
-
-**Tasks:**
-- [ ] Rename `core.Config.PermissionCatalog` → `Permissions` (type stays `[]PermissionDef`); update the options-struct mirror in `core/service.go` (the `PermissionCatalog: cfg.PermissionCatalog` copy + its field).
-- [ ] Rename the exported accessor `Service.Catalog()` → `Permissions()` and the internal `catalogSet()` → `knownPermissions()`; update `EffectivePermissions` / `effectivePermsForTokens` / `ValidateGrant` references.
-- [ ] Rename the permission-catalog GET handler (`handlePermissionCatalogGET`) and any route/comment literal containing "catalog"; keep the response body keyed on `"permissions"`.
-- [ ] Sweep comments/docs: "permission catalog" → "permission set"/"permissions"; reserve "catalog" for host product domains.
-- [ ] Update the sole consumer: OpenRails `controlplane/service.go` `PermissionCatalog: Catalog()` → `Permissions: Catalog()`.
-- [ ] Build + tests green in authkit; confirm doujins/hentai0 compile unaffected (they do not set the field).
-- [ ] Land in lockstep with **OpenRails #537** — the consumer flips `PermissionCatalog`→`Permissions` in the SAME deploy as its `openrails:`-prefix hard-cut; hard-cut, no compat window (Paul).
-
----
-
-# #93: Remove the `!perm` negation operator from permission evaluation (positive grants only)
-
-**Completed:** no
-
-Decision (2026-06-19, Paul): drop negation from AuthKit's permission model. The evaluator special-cases exclusion tokens — `!perm` subtracts a permission from a `*`/role grant (Azure-`NotActions`-style). It is the sketchiest part of the model: pure RBAC is additive-only (Kubernetes has no deny; the NIST RBAC model is positive grants only), "what can X do?" becomes a set-subtraction, and it already caused a real fail-OPEN bug — tensorhub's admin role seed carried `!org:roles:manage` referencing a renamed perm, which matched nothing, so the exclusion silently no-op'd and the "restricted" admin held ALL permissions. Keep the `*` wildcard CHARACTER for namespace-anchored globs (`org:*`, `root:*`); remove ONLY negation. (The BARE `*` god-grant is dropped separately in #95 — `owner` becomes `org:*`.)
-
-Safe to remove — nothing uses it: doujins/hentai0 checked clean (no wildcard+exclusion role seeds), tensorhub's `!`-token was the bug (removed), and OpenRails' operator role stores an ENUMERATED list (computes `all − platform` in Go, never stores `*`+`!`). Pairs with the role-definition policy in **OpenRails #537** (roles positively enumerated; `*` break-glass-only; `!perm` banned).
-
-Behavior after removal: a `!`-prefixed token is no longer special-cased — it is an ordinary permission string, not in any catalog, so `ValidateGrant` rejects it as `unknown` (fail-CLOSED) instead of silently narrowing a grant. `*` (all-perms wildcard) is unchanged.
-
-UPDATE (#95): POSITIVE globs (`org:*`, `org:members:*`, `org:*:read`, AWS-IAM style) are now FIRST-CLASS — the earlier "`*` break-glass-only" stance is superseded. Only NEGATION (`!perm`) is removed; positive wildcards stay and expand.
-
-This is a BEHAVIOR change, so it is OUT of #92's scope (which is naming-only).
-
-**Tasks:**
-- [ ] Remove the `!perm` branch from `effectivePermsForTokens` (the `permExcludePrefix` handling); keep the glob `*` expansion for namespace-anchored globs (`org:*` → all `org:` perms); the BARE `*` god-token is dropped (#95).
-- [ ] `ValidateGrant`: drop the "exclusion only narrows; nothing to validate" skip so a `!`-prefixed token falls through to the catalog check → `unknown` (rejected).
-- [ ] Remove the `permExcludePrefix` constant + any exclusion docs/comments.
-- [ ] Tests: a role/grant with `!perm` now FAILS validation (fail-closed) instead of silently granting everything; `*` still expands to the full catalog; positively-enumerated roles unchanged. `UnknownRoleTokenNames` now simply flags the `!`-token as unknown.
-- [ ] Sweep: confirm no live role seed / bootstrap manifest in authkit or any consumer uses `!` (grep); none expected.
-
----
-
 # #94: Enforce the no-escalation invariant on EVERY grant path + a found gap (remote-app direct grant) — code + tests
 
 **Completed:** no

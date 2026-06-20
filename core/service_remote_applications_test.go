@@ -151,31 +151,17 @@ func TestRemoteApplicationOrgOptionalOwnerUserRemoved(t *testing.T) {
 		t.Fatalf("remote_applications.owner_user_id should not exist after migration")
 	}
 
-	iss := "https://bootstrap.example/issuer"
-	slug := "bootstrap-issuer"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1 OR issuer=$2`, slug, iss)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1 OR issuer=$2`, slug, iss)
-	})
-
-	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
-		Slug:    slug,
-		Issuer:  iss,
+	// #95: org_id is now REQUIRED. An org-less ("bootstrap/operator-managed")
+	// remote application is REJECTED — every issuer must be org-bound, so it maps
+	// to exactly one merchant via its owning org (no orphan issuers).
+	_, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
+		Slug:    "bootstrap-issuer",
+		Issuer:  "https://bootstrap.example/issuer",
 		JWKSURI: "https://bootstrap.example/jwks.json",
 		Enabled: true,
 	})
-	if err != nil {
-		t.Fatalf("upsert org-less remote application: %v", err)
-	}
-	if ra.OrgID != "" {
-		t.Fatalf("org-less remote application OrgID = %q, want empty", ra.OrgID)
-	}
-	orgID, err := svc.ResolveRemoteApplicationOrg(ctx, iss)
-	if err != nil {
-		t.Fatalf("resolve remote application org: %v", err)
-	}
-	if orgID != "" {
-		t.Fatalf("ResolveRemoteApplicationOrg = %q, want empty for bootstrap issuer", orgID)
+	if !errors.Is(err, ErrInvalidRemoteApplication) {
+		t.Fatalf("org-less remote application should be rejected with ErrInvalidRemoteApplication, got %v", err)
 	}
 }
 

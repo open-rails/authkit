@@ -90,6 +90,24 @@ type ProfilesOwnerReservedName struct {
 	UpdatedAt time.Time
 }
 
+// Layer-2 platform RBAC (#95): named platform roles, assigned to users directly, granting ONLY platform: perms. The disjoint ClusterRole plane — never reaches inside an org.
+type ProfilesPlatformRole struct {
+	Role      string
+	CreatedAt time.Time
+}
+
+type ProfilesPlatformRolePermission struct {
+	Role       string
+	Permission string
+	CreatedAt  time.Time
+}
+
+type ProfilesPlatformUserRole struct {
+	UserID    string
+	Role      string
+	CreatedAt time.Time
+}
+
 type ProfilesRefreshSession struct {
 	ID                  string
 	UserID              string
@@ -120,8 +138,8 @@ type ProfilesRemoteApplication struct {
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time
-	// Optional controlling org. NULL = bootstrap/operator-managed issuer with no AuthKit user/org owner; SET = org-controlled issuer managed through org RBAC.
-	OrgID          *string
+	// REQUIRED controlling org (#95): remote-apps are org-nested like api-keys. No org-less/operator-managed issuer — every issuer is org-bound and maps to one merchant via its owning org.
+	OrgID          string
 	AllowedOrigins []string
 }
 

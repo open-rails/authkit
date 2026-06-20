@@ -293,7 +293,7 @@ func (s *Service) handleRemoteApplicationPermissionsGET(w http.ResponseWriter, r
 // handleRemoteApplicationPermissionPOST grants a direct permission to a
 // remote_application. Authorized by its owner org or a global admin.
 func (s *Service) handleRemoteApplicationPermissionPOST(w http.ResponseWriter, r *http.Request) {
-	_, ra, ok := s.authRemoteApplicationBySlug(w, r)
+	claims, ra, ok := s.authRemoteApplicationBySlug(w, r)
 	if !ok {
 		return
 	}
@@ -301,6 +301,33 @@ func (s *Service) handleRemoteApplicationPermissionPOST(w http.ResponseWriter, r
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Permission) == "" {
 		badRequest(w, "invalid_request")
 		return
+	}
+	// NO-ESCALATION (#94): the remote-app DIRECT-grant path must run the same
+	// catalog + no-escalation check as every other grant path (role-perm set,
+	// member-role assign, API-key mint). Resolve against the remote-app's
+	// OWNING org. A global admin bypasses (actorAll). Closes the documented
+	// gap where any remote-app manager could grant ANY catalog perm — incl.
+	// perms the grantor lacks — letting the remote-app act with escalated
+	// authority.
+	if !claimsHasGlobalAdmin(claims) {
+		org, oerr := s.svc.ResolveOrgByID(r.Context(), strings.TrimSpace(ra.OrgID))
+		if oerr != nil {
+			serverErr(w, "remote_application_org_lookup_failed")
+			return
+		}
+		unknown, offending, verr := s.svc.ValidateGrant(r.Context(), org.Slug, claims.UserID, []string{body.Permission}, false)
+		if verr != nil {
+			serverErr(w, "permission_validate_failed")
+			return
+		}
+		if len(unknown) > 0 {
+			sendErrData(w, http.StatusBadRequest, "unknown_permission", map[string]any{"unknown_permissions": unknown})
+			return
+		}
+		if len(offending) > 0 {
+			sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{"offending_permissions": offending})
+			return
+		}
 	}
 	if err := s.svc.AddRemoteApplicationPermission(r.Context(), ra.ID, body.Permission); err != nil {
 		if err == core.ErrUnknownPermission {

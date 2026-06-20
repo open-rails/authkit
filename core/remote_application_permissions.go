@@ -91,7 +91,7 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	if err != nil {
 		return nil, nil, err
 	}
-	catalog := s.catalogSet()
+	catalog := s.knownPermissions()
 	eff := map[string]bool{}
 	for _, m := range memberships {
 		for _, role := range m.Roles {
