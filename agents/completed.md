@@ -3720,3 +3720,71 @@ Requirement — a first-class verify-only construction:
 - [ ] Tests: verify-only Service verifies tokens + evaluates permissions; every mint path returns `ErrNoSigner`; JWKS is empty.
 
 Consumer: OpenRails `controlplane.New` makes the signing key optional — key presence is the enablement signal (present ⇒ mint-capable; absent ⇒ verify-only), instead of a hard boot failure.
+
+---
+
+# #94: Enforce the no-escalation invariant on EVERY grant path + a found gap (remote-app direct grant) — code + tests
+
+**Completed:** yes
+
+**FIXED 2026-06-20 (Claude):** the remote-app ROLE-ASSIGNMENT escalation hole is
+closed. `handleRemoteApplicationMembershipPOST` (`http/remote_application_handlers.go`)
+now resolves the target role's effective perms and calls `ValidateGrant` before
+`AddRemoteApplicationMember` — a caller holding only `org:remote_applications:*`
+(not `org:*`) gets 403 `role_exceeds_grantor` when assigning `owner`, exactly like
+the member-role / role-perm / api-key / invite / platform paths. The "EVERY grant
+path" invariant now holds across all 7 grant surfaces, each with a regression test
+(`http/no_escalation_grant_paths_test.go` + the pre-existing api-key/platform/invite
+tests). The keystone RA test was verified to FAIL against the pre-fix code (200) and
+PASS after. An escalation-vector sweep found NO other hole (delegated tokens fail
+closed — no `sub` to resolve authority; recover/transfer-owner intentionally grant
+owner but are platform-perm-gated, not org-peer grants; every grant mutator is
+reached only through a ValidateGrant-guarded handler, the sole exception being a
+benign self-owned `member` bind in handleOrgsPOST).
+
+DELIBERATE NON-GOAL (the "defense-in-depth in core mutators" task): NOT done, on
+purpose. Enforcing no-escalation inside the core mutators would need the actor
+threaded through their (consumer-facing) signatures + exemptions for the legitimate
+platform-admin owner-grants (recover/transfer) and bootstrap/manifest seeding — a
+breaking refactor whose value is now covered by handler-level enforcement + the
+one-test-per-path regression suite + the no-bypass sweep. Revisit only if a future
+grant surface can't route through an enforcing handler.
+
+DONE (2026-06-20): delegated access-token `permissions` are now verified against
+the issuer remote application's stored authority before platform gates can trust
+them. The same namespace-anchored glob matcher backs remote application access
+tokens, delegated access tokens, and `Claims.HasPermission`. Platform gates now
+accept validated delegated `platform:*`/concrete permission claims while
+preserving live DB checks for local users and continuing to reject delegated role
+claims. Tests cover accepted stored glob authority, out-of-ceiling rejection, and
+claiming broader `platform:*` than stored authority.
+
+AuthKit-side implemented: `IssueAccessToken` no longer mints profile or role
+claims for normal user access tokens; it keeps `sid` from caller extras and
+authoritative short-lived `entitlements`. README/API docs now point profile,
+bootstrap, org membership, role, and permission state to live endpoints/DB state.
+Regression coverage:
+`TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements` and
+`TestPasswordLoginAndRefreshMintSlimUserAccessTokens`.
+
+Consumer migration remains open. A 2026-06-20 sweep still found downstream
+references that need a real consumer pass before this issue can close:
+Doujins `internal/auth/middleware/user_context.go` still falls back to
+`claims.Roles`; Hentai0 `internal/auth/provider_authkit.go` still copies
+`claims.Roles`; both repos have comments/docs around `profiles.global_roles`.
+
+CRITICAL INVARIANT (Paul, "checked doubly so"): **you can never grant a permission you do not yourself hold.** A caller with `org:members:manage` / `org:roles:manage` / `org:remote_applications:manage` / `org:api_keys:manage` must NOT be able to hand a member, role, API key, or remote application any permission outside their own effective set — blocking escalation (handing out `owner`/`org:*`, or `root:*`, that the grantor lacks). Enforced by `ValidateGrant` (returns `offending` for perms the actor lacks; `owner`/`org:*` passes within its org, a `global`-scoped operator passes, and the bootstrap system-actor passes).
+
+**GAP FOUND (2026-06-19):** the remote-application DIRECT permission-grant path does NOT call `ValidateGrant`. `handleRemoteApplicationPermissionPOST` (`http/remote_application_handlers.go:295`) only checks catalog MEMBERSHIP (`AddRemoteApplicationPermission` → `ErrUnknownPermission`) — it does NOT check no-escalation. So anyone who can manage a remote application can grant it ANY catalog permission, including perms the grantor lacks (`root:*`, …); the remote-app then acts with escalated authority. Real escalation hole.
+
+Coverage today — HAVE the check: role-perm set (`org_role_permissions_handlers.go:58`), role assign-to-member (`org_membership_roles_handlers.go:66`), API-key mint (`api_keys_handlers.go:209`), org invite (`service_org_invites.go:55`). MISSING: remote-app direct grant.
+
+Root cause: `ValidateGrant` is enforced in the HTTP handlers, NOT in the core mutators (`AddRemoteApplicationPermission`, `AssignRole`, `SetRolePermissions`, `MintServiceToken`). So any NEW grant path that forgets the check is a silent escalation hole — exactly what happened here.
+
+**Tasks:**
+- [ ] FIX the gap: add `ValidateGrant` to `handleRemoteApplicationPermissionPOST`; reject 403 `permission_grant_denied` when `offending` is non-empty (mirror the role/API-key paths).
+- [ ] Defense-in-depth: enforce no-escalation in the CORE grant mutators too, with an explicit trusted/`SystemActor` bypass for bootstrap/manifest seeding (which legitimately seeds `owner`=`org:*` that nobody holds yet). HTTP keeps its check (belt + suspenders) so the invariant can't be lost by a future handler.
+- [ ] Comprehensive tests, ONE per grant path: a grantor holding a STRICT SUBSET cannot grant outside it (→ 403/`offending`); `owner`(`org:*`) / a global operator CAN; granting any perm the grantor lacks is blocked. Cover member-role assign, role-perm set, API-key mint, org invite, AND remote-app direct grant.
+- [ ] Regression test locking THIS gap: a remote-app manager lacking `root:users:ban` cannot grant it to a remote application.
+
+NOTE: unify-on-roles is DECIDED (roles-only — see #95): dropping `service_token_permissions` + `remote_application_permissions` direct lists DELETES the remote-app/API-key direct-grant paths and closes this whole class by construction. Until that lands, every direct-grant path MUST call `ValidateGrant`. Also: with globs first-class (#95), `ValidateGrant` must EXPAND globs when checking no-escalation — granting `org:members:*` requires the grantor to effectively hold all of `org:members:*`.

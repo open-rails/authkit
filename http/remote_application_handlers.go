@@ -212,6 +212,24 @@ func (s *Service) handleRemoteApplicationMembershipPOST(w http.ResponseWriter, r
 	if role == "" {
 		role = "member"
 	}
+	// NO-ESCALATION (#94): assigning a role to a remote-app grants it that role's
+	// permissions, so the caller must hold every permission the role confers in
+	// the target org (owner=`org:*` passes). Without this a caller holding only
+	// org:remote_applications:* could grant a remote-app the `owner` role and
+	// escalate it past their own authority — the same invariant the member-role,
+	// role-perm, api-key, invite, and platform-grant paths enforce.
+	rolePerms, perr := s.svc.EffectiveRolePermissions(r.Context(), canonical, role)
+	if perr != nil {
+		serverErr(w, "role_permissions_lookup_failed")
+		return
+	}
+	if _, offending, verr := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, rolePerms, false); verr != nil {
+		serverErr(w, "permission_validate_failed")
+		return
+	} else if len(offending) > 0 {
+		sendErrData(w, http.StatusForbidden, "role_exceeds_grantor", map[string]any{"offending_permissions": offending})
+		return
+	}
 	if err := s.svc.AddRemoteApplicationMember(r.Context(), canonical, ra.ID, role); err != nil {
 		if err == core.ErrInvalidOrgRole {
 			badRequest(w, "invalid_role")
