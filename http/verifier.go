@@ -455,6 +455,14 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	found := false
 	for i := range v.issuers {
 		if v.issuers[i].issuer == issuerID {
+			// AK-AUTH-01: never let a non-local (federated/remote_application)
+			// registration overwrite the trusted local issuer entry. Doing so
+			// would swap the platform's signing keys and break verification of
+			// all first-party tokens. The core layer already rejects this at
+			// registration; this is defense-in-depth for any other AddIssuer caller.
+			if v.issuers[i].isLocal && !ie.isLocal {
+				return errors.New("refusing to overwrite local issuer with non-local registration")
+			}
 			v.issuers[i] = ie
 			found = true
 			break
