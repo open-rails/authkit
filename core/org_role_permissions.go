@@ -155,6 +155,17 @@ func permMatches(grant, concrete string) bool {
 	return true
 }
 
+// permNamespace returns the namespace segment (segment 0) of a permission name or
+// grant glob — "org" for "org:members:read", "merchant" for "merchant:*". Returns
+// "" when there is no namespace prefix.
+func permNamespace(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.IndexByte(name, ':'); i > 0 {
+		return name[:i]
+	}
+	return ""
+}
+
 // Permissions returns the full permission set: authkit base permissions plus
 // the app-declared permissions (deduped, base wins on collision).
 func (s *Service) Permissions() []PermissionDef {
@@ -448,14 +459,77 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// seedRolePermissionDefaults seeds the built-in owner role permission (`org:*`,
-// #95) for a freshly created (or claimed) org. App-declared DefaultRoles are NOT
-// seeded eagerly — they are role TEMPLATES for human teammates and are
-// materialized LAZILY the first time the role is granted (see
-// materializeDefaultRole), so a solo org carries no dormant app-role
-// scaffolding. Idempotent.
+// ownerGrantTokens returns the namespace-anchored apex grants seeded onto the
+// prebuilt `owner` role for THIS app's catalog: OrgOwnerGrant (`org:*` — authkit's
+// base resources plus every host `org:` perm) PLUS one `<ns>:*` glob for each
+// additional non-`platform:` namespace the embedding app declares in
+// Config.Permissions. Because the owner owns the org, it owns everything scoped to
+// the org, including app-defined resource namespaces (OpenRails `merchant:*`;
+// TensorHub `endpoint:*` / `repo:*` / `dataset:*`; #101). The `platform:` layer is
+// separate and no org role can reach it, so platform-namespaced app perms are
+// never seeded onto the owner. Order is deterministic: `org:*` first, then the app
+// namespaces sorted.
+//
+// Gated by Options.OwnerOwnsAppResources: when false (default) the owner apex is
+// exactly `org:*`, so AuthKit imposes no app-ownership policy (#95 contract); apps
+// that want the org owner to own their resource namespaces opt in (#100).
+func (s *Service) ownerGrantTokens() []string {
+	if !s.opts.OwnerOwnsAppResources {
+		return []string{OrgOwnerGrant}
+	}
+	orgNS := permNamespace(OrgOwnerGrant)                 // "org"
+	platformNS := permNamespace(platformPermissionPrefix) // "platform"
+	seen := map[string]bool{orgNS: true}
+	extra := []string{}
+	for _, d := range s.opts.Permissions {
+		ns := permNamespace(d.Name)
+		if ns == "" || ns == platformNS || seen[ns] {
+			continue
+		}
+		seen[ns] = true
+		extra = append(extra, ns+":"+PermWildcard)
+	}
+	sort.Strings(extra)
+	return append([]string{OrgOwnerGrant}, extra...)
+}
+
+// seedOwnerGrants inserts every ownerGrantTokens() apex grant onto the org's
+// prebuilt owner role using q (the base or a tx-scoped *db.Queries). Idempotent:
+// OrgRolePermissionInsert is ON CONFLICT DO NOTHING, so re-seeding only adds the
+// namespace globs the owner is missing.
+func (s *Service) seedOwnerGrants(ctx context.Context, q *db.Queries, orgID string) error {
+	for _, tok := range s.ownerGrantTokens() {
+		if err := q.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: orgID, Role: orgOwnerRole, Permission: tok}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// EnsureOwnerGrants reconciles an EXISTING org's prebuilt owner role to hold every
+// current owner apex grant (`org:*` plus each app-declared resource-namespace
+// glob). Additive and idempotent — it never removes a grant. Apps call this after
+// declaring a new resource namespace so owners of orgs created BEFORE the
+// declaration gain the new `<ns>:*` coverage. (#101)
+func (s *Service) EnsureOwnerGrants(ctx context.Context, orgSlug string) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	if err != nil {
+		return err
+	}
+	return s.seedOwnerGrants(ctx, s.q, org.ID)
+}
+
+// seedRolePermissionDefaults seeds the built-in owner role's apex grants (`org:*`
+// plus each app resource namespace, see ownerGrantTokens, #95/#101) for a freshly
+// created (or claimed) org. App-declared DefaultRoles are NOT seeded eagerly —
+// they are role TEMPLATES for human teammates and are materialized LAZILY the
+// first time the role is granted (see materializeDefaultRole), so a solo org
+// carries no dormant app-role scaffolding. Idempotent.
 func (s *Service) seedRolePermissionDefaults(ctx context.Context, orgID string) error {
-	return s.q.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: orgID, Role: orgOwnerRole, Permission: OrgOwnerGrant})
+	return s.seedOwnerGrants(ctx, s.q, orgID)
 }
 
 // materializeDefaultRole lazily seeds an app-declared DefaultRole's permission

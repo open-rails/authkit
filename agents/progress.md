@@ -7,7 +7,64 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 100
+next_id: 101
+
+---
+
+# #100: allow application-defined permission prefixes in org-scoped RBAC
+
+**Completed:** no
+**Status:** IN_PROGRESS 2026-06-20 (Claude): app-defined org-scoped prefixes already work as opaque strings end-to-end (a role granted `repo:*` passes `HasPermission("repo:read")` — see `TestHasPermissionUsesSingleRoleGrantQuery`); the missing piece OpenRails #554 needs was OWNER coverage. Implemented as an OPT-IN, redesigning line-43's "owner does not auto-grant app prefixes": new `Config.OwnerOwnsAppResources bool` (default FALSE — AuthKit imposes no ownership policy, #95 owner=`org:*` preserved). When an app sets it true, the prebuilt `owner` role is seeded `org:*` PLUS one `<ns>:*` glob per non-`platform:` namespace it declares in `Config.Permissions` (`ownerGrantTokens`), so the org owner owns every app resource namespace (OpenRails `merchant:*`; future TensorHub `endpoint:*`/`repo:*`/`dataset:*`). `EnsureOwnerGrants(orgSlug)` reconciles owners of pre-existing orgs. Files: core/org_role_permissions.go (helpers + 4 owner-seed sites consolidated), core/config.go + core/service.go (flag), core/owner_grants_test.go (pure + PG-backed: owner holds `merchant:*`, still can't reach `platform:`, default-off stays `org:*`, reconcile). Full `go test ./core/` green against PG. REMAINING: verify/strengthen platform-disjointness + app-catalog-rejects-`org:`/`platform:` guard tests; README/api-endpoints.md docs; version bump.
+
+ORIGINAL PLAN 2026-06-20: AuthKit should reserve the RBAC scope mechanics, not every permission namespace. `platform:` stays AuthKit-reserved for platform roles. `org:` stays AuthKit-reserved for AuthKit's own org-management routes. Applications embedding AuthKit may define their own org-scoped permission prefixes, such as OpenRails `merchant:*`, and AuthKit stores/checks them as opaque strings.
+
+## Problem
+
+OpenRails wants merchant permissions like `merchant:payments:refund`, scoped to
+the AuthKit org that owns the merchant. AuthKit should allow that. The current
+model and comments lean too hard toward "org roles contain `org:*` permissions"
+and make app-owned resource prefixes feel invalid or second-class.
+
+Permissions are just strings in AuthKit's DB. AuthKit's job is:
+
+- store role -> permission strings;
+- validate that grants are known and non-escalating;
+- expand namespace globs against the declared catalog;
+- keep platform and org-scoped authority disjoint.
+
+AuthKit should not require application permissions to start with `org:`.
+
+## Target Model
+
+- `platform:*` is reserved for AuthKit platform roles only.
+- `org:*` is reserved for AuthKit org-management permissions only.
+- App permissions are declared by the embedding app in `Config.Permissions`.
+- App permissions may use app-chosen prefixes: `merchant:*`, `repo:*`, `endpoint:*`, `billing:*`, etc.
+- Org roles may include AuthKit `org:*` permissions and app-defined permissions.
+- Platform roles may include only AuthKit `platform:*` permissions.
+- `owner` keeps `org:*` for AuthKit org-management. It should not automatically grant every app-defined prefix unless the app explicitly grants those permissions to the role.
+- Globs remain namespace-anchored and catalog-expanded. `merchant:*` expands over declared `merchant:` permissions; bare `*` stays invalid.
+
+## Tasks
+
+- [ ] Rename comments/docs that imply org-scoped roles must use `org:` permissions; say org-scoped roles can hold AuthKit `org:*` plus app-defined permission strings.
+- [ ] Keep `platform:` blocked from org roles and every app permission catalog.
+- [ ] Keep `org:` blocked from app permission catalogs except AuthKit's built-in org-management permissions. DEFERRED: coupled to OpenRails #554 — OpenRails STILL declares app `org:` perms today (`org:credits:read`, `org:billing:read`, ...); enforcing this now would reject its catalog. Enforce once #554 moves OpenRails to `merchant:*`. (Today `Permissions()` silently drops an app perm that collides with a base `org:` name — base wins — so there is no escalation risk, just no hard rejection yet.)
+- [x] Ensure app-declared prefixes like `merchant:` validate in `Config.Permissions`, role permission writes, and API-key role grants. VERIFIED: `Config.Permissions` accepts any namespace (opaque); `SetRolePermissions` stores tokens opaquely; `ValidateGrant` expands app globs against the catalog with no-escalation; `TestHasPermissionUsesSingleRoleGrantQuery` (`repo:*`) + `TestOwnerHoldsAppNamespaceEndToEnd` (`merchant:*`) cover role-write -> HasPermission end-to-end.
+- [x] Ensure `ValidateGrant` no-escalation works for app-defined literals and globs (`merchant:payments:refund`, `merchant:*`) exactly like it does for `org:*`. VERIFIED: `ValidateGrant` (org_role_permissions.go) expands every token against `knownPermissions()` (base ∪ app) and requires the actor to hold each expanded perm — namespace-agnostic, so app prefixes behave exactly like `org:*`.
+- [x] Ensure `ValidatePlatformGrant` still rejects every non-`platform:` token, including app prefixes. VERIFIED + TESTED: platform_rbac.go:302 rejects any non-`platform:` token as unknown even with `actorAll`; `TestPlatformGrantRejectsAppNamespace` proves `merchant:*` / `merchant:payments:refund` / `org:members:read` are all rejected on a platform grant.
+- [x] Add tests proving an org role can hold an app permission, a user with that role passes `HasPermission`, and an app glob expands only over declared app perms. DONE: existing `TestHasPermissionUsesSingleRoleGrantQuery` (`repo:*` role -> `HasPermission("repo:read")`) + new `TestOwnerHoldsAppNamespaceEndToEnd` (`merchant:*`).
+- [x] Add tests proving platform roles reject `merchant:*`. DONE: `TestPlatformGrantRejectsAppNamespace`. (App-catalog-rejects-`org:`/`platform:` test is paired with the deferred validation above — coupled to OpenRails #554.)
+- [x] **NEW (opt-in owner ownership, #554 prerequisite):** add `Config.OwnerOwnsAppResources` so the org `owner` auto-owns every app-declared resource namespace (`<ns>:*`), default off; `ownerGrantTokens` + `seedOwnerGrants` (4 seed sites) + `EnsureOwnerGrants` reconcile; pure + PG-backed tests (owner holds `merchant:*`, can't reach `platform:`, default-off stays `org:*`). Redesigns the line-43 "owner does not auto-grant" note into an explicit app opt-in.
+- [x] Update README permission docs with the reserved-prefix rule, an OpenRails-style `merchant:*` example, and the `OwnerOwnsAppResources` opt-in. DONE in README.md RBAC section (also corrected the #95-stale "owner seeded with `*`" -> `org:*`). (`agents/api-endpoints.md` org-RBAC table is unaffected — it documents the reserved `org:` management routes only.)
+
+## Acceptance
+
+- AuthKit stores and evaluates app-defined permission prefixes as opaque strings.
+- `platform:` remains reserved to platform roles and cannot appear in org roles or app catalogs.
+- `org:` remains reserved to AuthKit org-management and cannot be redefined by apps.
+- OpenRails can define `merchant:*` permissions and bind them to routes while AuthKit scopes the grant to the owning org.
+- No schema migration is needed.
 
 ---
 

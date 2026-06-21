@@ -146,6 +146,18 @@ type Config struct {
 	// is NO bare `*` and NO `!perm` negation — positive grants only (#93/#95).
 	// e.g. a least-privilege `admin` = {"org:members:*", "org:roles:read"}.
 	DefaultRoles []DefaultRole
+
+	// OwnerOwnsAppResources, when true, extends the prebuilt `owner` role's apex
+	// grant to cover EVERY app-declared resource namespace, not just `org:*`: the
+	// owner is auto-seeded one `<ns>:*` glob per non-`platform:` namespace present
+	// in Permissions (OpenRails `merchant:*`; TensorHub `endpoint:*` / `repo:*` /
+	// `dataset:*`). Enable it when the org directly owns all its app resources
+	// (org⇄merchant is 1:1 in OpenRails). Default false keeps the #95
+	// contract (owner = `org:*` only) so AuthKit imposes no ownership policy on
+	// apps that don't want it; `platform:` is never owned by an org role. Apps
+	// that enable this on an EXISTING deployment call EnsureOwnerGrants to backfill
+	// orgs created before it was set. (#100)
+	OwnerOwnsAppResources bool
 }
 
 // PermissionDef is one entry in the permission set: an opaque permission

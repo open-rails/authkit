@@ -93,6 +93,10 @@ type Options struct {
 	// base `org:` permissions). DefaultRoles are role templates seeded per org.
 	Permissions  []PermissionDef
 	DefaultRoles []DefaultRole
+	// OwnerOwnsAppResources extends the owner apex grant to cover every
+	// app-declared resource namespace (`<ns>:*`), not just `org:*`. See
+	// Config.OwnerOwnsAppResources. (#100)
+	OwnerOwnsAppResources bool
 }
 
 // Keyset holds the active signer and the public keys exposed via JWKS.
@@ -343,6 +347,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		ResourceScopeAuthorizer:    cfg.ResourceScopeAuthorizer,
 		Permissions:                cfg.Permissions,
 		DefaultRoles:               cfg.DefaultRoles,
+		OwnerOwnsAppResources:      cfg.OwnerOwnsAppResources,
 	}
 	return NewService(opts, ks), nil
 }

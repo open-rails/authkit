@@ -227,14 +227,15 @@ func (s *Service) RecoverOrg(ctx context.Context, orgID, newOwnerUserID string) 
 	if res.MembersDemoted, err = qtx.OrgMembershipsSoftDeleteAllByOrg(ctx, orgID); err != nil {
 		return res, err
 	}
-	// Restore a clean owner/member role pair, then reset owner to exactly `org:*`.
+	// Restore a clean owner/member role pair, then reset owner to its apex grants
+	// (org:* plus each app resource namespace, see ownerGrantTokens).
 	if err = qtx.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: orgID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
 		return res, err
 	}
 	if err = qtx.OrgRolePermissionsDelete(ctx, db.OrgRolePermissionsDeleteParams{OrgID: orgID, Role: orgOwnerRole}); err != nil {
 		return res, err
 	}
-	if err = qtx.OrgRolePermissionInsert(ctx, db.OrgRolePermissionInsertParams{OrgID: orgID, Role: orgOwnerRole, Permission: OrgOwnerGrant}); err != nil {
+	if err = s.seedOwnerGrants(ctx, qtx, orgID); err != nil {
 		return res, err
 	}
 	if err = qtx.OrgMembershipUpsertRole(ctx, db.OrgMembershipUpsertRoleParams{OrgID: orgID, UserID: newOwnerUserID, Role: orgOwnerRole}); err != nil {
