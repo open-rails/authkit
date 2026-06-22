@@ -40,12 +40,12 @@ This asymmetry is ALREADY enforced by two #95 rules and MUST be kept: (1) per-ty
 Each group **type** ships a fixed **role catalog** declared by the embedding app — e.g. type `repo` → `owner`, `read`, `write` (and nothing more); type `org` → its roles. `owner` is the ONLY required role per type. By default ONLY catalog roles are assignable in a group of that type: **end users cannot invent roles**. A type may OPT IN via `AllowCustomRoles` to let a group's owner define ADDITIONAL per-group custom roles (permission bundles) on top of the catalog. This **inverts today's model** (where every org defines all its own roles via DefineRole/SetRolePermissions): app-defined catalog is the default; per-group custom is the exception a type opts into (a tensorhub `org` might enable it; a `repo` would not).
 
 ## Per-type management profile (the app decides how each type's groups may be used)
-Beyond the role catalog, each type declares a **management profile** — which group-management operations authkit exposes as AUTO-GENERATED API routes. Each flag governs **whether the API ROUTE is generated, NOT whether the capability exists**: the host can ALWAYS perform the operation via authkit *core* (bootstrap seeding, internal admin tools) even with the route off. So `…-via-api: false` means "no public route (404)", not "impossible." Flags (all `true|false`):
-- `members-manageable-via-api` — generate `/:persona/:id/members` (+ `.../members/:user/roles`): add/remove members and assign/unassign their roles. (off ⇒ membership is seeded out-of-band, e.g. the bootstrap manifest.)
-- `custom-roles-definable-via-api` — generate `/:persona/:id/roles` POST/DELETE: define/delete CUSTOM role bundles. (off ⇒ only the predefined catalog roles exist — still fully assignable; this flag is SOLELY about defining NEW roles. Replaces the old `roles: fixed|custom`.)
-- `api-keys-mintable-via-api` — generate `/:persona/:id/api-keys`: mint/list/revoke keys (each assigned a catalog role).
-- `remote-apps-registerable-via-api` — generate `/:persona/:id/remote-applications`: register/manage remote-apps (a distinct credential kind from api-keys).
-- `invites-via-api` — generate the human invite flow.
+Beyond the role catalog, each type declares a **management profile** — an `api-routes` block of `true|false` flags choosing which group-management operations authkit exposes as AUTO-GENERATED routes. Each flag governs **whether the route is generated, NOT whether the capability exists**: the host can ALWAYS perform the operation via authkit *core* (bootstrap seeding, internal admin tools) even with the route off. So `api-routes.X: false` means "no public route (404)", not "impossible" — that's exactly why the container is named `api-routes`. Leaves:
+- `api-routes.member-assignment` — generate `/:persona/:id/members` (+ `.../members/:user/roles`): add/remove members and assign/unassign their roles. (off ⇒ membership is seeded out-of-band, e.g. the bootstrap manifest.)
+- `api-routes.custom-role-creation` — generate `/:persona/:id/roles` POST/DELETE: define/delete CUSTOM role bundles. (off ⇒ only the predefined catalog roles exist — still fully assignable; this flag is SOLELY about defining NEW roles. Replaces the old `roles: fixed|custom`.)
+- `api-routes.api-key-minting` — generate `/:persona/:id/api-keys`: mint/list/revoke keys (each assigned a catalog role).
+- `api-routes.remote-app-registration` — generate `/:persona/:id/remote-applications`: register/manage remote-apps (a distinct credential kind from api-keys).
+- `api-routes.invitation` — generate the human invite flow.
 
 The predefined catalog is the SAME role set assignable to EVERY enabled credential kind (a member, an api-key, or a remote-app each get one of the type's catalog roles, subject to no-escalation). **The flags DRIVE ROUTE GENERATION** (see HTTP surface): a disabled flag → no route → 404, so the API surface mirrors the profile exactly.
 
@@ -54,7 +54,7 @@ Examples (only the ON flags listed):
 - `repo`: members (collaborators) only — thin.
 - `merchant` (openrails): members + api-keys + remote-apps (custom-roles OFF — fixed owner/support/viewer).
 - `customer` (openrails): members + api-keys + remote-apps (custom-roles OFF — fixed owner/member); budget WINDOWS are openrails-DOMAIN.
-- doujins `root`: custom-roles OFF (predefined admin/moderator); `members-manageable-via-api` = the "assign operator roles via API" vs "seed admins via bootstrap only" choice.
+- doujins `root`: custom-roles OFF (predefined admin/moderator); `api-routes.member-assignment` = the "assign operator roles via API" vs "seed admins via bootstrap only" choice.
 
 ## Permission naming: `<persona>:<resource>:<action>` — exactly 3 segments
 Every concrete permission is EXACTLY three lowercase segments — `<persona>:<resource>:<action>` (`merchant:catalog:update`, `root:users:ban`, `customer:spend-delegations:read`). authkit VALIDATES this at catalog-declaration time (`^[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*){2}$`) and REJECTS 2-part (`repo:update`) or 4-part perms — a 2-part perm must grow a resource (`repo:contents:update`); a type may use a `:self:` resource for "the thing itself" actions (`endpoint:self:invoke`). Globs are GRANT patterns only, NEVER catalog entries: `persona:*` (whole persona) and `persona:resource:*` (all actions on a resource).
@@ -104,7 +104,7 @@ Rules: **parent is MANDATORY for every non-root type** (`parent_id NOT NULL` exc
 - `group_type_parents(type, allowed_parent_type)` — the containment schema as data, so a CHECK/trigger can reject off-shape rows (e.g. `repo` parent must be `org`). `root` has no row (parentless singleton).
 - `group_role_assignments(group_id, subject, subject_kind, role)` — replaces `org_members`.
 - `group_custom_roles(group_id, role, permissions[])` — only used when the type's `AllowCustomRoles` is set.
-- App-declared catalog: `Config` gains, per type: role definitions (name → 3-segment perm set, `owner` required), `allowedParents []type`, and a **management profile** (all bool) `{members-manageable-via-api, custom-roles-definable-via-api, api-keys-mintable-via-api, remote-apps-registerable-via-api, invites-via-api}` — each gates generation of one route group. Permissions validated as `<persona>:<resource>:<action>` with persona = a declared type.
+- App-declared catalog: `Config` gains, per type: role definitions (name → 3-segment perm set, `owner` required), `allowedParents []type`, and a **management profile** (all bool) `api-routes:{member-assignment, custom-role-creation, api-key-minting, remote-app-registration, invitation}` — each gates generation of one route group. Permissions validated as `<persona>:<resource>:<action>` with persona = a declared type.
 - remote_applications + api-keys: today org-nested → re-nest under a `permission_group` (was `org_id`).
 - The prebuilt `owner` role + `OwnerOwnsAppResources` (#100) generalize to per-type owner roles.
 
@@ -117,11 +117,11 @@ Rules: **parent is MANDATORY for every non-root type** (`parent_id NOT NULL` exc
 
 ## HTTP surface — AUTO-GENERATED per-persona routes (DECIDED)
 authkit **auto-generates** the group-management HTTP surface from the declared personas + their management profiles — the host writes no management routes, just mounts the generated set. Shape: **`/:persona/:resource-id/…`**, one route TREE per persona, emitting ONLY the endpoints that persona's profile enables:
-- `members-manageable-via-api` → `/:persona/:resource-id/members` (add/remove/list) + `/:persona/:resource-id/members/:user/roles` (assign/unassign)
-- `custom-roles-definable-via-api` → `/:persona/:resource-id/roles[/:role]` (define/delete custom roles); when OFF → only GET (list the fixed catalog), no define/delete
-- `api-keys-mintable-via-api` → `/:persona/:resource-id/api-keys` (mint/list/revoke)
-- `remote-apps-registerable-via-api` → `/:persona/:resource-id/remote-applications`
-- `invites-via-api` → the invite endpoints
+- `api-routes.member-assignment` → `/:persona/:resource-id/members` (add/remove/list) + `/:persona/:resource-id/members/:user/roles` (assign/unassign)
+- `api-routes.custom-role-creation` → `/:persona/:resource-id/roles[/:role]` (define/delete custom roles); when OFF → only GET (list the fixed catalog), no define/delete
+- `api-routes.api-key-minting` → `/:persona/:resource-id/api-keys` (mint/list/revoke)
+- `api-routes.remote-app-registration` → `/:persona/:resource-id/remote-applications`
+- `api-routes.invitation` → the invite endpoints
 
 **Addressed by the RESOURCE's own id, NOT the permission-group id.** `:resource-id` is the merchant / customer / org / repo / endpoint id the caller ALREADY has — e.g. `/merchant/m_1234/members`, `/repo/r_5678/members`; authkit resolves `(persona, resource-id) → permission-group` internally via `resource_ref`. **The permission-group id is INTERNAL — it never appears in a request or response,** so callers never read or handle it (more ergonomic to code against). The route is self-validating: `:persona` must match the resolved group's type, else 404. (`root`, having no host resource, is the singleton/implicit case — addressed by its app/deployment key per open decision #6.)
 
@@ -131,7 +131,7 @@ authkit **auto-generates** the group-management HTTP surface from the declared p
 
 ## Tasks
 - [ ] Schema: `permission_groups` (type, parent_id, resource_ref) + `group_role_assignments` + `group_custom_roles`; migrate `orgs`→groups (type=`org`, parent=root) and `org_members`→assignments (greenfield hard cut, no dual-write).
-- [ ] Config: per-type role catalog (name→perms, `owner` required) + per-type **management profile** (all bool, conservative defaults = all false / no API routes): `members-manageable-via-api`, `custom-roles-definable-via-api`, `api-keys-mintable-via-api`, `remote-apps-registerable-via-api`, `invites-via-api`. Each flag = generate-that-route-group-or-not (false ⇒ 404; host can still do it via core).
+- [ ] Config: per-type role catalog (name→perms, `owner` required) + per-type **management profile** (all bool, conservative defaults = all false / no API routes): `api-routes.member-assignment`, `api-routes.custom-role-creation`, `api-routes.api-key-minting`, `api-routes.remote-app-registration`, `api-routes.invitation`. Each flag = generate-that-route-group-or-not (false ⇒ 404; host can still do it via core).
 - [ ] Custom roles: gate DefineRole/SetRolePermissions on the type's `AllowCustomRoles`; store in `group_custom_roles`; assignable only within the defining group.
 - [ ] Authorize: add the resource/group parameter + parent-chain walk + additive union; keep namespace-anchored glob matching; memoize per (principal, group).
 - [ ] Re-nest remote_applications + api-keys under a permission-group; update `ResolveRemoteApplicationAuthority` to resolve via group + parent walk.
