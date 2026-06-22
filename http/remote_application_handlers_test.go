@@ -99,20 +99,3 @@ func TestInboundHandlerRejectsInvalidAllowedOrigins(t *testing.T) {
 		t.Fatalf("expected invalid_allowed_origins code, body=%s", rec.Body.String())
 	}
 }
-
-// TestOrgsCreateRejectsInvalidFederation: an invalid federation block
-// rejects the whole registration — no org is created (#74).
-func TestOrgsCreateRejectsInvalidFederation(t *testing.T) {
-	s := &Service{}
-	body := `{"slug":"cozy-art","federation":{"issuer":"https://cozy.example","jwks_uri":"https://cozy.example/jwks","public_keys":[{"public_key_pem":"x"}]}}`
-	req := httptest.NewRequest(http.MethodPost, "/orgs", strings.NewReader(body))
-	req = req.WithContext(setClaims(req.Context(), Claims{UserID: "user-1"}))
-	rec := httptest.NewRecorder()
-	s.handleOrgsCreatePOST(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid federation block, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "invalid_federation_trust_source") {
-		t.Fatalf("expected invalid_federation_trust_source, body=%s", rec.Body.String())
-	}
-}

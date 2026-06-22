@@ -18,27 +18,14 @@ type Claims struct {
 	DiscordUsername string
 	SessionID       string
 	Roles           []string
-	// OrgRoles are roles scoped to the org named in Org when a trusted token
-	// authority provides org role claims.
-	OrgRoles     []string
-	Entitlements []string
-	Issuer       string
-	UserTier     string
-	JTI          string
+	Entitlements    []string
+	Issuer          string
+	UserTier        string
+	JTI             string
 
-	// Delegated/org fields. A delegated access token carries the external
-	// delegated subject in DelegatedSubject (claim `delegated_sub`) and NO org claims of
-	// any kind: the VALIDATED Issuer is the org identity — receivers resolve
-	// their internal org record (slug + uuid) from their issuer registry. It
-	// never carries `sub` (UserID stays empty), so the local-user gate does not
-	// apply.
-	//
-	// Org carries the slug of opaque API keys, resolved server-side. On delegated
-	// access tokens the claim is forbidden and Org stays empty. OrgID is
-	// populated ONLY for opaque API keys via the receiver's own DB resolution —
-	// never from a JWT claim.
-	Org              string
-	OrgID            string
+	// A delegated access token carries the external delegated subject in
+	// DelegatedSubject (claim `delegated_sub`). It never carries `sub` (UserID
+	// stays empty), so the local-user gate does not apply.
 	DelegatedSubject string
 
 	// Attributes is the `attributes` claim of a delegated access token: the
@@ -65,8 +52,8 @@ type Claims struct {
 	// extracted and validated at verify (malformed entries dropped, count
 	// capped) and surfaced on DelegatedPrincipal.Roles. Downstream services use
 	// them as e.g. budget-scope keys; authkit treats them as opaque strings.
-	// Nil when absent. Distinct from the native-user Roles/OrgRoles claims,
-	// which a delegated token never carries.
+	// Nil when absent. Distinct from the native-user Roles claim, which a
+	// delegated token never carries.
 	DelegatedRoles []string
 
 	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
@@ -76,15 +63,14 @@ type Claims struct {
 	TokenTyp string
 
 	// TokenType marks the credential class. Empty for ordinary user JWTs;
-	// "service" for an API-key service principal acting as the org. A
-	// service principal carries Org + Permissions but no UserID, so the live-user
-	// ban/enrichment gate is skipped (there is no user to look up).
+	// "service" for an API-key service principal. A service principal carries
+	// Permissions but no UserID, so the live-user ban/enrichment gate is skipped
+	// (there is no user to look up).
 	TokenType string
 
 	// Permissions are the app-defined permission strings a service principal
-	// carries directly — the PBAC grant. Empty for user principals, whose
-	// authority is expressed as OrgRoles that the resource server expands to
-	// permissions at request time. authkit treats permission strings as opaque.
+	// carries directly — the PBAC grant. Empty for user principals. authkit
+	// treats permission strings as opaque.
 	Permissions []string
 
 	// Resources are opaque host-defined resource scopes carried by an
@@ -95,20 +81,20 @@ type Claims struct {
 	// RemoteApplicationID / RemoteApplicationSlug identify the remote_application
 	// authenticated by a remote application access token. Populated ONLY for
 	// RemoteApplicationTokenType claims, resolved server-side from the validated
-	// `iss` (never from a self-asserted token claim). The principal's
-	// Permissions/OrgRoles carry its STORED, assigned authority.
+	// `iss` (never from a self-asserted token claim). The principal's Permissions
+	// carry its STORED, assigned authority.
 	RemoteApplicationID   string
 	RemoteApplicationSlug string
 }
 
 // ServicePrincipalType is the TokenType value carried by an opaque API key: a
-// machine credential that acts as the org, not a user.
+// machine credential, not a user.
 const ServicePrincipalType = "service"
 
 // RemoteApplicationTokenType is the TokenType value carried by a remote
 // application access token: a remote_application acting AS ITSELF. Like a
-// service principal it carries Permissions + OrgRoles (its STORED authority)
-// but no UserID; the live-user enrichment/ban gate is skipped (there is no user).
+// service principal it carries Permissions (its STORED authority) but no UserID;
+// the live-user enrichment/ban gate is skipped (there is no user).
 const RemoteApplicationTokenType = "remote_application"
 
 // IsService reports whether these claims represent a service principal, as
@@ -123,15 +109,13 @@ func (c Claims) IsRemoteApplication() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), RemoteApplicationTokenType)
 }
 
-// DelegatedPrincipal is the org identity carried by a delegated access
-// token: an external actor (DelegatedSubject) acting under a canonical target
-// resource account (Org). The subject does NOT exist as a local user in the
-// validating service — authorization is by issuer/resource-account trust plus
-// Permissions, not local-user lookup.
+// DelegatedPrincipal is the identity carried by a delegated access token: an
+// external actor (DelegatedSubject) whose authority is bounded by the VALIDATED
+// Issuer plus Permissions. The subject does NOT exist as a local user in the
+// validating service — authorization is by issuer trust plus Permissions, not
+// local-user lookup.
 type DelegatedPrincipal struct {
-	// Issuer is the org identity: the receiving service resolves its
-	// internal org record (slug + uuid) from the VALIDATED Issuer via its
-	// issuer registry. The token carries no org claims.
+	// Issuer is the validated token issuer the receiving service trusts.
 	Issuer           string
 	DelegatedSubject string
 	// Permissions are the resource-defined permission strings the receiving

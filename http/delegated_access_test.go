@@ -306,34 +306,6 @@ func TestDelegatedAccessPermissionsMustFitRemoteApplicationAuthority(t *testing.
 	}
 }
 
-func TestDelegatedAccessStoredAuthorityGlobCoversConcretePermission(t *testing.T) {
-	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	iss := "https://cozy.example"
-	aud := []string{"openrails"}
-	v := newDelegatedAuthorityTestVerifier(t, signer, iss, aud, []string{"platform:*"})
-
-	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer:           iss,
-		Audiences:        aud,
-		DelegatedSubject: "u",
-		Permissions:      []string{core.PermPlatformOrgsRecover},
-		TTL:              time.Minute,
-	})
-	cl, _, err := v.VerifyDelegatedAccess(tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if !cl.HasPermission(core.PermPlatformOrgsRecover) {
-		t.Fatal("expected concrete platform permission")
-	}
-
-	req := httptest.NewRequest("POST", "/admin/orgs/acme/recover", nil)
-	rr := httptest.NewRecorder()
-	if ok := (&Service{}).requirePlatformPermission(rr, req, cl, core.PermPlatformOrgsRecover); !ok {
-		t.Fatalf("delegated platform permission did not pass platform gate: status=%d", rr.Code)
-	}
-}
-
 func TestDelegatedAccessCannotClaimBroaderPlatformGlobThanStoredAuthority(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	iss := "https://cozy.example"

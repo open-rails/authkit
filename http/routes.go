@@ -2,9 +2,6 @@ package authhttp
 
 import (
 	"net/http"
-	"strings"
-
-	core "github.com/open-rails/authkit/core"
 )
 
 // RouteGroup identifies a prefix-neutral AuthKit route capability. Host
@@ -85,23 +82,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	}
 	selected := routeGroupSet(groups)
 	required := Required(s.verifier)
-	// platformGated gates a /admin/* route on a specific Layer-2 `platform:`
-	// permission (#95) — the platform RBAC plane is the SOLE admin authority, in
-	// place of the legacy global-admin gate. Authenticated (required) first, then
-	// the in-handler platform-permission check; no global-admin bypass.
-	platformGated := func(perm string, h http.Handler) http.Handler {
-		return required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := ClaimsFromContext(r.Context())
-			if !ok {
-				unauthorized(w, ErrUnauthorized)
-				return
-			}
-			if !s.requirePlatformPermission(w, r, claims, perm) {
-				return
-			}
-			h.ServeHTTP(w, r)
-		}))
-	}
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	// notFoundHandler explicitly 404s a removed path that an adjacent wildcard
 	// route would otherwise capture (e.g. POST /admin/users/toggle-active would
@@ -118,8 +98,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// "What are my permissions" introspection (#76 amendment): the caller's
 		// GRANTED ceiling + identity, for any programmatic principal.
 		{Method: http.MethodGet, Path: "/me/permissions", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleMePermissionsGET))},
-		// Caller's OWN effective Layer-2 platform permissions (#95 self introspection).
-		{Method: http.MethodGet, Path: "/me/platform-permissions", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleMePlatformPermissionsGET))},
 		{Method: http.MethodPost, Path: "/reauth/password", Group: RoutePassword, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
 
 		{Method: http.MethodPost, Path: "/password/login", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
@@ -180,58 +158,24 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/solana/login", Group: RouteSolana, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
 		{Method: http.MethodPost, Path: "/solana/link", Group: RouteSolana, Handler: required(http.HandlerFunc(s.handleSolanaLinkPOST))},
 
-		// Layer-2 Platform RBAC admin API (#95). Authenticated; each handler gates
-		// IN-HANDLER on the specific `platform:` permission (requirePlatformPermission)
-		// — NOT the legacy RequireAdmin gate. Define platform roles, then grant them
-		// to users (minting platform-admins). The first super-admin (`platform:*`) is
-		// seeded out-of-band (bootstrap/manifest), like an org's first owner.
-		{Method: http.MethodGet, Path: "/admin/platform-roles", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRolesGET))},
-		{Method: http.MethodGet, Path: "/admin/platform-roles/{role}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleGET))},
-		{Method: http.MethodPut, Path: "/admin/platform-roles/{role}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRolePUT))},
-		{Method: http.MethodDelete, Path: "/admin/platform-roles/{role}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleDELETE))},
-		{Method: http.MethodGet, Path: "/admin/platform-roles/{role}/members", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleMembersGET))},
-		{Method: http.MethodPost, Path: "/admin/platform-roles/{role}/grant", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleGrantPOST))},
-		{Method: http.MethodPost, Path: "/admin/platform-roles/{role}/revoke", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handlePlatformRoleRevokePOST))},
-		// Org-admin surface (#95, platform:orgs:*). Administer ANY org as an
-		// ENTITY — directory, soft-delete/restore, and the anti-takeover `recover`
-		// reset. Entity-level only; each handler gates on the specific platform:orgs perm.
-		{Method: http.MethodGet, Path: "/admin/orgs", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgsListGET))},
-		{Method: http.MethodGet, Path: "/admin/orgs/deleted", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgsDeletedListGET))},
-		{Method: http.MethodGet, Path: "/admin/orgs/{id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgGET))},
-		{Method: http.MethodDelete, Path: "/admin/orgs/{id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgDELETE))},
-		{Method: http.MethodPost, Path: "/admin/orgs/{id}/rename", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRenamePOST))},
-		{Method: http.MethodPost, Path: "/admin/orgs/{id}/transfer-owner", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgTransferOwnerPOST))},
-		{Method: http.MethodPost, Path: "/admin/orgs/{id}/restore", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRestorePOST))},
-		{Method: http.MethodPost, Path: "/admin/orgs/{id}/recover", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminOrgRecoverPOST))},
-		// Org SLUG lifecycle (#95): relocated from the old /admin/account(s)/* paths
-		// to live under /admin/orgs/*. park/claim take `kind: org|user` in the body
-		// (user-kind mints a personal org). Gate: platform:orgs:reserved-names. These
-		// are single-segment literals, so they never collide with /admin/orgs/{id}/*.
-		{Method: http.MethodPost, Path: "/admin/orgs/restrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsRestrictPOST))},
-		{Method: http.MethodPost, Path: "/admin/orgs/unrestrict", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountsUnrestrictPOST))},
-		{Method: http.MethodPost, Path: "/admin/orgs/park", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountParkPOST))},
-		{Method: http.MethodPost, Path: "/admin/orgs/claim", Group: RouteAdmin, Handler: platformGated(core.PermPlatformOrgsReservedNames, http.HandlerFunc(s.handleAdminAccountClaimPOST))},
-		// User-admin directory (#95): hard-cut to platform RBAC — gated on
-		// platform:users:* (read/ban/update/delete). The legacy global-admin gate
-		// is GONE; the platform plane is the sole admin authority.
-		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminUsersListGET))},
-		{Method: http.MethodGet, Path: "/admin/users/deleted", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminDeletedUsersListGET))},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminUserGET))},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersRead, http.HandlerFunc(s.handleAdminUserSigninsGET))},
-		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersBan, http.HandlerFunc(s.handleAdminUsersBanPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersBan, http.HandlerFunc(s.handleAdminUsersUnbanPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-email", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUsersSetEmailPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-username", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUsersSetUsernamePOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-password", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUsersSetPasswordPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUserSessionsRevokePOST))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersUpdate, http.HandlerFunc(s.handleAdminUserPasswordResetPOST))},
-		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersDelete, http.HandlerFunc(s.handleAdminUserDeleteDELETE))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: platformGated(core.PermPlatformUsersDelete, http.HandlerFunc(s.handleAdminUserRestorePOST))},
-		// 404 sentinels for removed routes that adjacent wildcards would capture.
-		// The slug lifecycle moved from /admin/account(s)/* → /admin/orgs/* (above);
-		// the old paths are gone entirely (no wildcard captures them, so no sentinel
-		// is needed). The /admin/org/{park,claim} stubs are likewise superseded by
-		// the real /admin/orgs/{park,claim} routes.
+		// Intrinsic user-admin directory (#111: org/platform RBAC removed). These
+		// operate on the USER identity surface and are kept as part of authkit's
+		// intrinsic /admin/* surface. They are authenticated (required); the former
+		// `platform:` permission gating was removed with the platform RBAC plane.
+		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersListGET))},
+		{Method: http.MethodGet, Path: "/admin/users/deleted", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminDeletedUsersListGET))},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserGET))},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserSigninsGET))},
+		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersBanPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersUnbanPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/set-email", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersSetEmailPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/set-username", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersSetUsernamePOST))},
+		{Method: http.MethodPost, Path: "/admin/users/set-password", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersSetPasswordPOST))},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserSessionsRevokePOST))},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserPasswordResetPOST))},
+		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserDeleteDELETE))},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserRestorePOST))},
+		// 404 sentinel for a removed path that an adjacent wildcard would capture.
 		{Method: http.MethodPost, Path: "/admin/users/toggle-active", Group: RouteAdmin, Handler: notFoundHandler},
 
 		// Remote-application registry (#74, INBOUND accept side). A
@@ -255,87 +199,20 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefGET))},
 	}
 
-	// When public org onboarding/management is disabled, wrap the mutating
-	// org-facing routes with a stable org_management_disabled deny handler.
-	// Read-only org routes stay available so existing members can inspect their
-	// orgs. Embedded bootstrap/admin core APIs are unaffected (they never
-	// traverse these HTTP handlers).
-	orgMgmt := func(method, path string, h http.Handler) http.Handler {
-		if !s.publicOrgManagementDisabled() {
-			return h
-		}
-		if !isPublicOrgManagementRoute(method, path) {
-			return h
-		}
-		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			orgManagementDisabled(w)
-		})
-	}
-
-	// (issue 60) Org routes are always registered under the RouteOrgs group;
-	// the host decides exposure by mounting (or not) that group, and mutating
-	// routes are gated by OrgRegistrationMode in their handlers. No org-mode
-	// gate.
-	{
-		routes = append(routes,
-			RouteSpec{Method: http.MethodGet, Path: "/me/orgs", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsListGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsCreatePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsGetGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/rename", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgsRenamePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMembersGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/members", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMembersPOST))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/members/{user_id}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMembersDELETE))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/invites", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInvitesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/invites", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInvitesPOST))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/invites/{invite_id}/revoke", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteRevokePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/me/org-invites", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleUserInvitesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/me/org-invites/{invite_id}/accept", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteAcceptPOST))},
-			RouteSpec{Method: http.MethodPost, Path: "/me/org-invites/{invite_id}/decline", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgInviteDeclinePOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRolesGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/roles/{role}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRoleGET))},
-			RouteSpec{Method: http.MethodPut, Path: "/orgs/{org}/roles/{role}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRolePUT))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/roles/{role}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgRolesDELETE))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeysPOST))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/api-keys", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeysGET))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/api-keys/{token_id}", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleAPIKeyDELETE))},
-			RouteSpec{Method: http.MethodGet, Path: "/permissions", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handlePermissionsGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/permissions", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberPermissionsGET))},
-			RouteSpec{Method: http.MethodGet, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesGET))},
-			RouteSpec{Method: http.MethodPost, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesPOST))},
-			RouteSpec{Method: http.MethodDelete, Path: "/orgs/{org}/members/{user_id}/roles", Group: RouteOrgs, Handler: required(http.HandlerFunc(s.handleOrgMemberRolesDELETE))},
-		)
-	}
+	// #111: the org/platform RBAC HTTP surface (members, roles, invites, org
+	// permissions, the org-nested api-keys mount) was removed. The
+	// permission-group route generator re-homes group management; the api-key and
+	// remote-application handlers survive in their own files to be re-nested there.
 
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {
 			continue
 		}
-		if route.Group == RouteOrgs {
-			route.Handler = orgMgmt(route.Method, route.Path, route.Handler)
-		}
 		route.Handler = lang(route.Handler)
 		out = append(out, route)
 	}
 	return out
-}
-
-// isPublicOrgManagementRoute reports whether (method, path) is a public
-// org-facing onboarding/management route gated by OrgRegistrationMode.
-// These are the mutating org routes (creation, rename, invites, member changes,
-// role changes, API key management) plus invite acceptance/decline. Read-only org
-// routes are intentionally excluded so existing members can inspect their orgs.
-func isPublicOrgManagementRoute(method, path string) bool {
-	switch method {
-	case http.MethodGet:
-		// All org reads stay available (listings, lookups, role/permission
-		// reads, introspection).
-		return false
-	case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
-		return strings.HasPrefix(path, "/orgs") || strings.HasPrefix(path, "/me/org-invites")
-	default:
-		return false
-	}
 }
 
 // OIDCBrowserRoutes returns browser redirect routes with no mount prefix.

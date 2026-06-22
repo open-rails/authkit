@@ -50,16 +50,16 @@ type Verifier struct {
 	// Remote-application lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*authbase.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
-	// issuer is registered with the SAME audiences the bulk LoadOrgIssuers
-	// used. fedKnown records which issuers were sourced from the org store
-	// so reconciling reload only evicts those (never statically-configured ones).
+	// issuer is registered with the SAME audiences the bulk LoadRemoteApplications
+	// used. fedKnown records which issuers were sourced from the remote-application
+	// store so reconciling reload only evicts those (never statically-configured ones).
 	fedSource    RemoteApplicationSource
 	fedAudiences []string
 	fedKnown     map[string]bool
 
-	// negCache remembers issuers the org source did not return as enabled,
-	// for negCacheTTL, so garbage/unknown `iss` values don't hit the DB per
-	// request. fedFlight single-flights concurrent first-use of the same issuer.
+	// negCache remembers issuers the remote-application source did not return as
+	// enabled, for negCacheTTL, so garbage/unknown `iss` values don't hit the DB
+	// per request. fedFlight single-flights concurrent first-use of the same issuer.
 	negCache    map[string]time.Time
 	negCacheTTL time.Duration
 	fedFlight   map[string]*sync.WaitGroup
@@ -90,9 +90,10 @@ type issuerEntry struct {
 	cacheTTL  time.Duration
 	maxStale  time.Duration
 	orgSlug   string
-	// isLocal is true only for the platform's own token signer. Platform-authority
-	// claims (org_roles, roles) are trusted only from local issuers;
-	// tokens from remote_application issuers have those claims stripped on verify.
+	// isLocal marks the first-party (host application's own) token signer, as
+	// opposed to a remote_application/federated issuer. It guards the signing-key
+	// registry: a non-local registration must never overwrite the local issuer's
+	// entry (AK-AUTH-01), which would swap the trusted signing keys.
 	isLocal bool
 }
 
@@ -137,15 +138,6 @@ func WithHTTPClient(c *http.Client) VerifierOption {
 // Services created via NewService/NewFromConfig already include this guard.
 func WithSSRFGuard() VerifierOption {
 	return WithHTTPClient(NewSSRFGuardedClient())
-}
-
-// WithOrgMode is a deprecated no-op compatibility shim (authkit issue 60): the
-// global org mode was removed. Org claims are now parsed whenever present.
-// Kept so existing callers compile; scheduled for deletion.
-//
-// Deprecated: remove the call. Org claim handling no longer depends on a mode.
-func WithOrgMode(string) VerifierOption {
-	return func(*Verifier) {}
 }
 
 // WithAPIKeyPrefix sets the host application's API-key brand prefix used to
@@ -232,27 +224,17 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 		}
 	}
 	return Claims{
-		Org:         resolved.OrgSlug,
-		OrgID:       resolved.OrgID,
 		Permissions: resolved.Permissions,
 		Resources:   resolved.Resources,
 		TokenType:   ServicePrincipalType,
 	}, true, nil
 }
 
-// RemoteApplicationAuthoritySource resolves a remote application's STORED
-// authority (#76): its org memberships (slug + role names) and effective
-// permission set (direct grants ∪ role-derived). *authbase.Service satisfies it.
-type RemoteApplicationAuthoritySource interface {
-	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []authbase.OrgMembership, permissions []string, err error)
-}
-
-// remoteApplicationAuthority maps a validated issuer to its remote_application
-// and loads the stored authority assigned to that application.
-func (v *Verifier) remoteApplicationAuthority(ctx context.Context, issuer string) (*authbase.RemoteApplication, []authbase.OrgMembership, []string, error) {
+// remoteApplication maps a validated issuer to its remote_application.
+func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*authbase.RemoteApplication, error) {
 	issuer = strings.TrimSpace(issuer)
 	if issuer == "" {
-		return nil, nil, nil, errors.New("bad_issuer")
+		return nil, errors.New("bad_issuer")
 	}
 	var src RemoteApplicationSource
 	if v.fedSource != nil {
@@ -261,28 +243,14 @@ func (v *Verifier) remoteApplicationAuthority(ctx context.Context, issuer string
 		src = v.enrich
 	}
 	if src == nil {
-		return nil, nil, nil, errors.New("invalid_token")
+		return nil, errors.New("invalid_token")
 	}
 
 	ra, err := src.GetRemoteApplication(ctx, issuer)
 	if err != nil || ra == nil {
-		return nil, nil, nil, errors.New("bad_issuer")
+		return nil, errors.New("bad_issuer")
 	}
-
-	var authority RemoteApplicationAuthoritySource
-	if authSrc, ok := src.(RemoteApplicationAuthoritySource); ok {
-		authority = authSrc
-	} else if v.enrich != nil {
-		authority = v.enrich
-	}
-	if authority == nil {
-		return nil, nil, nil, errors.New("invalid_token")
-	}
-	memberships, perms, err := authority.ResolveRemoteApplicationAuthority(ctx, ra.ID)
-	if err != nil {
-		return nil, nil, nil, errors.New("invalid_token")
-	}
-	return ra, memberships, perms, nil
+	return ra, nil
 }
 
 func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string, error) {
@@ -316,10 +284,9 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 }
 
 // resolveRemoteApplicationSelf authenticates a remote application access token:
-// it maps the VALIDATED issuer to its remote_application, loads that principal's
-// STORED authority (assigned org roles + direct permissions), and returns
-// Claims populated the way an API-key-authenticated principal would be. The
-// token's own role/org claims are never consulted — authority is stored.
+// it maps the VALIDATED issuer to its remote_application and returns Claims
+// populated the way an API-key-authenticated principal would be. The token's own
+// role claims are never consulted — authority is stored.
 //
 // claimedPerms is the token's `permissions` down-scoping request (#76 amendment):
 // nil => no claim => full stored ceiling; non-nil => effective = the claim, but
@@ -327,39 +294,34 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 // perm REJECTS the whole token (errPermissionNotGranted), never a widening and
 // never a silent clamp.
 func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tokenTyp string, claimedPerms []string) (Claims, error) {
-	ra, memberships, perms, err := v.remoteApplicationAuthority(ctx, issuer)
+	ra, err := v.remoteApplication(ctx, issuer)
 	if err != nil {
 		return Claims{}, err
 	}
+
+	// The remote application's STORED permission ceiling (its assigned authority)
+	// is resolved by the core layer. The org-membership-backed resolver that used
+	// to supply it was removed with the org RBAC hard cut (#111); its
+	// permission-group replacement is wired in at the core/enricher seam.
+	var authorityPerms []string
 
 	// Down-scoping (#76 amendment): a present `permissions` claim narrows the
 	// stored ceiling to the claimed subset; absent (nil) keeps the full ceiling.
 	// Any claimed perm OUTSIDE the ceiling rejects the whole token — a
 	// misconfigured caller must fail loudly, not silently lose perms.
-	perms, err = permissionsWithinAuthority(claimedPerms, perms)
+	perms, err := permissionsWithinAuthority(claimedPerms, authorityPerms)
 	if err != nil {
 		return Claims{}, err
 	}
 
-	cl := Claims{
+	return Claims{
 		Issuer:                issuer,
 		TokenType:             RemoteApplicationTokenType,
 		TokenTyp:              tokenTyp,
 		Permissions:           perms,
 		RemoteApplicationID:   ra.ID,
 		RemoteApplicationSlug: ra.Slug,
-	}
-	// Surface the assigned org roles. A principal is typically a member of one
-	// org; expose that org as Org + its roles as OrgRoles, and gather
-	// all role names across memberships into Roles for a flat view.
-	for _, m := range memberships {
-		if cl.Org == "" {
-			cl.Org = m.Org
-			cl.OrgRoles = append(cl.OrgRoles, m.Roles...)
-		}
-		cl.Roles = append(cl.Roles, m.Roles...)
-	}
-	return cl, nil
+	}, nil
 }
 
 // NewVerifier creates a new Verifier. Add trusted issuers via AddIssuer.
@@ -421,11 +383,10 @@ type IssuerOptions struct {
 	// the principal's org; it is never compared against token claims.
 	OrgSlug string
 
-	// IsLocal marks this issuer as the platform's own token signer. When true,
-	// platform-authority claims (org_roles, roles) are trusted from
-	// tokens it signs. When false (the default for all remote_application issuers),
-	// those claims are stripped on verify — a federated issuer cannot self-assert
-	// global-admin or any other platform-wide role.
+	// IsLocal marks this issuer as the host application's own (first-party) token
+	// signer, as opposed to a remote_application/federated issuer. It guards the
+	// signing-key registry against a non-local registration overwriting the local
+	// issuer entry (AK-AUTH-01); it does not change how claims are parsed.
 	IsLocal bool
 }
 
@@ -457,7 +418,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 		if v.issuers[i].issuer == issuerID {
 			// AK-AUTH-01: never let a non-local (federated/remote_application)
 			// registration overwrite the trusted local issuer entry. Doing so
-			// would swap the platform's signing keys and break verification of
+			// would swap the first-party signing keys and break verification of
 			// all first-party tokens. The core layer already rejects this at
 			// registration; this is defense-in-depth for any other AddIssuer caller.
 			if v.issuers[i].isLocal && !ie.isLocal {
@@ -536,7 +497,7 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 
 // Enricher is the optional, DB-backed hook surface the Verifier and middleware
 // use for best-effort enrichment (roles/email/provider username), the live-user
-// ban/deleted gate, opaque API-key resolution, and remote_application authority
+// ban/deleted gate, opaque API-key resolution, and remote_application
 // + attribute lookups. *authbase.Service satisfies it. The Verifier holds this as an
 // INTERFACE (not *authbase.Service) so the verification layer carries no hard
 // dependency on core's storage stack — a verify-only consumer can leave it nil
@@ -545,7 +506,6 @@ type Enricher interface {
 	ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (authbase.ResolvedAPIKey, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*authbase.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authbase.RemoteApplication, error)
-	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []authbase.OrgMembership, permissions []string, err error)
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authbase.RemoteAppAttributeDef, error)
 	GetProviderUsername(ctx context.Context, userID, provider string) (string, error)
 	ListRoleSlugsByUser(ctx context.Context, userID string) []string
@@ -554,8 +514,8 @@ type Enricher interface {
 }
 
 // WithService enables best-effort enrichment hooks (roles/provider usernames)
-// from Postgres, and wires the same enricher as the default org-issuer source
-// for lazy-load-on-miss (see keyForToken). *authbase.Service satisfies Enricher.
+// from Postgres, and wires the same enricher as the default remote-application
+// source for lazy-load-on-miss (see keyForToken). *authbase.Service satisfies Enricher.
 func (v *Verifier) WithService(svc Enricher) *Verifier {
 	v.enrich = svc
 	v.mu.Lock()
@@ -670,7 +630,7 @@ func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplica
 }
 
 // lazyLoadIssuer is the lazy-load-on-miss path: when matchIssuer misses and a
-// org-issuer source is configured, fetch that ONE issuer from the store
+// remote-application source is configured, fetch that ONE issuer from the store
 // and, if ACTIVE, register it (AddIssuer fetches+caches its JWKS). All DB/JWKS
 // work happens WITHOUT holding v.mu (AddIssuer locks v.mu internally, so calling
 // it under the lock would deadlock). A short negative cache + single-flight stop
@@ -878,17 +838,8 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	}
 
 	if isDelegatedAccessTyp {
-		// HARD CUT: a delegated access token carries NO org identity claims.
-		// The VALIDATED `iss` is the org identity: the receiver's issuer
-		// registry maps it to exactly one internal org record (slug + uuid),
-		// so neither a slug nor a uuid ever rides in the token. Legacy org
-		// claims are rejected like any other forbidden claim on this profile.
-		if strClaim(mapClaims, "org") != "" {
-			return Claims{}, errors.New("delegated_access_has_org")
-		}
-		if strClaim(mapClaims, "org_id") != "" {
-			return Claims{}, errors.New("delegated_access_has_org_id")
-		}
+		// A delegated access token carries tier/roles under `attributes`, never as
+		// top-level claims; reject the top-level forms as token hygiene.
 		if strClaim(mapClaims, "user_tier") != "" {
 			return Claims{}, errors.New("delegated_access_has_user_tier")
 		}
@@ -897,26 +848,8 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		}
 	}
 
-	// Resolve isLocal: the token is already cryptographically verified, so
-	// matchIssuer is guaranteed to find it. Default false (fail-safe: strip
-	// platform-authority claims) in the unlikely event of a race.
-	isLocal := false
-	if entry := v.matchIssuer(strClaim(mapClaims, "iss")); entry != nil {
-		isLocal = entry.isLocal
-	}
-	cl := v.extractClaims(mapClaims, isLocal)
+	cl := v.extractClaims(mapClaims)
 	cl.TokenTyp = tokenTyp
-	if isDelegatedAccessTyp && len(cl.Permissions) > 0 {
-		_, _, authorityPerms, err := v.remoteApplicationAuthority(context.Background(), cl.Issuer)
-		if err != nil {
-			return Claims{}, err
-		}
-		perms, err := permissionsWithinAuthority(cl.Permissions, authorityPerms)
-		if err != nil {
-			return Claims{}, err
-		}
-		cl.Permissions = perms
-	}
 	return cl, nil
 }
 
@@ -1022,29 +955,18 @@ func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, strin
 	return mapClaims, typ, nil
 }
 
-// extractClaims converts jwt.MapClaims into typed Claims. isLocal must be true
-// only when the token was signed by the platform's own issuer; for all other
-// issuers (remote_application / federated) it must be false, which causes
-// platform-authority claims (org_roles, roles) to be stripped so
-// a federated issuer cannot self-assert platform-wide admin.
-func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
+// extractClaims converts jwt.MapClaims into typed Claims.
+func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl := Claims{
 		Issuer: strClaim(mc, "iss"),
 	}
 	cl.UserID = strClaim(mc, "sub")
 	cl.DelegatedSubject = strClaim(mc, "delegated_sub")
-	cl.Org = strClaim(mc, "org")
-	// NO cl.OrgID here: org uuids never ride in JWTs. Claims.OrgID is
-	// only set by the opaque API-key DB resolution path.
 	cl.Email = strClaim(mc, "email")
 	cl.EmailVerified, _ = mc["email_verified"].(bool)
 	cl.Username = strClaim(mc, "username")
 	cl.DiscordUsername = strClaim(mc, "discord_username")
 	cl.SessionID = strClaim(mc, "sid")
-	cl.Org = strClaim(mc, "org")
-	if cl.Org == "" {
-		cl.Org = strClaim(mc, "owner")
-	}
 	cl.JTI = strClaim(mc, "jti")
 
 	// Permissions are the resource-defined authority source for delegated access
@@ -1074,34 +996,6 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims, isLocal bool) Claims {
 
 	cl.Roles = strSliceClaim(mc, "roles")
 	cl.Entitlements = strSliceClaim(mc, "entitlements")
-
-	// `org_roles` carries roles scoped to Org when present from a trusted
-	// authority. (The legacy `global_roles` claim was removed in #95 — platform
-	// authority is resolved from the platform RBAC tables at request time, never
-	// from a token claim.)
-	if oroles := strSliceClaim(mc, "org_roles"); len(oroles) > 0 {
-		cl.OrgRoles = oroles
-	}
-
-	// (issue 60) If a trusted non-delegated token carries Org plus legacy
-	// `roles`, derive OrgRoles from it when explicit `org_roles` is absent.
-	// Delegated tokens keep their roles on Roles.
-	if !cl.IsDelegated() &&
-		strings.TrimSpace(cl.Org) != "" && len(cl.Roles) > 0 {
-		if len(cl.OrgRoles) == 0 {
-			cl.OrgRoles = cl.Roles
-		}
-		cl.Roles = nil
-	}
-
-	// AK-C1: strip platform-authority claims for all non-local (federated) issuers.
-	// A remote_application issuer controlling its own JWKS must never be able to
-	// self-assert org_roles or roles and gain platform-admin access.
-	// These claims are only meaningful on tokens from the platform's own signer.
-	if !isLocal {
-		cl.OrgRoles = nil
-		cl.Roles = nil
-	}
 
 	return cl
 }
@@ -1225,7 +1119,7 @@ func (v *Verifier) keyForToken(token *jwt.Token) (any, error) {
 		// Lazy-load-on-miss: a brand-new remote-application issuer may already be in the
 		// store but not yet in this replica's in-memory cache. Fetch+register it
 		// (outside v.mu — AddIssuer locks v.mu) and retry. Backward compatible:
-		// when no org source is configured this is a no-op (-> bad_issuer).
+		// when no remote-application source is configured this is a no-op (-> bad_issuer).
 		if v.lazyLoadIssuer(context.Background(), iss) {
 			match = v.matchIssuer(iss)
 		}

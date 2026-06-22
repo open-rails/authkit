@@ -197,15 +197,6 @@ func (s *Service) publicRegistrationDisabled() bool {
 	return !s.svc.Options().PublicNativeUserRegistrationEnabled()
 }
 
-// publicOrgManagementDisabled reports whether the public org onboarding /
-// management HTTP routes are turned off for this service.
-func (s *Service) publicOrgManagementDisabled() bool {
-	if s == nil || s.svc == nil {
-		return false
-	}
-	return !s.svc.Options().PublicOrgRegistrationEnabled()
-}
-
 func (s *Service) stateCache() oidckit.StateCache {
 	if s.rd != nil {
 		return redisstore.NewStateCache(s.rd, "auth:oidc:state:", 0)

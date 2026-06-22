@@ -52,22 +52,6 @@ func TestAPIRoutesIncludeProviderDiscovery(t *testing.T) {
 	requireNoRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/providers")
 }
 
-// (issue 60) Org routes are always registered under RouteOrgs — no
-// org-mode gate; the host controls exposure by mounting the group.
-func TestAPIRoutesOrgRoutesAlwaysRegistered(t *testing.T) {
-	s := newTestServiceWithOrgMode(t, "")
-	requireNoRoute(t, s.APIRoutes(), http.MethodPost, "/token/org")
-	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/me/orgs")
-	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/orgs/{org}/members")
-	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/orgs")
-	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/orgs/{org}/me")
-	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodPost, "/orgs/{org}/permissions/check")
-	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/me/org-invites")
-	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodPost, "/me/org-invites/{invite_id}/accept")
-	requireRoute(t, s.APIRoutes(RouteOrgs), http.MethodPost, "/me/org-invites/{invite_id}/decline")
-	requireNoRoute(t, s.APIRoutes(RouteOrgs), http.MethodGet, "/me/invites")
-}
-
 func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {
 	s := newTestService(t)
 

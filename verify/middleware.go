@@ -50,19 +50,19 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 			}
 
 			// Best-effort DB enrichment when a service is attached. Skipped for
-			// delegated platform principals: their subject is a org user
-			// that does not exist locally, so the local-user enrichment + the
-			// IsUserAllowed gate must not apply (the resource server authorizes
-			// by org/issuer trust instead). A delegated token carries no
-			// `sub`, so UserID is empty anyway — this is the explicit guard.
+			// delegated principals: their subject does not exist locally, so the
+			// local-user enrichment + the IsUserAllowed gate must not apply (the
+			// resource server authorizes by issuer trust instead). A delegated
+			// token carries no `sub`, so UserID is empty anyway — this is the
+			// explicit guard.
 			if v.enrich != nil && cl.UserID != "" && !cl.IsDelegated() {
 				// Discord username enrichment.
 				if du, err := v.enrich.GetProviderUsername(r.Context(), cl.UserID, "discord"); err == nil && du != "" {
 					cl.DiscordUsername = du
 				}
 
-				// (issue 60) Role enrichment: if a non-delegated token carries no roles,
-				// supply the user's canonical global roles.
+				// Role enrichment: if a non-delegated token carries no roles,
+				// supply the user's canonical roles.
 				if len(cl.Roles) == 0 {
 					if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
 						cl.Roles = rs
@@ -103,9 +103,6 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 		})
 	}
 }
-
-// (RequireAdmin / RequireAdminInSchema removed in #95 — the global-roles admin
-// gate is gone; /admin/* routes gate on `platform:` perms via requirePlatformPermission.)
 
 // RequireEntitlement gates a handler on the presence of a single entitlement in
 // the verified claims (case-insensitive, see Claims.HasEntitlement). It must run

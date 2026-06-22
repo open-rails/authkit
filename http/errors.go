@@ -39,8 +39,7 @@ func unauthorized(w http.ResponseWriter, code ErrorCode) { sendErr(w, http.Statu
 func forbidden(w http.ResponseWriter, code ErrorCode)    { sendErr(w, http.StatusForbidden, code) }
 
 const (
-	errRegistrationDisabled  = string(ErrRegistrationDisabled)
-	errOrgManagementDisabled = string(ErrOrgManagementDisabled)
+	errRegistrationDisabled = string(ErrRegistrationDisabled)
 )
 
 // registrationDisabled writes the stable registration-disabled rejection used by
@@ -49,12 +48,6 @@ func registrationDisabled(w http.ResponseWriter) {
 	sendErr(w, http.StatusForbidden, ErrRegistrationDisabled)
 }
 
-// orgManagementDisabled writes the stable org-management-disabled rejection used
-// by public org onboarding/management routes when OrgRegistrationMode is
-// set.
-func orgManagementDisabled(w http.ResponseWriter) {
-	sendErr(w, http.StatusForbidden, ErrOrgManagementDisabled)
-}
 func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 	if len(retryAfter) == 0 || retryAfter[0] <= 0 {
 		sendErr(w, http.StatusTooManyRequests, ErrRateLimited)
