@@ -39,6 +39,22 @@ This asymmetry is ALREADY enforced by two #95 rules and MUST be kept: (1) per-ty
 ## Roles: app-defined by default, custom-roles an opt-in
 Each group **type** ships a fixed **role catalog** declared by the embedding app — e.g. type `repo` → `owner`, `read`, `write` (and nothing more); type `org` → its roles. `owner` is the ONLY required role per type. By default ONLY catalog roles are assignable in a group of that type: **end users cannot invent roles**. A type may OPT IN via `AllowCustomRoles` to let a group's owner define ADDITIONAL per-group custom roles (permission bundles) on top of the catalog. This **inverts today's model** (where every org defines all its own roles via DefineRole/SetRolePermissions): app-defined catalog is the default; per-group custom is the exception a type opts into (a tensorhub `org` might enable it; a `repo` would not).
 
+## Per-type management profile (the app decides how each type's groups may be used)
+Beyond the role catalog, each type declares a **management profile** — which slices of the generic management surface its groups expose. authkit's generic routes consult it and 403/404 anything disabled, so the app that defines the persona/type fully controls how its groups can be used:
+- `roles`: `fixed` (only the predefined catalog roles are assignable) | `custom` (the owner may ALSO define new roles). [generalizes `AllowCustomRoles`]
+- `members`: on|off — may humans be invited + assigned roles? (off ⇒ no human members — e.g. a machine-only type)
+- `apiKeys`: on|off — may api-keys be minted for the group (each assigned a predefined role)?
+- `remoteApplications`: on|off — may remote-applications be registered for the group (each assigned a predefined role)? (a distinct credential kind from api-keys)
+- `invites`: on|off — the human invite flow (may fold into `members`).
+
+The predefined catalog is the SAME role set assignable to EVERY enabled credential kind — a member, an api-key, or a remote-app each get one of the type's catalog roles (subject to no-escalation). So "the roles you may assign to keys / remote-apps / members" is just the type's catalog; the profile only says which credential KINDS are allowed + whether custom-roles/invites are on.
+
+Examples:
+- `org` (tensorhub): `roles=custom, members, apiKeys, remoteApplications, invites` — full RBAC.
+- `repo`: `roles=fixed(read|write), members` (collaborators), `apiKeys=off, remoteApplications=off` — thin.
+- `merchant` (openrails): `roles=fixed(owner|support|viewer), members, apiKeys, remoteApplications`.
+- `customer` (openrails): `roles=fixed(owner|member), members, apiKeys, remoteApplications` — keys/remote-apps to spend the balance + members for delegated spenders; the budget WINDOWS are openrails-DOMAIN, not authkit's.
+
 ## Permission naming: `<persona>:<resource>:<action>` — exactly 3 segments
 Every concrete permission is EXACTLY three lowercase segments — `<persona>:<resource>:<action>` (`merchant:catalog:update`, `root:users:ban`, `customer:spend-delegations:read`). authkit VALIDATES this at catalog-declaration time (`^[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*){2}$`) and REJECTS 2-part (`repo:update`) or 4-part perms — a 2-part perm must grow a resource (`repo:contents:update`); a type may use a `:self:` resource for "the thing itself" actions (`endpoint:self:invoke`). Globs are GRANT patterns only, NEVER catalog entries: `persona:*` (whole persona) and `persona:resource:*` (all actions on a resource).
 
@@ -87,7 +103,7 @@ Rules: **parent is MANDATORY for every non-root type** (`parent_id NOT NULL` exc
 - `group_type_parents(type, allowed_parent_type)` — the containment schema as data, so a CHECK/trigger can reject off-shape rows (e.g. `repo` parent must be `org`). `root` has no row (parentless singleton).
 - `group_role_assignments(group_id, subject, subject_kind, role)` — replaces `org_members`.
 - `group_custom_roles(group_id, role, permissions[])` — only used when the type's `AllowCustomRoles` is set.
-- App-declared catalog: `Config` gains, per type: role definitions (name → 3-segment perm set, `owner` required), `allowedParents []type`, and `AllowCustomRoles bool`. Permissions validated as `<persona>:<resource>:<action>` with persona = a declared type.
+- App-declared catalog: `Config` gains, per type: role definitions (name → 3-segment perm set, `owner` required), `allowedParents []type`, and a **management profile** `{roles: fixed|custom, members, apiKeys, remoteApplications, invites}`. Permissions validated as `<persona>:<resource>:<action>` with persona = a declared type.
 - remote_applications + api-keys: today org-nested → re-nest under a `permission_group` (was `org_id`).
 - The prebuilt `owner` role + `OwnerOwnsAppResources` (#100) generalize to per-type owner roles.
 
@@ -105,7 +121,7 @@ Rules: **parent is MANDATORY for every non-root type** (`parent_id NOT NULL` exc
 
 ## Tasks
 - [ ] Schema: `permission_groups` (type, parent_id, resource_ref) + `group_role_assignments` + `group_custom_roles`; migrate `orgs`→groups (type=`org`, parent=root) and `org_members`→assignments (greenfield hard cut, no dual-write).
-- [ ] Config: per-type role catalog (name→perms, `owner` required) + per-type `AllowCustomRoles bool`; default = deny custom-role creation.
+- [ ] Config: per-type role catalog (name→perms, `owner` required) + per-type **management profile** `{roles: fixed|custom, members, apiKeys, remoteApplications, invites}` (conservative defaults: roles=fixed, custom-role creation denied). authkit's generic routes gate EVERY capability on it (403/404 when disabled).
 - [ ] Custom roles: gate DefineRole/SetRolePermissions on the type's `AllowCustomRoles`; store in `group_custom_roles`; assignable only within the defining group.
 - [ ] Authorize: add the resource/group parameter + parent-chain walk + additive union; keep namespace-anchored glob matching; memoize per (principal, group).
 - [ ] Re-nest remote_applications + api-keys under a permission-group; update `ResolveRemoteApplicationAuthority` to resolve via group + parent walk.
