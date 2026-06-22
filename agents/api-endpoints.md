@@ -180,11 +180,13 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 > `org:read`. The embedding app declares its own permission set
 > (`core.Config.Permissions`) + optional default roles
 > (`core.Config.DefaultRoles`); the effective permission set = base ∪ app. The `owner`
-> role is hardcoded and seeded with `*` (all permissions); other roles are
-> app/org-defined. Permission tokens in a role: a concrete permission, `*` (all),
-> or `!perm` (exclude). All assignment/grant is **no-escalation** (you can only
-> confer permissions you hold) and **catalog-validated** (unknown permissions
-> rejected). A platform global admin bypasses. Permissions are opaque to
+> role is hardcoded and seeded with `org:*` (the namespace-anchored apex grant for the
+> org layer — NEVER a bare `*`); other roles are app/org-defined. Permission tokens in a
+> role: a concrete permission or a namespace-anchored glob (`org:*`, `org:<resource>:*`).
+> NO bare `*` and NO negation (`!perm`) — both removed in #93/#95; positive grants only.
+> All assignment/grant is **no-escalation** (you can only confer permissions you hold) and
+> **catalog-validated** (unknown permissions rejected). A platform super-admin (`platform:*`,
+> a separate layer) does not bypass — it simply holds the directory perms. Permissions are opaque to
 > authkit — the app owns their meaning and enforces them at its own endpoints
 > via `core.EffectivePermissions(ctx, org, userID)`.
 
