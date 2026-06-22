@@ -45,7 +45,7 @@ func createTestOrg(t *testing.T, ctx context.Context, svc *Service, pool *pgxpoo
 
 func TestRemoteApplicationRoundTrip(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
@@ -134,7 +134,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 
 func TestRemoteApplicationOrgOptionalOwnerUserRemoved(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	var ownerUserColumnCount int
@@ -266,7 +266,7 @@ func TestNormalizeRemoteAppTrustSource(t *testing.T) {
 // atomically clear the other trust source (#74).
 func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 	pemKey := testPublicKeyPEM(t)
 

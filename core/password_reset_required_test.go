@@ -32,7 +32,7 @@ func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
 	}, Keyset{
 		Active:     signer,
 		PublicKeys: map[string]crypto.PublicKey{"reset-required-test": signer.PublicKey()},
-	}).WithPostgres(pool)
+	}, WithPostgres(pool))
 
 	const email = "legacy-reset-required@example.com"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)

@@ -50,12 +50,12 @@ func TestPermissionMemoizationSingleResolution(t *testing.T) {
 
 	// A spy DBTX so we can count statements on the hot authz path.
 	counter := &countingDBTX{}
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).
-		WithPostgres(pool).
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{},
+		WithPostgres(pool),
 		WithDBTXWrapper(func(inner db.DBTX) db.DBTX {
 			counter.inner = inner
 			return counter
-		})
+		}))
 
 	// --- org fixture: a user who owns an org (owner role grants org:*) ---
 	owner, err := svc.CreateUser(ctx, fmt.Sprintf("memo-owner-%d@test.example", suffix), fmt.Sprintf("memoowner%d", suffix))

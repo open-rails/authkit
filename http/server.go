@@ -5,52 +5,85 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	core "github.com/open-rails/authkit/core"
+	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
+	memorystore "github.com/open-rails/authkit/storage/memory"
+	redisstore "github.com/open-rails/authkit/storage/redis"
 	"github.com/redis/go-redis/v9"
 )
 
 // Server is the net/http mounting wrapper around core.Service. It is the
-// PREFERRED name for this type — it disambiguates from core.Service, which is a
-// different type (the issuing engine). `Service` is retained as a
-// backward-compatible alias so existing embedders need no changes (#109).
+// canonical name; Service is retained as an alias to disambiguate from
+// core.Service (#109).
 type Server = Service
 
 // Option configures a Server at construction. Options are applied INSIDE
-// NewServer, before the Server is returned or validated, so a half-built Server
-// is never observable. This is the preferred replacement for the chainable
-// WithX methods, whose mutate-and-return-self form allowed a partially
-// configured Server to be used (#108).
+// NewServer, before the core service is built, so a half-built Server is never
+// observable. This is the ONLY way to wire optional dependencies — the chainable
+// WithX builder methods were removed in #108.
 type Option func(*Server)
 
-// NewServer constructs the auth Server. Postgres is REQUIRED: the durable user/
-// org/role store has no in-memory fallback, so a pg-less Server cannot do
-// anything useful — it is a positional argument the type system enforces (#106).
-// (Pure token verification with no storage uses authhttp.NewVerifier /
-// authkit/verify instead.) Optional dependencies and behavior are supplied as
-// functional options:
+// NewServer constructs the auth Server. Postgres is REQUIRED (the durable user/
+// org/role store has no in-memory fallback) and is a positional argument the
+// type system enforces (#106); pure token verification with no storage uses
+// authhttp.NewVerifier / authkit/verify instead. Every optional dependency is a
+// functional option:
 //
 //	srv, err := authhttp.NewServer(cfg, pg,
 //	    authhttp.WithRedis(rdb),
 //	    authhttp.WithEmailSender(mailer),
 //	)
-//
-// Prefer NewServer over the older NewService(cfg).WithPostgres(pg)... builder.
 func NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error) {
 	if pg == nil {
 		return nil, errors.New("authkit: NewServer requires a non-nil *pgxpool.Pool (Postgres is mandatory)")
 	}
-	s, err := newServer(cfg)
-	if err != nil {
-		return nil, err
+	// HTTP-level defaults set BEFORE options so an option can override them.
+	s := &Server{
+		rl:       memorylimiter.New(ToMemoryLimits(DefaultRateLimits())),
+		clientIP: DefaultClientIP(),
 	}
-	s.WithPostgres(pg)
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
 		}
 	}
+
+	// Build the core service: default to an in-memory ephemeral store, which any
+	// WithRedis/WithEphemeralStore option (collected in s.coreOpts) overrides
+	// since later options win.
+	coreOpts := append([]core.Option{core.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)}, s.coreOpts...)
+	coreSvc, err := core.NewFromConfig(cfg, pg, coreOpts...)
+	if err != nil {
+		return nil, err
+	}
+	s.svc = coreSvc
+	s.coreOpts = nil // transient; not retained past construction
+
+	o := coreSvc.Options()
+	ver := NewVerifier(
+		WithSkew(5*time.Second),
+		WithAPIKeyPrefix(o.APIKeyPrefix),
+		WithSSRFGuard(),
+	)
+	_ = ver.AddIssuer(o.Issuer, o.ExpectedAudiences, IssuerOptions{
+		RawKeys: coreSvc.PublicKeysByKID(),
+		IsLocal: true,
+	})
+	ver.WithService(coreSvc)
+	s.verifier = ver
+
+	authProvidersByName, err := buildAuthProvidersMap(cfg.Identity.Providers, cfg.Identity.ProviderDescriptors)
+	if err != nil {
+		return nil, err
+	}
+	s.authProvidersByName = authProvidersByName
+	s.oidcProviders = cfg.Identity.Providers
+	s.providers = cfg.Identity.ProviderDescriptors
+	s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
+
 	if err := s.validate(cfg); err != nil {
 		return nil, err
 	}
@@ -58,9 +91,7 @@ func NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, erro
 }
 
 // validate enforces the CONDITIONAL dependency requirements for the configured
-// feature set. pg is already guaranteed by NewServer's signature; this covers
-// deps whose necessity depends on configuration. Only NewServer runs it (the
-// lenient NewService path is unchanged), so it never breaks existing callers.
+// feature set (pg is already guaranteed by the signature).
 func (s *Server) validate(cfg core.Config) error {
 	env := strings.ToLower(strings.TrimSpace(cfg.Environment))
 	if env == "prod" || env == "production" {
@@ -71,55 +102,85 @@ func (s *Server) validate(cfg core.Config) error {
 	return nil
 }
 
-// --- Functional-option forms of the dependency injectors (#108). Each mirrors
-// the identically named chainable WithX method (which remains for back-compat).
-// Prefer these inside NewServer. ---
+// --- Functional options (#108). Core-dependency options accumulate into
+// s.coreOpts (applied when the core service is built); HTTP-level options set
+// fields on the Server directly. ---
 
-// WithRedis supplies the Redis client (ephemeral store + OIDC state cache).
-func WithRedis(rd *redis.Client) Option { return func(s *Server) { s.WithRedis(rd) } }
+// WithRedis supplies the Redis client: the ephemeral store + the OIDC state cache.
+func WithRedis(rd *redis.Client) Option {
+	return func(s *Server) {
+		s.rd = rd
+		if rd != nil {
+			s.coreOpts = append(s.coreOpts, core.WithEphemeralStore(redisstore.NewKV(rd), core.EphemeralRedis))
+		}
+	}
+}
+
+// WithEphemeralStore overrides the ephemeral store + mode.
+func WithEphemeralStore(store core.EphemeralStore, mode core.EphemeralMode) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithEphemeralStore(store, mode)) }
+}
 
 // WithEmailSender supplies the email provider.
-func WithEmailSender(es core.EmailSender) Option { return func(s *Server) { s.WithEmailSender(es) } }
+func WithEmailSender(es core.EmailSender) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithEmailSender(es)) }
+}
 
 // WithSMSSender supplies the SMS provider.
-func WithSMSSender(sender core.SMSSender) Option { return func(s *Server) { s.WithSMSSender(sender) } }
+func WithSMSSender(sender core.SMSSender) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithSMSSender(sender)) }
+}
 
 // WithEntitlements supplies the entitlements provider.
 func WithEntitlements(p core.EntitlementsProvider) Option {
-	return func(s *Server) { s.WithEntitlements(p) }
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithEntitlements(p)) }
+}
+
+// WithAuthLogger supplies the session-event audit sink.
+func WithAuthLogger(l core.AuthEventLogger) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithAuthLogger(l)) }
+}
+
+// WithResourceScopeAuthorizer supplies the API-key resource-scope authorizer hook.
+func WithResourceScopeAuthorizer(fn core.ResourceScopeAuthorizer) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithResourceScopeAuthorizer(fn)) }
+}
+
+// WithSolanaSNSResolver enables Solana Name Service resolution via the host resolver.
+func WithSolanaSNSResolver(r core.SolanaSNSResolver) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithSolanaSNSResolver(r)) }
 }
 
 // WithRateLimiter overrides the default in-memory rate limiter.
-func WithRateLimiter(rl RateLimiter) Option { return func(s *Server) { s.WithRateLimiter(rl) } }
+func WithRateLimiter(rl RateLimiter) Option { return func(s *Server) { s.rl = rl } }
 
-// WithoutRateLimiter disables rate limiting (option form of DisableRateLimiter).
-func WithoutRateLimiter() Option { return func(s *Server) { s.DisableRateLimiter() } }
+// WithoutRateLimiter disables rate limiting.
+func WithoutRateLimiter() Option { return func(s *Server) { s.rl = nil } }
 
-// WithClientIPFunc sets the client-IP extraction strategy (for rate limiting + auditing).
-func WithClientIPFunc(fn ClientIPFunc) Option { return func(s *Server) { s.WithClientIPFunc(fn) } }
-
-// WithAuthLogger supplies the session-event audit sink.
-func WithAuthLogger(l core.AuthEventLogger) Option { return func(s *Server) { s.WithAuthLogger(l) } }
+// WithClientIPFunc sets the client-IP extraction strategy (rate limiting + auditing).
+func WithClientIPFunc(fn ClientIPFunc) Option {
+	return func(s *Server) {
+		if fn == nil {
+			fn = DefaultClientIP()
+		}
+		s.clientIP = fn
+	}
+}
 
 // WithAuthLogReader supplies the session-event reader (admin sign-in views).
 func WithAuthLogReader(r core.AuthEventLogReader) Option {
-	return func(s *Server) { s.WithAuthLogReader(r) }
+	return func(s *Server) { s.authlogr = r }
 }
 
 // WithLanguageConfig sets the i18n language configuration.
 func WithLanguageConfig(cfg LanguageConfig) Option {
-	return func(s *Server) { s.WithLanguageConfig(cfg) }
+	return func(s *Server) { s.langCfg = &cfg }
 }
 
 // WithErrorLogger supplies the internal-error observability hook.
 func WithErrorLogger(fn func(context.Context, InternalErrorEvent)) Option {
-	return func(s *Server) { s.WithErrorLogger(fn) }
+	return func(s *Server) { s.errorLogger = fn }
 }
 
 // WithSolanaDomain sets the domain used in SIWS sign-in messages.
-func WithSolanaDomain(domain string) Option { return func(s *Server) { s.WithSolanaDomain(domain) } }
-
-// WithEphemeralStore overrides the ephemeral store + mode.
-func WithEphemeralStore(store core.EphemeralStore, mode core.EphemeralMode) Option {
-	return func(s *Server) { s.WithEphemeralStore(store, mode) }
-}
+func WithSolanaDomain(domain string) Option { return func(s *Server) { s.solanaDomain = domain } }

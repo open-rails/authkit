@@ -11,7 +11,7 @@ import (
 func TestCreateOrgForUserCreatesOwnerAtomically(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	slug := fmt.Sprintf("user-owned-%d", time.Now().UnixNano())
 	username := fmt.Sprintf("owner-%d", time.Now().UnixNano())
@@ -58,7 +58,7 @@ func TestCreateOrgForUserCreatesOwnerAtomically(t *testing.T) {
 func TestCreateOrgForUserRejectsOwnerlessAndMissingUser(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	if _, err := svc.CreateOrgForUser(ctx, CreateOrgForUserRequest{Slug: "no-owner"}); !errors.Is(err, ErrInvalidOrgOwner) {
 		t.Fatalf("ownerless err=%v, want ErrInvalidOrgOwner", err)
@@ -73,7 +73,7 @@ func TestCreateOrgForUserRejectsOwnerlessAndMissingUser(t *testing.T) {
 func TestCreateOrgForUserRejectsInvalidDuplicateBannedAndDeleted(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	username := fmt.Sprintf("owner-state-%d", time.Now().UnixNano())
 	slug := fmt.Sprintf("owner-state-%d", time.Now().UnixNano())
@@ -121,7 +121,7 @@ func TestCreateOrgForUserRejectsInvalidDuplicateBannedAndDeleted(t *testing.T) {
 func TestCreateOrgForUserRejectsOrgLimit(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	username := fmt.Sprintf("org-limit-owner-%d", time.Now().UnixNano())
 	prefix := fmt.Sprintf("org-limit-%d", time.Now().UnixNano())
@@ -171,7 +171,7 @@ func TestCreateOrgForUserRejectsOrgLimit(t *testing.T) {
 func TestCreateOrgForUserRejectsReservedAndParkedNamespace(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	username := fmt.Sprintf("namespace-owner-%d", time.Now().UnixNano())
 	reservedSlug := fmt.Sprintf("reserved-org-%d", time.Now().UnixNano())
@@ -233,7 +233,7 @@ func TestProvisionOrgBypassesPublicRegistrationMode(t *testing.T) {
 	svc := NewService(Options{
 		Issuer:              "https://test",
 		OrgRegistrationMode: RegistrationModeClosed,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 
 	slug := fmt.Sprintf("bootstrap-%d", time.Now().UnixNano())
 	username := fmt.Sprintf("bootstrap-owner-%d", time.Now().UnixNano())

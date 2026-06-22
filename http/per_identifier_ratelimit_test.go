@@ -15,13 +15,15 @@ import (
 func newPerIdentifierTestService(t *testing.T) *Service {
 	t.Helper()
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
+	svc, err := NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)
 	return svc
 }

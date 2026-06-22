@@ -25,7 +25,7 @@ func jsonEqual(t *testing.T, a, b json.RawMessage) bool {
 func TestRemoteApplicationPolymorphicMembership(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	const tslug = "poly-org"
 	const aslug = "poly-app"
@@ -92,7 +92,7 @@ func TestRemoteApplicationPolymorphicMembership(t *testing.T) {
 func TestRemoteAppAttributeDefRegistry(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	const aslug = "attrdef-app"
 	const iss = "https://attrdef.example/iss"

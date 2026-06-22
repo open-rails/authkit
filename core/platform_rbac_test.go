@@ -14,7 +14,7 @@ import (
 func TestPlatformRBAC(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	has := func(xs []string, x string) bool {
 		for _, v := range xs {

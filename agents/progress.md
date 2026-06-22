@@ -389,8 +389,8 @@ Non-goals: not making `core` storage-agnostic (that would gut the batteries-incl
 
 # #108: Replace the mutating `With*` builder with constructor-time functional options; group the 30 `Config` fields
 
-**Completed:** no
-**STATUS 2026-06-22 (Claude): options half DONE+shipped; Config field-grouping DEFERRED to the major bump.** Added `type Option func(*Server)` + package-func option constructors mirroring every `WithX` (`WithRedis`, `WithEmailSender`, `WithSMSSender`, `WithEntitlements`, `WithRateLimiter`, `WithoutRateLimiter`, `WithClientIPFunc`, `WithAuthLogger`, `WithAuthLogReader`, `WithLanguageConfig`, `WithErrorLogger`, `WithSolanaDomain`, `WithEphemeralStore`), applied INSIDE `NewServer(cfg, pg, opts...)` before validation so a half-built Server is never observable. The mutating `WithX` methods remain for back-compat (method + package-func same name coexist legally). Files: http/server.go. Tested via #106's server_test.go; build/vet/PG suite green. CONFIG-GROUPING DEFERRED: grouping the 30 flat `core.Config` fields into sub-structs while keeping flat fields for back-compat adds a parallel representation (two ways to set each value) that makes Config WORSE during transition and risks mis-routing security-relevant fields (Issuer/audiences/keys/modes); it only pays off once flat fields are removed, so do it at the major bump as a coordinated break.
+**Completed:** yes
+**STATUS 2026-06-22 (Claude): HARDCUT DONE — full no-back-compat break, targeting v0.47.0.** Superseded the earlier "options half + grouping deferred" plan: the maintainer chose a clean hardcut, so flat `core.Config` fields ARE now grouped into typed sub-structs AND ALL chainable `WithX` methods are REMOVED from both `core.Service` and `http.Service` (no deprecated shims, no parallel representation — the transition-cost objection that motivated deferral does not apply to a hardcut). Config sub-structs: `Token{Issuer,IssuedAudiences,ExpectedAudiences,AccessTokenDuration,RefreshTokenDuration,SessionMaxPerUser}`, `Frontend{BaseURL,CallbackPath}`, `Registration{Verification,AutoCreatePersonalOrgs,NativeUserMode,OrgMode}`, `Keys{Source,Path,VerifyOnly}`, `Identity{Providers,ProviderDescriptors}`, `APIKeys{Prefix,MaxTTL}`, `RBAC{Permissions,DefaultRoles,OwnerOwnsAppResources}`; top-level `Environment`,`Schema`,`SolanaNetwork`. Removed the old `SolanaConfig` and the `ResourceScopeAuthorizer` Config field (now `WithResourceScopeAuthorizer` option; SNS auto-on via `WithSolanaSNSResolver`, timeout 3s/cache 24h fixed). Constructors: `core.NewService(opts Options, keys Keyset, coreOpts ...Option)`, `core.NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option)` (pg may be nil at the CORE layer — verify-only/config tests; the mandatory-pg #106 contract is enforced at the host-facing `authhttp.NewServer`, which rejects nil), `authhttp.NewServer(cfg, pg, opts ...Option)`; `authhttp.NewService` removed. NOTE `core.Options` (low-level flat struct) is intentionally UNCHANGED — only the high-level `Config` was regrouped. Also fixed a latent bug: `NewFromConfig` had been silently dropping its `pg`/`extraOpts` args. Files: core/config.go, core/options.go (new), core/service.go, core/ephemeral.go, http/server.go, http/service.go, every test file + authkit-devserver.go migrated. Full `go test ./...` green against AUTHKIT_TEST_DATABASE_URL. Remaining: README still shows the pre-hardcut ownership-table/`WithX` examples (doc follow-up); consumers (openrails/doujins/hentai0) migrate against the v0.47.0 tag.
 
 Configuration is split across **two parallel systems**: `core.Config` has **~30 top-level fields** and there are **~20 mutating `With*` builder methods** (`svc = svc.WithPostgres(pg).WithRedis(r)…`), and the boundary is arbitrary enough that the README needs an **ownership table** to explain it.
 
@@ -415,13 +415,13 @@ One rule a consumer can hold in their head: **data → `cfg`; the one required d
 Non-goals: not pushing *policy* into options (sub-structs keep `Config` inspectable/loadable — suits the host-owned-config story); not changing defaults or behavior.
 
 **Tasks:**
-- [ ] Define `type Option func(*Service)` (or `func(*options)` for tighter encapsulation) + a `WithX` constructor per optional dep
-- [ ] Change `NewService` to `(cfg, pg, opts ...Option)` (with #106); apply options inside the constructor, then validate
-- [ ] Group the 30 `Config` fields into sub-structs (Token/Registration/Keys/RateLimit/Schema/Solana/Frontend); flat fields become deprecated aliases for one release
-- [ ] Convert the ~20 mutating `With*` methods to option constructors; optional deprecated forwarding shims
-- [ ] Update README — replace the ownership table with the one structural rule; show `NewService(cfg, pg, WithRedis(...), …)`
-- [ ] Tests: option application + last-wins ordering; alias→sub-struct mapping; zero-value defaults unchanged
-- [ ] Schedule removal of deprecated aliases/shims for the major bump (with #105/#107/#109)
+- [x] Define `type Option` + a `WithX` constructor per optional dep — `core.Option` (core/options.go) + `authhttp.Option` (http/server.go)
+- [x] Constructors apply options inside, then validate — `core.NewService`/`NewFromConfig`/`authhttp.NewServer`
+- [x] Group the `Config` fields into sub-structs (Token/Frontend/Registration/Keys/Identity/APIKeys/RBAC + top-level Environment/Schema/SolanaNetwork) — HARDCUT, no flat aliases
+- [x] Remove the chainable `With*` methods from core.Service AND http.Service — HARDCUT, no forwarding shims
+- [ ] Update README — still shows the pre-hardcut ownership table + `WithX` examples; doc follow-up
+- [x] Tests: every test file + devserver migrated to grouped `Config` + options; full `go test ./...` green
+- [x] (was: schedule shim removal) N/A — hardcut removed everything in one break
 
 ---
 

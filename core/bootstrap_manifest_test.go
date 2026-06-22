@@ -24,7 +24,7 @@ users:
 func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	username := fmt.Sprintf("bootstrap-dryrun-%d", time.Now().UnixNano())
 	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
@@ -51,7 +51,7 @@ func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 func TestReconcileBootstrapManifestSeedsUsersRolesAndOrgMemberships(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	username := fmt.Sprintf("bootstrap-admin-%d", suffix)
@@ -134,7 +134,7 @@ func TestReconcileBootstrapManifestIdempotentWithPersonalOrgAutoCreate(t *testin
 	svc := NewService(Options{
 		Issuer:                 "https://test",
 		AutoCreatePersonalOrgs: true,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	username := fmt.Sprintf("bootstrap-personal-%d", suffix)

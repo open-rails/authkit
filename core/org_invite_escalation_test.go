@@ -40,7 +40,7 @@ func inviteTestPG(t *testing.T) *pgxpool.Pool {
 func TestOrgInviteNoEscalation(t *testing.T) {
 	pool := inviteTestPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://example.com"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://example.com"}, Keyset{}, WithPostgres(pool))
 
 	const slug = "esc-test-org"
 	cleanupUser := func(email string) string {

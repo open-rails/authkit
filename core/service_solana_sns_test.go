@@ -82,7 +82,7 @@ func TestSolanaSNSResolveAndStore(t *testing.T) {
 		SolanaSNSLookupTimeout:     time.Second,
 		SolanaSNSCacheTTL:          time.Hour,
 		NativeUserRegistrationMode: RegistrationModeOpen,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "resolved")
 
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
@@ -117,7 +117,7 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 		SolanaSNSResolver:      resolver,
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "cache")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)
@@ -153,7 +153,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 		SolanaSNSResolver:      resolver,
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Nanosecond,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "stale")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)
@@ -176,7 +176,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 		SolanaSNSResolver:      resolver,
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	if _, err := freshSvc.ResolveAndStoreSolanaSNS(ctx, user.ID, address); err != nil {
 		t.Fatalf("ResolveAndStoreSolanaSNS clear: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 		SolanaSNSResolver:      fakeSolanaSNSResolver{names: map[string]string{}},
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	notFoundUser := importSNSUser(t, ctx, notFoundSvc, pool, "notfound")
 	if err := notFoundSvc.LinkProviderByIssuer(ctx, notFoundUser.ID, notFoundSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer not found: %v", err)
@@ -221,7 +221,7 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 		SolanaSNSResolver:      fakeSolanaSNSResolver{err: errors.New("boom")},
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	errorUser := importSNSUser(t, ctx, errorSvc, pool, "error")
 	if err := errorSvc.LinkProviderByIssuer(ctx, errorUser.ID, errorSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer error: %v", err)
@@ -240,7 +240,7 @@ func TestSolanaSNSDisabledMetadata(t *testing.T) {
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "disabled")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, output.Account.Address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)

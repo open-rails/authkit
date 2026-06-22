@@ -7,7 +7,7 @@ import (
 
 func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 	cfg := baseTestConfig(t)
-	svc, err := NewFromConfig(cfg)
+	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
@@ -28,9 +28,9 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 
 func TestPolicySwitches_Plumbed(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.NativeUserRegistrationMode = RegistrationModeAdminBootstrapOnly
-	cfg.OrgRegistrationMode = RegistrationModeManifestOnly
-	svc, err := NewFromConfig(cfg)
+	cfg.Registration.NativeUserMode = RegistrationModeAdminBootstrapOnly
+	cfg.Registration.OrgMode = RegistrationModeManifestOnly
+	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
@@ -54,8 +54,8 @@ func TestPolicySwitches_Plumbed(t *testing.T) {
 // the switch is on, before touching storage.
 func TestPolicySwitches_CoreRegistrationGate(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.NativeUserRegistrationMode = RegistrationModeAdminBootstrapOnly
-	svc, err := NewFromConfig(cfg)
+	cfg.Registration.NativeUserMode = RegistrationModeAdminBootstrapOnly
+	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
@@ -145,8 +145,8 @@ func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 
 func TestPolicySwitches_RejectsLegacyBootstrapOnlyMode(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.NativeUserRegistrationMode = RegistrationMode("bootstrap_only")
-	if _, err := NewFromConfig(cfg); err == nil {
+	cfg.Registration.NativeUserMode = RegistrationMode("bootstrap_only")
+	if _, err := NewFromConfig(cfg, nil); err == nil {
 		t.Fatalf("legacy bootstrap_only mode should be rejected")
 	}
 }
@@ -162,7 +162,7 @@ func TestPolicySwitches_NativeUsersDoNotCreatePersonalOrgsByDefault(t *testing.T
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
 	})
 
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	u, err := svc.CreateUser(ctx, "", username)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -196,7 +196,7 @@ func TestPolicySwitches_AutoCreatePersonalOrgsOptIn(t *testing.T) {
 	svc := NewService(Options{
 		Issuer:                 "https://test",
 		AutoCreatePersonalOrgs: true,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	u, err := svc.CreateUser(ctx, "", username)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -238,7 +238,7 @@ func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUser
 		Issuer:                     "https://test",
 		NativeUserRegistrationMode: RegistrationModeClosed,
 		OrgRegistrationMode:        RegistrationModeManifestOnly,
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 	org, err := svc.CreateOrg(ctx, slug)
 	if err != nil {
 		t.Fatalf("bootstrap CreateOrg: %v", err)

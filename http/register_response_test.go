@@ -41,6 +41,22 @@ func (failingVerificationEmailSender) SendVerification(context.Context, string, 
 	return errors.New("provider rejected message")
 }
 
+// failableEmailSender delivers successfully until fail is flipped, then rejects
+// verification sends. It lets one service exercise the create path (delivery OK)
+// and then the resend path (delivery fails); #108 removed the chainable
+// WithEmailSender swap this case previously relied on.
+type failableEmailSender struct {
+	testEmailSender
+	fail bool
+}
+
+func (s *failableEmailSender) SendVerification(context.Context, string, string, core.VerificationMessage) error {
+	if s.fail {
+		return errors.New("provider rejected message")
+	}
+	return nil
+}
+
 type recordingEmailSender struct {
 	testEmailSender
 	languages []string
@@ -52,12 +68,13 @@ func (s *recordingEmailSender) SendVerification(ctx context.Context, email, user
 	return nil
 }
 
-func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificationPolicy) *Service {
+func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificationPolicy, coreOpts ...core.Option) *Service {
 	t.Helper()
 
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
 	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := append([]core.Option{core.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)}, coreOpts...)
 	coreSvc := core.NewService(core.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},
@@ -65,7 +82,7 @@ func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificati
 		AccessTokenDuration:      time.Hour,
 		RegistrationVerification: policy,
 		Environment:              "test",
-	}, ks).WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)
+	}, ks, opts...)
 
 	ver := NewVerifier(WithSkew(5 * time.Second))
 	_ = ver.AddIssuer(coreSvc.Options().Issuer, coreSvc.Options().ExpectedAudiences, IssuerOptions{
@@ -127,8 +144,7 @@ func TestRegistrationResponseBuilder(t *testing.T) {
 }
 
 func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired).
-		WithEmailSender(testEmailSender{})
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(testEmailSender{}))
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -154,8 +170,7 @@ func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
 }
 
 func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired).
-		WithEmailSender(failingVerificationEmailSender{})
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(failingVerificationEmailSender{}))
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -172,10 +187,14 @@ func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
 }
 
 func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired)
+	// One service: the initial CreatePendingRegistration delivers fine, then the
+	// sender is flipped to fail so the resend path returns email_delivery_failed.
+	// (#108 removed the chainable WithEmailSender swap this previously used.)
+	sender := &failableEmailSender{}
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(sender))
 	_, err := s.svc.CreatePendingRegistration(context.Background(), "user@example.com", "user", "argon2id$hash", 0)
 	require.NoError(t, err)
-	s = s.WithEmailSender(failingVerificationEmailSender{})
+	sender.fail = true
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -190,8 +209,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 }
 
 func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired).
-		WithEmailSender(testEmailSender{})
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(testEmailSender{}))
 	_, err := s.svc.CreatePendingRegistration(context.Background(), "user@example.com", "user", "argon2id$hash", 0)
 	require.NoError(t, err)
 	h := s.APIHandler()
@@ -209,9 +227,11 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 
 func TestAPIHandler_RegisterSeedsPreferredLocaleAndResendPreservesIt(t *testing.T) {
 	sender := &recordingEmailSender{}
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired).
-		WithLanguageConfig(LanguageConfig{Supported: []string{"en", "es"}, Default: "en"}).
-		WithEmailSender(sender)
+	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(sender))
+	// WithLanguageConfig is an HTTP-level field (#108 removed the chainable
+	// setter); the test is package authhttp, so set it directly.
+	langCfg := LanguageConfig{Supported: []string{"en", "es"}, Default: "en"}
+	s.langCfg = &langCfg
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -236,15 +256,16 @@ func TestAPIHandler_RegisterSeedsPreferredLocaleAndResendPreservesIt(t *testing.
 }
 
 func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
-	s, err := NewService(core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationRequired,
-	})
+	s, err := NewServer(core.Config{
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationRequired},
+	}, newNoDBPool(t), WithEmailSender(testEmailSender{}))
 	require.NoError(t, err)
-	s = s.WithEmailSender(testEmailSender{})
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()

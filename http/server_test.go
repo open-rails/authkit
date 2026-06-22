@@ -13,10 +13,12 @@ import (
 
 func newServerTestConfig() core.Config {
 	return core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 		// Environment empty => dev => signing keys are auto-generated.
 	}
 }
@@ -64,12 +66,12 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	require.NoError(t, err, "production with Redis must pass validation")
 }
 
-// #109: Server is an alias of Service, and the deprecated NewService(...).WithX
-// builder still compiles and works (back-compat).
+// #109: Server is an alias of Service — NewServer returns *Server, which is
+// assignable to *Service (and vice versa).
 func TestServerAlias_BackCompat(t *testing.T) {
 	pool := newServerTestPool(t)
-	svc, err := NewService(newServerTestConfig())
+	svc, err := NewServer(newServerTestConfig(), pool)
 	require.NoError(t, err)
-	svc.WithPostgres(pool)
-	var _ *Server = svc // Server == Service (alias)
+	var _ *Server = svc  // Server == Service (alias)
+	var _ *Service = svc // both directions
 }

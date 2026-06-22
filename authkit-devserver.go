@@ -143,22 +143,24 @@ func runServe(cfg *config) error {
 		return fmt.Errorf("load jwt keys: %w", err)
 	}
 
-	svc, err := authhttp.NewService(core.Config{
-		Issuer:                   cfg.Issuer,
-		IssuedAudiences:          cfg.IssuedAudiences,
-		ExpectedAudiences:        cfg.ExpectedAudiences,
-		Keys:                     keySource,
-		Environment:              cfg.Environment,
-		RegistrationVerification: cfg.RegistrationVerification,
-		APIKeyPrefix:             cfg.APIKeyPrefix,
-		Permissions:              toPermissionDefs(cfg.PermissionCatalog),
-	})
+	var opts []authhttp.Option
+	if len(cfg.StaticEntitlements) > 0 {
+		opts = append(opts, authhttp.WithEntitlements(staticDevEntitlements{names: cfg.StaticEntitlements}))
+	}
+	svc, err := authhttp.NewServer(core.Config{
+		Token: core.TokenConfig{
+			Issuer:            cfg.Issuer,
+			IssuedAudiences:   cfg.IssuedAudiences,
+			ExpectedAudiences: cfg.ExpectedAudiences,
+		},
+		Keys:         core.KeysConfig{Source: keySource},
+		Environment:  cfg.Environment,
+		Registration: core.RegistrationConfig{Verification: cfg.RegistrationVerification},
+		APIKeys:      core.APIKeysConfig{Prefix: cfg.APIKeyPrefix},
+		RBAC:         core.RBACConfig{Permissions: toPermissionDefs(cfg.PermissionCatalog)},
+	}, pg, opts...)
 	if err != nil {
 		return err
-	}
-	svc.WithPostgres(pg)
-	if len(cfg.StaticEntitlements) > 0 {
-		svc.WithEntitlements(staticDevEntitlements{names: cfg.StaticEntitlements})
 	}
 	if err := svc.Verifier().LoadRemoteApplications(ctx, svc.Core(), cfg.ExpectedAudiences); err != nil {
 		return fmt.Errorf("load remote applications: %w", err)
@@ -233,7 +235,7 @@ func runOrgManifestApply(cfg *config) error {
 		Issuer:       cfg.Issuer,
 		APIKeyPrefix: cfg.APIKeyPrefix,
 		Permissions:  toPermissionDefs(cfg.PermissionCatalog),
-	}, core.Keyset{}).WithPostgres(pg)
+	}, core.Keyset{}, core.WithPostgres(pg))
 	result, err := reconcileOrgManifest(ctx, svc, cfg.OrgManifestPath)
 	if err != nil {
 		return err
@@ -261,7 +263,7 @@ func runBootstrapApply(cfg *config, args []string) error {
 		Issuer:       cfg.Issuer,
 		APIKeyPrefix: cfg.APIKeyPrefix,
 		Permissions:  toPermissionDefs(cfg.PermissionCatalog),
-	}, core.Keyset{}).WithPostgres(pg)
+	}, core.Keyset{}, core.WithPostgres(pg))
 	result, err := reconcileBootstrapManifest(ctx, svc, path, dryRun)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package authkitgin
 
 import (
+	"context"
 	"crypto"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 	core "github.com/open-rails/authkit/core"
 	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
@@ -53,16 +55,25 @@ func newTestService(t *testing.T) *authhttp.Service {
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
 	cfg := core.Config{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"test-app"},
-		ExpectedAudiences:   []string{"test-app"},
-		AccessTokenDuration: time.Hour,
-		Keys: jwtkit.StaticKeySource{
+		Token: core.TokenConfig{
+			Issuer:              "https://example.com",
+			IssuedAudiences:     []string{"test-app"},
+			ExpectedAudiences:   []string{"test-app"},
+			AccessTokenDuration: time.Hour,
+		},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
+		Keys: core.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{"test-kid": signer.PublicKey()},
-		},
+		}},
 	}
-	svc, err := authhttp.NewService(cfg)
+	// NewServer requires a non-nil pool (#108). This test only exercises OIDC
+	// route mounting + a missing-state/code callback (no DB access), so a
+	// lazily-connecting pool (MinConns=0 never dials) is sufficient.
+	pool, err := pgxpool.New(context.Background(), "postgres://authkit:authkit@127.0.0.1:5432/authkit_test")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	svc, err := authhttp.NewServer(cfg, pool)
 	require.NoError(t, err)
 	return svc
 }

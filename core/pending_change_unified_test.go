@@ -9,8 +9,7 @@ import (
 )
 
 func newPendingChangeTestService() *Service {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 	return svc
 }
 

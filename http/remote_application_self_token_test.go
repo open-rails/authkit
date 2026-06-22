@@ -41,7 +41,7 @@ func newSelfTokenEnv(t *testing.T, slug, iss string) *selfTokenEnv {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	svc := core.NewService(core.Options{Issuer: "https://authkit.test"}, core.Keyset{}).WithPostgres(pool)
+	svc := core.NewService(core.Options{Issuer: "https://authkit.test"}, core.Keyset{}, core.WithPostgres(pool))
 
 	// External principal's own signing key + a JWKS endpoint for it.
 	signer, err := jwtkit.NewRSASigner(2048, "remote-app-kid")
@@ -258,14 +258,15 @@ func TestRemoteApplicationSelfTokenAbsentClaimFullCeiling(t *testing.T) {
 // middleware (covered elsewhere).
 func callMePermissions(t *testing.T, pool *pgxpool.Pool, cl Claims) map[string]any {
 	t.Helper()
-	s, err := NewService(core.Config{
-		Issuer:            "https://authkit.test",
-		IssuedAudiences:   []string{"openrails"},
-		ExpectedAudiences: []string{"openrails"},
-		BaseURL:           "https://authkit.test",
-	})
+	s, err := NewServer(core.Config{
+		Token: core.TokenConfig{
+			Issuer:            "https://authkit.test",
+			IssuedAudiences:   []string{"openrails"},
+			ExpectedAudiences: []string{"openrails"},
+		},
+		Frontend: core.FrontendConfig{BaseURL: "https://authkit.test"},
+	}, pool)
 	require.NoError(t, err)
-	s = s.WithPostgres(pool)
 
 	r := httptest.NewRequest(http.MethodGet, "/me/permissions", nil)
 	r = r.WithContext(setClaims(r.Context(), cl))

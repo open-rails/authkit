@@ -50,7 +50,8 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	coreSvc := core.NewService(
 		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
 		core.Keyset{},
-	).WithPostgres(pool)
+		core.WithPostgres(pool),
+	)
 	s := &Service{svc: coreSvc}
 
 	const email = "c2-victim@example.com"
@@ -82,7 +83,8 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	coreSvc := core.NewService(
 		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
 		core.Keyset{},
-	).WithPostgres(pool)
+		core.WithPostgres(pool),
+	)
 	s := &Service{svc: coreSvc}
 
 	const email = "c2-linker@example.com"
@@ -117,7 +119,8 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	coreSvc := core.NewService(
 		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
 		core.Keyset{},
-	).WithPostgres(pool)
+		core.WithPostgres(pool),
+	)
 	s := &Service{svc: coreSvc}
 
 	const email = "c2-fresh@example.com"

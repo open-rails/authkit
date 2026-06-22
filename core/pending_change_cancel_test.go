@@ -11,8 +11,7 @@ import (
 // #356: a pending (unverified) email registration must make that email report as
 // taken by the availability check — not only committed/verified users.
 func TestPendingRegistrationMakesEmailUnavailable(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 	ctx := context.Background()
 
 	email := "pending-avail@example.com"
@@ -37,8 +36,7 @@ func TestPendingRegistrationMakesEmailUnavailable(t *testing.T) {
 // #356: a pending (unverified) phone registration must make that phone report as
 // taken by the availability check.
 func TestPendingPhoneRegistrationMakesPhoneUnavailable(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 	ctx := context.Background()
 
 	phone := "+14155550987"
@@ -59,8 +57,7 @@ func TestPendingPhoneRegistrationMakesPhoneUnavailable(t *testing.T) {
 // verification record. Because the new phone is held only in the pending record
 // (no optimistic pre-apply), cancellation has nothing to roll back.
 func TestCancelPhoneChangeClearsPendingRecord(t *testing.T) {
-	svc := NewService(Options{}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 	ctx := context.Background()
 
 	userID := "user-123"
@@ -112,8 +109,7 @@ func TestCancelPhoneChangeClearsPendingRecord(t *testing.T) {
 // #359: CancelEmailChange is a safe idempotent no-op when there is no pending
 // change.
 func TestCancelEmailChangeNoPendingIsNoOp(t *testing.T) {
-	svc := NewService(Options{}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 	if err := svc.CancelEmailChange(context.Background(), "user-123"); err != nil {
 		t.Fatalf("CancelEmailChange no-op failed: %v", err)
 	}

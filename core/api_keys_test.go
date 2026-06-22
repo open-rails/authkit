@@ -176,7 +176,7 @@ func TestResourceScopeAuthorizer(t *testing.T) {
 func TestAPIKeyLifecycle(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}, WithPostgres(pool))
 
 	const slug = "service-key-lifecycle-test"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
@@ -308,7 +308,7 @@ func TestAPIKeyLifecycle(t *testing.T) {
 	}
 
 	// Host max-TTL caps a no-expiry request.
-	capped := NewService(Options{Issuer: "https://test", APIKeyMaxTTL: time.Hour}, Keyset{}).WithPostgres(pool)
+	capped := NewService(Options{Issuer: "https://test", APIKeyMaxTTL: time.Hour}, Keyset{}, WithPostgres(pool))
 	tok2, _, err := capped.MintAPIKey(ctx, slug, "capped", "deployer", "", nil)
 	if err != nil {
 		t.Fatalf("mint capped: %v", err)
@@ -370,7 +370,7 @@ func TestAPIKeyEffectivePermsFollowRole(t *testing.T) {
 		Permissions: []PermissionDef{
 			{Name: "jobs:read"}, {Name: "jobs:write"},
 		},
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 
 	slug := fmt.Sprintf("api-key-role-follow-%d", time.Now().UnixNano())
 	var orgID string

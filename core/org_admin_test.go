@@ -15,7 +15,7 @@ import (
 func TestRecoverOrg(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	suffix := time.Now().UnixNano()
 
 	has := func(xs []string, x string) bool {
@@ -113,7 +113,7 @@ func TestRecoverOrg(t *testing.T) {
 func TestRecoverOrgRejectsMissingNewOwnerBeforeMutating(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	suffix := time.Now().UnixNano()
 
 	orgSlug := fmt.Sprintf("missing-owner-recover-%d", suffix)

@@ -12,11 +12,13 @@ import (
 // No Postgres required — every mint path checks the signer before touching PG.
 func TestVerifyOnlyServiceRejectsMinting(t *testing.T) {
 	svc, err := NewFromConfig(Config{
-		Issuer:            "https://verify-only.test",
-		IssuedAudiences:   []string{"openrails"},
-		ExpectedAudiences: []string{"openrails"},
-		VerifyOnly:        true,
-	})
+		Token: TokenConfig{
+			Issuer:            "https://verify-only.test",
+			IssuedAudiences:   []string{"openrails"},
+			ExpectedAudiences: []string{"openrails"},
+		},
+		Keys: KeysConfig{VerifyOnly: true},
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig verify-only: %v", err)
 	}

@@ -35,7 +35,7 @@ func (p *fakeDirectoryProvider) ListSubjectsWithEntitlement(_ context.Context, e
 func TestAdminListUsers_GenericDirectory(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	prefix := fmt.Sprintf("dir%d", suffix)
@@ -139,11 +139,13 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 		_, err := svc.AdminListUsers(ctx, o)
 		require.ErrorIs(t, err, ErrEntitlementFilterUnavailable)
 
-		// With a provider that says only A and C are premium.
-		svc.WithEntitlements(&fakeDirectoryProvider{
+		// With a provider that says only A and C are premium. Re-construct against
+		// the same pool (seeded data persists) so the provider-less assertion above
+		// still ran without an entitlements provider.
+		svc = NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool), WithEntitlements(&fakeDirectoryProvider{
 			byUser:    map[string][]string{idA: {"premium"}, idC: {"premium"}},
 			bySubject: map[string][]string{"premium": {idA, idC}},
-		})
+		}))
 		o.Sort = AdminUserSortUsername
 		o.Desc = false
 		res, err := svc.AdminListUsers(ctx, o)

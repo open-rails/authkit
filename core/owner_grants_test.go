@@ -90,7 +90,7 @@ func TestOwnerHoldsAppNamespaceEndToEnd(t *testing.T) {
 			{Name: "merchant:customers:read", Description: "read customers"},
 			{Name: "merchant:settings:update", Description: "update settings"},
 		},
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	orgSlug := fmt.Sprintf("merchant-org-%d", suffix)
@@ -136,7 +136,7 @@ func TestEnsureOwnerGrants_Reconcile(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	// First boot: app declares no resource namespaces.
-	old := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	old := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	suffix := time.Now().UnixNano()
 	orgSlug := fmt.Sprintf("recon-org-%d", suffix)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, orgSlug) })
@@ -147,7 +147,7 @@ func TestEnsureOwnerGrants_Reconcile(t *testing.T) {
 		t.Fatalf("pre-reconcile owner unexpectedly holds merchant:*: %v", perms)
 	}
 	// Second boot: app now declares a merchant: namespace and reconciles existing orgs.
-	upgraded := NewService(Options{Issuer: "https://test", OwnerOwnsAppResources: true, Permissions: []PermissionDef{{Name: "merchant:customers:read"}}}, Keyset{}).WithPostgres(pool)
+	upgraded := NewService(Options{Issuer: "https://test", OwnerOwnsAppResources: true, Permissions: []PermissionDef{{Name: "merchant:customers:read"}}}, Keyset{}, WithPostgres(pool))
 	if err := upgraded.EnsureOwnerGrants(ctx, orgSlug); err != nil {
 		t.Fatalf("EnsureOwnerGrants: %v", err)
 	}

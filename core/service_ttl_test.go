@@ -7,11 +7,13 @@ import (
 
 func TestNewFromConfigDefaultAccessTokenTTLIsFifteenMinutes(t *testing.T) {
 	svc, err := NewFromConfig(Config{
-		Issuer:            "https://example.com",
-		IssuedAudiences:   []string{"app"},
-		ExpectedAudiences: []string{"app"},
-		VerifyOnly:        true,
-	})
+		Token: TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"app"},
+			ExpectedAudiences: []string{"app"},
+		},
+		Keys: KeysConfig{VerifyOnly: true},
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}

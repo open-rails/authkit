@@ -59,15 +59,16 @@ func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1 OR username=$2`, email, username)
 
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
+	svc, err := NewServer(cfg, pool, WithEntitlements(staticHTTPEntitlementsProvider{names: []string{"premium"}}))
 	require.NoError(t, err)
-	svc = svc.WithPostgres(pool).WithEntitlements(staticHTTPEntitlementsProvider{names: []string{"premium"}})
 
 	user, err := svc.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)

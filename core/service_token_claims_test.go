@@ -28,7 +28,7 @@ func parseHeaderNoValidate(t *testing.T, token string) map[string]any {
 	return parsed.Header
 }
 
-func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicKey) {
+func newClaimTestService(t *testing.T, orgMode string, coreOpts ...Option) (*Service, crypto.PublicKey) {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func newClaimTestService(t *testing.T, orgMode string) (*Service, crypto.PublicK
 		IssuedAudiences:     []string{"app"},
 		ExpectedAudiences:   []string{"app"},
 		AccessTokenDuration: time.Hour,
-	}, ks)
+	}, ks, coreOpts...)
 	return s, signer.PublicKey()
 }
 
@@ -74,8 +74,7 @@ func TestIssueAccessToken_NoLegacyRoleClaims(t *testing.T) {
 }
 
 func TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements(t *testing.T) {
-	s, pub := newClaimTestService(t, "")
-	s.WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}})
+	s, pub := newClaimTestService(t, "", WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}}))
 
 	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{
 		"sid": "session-1",

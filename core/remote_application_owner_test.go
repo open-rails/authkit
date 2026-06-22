@@ -14,7 +14,7 @@ import (
 func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	orgSlug := fmt.Sprintf("ra-owner-%d", suffix)

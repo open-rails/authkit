@@ -21,10 +21,12 @@ func mustGeneratedKeys(t *testing.T) jwtkit.KeySource {
 func baseTestConfig(t *testing.T) Config {
 	t.Helper()
 	return Config{
-		Issuer:            "https://issuer.test",
-		IssuedAudiences:   []string{"app"},
-		ExpectedAudiences: []string{"app"},
-		Keys:              mustGeneratedKeys(t),
+		Token: TokenConfig{
+			Issuer:            "https://issuer.test",
+			IssuedAudiences:   []string{"app"},
+			ExpectedAudiences: []string{"app"},
+		},
+		Keys: KeysConfig{Source: mustGeneratedKeys(t)},
 	}
 }
 
@@ -42,9 +44,9 @@ func TestRegistrationVerificationResolution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseTestConfig(t)
-			cfg.RegistrationVerification = tt.val
+			cfg.Registration.Verification = tt.val
 
-			svc, err := NewFromConfig(cfg)
+			svc, err := NewFromConfig(cfg, nil)
 			if err != nil {
 				t.Fatalf("NewFromConfig failed: %v", err)
 			}
@@ -67,7 +69,7 @@ func TestRuntimeBehaviorIsDerivedFromConfigOnly(t *testing.T) {
 	cfg.Environment = "dev"
 	cfg.SolanaNetwork = "testnet"
 
-	svc, err := NewFromConfig(cfg)
+	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig failed: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestRuntimeBehaviorIsDerivedFromConfigOnly(t *testing.T) {
 
 	cfgProd := baseTestConfig(t)
 	cfgProd.Environment = "production"
-	svcProd, err := NewFromConfig(cfgProd)
+	svcProd, err := NewFromConfig(cfgProd, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig(prod) failed: %v", err)
 	}
@@ -94,10 +96,10 @@ func TestRuntimeBehaviorIsDerivedFromConfigOnly(t *testing.T) {
 
 func TestBaseURLDefaultsToIssuerWhenIssuerIsURL(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.Issuer = "https://issuer.example"
-	cfg.BaseURL = ""
+	cfg.Token.Issuer = "https://issuer.example"
+	cfg.Frontend.BaseURL = ""
 
-	svc, err := NewFromConfig(cfg)
+	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig failed: %v", err)
 	}
@@ -121,9 +123,9 @@ func TestFrontendCallbackPathDefaultsAndNormalizes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseTestConfig(t)
-			cfg.FrontendCallbackPath = tt.path
+			cfg.Frontend.CallbackPath = tt.path
 
-			svc, err := NewFromConfig(cfg)
+			svc, err := NewFromConfig(cfg, nil)
 			if err != nil {
 				t.Fatalf("NewFromConfig failed: %v", err)
 			}
@@ -145,9 +147,9 @@ func TestFrontendCallbackPathRejectsUnsafeValues(t *testing.T) {
 	for _, path := range tests {
 		t.Run(path, func(t *testing.T) {
 			cfg := baseTestConfig(t)
-			cfg.FrontendCallbackPath = path
+			cfg.Frontend.CallbackPath = path
 
-			svc, err := NewFromConfig(cfg)
+			svc, err := NewFromConfig(cfg, nil)
 			if err == nil {
 				_ = svc
 				t.Fatalf("expected FrontendCallbackPath error")
@@ -161,10 +163,10 @@ func TestFrontendCallbackPathRejectsUnsafeValues(t *testing.T) {
 
 func TestIssuerNonURLWithoutBaseURLReturnsError(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.Issuer = "issuer-local"
-	cfg.BaseURL = ""
+	cfg.Token.Issuer = "issuer-local"
+	cfg.Frontend.BaseURL = ""
 
-	svc, err := NewFromConfig(cfg)
+	svc, err := NewFromConfig(cfg, nil)
 	if err == nil {
 		_ = svc
 		t.Fatalf("expected error when issuer is not a URL and base_url is empty")
@@ -176,8 +178,8 @@ func TestIssuerNonURLWithoutBaseURLReturnsError(t *testing.T) {
 
 func TestIssuerNonURLWithBaseURLLogsWarningAndSucceeds(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.Issuer = "issuer-local"
-	cfg.BaseURL = "https://app.example"
+	cfg.Token.Issuer = "issuer-local"
+	cfg.Frontend.BaseURL = "https://app.example"
 
 	var buf bytes.Buffer
 	oldWriter := stdlog.Writer()
@@ -189,7 +191,7 @@ func TestIssuerNonURLWithBaseURLLogsWarningAndSucceeds(t *testing.T) {
 		stdlog.SetFlags(oldFlags)
 	})
 
-	svc, err := NewFromConfig(cfg)
+	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig failed: %v", err)
 	}

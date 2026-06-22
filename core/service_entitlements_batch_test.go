@@ -21,9 +21,8 @@ func (p *batchEntitlementsProvider) ListEntitlementsBatch(ctx context.Context, u
 }
 
 func TestEnrichEntitlements_BatchProviderOneCall(t *testing.T) {
-	s, _ := newClaimTestService(t, "multi")
 	p := &batchEntitlementsProvider{batch: map[string][]string{"u1": {"premium"}}}
-	s.WithEntitlements(p)
+	s, _ := newClaimTestService(t, "multi", WithEntitlements(p))
 
 	users := []AdminUser{{ID: "u1"}, {ID: "u2"}}
 	s.enrichEntitlements(context.Background(), users)
@@ -34,9 +33,8 @@ func TestEnrichEntitlements_BatchProviderOneCall(t *testing.T) {
 }
 
 func TestEnrichEntitlements_BatchErrorDegradesToNone(t *testing.T) {
-	s, _ := newClaimTestService(t, "multi")
 	p := &batchEntitlementsProvider{batchErr: errors.New("billing unreachable")}
-	s.WithEntitlements(p)
+	s, _ := newClaimTestService(t, "multi", WithEntitlements(p))
 
 	users := []AdminUser{{ID: "u1"}}
 	s.enrichEntitlements(context.Background(), users)
@@ -44,8 +42,7 @@ func TestEnrichEntitlements_BatchErrorDegradesToNone(t *testing.T) {
 }
 
 func TestEnrichEntitlements_SingleProviderFallback(t *testing.T) {
-	s, _ := newClaimTestService(t, "multi")
-	s.WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}})
+	s, _ := newClaimTestService(t, "multi", WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}}))
 
 	users := []AdminUser{{ID: "u1"}, {ID: "u2"}}
 	s.enrichEntitlements(context.Background(), users)

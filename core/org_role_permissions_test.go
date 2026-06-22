@@ -57,7 +57,7 @@ func TestHasPermissionUsesSingleRoleGrantQuery(t *testing.T) {
 	svc := NewService(Options{
 		Issuer:      "https://test",
 		Permissions: []PermissionDef{{Name: "repo:read"}},
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	orgSlug := fmt.Sprintf("hot-org-%d", suffix)
@@ -175,6 +175,84 @@ func TestValidateGrant_ResourceScopedPrefix(t *testing.T) {
 		if got := len(unknown) > 0; got != c.wantUnknown {
 			t.Errorf("%s: unknown=%v, want %v (unknown=%v)", c.tok, got, c.wantUnknown, unknown)
 		}
+	}
+}
+
+// TestOrgCatalogRejectsPlatformNamespace locks the non-deferred half of the
+// #100 reserved-prefix rule: `platform:` is reserved to the disjoint Layer-2
+// platform catalog, so an app-declared `platform:` perm must NEVER enter the
+// ORG catalog. If it leaked, an org role could be granted a `platform:` token
+// (ValidateGrant expands against the org catalog), breaking layer disjointness.
+// App perms in their OWN namespaces (`merchant:`) pass through unchanged. No DB
+// needed (actorAll short-circuits the no-escalation actor lookup).
+func TestOrgCatalogRejectsPlatformNamespace(t *testing.T) {
+	svc := NewService(Options{
+		Permissions: []PermissionDef{
+			{Name: "merchant:payments:refund"}, // app namespace — allowed
+			{Name: "platform:secret:read"},     // reserved platform: ns — must be dropped
+			{Name: "platform:*"},               // reserved platform: glob — must be dropped
+		},
+	}, Keyset{})
+
+	cat := svc.knownPermissions()
+	if cat["platform:secret:read"] || cat["platform:*"] {
+		t.Fatalf("org catalog must not contain app-declared platform: perms, got %v", sortedKeys(cat))
+	}
+	if !cat["merchant:payments:refund"] {
+		t.Fatal("app perm in its own namespace must be in the org catalog")
+	}
+
+	ctx := context.Background()
+	// An org role cannot be granted the (filtered-out) platform: perm even with
+	// actorAll — it expands to nothing in the org catalog, so it's unknown.
+	for _, tok := range []string{"platform:secret:read", "platform:*"} {
+		unknown, _, err := svc.ValidateGrant(ctx, "org", "actor", []string{tok}, true)
+		if err != nil {
+			t.Fatalf("%s: ValidateGrant err: %v", tok, err)
+		}
+		if len(unknown) != 1 || unknown[0] != tok {
+			t.Fatalf("%s must be rejected on an org role (disjoint layers), unknown=%v", tok, unknown)
+		}
+	}
+	// The app namespace perm still grants on an org role.
+	if u, _, _ := svc.ValidateGrant(ctx, "org", "actor", []string{"merchant:payments:refund"}, true); len(u) != 0 {
+		t.Fatalf("app namespace perm should validate on an org role, unknown=%v", u)
+	}
+}
+
+// TestOrgCatalogBaseWinsOnReservedCollision documents the CURRENT (#100-deferred)
+// behavior for an app perm that collides with a base `org:` name: base wins and
+// the app perm is silently dropped, so there is NO escalation — the base
+// permission's authority is exactly what applies. A HARD rejection of app `org:`
+// perms is deferred until OpenRails #554 stops declaring them (progress.md #100).
+func TestOrgCatalogBaseWinsOnReservedCollision(t *testing.T) {
+	svc := NewService(Options{
+		Permissions: []PermissionDef{
+			{Name: PermOrgMembersRead, Description: "app tries to redefine a base perm"},
+			{Name: "org:credits:read", Description: "an app org: perm that does NOT collide"},
+		},
+	}, Keyset{})
+
+	// Exactly one catalog entry for the colliding base name (no dup), and it
+	// carries the BASE description, not the app's redefinition.
+	count := 0
+	var desc string
+	for _, d := range svc.Permissions() {
+		if d.Name == PermOrgMembersRead {
+			count++
+			desc = d.Description
+		}
+	}
+	if count != 1 {
+		t.Fatalf("base name %q should appear exactly once (base wins), got %d", PermOrgMembersRead, count)
+	}
+	if desc == "app tries to redefine a base perm" {
+		t.Fatalf("app must not override the base perm description (base wins), got %q", desc)
+	}
+	// A NON-colliding app `org:` perm is still accepted today (the deferred hard
+	// rejection is not yet enforced — OpenRails #554 still ships such perms).
+	if !svc.knownPermissions()["org:credits:read"] {
+		t.Fatal("a non-colliding app org: perm is accepted today (#554 hard-rejection deferred)")
 	}
 }
 

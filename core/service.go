@@ -199,7 +199,7 @@ type Service struct {
 	smsHealthReason  atomic.Value // string
 }
 
-func NewService(opts Options, keys Keyset) *Service {
+func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
 		opts.NativeUserRegistrationMode = mode
 	}
@@ -221,18 +221,24 @@ func NewService(opts Options, keys Keyset) *Service {
 		panic(fmt.Sprintf("authkit: invalid Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", opts.Schema))
 	}
 	opts.Schema = schema
-	return &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory}
+	s := &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory}
+	for _, o := range coreOpts {
+		if o != nil {
+			o(s)
+		}
+	}
+	return s
 }
 
 // NewFromConfig creates a Service from high-level Config + Stores.
 // If Keys is nil, auto-discovers keys from environment variables, filesystem, or generates development keys.
-func NewFromConfig(cfg Config) (*Service, error) {
+func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service, error) {
 	// Handle nil Keys - auto-discover from env vars, <KeysPath>/keys.json, or
 	// generate for dev. The filesystem directory is host-overridable via
-	// cfg.KeysPath, then the AUTHKIT_KEYS_PATH env var, defaulting to
+	// cfg.Keys.Path, then the AUTHKIT_KEYS_PATH env var, defaulting to
 	// /vault/auth so existing embedders are unchanged.
-	keySource := cfg.Keys
-	if keySource == nil && cfg.VerifyOnly {
+	keySource := cfg.Keys.Source
+	if keySource == nil && cfg.Keys.VerifyOnly {
 		// #87: explicit verify-only — NO signer and NO key discovery. Minting
 		// returns ErrMissingSigner; verification, RBAC reads, and the (empty)
 		// JWKS endpoint all work. A pure resource-server / control-plane boots
@@ -240,7 +246,7 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		keySource = jwtkit.StaticKeySource{}
 	}
 	if keySource == nil {
-		keysPath := strings.TrimSpace(cfg.KeysPath)
+		keysPath := strings.TrimSpace(cfg.Keys.Path)
 		if keysPath == "" {
 			keysPath = strings.TrimSpace(os.Getenv("AUTHKIT_KEYS_PATH"))
 		}
@@ -254,11 +260,11 @@ func NewFromConfig(cfg Config) (*Service, error) {
 	ks := Keyset{Active: keySource.ActiveSigner(), PublicKeys: keySource.PublicKeys()}
 
 	// Require critical JWT configuration.
-	issuer := strings.TrimSpace(cfg.Issuer)
+	issuer := strings.TrimSpace(cfg.Token.Issuer)
 	if issuer == "" {
 		return nil, fmt.Errorf("authkit: Issuer is required (e.g., \"https://myapp.com\")")
 	}
-	baseURL := strings.TrimSpace(cfg.BaseURL)
+	baseURL := strings.TrimSpace(cfg.Frontend.BaseURL)
 	issuerIsURL := isWellFormattedURL(issuer)
 	if !issuerIsURL {
 		stdlog.Printf("authkit: warning: Issuer is not a well-formatted URL: %q", issuer)
@@ -270,25 +276,25 @@ func NewFromConfig(cfg Config) (*Service, error) {
 			return nil, fmt.Errorf("authkit: BaseURL is required when Issuer is not a well-formatted URL (issuer=%q)", issuer)
 		}
 	}
-	frontendCallbackPath, err := normalizeFrontendCallbackPath(cfg.FrontendCallbackPath)
+	frontendCallbackPath, err := normalizeFrontendCallbackPath(cfg.Frontend.CallbackPath)
 	if err != nil {
 		return nil, err
 	}
 
-	issuedAudiences := cfg.IssuedAudiences
+	issuedAudiences := cfg.Token.IssuedAudiences
 	if len(issuedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
 	}
-	expectedAudiences := cfg.ExpectedAudiences
+	expectedAudiences := cfg.Token.ExpectedAudiences
 	if len(expectedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: ExpectedAudiences is required (e.g., []string{\"myapp\"})")
 	}
 
-	maxSess := cfg.SessionMaxPerUser
+	maxSess := cfg.Token.SessionMaxPerUser
 	if maxSess == 0 {
 		maxSess = 3
 	}
-	accessTTL := cfg.AccessTokenDuration
+	accessTTL := cfg.Token.AccessTokenDuration
 	if accessTTL == 0 {
 		// Short default bounds revocation lag (logout / ban / password-change)
 		// to one TTL window; refresh-token rotation re-issues silently. See
@@ -296,25 +302,25 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		// per-request jti/liveness lookup.
 		accessTTL = 15 * time.Minute
 	}
-	refTTL := cfg.RefreshTokenDuration // 0 or less => indefinite sessions
+	refTTL := cfg.Token.RefreshTokenDuration // 0 or less => indefinite sessions
 
-	registrationVerification, err := normalizeRegistrationVerification(cfg.RegistrationVerification)
+	registrationVerification, err := normalizeRegistrationVerification(cfg.Registration.Verification)
 	if err != nil {
 		return nil, err
 	}
-	nativeUserRegistrationMode, err := normalizeRegistrationMode(cfg.NativeUserRegistrationMode)
+	nativeUserRegistrationMode, err := normalizeRegistrationMode(cfg.Registration.NativeUserMode)
 	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, closed)", cfg.NativeUserRegistrationMode)
+		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, closed)", cfg.Registration.NativeUserMode)
 	}
-	orgRegistrationMode, err := normalizeRegistrationMode(cfg.OrgRegistrationMode)
+	orgRegistrationMode, err := normalizeRegistrationMode(cfg.Registration.OrgMode)
 	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid OrgRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.OrgRegistrationMode)
+		return nil, fmt.Errorf("authkit: invalid OrgRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.Registration.OrgMode)
 	}
-	tokenPrefix := strings.TrimSpace(cfg.APIKeyPrefix)
+	tokenPrefix := strings.TrimSpace(cfg.APIKeys.Prefix)
 	if !validAPIKeyPrefix(tokenPrefix) {
 		return nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", tokenPrefix)
 	}
-	maxTTL := cfg.APIKeyMaxTTL
+	maxTTL := cfg.APIKeys.MaxTTL
 	schema := strings.TrimSpace(cfg.Schema)
 	if schema == "" {
 		schema = db.DefaultSchema
@@ -333,23 +339,26 @@ func NewFromConfig(cfg Config) (*Service, error) {
 		FrontendCallbackPath:       frontendCallbackPath,
 		Schema:                     schema,
 		RegistrationVerification:   registrationVerification,
-		AutoCreatePersonalOrgs:     cfg.AutoCreatePersonalOrgs,
+		AutoCreatePersonalOrgs:     cfg.Registration.AutoCreatePersonalOrgs,
 		NativeUserRegistrationMode: nativeUserRegistrationMode,
 		OrgRegistrationMode:        orgRegistrationMode,
 		Environment:                strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:              strings.TrimSpace(cfg.SolanaNetwork),
-		SolanaSNSEnabled:           cfg.SolanaSNSEnabled,
-		SolanaSNSResolver:          cfg.SolanaSNSResolver,
-		SolanaSNSLookupTimeout:     cfg.SolanaSNSLookupTimeout,
-		SolanaSNSCacheTTL:          cfg.SolanaSNSCacheTTL,
+		SolanaSNSEnabled:           true,
+		SolanaSNSLookupTimeout:     3 * time.Second,
+		SolanaSNSCacheTTL:          24 * time.Hour,
 		APIKeyPrefix:               tokenPrefix,
 		APIKeyMaxTTL:               maxTTL,
-		ResourceScopeAuthorizer:    cfg.ResourceScopeAuthorizer,
-		Permissions:                cfg.Permissions,
-		DefaultRoles:               cfg.DefaultRoles,
-		OwnerOwnsAppResources:      cfg.OwnerOwnsAppResources,
+		Permissions:                cfg.RBAC.Permissions,
+		DefaultRoles:               cfg.RBAC.DefaultRoles,
+		OwnerOwnsAppResources:      cfg.RBAC.OwnerOwnsAppResources,
 	}
-	return NewService(opts, ks), nil
+	// pg is positional but MAY be nil at the core layer (verify-only construction
+	// or config-only unit tests need no store); WithPostgres(nil) is a no-op, so a
+	// nil pg simply yields a Service with no querier. The mandatory-Postgres
+	// contract (#106) is enforced at the host-facing authhttp.NewServer, not here.
+	coreOpts := append([]Option{WithPostgres(pg)}, extraOpts...)
+	return NewService(opts, ks, coreOpts...), nil
 }
 
 // validAPIKeyPrefix reports whether p is an acceptable API-key application prefix:
@@ -614,31 +623,6 @@ func (s *Service) isDevEnvironment() bool {
 	return isDevEnvironment(s.opts.Environment)
 }
 
-// WithPostgres attaches a pgx pool to the service. The pool is shared with the
-// host; AuthKit never mutates it (in particular it never sets search_path —
-// queries stay schema-qualified, rewritten to s.Schema() when non-default).
-func (s *Service) WithPostgres(pool *pgxpool.Pool) *Service {
-	s.pg = pool
-	s.q = db.New(db.ForSchema(pool, s.dbSchema()))
-	// (issue 60) No org-mode downgrade safeguard: orgs are always supported,
-	// so there is no single/multi mode to refuse a downgrade into.
-	return s
-}
-
-// WithDBTXWrapper re-binds the service's querier through wrap, a decorator over
-// the underlying db.DBTX (the schema-rewriting layer over the pool). It exists
-// as a TEST SEAM so a counting/spy DBTX can observe exactly how many statements
-// a code path issues — e.g. proving the #95 per-request permission memoization
-// resolves a layer with ONE query, not N. Must be called AFTER WithPostgres.
-// Production code never wraps the querier, so the hot path is untouched.
-func (s *Service) WithDBTXWrapper(wrap func(db.DBTX) db.DBTX) *Service {
-	if s.pg == nil || wrap == nil {
-		return s
-	}
-	s.q = db.New(wrap(db.ForSchema(s.pg, s.dbSchema())))
-	return s
-}
-
 // Postgres returns the attached pgx pool (may be nil).
 func (s *Service) Postgres() *pgxpool.Pool { return s.pg }
 
@@ -661,12 +645,6 @@ func (s *Service) dbSchema() string {
 func (s *Service) qtx(tx pgx.Tx) *db.Queries {
 	return db.New(db.ForSchema(tx, s.dbSchema()))
 }
-
-// WithEntitlements sets the entitlements provider.
-func (s *Service) WithEntitlements(p EntitlementsProvider) *Service { s.entitlements = p; return s }
-
-// WithAuthLogger sets the authentication event logger (e.g., ClickHouse sink).
-func (s *Service) WithAuthLogger(l AuthEventLogger) *Service { s.authlog = l; return s }
 
 // Keyfunc looks up a public key by KID, falling back to the active key if missing.
 func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {

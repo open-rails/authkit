@@ -49,31 +49,35 @@ func TestAuthProviderCacheIsolation(t *testing.T) {
 
 func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 	cfg := core.Config{
-		Issuer:            "https://example.com",
-		IssuedAudiences:   []string{"test"},
-		ExpectedAudiences: []string{"test"},
-		Providers: map[string]oidckit.RPConfig{
-			"github": {ClientID: "github-client", ClientSecret: "github-secret"},
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test"},
+			ExpectedAudiences: []string{"test"},
 		},
-		ProviderDescriptors: map[string]authprovider.Provider{
-			"custom": {
-				Name:     "custom",
-				Kind:     authprovider.KindOAuth2,
-				Issuer:   "https://custom.example",
-				ClientID: "custom-client",
-				ClientSecret: authprovider.ClientSecret{
-					Value: "custom-secret",
-				},
-				AuthorizeURL: "https://custom.example/auth",
-				TokenURL:     "https://custom.example/token",
-				UserInfoURL:  "https://custom.example/user",
-				UserMapping: authprovider.UserMapping{
-					Subject: authprovider.FieldMapping{Path: "id", Transforms: []string{"string"}},
+		Identity: core.IdentityConfig{
+			Providers: map[string]oidckit.RPConfig{
+				"github": {ClientID: "github-client", ClientSecret: "github-secret"},
+			},
+			ProviderDescriptors: map[string]authprovider.Provider{
+				"custom": {
+					Name:     "custom",
+					Kind:     authprovider.KindOAuth2,
+					Issuer:   "https://custom.example",
+					ClientID: "custom-client",
+					ClientSecret: authprovider.ClientSecret{
+						Value: "custom-secret",
+					},
+					AuthorizeURL: "https://custom.example/auth",
+					TokenURL:     "https://custom.example/token",
+					UserInfoURL:  "https://custom.example/user",
+					UserMapping: authprovider.UserMapping{
+						Subject: authprovider.FieldMapping{Path: "id", Transforms: []string{"string"}},
+					},
 				},
 			},
 		},
 	}
-	s, err := NewService(cfg)
+	s, err := NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)
 
 	github, ok := s.authProvider("github")

@@ -35,7 +35,7 @@ func TestRemoteApplicationHTTPOrgBoundary(t *testing.T) {
 	}, core.Keyset{
 		Active:     signer,
 		PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-	}).WithPostgres(pool)
+	}, core.WithPostgres(pool))
 	verifier := NewVerifier(WithSkew(5 * time.Second)).WithService(coreSvc)
 	require.NoError(t, verifier.AddIssuer(coreSvc.Options().Issuer, coreSvc.Options().ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),

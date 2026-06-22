@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
 	core "github.com/open-rails/authkit/core"
 	jwtkit "github.com/open-rails/authkit/jwt"
@@ -46,6 +47,20 @@ func newTestService(t *testing.T) *Service {
 	})
 	ver.WithService(coreSvc)
 	return &Service{svc: coreSvc, verifier: ver}
+}
+
+// newNoDBPool returns a *pgxpool.Pool that satisfies NewServer's mandatory
+// non-nil pool requirement (#106/#108) WITHOUT touching a database. pgxpool.New
+// with the default MinConns=0 never dials eagerly (idle resources are created in
+// a background goroutine up to MinConns), so a pool built from a parseable DSN
+// is inert. Use it for pure no-DB handler tests (request validation, rate
+// limiting, provider prebuild) where the assertion fires before any query.
+func newNoDBPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), "postgres://authkit:authkit@127.0.0.1:5432/authkit_test")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	return pool
 }
 
 func TestJWKSHandler(t *testing.T) {

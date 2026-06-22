@@ -13,7 +13,7 @@ import (
 func TestUpsertRemoteApplicationRejectsPlatformIssuer(t *testing.T) {
 	pool := testPG(t)
 	const platformIssuer = "https://platform.example"
-	svc := NewService(Options{Issuer: platformIssuer}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: platformIssuer}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	orgID := createTestOrg(t, ctx, svc, pool, "reserved-issuer-org")
@@ -49,7 +49,7 @@ func TestUpsertRemoteApplicationRejectsPlatformIssuer(t *testing.T) {
 
 func TestUpsertRemoteApplicationAllowsNonPlatformIssuer(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Options{Issuer: "https://platform.example"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://platform.example"}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	orgID := createTestOrg(t, ctx, svc, pool, "ok-issuer-org")

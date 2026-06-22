@@ -40,16 +40,17 @@ func TestPhonePasswordResetConfirmLinkConsumesToken(t *testing.T) {
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1 OR phone_number=$2`, username, phone)
 
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
-	require.NoError(t, err)
 	sms := &captureSMSSender{}
-	svc = svc.WithPostgres(pool).WithSMSSender(sms)
+	svc, err := NewServer(cfg, pool, WithSMSSender(sms))
+	require.NoError(t, err)
 
 	_, err = svc.svc.CreatePendingPhoneRegistration(ctx, phone, username, "argon2id$hash")
 	require.NoError(t, err)
@@ -121,15 +122,16 @@ func TestNamespaceLookupReturnsOwnerForTakenSlug(t *testing.T) {
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, slug)
 
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
+	svc, err := NewServer(cfg, pool)
 	require.NoError(t, err)
-	svc = svc.WithPostgres(pool)
 
 	user, err := svc.svc.CreateUser(ctx, slug+"@example.com", slug)
 	require.NoError(t, err)

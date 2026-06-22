@@ -11,7 +11,7 @@ import (
 func TestResolveRemoteApplicationAuthority(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	const tslug = "authority-org"
 	const aslug = "authority-app"

@@ -35,7 +35,7 @@ func testPG(t *testing.T) *pgxpool.Pool {
 // security-critical boundary that decides which soft-deleted users get hard-deleted.
 func TestPurgeCandidateSelectionBoundary(t *testing.T) {
 	pool := testPG(t)
-	svc := core.NewService(core.Options{Issuer: "https://test"}, core.Keyset{}).WithPostgres(pool)
+	svc := core.NewService(core.Options{Issuer: "https://test"}, core.Keyset{}, core.WithPostgres(pool))
 	ctx := context.Background()
 
 	const retentionDays = 30

@@ -172,13 +172,15 @@ func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
 
 func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
+	svc, err := NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)
 
 	h := svc.APIHandler()
@@ -205,7 +207,8 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Opt-out: disabling limiter should never rate limit.
-	svc = svc.DisableRateLimiter()
+	svc, err = NewServer(cfg, newNoDBPool(t), WithoutRateLimiter())
+	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 50; i++ {
 		w := httptest.NewRecorder()
@@ -217,7 +220,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Private Docker/proxy peers are rate-limited by default instead of failing open.
-	svc, err = NewService(cfg)
+	svc, err = NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {
@@ -241,7 +244,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Spoofed forwarded headers from untrusted peers are ignored; the peer identity is used.
-	svc, err = NewService(cfg)
+	svc, err = NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {
@@ -265,7 +268,8 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 
 	// When behind a trusted proxy, accept forwarded headers and enforce limits on the client IP.
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
-	svc = svc.WithClientIPFunc(ClientIPFromForwardedHeaders(trusted))
+	svc, err = NewServer(cfg, newNoDBPool(t), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted)))
+	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {
 		w := httptest.NewRecorder()

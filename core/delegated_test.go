@@ -49,12 +49,14 @@ func TestConfigKeysPathResolvesFile(t *testing.T) {
 	writeServiceKeysJSON(t, dir, "cfg-path-kid")
 
 	cfg := Config{
-		Issuer:            "https://issuer.test",
-		IssuedAudiences:   []string{"app"},
-		ExpectedAudiences: []string{"app"},
-		KeysPath:          dir, // Keys is nil => resolver uses this directory.
+		Token: TokenConfig{
+			Issuer:            "https://issuer.test",
+			IssuedAudiences:   []string{"app"},
+			ExpectedAudiences: []string{"app"},
+		},
+		Keys: KeysConfig{Path: dir}, // Source is nil => resolver uses this directory.
 	}
-	svc, err := NewFromConfig(cfg)
+	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
@@ -127,11 +129,13 @@ func mustServiceWithGeneratedKeys(t *testing.T) *Service {
 		t.Fatalf("gen keys: %v", err)
 	}
 	svc, err := NewFromConfig(Config{
-		Issuer:            "https://issuer.test",
-		IssuedAudiences:   []string{"app"},
-		ExpectedAudiences: []string{"app"},
-		Keys:              ks,
-	})
+		Token: TokenConfig{
+			Issuer:            "https://issuer.test",
+			IssuedAudiences:   []string{"app"},
+			ExpectedAudiences: []string{"app"},
+		},
+		Keys: KeysConfig{Source: ks},
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}

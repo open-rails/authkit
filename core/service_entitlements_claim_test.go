@@ -19,8 +19,7 @@ func (p *staticEntitlementsProvider) ListEntitlements(ctx context.Context, userI
 
 // Provider names land verbatim in the `entitlements` claim.
 func TestIssueAccessToken_EntitlementsClaim(t *testing.T) {
-	s, pub := newClaimTestService(t, "multi")
-	s.WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}})
+	s, pub := newClaimTestService(t, "multi", WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}}))
 
 	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
 	require.NoError(t, err)
@@ -36,11 +35,10 @@ func TestIssueAccessToken_EntitlementsClaim(t *testing.T) {
 // token issuance — the token mints WITHOUT entitlement claims (and the failure
 // is logged so operators can see users are not getting their entitlements).
 func TestIssueAccessToken_EntitlementsProviderError_StillIssues(t *testing.T) {
-	s, pub := newClaimTestService(t, "multi")
-	s.WithEntitlements(&staticEntitlementsProvider{
+	s, pub := newClaimTestService(t, "multi", WithEntitlements(&staticEntitlementsProvider{
 		names: []string{"premium"}, // returned alongside the error; must be discarded
 		err:   errors.New("billing unreachable"),
-	})
+	}))
 
 	tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
 	require.NoError(t, err, "provider failure must not block issuance")

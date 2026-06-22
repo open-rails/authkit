@@ -47,8 +47,7 @@ func TestDefaultVerificationTTLs(t *testing.T) {
 }
 
 func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 
 	ctx := context.Background()
 	code, err := svc.CreatePendingRegistration(ctx, "test@example.com", "tester", "argon2id$hash", 0)
@@ -86,8 +85,7 @@ func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 }
 
 func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 
 	ctx := context.Background()
 	code, err := svc.CreatePendingPhoneRegistration(ctx, "+15551234567", "tester", "argon2id$hash")
@@ -111,8 +109,7 @@ func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 }
 
 func TestPasswordResetSessionOneTimeConsume(t *testing.T) {
-	svc := NewService(Options{}, Keyset{})
-	svc.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)
+	svc := NewService(Options{}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
 
 	ctx := context.Background()
 	sessionHash := sha256Hex("session-token")

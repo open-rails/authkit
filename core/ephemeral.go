@@ -22,15 +22,6 @@ type EphemeralStore interface {
 	Del(ctx context.Context, key string) error
 }
 
-func (s *Service) WithEphemeralStore(store EphemeralStore, mode EphemeralMode) *Service {
-	if mode == "" {
-		mode = EphemeralMemory
-	}
-	s.ephemeralStore = store
-	s.ephemeralMode = mode
-	return s
-}
-
 func (s *Service) EphemeralMode() EphemeralMode {
 	if s == nil {
 		return EphemeralMemory

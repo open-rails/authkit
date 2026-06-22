@@ -14,18 +14,20 @@ func schemaTestConfig(schema string) Config {
 		panic(err)
 	}
 	return Config{
-		Issuer:               "https://example.test",
-		IssuedAudiences:      []string{"app"},
-		ExpectedAudiences:    []string{"app"},
-		AccessTokenDuration:  time.Hour,
-		RefreshTokenDuration: time.Hour,
-		Keys:                 ks,
-		Schema:               schema,
+		Token: TokenConfig{
+			Issuer:               "https://example.test",
+			IssuedAudiences:      []string{"app"},
+			ExpectedAudiences:    []string{"app"},
+			AccessTokenDuration:  time.Hour,
+			RefreshTokenDuration: time.Hour,
+		},
+		Keys:   KeysConfig{Source: ks},
+		Schema: schema,
 	}
 }
 
 func TestNewFromConfigSchemaDefaultsToProfiles(t *testing.T) {
-	svc, err := NewFromConfig(schemaTestConfig(""))
+	svc, err := NewFromConfig(schemaTestConfig(""), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +37,7 @@ func TestNewFromConfigSchemaDefaultsToProfiles(t *testing.T) {
 }
 
 func TestNewFromConfigSchemaConfigurable(t *testing.T) {
-	svc, err := NewFromConfig(schemaTestConfig("openrails_auth"))
+	svc, err := NewFromConfig(schemaTestConfig("openrails_auth"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestNewFromConfigSchemaConfigurable(t *testing.T) {
 
 func TestNewFromConfigSchemaRejected(t *testing.T) {
 	for _, schema := range []string{"Profiles", "1abc", "a-b", "a b", `a"b`, "a;drop", "pro.files", strings.Repeat("a", 64)} {
-		if _, err := NewFromConfig(schemaTestConfig(schema)); err == nil {
+		if _, err := NewFromConfig(schemaTestConfig(schema), nil); err == nil {
 			t.Errorf("NewFromConfig with Schema=%q should error", schema)
 		}
 	}

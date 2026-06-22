@@ -18,7 +18,7 @@ func TestLogInternalErrorInvokesHook(t *testing.T) {
 	req := httptest.NewRequest("POST", "/register", nil)
 
 	called := false
-	svc := (&Service{}).WithErrorLogger(func(ctx context.Context, event InternalErrorEvent) {
+	svc := &Service{errorLogger: func(ctx context.Context, event InternalErrorEvent) {
 		called = true
 		if ctx != req.Context() {
 			t.Fatalf("expected request context")
@@ -41,7 +41,7 @@ func TestLogInternalErrorInvokesHook(t *testing.T) {
 		if !errors.Is(event.Err, wantErr) {
 			t.Fatalf("err=%v, want %v", event.Err, wantErr)
 		}
-	})
+	}}
 
 	svc.logInternalError(req, "register", "validate_username", "database_error", wantErr)
 	if !called {

@@ -13,13 +13,15 @@ import (
 
 func TestPasswordLogin_OrgParamRejected(t *testing.T) {
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
+	svc, err := NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -32,13 +34,15 @@ func TestPasswordLogin_OrgParamRejected(t *testing.T) {
 
 func TestAuthToken_OrgParamRejected(t *testing.T) {
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
+	svc, err := NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

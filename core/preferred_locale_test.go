@@ -38,7 +38,7 @@ func TestNormalizePreferredLocale(t *testing.T) {
 func TestSetGetPreferredLocale(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	username := "pl" + strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username) })

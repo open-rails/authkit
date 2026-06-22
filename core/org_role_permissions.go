@@ -134,8 +134,19 @@ func permNamespace(name string) string {
 	return ""
 }
 
-// Permissions returns the full permission set: authkit base permissions plus
-// the app-declared permissions (deduped, base wins on collision).
+// Permissions returns the full ORG-LAYER permission set: authkit base
+// permissions plus the app-declared permissions (deduped). Two reserved-prefix
+// rules apply (#100):
+//
+//   - `platform:` app perms are DROPPED. `platform:` is reserved to the disjoint
+//     Layer-2 platform RBAC catalog (BasePlatformPermissions); an app must not be
+//     able to inject a `platform:` perm into the org catalog, or an org role could
+//     be granted a `platform:`-namespaced token (the two layers stay disjoint).
+//   - on a `org:` base-name COLLISION, base wins (the app perm is dropped). Today
+//     this is silent — base authority is preserved, so there is no escalation —
+//     and a HARD rejection is deferred to OpenRails #554 (it still declares app
+//     `org:` perms). See progress.md #100.
+//
 // Deprecated: use s.Roles().Permissions.
 func (s *Service) Permissions() []PermissionDef {
 	out := append([]PermissionDef{}, BasePermissions()...)
@@ -145,8 +156,8 @@ func (s *Service) Permissions() []PermissionDef {
 	}
 	for _, d := range s.opts.Permissions {
 		n := strings.TrimSpace(d.Name)
-		if n == "" || seen[n] {
-			continue
+		if n == "" || seen[n] || IsPlatformPermission(n) {
+			continue // empty, base collision (base wins), or reserved platform: ns
 		}
 		seen[n] = true
 		out = append(out, PermissionDef{Name: n, Description: d.Description})

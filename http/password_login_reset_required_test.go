@@ -31,17 +31,18 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	cfg := core.Config{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		BaseURL:                  "https://example.com",
-		RegistrationVerification: core.RegistrationVerificationNone,
+		Token: core.TokenConfig{
+			Issuer:            "https://example.com",
+			IssuedAudiences:   []string{"test-app"},
+			ExpectedAudiences: []string{"test-app"},
+		},
+		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
 	}
-	svc, err := NewService(cfg)
+	svc, err := NewServer(cfg, pool)
 	require.NoError(t, err)
-	svc = svc.WithPostgres(pool)
 
-	coreSvc := core.NewService(core.Options{Issuer: "https://example.com"}, core.Keyset{}).WithPostgres(pool)
+	coreSvc := core.NewService(core.Options{Issuer: "https://example.com"}, core.Keyset{}, core.WithPostgres(pool))
 	const email = "legacy-reset-required-http@example.com"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
 	u, err := coreSvc.CreateUser(ctx, email, "legacyresetrequiredhttp")

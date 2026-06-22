@@ -20,7 +20,7 @@ func TestServiceFacetsBackedByPostgres(t *testing.T) {
 		Issuer:       "https://test",
 		APIKeyPrefix: "facet",
 		Permissions:  []PermissionDef{{Name: "repo:read"}},
-	}, Keyset{}).WithPostgres(pool)
+	}, Keyset{}, WithPostgres(pool))
 
 	org, err := svc.Orgs().CreateOrg(ctx, slug)
 	if err != nil {

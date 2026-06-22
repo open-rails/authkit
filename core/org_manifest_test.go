@@ -26,7 +26,7 @@ orgs:
 func TestReconcileOrgManifestIdempotent(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}, WithPostgres(pool))
 
 	const slug = "manifest-test"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
@@ -105,7 +105,7 @@ orgs:
 func TestReconcileOrgManifestSeedsIssuerAuthority(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	slug := fmt.Sprintf("manifest-authority-%d", suffix)
@@ -174,7 +174,7 @@ orgs:
 func TestReconcileOrgManifestUpdatesAndDisablesIssuer(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	const slug = "manifest-issuer-update"
 	const issuer = "https://issuer-update.example"
@@ -225,8 +225,8 @@ func TestReconcileOrgManifestUpdatesAndDisablesIssuer(t *testing.T) {
 func TestReconcileOrgManifestAdvisoryLockPreventsDuplicateTokenMint(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svcA := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
-	svcB := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}).WithPostgres(pool)
+	svcA := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}, WithPostgres(pool))
+	svcB := NewService(Options{Issuer: "https://test", APIKeyPrefix: "cozy"}, Keyset{}, WithPostgres(pool))
 
 	const slug = "manifest-lock"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)

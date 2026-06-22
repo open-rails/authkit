@@ -55,7 +55,7 @@ func TestNonDefaultSchemaEndToEnd(t *testing.T) {
 		}
 	}
 
-	svc := NewService(Options{Issuer: "https://test", Schema: schema}, Keyset{}).WithPostgres(pool)
+	svc := NewService(Options{Issuer: "https://test", Schema: schema}, Keyset{}, WithPostgres(pool))
 	if got := svc.Schema(); got != schema {
 		t.Fatalf("Schema() = %q, want %q", got, schema)
 	}
