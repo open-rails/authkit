@@ -22,15 +22,15 @@ func TestValidatePermission(t *testing.T) {
 	}
 	bad := []string{
 		"",
-		"repo:update",          // 2 segments
-		"merchant",             // 1 segment
-		"a:b:c:d",              // 4 segments
-		"Merchant:catalog:read", // uppercase
-		"merchant:*:read",      // glob is not a concrete perm
-		"merchant:*",           // glob
-		"*",                    // bare star
-		"merchant::read",       // empty middle segment
-		"1merchant:catalog:read", // leading digit
+		"repo:update",              // 2 segments
+		"merchant",                 // 1 segment
+		"a:b:c:d",                  // 4 segments
+		"Merchant:catalog:read",    // uppercase
+		"merchant:*:read",          // glob is not a concrete perm
+		"merchant:*",               // glob
+		"*",                        // bare star
+		"merchant::read",           // empty middle segment
+		"1merchant:catalog:read",   // leading digit
 		"merchant:catalog:up date", // space
 	}
 	for _, p := range bad {
@@ -55,11 +55,11 @@ func TestValidateGrantPattern(t *testing.T) {
 	}
 	bad := []string{
 		"",
-		"*",                 // bare star
-		"*:catalog:read",    // star persona
-		"merchant:*:read",   // mid-glob not allowed
-		"merchant",          // single segment
-		"a:b:c:d",           // 4 segments
+		"*",               // bare star
+		"*:catalog:read",  // star persona
+		"merchant:*:read", // mid-glob not allowed
+		"merchant",        // single segment
+		"a:b:c:d",         // 4 segments
 		"merchant:catalog:read:extra",
 	}
 	for _, g := range bad {
@@ -236,16 +236,16 @@ func TestValidateParent(t *testing.T) {
 		child, parent string
 		wantErr       bool
 	}{
-		{"root", "", false},      // root is parentless
-		{"root", "org", true},    // root may not have a parent
-		{"org", "root", false},   // org under root: ok
-		{"org", "", true},        // non-root needs a parent
-		{"repo", "org", false},   // repo under org: ok
-		{"repo", "root", true},   // root -> repo impossible
-		{"repo", "", true},       // repo needs a parent
-		{"repo", "repo", true},   // repo under repo: not allowed
-		{"ghost", "root", true},  // unknown child
-		{"repo", "ghost", true},  // unknown parent
+		{"root", "", false},     // root is parentless
+		{"root", "org", true},   // root may not have a parent
+		{"org", "root", false},  // org under root: ok
+		{"org", "", true},       // non-root needs a parent
+		{"repo", "org", false},  // repo under org: ok
+		{"repo", "root", true},  // root -> repo impossible
+		{"repo", "", true},      // repo needs a parent
+		{"repo", "repo", true},  // repo under repo: not allowed
+		{"ghost", "root", true}, // unknown child
+		{"repo", "ghost", true}, // unknown parent
 	}
 	for _, tc := range cases {
 		err := s.ValidateParent(tc.child, tc.parent)

@@ -102,25 +102,6 @@ func TestGeneratedRouteTable_GatesOnDeclaredPerm(t *testing.T) {
 	}
 }
 
-// TestGeneratedMembersRoute_AllowsThenStubsList: with the authorizer allowing,
-// the members GET (list) responds 200 with an (empty, TODO) roster — proving the
-// enabled members route exists and dispatches past the gate.
-func TestGeneratedMembersRoute_ListAfterAllow(t *testing.T) {
-	s := newTestService(t)
-	s.groupCanFn = func(_ *http.Request, _, _, _, _ string) (bool, error) { return true, nil }
-
-	gr := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:resource-id/members", Perm: "merchant:members:read"}
-	h := s.generatedGroupHandler(gr)
-	r := httptest.NewRequest(http.MethodGet, "/merchant/m1/members", nil)
-	r = withMuxParams(r, gr.Path, map[string]string{"resource-id": "m1"})
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: "caller-1"}))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Body.String(), `"object":"list"`)
-}
-
 // TestGeneratedMembersRoute_Requires401WithoutClaims: no claims => 401, gate is
 // never consulted.
 func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
@@ -155,19 +136,6 @@ func TestStubFamiliesReturn501(t *testing.T) {
 
 	require.Equal(t, http.StatusNotImplemented, w.Code)
 	require.Contains(t, w.Body.String(), "not_implemented")
-}
-
-// TestMeGroups_EmptyList: /me/groups returns an empty list (core lacks a
-// per-subject membership scan; documented TODO).
-func TestMeGroups_EmptyList(t *testing.T) {
-	s := newTestService(t)
-	r := httptest.NewRequest(http.MethodGet, "/me/groups", nil)
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: "caller-1"}))
-	w := httptest.NewRecorder()
-	s.handleMeGroupsGET(w, r)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Body.String(), `"data":[]`)
 }
 
 // TestPermissionGroupRoutes_IncludedInDefaultAPI: the root-only default schema

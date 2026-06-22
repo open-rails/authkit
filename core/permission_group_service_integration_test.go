@@ -50,7 +50,9 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 			t.Fatalf("create user: %v", err)
 		}
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = ANY($1::uuid[])`, []string{owner, dev}) })
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = ANY($1::uuid[])`, []string{owner, dev})
+	})
 
 	// Create org (owner seeded) under root; then a repo under the org.
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Type: "org", ResourceRef: "acme", OwnerSubjectID: owner}); err != nil {
@@ -80,6 +82,28 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	}
 	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
 		t.Errorf("a repo collaborator must NOT gain org-scoped authority")
+	}
+
+	// Read surface: list a group's members + a subject's groups.
+	members, err := svc.ListGroupMembers(ctx, "org", "acme")
+	if err != nil {
+		t.Fatalf("ListGroupMembers: %v", err)
+	}
+	foundOwner := false
+	for _, m := range members {
+		if m.SubjectID == owner && m.Role == OwnerRoleName {
+			foundOwner = true
+		}
+	}
+	if !foundOwner {
+		t.Errorf("ListGroupMembers(org,acme) should include the owner; got %+v", members)
+	}
+	sgroups, err := svc.ListSubjectGroups(ctx, dev, SubjectKindUser)
+	if err != nil {
+		t.Fatalf("ListSubjectGroups: %v", err)
+	}
+	if len(sgroups) == 0 || sgroups[0].Persona != "repo" || sgroups[0].ResourceRef != "r1" {
+		t.Errorf("ListSubjectGroups(dev) should show the repo:r1 membership; got %+v", sgroups)
 	}
 
 	// Role validation: repo disallows custom roles, so an unknown role is rejected.

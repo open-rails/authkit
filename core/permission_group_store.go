@@ -19,8 +19,8 @@ import (
 // SubjectKindUser / SubjectKindRemoteApplication are the polymorphic subject
 // kinds a group assignment may target (mirrors group_role_assignments).
 const (
-	SubjectKindUser            = "user"
-	SubjectKindRemoteApp       = "remote_application"
+	SubjectKindUser      = "user"
+	SubjectKindRemoteApp = "remote_application"
 )
 
 // ErrGroupNotFound is returned when a (type, resource_ref) or id resolves to no
@@ -258,4 +258,62 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 		return false, err
 	}
 	return schema.Can(asg, resolver, perm), nil
+}
+
+// GroupMember is one role-assignment in a group (roster listing).
+type GroupMember struct {
+	SubjectID   string
+	SubjectKind string
+	Role        string
+}
+
+// GroupMembers lists the live role-assignments in a group.
+func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
+	rows, err := st.q.Query(ctx,
+		`SELECT subject_id::text, subject_kind, role FROM profiles.group_role_assignments
+		 WHERE group_id = $1::uuid AND deleted_at IS NULL ORDER BY subject_id, role`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GroupMember
+	for rows.Next() {
+		var m GroupMember
+		if err := rows.Scan(&m.SubjectID, &m.SubjectKind, &m.Role); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// SubjectGroupMembership is one (persona, resource, role) a subject holds.
+type SubjectGroupMembership struct {
+	Persona     string
+	ResourceRef string
+	Role        string
+}
+
+// SubjectGroups lists every group membership a subject holds (cross-persona),
+// the data behind /me/groups.
+func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error) {
+	rows, err := st.q.Query(ctx,
+		`SELECT g.type, COALESCE(g.resource_ref, ''), a.role
+		 FROM profiles.group_role_assignments a
+		 JOIN profiles.permission_groups g ON g.id = a.group_id AND g.deleted_at IS NULL
+		 WHERE a.subject_id = $1::uuid AND a.subject_kind = $2 AND a.deleted_at IS NULL
+		 ORDER BY g.type, g.resource_ref, a.role`, subjectID, subjectKind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SubjectGroupMembership
+	for rows.Next() {
+		var m SubjectGroupMembership
+		if err := rows.Scan(&m.Persona, &m.ResourceRef, &m.Role); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }

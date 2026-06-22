@@ -177,3 +177,20 @@ func (s *Service) Can(ctx context.Context, subjectID, subjectKind, groupType, re
 	}
 	return st.CanOnGroup(ctx, sch, subjectID, subjectKind, gid, perm)
 }
+
+// ListGroupMembers returns the role-assignments in the group addressed by
+// (groupType, resourceRef).
+func (s *Service) ListGroupMembers(ctx context.Context, groupType, resourceRef string) ([]GroupMember, error) {
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, groupType, resourceRef)
+	if err != nil {
+		return nil, err
+	}
+	return st.GroupMembers(ctx, gid)
+}
+
+// ListSubjectGroups returns every group membership a subject holds (the
+// cross-persona discovery behind /me/groups).
+func (s *Service) ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error) {
+	return s.groupStore().SubjectGroups(ctx, subjectID, subjectKind)
+}

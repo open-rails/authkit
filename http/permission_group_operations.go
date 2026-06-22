@@ -102,15 +102,21 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, person
 // would require a new core method). Per the task's constraint to NOT touch core,
 // this returns an empty roster with a TODO marker rather than reaching past the
 // documented Service API. Wire fully once core grows a group-roster method.
-func (s *Service) groupMembersList(w http.ResponseWriter, _ *http.Request, persona, resourceID string) {
-	// TODO(#111): replace with a core ListGroupMembers(persona, resourceRef) call
-	// once core exposes a group-roster read; until then return an empty list so
-	// the route exists and gates correctly.
+func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, persona, resourceID string) {
+	members, err := s.svc.ListGroupMembers(r.Context(), persona, resourceID)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	data := make([]map[string]any, 0, len(members))
+	for _, m := range members {
+		data = append(data, map[string]any{"subject-id": m.SubjectID, "subject-kind": m.SubjectKind, "role": m.Role})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":      "list",
 		"persona":     persona,
 		"resource-id": resourceID,
-		"data":        []any{},
+		"data":        data,
 	})
 }
 
@@ -152,12 +158,18 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
-	// TODO(#111): replace with a core ListSubjectGroups(subjectID, kind) call that
-	// scans group_role_assignments for this subject and returns one entry per
-	// (persona, resource-id, role). Empty list until that core method lands.
+	groups, err := s.svc.ListSubjectGroups(r.Context(), claims.UserID, core.SubjectKindUser)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	data := make([]map[string]any, 0, len(groups))
+	for _, g := range groups {
+		data = append(data, map[string]any{"persona": g.Persona, "resource-id": g.ResourceRef, "role": g.Role})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   []any{}, // []{persona, resource-id, role}
+		"data":   data,
 	})
 }
 

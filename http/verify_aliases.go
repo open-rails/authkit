@@ -12,17 +12,17 @@ import (
 // compiling with zero churn.
 
 type (
-	Verifier                         = verify.Verifier
-	Claims                           = verify.Claims
-	VerifierOption                   = verify.VerifierOption
-	IssuerOptions                    = verify.IssuerOptions
-	IssuerKey                        = verify.IssuerKey
-	Enricher                         = verify.Enricher
-	DelegatedPrincipal               = verify.DelegatedPrincipal
-	PermissionValidator              = verify.PermissionValidator
-	AttributesValidator              = verify.AttributesValidator
-	AttributeDefResolver             = verify.AttributeDefResolver
-	RemoteApplicationSource          = verify.RemoteApplicationSource
+	Verifier                = verify.Verifier
+	Claims                  = verify.Claims
+	VerifierOption          = verify.VerifierOption
+	IssuerOptions           = verify.IssuerOptions
+	IssuerKey               = verify.IssuerKey
+	Enricher                = verify.Enricher
+	DelegatedPrincipal      = verify.DelegatedPrincipal
+	PermissionValidator     = verify.PermissionValidator
+	AttributesValidator     = verify.AttributesValidator
+	AttributeDefResolver    = verify.AttributeDefResolver
+	RemoteApplicationSource = verify.RemoteApplicationSource
 
 	ServiceJWTPrincipal     = verify.ServiceJWTPrincipal
 	ServiceJWTReplayChecker = verify.ServiceJWTReplayChecker

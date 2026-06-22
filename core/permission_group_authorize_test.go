@@ -5,7 +5,7 @@ import "testing"
 func TestResolveGrants_UnionDedupFailClosed(t *testing.T) {
 	s := tensorhubSchema(t)
 	asg := []GroupAssignment{
-		{GroupType: "org", GroupID: "g_org", Roles: []string{"owner"}},   // org:*
+		{GroupType: "org", GroupID: "g_org", Roles: []string{"owner"}},    // org:*
 		{GroupType: "repo", GroupID: "g_repo", Roles: []string{"writer"}}, // repo:repo:read, repo:repo:write
 		{GroupType: "org", GroupID: "g_org", Roles: []string{"owner"}},    // duplicate -> deduped
 		{GroupType: "ghost", GroupID: "g_x", Roles: []string{"owner"}},    // unknown type -> nothing
