@@ -14,20 +14,20 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	var body struct {
 		Username string `json:"username"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Username) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
 	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
 		if err == core.ErrOwnerSlugTaken {
-			badRequest(w, "owner_slug_taken")
+			badRequest(w, ErrOwnerSlugTaken)
 			return
 		}
 		if err == core.ErrRenameRateLimited {
@@ -35,15 +35,15 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 			availability := cooldownAvailability(ActionUpdateUsername, seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
 			data["time_until_rename_available"] = seconds
-			data["error"] = core.ErrCodeRenameRateLimited
+			data["error"] = ErrRenameRateLimited
 			writeJSON(w, http.StatusTooManyRequests, data)
 			return
 		}
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, "failed_to_update_username")
+		badRequest(w, ErrFailedToUpdateUsername)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time_until_rename_available": int64(0)})
@@ -55,7 +55,7 @@ func (s *Service) handleUserPreferredLocalePATCH(w http.ResponseWriter, r *http.
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	var body struct {
@@ -63,7 +63,7 @@ func (s *Service) handleUserPreferredLocalePATCH(w http.ResponseWriter, r *http.
 		Locale          string `json:"locale"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	locale := strings.TrimSpace(body.PreferredLocale)
@@ -71,20 +71,20 @@ func (s *Service) handleUserPreferredLocalePATCH(w http.ResponseWriter, r *http.
 		locale = strings.TrimSpace(body.Locale)
 	}
 	if locale == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := s.svc.SetPreferredLocale(r.Context(), claims.UserID, locale, "explicit"); err != nil {
 		if strings.Contains(err.Error(), "invalid_preferred_locale") {
-			badRequest(w, "invalid_preferred_locale")
+			badRequest(w, ErrInvalidPreferredLocale)
 			return
 		}
-		badRequest(w, "failed_to_update_preferred_locale")
+		badRequest(w, ErrFailedToUpdatePreferredLocale)
 		return
 	}
 	preferred, err := s.svc.GetPreferredLocale(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "preferred_locale_lookup_failed")
+		serverErr(w, ErrPreferredLocaleLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -105,7 +105,7 @@ func formatOptionalTime(t *time.Time) *string {
 
 func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.svc.HasEmailSender() {
-		serverErr(w, "email_verification_unavailable")
+		serverErr(w, ErrEmailVerificationUnavailable)
 		return
 	}
 	if s.rateLimited(w, r, RLUserEmailChangeRequest) {
@@ -114,7 +114,7 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -123,7 +123,7 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewEmail) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -135,18 +135,18 @@ func (s *Service) handleUserEmailChangeRequestPOST(w http.ResponseWriter, r *htt
 		if s.handleDeliveryError(w, r, "user_email_change_request", "send_email_verification", err) {
 			return
 		}
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
 		msg := err.Error()
 		switch {
 		case strings.Contains(msg, "same as current"):
-			badRequest(w, "email_unchanged")
+			badRequest(w, ErrEmailUnchanged)
 		case strings.Contains(msg, "already in use"):
-			badRequest(w, "email_in_use")
+			badRequest(w, ErrEmailInUse)
 		default:
-			badRequest(w, "failed_to_request_email_change")
+			badRequest(w, ErrFailedToRequestEmailChange)
 		}
 		return
 	}
@@ -164,7 +164,7 @@ func (s *Service) handleUserEmailChangeConfirmPOST(w http.ResponseWriter, r *htt
 
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -172,17 +172,17 @@ func (s *Service) handleUserEmailChangeConfirmPOST(w http.ResponseWriter, r *htt
 		Code string `json:"code"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
 	code := strings.ToUpper(strings.TrimSpace(body.Code))
 	if err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, code); err != nil {
 		if strings.Contains(err.Error(), "already in use") {
-			badRequest(w, "email_in_use")
+			badRequest(w, ErrEmailInUse)
 			return
 		}
-		badRequest(w, "invalid_or_expired_code")
+		badRequest(w, ErrInvalidOrExpiredCode)
 		return
 	}
 
@@ -194,7 +194,7 @@ func (s *Service) handleUserEmailChangeConfirmPOST(w http.ResponseWriter, r *htt
 
 func (s *Service) handleUserEmailChangeResendPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.svc.HasEmailSender() {
-		serverErr(w, "email_verification_unavailable")
+		serverErr(w, ErrEmailVerificationUnavailable)
 		return
 	}
 	if s.rateLimited(w, r, RLUserEmailChangeResend) {
@@ -203,7 +203,7 @@ func (s *Service) handleUserEmailChangeResendPOST(w http.ResponseWriter, r *http
 
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -211,7 +211,7 @@ func (s *Service) handleUserEmailChangeResendPOST(w http.ResponseWriter, r *http
 		if s.handleDeliveryError(w, r, "user_email_change_resend", "send_email_verification", err) {
 			return
 		}
-		badRequest(w, "no_pending_email_change")
+		badRequest(w, ErrNoPendingEmailChange)
 		return
 	}
 
@@ -228,7 +228,7 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -237,7 +237,7 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewPhone) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -249,7 +249,7 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 	// verification), so an undeliverable sender fails fast instead of silently
 	// stranding the user on the OTP screen.
 	if !s.svc.SMSAvailable() {
-		serverErr(w, "phone_change_unavailable")
+		serverErr(w, ErrPhoneChangeUnavailable)
 		return
 	}
 
@@ -257,18 +257,18 @@ func (s *Service) handleUserPhoneChangeRequestPOST(w http.ResponseWriter, r *htt
 		if s.handleDeliveryError(w, r, "user_phone_change_request", "send_phone_verification", err) {
 			return
 		}
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
 		msg := err.Error()
 		switch {
 		case strings.Contains(msg, "same as current"):
-			badRequest(w, "phone_unchanged")
+			badRequest(w, ErrPhoneUnchanged)
 		case strings.Contains(msg, "already in use"):
-			badRequest(w, "phone_in_use")
+			badRequest(w, ErrPhoneInUse)
 		default:
-			badRequest(w, "failed_to_request_phone_change")
+			badRequest(w, ErrFailedToRequestPhoneChange)
 		}
 		return
 	}
@@ -286,7 +286,7 @@ func (s *Service) handleUserPhoneChangeConfirmPOST(w http.ResponseWriter, r *htt
 
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -295,14 +295,14 @@ func (s *Service) handleUserPhoneChangeConfirmPOST(w http.ResponseWriter, r *htt
 		Code  string `json:"code"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" || strings.TrimSpace(body.Phone) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
 	code := strings.TrimSpace(body.Code)
 	phone := strings.TrimSpace(body.Phone)
 	if err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code); err != nil {
-		badRequest(w, "invalid_or_expired_code")
+		badRequest(w, ErrInvalidOrExpiredCode)
 		return
 	}
 
@@ -319,7 +319,7 @@ func (s *Service) handleUserPhoneChangeResendPOST(w http.ResponseWriter, r *http
 
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -327,7 +327,7 @@ func (s *Service) handleUserPhoneChangeResendPOST(w http.ResponseWriter, r *http
 		Phone string `json:"phone_number"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Phone) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	phone := strings.TrimSpace(body.Phone)
@@ -336,7 +336,7 @@ func (s *Service) handleUserPhoneChangeResendPOST(w http.ResponseWriter, r *http
 		if s.handleDeliveryError(w, r, "user_phone_change_resend", "send_phone_verification", err) {
 			return
 		}
-		badRequest(w, "no_pending_phone_change")
+		badRequest(w, ErrNoPendingPhoneChange)
 		return
 	}
 
@@ -356,12 +356,12 @@ func (s *Service) handleUserEmailChangeCancelPOST(w http.ResponseWriter, r *http
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 	if err := s.svc.CancelEmailChange(r.Context(), claims.UserID); err != nil {
 		s.logInternalError(r, "user_email_change_cancel", "cancel_email_change", "cancel_failed", err)
-		serverErr(w, "cancel_failed")
+		serverErr(w, ErrCancelFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -376,19 +376,19 @@ func (s *Service) handleUserPhoneChangeCancelPOST(w http.ResponseWriter, r *http
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 	var body struct {
 		Phone string `json:"phone_number"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Phone) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := s.svc.CancelPhoneChange(r.Context(), claims.UserID, strings.TrimSpace(body.Phone)); err != nil {
 		s.logInternalError(r, "user_phone_change_cancel", "cancel_phone_change", "cancel_failed", err)
-		serverErr(w, "cancel_failed")
+		serverErr(w, ErrCancelFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -397,7 +397,7 @@ func (s *Service) handleUserPhoneChangeCancelPOST(w http.ResponseWriter, r *http
 func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 
@@ -405,7 +405,7 @@ func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Reques
 		Biography *string `json:"biography"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if body.Biography != nil {
@@ -416,7 +416,7 @@ func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Reques
 		body.Biography = &s
 	}
 	if err := s.svc.UpdateBiography(r.Context(), claims.UserID, body.Biography); err != nil {
-		badRequest(w, "failed_to_update_biography")
+		badRequest(w, ErrFailedToUpdateBiography)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -428,7 +428,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	_ = s.svc.SoftDeleteUser(r.Context(), claims.UserID)
@@ -441,21 +441,21 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
 	if provider == "" {
-		badRequest(w, "invalid_provider")
+		badRequest(w, ErrInvalidProvider)
 		return
 	}
 	hasPwd, links := s.svc.HasPassword(r.Context(), claims.UserID), s.svc.CountProviderLinks(r.Context(), claims.UserID)
 	if !hasPwd && links <= 1 {
-		badRequest(w, "cannot_unlink_last_login_method")
+		badRequest(w, ErrCannotUnlinkLastLoginMethod)
 		return
 	}
 	if err := s.svc.UnlinkProvider(r.Context(), claims.UserID, provider); err != nil {
-		serverErr(w, "failed_to_unlink")
+		serverErr(w, ErrFailedToUnlink)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

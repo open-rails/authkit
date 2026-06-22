@@ -92,6 +92,7 @@ func (s *Service) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, ad
 
 // ResolveAndStoreSolanaSNS refreshes cached SNS metadata for an existing SIWS link.
 // Resolver failures are recorded as stable metadata and do not invalidate the wallet link.
+// Deprecated: use s.Identity().ResolveAndStoreSolanaSNS.
 func (s *Service) ResolveAndStoreSolanaSNS(ctx context.Context, userID, address string) (SolanaLinkedAccount, error) {
 	account := SolanaLinkedAccount{
 		Provider:            SolanaProviderSlug,
@@ -152,6 +153,7 @@ func (s *Service) ResolveAndStoreSolanaSNS(ctx context.Context, userID, address 
 }
 
 // GetSolanaLinkedAccount retrieves the SIWS-linked wallet and its AuthKit-owned metadata.
+// Deprecated: use s.Identity().GetSolanaLinkedAccount.
 func (s *Service) GetSolanaLinkedAccount(ctx context.Context, userID string) (*SolanaLinkedAccount, error) {
 	if s.pg == nil {
 		return nil, nil

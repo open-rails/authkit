@@ -10,12 +10,12 @@ import (
 func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
@@ -24,7 +24,7 @@ func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 	}
 	members, err := s.svc.ListOrgMembers(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "org_memberships_lookup_failed")
+		serverErr(w, ErrOrgMembershipsLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"members": members})
@@ -33,12 +33,12 @@ func (s *Service) handleOrgMembersGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersCreate)
@@ -49,11 +49,11 @@ func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
 		UserID string `json:"user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := s.svc.AddMember(r.Context(), canonical, strings.TrimSpace(body.UserID)); err != nil {
-		badRequest(w, "add_member_failed")
+		badRequest(w, ErrAddMemberFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -62,17 +62,17 @@ func (s *Service) handleOrgMembersPOST(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
 	if targetUserID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersDelete)
@@ -81,14 +81,14 @@ func (s *Service) handleOrgMembersDELETE(w http.ResponseWriter, r *http.Request)
 	}
 	if err := s.svc.RemoveMember(r.Context(), canonical, targetUserID); err != nil {
 		if err == core.ErrPersonalOrgOwner {
-			badRequest(w, "cannot_remove_personal_org_owner")
+			badRequest(w, ErrCannotRemovePersonalOrgOwner)
 			return
 		}
 		if err == core.ErrLastOrgOwner {
-			badRequest(w, "cannot_remove_last_owner")
+			badRequest(w, ErrCannotRemoveLastOwner)
 			return
 		}
-		badRequest(w, "remove_member_failed")
+		badRequest(w, ErrRemoveMemberFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})

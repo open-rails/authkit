@@ -98,6 +98,7 @@ type CustomJWTMintOptions struct {
 // `iss`/`iat`/`exp` claims; everything else comes from the host. See
 // CustomJWTMintOptions for the claim-precedence rules. The host Claims map may
 // not set `iss`/`iat`/`exp` (ErrCustomClaimsReserved).
+// Deprecated: use s.Tokens().MintCustomJWT.
 func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error) {
 	signer := s.keys.Active
 	if signer == nil {

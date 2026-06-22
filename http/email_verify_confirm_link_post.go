@@ -20,7 +20,7 @@ func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 		Email      string `json:"email"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -28,10 +28,10 @@ func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 	if userID, err := s.svc.ConfirmPendingRegistration(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
-			serverErr(w, "token_issue_failed")
+			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
 		return
@@ -39,10 +39,10 @@ func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 	if userID, err := s.svc.ConfirmEmailVerification(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
-			serverErr(w, "token_issue_failed")
+			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
 		return
@@ -57,26 +57,26 @@ func (s *Service) handleEmailVerifyLinkFailure(w http.ResponseWriter, ctx contex
 		target = strings.TrimSpace(email)
 	}
 	if target == "" {
-		badRequest(w, "invalid_or_expired_token")
+		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
 	if err := core.ValidateEmail(target); err != nil {
-		badRequest(w, "invalid_or_expired_token")
+		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
 	target = core.NormalizeEmail(target)
 
 	if u, err := s.svc.GetUserByEmail(ctx, target); err == nil && u != nil {
 		if u.EmailVerified {
-			sendErr(w, http.StatusConflict, "email_already_verified")
+			sendErr(w, http.StatusConflict, ErrEmailAlreadyVerified)
 			return
 		}
-		sendErr(w, http.StatusGone, "verification_link_expired")
+		sendErr(w, http.StatusGone, ErrVerificationLinkExpired)
 		return
 	}
 	if pending, err := s.svc.GetPendingRegistrationByEmail(ctx, target); err == nil && pending != nil {
-		badRequest(w, "invalid_or_expired_token")
+		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
-	sendErr(w, http.StatusGone, "verification_link_expired")
+	sendErr(w, http.StatusGone, ErrVerificationLinkExpired)
 }

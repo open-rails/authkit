@@ -126,6 +126,7 @@ func LoadBootstrapManifestFile(path string) (BootstrapManifest, error) {
 	return ParseBootstrapManifestYAML(raw)
 }
 
+// Deprecated: use s.Bootstrap().ReconcileBootstrapManifest.
 func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, store BootstrapTokenStore, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
 	if err := s.requirePG(); err != nil {
 		return BootstrapManifestResult{}, err

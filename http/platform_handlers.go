@@ -25,20 +25,20 @@ func (s *Service) requirePlatformPermission(w http.ResponseWriter, r *http.Reque
 		if claims.HasPermission(perm) {
 			return true
 		}
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return false
 	}
 	if strings.TrimSpace(claims.UserID) == "" {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return false
 	}
 	ok, err := s.svc.HasPlatformPermission(r.Context(), claims.UserID, perm)
 	if err != nil {
-		serverErr(w, "platform_permission_lookup_failed")
+		serverErr(w, ErrPlatformPermissionLookupFailed)
 		return false
 	}
 	if !ok {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return false
 	}
 	return true
@@ -48,7 +48,7 @@ func (s *Service) requirePlatformPermission(w http.ResponseWriter, r *http.Reque
 func (s *Service) handlePlatformRolesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformRolesRead) {
@@ -56,7 +56,7 @@ func (s *Service) handlePlatformRolesGET(w http.ResponseWriter, r *http.Request)
 	}
 	roles, err := s.svc.ListPlatformRoles(r.Context())
 	if err != nil {
-		serverErr(w, "platform_roles_list_failed")
+		serverErr(w, ErrPlatformRolesListFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"roles": roles})
@@ -66,12 +66,12 @@ func (s *Service) handlePlatformRolesGET(w http.ResponseWriter, r *http.Request)
 func (s *Service) handlePlatformRoleGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	role := strings.TrimSpace(r.PathValue("role"))
 	if role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformRolesRead) {
@@ -79,7 +79,7 @@ func (s *Service) handlePlatformRoleGET(w http.ResponseWriter, r *http.Request) 
 	}
 	perms, err := s.svc.GetPlatformRolePermissions(r.Context(), role)
 	if err != nil {
-		serverErr(w, "platform_role_lookup_failed")
+		serverErr(w, ErrPlatformRoleLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"role": role, "permissions": perms})
@@ -91,12 +91,12 @@ func (s *Service) handlePlatformRoleGET(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handlePlatformRolePUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	role := strings.TrimSpace(r.PathValue("role"))
 	if role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformRolesCreate) {
@@ -106,28 +106,28 @@ func (s *Service) handlePlatformRolePUT(w http.ResponseWriter, r *http.Request) 
 		Permissions []string `json:"permissions"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	unknown, offending, err := s.svc.ValidatePlatformGrant(r.Context(), claims.UserID, body.Permissions, false)
 	if err != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return
 	}
 	if len(unknown) > 0 {
-		sendErrData(w, http.StatusBadRequest, "unknown_permission", map[string]any{"unknown_permissions": unknown})
+		sendErrData(w, http.StatusBadRequest, ErrUnknownPermission, map[string]any{"unknown_permissions": unknown})
 		return
 	}
 	if len(offending) > 0 {
-		sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{"offending_permissions": offending})
+		sendErrData(w, http.StatusForbidden, ErrPermissionGrantDenied, map[string]any{"offending_permissions": offending})
 		return
 	}
 	if err := s.svc.DefinePlatformRole(r.Context(), role); err != nil {
-		serverErr(w, "platform_role_define_failed")
+		serverErr(w, ErrPlatformRoleDefineFailed)
 		return
 	}
 	if err := s.svc.SetPlatformRolePermissions(r.Context(), role, body.Permissions); err != nil {
-		serverErr(w, "platform_role_set_perms_failed")
+		serverErr(w, ErrPlatformRoleSetPermsFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"role": role, "permissions": body.Permissions})
@@ -138,19 +138,19 @@ func (s *Service) handlePlatformRolePUT(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handlePlatformRoleDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	role := strings.TrimSpace(r.PathValue("role"))
 	if role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformRolesDelete) {
 		return
 	}
 	if _, err := s.svc.DeletePlatformRole(r.Context(), role); err != nil {
-		serverErr(w, "platform_role_delete_failed")
+		serverErr(w, ErrPlatformRoleDeleteFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -163,12 +163,12 @@ func (s *Service) handlePlatformRoleDELETE(w http.ResponseWriter, r *http.Reques
 func (s *Service) handlePlatformRoleGrantPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	role := strings.TrimSpace(r.PathValue("role"))
 	if role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformMembersCreate) {
@@ -178,23 +178,23 @@ func (s *Service) handlePlatformRoleGrantPOST(w http.ResponseWriter, r *http.Req
 		UserID string `json:"user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	rolePerms, err := s.svc.GetPlatformRolePermissions(r.Context(), role)
 	if err != nil {
-		serverErr(w, "platform_role_lookup_failed")
+		serverErr(w, ErrPlatformRoleLookupFailed)
 		return
 	}
 	if _, offending, verr := s.svc.ValidatePlatformGrant(r.Context(), claims.UserID, rolePerms, false); verr != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return
 	} else if len(offending) > 0 {
-		sendErrData(w, http.StatusForbidden, "role_exceeds_grantor", map[string]any{"offending_permissions": offending})
+		sendErrData(w, http.StatusForbidden, ErrRoleExceedsGrantor, map[string]any{"offending_permissions": offending})
 		return
 	}
 	if err := s.svc.AssignPlatformRole(r.Context(), body.UserID, role); err != nil {
-		badRequest(w, "assign_platform_role_failed")
+		badRequest(w, ErrAssignPlatformRoleFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -205,12 +205,12 @@ func (s *Service) handlePlatformRoleGrantPOST(w http.ResponseWriter, r *http.Req
 func (s *Service) handlePlatformRoleRevokePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	role := strings.TrimSpace(r.PathValue("role"))
 	if role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformMembersDelete) {
@@ -220,12 +220,12 @@ func (s *Service) handlePlatformRoleRevokePOST(w http.ResponseWriter, r *http.Re
 		UserID string `json:"user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	removed, err := s.svc.UnassignPlatformRole(r.Context(), body.UserID, role)
 	if err != nil {
-		serverErr(w, "revoke_platform_role_failed")
+		serverErr(w, ErrRevokePlatformRoleFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": removed})
@@ -236,12 +236,12 @@ func (s *Service) handlePlatformRoleRevokePOST(w http.ResponseWriter, r *http.Re
 func (s *Service) handlePlatformRoleMembersGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	role := strings.TrimSpace(r.PathValue("role"))
 	if role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformMembersRead) {
@@ -249,7 +249,7 @@ func (s *Service) handlePlatformRoleMembersGET(w http.ResponseWriter, r *http.Re
 	}
 	members, err := s.svc.PlatformRoleMembers(r.Context(), role)
 	if err != nil {
-		serverErr(w, "platform_role_members_failed")
+		serverErr(w, ErrPlatformRoleMembersFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"role": role, "members": members})
@@ -260,12 +260,12 @@ func (s *Service) handlePlatformRoleMembersGET(w http.ResponseWriter, r *http.Re
 func (s *Service) handleMePlatformPermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	perms, err := s.svc.EffectivePlatformPermissions(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "platform_permissions_lookup_failed")
+		serverErr(w, ErrPlatformPermissionsLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"permissions": perms})

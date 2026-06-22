@@ -123,6 +123,7 @@ func (s *Service) requirePG() error {
 
 // ResolveOrgBySlug resolves an org by current slug or alias.
 // Returns ErrOrgNotFound when no org matches.
+// Deprecated: use s.Orgs().ResolveOrgBySlug.
 func (s *Service) ResolveOrgBySlug(ctx context.Context, slug string) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -150,6 +151,7 @@ func (s *Service) ResolveOrgBySlug(ctx context.Context, slug string) (*Org, erro
 }
 
 // ResolveOrgByID resolves an active org by uuid string.
+// Deprecated: use s.Orgs().ResolveOrgByID.
 func (s *Service) ResolveOrgByID(ctx context.Context, id string) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -168,6 +170,7 @@ func (s *Service) ResolveOrgByID(ctx context.Context, id string) (*Org, error) {
 // CreateOrg creates an ownerless org for privileged bootstrap/admin
 // callers. Public self-service org registration must use CreateOrgForUser
 // so the org, owner membership, and owner role are created atomically.
+// Deprecated: use s.Orgs().CreateOrg.
 func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -217,6 +220,7 @@ func (s *Service) CreateOrg(ctx context.Context, slug string) (*Org, error) {
 // CreateOrgForUser transactionally creates a org and assigns the
 // registering user as its sole initial owner. This is the core API behind
 // public POST /orgs.
+// Deprecated: use s.Orgs().CreateOrgForUser.
 func (s *Service) CreateOrgForUser(ctx context.Context, req CreateOrgForUserRequest) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -290,6 +294,7 @@ func (s *Service) CreateOrgForUser(ctx context.Context, req CreateOrgForUserRequ
 // `actorUserID` is recorded on the rename audit row. Pass empty string
 // when the caller doesn't have an authenticated user (e.g. internal
 // admin tooling without an actor); the column is nullable.
+// Deprecated: use s.Orgs().RenameOrgSlug.
 func (s *Service) RenameOrgSlug(ctx context.Context, orgID, newSlug, actorUserID string) error {
 	return s.renameOrgSlugImpl(ctx, orgID, newSlug, actorUserID, false)
 }
@@ -297,6 +302,7 @@ func (s *Service) RenameOrgSlug(ctx context.Context, orgID, newSlug, actorUserID
 // RenameOrgSlugForce is the admin-override variant that skips the 72h
 // cooldown check. Otherwise identical to RenameOrgSlug. Caller is
 // responsible for gating this behind admin scope upstream.
+// Deprecated: use s.Orgs().RenameOrgSlugForce.
 func (s *Service) RenameOrgSlugForce(ctx context.Context, orgID, newSlug, actorUserID string) error {
 	return s.renameOrgSlugImpl(ctx, orgID, newSlug, actorUserID, true)
 }
@@ -358,6 +364,7 @@ func (s *Service) renameOrgSlugImpl(ctx context.Context, orgID, newSlug, actorUs
 	return tx.Commit(ctx)
 }
 
+// Deprecated: use s.Orgs().ListOrgMembershipsForUser.
 func (s *Service) ListOrgMembershipsForUser(ctx context.Context, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -375,6 +382,7 @@ func (s *Service) ListOrgMembershipsForUser(ctx context.Context, userID string) 
 	return slugs, nil
 }
 
+// Deprecated: use s.Orgs().ListUserOrgMembershipsAndRoles.
 func (s *Service) ListUserOrgMembershipsAndRoles(ctx context.Context, userID string) ([]OrgMembership, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -394,6 +402,7 @@ func (s *Service) ListUserOrgMembershipsAndRoles(ctx context.Context, userID str
 	return out, nil
 }
 
+// Deprecated: use s.Orgs().AddMember.
 func (s *Service) AddMember(ctx context.Context, orgSlug, userID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -412,6 +421,7 @@ func (s *Service) AddMember(ctx context.Context, orgSlug, userID string) error {
 	return s.q.OrgMemberAdd(ctx, db.OrgMemberAddParams{OrgID: org.ID, UserID: userID})
 }
 
+// Deprecated: use s.Orgs().RemoveMember.
 func (s *Service) RemoveMember(ctx context.Context, orgSlug, userID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -440,6 +450,7 @@ func (s *Service) RemoveMember(ctx context.Context, orgSlug, userID string) erro
 	return s.q.OrgMemberSoftDelete(ctx, db.OrgMemberSoftDeleteParams{OrgID: org.ID, UserID: userID})
 }
 
+// Deprecated: use s.Roles().DefineRole.
 func (s *Service) DefineRole(ctx context.Context, orgSlug, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -455,6 +466,7 @@ func (s *Service) DefineRole(ctx context.Context, orgSlug, role string) error {
 	return s.q.OrgRoleDefine(ctx, db.OrgRoleDefineParams{OrgID: org.ID, Role: role})
 }
 
+// Deprecated: use s.Roles().DeleteRole.
 func (s *Service) DeleteRole(ctx context.Context, orgSlug, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -473,6 +485,7 @@ func (s *Service) DeleteRole(ctx context.Context, orgSlug, role string) error {
 	return s.q.OrgRoleDelete(ctx, db.OrgRoleDeleteParams{OrgID: org.ID, Role: role})
 }
 
+// Deprecated: use s.Roles().AssignRole.
 func (s *Service) AssignRole(ctx context.Context, orgSlug, userID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -494,6 +507,7 @@ func (s *Service) AssignRole(ctx context.Context, orgSlug, userID, role string) 
 	return s.q.OrgMembershipSetRole(ctx, db.OrgMembershipSetRoleParams{OrgID: org.ID, UserID: userID, Role: role})
 }
 
+// Deprecated: use s.Roles().UnassignRole.
 func (s *Service) UnassignRole(ctx context.Context, orgSlug, userID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -518,6 +532,7 @@ func (s *Service) UnassignRole(ctx context.Context, orgSlug, userID, role string
 	return s.q.OrgMembershipResetRole(ctx, db.OrgMembershipResetRoleParams{OrgID: org.ID, UserID: userID, Role: role})
 }
 
+// Deprecated: use s.Roles().ReadMemberRoles.
 func (s *Service) ReadMemberRoles(ctx context.Context, orgSlug, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -536,6 +551,7 @@ func (s *Service) ReadMemberRoles(ctx context.Context, orgSlug, userID string) (
 	return []string{role}, nil
 }
 
+// Deprecated: use s.Orgs().IsOrgMember.
 func (s *Service) IsOrgMember(ctx context.Context, orgSlug, userID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -547,6 +563,7 @@ func (s *Service) IsOrgMember(ctx context.Context, orgSlug, userID string) (bool
 	return s.q.OrgMembershipExists(ctx, db.OrgMembershipExistsParams{OrgID: org.ID, UserID: userID})
 }
 
+// Deprecated: use s.Orgs().ListOrgMembers.
 func (s *Service) ListOrgMembers(ctx context.Context, orgSlug string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -558,6 +575,7 @@ func (s *Service) ListOrgMembers(ctx context.Context, orgSlug string) ([]string,
 	return s.q.OrgMemberIDs(ctx, org.ID)
 }
 
+// Deprecated: use s.Roles().ListOrgDefinedRoles.
 func (s *Service) ListOrgDefinedRoles(ctx context.Context, orgSlug string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err

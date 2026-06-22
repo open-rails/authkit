@@ -73,6 +73,7 @@ type DelegatedAccessParams struct {
 // touches the private key. When p.Issuer is empty it defaults to the Service's
 // configured Issuer. See the package-level MintDelegatedAccessToken for the
 // claim contract.
+// Deprecated: use s.Tokens().MintDelegatedAccessToken.
 func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error) {
 	signer := s.keys.Active
 	if signer == nil {

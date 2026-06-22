@@ -49,7 +49,7 @@ type ownerNamespaceClaimableInfo struct {
 func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -57,10 +57,10 @@ func (s *Service) handleOwnerNamespaceInfoGET(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		switch {
 		case errors.Is(err, core.ErrInvalidOrgSlug):
-			badRequest(w, "invalid_slug")
+			badRequest(w, ErrInvalidSlug)
 			return
 		default:
-			serverErr(w, "owner_namespace_info_failed")
+			serverErr(w, ErrOwnerNamespaceInfoFailed)
 			return
 		}
 	}
@@ -108,7 +108,7 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 		Slug string `json:"slug"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Slug) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	switch normalizeAdminAccountKind(req.Kind) {
@@ -117,13 +117,13 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrOwnerSlugTaken):
-				sendErr(w, http.StatusConflict, "owner_slug_taken")
+				sendErr(w, http.StatusConflict, ErrOwnerSlugTaken)
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
-				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
+				sendErr(w, http.StatusConflict, ErrInvalidOwnerNamespaceTransition)
 			case errors.Is(err, core.ErrInvalidOrgSlug):
-				badRequest(w, "invalid_slug")
+				badRequest(w, ErrInvalidSlug)
 			default:
-				serverErr(w, "account_park_failed")
+				serverErr(w, ErrAccountParkFailed)
 			}
 			return
 		}
@@ -140,19 +140,19 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrReservedAccountNotFound):
-				notFound(w, "reserved_account_not_found")
+				notFound(w, ErrReservedAccountNotFound)
 			case errors.Is(err, core.ErrUserNotFound):
-				notFound(w, "user_not_found")
+				notFound(w, ErrUserNotFound)
 			case errors.Is(err, core.ErrOwnerSlugTaken):
-				sendErr(w, http.StatusConflict, "owner_slug_taken")
+				sendErr(w, http.StatusConflict, ErrOwnerSlugTaken)
 			case errors.Is(err, core.ErrReservedAccountClaimed):
-				sendErr(w, http.StatusConflict, "account_already_claimed")
+				sendErr(w, http.StatusConflict, ErrAccountAlreadyClaimed)
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
-				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
+				sendErr(w, http.StatusConflict, ErrInvalidOwnerNamespaceTransition)
 			case errors.Is(err, core.ErrInvalidOrgSlug):
-				badRequest(w, "invalid_slug")
+				badRequest(w, ErrInvalidSlug)
 			default:
-				serverErr(w, "account_park_failed")
+				serverErr(w, ErrAccountParkFailed)
 			}
 			return
 		}
@@ -166,7 +166,7 @@ func (s *Service) handleAdminAccountParkPOST(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	default:
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 }
@@ -181,32 +181,32 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 		OwnerUser string `json:"owner_user_id,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Slug) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	switch normalizeAdminAccountKind(req.Kind) {
 	case adminAccountKindOrg:
 		if strings.TrimSpace(req.OwnerUser) == "" {
-			badRequest(w, "invalid_request")
+			badRequest(w, ErrInvalidRequest)
 			return
 		}
 		orgID, created, err := s.svc.ClaimOrgNamespace(r.Context(), req.Slug, req.OwnerUser)
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrUserNotFound):
-				notFound(w, "owner_user_not_found")
+				notFound(w, ErrOwnerUserNotFound)
 			case errors.Is(err, core.ErrOwnerMembershipRequired):
-				badRequest(w, "owner_membership_required")
+				badRequest(w, ErrOwnerMembershipRequired)
 			case errors.Is(err, core.ErrOwnerNamespaceAlreadyClaimed):
-				sendErr(w, http.StatusConflict, "org_already_claimed")
+				sendErr(w, http.StatusConflict, ErrOrgAlreadyClaimed)
 			case errors.Is(err, core.ErrOwnerSlugTaken):
-				sendErr(w, http.StatusConflict, "owner_slug_taken")
+				sendErr(w, http.StatusConflict, ErrOwnerSlugTaken)
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
-				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
+				sendErr(w, http.StatusConflict, ErrInvalidOwnerNamespaceTransition)
 			case errors.Is(err, core.ErrInvalidOrgSlug):
-				badRequest(w, "invalid_slug")
+				badRequest(w, ErrInvalidSlug)
 			default:
-				serverErr(w, "account_claim_org_failed")
+				serverErr(w, ErrAccountClaimOrgFailed)
 			}
 			return
 		}
@@ -223,17 +223,17 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			switch {
 			case errors.Is(err, core.ErrUserNotFound):
-				notFound(w, "user_not_found")
+				notFound(w, ErrUserNotFound)
 			case errors.Is(err, core.ErrOwnerSlugTaken):
-				sendErr(w, http.StatusConflict, "owner_slug_taken")
+				sendErr(w, http.StatusConflict, ErrOwnerSlugTaken)
 			case errors.Is(err, core.ErrReservedAccountClaimed):
-				sendErr(w, http.StatusConflict, "account_already_claimed")
+				sendErr(w, http.StatusConflict, ErrAccountAlreadyClaimed)
 			case errors.Is(err, core.ErrInvalidOwnerNamespaceTransition):
-				sendErr(w, http.StatusConflict, "invalid_owner_namespace_transition")
+				sendErr(w, http.StatusConflict, ErrInvalidOwnerNamespaceTransition)
 			case errors.Is(err, core.ErrInvalidOrgSlug):
-				badRequest(w, "invalid_slug")
+				badRequest(w, ErrInvalidSlug)
 			default:
-				serverErr(w, "account_claim_user_failed")
+				serverErr(w, ErrAccountClaimUserFailed)
 			}
 			return
 		}
@@ -247,7 +247,7 @@ func (s *Service) handleAdminAccountClaimPOST(w http.ResponseWriter, r *http.Req
 		})
 		return
 	default:
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 }
@@ -260,7 +260,7 @@ func (s *Service) handleAdminAccountsRestrictPOST(w http.ResponseWriter, r *http
 		Slugs []string `json:"slugs"`
 	}
 	if err := decodeJSON(r, &req); err != nil || len(req.Slugs) == 0 {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -268,13 +268,13 @@ func (s *Service) handleAdminAccountsRestrictPOST(w http.ResponseWriter, r *http
 	if err != nil {
 		switch {
 		case errors.Is(err, core.ErrInvalidOrgSlug):
-			badRequest(w, "invalid_slug")
+			badRequest(w, ErrInvalidSlug)
 		case errors.Is(err, core.ErrOwnerNamespaceBatchEmpty):
-			badRequest(w, "invalid_request")
+			badRequest(w, ErrInvalidRequest)
 		case errors.Is(err, core.ErrOwnerSlugTaken):
-			sendErr(w, http.StatusConflict, "owner_slug_taken")
+			sendErr(w, http.StatusConflict, ErrOwnerSlugTaken)
 		default:
-			serverErr(w, "account_restrict_failed")
+			serverErr(w, ErrAccountRestrictFailed)
 		}
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Service) handleAdminAccountsUnrestrictPOST(w http.ResponseWriter, r *ht
 		Slugs []string `json:"slugs"`
 	}
 	if err := decodeJSON(r, &req); err != nil || len(req.Slugs) == 0 {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -302,11 +302,11 @@ func (s *Service) handleAdminAccountsUnrestrictPOST(w http.ResponseWriter, r *ht
 	if err != nil {
 		switch {
 		case errors.Is(err, core.ErrInvalidOrgSlug):
-			badRequest(w, "invalid_slug")
+			badRequest(w, ErrInvalidSlug)
 		case errors.Is(err, core.ErrOwnerNamespaceBatchEmpty):
-			badRequest(w, "invalid_request")
+			badRequest(w, ErrInvalidRequest)
 		default:
-			serverErr(w, "account_unrestrict_failed")
+			serverErr(w, ErrAccountUnrestrictFailed)
 		}
 		return
 	}

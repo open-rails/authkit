@@ -14,7 +14,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -23,11 +23,11 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		NewPassword     string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := core.ValidatePassword(body.NewPassword); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 
@@ -36,21 +36,21 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		if errors.Is(err, core.ErrReauthenticationRequired) && body.CurrentPassword != "" {
 			if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
 				if errors.Is(verr, core.ErrPasswordResetRequired) {
-					unauthorized(w, "password_reset_required")
+					unauthorized(w, ErrPasswordResetRequired)
 					return
 				}
-				unauthorized(w, "invalid_password")
+				unauthorized(w, ErrInvalidPassword)
 				return
 			}
 			if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-				serverErr(w, "reauth_failed")
+				serverErr(w, ErrReauthFailed)
 				return
 			}
 		} else if errors.Is(err, core.ErrReauthenticationRequired) {
 			s.reauthRequired(w, r, claims)
 			return
 		} else {
-			unauthorized(w, "not_authenticated")
+			unauthorized(w, ErrNotAuthenticated)
 			return
 		}
 	} else if freshness.ReauthRequiredForSensitiveOps {
@@ -73,14 +73,14 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		if errors.Is(changeErr, core.ErrPasswordResetRequired) {
 			// The current password can never verify against a legacy
 			// reset-required hash; route the user to the reset flow.
-			badRequest(w, "password_reset_required")
+			badRequest(w, ErrPasswordResetRequired)
 			return
 		}
-		if code := core.ValidationErrorCode(changeErr); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(changeErr)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, "password_change_failed")
+		badRequest(w, ErrPasswordChangeFailed)
 		return
 	}
 

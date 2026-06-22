@@ -17,12 +17,12 @@ type userBootstrapResponse struct {
 func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	adminUser, err := s.svc.AdminGetUser(r.Context(), claims.UserID)
 	if err != nil || adminUser == nil {
-		serverErr(w, "user_lookup_failed")
+		serverErr(w, ErrUserLookupFailed)
 		return
 	}
 	username := strings.TrimSpace(claims.Username)
@@ -30,18 +30,18 @@ func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request)
 		username = strings.TrimSpace(*adminUser.Username)
 	}
 	if username == "" {
-		serverErr(w, "username_missing")
+		serverErr(w, ErrUsernameMissing)
 		return
 	}
 
 	personalOrg, err := s.svc.GetPersonalOrgForUser(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "personal_org_lookup_failed")
+		serverErr(w, ErrPersonalOrgLookupFailed)
 		return
 	}
 	mems, err := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "org_memberships_lookup_failed")
+		serverErr(w, ErrOrgMembershipsLookupFailed)
 		return
 	}
 	orgs := make([]orgMembership, 0, len(mems))

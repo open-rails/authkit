@@ -13,7 +13,7 @@ import (
 // - GET /oidc/{provider}/reauth/callback
 func (s *Service) OIDCHandler() http.Handler {
 	if s == nil || s.svc == nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, "authkit_not_initialized") })
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, ErrAuthkitNotInitialized) })
 	}
 
 	mux := http.NewServeMux()

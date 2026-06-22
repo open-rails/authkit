@@ -18,7 +18,7 @@ import (
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	ctx := r.Context()
@@ -29,7 +29,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		// narrowed token claim, so the caller can discover its full grant.
 		memberships, perms, err := s.svc.ResolveRemoteApplicationAuthority(ctx, claims.RemoteApplicationID)
 		if err != nil {
-			serverErr(w, "permissions_lookup_failed")
+			serverErr(w, ErrPermissionsLookupFailed)
 			return
 		}
 		org, roles := firstMembership(memberships)
@@ -62,7 +62,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		})
 
 	default:
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 	}
 }
 

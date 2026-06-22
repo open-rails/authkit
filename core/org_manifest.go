@@ -122,6 +122,7 @@ func ParseOrgManifestYAMLFile(path string) (OrgManifest, error) {
 // ReconcileOrgManifest idempotently applies orgs, issuers, roles, and API-key
 // outputs. It serializes reconciliation with a Postgres advisory
 // lock so multiple replicas do not mint duplicate bootstrap tokens.
+// Deprecated: use s.Bootstrap().ReconcileOrgManifest.
 func (s *Service) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest, store OrgManifestTokenStore) (OrgManifestResult, error) {
 	if err := s.requirePG(); err != nil {
 		return OrgManifestResult{}, err

@@ -32,14 +32,14 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		var err error
 		verifier, challenge, err = oidckit.GeneratePKCE()
 		if err != nil {
-			serverErr(w, "pkce_generation_failed")
+			serverErr(w, ErrPKCEGenerationFailed)
 			return
 		}
 	}
 	redirectURI := buildRedirectURI(r, provider)
 	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
-		badRequest(w, "oidc_begin_failed")
+		badRequest(w, ErrOIDCBeginFailed)
 		return
 	}
 
@@ -47,26 +47,26 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
 		tokenStr := bearerToken(r.Header.Get("Authorization"))
 		if tokenStr == "" {
-			unauthorized(w, "auth_required_for_link")
+			unauthorized(w, ErrAuthRequiredForLink)
 			return
 		}
 		claims := jwt.MapClaims{}
 		tok, err := jwt.ParseWithClaims(tokenStr, claims, s.svc.Keyfunc())
 		if err != nil || tok == nil || !tok.Valid {
-			unauthorized(w, "invalid_token")
+			unauthorized(w, ErrInvalidToken)
 			return
 		}
 		if sub, _ := claims["sub"].(string); sub != "" {
 			linkUserID = sub
 		} else {
-			unauthorized(w, "invalid_token")
+			unauthorized(w, ErrInvalidToken)
 			return
 		}
 	}
 
 	ui := r.URL.Query().Get("ui")
 	if ui != "" && ui != "popup" {
-		badRequest(w, "invalid_ui")
+		badRequest(w, ErrInvalidUI)
 		return
 	}
 	popupNonce := r.URL.Query().Get("popup_nonce")
@@ -80,7 +80,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		UI:          ui,
 		PopupNonce:  popupNonce,
 	}); err != nil {
-		serverErr(w, "state_store_failed")
+		serverErr(w, ErrStateStoreFailed)
 		return
 	}
 
@@ -98,14 +98,14 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if qErr := r.URL.Query().Get("error"); qErr != "" {
-		badRequest(w, qErr)
+		badRequest(w, ErrorCode(qErr))
 		return
 	}
 
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -113,25 +113,25 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	sd, ok, err := cfg.StateCache.Get(r.Context(), state)
 	_ = cfg.StateCache.Del(r.Context(), state)
 	if err != nil || !ok || sd.Provider != provider {
-		badRequest(w, "invalid_state")
+		badRequest(w, ErrInvalidState)
 		return
 	}
 
 	rpClient, err := cfg.Manager.GetRPWithRedirect(r.Context(), provider, sd.RedirectURI)
 	if err != nil {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 	issuer, ok := cfg.Manager.IssuerFor(provider)
 	if !ok {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 
 	ex := oidckit.DefaultExchanger
 	claims, err := ex(r.Context(), rpClient, provider, code, sd.Verifier, sd.Nonce)
 	if err != nil {
-		unauthorized(w, "oidc_exchange_failed")
+		unauthorized(w, ErrOIDCExchangeFailed)
 		return
 	}
 	if s.completeOIDCReauth(w, r, sd, provider, issuer, claims.Subject) {
@@ -150,7 +150,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 	if sd.LinkUserID != "" {
 		if uid0, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject); err == nil && uid0 != "" && uid0 != sd.LinkUserID {
-			sendErr(w, http.StatusConflict, "provider_already_linked")
+			sendErr(w, http.StatusConflict, ErrProviderAlreadyLinked)
 			return
 		}
 		userID = sd.LinkUserID
@@ -197,7 +197,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		username := s.svc.DeriveUsernameForOAuth(r.Context(), provider, provUsername, email, displayName)
 		u, err := s.svc.CreateUser(r.Context(), email, username)
 		if err != nil || u == nil {
-			serverErr(w, "user_creation_failed")
+			serverErr(w, ErrUserCreationFailed)
 			return
 		}
 		userID = u.ID
@@ -217,20 +217,20 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, r.UserAgent(), nil)
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		serverErr(w, "session_issue_failed")
+		serverErr(w, ErrSessionIssueFailed)
 		return
 	}
 	extra["sid"] = sid
 	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, email, extra)
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		serverErr(w, "token_issue_failed")
+		serverErr(w, ErrTokenIssueFailed)
 		return
 	}
 
@@ -246,7 +246,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	if sd.UI == "popup" {
 		targetOrigin, ok := originFromBaseURL(s.svc.Options().BaseURL)
 		if !ok {
-			serverErr(w, "invalid_base_url")
+			serverErr(w, ErrInvalidBaseURL)
 			return
 		}
 		payload := map[string]any{
@@ -293,7 +293,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 // provider explicitly via the authenticated /oidc/link/start flow. 409 Conflict
 // with a stable machine-readable code so frontends can route to the link flow.
 func accountExistsLinkRequired(w http.ResponseWriter) {
-	sendErr(w, http.StatusConflict, "account_exists_link_required")
+	sendErr(w, http.StatusConflict, ErrAccountExistsLinkRequired)
 }
 
 func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {

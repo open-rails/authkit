@@ -21,7 +21,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		BackupCode bool   `json:"backup_code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -29,7 +29,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	code := strings.TrimSpace(req.Code)
 	challenge := strings.TrimSpace(req.Challenge)
 	if userID == "" || code == "" || challenge == "" {
-		badRequest(w, "missing_fields")
+		badRequest(w, ErrMissingFields)
 		return
 	}
 
@@ -43,12 +43,12 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 
 	validChallenge, err := s.svc.Verify2FAChallenge(r.Context(), userID, challenge)
 	if err != nil {
-		serverErr(w, "challenge_verify_failed")
+		serverErr(w, ErrChallengeVerifyFailed)
 		return
 	}
 	if !validChallenge {
 		logLoginFailed(s, r, userID, "invalid_challenge")
-		unauthorized(w, "invalid_challenge")
+		unauthorized(w, ErrInvalidChallenge)
 		return
 	}
 
@@ -60,7 +60,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	}
 	if err != nil || !valid {
 		logLoginFailed(s, r, userID, "invalid_code")
-		unauthorized(w, "invalid_code")
+		unauthorized(w, ErrInvalidCode)
 		return
 	}
 	_ = s.svc.Clear2FAChallenge(r.Context(), userID)
@@ -69,10 +69,10 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
 			logLoginFailed(s, r, userID, "user_banned")
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		serverErr(w, "session_creation_failed")
+		serverErr(w, ErrSessionCreationFailed)
 		return
 	}
 
@@ -90,10 +90,10 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, emailForToken, map[string]any{"sid": sid})
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		serverErr(w, "token_creation_failed")
+		serverErr(w, ErrTokenCreationFailed)
 		return
 	}
 

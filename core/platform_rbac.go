@@ -99,6 +99,7 @@ func (s *Service) platformCatalogSet() map[string]bool {
 }
 
 // PlatformPermissions returns the native `platform:` permission catalog.
+// Deprecated: use s.Roles().PlatformPermissions.
 func (s *Service) PlatformPermissions() []PermissionDef {
 	return BasePlatformPermissions()
 }
@@ -111,6 +112,7 @@ const PlatformSuperAdminRole = "super-admin"
 // platform role through the platform API until someone holds one). It seeds the
 // `super-admin` role (granting `platform:*`) and assigns it to userID.
 // Idempotent; intended for a host's bootstrap/manifest, never a public route.
+// Deprecated: use s.Roles().EnsurePlatformSuperAdmin.
 func (s *Service) EnsurePlatformSuperAdmin(ctx context.Context, userID string) error {
 	if err := s.DefinePlatformRole(ctx, PlatformSuperAdminRole); err != nil {
 		return err
@@ -122,6 +124,7 @@ func (s *Service) EnsurePlatformSuperAdmin(ctx context.Context, userID string) e
 }
 
 // DefinePlatformRole creates a platform role name (idempotent).
+// Deprecated: use s.Roles().DefinePlatformRole.
 func (s *Service) DefinePlatformRole(ctx context.Context, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -134,6 +137,7 @@ func (s *Service) DefinePlatformRole(ctx context.Context, role string) error {
 }
 
 // GetPlatformRolePermissions returns a platform role's RAW grant tokens.
+// Deprecated: use s.Roles().GetPlatformRolePermissions.
 func (s *Service) GetPlatformRolePermissions(ctx context.Context, role string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -143,6 +147,7 @@ func (s *Service) GetPlatformRolePermissions(ctx context.Context, role string) (
 
 // SetPlatformRolePermissions replaces a platform role's permission set. The role
 // must exist. Tokens are stored as-is; callers should ValidatePlatformGrant first.
+// Deprecated: use s.Roles().SetPlatformRolePermissions.
 func (s *Service) SetPlatformRolePermissions(ctx context.Context, role string, perms []string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -175,6 +180,7 @@ func (s *Service) SetPlatformRolePermissions(ctx context.Context, role string, p
 
 // DeletePlatformRole removes a platform role (and, by cascade, its perms and
 // every assignment of it). Returns the number of role rows removed.
+// Deprecated: use s.Roles().DeletePlatformRole.
 func (s *Service) DeletePlatformRole(ctx context.Context, role string) (int64, error) {
 	if err := s.requirePG(); err != nil {
 		return 0, err
@@ -183,6 +189,7 @@ func (s *Service) DeletePlatformRole(ctx context.Context, role string) (int64, e
 }
 
 // ListPlatformRoles returns every defined platform role name.
+// Deprecated: use s.Roles().ListPlatformRoles.
 func (s *Service) ListPlatformRoles(ctx context.Context) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -192,6 +199,7 @@ func (s *Service) ListPlatformRoles(ctx context.Context) ([]string, error) {
 
 // AssignPlatformRole grants a user a platform role (idempotent) — this is what
 // mints a platform-admin. The role must exist.
+// Deprecated: use s.Roles().AssignPlatformRole.
 func (s *Service) AssignPlatformRole(ctx context.Context, userID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -213,6 +221,7 @@ func (s *Service) AssignPlatformRole(ctx context.Context, userID, role string) e
 
 // UnassignPlatformRole revokes a user's platform role. Returns whether a row was
 // removed.
+// Deprecated: use s.Roles().UnassignPlatformRole.
 func (s *Service) UnassignPlatformRole(ctx context.Context, userID, role string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -225,6 +234,7 @@ func (s *Service) UnassignPlatformRole(ctx context.Context, userID, role string)
 }
 
 // PlatformRolesForUser returns the platform role names assigned to a user.
+// Deprecated: use s.Roles().PlatformRolesForUser.
 func (s *Service) PlatformRolesForUser(ctx context.Context, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -233,6 +243,7 @@ func (s *Service) PlatformRolesForUser(ctx context.Context, userID string) ([]st
 }
 
 // PlatformRoleMembers returns the user ids that hold a given platform role.
+// Deprecated: use s.Roles().PlatformRoleMembers.
 func (s *Service) PlatformRoleMembers(ctx context.Context, role string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -244,6 +255,7 @@ func (s *Service) PlatformRoleMembers(ctx context.Context, role string) ([]strin
 // permissions across all their platform roles, expanded against the platform
 // catalog (globs expand; literals pass through). ONE indexed JOIN + in-memory
 // expansion; a regular user (no platform roles) gets an empty set.
+// Deprecated: use s.Roles().EffectivePlatformPermissions.
 func (s *Service) EffectivePlatformPermissions(ctx context.Context, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -264,6 +276,7 @@ func (s *Service) EffectivePlatformPermissions(ctx context.Context, userID strin
 // glob semantics the SQL cover-token match used. N checks in one request → ONE
 // platform-layer query. The allow/deny result is identical to the previous
 // per-check PlatformUserHasPermissionToken query.
+// Deprecated: use s.Roles().HasPlatformPermission.
 func (s *Service) HasPlatformPermission(ctx context.Context, userID, perm string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -285,6 +298,7 @@ func (s *Service) HasPlatformPermission(ctx context.Context, userID, perm string
 // least one platform catalog permission. No-escalation: the actor must already
 // hold every concrete platform permission the token confers. `actorAll`
 // short-circuits for a bootstrap/super-admin actor. Returns (unknown, offending).
+// Deprecated: use s.Roles().ValidatePlatformGrant.
 func (s *Service) ValidatePlatformGrant(ctx context.Context, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
 	catalog := s.platformCatalogSet()
 	var actorEff map[string]bool

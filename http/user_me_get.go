@@ -46,13 +46,13 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 
 	adminUser, err := s.svc.AdminGetUser(r.Context(), claims.UserID)
 	if err != nil || adminUser == nil {
-		serverErr(w, "user_lookup_failed")
+		serverErr(w, ErrUserLookupFailed)
 		return
 	}
 
@@ -64,7 +64,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		username = strings.TrimSpace(claims.Username)
 	}
 	if username == "" {
-		serverErr(w, "username_missing")
+		serverErr(w, ErrUsernameMissing)
 		return
 	}
 	var preferredLocale *string
@@ -122,7 +122,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	rolesPtr = &roles
 	mems, mErr := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), adminUser.ID)
 	if mErr != nil {
-		serverErr(w, "org_memberships_lookup_failed")
+		serverErr(w, ErrOrgMembershipsLookupFailed)
 		return
 	}
 	orgs := make([]orgMembership, 0, len(mems))

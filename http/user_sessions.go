@@ -13,12 +13,12 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 	}
 	cl, err := getClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	sessions, err := s.svc.ListUserSessions(r.Context(), cl.UserID)
 	if err != nil {
-		serverErr(w, "failed_to_list")
+		serverErr(w, ErrFailedToList)
 		return
 	}
 	arr := make([]map[string]any, 0, len(sessions))
@@ -42,17 +42,17 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 	}
 	cl, err := getClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	sid := strings.TrimSpace(r.PathValue("id"))
 	if sid == "" {
-		badRequest(w, "missing_session_id")
+		badRequest(w, ErrMissingSessionID)
 		return
 	}
 	ctx := core.WithSessionRevokeReason(r.Context(), core.SessionRevokeReasonUserRevoke)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, sid); err != nil {
-		serverErr(w, "failed_to_revoke")
+		serverErr(w, ErrFailedToRevoke)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -64,12 +64,12 @@ func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Reques
 	}
 	cl, err := getClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	ctx := core.WithSessionRevokeReason(r.Context(), core.SessionRevokeReasonUserRevokeAll)
 	if err := s.svc.RevokeAllSessions(ctx, cl.UserID, nil); err != nil {
-		serverErr(w, "failed_to_revoke_all")
+		serverErr(w, ErrFailedToRevokeAll)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

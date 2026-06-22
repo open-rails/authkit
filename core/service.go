@@ -502,6 +502,7 @@ func (s *Service) JWKS() jwtkit.JWKS {
 
 // AdminSetPassword force-sets a user's password
 // (admin only, no current password required)
+// Deprecated: use s.Users().AdminSetPassword.
 func (s *Service) AdminSetPassword(ctx context.Context, userID, new string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -535,6 +536,7 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 // Includes core registered claims plus:
 // - entitlements (authoritative short-lived snapshot)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
+// Deprecated: use s.Tokens().IssueAccessToken.
 func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (token string, expiresAt time.Time, err error) {
 	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
@@ -685,6 +687,7 @@ func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
 
 // RequestPhoneChange initiates a phone number change by sending a verification code to the new phone.
 // The current phone is NOT changed until the user confirms via ConfirmPhoneChange.
+// Deprecated: use s.Users().RequestPhoneChange.
 func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -756,6 +759,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 // ConfirmPhoneChange verifies the code and updates the user's phone number.
 // This is called when the user enters the verification code sent to their new phone.
+// Deprecated: use s.Users().ConfirmPhoneChange.
 func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code string) error {
 	if s.pg == nil || !s.useEphemeralStore() {
 		return jwt.ErrTokenUnverifiable
@@ -783,6 +787,7 @@ func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code st
 }
 
 // ResendPhoneChangeCode resends the verification code for a pending phone change.
+// Deprecated: use s.Users().ResendPhoneChangeCode.
 func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone string) error {
 	// Get current user
 	u, err := s.getUserByID(ctx, userID)
@@ -835,6 +840,7 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 // unified pending-change record. Because the new phone is held only in the
 // pending record and never optimistically applied to the profile, there is
 // nothing to roll back. Idempotent: a no-op when no pending change exists.
+// Deprecated: use s.Users().CancelPhoneChange.
 func (s *Service) CancelPhoneChange(ctx context.Context, userID, phone string) error {
 	if !s.useEphemeralStore() {
 		return nil
@@ -864,6 +870,7 @@ func (s *Service) setPhoneVerified(ctx context.Context, id string, v bool) error
 }
 
 // SendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
+// Deprecated: use s.TwoFactor().SendPhone2FASetupCode.
 func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
 	hash := sha256Hex(code)
 	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
@@ -888,6 +895,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 }
 
 // VerifyPhone2FASetupCode checks the code for 2FA phone setup.
+// Deprecated: use s.TwoFactor().VerifyPhone2FASetupCode.
 func (s *Service) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
 	hash := sha256Hex(code)
 	if s.useEphemeralStore() {
@@ -904,6 +912,7 @@ func (s *Service) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, co
 }
 
 // PasswordLogin verifies credentials and issues an ID token.
+// Deprecated: use s.Users().PasswordLogin.
 func (s *Service) PasswordLogin(ctx context.Context, email, pass string, extra map[string]any) (string, time.Time, error) {
 	if s.pg == nil {
 		return "", time.Time{}, jwt.ErrTokenUnverifiable
@@ -955,6 +964,7 @@ func (s *Service) PasswordLogin(ctx context.Context, email, pass string, extra m
 
 // PasswordLoginByUserID verifies credentials for a specific user ID and issues an ID token.
 // This supports login flows where the identifier is a phone number or username and email may be NULL.
+// Deprecated: use s.Users().PasswordLoginByUserID.
 func (s *Service) PasswordLoginByUserID(ctx context.Context, userID, pass string, extra map[string]any) (string, time.Time, error) {
 	if s.pg == nil {
 		return "", time.Time{}, jwt.ErrTokenUnverifiable
@@ -1014,6 +1024,7 @@ func errOrUnauthorized(err error) error {
 
 // VerifyUserPassword checks a user's password without issuing tokens or updating last-login.
 // Returns true if the password is correct, false otherwise.
+// Deprecated: use s.Users().VerifyUserPassword.
 func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) bool {
 	return s.CheckUserPassword(ctx, userID, pass) == nil
 }
@@ -1023,6 +1034,7 @@ func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) b
 // HashAlgoLegacyResetRequired (no plaintext can verify; the user must reset),
 // and a generic unauthorized error otherwise. Callers that need to route
 // reset-required users (reauth, change-password) should use this form.
+// Deprecated: use s.Users().CheckUserPassword.
 func (s *Service) CheckUserPassword(ctx context.Context, userID, pass string) error {
 	if s.pg == nil || strings.TrimSpace(userID) == "" {
 		return errOrUnauthorized(nil)
@@ -1062,6 +1074,7 @@ func (s *Service) CheckUserPassword(ctx context.Context, userID, pass string) er
 // If the user already has a password, current must verify; otherwise current is ignored.
 // Always Argon2id-hashes the new password and upserts it, then revokes all
 // other sessions for the user; caller may keep one active session via keepSessionID.
+// Deprecated: use s.Users().ChangePassword.
 func (s *Service) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
@@ -1124,6 +1137,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, current, new strin
 	return nil
 }
 
+// Deprecated: use s.Users().SetPasswordAfterFreshAuth.
 func (s *Service) SetPasswordAfterFreshAuth(ctx context.Context, userID, new string, keepSessionID *string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
@@ -1304,6 +1318,7 @@ func (s *Service) ValidateVerificationConfiguration() error {
 
 // RequestPasswordReset creates a password reset token and dispatches a reset link via email.
 // Returns nil for unknown emails to prevent user enumeration (202-like behavior).
+// Deprecated: use s.Users().RequestPasswordReset.
 func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration, ip *string, ua *string) error {
 	if s.pg == nil {
 		return nil
@@ -1352,6 +1367,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 
 // BeginPasswordReset validates and consumes a password reset token, then issues a
 // short-lived one-time reset session for browser handoff.
+// Deprecated: use s.Users().BeginPasswordReset.
 func (s *Service) BeginPasswordReset(ctx context.Context, token string, sessionTTL time.Duration) (string, error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
@@ -1371,6 +1387,7 @@ func (s *Service) BeginPasswordReset(ctx context.Context, token string, sessionT
 }
 
 // ConfirmPasswordResetWithSession consumes a reset session and sets the new password.
+// Deprecated: use s.Users().ConfirmPasswordResetWithSession.
 func (s *Service) ConfirmPasswordResetWithSession(ctx context.Context, resetSession, newPassword string) (string, error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
@@ -1394,6 +1411,7 @@ func (s *Service) ConfirmPasswordResetWithSession(ctx context.Context, resetSess
 }
 
 // ConfirmPasswordReset verifies token and sets a new password.
+// Deprecated: use s.Users().ConfirmPasswordReset.
 func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error) {
 	resetSession, err := s.BeginPasswordReset(ctx, token, 15*time.Minute)
 	if err != nil {
@@ -1403,6 +1421,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 }
 
 // RequestEmailVerification creates a verification code and dispatches an email.
+// Deprecated: use s.Users().RequestEmailVerification.
 func (s *Service) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
 	email = NormalizeEmail(email)
 	if err := ValidateEmail(email); err != nil {
@@ -1472,6 +1491,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 
 // ConfirmEmailVerification verifies a token and marks email_verified = true.
 // Returns the userID of the verified user.
+// Deprecated: use s.Users().ConfirmEmailVerification.
 func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (userID string, err error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
@@ -1501,10 +1521,12 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 
 // CreatePendingRegistration creates a pending registration and sends verification email.
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
+// Deprecated: use s.Users().CreatePendingRegistration.
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
 	return s.CreatePendingRegistrationWithLocale(ctx, email, username, passwordHash, ttl, "")
 }
 
+// Deprecated: use s.Users().CreatePendingRegistrationWithLocale.
 func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLocale string) (string, error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
@@ -1606,6 +1628,7 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 
 // ConfirmPendingRegistration verifies token and creates the actual user account.
 // This implements "first to verify wins" - whoever verifies first gets the username/email.
+// Deprecated: use s.Users().ConfirmPendingRegistration.
 func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) (userID string, err error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
@@ -1621,6 +1644,7 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 
 // CheckPendingRegistrationConflict checks if email or username exists in users or pending registration cache.
 // Returns (emailTaken, usernameTaken, error)
+// Deprecated: use s.Users().CheckPendingRegistrationConflict.
 func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, username string) (bool, bool, error) {
 	var emailTaken, usernameTaken bool
 	email = NormalizeEmail(email)
@@ -1652,10 +1676,12 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 
 // CreatePendingPhoneRegistration creates a pending phone registration and sends SMS verification code.
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
+// Deprecated: use s.Users().CreatePendingPhoneRegistration.
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
 	return s.CreatePendingPhoneRegistrationWithLocale(ctx, phone, username, passwordHash, "")
 }
 
+// Deprecated: use s.Users().CreatePendingPhoneRegistrationWithLocale.
 func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, phone, username, passwordHash, preferredLocale string) (string, error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
@@ -1749,6 +1775,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 
 // ConfirmPendingPhoneRegistration verifies code and creates the actual user account.
 // Implements "first to verify wins" - whoever verifies first gets the username/phone.
+// Deprecated: use s.Users().ConfirmPendingPhoneRegistration.
 func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
@@ -1777,12 +1804,14 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 
 // ConfirmPendingPhoneRegistrationByToken verifies a pending phone registration
 // using either a manual code or a high-entropy link token.
+// Deprecated: use s.Users().ConfirmPendingPhoneRegistrationByToken.
 func (s *Service) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, token string) (string, error) {
 	return s.ConfirmPendingPhoneRegistration(ctx, "", token)
 }
 
 // CheckPhoneRegistrationConflict checks if phone or username exists in users OR pending tables.
 // Returns (phoneTaken, usernameTaken, error)
+// Deprecated: use s.Users().CheckPhoneRegistrationConflict.
 func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
 	var phoneTaken, usernameTaken bool
 	phone = NormalizePhone(phone)
@@ -1813,6 +1842,7 @@ func (s *Service) CheckPhoneRegistrationConflict(ctx context.Context, phone, use
 }
 
 // GetUserByPhone looks up a user by phone number.
+// Deprecated: use s.Users().GetUserByPhone.
 func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
@@ -1832,6 +1862,7 @@ func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, erro
 
 // RequestPhoneVerification looks up the user by phone number and sends a verification code.
 // This mirrors the RequestEmailVerification pattern - caller only needs to provide the phone number.
+// Deprecated: use s.Users().RequestPhoneVerification.
 func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
 	phone = NormalizePhone(phone)
 	if err := ValidatePhone(phone); err != nil {
@@ -1866,6 +1897,7 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 // SendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
 // Use RequestPhoneVerification if you only have a phone number and need to look up the user.
 // Always returns nil for security.
+// Deprecated: use s.Users().SendPhoneVerificationToUser.
 func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = defaultPhoneVerificationTTL
@@ -1909,12 +1941,14 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 }
 
 // ConfirmPhoneVerification verifies a token and marks phone_verified = true.
+// Deprecated: use s.Users().ConfirmPhoneVerification.
 func (s *Service) ConfirmPhoneVerification(ctx context.Context, phone, code string) error {
 	_, err := s.ConfirmPhoneVerificationUserID(ctx, phone, code)
 	return err
 }
 
 // ConfirmPhoneVerificationUserID verifies a token, marks phone_verified = true, and returns the user ID.
+// Deprecated: use s.Users().ConfirmPhoneVerificationUserID.
 func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, code string) (string, error) {
 	hash := sha256Hex(code)
 
@@ -1937,12 +1971,14 @@ func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, cod
 }
 
 // ConfirmPhoneVerificationByToken verifies phone ownership using a one-click token.
+// Deprecated: use s.Users().ConfirmPhoneVerificationByToken.
 func (s *Service) ConfirmPhoneVerificationByToken(ctx context.Context, token string) error {
 	_, err := s.ConfirmPhoneVerificationByTokenUserID(ctx, token)
 	return err
 }
 
 // ConfirmPhoneVerificationByTokenUserID verifies phone ownership using a one-click token and returns the user ID.
+// Deprecated: use s.Users().ConfirmPhoneVerificationByTokenUserID.
 func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, token string) (string, error) {
 	hash := sha256Hex(token)
 	userID, phone, err := s.consumePhoneVerificationByToken(ctx, "verify_phone", hash)
@@ -1960,6 +1996,7 @@ func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, tok
 
 // RequestPhonePasswordReset creates a password reset token and sends a reset link via SMS.
 // Always returns nil for unknown phone numbers to prevent user enumeration (202-like behavior).
+// Deprecated: use s.Users().RequestPhonePasswordReset.
 func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error {
 	// Look up user by phone
 	u, err := s.GetUserByPhone(ctx, phone)
@@ -2100,6 +2137,7 @@ type PreferredLocale struct {
 	UpdatedAt *time.Time
 }
 
+// Deprecated: use s.Users().SetPreferredLocale.
 func (s *Service) SetPreferredLocale(ctx context.Context, userID, locale, source string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -2116,6 +2154,7 @@ func (s *Service) SetPreferredLocale(ctx context.Context, userID, locale, source
 	return s.q.UserSetPreferredLocale(ctx, db.UserSetPreferredLocaleParams{ID: userID, PreferredLocale: &normalized, PreferredLocaleSource: &src})
 }
 
+// Deprecated: use s.Users().GetPreferredLocale.
 func (s *Service) GetPreferredLocale(ctx context.Context, userID string) (PreferredLocale, error) {
 	if s.pg == nil {
 		return PreferredLocale{}, nil
@@ -2339,6 +2378,7 @@ func normalizeImportUserInput(input ImportUserInput) (email *string, phone *stri
 	return email, phone, username, bannedBy, string(metadataJSON), createdAt, updatedAt, nil
 }
 
+// Deprecated: use s.Users().ImportUser.
 func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -2381,6 +2421,7 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 	return s.getUserByID(ctx, userID)
 }
 
+// Deprecated: use s.Users().UpdateImportedUser.
 func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -2518,6 +2559,7 @@ func (s *Service) clearUserBan(ctx context.Context, userID string) error {
 }
 
 // BanUser disables a user account and stores ban metadata.
+// Deprecated: use s.Users().BanUser.
 func (s *Service) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -2550,12 +2592,14 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 }
 
 // UnbanUser clears ban metadata and re-enables the account.
+// Deprecated: use s.Users().UnbanUser.
 func (s *Service) UnbanUser(ctx context.Context, userID string) error {
 	return s.clearUserBan(ctx, userID)
 }
 
 // SoftDeleteUser marks the user deleted and sets deleted_at without dropping rows.
 // Also revokes all refresh sessions for this issuer.
+// Deprecated: use s.Users().SoftDeleteUser.
 func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
@@ -2567,6 +2611,7 @@ func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 }
 
 // RestoreUser clears deleted_at and re-enables the account.
+// Deprecated: use s.Users().RestoreUser.
 func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
@@ -2577,6 +2622,7 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 // HostDeleteUser performs deletion on behalf of the host application.
 // If soft is true, it performs a soft delete (see SoftDeleteUser). If false, it hard-deletes the user
 // and all dependent rows via ON DELETE CASCADE.
+// Deprecated: use s.Users().HostDeleteUser.
 func (s *Service) HostDeleteUser(ctx context.Context, id string, soft bool) error {
 	if soft {
 		return s.SoftDeleteUser(ctx, id)
@@ -2591,6 +2637,7 @@ func (s *Service) updateUsername(ctx context.Context, id, username string) error
 // UpdateUsernameForce is the admin override that skips the 72h cooldown
 // check. Otherwise identical to UpdateUsername. Caller is responsible
 // for gating this behind admin scope upstream.
+// Deprecated: use s.Users().UpdateUsernameForce.
 func (s *Service) UpdateUsernameForce(ctx context.Context, id, username string) error {
 	return s.updateUsernameImpl(ctx, id, username, true)
 }
@@ -2721,6 +2768,7 @@ func (s *Service) updateEmail(ctx context.Context, id, email string) error {
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
 // The current email is NOT changed until the user confirms via ConfirmEmailChange.
 // Also sends a notification to the old email for security.
+// Deprecated: use s.Users().RequestEmailChange.
 func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -2798,6 +2846,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 
 // ConfirmEmailChange verifies the code and updates the user's email address.
 // This is called when the user enters the verification code sent to their new email.
+// Deprecated: use s.Users().ConfirmEmailChange.
 func (s *Service) ConfirmEmailChange(ctx context.Context, userID, code string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
@@ -2821,6 +2870,7 @@ func (s *Service) ConfirmEmailChange(ctx context.Context, userID, code string) e
 }
 
 // ResendEmailChangeCode resends the verification code for a pending email change.
+// Deprecated: use s.Users().ResendEmailChangeCode.
 func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) error {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
@@ -2876,6 +2926,7 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 // GetPendingEmailChange retrieves the pending email change for a user, if any.
 // A unified change_email record exists only for an actual change (verifying the
 // current address uses a separate store), so its presence already means "change".
+// Deprecated: use s.Users().GetPendingEmailChange.
 func (s *Service) GetPendingEmailChange(ctx context.Context, userID string) (string, error) {
 	if !s.useEphemeralStore() {
 		return "", nil
@@ -2890,6 +2941,7 @@ func (s *Service) GetPendingEmailChange(ctx context.Context, userID string) (str
 // CancelEmailChange aborts a pending email-change for the user, clearing the
 // unified pending-change record. The new email is applied only on confirmation,
 // so there is nothing to roll back. Idempotent: a no-op when none is pending.
+// Deprecated: use s.Users().CancelEmailChange.
 func (s *Service) CancelEmailChange(ctx context.Context, userID string) error {
 	if !s.useEphemeralStore() {
 		return nil
@@ -3044,20 +3096,28 @@ func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) err
 }
 
 // Exported wrappers for admin endpoints
+// Deprecated: use s.Roles().AssignRoleBySlug.
 func (s *Service) AssignRoleBySlug(ctx context.Context, userID, slug string) error {
 	return s.assignRoleBySlug(ctx, userID, slug)
 }
+
+// Deprecated: use s.Roles().UpsertRoleBySlug.
 func (s *Service) UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
 	return s.upsertRoleBySlug(ctx, name, slug, description)
 }
+
+// Deprecated: use s.Roles().RemoveRoleBySlug.
 func (s *Service) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {
 	return s.removeRoleBySlug(ctx, userID, slug)
 }
 
 // Public helpers for HTTP adapters
+// Deprecated: use s.Roles().ListRoleSlugsByUser.
 func (s *Service) ListRoleSlugsByUser(ctx context.Context, userID string) []string {
 	return s.listRoleSlugsByUser(ctx, userID)
 }
+
+// Deprecated: use s.Users().GetEmailByUserID.
 func (s *Service) GetEmailByUserID(ctx context.Context, id string) (string, error) {
 	u, err := s.getUserByID(ctx, id)
 	if err != nil || u == nil {
@@ -3068,15 +3128,23 @@ func (s *Service) GetEmailByUserID(ctx context.Context, id string) (string, erro
 	}
 	return *u.Email, nil
 }
+
+// Deprecated: use s.Users().UpdateUsername.
 func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {
 	return s.updateUsername(ctx, id, username)
 }
+
+// Deprecated: use s.Users().UpdateEmail.
 func (s *Service) UpdateEmail(ctx context.Context, id, email string) error {
 	return s.updateEmail(ctx, id, email)
 }
+
+// Deprecated: use s.Users().UpdateBiography.
 func (s *Service) UpdateBiography(ctx context.Context, id string, bio *string) error {
 	return s.updateBiography(ctx, id, bio)
 }
+
+// Deprecated: use s.Users().IsUserAllowed.
 func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
 	if s.pg == nil {
 		return true, nil
@@ -3263,6 +3331,7 @@ func adminUserOrderBy(o AdminUserListOptions) string {
 
 // AdminCountUsers returns the number of users matching opts (same filters as
 // AdminListUsers, ignoring pagination/sort).
+// Deprecated: use s.Users().AdminCountUsers.
 func (s *Service) AdminCountUsers(ctx context.Context, opts AdminUserListOptions) (int64, error) {
 	if s.pg == nil {
 		return 0, nil
@@ -3283,6 +3352,7 @@ func (s *Service) AdminCountUsers(ctx context.Context, opts AdminUserListOptions
 // role/org/status filter + search + sort + offset pagination, with optional
 // provider-backed entitlement filtering. Each row is enriched with role slugs
 // and (via the entitlements provider) entitlement names.
+// Deprecated: use s.Users().AdminListUsers.
 func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error) {
 	opts = opts.normalize()
 	if s.pg == nil {
@@ -3358,6 +3428,7 @@ func (s *Service) enrichEntitlements(ctx context.Context, users []AdminUser) {
 	}
 }
 
+// Deprecated: use s.Users().AdminGetUser.
 func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, error) {
 	u, err := s.getUserByID(ctx, id)
 	if err != nil || u == nil {
@@ -3374,6 +3445,7 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 	return a, nil
 }
 
+// Deprecated: use s.Users().AdminDeleteUser.
 func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
@@ -3385,41 +3457,62 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 }
 
 // Additional public helpers used by OIDC flow
+// Deprecated: use s.Identity().GetProviderLink.
 func (s *Service) GetProviderLink(ctx context.Context, providerSlug, subject string) (string, *string, error) {
 	return s.getProviderLinkBySlug(ctx, providerSlug, subject)
 }
+
+// Deprecated: use s.Identity().GetUserByEmail.
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	return s.getUserByEmail(ctx, email)
 }
+
+// Deprecated: use s.Identity().GetUserByUsername.
 func (s *Service) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	return s.getUserByUsername(ctx, username)
 }
+
+// Deprecated: use s.Users().CreateUser.
 func (s *Service) CreateUser(ctx context.Context, email, username string) (*User, error) {
 	return s.createUser(ctx, email, username)
 }
+
+// Deprecated: use s.Identity().LinkProvider.
 func (s *Service) LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error {
 	return s.linkProvider(ctx, userID, provider, subject, email)
 }
+
+// Deprecated: use s.Identity().SetProviderUsername.
 func (s *Service) SetProviderUsername(ctx context.Context, userID, provider, subject, username string) error {
 	return s.setProviderUsername(ctx, userID, provider, subject, username)
 }
+
+// Deprecated: use s.Identity().GetProviderUsername.
 func (s *Service) GetProviderUsername(ctx context.Context, userID, provider string) (string, error) {
 	return s.getProviderUsername(ctx, userID, provider)
 }
 
 // Convenience: Discord username
+// Deprecated: use s.Identity().GetDiscordUsername.
 func (s *Service) GetDiscordUsername(ctx context.Context, userID string) (string, error) {
 	return s.getProviderUsername(ctx, userID, "discord")
 }
+
+// Deprecated: use s.Users().SetEmailVerified.
 func (s *Service) SetEmailVerified(ctx context.Context, id string, v bool) error {
 	return s.setEmailVerified(ctx, id, v)
 }
+
+// Deprecated: use s.Users().UpsertPasswordHash.
 func (s *Service) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
 	return s.upsertPasswordHash(ctx, userID, hash, algo, params)
 }
+
+// Deprecated: use s.Users().DeriveUsername.
 func (s *Service) DeriveUsername(email string) string { return deriveUsername(email) }
 
 // LogSessionCreated records a session creation event via the configured AuthEventLogger (best-effort).
+// Deprecated: use s.Sessions().LogSessionCreated.
 func (s *Service) LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
 	if s.authlog == nil {
 		return
@@ -3462,6 +3555,7 @@ func (s *Service) logSessionRevoked(ctx context.Context, userID string, sessionI
 }
 
 // LogPasswordChanged records a password change event for a user (best-effort).
+// Deprecated: use s.Sessions().LogPasswordChanged.
 func (s *Service) LogPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
 	if s.authlog == nil {
 		return
@@ -3482,6 +3576,7 @@ func (s *Service) LogPasswordChanged(ctx context.Context, userID string, session
 
 // LogPasswordRecovery records a password recovery event for a user (best-effort).
 
+// Deprecated: use s.Sessions().LogPasswordRecovery.
 func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
 	if s.authlog == nil {
 		return
@@ -3502,6 +3597,7 @@ func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, method
 
 // LogSessionFailed records a failed session event for a user (best-effort).
 
+// Deprecated: use s.Sessions().LogSessionFailed.
 func (s *Service) LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string) {
 	if s.authlog == nil {
 		return
@@ -3521,6 +3617,7 @@ func (s *Service) LogSessionFailed(ctx context.Context, userID string, sessionID
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.
+// Deprecated: use s.Users().SendWelcome.
 func (s *Service) SendWelcome(ctx context.Context, userID string) {
 	if s.email == nil || s.pg == nil || strings.TrimSpace(userID) == "" {
 		return
@@ -3561,20 +3658,28 @@ func (s *Service) unlinkProvider(ctx context.Context, userID, provider string) e
 }
 
 // Public wrappers
+// Deprecated: use s.Identity().CountProviderLinks.
 func (s *Service) CountProviderLinks(ctx context.Context, userID string) int {
 	return s.countProviderLinks(ctx, userID)
 }
+
+// Deprecated: use s.Identity().HasPassword.
 func (s *Service) HasPassword(ctx context.Context, userID string) bool {
 	return s.hasPassword(ctx, userID)
 }
+
+// Deprecated: use s.Identity().UnlinkProvider.
 func (s *Service) UnlinkProvider(ctx context.Context, userID, provider string) error {
 	return s.unlinkProvider(ctx, userID, provider)
 }
 
 // Issuer-based provider link helpers (preferred)
+// Deprecated: use s.Identity().GetProviderLinkByIssuer.
 func (s *Service) GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error) {
 	return s.getProviderLinkByIssuerInternal(ctx, issuer, subject)
 }
+
+// Deprecated: use s.Identity().LinkProviderByIssuer.
 func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
 	// Store provider slug for UI, enforce uniqueness on (issuer, subject) and (user_id, issuer)
 	// Remove any existing provider link for this user+issuer with different subject (allows switching Discord accounts)
@@ -3607,6 +3712,7 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 // ListEntitlements returns current entitlement names for a user (fresh from
 // the provider). A provider failure is logged and returned as none — callers
 // (admin user views) degrade rather than fail.
+// Deprecated: use s.Users().ListEntitlements.
 func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
 	if s.entitlements == nil {
 		return nil
@@ -3734,6 +3840,7 @@ type PendingRegistration struct {
 }
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.
+// Deprecated: use s.Users().GetPendingRegistrationByEmail.
 func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
@@ -3752,6 +3859,7 @@ func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email strin
 
 // GetPendingPhoneRegistrationByPhone looks up a pending phone registration by phone number.
 // (PendingRegistration.Email carries the phone for phone registrations, preserving prior behavior.)
+// Deprecated: use s.Users().GetPendingPhoneRegistrationByPhone.
 func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
 	if !s.useEphemeralStore() {
 		return nil, nil
@@ -3770,6 +3878,7 @@ func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone 
 
 // VerifyPendingPassword checks if the provided password matches the pending registration's hash.
 // Returns true if password is correct, false otherwise.
+// Deprecated: use s.Users().VerifyPendingPassword.
 func (s *Service) VerifyPendingPassword(ctx context.Context, email, pass string) bool {
 	pr, err := s.GetPendingRegistrationByEmail(ctx, email)
 	if err != nil || pr == nil {
@@ -3783,6 +3892,7 @@ func (s *Service) VerifyPendingPassword(ctx context.Context, email, pass string)
 
 // VerifyPendingPhonePassword checks if the provided password matches the pending
 // phone registration's hash. Returns true if password is correct, false otherwise.
+// Deprecated: use s.Users().VerifyPendingPhonePassword.
 func (s *Service) VerifyPendingPhonePassword(ctx context.Context, phone, pass string) bool {
 	pr, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone)
 	if err != nil || pr == nil {
@@ -3807,6 +3917,7 @@ type TwoFactorSettings struct {
 
 // Enable2FA enables two-factor authentication for a user and generates backup codes.
 // Returns the plaintext backup codes (caller must show these to user ONCE).
+// Deprecated: use s.TwoFactor().Enable2FA.
 func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
@@ -3840,6 +3951,7 @@ func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNum
 }
 
 // Disable2FA disables two-factor authentication for a user
+// Deprecated: use s.TwoFactor().Disable2FA.
 func (s *Service) Disable2FA(ctx context.Context, userID string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -3849,6 +3961,7 @@ func (s *Service) Disable2FA(ctx context.Context, userID string) error {
 }
 
 // Get2FASettings retrieves a user's 2FA settings
+// Deprecated: use s.TwoFactor().Get2FASettings.
 func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
@@ -3872,6 +3985,7 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 // Require2FAForLogin sends a 2FA code to the user's configured method.
 // Returns the destination (email/phone) where the code was sent.
 // This should be called after successful password verification.
+// Deprecated: use s.TwoFactor().Require2FAForLogin.
 func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string, error) {
 	// Get user's 2FA settings
 	settings, err := s.Get2FASettings(ctx, userID)
@@ -3953,6 +4067,7 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 }
 
 // Create2FAChallenge creates a short-lived challenge to prove password verification before 2FA.
+// Deprecated: use s.TwoFactor().Create2FAChallenge.
 func (s *Service) Create2FAChallenge(ctx context.Context, userID string) (string, error) {
 	if !s.useEphemeralStore() {
 		return "", fmt.Errorf("ephemeral store not configured")
@@ -3966,6 +4081,7 @@ func (s *Service) Create2FAChallenge(ctx context.Context, userID string) (string
 }
 
 // Verify2FAChallenge verifies the challenge created during the password step.
+// Deprecated: use s.TwoFactor().Verify2FAChallenge.
 func (s *Service) Verify2FAChallenge(ctx context.Context, userID, challenge string) (bool, error) {
 	if strings.TrimSpace(challenge) == "" {
 		return false, nil
@@ -3981,6 +4097,7 @@ func (s *Service) Verify2FAChallenge(ctx context.Context, userID, challenge stri
 }
 
 // Clear2FAChallenge removes the stored challenge after successful 2FA verification.
+// Deprecated: use s.TwoFactor().Clear2FAChallenge.
 func (s *Service) Clear2FAChallenge(ctx context.Context, userID string) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store not configured")
@@ -3990,6 +4107,7 @@ func (s *Service) Clear2FAChallenge(ctx context.Context, userID string) error {
 
 // Verify2FACode verifies a 2FA code entered by the user during login.
 // Returns true if code is valid, false otherwise.
+// Deprecated: use s.TwoFactor().Verify2FACode.
 func (s *Service) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
 	hash := sha256Hex(code)
 
@@ -4001,6 +4119,7 @@ func (s *Service) Verify2FACode(ctx context.Context, userID, code string) (bool,
 
 // VerifyBackupCode verifies a 2FA backup code for account recovery.
 // On success, removes the used backup code from the user's backup codes.
+// Deprecated: use s.TwoFactor().VerifyBackupCode.
 func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode string) (bool, error) {
 	if s.pg == nil {
 		return false, fmt.Errorf("postgres not configured")
@@ -4043,6 +4162,7 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 
 // RegenerateBackupCodes generates new backup codes for a user (invalidating old ones).
 // Returns the plaintext codes (caller must show these to user ONCE).
+// Deprecated: use s.TwoFactor().RegenerateBackupCodes.
 func (s *Service) RegenerateBackupCodes(ctx context.Context, userID string) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")

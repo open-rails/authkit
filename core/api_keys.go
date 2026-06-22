@@ -121,6 +121,7 @@ type ResourceScopeAuthorizationRequest struct {
 // and IDs as opaque and never interprets their semantics itself.
 type ResourceScopeAuthorizer func(ctx context.Context, req ResourceScopeAuthorizationRequest) error
 
+// Deprecated: use s.APIKeys().AuthorizeAPIKeyResources.
 func (s *Service) AuthorizeAPIKeyResources(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
 	resources, err := normalizeAPIKeyResources(req.Resources)
 	if err != nil {
@@ -163,6 +164,7 @@ func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 // exist in the org and the grant decision (no-escalation) lives in the HTTP
 // handler / host hook. expiresAt is optional (nil = no expiry) and is capped to
 // APIKeyMaxTTL when set.
+// Deprecated: use s.APIKeys().MintAPIKey.
 func (s *Service) MintAPIKey(ctx context.Context, orgSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
 	return s.MintAPIKeyWithOptions(ctx, orgSlug, APIKeyMintOptions{
 		Name:      name,
@@ -177,6 +179,7 @@ func (s *Service) MintAPIKey(ctx context.Context, orgSlug, name, role, createdBy
 // already exist in the org; its effective permissions are resolved from the role.
 // No-escalation is the caller's responsibility (the HTTP handler validates the
 // minter holds everything the role confers). Resources are a separate binding.
+// Deprecated: use s.APIKeys().MintAPIKeyWithOptions.
 func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return APIKey{}, "", err
@@ -298,6 +301,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opt
 // ListAPIKeys returns metadata for every API key of the org (including
 // revoked/expired ones, so an admin can see and clean them up). The secret is
 // never returned.
+// Deprecated: use s.APIKeys().ListAPIKeys.
 func (s *Service) ListAPIKeys(ctx context.Context, orgSlug string) ([]APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -336,6 +340,7 @@ func (s *Service) ListAPIKeys(ctx context.Context, orgSlug string) ([]APIKey, er
 // RevokeAPIKey marks the API key revoked. It is scoped to the org so a
 // token cannot be revoked from a different org. Returns false if no matching,
 // not-already-revoked token exists.
+// Deprecated: use s.APIKeys().RevokeAPIKey.
 func (s *Service) RevokeAPIKey(ctx context.Context, orgSlug, tokenID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -357,6 +362,7 @@ func (s *Service) RevokeAPIKey(ctx context.Context, orgSlug, tokenID string) (bo
 // are never frozen into the key). It performs an indexed lookup by key_id, a
 // constant-time secret compare, and revoked / expired / org-deleted checks, then
 // best-effort async-touches last_used_at.
+// Deprecated: use s.APIKeys().ResolveAPIKey.
 func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (orgSlug string, permissions []string, err error) {
 	resolved, err := s.ResolveAPIKeyWithResources(ctx, keyID, secret)
 	if err != nil {
@@ -369,6 +375,7 @@ func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (orgS
 // full resource-aware result. Existing tokens with no resources return an empty
 // Resources slice and remain org-wide for hosts that use the compatibility
 // resolver.
+// Deprecated: use s.APIKeys().ResolveAPIKeyWithResources.
 func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return ResolvedAPIKey{}, err

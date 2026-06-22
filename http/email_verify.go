@@ -25,11 +25,11 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		Email string `json:"email"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := core.ValidateEmail(req.Email); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 
@@ -40,7 +40,7 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	if !s.svc.HasEmailSender() {
-		serverErr(w, "email_verification_unavailable")
+		serverErr(w, ErrEmailVerificationUnavailable)
 		return
 	}
 	if err := s.svc.RequestEmailVerification(r.Context(), req.Email, 0); err != nil {
@@ -51,7 +51,7 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 			return
 		}
 		s.logInternalError(r, "email_verify_request", "request_email_verification", "verification_request_failed", err)
-		serverErr(w, "verification_request_failed")
+		serverErr(w, ErrVerificationRequestFailed)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
@@ -65,7 +65,7 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		Code string `json:"code"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Code) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -76,10 +76,10 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	if err == nil && userID != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
-			serverErr(w, "token_issue_failed")
+			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
 		return
@@ -87,15 +87,15 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 
 	userID, err = s.svc.ConfirmEmailVerification(r.Context(), code)
 	if err != nil {
-		badRequest(w, "invalid_or_expired_code")
+		badRequest(w, ErrInvalidOrExpiredCode)
 		return
 	}
 	if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		serverErr(w, "token_issue_failed")
+		serverErr(w, ErrTokenIssueFailed)
 		return
 	}
 }

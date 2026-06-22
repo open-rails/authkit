@@ -88,6 +88,7 @@ func (s *Service) ownerSlugConflictExistsTx(ctx context.Context, tx pgx.Tx, slug
 	return s.qtx(tx).OwnerSlugConflictExists(ctx, db.OwnerSlugConflictExistsParams{Slug: slug, ReuseCutoff: reuseCutoff})
 }
 
+// Deprecated: use s.Orgs().IsUserReserved.
 func (s *Service) IsUserReserved(ctx context.Context, userID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -105,6 +106,7 @@ func (s *Service) IsUserReserved(ctx context.Context, userID string) (bool, erro
 	return reserved, nil
 }
 
+// Deprecated: use s.Orgs().GetOrgNamespaceState.
 func (s *Service) GetOrgNamespaceState(ctx context.Context, orgID string) (OwnerNamespaceState, error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
@@ -148,6 +150,7 @@ func (s *Service) setOrgNamespaceStateTx(ctx context.Context, tx pgx.Tx, orgID s
 	return nil
 }
 
+// Deprecated: use s.Orgs().SetOrgNamespaceState.
 func (s *Service) SetOrgNamespaceState(ctx context.Context, orgID string, state OwnerNamespaceState) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -166,6 +169,7 @@ func (s *Service) SetOrgNamespaceState(ctx context.Context, orgID string, state 
 	return tx.Commit(ctx)
 }
 
+// Deprecated: use s.Orgs().GetOwnerNamespaceStateBySlug.
 func (s *Service) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string) (OwnerNamespaceState, error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
@@ -200,6 +204,7 @@ func (s *Service) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string)
 // even bootstrap-reserved names like 'root' or 'admin'. If a reserved-name row
 // exists it's deleted as part of the transaction. Internal-library API only —
 // not exposed publicly.
+// Deprecated: use s.Orgs().ParkOrgNamespace.
 func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (orgID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", false, err
@@ -262,6 +267,7 @@ func (s *Service) ParkOrgNamespace(ctx context.Context, slug string) (orgID stri
 	return strings.TrimSpace(orgID), true, nil
 }
 
+// Deprecated: use s.Orgs().PromoteParkedOrgToRegistered.
 func (s *Service) PromoteParkedOrgToRegistered(ctx context.Context, slug, ownerUserID string) (orgID string, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
@@ -289,6 +295,7 @@ func (s *Service) PromoteParkedOrgToRegistered(ctx context.Context, slug, ownerU
 //	restricted_name -> parked_org -> registered_org
 //
 // It is idempotent for already-registered orgs and optionally ensures owner membership.
+// Deprecated: use s.Orgs().PromoteReservedNameToRegistered.
 func (s *Service) PromoteReservedNameToRegistered(ctx context.Context, slug, ownerUserID string) (orgID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", false, err
@@ -435,6 +442,7 @@ func normalizeOwnerNamespaceSlugs(raw []string) ([]string, error) {
 
 // RestrictOwnerNamespaceSlugs adds slugs to the restricted-name blocklist.
 // It is an admin operation separate from park/claim org lifecycle transitions.
+// Deprecated: use s.Orgs().RestrictOwnerNamespaceSlugs.
 func (s *Service) RestrictOwnerNamespaceSlugs(ctx context.Context, slugs []string) (restricted []string, alreadyRestricted []string, err error) {
 	if err := s.requirePG(); err != nil {
 		return nil, nil, err
@@ -481,6 +489,7 @@ func (s *Service) RestrictOwnerNamespaceSlugs(ctx context.Context, slugs []strin
 }
 
 // UnrestrictOwnerNamespaceSlugs removes slugs from the restricted-name blocklist.
+// Deprecated: use s.Orgs().UnrestrictOwnerNamespaceSlugs.
 func (s *Service) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []string) (unrestricted []string, notRestricted []string, err error) {
 	if err := s.requirePG(); err != nil {
 		return nil, nil, err
@@ -523,6 +532,8 @@ func (s *Service) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []str
 //   - already-registered orgs return ErrOwnerNamespaceAlreadyClaimed
 //   - restricted_name (or missing namespace) creates the org if needed, then claims it
 //   - owner user must exist and not be soft-deleted
+//
+// Deprecated: use s.Orgs().ClaimOrgNamespace.
 func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID string) (orgID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", false, err
@@ -618,6 +629,8 @@ func (s *Service) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID strin
 //   - If no same-slug user exists, creates a placeholder user (and personal org), then parks it.
 //   - If a same-slug non-personal org exists, returns ErrInvalidOwnerNamespaceTransition.
 //   - Requires the slug to be valid and available for user ownership semantics.
+//
+// Deprecated: use s.Orgs().ParkUserNamespace.
 func (s *Service) ParkUserNamespace(ctx context.Context, slug string) (userID, orgID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", "", false, err
@@ -679,6 +692,8 @@ func (s *Service) ParkUserNamespace(ctx context.Context, slug string) (userID, o
 //   - Clears user reserved metadata and any restricted-name marker for the slug.
 //   - Forces the user's personal org namespace state to registered_org when present.
 //   - If a same-slug non-personal org exists, returns ErrInvalidOwnerNamespaceTransition.
+//
+// Deprecated: use s.Orgs().ClaimUserNamespace.
 func (s *Service) ClaimUserNamespace(ctx context.Context, slug string) (userID, orgID string, created bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", "", false, err

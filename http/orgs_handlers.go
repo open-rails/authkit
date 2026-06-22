@@ -11,12 +11,12 @@ import (
 func (s *Service) handleOrgsListGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	mems, err := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, "orgs_lookup_failed")
+		serverErr(w, ErrOrgsLookupFailed)
 		return
 	}
 	type orgItem struct {
@@ -37,7 +37,7 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	var body struct {
@@ -51,18 +51,18 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 		Federation *remoteApplicationRegistration `json:"federation,omitempty"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Slug) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	// Validate the federation block BEFORE creating anything, so an invalid
 	// block rejects the whole registration (no org created).
 	if body.Federation != nil {
 		if strings.TrimSpace(body.Federation.Issuer) == "" {
-			badRequest(w, "invalid_federation_issuer")
+			badRequest(w, ErrInvalidFederationIssuer)
 			return
 		}
 		if _, err := core.NormalizeRemoteAppTrustSource(body.Federation.JWKSURI, body.Federation.Mode, body.Federation.PublicKeys); err != nil {
-			badRequest(w, "invalid_federation_trust_source")
+			badRequest(w, ErrInvalidFederationTrustSource)
 			return
 		}
 	}
@@ -72,22 +72,22 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if err == core.ErrInvalidOrgSlug {
-			badRequest(w, "invalid_org_slug")
+			badRequest(w, ErrInvalidOrgSlug)
 			return
 		}
 		if err == core.ErrOwnerSlugTaken {
-			badRequest(w, "owner_slug_taken")
+			badRequest(w, ErrOwnerSlugTaken)
 			return
 		}
 		if err == core.ErrInvalidOrgOwner {
-			forbidden(w, "invalid_org_owner")
+			forbidden(w, ErrInvalidOrgOwner)
 			return
 		}
 		if err == core.ErrOrgLimitExceeded {
-			forbidden(w, "org_limit_exceeded")
+			forbidden(w, ErrOrgLimitExceeded)
 			return
 		}
-		badRequest(w, "org_create_failed")
+		badRequest(w, ErrOrgCreateFailed)
 		return
 	}
 
@@ -132,25 +132,25 @@ func (s *Service) handleOrgsCreatePOST(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)
 	if err != nil {
 		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 			return
 		}
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	if !member {
-		forbidden(w, "not_org_member")
+		forbidden(w, ErrNotOrgMember)
 		return
 	}
 	// Issue #58: emit a 301 redirect when the request used a historical
@@ -169,17 +169,17 @@ func (s *Service) handleOrgsGetGET(w http.ResponseWriter, r *http.Request) {
 	}
 	org, err := s.svc.ResolveOrgBySlug(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	roles, err := s.svc.ReadMemberRoles(r.Context(), canonical, claims.UserID)
 	if err != nil {
-		serverErr(w, "org_membership_lookup_failed")
+		serverErr(w, ErrOrgMembershipLookupFailed)
 		return
 	}
 	perms, err := s.svc.EffectivePermissions(r.Context(), canonical, claims.UserID)
 	if err != nil {
-		serverErr(w, "permissions_lookup_failed")
+		serverErr(w, ErrPermissionsLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -208,63 +208,63 @@ func firstRole(roles []string) string {
 func (s *Service) handleOrgsRenamePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, _, isOwner, err := s.requireOrgOwner(r.Context(), claims.UserID, orgSlug)
 	if err != nil {
 		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 			return
 		}
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	if !isOwner {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return
 	}
 	var body struct {
 		NewSlug string `json:"new_slug"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewSlug) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	org, err := s.svc.ResolveOrgBySlug(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	if err := s.svc.RenameOrgSlug(r.Context(), org.ID, body.NewSlug, claims.UserID); err != nil {
 		if err == core.ErrPersonalOrgLocked {
-			badRequest(w, "personal_org_locked")
+			badRequest(w, ErrPersonalOrgLocked)
 			return
 		}
 		if err == core.ErrOwnerSlugTaken {
-			badRequest(w, "owner_slug_taken")
+			badRequest(w, ErrOwnerSlugTaken)
 			return
 		}
 		if err == core.ErrRenameRateLimited {
 			seconds, _ := s.svc.TimeUntilOrgRenameAvailable(r.Context(), org.ID, time.Now())
 			availability := cooldownAvailability("rename_org", seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
-			data["error"] = core.ErrCodeRenameRateLimited
+			data["error"] = ErrRenameRateLimited
 			writeJSON(w, http.StatusTooManyRequests, data)
 			return
 		}
-		badRequest(w, "org_rename_failed")
+		badRequest(w, ErrOrgRenameFailed)
 		return
 	}
 	// Return canonical slug after rename.
 	renamed, err := s.svc.ResolveOrgBySlug(r.Context(), body.NewSlug)
 	if err != nil {
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"org": renamed.Slug})

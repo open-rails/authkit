@@ -45,6 +45,7 @@ type RecoverOrgResult struct {
 
 // AdminListOrgs lists orgs for the platform directory (paginated, optional slug
 // search, optional inclusion of soft-deleted).
+// Deprecated: use s.Orgs().AdminListOrgs.
 func (s *Service) AdminListOrgs(ctx context.Context, search string, includeDeleted bool, limit, offset int32) ([]OrgAdminSummary, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -84,6 +85,7 @@ func (s *Service) AdminListOrgs(ctx context.Context, search string, includeDelet
 
 // AdminOrgDetail returns the entity view of one org (by id), including its
 // active member count. Internals (the member list itself) are NOT exposed.
+// Deprecated: use s.Orgs().AdminOrgDetail.
 func (s *Service) AdminOrgDetail(ctx context.Context, orgID string) (*OrgAdminDetail, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -109,6 +111,7 @@ func (s *Service) AdminOrgDetail(ctx context.Context, orgID string) (*OrgAdminDe
 // SoftDeleteOrg soft-deletes an org (sets deleted_at). Returns whether a row
 // changed. AuthKit's soft-delete does NOT cascade APP-owned resources (the app
 // reacts to org-deletion for its own cleanup).
+// Deprecated: use s.Orgs().SoftDeleteOrg.
 func (s *Service) SoftDeleteOrg(ctx context.Context, orgID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -121,6 +124,7 @@ func (s *Service) SoftDeleteOrg(ctx context.Context, orgID string) (bool, error)
 }
 
 // RestoreOrg un-deletes a soft-deleted org. Returns whether a row changed.
+// Deprecated: use s.Orgs().RestoreOrg.
 func (s *Service) RestoreOrg(ctx context.Context, orgID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -145,6 +149,7 @@ type TransferOrgOwnerResult struct {
 // role (= exactly `org:*`) to the new owner. The new owner becomes a member if
 // they weren't already; every other member keeps their role. Validates the new
 // owner exists (→ ErrUserNotFound) and the org exists (→ ErrOrgNotFound).
+// Deprecated: use s.Orgs().TransferOrgOwner.
 func (s *Service) TransferOrgOwner(ctx context.Context, orgID, newOwnerUserID string) (TransferOrgOwnerResult, error) {
 	var res TransferOrgOwnerResult
 	if err := s.requirePG(); err != nil {
@@ -195,6 +200,7 @@ func (s *Service) TransferOrgOwner(ctx context.Context, orgID, newOwnerUserID st
 // owner to the rightful user. Bad actors are locked out; the good owner is
 // restored. Coarse all-or-nothing — the single sanctioned platform reach inside
 // an org.
+// Deprecated: use s.Orgs().RecoverOrg.
 func (s *Service) RecoverOrg(ctx context.Context, orgID, newOwnerUserID string) (RecoverOrgResult, error) {
 	var res RecoverOrgResult
 	if err := s.requirePG(); err != nil {

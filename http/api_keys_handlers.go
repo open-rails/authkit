@@ -93,12 +93,12 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 	// An API-key principal has no UserID; this both authenticates a human admin
 	// and structurally prevents an API key from minting another API key.
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -109,16 +109,16 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt string                `json:"expires_at"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
-		badRequest(w, "missing_name")
+		badRequest(w, ErrMissingName)
 		return
 	}
 	role := strings.TrimSpace(body.Role)
 	if role == "" {
-		badRequest(w, "missing_role")
+		badRequest(w, ErrMissingRole)
 		return
 	}
 
@@ -126,7 +126,7 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 	if ts := strings.TrimSpace(body.ExpiresAt); ts != "" {
 		parsed, err := time.Parse(time.RFC3339, ts)
 		if err != nil || !parsed.After(time.Now().UTC()) {
-			badRequest(w, "invalid_expiry")
+			badRequest(w, ErrInvalidExpiry)
 			return
 		}
 		expiresAt = &parsed
@@ -148,11 +148,11 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		switch err.Error() {
 		case "invalid_resource":
-			badRequest(w, "invalid_resource")
+			badRequest(w, ErrInvalidResource)
 		case "duplicate_resource":
-			badRequest(w, "duplicate_resource")
+			badRequest(w, ErrDuplicateResource)
 		default:
-			sendErrData(w, http.StatusForbidden, "resource_scope_denied", map[string]any{})
+			sendErrData(w, http.StatusForbidden, ErrResourceScopeDenied, map[string]any{})
 		}
 		return
 	}
@@ -167,19 +167,19 @@ func (s *Service) handleAPIKeysPOST(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err.Error() {
 		case "invalid_expiry":
-			badRequest(w, "invalid_expiry")
+			badRequest(w, ErrInvalidExpiry)
 		case "missing_name":
-			badRequest(w, "missing_name")
+			badRequest(w, ErrMissingName)
 		case "invalid_role":
-			badRequest(w, "invalid_role")
+			badRequest(w, ErrInvalidRole)
 		case "unknown_role":
-			sendErrData(w, http.StatusBadRequest, "unknown_role", map[string]any{"role": role})
+			sendErrData(w, http.StatusBadRequest, ErrUnknownRole, map[string]any{"role": role})
 		case "invalid_resource":
-			badRequest(w, "invalid_resource")
+			badRequest(w, ErrInvalidResource)
 		case "duplicate_resource":
-			badRequest(w, "duplicate_resource")
+			badRequest(w, ErrDuplicateResource)
 		default:
-			serverErr(w, "access_token_create_failed")
+			serverErr(w, ErrAccessTokenCreateFailed)
 		}
 		return
 	}
@@ -218,23 +218,23 @@ func (s *Service) authorizeAPIKeyMint(w http.ResponseWriter, r *http.Request, cl
 	// no-escalation expands them exactly like a role assignment.
 	roleTokens, err := s.svc.GetRolePermissions(r.Context(), canonical, role)
 	if err != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return "", nil, false
 	}
 	exists, err := s.svc.OrgRoleExists(r.Context(), canonical, role)
 	if err != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return "", nil, false
 	}
 	if !exists {
-		sendErrData(w, http.StatusBadRequest, "unknown_role", map[string]any{"role": role})
+		sendErrData(w, http.StatusBadRequest, ErrUnknownRole, map[string]any{"role": role})
 		return "", nil, false
 	}
 	// Resolve the role to its CONCRETE effective permission set; an API key may
 	// not hold a wildcard or a reserved write-management perm.
 	rolePerms, err = s.svc.EffectiveRolePermissions(r.Context(), canonical, role)
 	if err != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return "", nil, false
 	}
 	var notGrantable []string
@@ -244,21 +244,21 @@ func (s *Service) authorizeAPIKeyMint(w http.ResponseWriter, r *http.Request, cl
 		}
 	}
 	if len(notGrantable) > 0 {
-		sendErrData(w, http.StatusForbidden, "role_not_grantable_to_api_key", map[string]any{"role": role, "offending_permissions": notGrantable})
+		sendErrData(w, http.StatusForbidden, ErrRoleNotGrantableToAPIKey, map[string]any{"role": role, "offending_permissions": notGrantable})
 		return "", nil, false
 	}
 	// No-escalation: the minter must hold everything the role's tokens confer.
 	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, roleTokens, false)
 	if err != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return "", nil, false
 	}
 	if len(unknown) > 0 {
-		sendErrData(w, http.StatusBadRequest, "unknown_permission", map[string]any{"unknown_permissions": unknown})
+		sendErrData(w, http.StatusBadRequest, ErrUnknownPermission, map[string]any{"unknown_permissions": unknown})
 		return "", nil, false
 	}
 	if len(offending) > 0 {
-		sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{"offending_permissions": offending})
+		sendErrData(w, http.StatusForbidden, ErrPermissionGrantDenied, map[string]any{"offending_permissions": offending})
 		return "", nil, false
 	}
 	return canonical, rolePerms, true
@@ -267,12 +267,12 @@ func (s *Service) authorizeAPIKeyMint(w http.ResponseWriter, r *http.Request, cl
 func (s *Service) handleAPIKeysGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.orgAPIKeyGate(w, r, claims, orgSlug, core.PermOrgAPIKeysRead)
@@ -281,7 +281,7 @@ func (s *Service) handleAPIKeysGET(w http.ResponseWriter, r *http.Request) {
 	}
 	tokens, err := s.svc.ListAPIKeys(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "access_token_list_failed")
+		serverErr(w, ErrAccessTokenListFailed)
 		return
 	}
 	views := make([]apiKeyView, 0, len(tokens))
@@ -296,13 +296,13 @@ func (s *Service) handleAPIKeysGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleAPIKeyDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	tokenID := strings.TrimSpace(r.PathValue("token_id"))
 	if orgSlug == "" || tokenID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.orgAPIKeyGate(w, r, claims, orgSlug, core.PermOrgAPIKeysDelete)
@@ -311,11 +311,11 @@ func (s *Service) handleAPIKeyDELETE(w http.ResponseWriter, r *http.Request) {
 	}
 	revoked, err := s.svc.RevokeAPIKey(r.Context(), canonical, tokenID)
 	if err != nil {
-		serverErr(w, "access_token_revoke_failed")
+		serverErr(w, ErrAccessTokenRevokeFailed)
 		return
 	}
 	if !revoked {
-		notFound(w, "access_token_not_found")
+		notFound(w, ErrAccessTokenNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"revoked": true})

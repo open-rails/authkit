@@ -201,6 +201,7 @@ func UsernameOwnerNamespaceError(lookup *OwnerNamespaceLookup, allowedUserID str
 	}
 }
 
+// Deprecated: use s.Users().ValidateUsernameForUser.
 func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeOrgID string, err error) {
 	if err := ValidateUsername(username); err != nil {
 		return "", "", err
@@ -225,11 +226,13 @@ func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID 
 	return slug, excludeOrgID, nil
 }
 
+// Deprecated: use s.Users().ValidateUsernameForRegistration.
 func (s *Service) ValidateUsernameForRegistration(ctx context.Context, username string) (string, error) {
 	slug, _, err := s.ValidateUsernameForUser(ctx, username, "")
 	return slug, err
 }
 
+// Deprecated: use s.Users().TimeUntilUsernameRenameAvailable.
 func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {
 	if s == nil || s.pg == nil || strings.TrimSpace(userID) == "" {
 		return 0, nil
@@ -254,6 +257,7 @@ func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID s
 	return int64((remaining + time.Second - time.Nanosecond) / time.Second), nil
 }
 
+// Deprecated: use s.Orgs().TimeUntilOrgRenameAvailable.
 func (s *Service) TimeUntilOrgRenameAvailable(ctx context.Context, orgID string, now time.Time) (int64, error) {
 	if s == nil || s.pg == nil || strings.TrimSpace(orgID) == "" {
 		return 0, nil

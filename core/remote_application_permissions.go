@@ -17,6 +17,7 @@ import (
 // the catalog. This is the verifier's source of truth for "what may this
 // remote_application do AS ITSELF" (#76/#95); role claims in the token are
 // ignored.
+// Deprecated: use s.Identity().ResolveRemoteApplicationAuthority.
 func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []OrgMembership, permissions []string, err error) {
 	if err := s.requirePG(); err != nil {
 		return nil, nil, err

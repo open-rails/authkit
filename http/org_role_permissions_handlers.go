@@ -16,7 +16,7 @@ import (
 func (s *Service) handlePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"permissions": s.svc.Permissions()})
@@ -30,20 +30,20 @@ func (s *Service) handlePermissionsGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	role := strings.TrimSpace(r.PathValue("role"))
 	if orgSlug == "" || role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	var body struct {
 		Permissions []string `json:"permissions"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesUpdate)
@@ -54,28 +54,28 @@ func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 	// within the assigner's own effective permissions.
 	unknown, offending, err := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, body.Permissions, false)
 	if err != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return
 	}
 	if len(unknown) > 0 {
-		sendErrData(w, http.StatusBadRequest, "unknown_permission", map[string]any{"unknown_permissions": unknown})
+		sendErrData(w, http.StatusBadRequest, ErrUnknownPermission, map[string]any{"unknown_permissions": unknown})
 		return
 	}
 	if len(offending) > 0 {
-		sendErrData(w, http.StatusForbidden, "permission_grant_denied", map[string]any{"offending_permissions": offending})
+		sendErrData(w, http.StatusForbidden, ErrPermissionGrantDenied, map[string]any{"offending_permissions": offending})
 		return
 	}
 	// Create-or-replace: define the role name (no-op if it exists), then set perms.
 	if err := s.svc.DefineRole(r.Context(), canonical, role); err != nil {
 		if err == core.ErrInvalidOrgRole {
-			badRequest(w, "invalid_role")
+			badRequest(w, ErrInvalidRole)
 			return
 		}
-		serverErr(w, "define_role_failed")
+		serverErr(w, ErrDefineRoleFailed)
 		return
 	}
 	if err := s.svc.SetRolePermissions(r.Context(), canonical, role, body.Permissions); err != nil {
-		serverErr(w, "role_permissions_update_failed")
+		serverErr(w, ErrRolePermissionsUpdateFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -84,13 +84,13 @@ func (s *Service) handleOrgRolePUT(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgMemberPermissionsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || claims.IsService() {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
 	if orgSlug == "" || targetUserID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
@@ -99,7 +99,7 @@ func (s *Service) handleOrgMemberPermissionsGET(w http.ResponseWriter, r *http.R
 	}
 	perms, err := s.svc.EffectivePermissions(r.Context(), canonical, targetUserID)
 	if err != nil {
-		serverErr(w, "member_permissions_lookup_failed")
+		serverErr(w, ErrMemberPermissionsLookupFailed)
 		return
 	}
 	if perms == nil {

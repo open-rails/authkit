@@ -30,12 +30,12 @@ func (s *Service) callerEffectivePermissions(r *http.Request, claims Claims, can
 func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, member, err := s.requireOrgMember(r.Context(), claims.UserID, orgSlug)
@@ -44,17 +44,17 @@ func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !member {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return
 	}
 	roles, err := s.svc.ReadMemberRoles(r.Context(), canonical, claims.UserID)
 	if err != nil {
-		serverErr(w, "member_roles_lookup_failed")
+		serverErr(w, ErrMemberRolesLookupFailed)
 		return
 	}
 	perms, err := s.svc.EffectivePermissions(r.Context(), canonical, claims.UserID)
 	if err != nil {
-		serverErr(w, "member_permissions_lookup_failed")
+		serverErr(w, ErrMemberPermissionsLookupFailed)
 		return
 	}
 	if roles == nil {
@@ -75,12 +75,12 @@ func (s *Service) handleOrgMeGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || (strings.TrimSpace(claims.UserID) == "" && !claims.IsService()) {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	var body struct {
@@ -88,7 +88,7 @@ func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Re
 		UserID      string   `json:"user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	requested := dedupeNonEmpty(body.Permissions)
@@ -103,7 +103,7 @@ func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Re
 		}
 		perms, err := s.svc.EffectivePermissions(r.Context(), canonical, target)
 		if err != nil {
-			serverErr(w, "member_permissions_lookup_failed")
+			serverErr(w, ErrMemberPermissionsLookupFailed)
 			return
 		}
 		held = perms
@@ -115,12 +115,12 @@ func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if !member && !claims.IsService() {
-			forbidden(w, "forbidden")
+			forbidden(w, ErrForbidden)
 			return
 		}
 		perms, err := s.callerEffectivePermissions(r, claims, canonical)
 		if err != nil {
-			serverErr(w, "member_permissions_lookup_failed")
+			serverErr(w, ErrMemberPermissionsLookupFailed)
 			return
 		}
 		held = perms
@@ -144,13 +144,13 @@ func (s *Service) handleOrgPermissionCheckPOST(w http.ResponseWriter, r *http.Re
 func (s *Service) handleOrgRoleGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	role := strings.TrimSpace(r.PathValue("role"))
 	if orgSlug == "" || role == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgRolesRead)
@@ -159,7 +159,7 @@ func (s *Service) handleOrgRoleGET(w http.ResponseWriter, r *http.Request) {
 	}
 	defined, err := s.svc.ListOrgDefinedRoles(r.Context(), canonical)
 	if err != nil {
-		serverErr(w, "org_roles_lookup_failed")
+		serverErr(w, ErrOrgRolesLookupFailed)
 		return
 	}
 	found := ""
@@ -170,12 +170,12 @@ func (s *Service) handleOrgRoleGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if found == "" {
-		notFound(w, "role_not_found")
+		notFound(w, ErrRoleNotFound)
 		return
 	}
 	perms, err := s.svc.GetRolePermissions(r.Context(), canonical, found)
 	if err != nil {
-		serverErr(w, "role_permissions_lookup_failed")
+		serverErr(w, ErrRolePermissionsLookupFailed)
 		return
 	}
 	if perms == nil {
@@ -187,10 +187,10 @@ func (s *Service) handleOrgRoleGET(w http.ResponseWriter, r *http.Request) {
 // writeOrgLookupErr maps an org-resolution error to the standard response.
 func (s *Service) writeOrgLookupErr(w http.ResponseWriter, err error) {
 	if err == core.ErrOrgNotFound {
-		notFound(w, "org_not_found")
+		notFound(w, ErrOrgNotFound)
 		return
 	}
-	serverErr(w, "org_lookup_failed")
+	serverErr(w, ErrOrgLookupFailed)
 }
 
 // dedupeNonEmpty trims, drops empties, and de-duplicates while preserving order.

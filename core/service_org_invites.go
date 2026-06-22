@@ -33,6 +33,7 @@ type OrgInvite struct {
 // inviter's permissions may have been reduced between creating the invite and
 // the invitee accepting it (a stale pending "owner" invite must not still grant
 // owner once its creator has been demoted).
+// Deprecated: use s.Orgs().ValidateInviteRoleGrant.
 func (s *Service) ValidateInviteRoleGrant(ctx context.Context, orgSlug, grantorUserID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -63,6 +64,7 @@ func (s *Service) ValidateInviteRoleGrant(ctx context.Context, orgSlug, grantorU
 	return nil
 }
 
+// Deprecated: use s.Orgs().CreateOrgInvite.
 func (s *Service) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedBy, role string, expiresAt *time.Time) (*OrgInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -108,6 +110,7 @@ func (s *Service) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedB
 	}, nil
 }
 
+// Deprecated: use s.Orgs().ListOrgInvites.
 func (s *Service) ListOrgInvites(ctx context.Context, orgSlug, status string) ([]OrgInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -138,6 +141,7 @@ func (s *Service) ListOrgInvites(ctx context.Context, orgSlug, status string) ([
 	return out, nil
 }
 
+// Deprecated: use s.Orgs().ListUserInvites.
 func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([]OrgInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -168,6 +172,7 @@ func (s *Service) ListUserInvites(ctx context.Context, userID, status string) ([
 	return out, nil
 }
 
+// Deprecated: use s.Orgs().RevokeOrgInvite.
 func (s *Service) RevokeOrgInvite(ctx context.Context, orgSlug, inviteID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -186,10 +191,12 @@ func (s *Service) RevokeOrgInvite(ctx context.Context, orgSlug, inviteID string)
 	return nil
 }
 
+// Deprecated: use s.Orgs().AcceptOrgInvite.
 func (s *Service) AcceptOrgInvite(ctx context.Context, inviteID, userID string) error {
 	return s.transitionOrgInvite(ctx, inviteID, userID, "accepted")
 }
 
+// Deprecated: use s.Orgs().DeclineOrgInvite.
 func (s *Service) DeclineOrgInvite(ctx context.Context, inviteID, userID string) error {
 	return s.transitionOrgInvite(ctx, inviteID, userID, "declined")
 }

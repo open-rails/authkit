@@ -12,7 +12,7 @@ import (
 )
 
 type errResp struct {
-	Error string `json:"error"`
+	Error ErrorCode `json:"error"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -21,11 +21,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func sendErr(w http.ResponseWriter, status int, code string) {
+func sendErr(w http.ResponseWriter, status int, code ErrorCode) {
 	writeJSON(w, status, errResp{Error: code})
 }
 
-func sendErrData(w http.ResponseWriter, status int, code string, data map[string]any) {
+func sendErrData(w http.ResponseWriter, status int, code ErrorCode, data map[string]any) {
 	if data == nil {
 		sendErr(w, status, code)
 		return
@@ -34,31 +34,30 @@ func sendErrData(w http.ResponseWriter, status int, code string, data map[string
 	writeJSON(w, status, data)
 }
 
-func badRequest(w http.ResponseWriter, code string)   { sendErr(w, http.StatusBadRequest, code) }
-func unauthorized(w http.ResponseWriter, code string) { sendErr(w, http.StatusUnauthorized, code) }
-func forbidden(w http.ResponseWriter, code string)    { sendErr(w, http.StatusForbidden, code) }
+func badRequest(w http.ResponseWriter, code ErrorCode)   { sendErr(w, http.StatusBadRequest, code) }
+func unauthorized(w http.ResponseWriter, code ErrorCode) { sendErr(w, http.StatusUnauthorized, code) }
+func forbidden(w http.ResponseWriter, code ErrorCode)    { sendErr(w, http.StatusForbidden, code) }
 
-// Stable error codes for the coarse policy switches.
 const (
-	errRegistrationDisabled  = "registration_disabled"
-	errOrgManagementDisabled = "org_management_disabled"
+	errRegistrationDisabled  = string(ErrRegistrationDisabled)
+	errOrgManagementDisabled = string(ErrOrgManagementDisabled)
 )
 
 // registrationDisabled writes the stable registration-disabled rejection used by
 // every public user-creation path when NativeUserRegistrationMode is set.
 func registrationDisabled(w http.ResponseWriter) {
-	sendErr(w, http.StatusForbidden, errRegistrationDisabled)
+	sendErr(w, http.StatusForbidden, ErrRegistrationDisabled)
 }
 
 // orgManagementDisabled writes the stable org-management-disabled rejection used
 // by public org onboarding/management routes when OrgRegistrationMode is
 // set.
 func orgManagementDisabled(w http.ResponseWriter) {
-	sendErr(w, http.StatusForbidden, errOrgManagementDisabled)
+	sendErr(w, http.StatusForbidden, ErrOrgManagementDisabled)
 }
 func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 	if len(retryAfter) == 0 || retryAfter[0] <= 0 {
-		sendErr(w, http.StatusTooManyRequests, "rate_limited")
+		sendErr(w, http.StatusTooManyRequests, ErrRateLimited)
 		return
 	}
 	seconds := int(math.Ceil(retryAfter[0].Seconds()))
@@ -66,12 +65,12 @@ func tooMany(w http.ResponseWriter, retryAfter ...time.Duration) {
 		seconds = 1
 	}
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
-	sendErrData(w, http.StatusTooManyRequests, "rate_limited", map[string]any{"retry_after_seconds": seconds})
+	sendErrData(w, http.StatusTooManyRequests, ErrRateLimited, map[string]any{"retry_after_seconds": seconds})
 }
 
-func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability, legacyError string) {
+func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability, legacyError ErrorCode) {
 	if legacyError == "" {
-		legacyError = "rate_limited"
+		legacyError = ErrRateLimited
 	}
 	data := availability.toMap()
 	data["error"] = legacyError
@@ -117,20 +116,22 @@ func (a ActionAvailability) toMap() map[string]any {
 	}
 	return out
 }
-func serverErr(w http.ResponseWriter, code string) { sendErr(w, http.StatusInternalServerError, code) }
-func notFound(w http.ResponseWriter, code string)  { sendErr(w, http.StatusNotFound, code) }
-func deliveryErr(w http.ResponseWriter, code string) {
+func serverErr(w http.ResponseWriter, code ErrorCode) {
+	sendErr(w, http.StatusInternalServerError, code)
+}
+func notFound(w http.ResponseWriter, code ErrorCode) { sendErr(w, http.StatusNotFound, code) }
+func deliveryErr(w http.ResponseWriter, code ErrorCode) {
 	sendErr(w, http.StatusBadGateway, code)
 }
 
-func deliveryErrCode(err error) string {
+func deliveryErrCode(err error) ErrorCode {
 	switch {
 	case err == nil:
 		return ""
 	case errors.Is(err, core.ErrEmailDeliveryFailed):
-		return "email_delivery_failed"
+		return ErrEmailDeliveryFailed
 	case errors.Is(err, core.ErrSMSDeliveryFailed):
-		return "sms_delivery_failed"
+		return ErrSMSDeliveryFailed
 	default:
 		return ""
 	}

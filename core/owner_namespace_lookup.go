@@ -72,6 +72,7 @@ type ownerNamespaceCurrentOrg struct {
 // owner slug. It intentionally uses the same sources as both owner resolution
 // and owner-slug availability so callers can distinguish "not registered" from
 // "not resolvable but still held".
+// Deprecated: use s.Orgs().LookupOwnerNamespace.
 func (s *Service) LookupOwnerNamespace(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err

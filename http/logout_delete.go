@@ -14,16 +14,16 @@ func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 
 	cl, err := getClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	if strings.TrimSpace(cl.SessionID) == "" {
-		badRequest(w, "missing_sid_claim")
+		badRequest(w, ErrMissingSidClaim)
 		return
 	}
 	ctx := core.WithSessionRevokeReason(r.Context(), core.SessionRevokeReasonLogout)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, cl.SessionID); err != nil {
-		serverErr(w, "failed_to_logout")
+		serverErr(w, ErrFailedToLogout)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

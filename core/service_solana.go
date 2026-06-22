@@ -54,6 +54,7 @@ func (s *Service) solanaIssuer() string {
 
 // GenerateSIWSChallenge creates a new SIWS challenge for the given address.
 // The challenge is stored in the cache and must be verified within 15 minutes.
+// Deprecated: use s.Identity().GenerateSIWSChallenge.
 func (s *Service) GenerateSIWSChallenge(ctx context.Context, cache siws.ChallengeCache, domain, address, username string) (siws.SignInInput, error) {
 	// Validate the address format
 	if err := siws.ValidateAddress(address); err != nil {
@@ -92,6 +93,7 @@ func (s *Service) GenerateSIWSChallenge(ctx context.Context, cache siws.Challeng
 
 // VerifySIWSAndLogin verifies a SIWS signature and logs in or creates a user.
 // Returns access token, expiry, refresh token, user ID, and whether a new user was created.
+// Deprecated: use s.Identity().VerifySIWSAndLogin.
 func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCache, output siws.SignInOutput, extra map[string]any) (accessToken string, expiresAt time.Time, refreshToken, userID string, created bool, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", "", false, fmt.Errorf("postgres not configured")
@@ -184,6 +186,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 }
 
 // LinkSolanaWallet links a Solana wallet to an existing user account.
+// Deprecated: use s.Identity().LinkSolanaWallet.
 func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCache, userID string, output siws.SignInOutput) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -227,6 +230,7 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 }
 
 // GetUserBySolanaAddress looks up a user by their Solana wallet address.
+// Deprecated: use s.Identity().GetUserBySolanaAddress.
 func (s *Service) GetUserBySolanaAddress(ctx context.Context, address string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
@@ -244,6 +248,7 @@ func (s *Service) GetUserBySolanaAddress(ctx context.Context, address string) (*
 }
 
 // GetSolanaAddress retrieves the Solana wallet address linked to a user, if any.
+// Deprecated: use s.Identity().GetSolanaAddress.
 func (s *Service) GetSolanaAddress(ctx context.Context, userID string) (string, error) {
 	if s.pg == nil {
 		return "", nil

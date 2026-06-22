@@ -39,6 +39,7 @@ type SessionFreshness struct {
 }
 
 // IssueRefreshSession creates a session row and returns a new refresh token string.
+// Deprecated: use s.Sessions().IssueRefreshSession.
 func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
@@ -87,6 +88,7 @@ func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent str
 }
 
 // ExchangeRefreshToken rotates a refresh token and returns a new ID token + refresh token.
+// Deprecated: use s.Sessions().ExchangeRefreshToken.
 func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (idToken string, expiresAt time.Time, newRefresh string, err error) {
 	if s.pg == nil {
 		return "", time.Time{}, "", errors.New("postgres not configured")
@@ -143,6 +145,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.
 
 // ListUserSessions lists active sessions for a user and issuer.
+// Deprecated: use s.Sessions().ListUserSessions.
 func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Session, error) {
 	if s.pg == nil {
 		return nil, nil
@@ -168,6 +171,7 @@ func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	return out, nil
 }
 
+// Deprecated: use s.Sessions().SessionFreshness.
 func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
 	if s.pg == nil {
 		return SessionFreshness{}, errors.New("postgres not configured")
@@ -197,6 +201,7 @@ func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string
 	}, nil
 }
 
+// Deprecated: use s.Sessions().RequireFreshSession.
 func (s *Service) RequireFreshSession(ctx context.Context, userID, sessionID string, now time.Time) (SessionFreshness, error) {
 	freshness, err := s.SessionFreshness(ctx, userID, sessionID, now)
 	if err != nil {
@@ -208,6 +213,7 @@ func (s *Service) RequireFreshSession(ctx context.Context, userID, sessionID str
 	return freshness, nil
 }
 
+// Deprecated: use s.Sessions().MarkSessionAuthenticated.
 func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
 	if s.pg == nil {
 		return errors.New("postgres not configured")
@@ -228,6 +234,7 @@ func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionI
 }
 
 // ResolveSessionByRefresh finds the session id for a presented refresh token, if valid and active.
+// Deprecated: use s.Sessions().ResolveSessionByRefresh.
 func (s *Service) ResolveSessionByRefresh(ctx context.Context, refreshToken string) (string, error) {
 	if s.pg == nil || strings.TrimSpace(refreshToken) == "" {
 		return "", errors.New("not_found")
@@ -240,6 +247,7 @@ func (s *Service) ResolveSessionByRefresh(ctx context.Context, refreshToken stri
 	return sid, nil
 }
 
+// Deprecated: use s.Sessions().RevokeSessionByID.
 func (s *Service) RevokeSessionByID(ctx context.Context, sessionID string) error {
 	if s.pg == nil {
 		return nil
@@ -261,6 +269,7 @@ func (s *Service) RevokeSessionByID(ctx context.Context, sessionID string) error
 }
 
 // RevokeSessionByIDForUser revokes a session by id ensuring it belongs to the user.
+// Deprecated: use s.Sessions().RevokeSessionByIDForUser.
 func (s *Service) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID string) error {
 	if s.pg == nil {
 		return nil
@@ -281,6 +290,7 @@ func (s *Service) RevokeSessionByIDForUser(ctx context.Context, userID, sessionI
 	return nil
 }
 
+// Deprecated: use s.Sessions().RevokeAllSessions.
 func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
 	if s.pg == nil {
 		return nil
@@ -393,10 +403,12 @@ func ipText(ip net.IP) *string {
 }
 
 // Helper exposed for admin endpoints
+// Deprecated: use s.Sessions().AdminListUserSessions.
 func (s *Service) AdminListUserSessions(ctx context.Context, userID string) ([]Session, error) {
 	return s.ListUserSessions(ctx, userID)
 }
 
+// Deprecated: use s.Sessions().AdminRevokeUserSessions.
 func (s *Service) AdminRevokeUserSessions(ctx context.Context, userID string) error {
 	return s.RevokeAllSessions(ctx, userID, nil)
 }

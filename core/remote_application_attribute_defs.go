@@ -31,6 +31,7 @@ type RemoteAppAttributeDef = authbase.RemoteAppAttributeDef
 // remote_application. version defaults to 1 when zero. The caller authority is
 // the remote_application itself (it owns its users' restrictions); the http
 // layer enforces that.
+// Deprecated: use s.Identity().RegisterRemoteAppAttributeDef.
 func (s *Service) RegisterRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32, definition json.RawMessage) (*RemoteAppAttributeDef, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -60,6 +61,7 @@ func (s *Service) RegisterRemoteAppAttributeDef(ctx context.Context, appID, key 
 
 // ResolveRemoteAppAttributeDef returns the definition for (appID, key, version).
 // version <= 0 resolves the LATEST version. The returned Definition is opaque.
+// Deprecated: use s.Identity().ResolveRemoteAppAttributeDef.
 func (s *Service) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -91,6 +93,7 @@ func (s *Service) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key s
 
 // ListRemoteAppAttributeDefs returns all definitions a remote_application has
 // registered (every key + version), newest version first within each key.
+// Deprecated: use s.Identity().ListRemoteAppAttributeDefs.
 func (s *Service) ListRemoteAppAttributeDefs(ctx context.Context, appID string) ([]RemoteAppAttributeDef, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -112,6 +115,7 @@ func (s *Service) ListRemoteAppAttributeDefs(ctx context.Context, appID string) 
 
 // DeleteRemoteAppAttributeDef removes ALL versions of a key for the
 // remote_application. Returns ErrAttributeDefNotFound when nothing matched.
+// Deprecated: use s.Identity().DeleteRemoteAppAttributeDef.
 func (s *Service) DeleteRemoteAppAttributeDef(ctx context.Context, appID, key string) error {
 	if err := s.requirePG(); err != nil {
 		return err

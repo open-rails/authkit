@@ -43,7 +43,7 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 		return false
 	}
 	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability, "rate_limited")
+		tooManyAvailability(w, *result.Availability, ErrRateLimited)
 		return true
 	}
 	tooMany(w, result.RetryAfter)
@@ -68,7 +68,7 @@ func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	if result.Availability != nil {
-		tooManyAvailability(w, *result.Availability, "rate_limited")
+		tooManyAvailability(w, *result.Availability, ErrRateLimited)
 		return true
 	}
 	tooMany(w, result.RetryAfter)
@@ -160,8 +160,16 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 }
 
 // NewService constructs a core.Service and wraps it for net/http mounting.
-// Returns an error if the core service fails to initialize (e.g., missing keys in production).
-func NewService(cfg core.Config) (*Service, error) {
+// Returns an error if the core service fails to initialize (e.g., missing keys
+// in production).
+//
+// Prefer NewServer(cfg, pg, opts...): it makes the mandatory Postgres dependency
+// explicit (a positional argument) and uses constructor-time functional options
+// instead of the mutate-after-construction WithX builder. NewService is retained
+// for backward compatibility.
+func NewService(cfg core.Config) (*Service, error) { return newServer(cfg) }
+
+func newServer(cfg core.Config) (*Service, error) {
 	coreSvc, err := core.NewFromConfig(cfg)
 	if err != nil {
 		return nil, err

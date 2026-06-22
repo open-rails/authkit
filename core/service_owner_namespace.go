@@ -152,6 +152,7 @@ func (s *Service) userOwnerSlugAvailability(ctx context.Context, userID, usernam
 	return slug, "", nil
 }
 
+// Deprecated: use s.Orgs().GetPersonalOrgForUser.
 func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Org, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -169,6 +170,7 @@ func (s *Service) GetPersonalOrgForUser(ctx context.Context, userID string) (*Or
 // ListUserSlugAliases returns every historical username this user has
 // held (excluding the current one). Source: `user_renames.from_slug`
 // (issue #58). Distinct values; order by usage timeline.
+// Deprecated: use s.Orgs().ListUserSlugAliases.
 func (s *Service) ListUserSlugAliases(ctx context.Context, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -186,6 +188,7 @@ func (s *Service) ListUserSlugAliases(ctx context.Context, userID string) ([]str
 	return out, nil
 }
 
+// Deprecated: use s.Orgs().ResolveUserBySlug.
 func (s *Service) ResolveUserBySlug(ctx context.Context, slug string) (userID string, username string, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", "", err
@@ -211,6 +214,7 @@ func (s *Service) ResolveUserBySlug(ctx context.Context, slug string) (userID st
 // ListOrgAliases returns every historical slug this org has held
 // (excluding the current one). Source: `org_renames.from_slug` (issue
 // #58). Distinct values.
+// Deprecated: use s.Orgs().ListOrgAliases.
 func (s *Service) ListOrgAliases(ctx context.Context, orgID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err

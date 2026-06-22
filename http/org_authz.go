@@ -85,14 +85,14 @@ func (s *Service) requireOrgPermissionGin(w http.ResponseWriter, r *http.Request
 	canonical, allowed, err := s.requireOrgPermission(r.Context(), claims, orgSlug, perm)
 	if err != nil {
 		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 			return "", false
 		}
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return "", false
 	}
 	if !allowed {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return "", false
 	}
 	return canonical, true

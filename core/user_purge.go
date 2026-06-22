@@ -9,6 +9,7 @@ import (
 
 // ListUsersDeletedBefore returns user IDs for users soft-deleted before the cutoff.
 // It is intended for retention/purge workflows in the host application.
+// Deprecated: use s.Users().ListUsersDeletedBefore.
 func (s *Service) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
 	if s.pg == nil {
 		return nil, nil
@@ -24,6 +25,7 @@ func (s *Service) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, 
 }
 
 // HardDeleteUser permanently deletes the user row and dependent AuthKit rows via ON DELETE CASCADE.
+// Deprecated: use s.Users().HardDeleteUser.
 func (s *Service) HardDeleteUser(ctx context.Context, userID string) error {
 	return s.AdminDeleteUser(ctx, userID)
 }

@@ -75,7 +75,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -84,7 +84,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	pass := req.Password
 
 	if identifier == "" || username == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -94,16 +94,16 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := core.ValidatePassword(pass); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
 		s.logInternalError(r, "register", "validate_username", "database_error", err)
-		serverErr(w, "database_error")
+		serverErr(w, ErrDatabaseError)
 		return
 	}
 	username = strings.TrimSpace(username)
@@ -111,17 +111,17 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	isPhone := core.ValidatePhone(identifier) == nil
 	isEmail := core.ValidateEmail(identifier) == nil
 	if !isPhone && !isEmail {
-		badRequest(w, "invalid_identifier")
+		badRequest(w, ErrInvalidIdentifier)
 		return
 	}
 	if isPhone && isEmail {
-		badRequest(w, "invalid_identifier")
+		badRequest(w, ErrInvalidIdentifier)
 		return
 	}
 
 	phc, err := pwhash.HashArgon2id(pass)
 	if err != nil {
-		serverErr(w, "hash_failed")
+		serverErr(w, ErrHashFailed)
 		return
 	}
 
@@ -132,21 +132,21 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	if isPhone {
 		identifier = core.NormalizePhone(identifier)
 		if requiresVerification && !s.svc.SMSAvailable() {
-			serverErr(w, "phone_registration_unavailable")
+			serverErr(w, ErrPhoneRegistrationUnavailable)
 			return
 		}
 		phoneTaken, usernameTaken, err := s.svc.CheckPhoneRegistrationConflict(r.Context(), identifier, username)
 		if err != nil {
 			s.logInternalError(r, "register", "check_phone_conflict", "database_error", err)
-			serverErr(w, "database_error")
+			serverErr(w, ErrDatabaseError)
 			return
 		}
 		if phoneTaken {
-			badRequest(w, "phone_in_use")
+			badRequest(w, ErrPhoneInUse)
 			return
 		}
 		if usernameTaken {
-			badRequest(w, "username_in_use")
+			badRequest(w, ErrUsernameInUse)
 			return
 		}
 		_, err = s.svc.CreatePendingPhoneRegistrationWithLocale(r.Context(), identifier, username, phc, preferredLocale)
@@ -154,11 +154,11 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			if s.handleDeliveryError(w, r, "register", "send_phone_verification", err) {
 				return
 			}
-			if code := core.ValidationErrorCode(err); code != "" {
+			if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 				badRequest(w, code)
 				return
 			}
-			serverErr(w, "registration_failed")
+			serverErr(w, ErrRegistrationFailed)
 			return
 		}
 
@@ -169,16 +169,16 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		} else {
 			u, err := s.svc.GetUserByPhone(r.Context(), identifier)
 			if err != nil || u == nil {
-				serverErr(w, "registration_failed")
+				serverErr(w, ErrRegistrationFailed)
 				return
 			}
 			tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
 			if err != nil {
 				if errors.Is(err, core.ErrUserBanned) {
-					unauthorized(w, "user_banned")
+					unauthorized(w, ErrUserBanned)
 					return
 				}
-				serverErr(w, "token_issue_failed")
+				serverErr(w, ErrTokenIssueFailed)
 				return
 			}
 			tokens = &tokenSet
@@ -190,21 +190,21 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 
 	identifier = core.NormalizeEmail(identifier)
 	if requiresVerification && !s.svc.HasEmailSender() {
-		serverErr(w, "email_registration_unavailable")
+		serverErr(w, ErrEmailRegistrationUnavailable)
 		return
 	}
 	emailTaken, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), identifier, username)
 	if err != nil {
 		s.logInternalError(r, "register", "check_email_conflict", "database_error", err)
-		serverErr(w, "database_error")
+		serverErr(w, ErrDatabaseError)
 		return
 	}
 	if emailTaken {
-		badRequest(w, "email_in_use")
+		badRequest(w, ErrEmailInUse)
 		return
 	}
 	if usernameTaken {
-		badRequest(w, "username_in_use")
+		badRequest(w, ErrUsernameInUse)
 		return
 	}
 	_, err = s.svc.CreatePendingRegistrationWithLocale(r.Context(), identifier, username, phc, 0, preferredLocale)
@@ -212,11 +212,11 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		if s.handleDeliveryError(w, r, "register", "send_email_verification", err) {
 			return
 		}
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		serverErr(w, "registration_failed")
+		serverErr(w, ErrRegistrationFailed)
 		return
 	}
 
@@ -227,16 +227,16 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	} else {
 		u, err := s.svc.GetUserByEmail(r.Context(), identifier)
 		if err != nil || u == nil {
-			serverErr(w, "registration_failed")
+			serverErr(w, ErrRegistrationFailed)
 			return
 		}
 		tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
-			serverErr(w, "token_issue_failed")
+			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
 		tokens = &tokenSet
@@ -262,15 +262,15 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 		Email string `json:"email"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := core.ValidateEmail(req.Email); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 	if !s.svc.HasEmailSender() {
-		serverErr(w, "email_unavailable")
+		serverErr(w, ErrEmailUnavailable)
 		return
 	}
 	email := strings.TrimSpace(req.Email)
@@ -280,7 +280,7 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 
 	pendingUser, err := s.svc.GetPendingRegistrationByEmail(r.Context(), email)
 	if err != nil || pendingUser == nil {
-		notFound(w, "pending_registration_not_found")
+		notFound(w, ErrPendingRegistrationNotFound)
 		return
 	}
 	if _, err := s.svc.CreatePendingRegistrationWithLocale(r.Context(), email, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLocale); err != nil {
@@ -288,7 +288,7 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 			return
 		}
 		s.logInternalError(r, "register_resend_email", "create_pending_registration", "resend_failed", err)
-		serverErr(w, "resend_failed")
+		serverErr(w, ErrResendFailed)
 		return
 	}
 
@@ -316,7 +316,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		Password   string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
@@ -324,7 +324,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		identifier = strings.TrimSpace(req.Email)
 	}
 	if identifier == "" || req.Password == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterAbandon, identifier) {
@@ -340,7 +340,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
 			if err := s.svc.DeletePendingPhoneRegistrationByPhone(r.Context(), phone); err != nil {
 				s.logInternalError(r, "register_abandon", "delete_pending_phone_registration", "abandon_failed", err)
-				serverErr(w, "abandon_failed")
+				serverErr(w, ErrAbandonFailed)
 				return
 			}
 		}
@@ -352,7 +352,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	if s.svc.VerifyPendingPassword(r.Context(), email, req.Password) {
 		if err := s.svc.DeletePendingRegistrationByEmail(r.Context(), email); err != nil {
 			s.logInternalError(r, "register_abandon", "delete_pending_registration", "abandon_failed", err)
-			serverErr(w, "abandon_failed")
+			serverErr(w, ErrAbandonFailed)
 			return
 		}
 	}
@@ -376,23 +376,23 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		PhoneNumber string `json:"phone_number"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
 	if err := core.ValidatePhone(phone); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 	phone = core.NormalizePhone(phone)
 
 	if !s.svc.SMSAvailable() {
-		serverErr(w, "phone_unavailable")
+		serverErr(w, ErrPhoneUnavailable)
 		return
 	}
 	pending, err := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), phone)
 	if err != nil || pending == nil {
-		notFound(w, "pending_registration_not_found")
+		notFound(w, ErrPendingRegistrationNotFound)
 		return
 	}
 	if _, err := s.svc.CreatePendingPhoneRegistrationWithLocale(r.Context(), phone, pending.Username, pending.PasswordHash, pending.PreferredLocale); err != nil {
@@ -400,7 +400,7 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 			return
 		}
 		s.logInternalError(r, "register_resend_phone", "create_pending_phone_registration", "resend_failed", err)
-		serverErr(w, "resend_failed")
+		serverErr(w, ErrResendFailed)
 		return
 	}
 

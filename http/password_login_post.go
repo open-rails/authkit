@@ -23,7 +23,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		Org      string `json:"org"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.Password == "" || strings.TrimSpace(req.Org) != "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -38,7 +38,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if identifier == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	requiresVerification := s.svc.Options().RegistrationVerificationRequired()
@@ -110,14 +110,14 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			)
 			if handled {
 				if recoveryErr != "" {
-					if recoveryErr == "phone_not_verified" {
+					if recoveryErr == ErrPhoneNotVerified.String() {
 						writeVerificationRequired(w, identifier, "phone")
 						return
 					}
-					if recoveryErr == "invalid_credentials" {
-						logLoginFailed(s, r, "", "invalid_credentials")
+					if recoveryErr == ErrInvalidCredentials.String() {
+						logLoginFailed(s, r, "", ErrInvalidCredentials.String())
 					}
-					unauthorized(w, recoveryErr)
+					unauthorized(w, ErrorCode(recoveryErr))
 					return
 				}
 				userID = recoveredUserID
@@ -137,7 +137,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			}
 			if userID == "" {
 				logLoginFailed(s, r, "", "invalid_credentials")
-				unauthorized(w, "invalid_credentials")
+				unauthorized(w, ErrInvalidCredentials)
 				return
 			}
 		}
@@ -157,7 +157,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		usr, e := s.svc.GetUserByUsername(r.Context(), identifier)
 		if e != nil || usr == nil {
 			logLoginFailed(s, r, "", "invalid_credentials")
-			unauthorized(w, "invalid_credentials")
+			unauthorized(w, ErrInvalidCredentials)
 			return
 		}
 		fetchedUser = &userWithEmail{
@@ -184,11 +184,11 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			if verr := s.svc.CheckUserPassword(r.Context(), userID, req.Password); verr != nil {
 				if errors.Is(verr, core.ErrPasswordResetRequired) {
 					logLoginFailed(s, r, userID, "password_reset_required")
-					unauthorized(w, "password_reset_required")
+					unauthorized(w, ErrPasswordResetRequired)
 					return
 				}
 				logLoginFailed(s, r, userID, "invalid_credentials")
-				unauthorized(w, "invalid_credentials")
+				unauthorized(w, ErrInvalidCredentials)
 				return
 			}
 
@@ -197,7 +197,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					if s.handleDeliveryError(w, r, "password_login", "send_email_verification", err) {
 						return
 					}
-					serverErr(w, "email_verification_failed")
+					serverErr(w, ErrEmailVerificationFailed)
 					return
 				}
 				logLoginFailed(s, r, userID, "email_not_verified")
@@ -210,7 +210,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 					if s.handleDeliveryError(w, r, "password_login", "send_phone_verification", err) {
 						return
 					}
-					serverErr(w, "phone_verification_failed")
+					serverErr(w, ErrPhoneVerificationFailed)
 					return
 				}
 				logLoginFailed(s, r, userID, "phone_not_verified")
@@ -230,16 +230,16 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
 				logLoginFailed(s, r, userID, "user_banned")
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
 			if errors.Is(err, core.ErrPasswordResetRequired) {
 				logLoginFailed(s, r, userID, "password_reset_required")
-				unauthorized(w, "password_reset_required")
+				unauthorized(w, ErrPasswordResetRequired)
 				return
 			}
 			logLoginFailed(s, r, userID, "invalid_credentials")
-			unauthorized(w, "invalid_credentials")
+			unauthorized(w, ErrInvalidCredentials)
 			return
 		}
 	} else {
@@ -247,12 +247,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
 				logLoginFailed(s, r, "", "user_banned")
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
 			if errors.Is(err, core.ErrPasswordResetRequired) {
 				logLoginFailed(s, r, "", "password_reset_required")
-				unauthorized(w, "password_reset_required")
+				unauthorized(w, ErrPasswordResetRequired)
 				return
 			}
 			pendingUser, pendingErr := s.svc.GetPendingRegistrationByEmail(r.Context(), loginEmail)
@@ -275,20 +275,20 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			)
 			if handled {
 				if recoveryErr != "" {
-					if recoveryErr == "email_not_verified" {
+					if recoveryErr == ErrEmailNotVerified.String() {
 						writeVerificationRequired(w, loginEmail, "email")
 						return
 					}
-					if recoveryErr == "invalid_credentials" {
-						logLoginFailed(s, r, "", "invalid_credentials")
+					if recoveryErr == ErrInvalidCredentials.String() {
+						logLoginFailed(s, r, "", ErrInvalidCredentials.String())
 					}
-					unauthorized(w, recoveryErr)
+					unauthorized(w, ErrorCode(recoveryErr))
 					return
 				}
 				token, exp = recoveryToken, recoveryExp
 			} else {
 				logLoginFailed(s, r, "", "invalid_credentials")
-				unauthorized(w, "invalid_credentials")
+				unauthorized(w, ErrInvalidCredentials)
 				return
 			}
 		}
@@ -312,12 +312,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				if s.handleDeliveryError(w, r, "password_login", "send_2fa_code", err) {
 					return
 				}
-				serverErr(w, "2fa_send_failed")
+				serverErr(w, ErrTwoFASendFailed)
 				return
 			}
 			challenge, err := s.svc.Create2FAChallenge(r.Context(), finalUserID)
 			if err != nil {
-				serverErr(w, "2fa_challenge_failed")
+				serverErr(w, ErrTwoFAChallengeFailed)
 				return
 			}
 			obfuscatedID := verificationID
@@ -338,10 +338,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
 				logLoginFailed(s, r, finalUserID, "user_banned")
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
-			serverErr(w, "session_creation_failed")
+			serverErr(w, ErrSessionCreationFailed)
 			return
 		}
 		ua := r.UserAgent()
@@ -362,10 +362,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
 				logLoginFailed(s, r, finalUserID, "user_banned")
-				unauthorized(w, "user_banned")
+				unauthorized(w, ErrUserBanned)
 				return
 			}
-			serverErr(w, "token_issue_failed")
+			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{

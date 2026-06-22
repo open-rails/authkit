@@ -21,6 +21,7 @@ const (
 // the given role, via the SAME polymorphic org_memberships machinery as
 // users. role defaults to 'member'; the role must be defined on the org (or a
 // materializable default). appID is the remote_application uuid.
+// Deprecated: use s.Identity().AddRemoteApplicationMember.
 func (s *Service) AddRemoteApplicationMember(ctx context.Context, orgSlug, appID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -52,6 +53,7 @@ func (s *Service) AddRemoteApplicationMember(ctx context.Context, orgSlug, appID
 
 // RemoveRemoteApplicationMember soft-deletes a remote_application's membership in
 // a org.
+// Deprecated: use s.Identity().RemoveRemoteApplicationMember.
 func (s *Service) RemoveRemoteApplicationMember(ctx context.Context, orgSlug, appID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -69,6 +71,7 @@ func (s *Service) RemoveRemoteApplicationMember(ctx context.Context, orgSlug, ap
 
 // RemoteApplicationOrgRole returns the role a remote_application holds in a
 // org, or ErrNotOrgMember when it holds none.
+// Deprecated: use s.Identity().RemoteApplicationOrgRole.
 func (s *Service) RemoteApplicationOrgRole(ctx context.Context, orgSlug, appID string) (string, error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
@@ -94,6 +97,7 @@ func (s *Service) RemoteApplicationOrgRole(ctx context.Context, orgSlug, appID s
 // RemoteApplicationOrgRoles returns every (org slug, role) the
 // remote_application principal holds — the verifier uses this to resolve a
 // remote_app's org roles, the same way it would for a user principal.
+// Deprecated: use s.Identity().RemoteApplicationOrgRoles.
 func (s *Service) RemoteApplicationOrgRoles(ctx context.Context, appID string) ([]OrgMembership, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err

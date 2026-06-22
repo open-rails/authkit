@@ -50,10 +50,10 @@ func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request
 	result, err := s.svc.AdminListUsers(r.Context(), opts)
 	if err != nil {
 		if errors.Is(err, core.ErrEntitlementFilterUnavailable) {
-			badRequest(w, "entitlement_filter_unavailable")
+			badRequest(w, ErrEntitlementFilterUnavailable)
 			return
 		}
-		serverErr(w, "failed_to_list_users")
+		serverErr(w, ErrFailedToListUsers)
 		return
 	}
 	hasMore := int64(result.Offset+result.Limit) < result.Total
@@ -71,7 +71,7 @@ func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	u, err := s.svc.AdminGetUser(r.Context(), id)
 	if err != nil || u == nil {
-		notFound(w, "not_found")
+		notFound(w, ErrNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
@@ -84,7 +84,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		Until  *string `json:"until"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.UserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
@@ -92,7 +92,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	var untilPtr *time.Time
@@ -101,7 +101,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		if untilStr != "" {
 			parsed, err := time.Parse(time.RFC3339, untilStr)
 			if err != nil {
-				badRequest(w, "invalid_until")
+				badRequest(w, ErrInvalidUntil)
 				return
 			}
 			parsed = parsed.UTC()
@@ -109,7 +109,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if err := s.svc.BanUser(r.Context(), req.UserID, req.Reason, untilPtr, claims.UserID); err != nil {
-		serverErr(w, "failed_to_ban")
+		serverErr(w, ErrFailedToBan)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -120,14 +120,14 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 		UserID string `json:"user_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.UserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	if err := s.svc.UnbanUser(r.Context(), req.UserID); err != nil {
-		serverErr(w, "failed_to_unban")
+		serverErr(w, ErrFailedToUnban)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -139,14 +139,14 @@ func (s *Service) handleAdminUsersSetEmailPOST(w http.ResponseWriter, r *http.Re
 		Email  string `json:"email"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Email == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	if err := s.svc.UpdateEmail(r.Context(), req.UserID, req.Email); err != nil {
-		badRequest(w, "failed_to_update_email")
+		badRequest(w, ErrFailedToUpdateEmail)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -158,7 +158,7 @@ func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http
 		Username string `json:"username"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Username == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminRolesGrant) {
@@ -166,14 +166,14 @@ func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http
 	}
 	if err := s.svc.UpdateUsername(r.Context(), req.UserID, req.Username); err != nil {
 		if err == core.ErrOwnerSlugTaken {
-			badRequest(w, "owner_slug_taken")
+			badRequest(w, ErrOwnerSlugTaken)
 			return
 		}
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, "failed_to_update_username")
+		badRequest(w, ErrFailedToUpdateUsername)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -185,22 +185,22 @@ func (s *Service) handleAdminUsersSetPasswordPOST(w http.ResponseWriter, r *http
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Password == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := core.ValidatePassword(req.Password); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 	if s.rateLimited(w, r, RLAdminRolesGrant) {
 		return
 	}
 	if err := s.svc.AdminSetPassword(r.Context(), req.UserID, req.Password); err != nil {
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, "failed_to_set_password")
+		badRequest(w, ErrFailedToSetPassword)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -209,14 +209,14 @@ func (s *Service) handleAdminUsersSetPasswordPOST(w http.ResponseWriter, r *http
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	if id == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
 	if err := s.svc.SoftDeleteUser(r.Context(), id); err != nil {
-		serverErr(w, "failed_to_delete")
+		serverErr(w, ErrFailedToDelete)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -225,7 +225,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
@@ -233,10 +233,10 @@ func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Requ
 	}
 	if err := s.svc.RestoreUser(r.Context(), userID); err != nil {
 		if errors.Is(err, core.ErrUserNotFound) {
-			notFound(w, "not_found")
+			notFound(w, ErrNotFound)
 			return
 		}
-		serverErr(w, "failed_to_restore_user")
+		serverErr(w, ErrFailedToRestoreUser)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
@@ -249,10 +249,10 @@ func (s *Service) handleAdminDeletedUsersListGET(w http.ResponseWriter, r *http.
 	result, err := s.svc.AdminListUsers(r.Context(), opts)
 	if err != nil {
 		if errors.Is(err, core.ErrEntitlementFilterUnavailable) {
-			badRequest(w, "entitlement_filter_unavailable")
+			badRequest(w, ErrEntitlementFilterUnavailable)
 			return
 		}
-		serverErr(w, "failed_to_list_deleted_users")
+		serverErr(w, ErrFailedToListDeletedUsers)
 		return
 	}
 	hasMore := int64(result.Offset+result.Limit) < result.Total
@@ -269,28 +269,28 @@ func (s *Service) handleAdminDeletedUsersListGET(w http.ResponseWriter, r *http.
 func (s *Service) handleAdminUserPasswordResetPOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminPasswordReset) {
 		return
 	}
 	if !s.svc.HasEmailSender() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "email_sender_unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": ErrEmailSenderUnavailable})
 		return
 	}
 	u, err := s.svc.AdminGetUser(r.Context(), userID)
 	if err != nil || u == nil {
-		notFound(w, "not_found")
+		notFound(w, ErrNotFound)
 		return
 	}
 	if u.Email == nil || strings.TrimSpace(*u.Email) == "" {
-		sendErr(w, http.StatusUnprocessableEntity, "no_email")
+		sendErr(w, http.StatusUnprocessableEntity, ErrNoEmail)
 		return
 	}
 	if err := s.svc.RequestPasswordReset(r.Context(), *u.Email, 0, nil, nil); err != nil {
 		s.logInternalError(r, "admin_password_reset", "request_password_reset", "password_reset_request_failed", err)
-		serverErr(w, "password_reset_request_failed")
+		serverErr(w, ErrPasswordResetRequestFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -299,7 +299,7 @@ func (s *Service) handleAdminUserPasswordResetPOST(w http.ResponseWriter, r *htt
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
@@ -309,7 +309,7 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 		core.WithSessionRevokeReason(r.Context(), core.SessionRevokeReasonAdminRevokeAll),
 		userID,
 	); err != nil {
-		serverErr(w, "failed_to_revoke_sessions")
+		serverErr(w, ErrFailedToRevokeSessions)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

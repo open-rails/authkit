@@ -37,7 +37,7 @@ func strptr(s string) *string {
 func (s *Service) handleOAuthLoginGET(w http.ResponseWriter, r *http.Request, provider string) {
 	claimsUserID := ""
 	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
-		unauthorized(w, "auth_required_for_link")
+		unauthorized(w, ErrAuthRequiredForLink)
 		return
 	}
 	s.startOAuthBrowserFlow(w, r, provider, claimsUserID, "", "")
@@ -46,7 +46,7 @@ func (s *Service) handleOAuthLoginGET(w http.ResponseWriter, r *http.Request, pr
 func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	s.startOAuthBrowserFlow(w, r, provider, claims.UserID, "", "")
@@ -55,7 +55,7 @@ func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Reques
 func (s *Service) handleOAuthReauthStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 	var body struct {
@@ -65,11 +65,11 @@ func (s *Service) handleOAuthReauthStartPOST(w http.ResponseWriter, r *http.Requ
 
 	cfg, ok := s.oauth2Provider(provider)
 	if !ok {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 	if !s.userHasLinkedIssuerProvider(r, claims.UserID, cfg.Issuer, cfg.Name) {
-		badRequest(w, "provider_not_linked")
+		badRequest(w, ErrProviderNotLinked)
 		return
 	}
 	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeReauthReturnTo(body.ReturnTo))
@@ -78,7 +78,7 @@ func (s *Service) handleOAuthReauthStartPOST(w http.ResponseWriter, r *http.Requ
 func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, reauthUserID, reauthReturnTo string) {
 	cfg, ok := s.oauth2Provider(provider)
 	if !ok {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCStart) {
@@ -86,7 +86,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 	}
 	rp, ok := s.oidcManager().Provider(cfg.Name)
 	if !ok || strings.TrimSpace(rp.ClientID) == "" {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 
@@ -98,13 +98,13 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		var err error
 		verifier, challenge, err = oidckit.GeneratePKCE()
 		if err != nil {
-			serverErr(w, "pkce_generation_failed")
+			serverErr(w, ErrPKCEGenerationFailed)
 			return
 		}
 	}
 	ui := r.URL.Query().Get("ui")
 	if ui != "" && ui != "popup" {
-		badRequest(w, "invalid_ui")
+		badRequest(w, ErrInvalidUI)
 		return
 	}
 	popupNonce := r.URL.Query().Get("popup_nonce")
@@ -125,7 +125,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		UI:              ui,
 		PopupNonce:      popupNonce,
 	}); err != nil {
-		serverErr(w, "state_store_failed")
+		serverErr(w, ErrStateStoreFailed)
 		return
 	}
 
@@ -154,20 +154,20 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request, provider string) {
 	cfg, ok := s.oauth2Provider(provider)
 	if !ok {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCCallback) {
 		return
 	}
 	if qErr := r.URL.Query().Get("error"); qErr != "" {
-		badRequest(w, qErr)
+		badRequest(w, ErrorCode(qErr))
 		return
 	}
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -175,23 +175,23 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	sd, ok, err := oidcCfg.StateCache.Get(r.Context(), state)
 	_ = oidcCfg.StateCache.Del(r.Context(), state)
 	if err != nil || !ok || sd.Provider != cfg.Name {
-		badRequest(w, "invalid_state")
+		badRequest(w, ErrInvalidState)
 		return
 	}
 
 	rp, ok := oidcCfg.Manager.Provider(cfg.Name)
 	if !ok || strings.TrimSpace(rp.ClientID) == "" || strings.TrimSpace(rp.ClientSecret) == "" {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 	token, err := s.exchangeOAuthCode(r, cfg, rp.ClientID, rp.ClientSecret, code, sd.RedirectURI, sd.Verifier)
 	if err != nil {
-		unauthorized(w, "exchange_failed")
+		unauthorized(w, ErrExchangeFailed)
 		return
 	}
 	info, err := s.fetchOAuthUserInfo(r, cfg, token)
 	if err != nil || strings.TrimSpace(info.Subject) == "" {
-		unauthorized(w, "userinfo_failed")
+		unauthorized(w, ErrUserinfoFailed)
 		return
 	}
 
@@ -202,7 +202,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	userID, created, err := s.resolveOAuthUser(r, cfg, sd, info)
 	if err != nil {
 		if errors.Is(err, errProviderAlreadyLinked) {
-			badRequest(w, "provider_already_linked")
+			badRequest(w, ErrProviderAlreadyLinked)
 			return
 		}
 		if errors.Is(err, errAccountExistsLinkRequired) {
@@ -214,10 +214,10 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		if errors.Is(err, errProviderLinkFailed) {
-			serverErr(w, "provider_link_failed")
+			serverErr(w, ErrProviderLinkFailed)
 			return
 		}
-		serverErr(w, "user_creation_failed")
+		serverErr(w, ErrUserCreationFailed)
 		return
 	}
 	email := info.Email
@@ -225,20 +225,20 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, r.UserAgent(), nil)
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		serverErr(w, "session_issue_failed")
+		serverErr(w, ErrSessionIssueFailed)
 		return
 	}
 	extra["sid"] = sid
 	accessToken, exp, err := s.svc.IssueAccessToken(r.Context(), userID, email, extra)
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		serverErr(w, "token_issue_failed")
+		serverErr(w, ErrTokenIssueFailed)
 		return
 	}
 
@@ -253,7 +253,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	if sd.UI == "popup" {
 		targetOrigin, ok := originFromBaseURL(s.svc.Options().BaseURL)
 		if !ok {
-			serverErr(w, "invalid_base_url")
+			serverErr(w, ErrInvalidBaseURL)
 			return
 		}
 		payload := map[string]any{

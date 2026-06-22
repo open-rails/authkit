@@ -88,6 +88,7 @@ type OrgProvisionResult struct {
 // and deployment bootstrap jobs. Unlike public self-service registration, this
 // API may create an ownerless org. Hosts that want a human-owned public
 // org must use CreateOrgForUser.
+// Deprecated: use s.Bootstrap().ProvisionOrg.
 func (s *Service) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, store OrgManifestTokenStore) (OrgProvisionResult, error) {
 	if err := s.requirePG(); err != nil {
 		return OrgProvisionResult{}, err

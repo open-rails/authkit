@@ -15,7 +15,7 @@ func (s *Service) JWKSHandler() http.Handler {
 // It is intended to be mounted under the host's mux/router at the host's chosen API prefix.
 func (s *Service) APIHandler() http.Handler {
 	if s == nil || s.svc == nil || s.verifier == nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, "authkit_not_initialized") })
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, ErrAuthkitNotInitialized) })
 	}
 	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
 		panic(err)

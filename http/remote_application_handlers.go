@@ -69,24 +69,24 @@ func remoteApplicationView(ra core.RemoteApplication) remoteApplicationResponse 
 func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	var body remoteApplicationRegistration
 	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if strings.TrimSpace(body.Slug) == "" || strings.TrimSpace(body.Issuer) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if _, err := core.NormalizeRemoteAppTrustSource(body.JWKSURI, body.Mode, body.PublicKeys); err != nil {
-		badRequest(w, "invalid_trust_source")
+		badRequest(w, ErrInvalidTrustSource)
 		return
 	}
 	if _, err := core.NormalizeAllowedOrigins(body.AllowedOrigins); err != nil {
-		badRequest(w, "invalid_allowed_origins")
+		badRequest(w, ErrInvalidAllowedOrigins)
 		return
 	}
 	orgID, ok := s.gateOrgRemoteApps(w, r, claims, core.PermOrgRemoteAppsCreate)
@@ -98,11 +98,11 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 	// authoritative, never the body).
 	if existing, gerr := s.svc.GetRemoteApplication(r.Context(), body.Issuer); gerr == nil && existing != nil {
 		if strings.TrimSpace(existing.OrgID) != orgID {
-			sendErrData(w, http.StatusConflict, "issuer_owned_by_other_org", map[string]any{})
+			sendErrData(w, http.StatusConflict, ErrIssuerOwnedByOtherOrg, map[string]any{})
 			return
 		}
 	} else if gerr != nil && gerr != core.ErrRemoteApplicationNotFound {
-		serverErr(w, "remote_application_lookup_failed")
+		serverErr(w, ErrRemoteApplicationLookupFailed)
 		return
 	}
 
@@ -123,14 +123,14 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 	})
 	if err != nil {
 		if err == core.ErrInvalidRemoteApplication {
-			badRequest(w, "invalid_request")
+			badRequest(w, ErrInvalidRequest)
 			return
 		}
 		if err == core.ErrReservedIssuer {
-			badRequest(w, "issuer_reserved")
+			badRequest(w, ErrIssuerReserved)
 			return
 		}
-		serverErr(w, "remote_application_register_failed")
+		serverErr(w, ErrRemoteApplicationRegisterFailed)
 		return
 	}
 
@@ -148,7 +148,7 @@ func (s *Service) handleRemoteApplicationRegisterPOST(w http.ResponseWriter, r *
 func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgID, ok := s.gateOrgRemoteApps(w, r, claims, core.PermOrgRemoteAppsDelete)
@@ -157,20 +157,20 @@ func (s *Service) handleRemoteApplicationDeleteDELETE(w http.ResponseWriter, r *
 	}
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
 	if err != nil || strings.TrimSpace(ra.OrgID) != orgID {
-		notFound(w, "remote_application_not_found")
+		notFound(w, ErrRemoteApplicationNotFound)
 		return
 	}
 	if err := s.svc.DeleteRemoteApplication(r.Context(), ra.Issuer); err != nil {
 		if err == core.ErrRemoteApplicationNotFound {
-			notFound(w, "remote_application_not_found")
+			notFound(w, ErrRemoteApplicationNotFound)
 			return
 		}
-		serverErr(w, "remote_application_delete_failed")
+		serverErr(w, ErrRemoteApplicationDeleteFailed)
 		return
 	}
 	if s.verifier != nil {
@@ -196,20 +196,20 @@ func (s *Service) handleRemoteApplicationMembershipPOST(w http.ResponseWriter, r
 	}
 	var body remoteApplicationMembershipRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Org) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, ok, err := s.canManageOrgMembership(r.Context(), claims, body.Org)
 	if err != nil {
 		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 			return
 		}
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	if !ok {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return
 	}
 	role := strings.TrimSpace(body.Role)
@@ -224,22 +224,22 @@ func (s *Service) handleRemoteApplicationMembershipPOST(w http.ResponseWriter, r
 	// role-perm, api-key, invite, and platform-grant paths enforce.
 	rolePerms, perr := s.svc.EffectiveRolePermissions(r.Context(), canonical, role)
 	if perr != nil {
-		serverErr(w, "role_permissions_lookup_failed")
+		serverErr(w, ErrRolePermissionsLookupFailed)
 		return
 	}
 	if _, offending, verr := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, rolePerms, false); verr != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return
 	} else if len(offending) > 0 {
-		sendErrData(w, http.StatusForbidden, "role_exceeds_grantor", map[string]any{"offending_permissions": offending})
+		sendErrData(w, http.StatusForbidden, ErrRoleExceedsGrantor, map[string]any{"offending_permissions": offending})
 		return
 	}
 	if err := s.svc.AddRemoteApplicationMember(r.Context(), canonical, ra.ID, role); err != nil {
 		if err == core.ErrInvalidOrgRole {
-			badRequest(w, "invalid_role")
+			badRequest(w, ErrInvalidRole)
 			return
 		}
-		serverErr(w, "remote_application_membership_failed")
+		serverErr(w, ErrRemoteApplicationMembershipFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"org": canonical, "role": role})
@@ -254,24 +254,24 @@ func (s *Service) handleRemoteApplicationMembershipDELETE(w http.ResponseWriter,
 	}
 	var body remoteApplicationMembershipRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Org) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, ok, err := s.canManageOrgMembership(r.Context(), claims, body.Org)
 	if err != nil {
 		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 			return
 		}
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	if !ok {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return
 	}
 	if err := s.svc.RemoveRemoteApplicationMember(r.Context(), canonical, ra.ID); err != nil {
-		serverErr(w, "remote_application_membership_failed")
+		serverErr(w, ErrRemoteApplicationMembershipFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -301,16 +301,16 @@ func (s *Service) handleAttributeDefPutPOST(w http.ResponseWriter, r *http.Reque
 	}
 	var body attributeDefRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Key) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	d, err := s.svc.RegisterRemoteAppAttributeDef(r.Context(), ra.ID, body.Key, body.Version, body.Definition)
 	if err != nil {
 		if err == core.ErrInvalidAttributeDef {
-			badRequest(w, "invalid_definition")
+			badRequest(w, ErrInvalidDefinition)
 			return
 		}
-		serverErr(w, "attribute_def_register_failed")
+		serverErr(w, ErrAttributeDefRegisterFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, attributeDefView(*d))
@@ -323,25 +323,25 @@ func (s *Service) handleAttributeDefPutPOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) handleAttributeDefGET(w http.ResponseWriter, r *http.Request) {
 	_, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	key := strings.TrimSpace(r.URL.Query().Get("key"))
 	if slug == "" || key == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
 	if err != nil {
-		notFound(w, "remote_application_not_found")
+		notFound(w, ErrRemoteApplicationNotFound)
 		return
 	}
 	var version int32
 	if v := strings.TrimSpace(r.URL.Query().Get("version")); v != "" {
 		n, perr := strconv.Atoi(v)
 		if perr != nil {
-			badRequest(w, "invalid_version")
+			badRequest(w, ErrInvalidVersion)
 			return
 		}
 		version = int32(n)
@@ -349,10 +349,10 @@ func (s *Service) handleAttributeDefGET(w http.ResponseWriter, r *http.Request) 
 	d, err := s.svc.ResolveRemoteAppAttributeDef(r.Context(), ra.ID, key, version)
 	if err != nil {
 		if err == core.ErrAttributeDefNotFound {
-			notFound(w, "attribute_def_not_found")
+			notFound(w, ErrAttributeDefNotFound)
 			return
 		}
-		serverErr(w, "attribute_def_resolve_failed")
+		serverErr(w, ErrAttributeDefResolveFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, attributeDefView(*d))
@@ -370,25 +370,25 @@ func (s *Service) handleAttributeDefGET(w http.ResponseWriter, r *http.Request) 
 func (s *Service) gateOrgRemoteApps(w http.ResponseWriter, r *http.Request, claims Claims, perm string) (orgID string, ok bool) {
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return "", false
 	}
 	org, err := s.svc.ResolveOrgBySlug(r.Context(), orgSlug)
 	if err != nil {
 		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 		} else {
-			serverErr(w, "org_lookup_failed")
+			serverErr(w, ErrOrgLookupFailed)
 		}
 		return "", false
 	}
 	allowed, err := s.svc.HasPermission(r.Context(), org.Slug, claims.UserID, perm)
 	if err != nil {
-		serverErr(w, "permission_check_failed")
+		serverErr(w, ErrPermissionCheckFailed)
 		return "", false
 	}
 	if !allowed {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return "", false
 	}
 	return org.ID, true
@@ -402,7 +402,7 @@ func (s *Service) gateOrgRemoteApps(w http.ResponseWriter, r *http.Request, clai
 func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Request) (Claims, *core.RemoteApplication, bool) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return Claims{}, nil, false
 	}
 	orgID, ok := s.gateOrgRemoteApps(w, r, claims, core.PermOrgRemoteAppsUpdate)
@@ -411,12 +411,12 @@ func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Req
 	}
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return Claims{}, nil, false
 	}
 	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
 	if err != nil || strings.TrimSpace(ra.OrgID) != orgID {
-		notFound(w, "remote_application_not_found")
+		notFound(w, ErrRemoteApplicationNotFound)
 		return Claims{}, nil, false
 	}
 	return claims, ra, true
@@ -430,40 +430,40 @@ func (s *Service) authRemoteApplicationBySlug(w http.ResponseWriter, r *http.Req
 func (s *Service) authRemoteApplicationAttributeDefWriter(w http.ResponseWriter, r *http.Request) (*core.RemoteApplication, bool) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return nil, false
 	}
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return nil, false
 	}
 	ra, err := s.svc.GetRemoteApplicationBySlug(r.Context(), slug)
 	if err != nil {
-		notFound(w, "remote_application_not_found")
+		notFound(w, ErrRemoteApplicationNotFound)
 		return nil, false
 	}
 	if claims.IsRemoteApplication() {
 		if strings.TrimSpace(claims.RemoteApplicationID) == strings.TrimSpace(ra.ID) {
 			return ra, true
 		}
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return nil, false
 	}
 	if strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return nil, false
 	}
 	orgID := strings.TrimSpace(ra.OrgID)
 	if orgID == "" {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return nil, false
 	}
 	if _, ok, err := s.canManageRemoteApplicationOrg(r.Context(), claims, orgID); err != nil {
-		serverErr(w, "remote_application_owner_lookup_failed")
+		serverErr(w, ErrRemoteApplicationOwnerLookupFailed)
 		return nil, false
 	} else if !ok {
-		forbidden(w, "forbidden")
+		forbidden(w, ErrForbidden)
 		return nil, false
 	}
 	return ra, true

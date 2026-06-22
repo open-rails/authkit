@@ -23,17 +23,17 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		ChainID  string `json:"chain_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
 	address := strings.TrimSpace(req.Address)
 	if address == "" {
-		badRequest(w, "address_required")
+		badRequest(w, ErrAddressRequired)
 		return
 	}
 	if err := siws.ValidateAddress(address); err != nil {
-		badRequest(w, "invalid_address")
+		badRequest(w, ErrInvalidAddress)
 		return
 	}
 
@@ -61,7 +61,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), s.siwsCache(), domain, address, req.Username)
 	if err != nil {
-		serverErr(w, "challenge_failed")
+		serverErr(w, ErrChallengeFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -87,7 +87,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		} `json:"output"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -95,7 +95,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		signature, err = base64.RawURLEncoding.DecodeString(req.Output.Signature)
 		if err != nil {
-			badRequest(w, "invalid_signature_encoding")
+			badRequest(w, ErrInvalidSignatureEncoding)
 			return
 		}
 	}
@@ -103,7 +103,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		signedMessage, err = base64.RawURLEncoding.DecodeString(req.Output.SignedMessage)
 		if err != nil {
-			badRequest(w, "invalid_message_encoding")
+			badRequest(w, ErrInvalidMessageEncoding)
 			return
 		}
 	}
@@ -128,7 +128,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 	accessToken, expiresAt, refreshToken, userID, created, err := s.svc.VerifySIWSAndLogin(r.Context(), s.siwsCache(), output, nil)
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
 		if errors.Is(err, core.ErrRegistrationDisabled) {
@@ -138,15 +138,15 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		errMsg := err.Error()
 		switch {
 		case contains(errMsg, "challenge not found"), contains(errMsg, "challenge expired"):
-			unauthorized(w, "challenge_expired")
+			unauthorized(w, ErrChallengeExpired)
 		case contains(errMsg, "signature verification failed"):
-			unauthorized(w, "invalid_signature")
+			unauthorized(w, ErrInvalidSignature)
 		case contains(errMsg, "address mismatch"):
-			badRequest(w, "address_mismatch")
+			badRequest(w, ErrAddressMismatch)
 		case contains(errMsg, "timestamp validation failed"):
-			unauthorized(w, "challenge_expired")
+			unauthorized(w, ErrChallengeExpired)
 		default:
-			unauthorized(w, "authentication_failed")
+			unauthorized(w, ErrAuthenticationFailed)
 		}
 		return
 	}
@@ -175,7 +175,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "authentication_required")
+		unauthorized(w, ErrAuthenticationRequired)
 		return
 	}
 
@@ -190,7 +190,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		} `json:"output"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -198,7 +198,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		signature, err = base64.RawURLEncoding.DecodeString(req.Output.Signature)
 		if err != nil {
-			badRequest(w, "invalid_signature_encoding")
+			badRequest(w, ErrInvalidSignatureEncoding)
 			return
 		}
 	}
@@ -206,7 +206,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		signedMessage, err = base64.RawURLEncoding.DecodeString(req.Output.SignedMessage)
 		if err != nil {
-			badRequest(w, "invalid_message_encoding")
+			badRequest(w, ErrInvalidMessageEncoding)
 			return
 		}
 	}
@@ -232,15 +232,15 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		errMsg := err.Error()
 		switch {
 		case contains(errMsg, "challenge not found"), contains(errMsg, "challenge expired"):
-			unauthorized(w, "challenge_expired")
+			unauthorized(w, ErrChallengeExpired)
 		case contains(errMsg, "signature verification failed"):
-			unauthorized(w, "invalid_signature")
+			unauthorized(w, ErrInvalidSignature)
 		case contains(errMsg, "address mismatch"):
-			badRequest(w, "address_mismatch")
+			badRequest(w, ErrAddressMismatch)
 		case contains(errMsg, "wallet already linked"):
-			sendErr(w, http.StatusConflict, "wallet_already_linked")
+			sendErr(w, http.StatusConflict, ErrWalletAlreadyLinked)
 		default:
-			serverErr(w, "link_failed")
+			serverErr(w, ErrLinkFailed)
 		}
 		return
 	}

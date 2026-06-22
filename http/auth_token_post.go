@@ -20,7 +20,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		Org          string `json:"org"`
 	}
 	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") || strings.TrimSpace(body.RefreshToken) == "" || strings.TrimSpace(body.Org) != "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	ua := r.UserAgent()
@@ -28,10 +28,10 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, "user_banned")
+			unauthorized(w, ErrUserBanned)
 			return
 		}
-		unauthorized(w, "invalid_refresh_token")
+		unauthorized(w, ErrInvalidRefreshToken)
 		return
 	}
 

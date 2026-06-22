@@ -27,7 +27,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	email := strings.TrimSpace(r.URL.Query().Get("email"))
 	phone := strings.TrimSpace(r.URL.Query().Get("phone_number"))
 	if username == "" && email == "" && phone == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -36,13 +36,13 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	if s.publicRegistrationDisabled() {
 		resp := registrationAvailabilityResponse{}
 		if username != "" {
-			resp.Username = &registrationAvailabilityField{Available: false, Error: errRegistrationDisabled}
+			resp.Username = &registrationAvailabilityField{Available: false, Error: ErrRegistrationDisabled.String()}
 		}
 		if email != "" {
-			resp.Email = &registrationAvailabilityField{Available: false, Error: errRegistrationDisabled}
+			resp.Email = &registrationAvailabilityField{Available: false, Error: ErrRegistrationDisabled.String()}
 		}
 		if phone != "" {
-			resp.PhoneNumber = &registrationAvailabilityField{Available: false, Error: errRegistrationDisabled}
+			resp.PhoneNumber = &registrationAvailabilityField{Available: false, Error: ErrRegistrationDisabled.String()}
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
@@ -53,7 +53,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		field, err := s.registrationUsernameAvailability(r, username)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "username", "database_error", err)
-			serverErr(w, "database_error")
+			serverErr(w, ErrDatabaseError)
 			return
 		}
 		resp.Username = field
@@ -62,7 +62,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		field, err := s.registrationEmailAvailability(r, email)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "email", "database_error", err)
-			serverErr(w, "database_error")
+			serverErr(w, ErrDatabaseError)
 			return
 		}
 		resp.Email = field
@@ -71,7 +71,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		field, err := s.registrationPhoneAvailability(r, phone)
 		if err != nil {
 			s.logInternalError(r, "register_availability", "phone_number", "database_error", err)
-			serverErr(w, "database_error")
+			serverErr(w, ErrDatabaseError)
 			return
 		}
 		resp.PhoneNumber = field
@@ -82,8 +82,8 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 
 func (s *Service) registrationUsernameAvailability(r *http.Request, username string) (*registrationAvailabilityField, error) {
 	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-		if code := core.ValidationErrorCode(err); code != "" {
-			return &registrationAvailabilityField{Available: false, Error: code}, nil
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+			return &registrationAvailabilityField{Available: false, Error: code.String()}, nil
 		}
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (s *Service) registrationUsernameAvailability(r *http.Request, username str
 
 func (s *Service) registrationEmailAvailability(r *http.Request, email string) (*registrationAvailabilityField, error) {
 	if err := core.ValidateEmail(email); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: core.ValidationErrorCode(err)}, nil
+		return &registrationAvailabilityField{Available: false, Error: ErrorCode(core.ValidationErrorCode(err)).String()}, nil
 	}
 	email = core.NormalizeEmail(email)
 
@@ -119,7 +119,7 @@ func (s *Service) registrationEmailAvailability(r *http.Request, email string) (
 
 func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*registrationAvailabilityField, error) {
 	if err := core.ValidatePhone(phone); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: core.ValidationErrorCode(err)}, nil
+		return &registrationAvailabilityField{Available: false, Error: ErrorCode(core.ValidationErrorCode(err)).String()}, nil
 	}
 	phone = core.NormalizePhone(phone)
 

@@ -235,6 +235,7 @@ func remoteAppFromUpsert(row db.RemoteApplicationUpsertRow) *RemoteApplication {
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
 // issuer. OrgID is optional: empty rows are bootstrap/operator-managed.
+// Deprecated: use s.Identity().UpsertRemoteApplication.
 func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -299,6 +300,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 }
 
 // GetRemoteApplication returns a remote_application by OIDC issuer URL.
+// Deprecated: use s.Identity().GetRemoteApplication.
 func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -320,6 +322,7 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 // ResolveRemoteApplicationOrg returns the owning org_id of the
 // remote_application registered for issuer (#77). Empty string means
 // unowned/bootstrap-managed; ErrRemoteApplicationNotFound if unknown.
+// Deprecated: use s.Identity().ResolveRemoteApplicationOrg.
 func (s *Service) ResolveRemoteApplicationOrg(ctx context.Context, issuer string) (string, error) {
 	ra, err := s.GetRemoteApplication(ctx, issuer)
 	if err != nil {
@@ -329,6 +332,7 @@ func (s *Service) ResolveRemoteApplicationOrg(ctx context.Context, issuer string
 }
 
 // GetRemoteApplicationBySlug returns a remote_application by slug.
+// Deprecated: use s.Identity().GetRemoteApplicationBySlug.
 func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -349,6 +353,7 @@ func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (
 
 // ListRemoteApplications returns registered remote_applications. When activeOnly
 // is true, only enabled rows are returned.
+// Deprecated: use s.Identity().ListRemoteApplications.
 func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -375,6 +380,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 }
 
 // DeleteRemoteApplication removes a remote_application by OIDC issuer URL.
+// Deprecated: use s.Identity().DeleteRemoteApplication.
 func (s *Service) DeleteRemoteApplication(ctx context.Context, issuer string) error {
 	if err := s.requirePG(); err != nil {
 		return err

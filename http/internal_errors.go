@@ -53,7 +53,7 @@ func (s *Service) handleDeliveryError(w http.ResponseWriter, r *http.Request, ro
 	if code == "" {
 		return false
 	}
-	s.logInternalError(r, route, stage, code, err)
+	s.logInternalError(r, route, stage, code.String(), err)
 	deliveryErr(w, code)
 	return true
 }
@@ -62,25 +62,25 @@ func handleVerificationRequestError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
 	}
-	if code := core.ValidationErrorCode(err); code != "" {
+	if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 		badRequest(w, code)
 		return true
 	}
 	switch {
 	case errors.Is(err, core.ErrUserNotFound):
-		notFound(w, "user_not_found")
+		notFound(w, ErrUserNotFound)
 		return true
 	case errors.Is(err, core.ErrPendingRegistrationNotFound):
-		notFound(w, "pending_registration_not_found")
+		notFound(w, ErrPendingRegistrationNotFound)
 		return true
 	case errors.Is(err, core.ErrEmailAlreadyVerified):
-		sendErr(w, http.StatusConflict, "email_already_verified")
+		sendErr(w, http.StatusConflict, ErrEmailAlreadyVerified)
 		return true
 	case errors.Is(err, core.ErrPhoneAlreadyVerified):
-		sendErr(w, http.StatusConflict, "phone_already_verified")
+		sendErr(w, http.StatusConflict, ErrPhoneAlreadyVerified)
 		return true
 	case errors.Is(err, core.ErrVerificationLinkExpired):
-		sendErr(w, http.StatusGone, "verification_link_expired")
+		sendErr(w, http.StatusGone, ErrVerificationLinkExpired)
 		return true
 	default:
 		return false

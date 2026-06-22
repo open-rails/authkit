@@ -10,13 +10,13 @@ import (
 func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
 	if orgSlug == "" || targetUserID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
@@ -25,7 +25,7 @@ func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request
 	}
 	roles, err := s.svc.ReadMemberRoles(r.Context(), canonical, targetUserID)
 	if err != nil {
-		serverErr(w, "member_roles_lookup_failed")
+		serverErr(w, ErrMemberRolesLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"roles": roles})
@@ -34,13 +34,13 @@ func (s *Service) handleOrgMemberRolesGET(w http.ResponseWriter, r *http.Request
 func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
 	if orgSlug == "" || targetUserID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersUpdate)
@@ -51,7 +51,7 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 		Role string `json:"role"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	// NO-ESCALATION: assigning a role grants its permissions, so the assigner
@@ -60,18 +60,18 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 	// `owner` role (which is `org:*`) and escalating.
 	rolePerms, err := s.svc.EffectiveRolePermissions(r.Context(), canonical, body.Role)
 	if err != nil {
-		serverErr(w, "role_permissions_lookup_failed")
+		serverErr(w, ErrRolePermissionsLookupFailed)
 		return
 	}
 	if _, offending, verr := s.svc.ValidateGrant(r.Context(), canonical, claims.UserID, rolePerms, false); verr != nil {
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return
 	} else if len(offending) > 0 {
-		sendErrData(w, http.StatusForbidden, "role_exceeds_grantor", map[string]any{"offending_permissions": offending})
+		sendErrData(w, http.StatusForbidden, ErrRoleExceedsGrantor, map[string]any{"offending_permissions": offending})
 		return
 	}
 	if err := s.svc.AssignRole(r.Context(), canonical, targetUserID, body.Role); err != nil {
-		badRequest(w, "assign_role_failed")
+		badRequest(w, ErrAssignRoleFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -80,13 +80,13 @@ func (s *Service) handleOrgMemberRolesPOST(w http.ResponseWriter, r *http.Reques
 func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	targetUserID := strings.TrimSpace(r.PathValue("user_id"))
 	if orgSlug == "" || targetUserID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersUpdate)
@@ -97,15 +97,15 @@ func (s *Service) handleOrgMemberRolesDELETE(w http.ResponseWriter, r *http.Requ
 		Role string `json:"role"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := s.svc.UnassignRole(r.Context(), canonical, targetUserID, body.Role); err != nil {
 		if err == core.ErrLastOrgOwner {
-			badRequest(w, "cannot_remove_last_owner")
+			badRequest(w, ErrCannotRemoveLastOwner)
 			return
 		}
-		badRequest(w, "unassign_role_failed")
+		badRequest(w, ErrUnassignRoleFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})

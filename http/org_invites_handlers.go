@@ -11,12 +11,12 @@ import (
 func (s *Service) handleOrgInvitesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersRead)
@@ -26,7 +26,7 @@ func (s *Service) handleOrgInvitesGET(w http.ResponseWriter, r *http.Request) {
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	items, err := s.svc.ListOrgInvites(r.Context(), canonical, status)
 	if err != nil {
-		serverErr(w, "org_invites_lookup_failed")
+		serverErr(w, ErrOrgInvitesLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"invites": items})
@@ -35,12 +35,12 @@ func (s *Service) handleOrgInvitesGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	if orgSlug == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersCreate)
@@ -53,7 +53,7 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt *string `json:"expires_at,omitempty"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	// NO-ESCALATION at invite time: an invite grants its role's permissions on
@@ -64,17 +64,17 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 	// role-grant handler (handleOrgMemberRolesPOST).
 	if err := s.svc.ValidateInviteRoleGrant(r.Context(), canonical, claims.UserID, strings.TrimSpace(body.Role)); err != nil {
 		if err == core.ErrInviteRoleExceedsGrantor {
-			forbidden(w, "role_exceeds_grantor")
+			forbidden(w, ErrRoleExceedsGrantor)
 			return
 		}
-		serverErr(w, "permission_validate_failed")
+		serverErr(w, ErrPermissionValidateFailed)
 		return
 	}
 	var expiresAt *time.Time
 	if body.ExpiresAt != nil && strings.TrimSpace(*body.ExpiresAt) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*body.ExpiresAt))
 		if err != nil {
-			badRequest(w, "invalid_expires_at")
+			badRequest(w, ErrInvalidExpiresAt)
 			return
 		}
 		parsed = parsed.UTC()
@@ -82,7 +82,7 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := s.svc.CreateOrgInvite(r.Context(), canonical, strings.TrimSpace(body.UserID), claims.UserID, strings.TrimSpace(body.Role), expiresAt)
 	if err != nil {
-		badRequest(w, "org_invite_create_failed")
+		badRequest(w, ErrOrgInviteCreateFailed)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -91,13 +91,13 @@ func (s *Service) handleOrgInvitesPOST(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOrgInviteRevokePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	orgSlug := strings.TrimSpace(r.PathValue("org"))
 	inviteID := strings.TrimSpace(r.PathValue("invite_id"))
 	if orgSlug == "" || inviteID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	canonical, gateOK := s.requireOrgPermissionGin(w, r, claims, orgSlug, core.PermOrgMembersDelete)
@@ -106,10 +106,10 @@ func (s *Service) handleOrgInviteRevokePOST(w http.ResponseWriter, r *http.Reque
 	}
 	if err := s.svc.RevokeOrgInvite(r.Context(), canonical, inviteID); err != nil {
 		if err == core.ErrInviteNotFound {
-			notFound(w, "invite_not_found")
+			notFound(w, ErrInviteNotFound)
 			return
 		}
-		badRequest(w, "org_invite_revoke_failed")
+		badRequest(w, ErrOrgInviteRevokeFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -118,28 +118,30 @@ func (s *Service) handleOrgInviteRevokePOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) handleOrgInviteAcceptPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	inviteID := strings.TrimSpace(r.PathValue("invite_id"))
 	if inviteID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := s.svc.AcceptOrgInvite(r.Context(), inviteID, claims.UserID); err != nil {
 		switch err {
 		case core.ErrInviteNotFound:
-			notFound(w, "invite_not_found")
+			notFound(w, ErrInviteNotFound)
 		case core.ErrInviteNotForUser:
-			forbidden(w, "forbidden")
+			forbidden(w, ErrForbidden)
 		case core.ErrInviteRoleExceedsGrantor:
 			// The inviter no longer has authority to grant this role (demoted
 			// since the invite was created). Refuse rather than escalate.
-			forbidden(w, "role_exceeds_grantor")
-		case core.ErrInviteNotPending, core.ErrInviteExpired:
-			badRequest(w, err.Error())
+			forbidden(w, ErrRoleExceedsGrantor)
+		case core.ErrInviteNotPending:
+			badRequest(w, ErrOrgInviteNotPending)
+		case core.ErrInviteExpired:
+			badRequest(w, ErrOrgInviteExpired)
 		default:
-			badRequest(w, "org_invite_accept_failed")
+			badRequest(w, ErrOrgInviteAcceptFailed)
 		}
 		return
 	}
@@ -149,24 +151,26 @@ func (s *Service) handleOrgInviteAcceptPOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) handleOrgInviteDeclinePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	inviteID := strings.TrimSpace(r.PathValue("invite_id"))
 	if inviteID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := s.svc.DeclineOrgInvite(r.Context(), inviteID, claims.UserID); err != nil {
 		switch err {
 		case core.ErrInviteNotFound:
-			notFound(w, "invite_not_found")
+			notFound(w, ErrInviteNotFound)
 		case core.ErrInviteNotForUser:
-			forbidden(w, "forbidden")
-		case core.ErrInviteNotPending, core.ErrInviteExpired:
-			badRequest(w, err.Error())
+			forbidden(w, ErrForbidden)
+		case core.ErrInviteNotPending:
+			badRequest(w, ErrOrgInviteNotPending)
+		case core.ErrInviteExpired:
+			badRequest(w, ErrOrgInviteExpired)
 		default:
-			badRequest(w, "org_invite_decline_failed")
+			badRequest(w, ErrOrgInviteDeclineFailed)
 		}
 		return
 	}
@@ -176,13 +180,13 @@ func (s *Service) handleOrgInviteDeclinePOST(w http.ResponseWriter, r *http.Requ
 func (s *Service) handleUserInvitesGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	items, err := s.svc.ListUserInvites(r.Context(), claims.UserID, status)
 	if err != nil {
-		serverErr(w, "user_invites_lookup_failed")
+		serverErr(w, ErrUserInvitesLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"invites": items})

@@ -31,7 +31,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	state := randB64(32)
@@ -43,18 +43,18 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 		var err error
 		verifier, challenge, err = oidckit.GeneratePKCE()
 		if err != nil {
-			serverErr(w, "pkce_generation_failed")
+			serverErr(w, ErrPKCEGenerationFailed)
 			return
 		}
 	}
 	redirectURI := buildRedirectURI(r, provider)
 	url, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
-		badRequest(w, "oidc_begin_failed")
+		badRequest(w, ErrOIDCBeginFailed)
 		return
 	}
 	if err := s.stateCache().Put(r.Context(), state, oidckit.StateData{Provider: provider, Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, LinkUserID: claims.UserID}); err != nil {
-		serverErr(w, "state_store_failed")
+		serverErr(w, ErrStateStoreFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"auth_url": url, "state": state})

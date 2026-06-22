@@ -14,7 +14,8 @@ provider linking is an API group, `RouteAccountOIDCLinking`, and is exposed as
 
 AuthKit is opinionated about identity validation. Host apps should not
 reimplement or customize username, password, email, or phone validation rules.
-AuthKit returns stable error codes such as `username_too_short`,
+AuthKit returns stable error codes, exported from the `authhttp` package as
+typed `ErrorCode` constants, such as `username_too_short`,
 `username_must_start_with_letter`, `username_invalid_characters`,
 `owner_slug_taken`, `username_not_allowed`, `rename_rate_limited`,
 `invalid_email`, `invalid_phone_number`, and `password_too_short`.

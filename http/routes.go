@@ -93,7 +93,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		return required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := ClaimsFromContext(r.Context())
 			if !ok {
-				unauthorized(w, "unauthorized")
+				unauthorized(w, ErrUnauthorized)
 				return
 			}
 			if !s.requirePlatformPermission(w, r, claims, perm) {
@@ -107,7 +107,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// route would otherwise capture (e.g. POST /admin/users/toggle-active would
 	// match GET /admin/users/{user_id} → 405). These are 404 sentinels.
 	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		notFound(w, "not_found")
+		notFound(w, ErrNotFound)
 	})
 
 	routes := []RouteSpec{

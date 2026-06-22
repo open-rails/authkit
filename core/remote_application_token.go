@@ -63,6 +63,7 @@ type RemoteApplicationAccessParams struct {
 // MintRemoteApplicationAccessToken signs a remote application access token using the
 // Service's internal signer. When p.Issuer is empty it defaults to the Service's
 // configured Issuer.
+// Deprecated: use s.Tokens().MintRemoteApplicationAccessToken.
 func (s *Service) MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error) {
 	signer := s.keys.Active
 	if signer == nil {

@@ -136,6 +136,7 @@ func permNamespace(name string) string {
 
 // Permissions returns the full permission set: authkit base permissions plus
 // the app-declared permissions (deduped, base wins on collision).
+// Deprecated: use s.Roles().Permissions.
 func (s *Service) Permissions() []PermissionDef {
 	out := append([]PermissionDef{}, BasePermissions()...)
 	seen := map[string]bool{}
@@ -237,6 +238,7 @@ func sortedKeys(m map[string]bool) []string {
 
 // OrgRoleExists reports whether role is defined in the org. Used by the API-key
 // mint path to return a precise "unknown_role" error before relying on the DB FK.
+// Deprecated: use s.Roles().OrgRoleExists.
 func (s *Service) OrgRoleExists(ctx context.Context, orgSlug, role string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -250,6 +252,7 @@ func (s *Service) OrgRoleExists(ctx context.Context, orgSlug, role string) (bool
 
 // GetRolePermissions returns a role's RAW permission tokens (literals and
 // namespace-anchored globs such as `org:*`).
+// Deprecated: use s.Roles().GetRolePermissions.
 func (s *Service) GetRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -265,6 +268,7 @@ func (s *Service) GetRolePermissions(ctx context.Context, orgSlug, role string) 
 // SetRolePermissions replaces a role's permission set (idempotent). The role
 // must already exist (created via DefineRole). Tokens are stored as-is (opaque);
 // callers should validate via ValidateGrant first for no-escalation.
+// Deprecated: use s.Roles().SetRolePermissions.
 func (s *Service) SetRolePermissions(ctx context.Context, orgSlug, role string, perms []string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -303,6 +307,7 @@ func (s *Service) SetRolePermissions(ctx context.Context, orgSlug, role string, 
 // roles in the org, expanded against the catalog. This is the single source of
 // truth for "what can this principal do" (the embedding app calls it at request
 // time for enforcement — do NOT bake into the JWT).
+// Deprecated: use s.Roles().EffectivePermissions.
 func (s *Service) EffectivePermissions(ctx context.Context, orgSlug, userID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -328,6 +333,7 @@ func (s *Service) EffectivePermissions(ctx context.Context, orgSlug, userID stri
 // EffectiveRolePermissions returns a single role's permissions expanded against
 // the catalog (globs included). Used to enforce no-escalation when assigning a
 // role to a member (the assigner must hold everything the role grants).
+// Deprecated: use s.Roles().EffectiveRolePermissions.
 func (s *Service) EffectiveRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
 	toks, err := s.GetRolePermissions(ctx, orgSlug, role)
 	if err != nil {
@@ -346,6 +352,7 @@ func (s *Service) EffectiveRolePermissions(ctx context.Context, orgSlug, role st
 // allow/deny result is identical to the previous per-check OrgUserHasPermissionToken
 // query (a stored token covers perm iff it is one of permissionCoverTokens(perm),
 // i.e. permMatches(token, perm)).
+// Deprecated: use s.Roles().HasPermission.
 func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
@@ -369,6 +376,7 @@ func (s *Service) HasPermission(ctx context.Context, orgSlug, userID, perm strin
 // `org:members:*`. `actorAll` short-circuits the no-escalation check for an
 // actor known to hold everything (bootstrap system-actor / platform admin).
 // Returns (unknown, offending).
+// Deprecated: use s.Roles().ValidateGrant.
 func (s *Service) ValidateGrant(ctx context.Context, orgSlug, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
 	catalog := s.knownPermissions()
 	var actorEff map[string]bool
@@ -479,6 +487,7 @@ func (s *Service) seedOwnerGrants(ctx context.Context, q *db.Queries, orgID stri
 // glob). Additive and idempotent — it never removes a grant. Apps call this after
 // declaring a new resource namespace so owners of orgs created BEFORE the
 // declaration gain the new `<ns>:*` coverage. (#101)
+// Deprecated: use s.Roles().EnsureOwnerGrants.
 func (s *Service) EnsureOwnerGrants(ctx context.Context, orgSlug string) error {
 	if err := s.requirePG(); err != nil {
 		return err

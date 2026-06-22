@@ -106,6 +106,7 @@ func uniqueTokenHashes(primary string, hashes []string) []string {
 // DeletePendingRegistrationByEmail removes a pending email registration (and all
 // its verification tokens) for the given email, if one exists. Used to abandon a
 // pending registration the user explicitly cancelled. No-op when none exists.
+// Deprecated: use s.Users().DeletePendingRegistrationByEmail.
 func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email string) error {
 	if !s.useEphemeralStore() {
 		return nil
@@ -117,6 +118,7 @@ func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email st
 // DeletePendingPhoneRegistrationByPhone removes a pending phone registration (and
 // all its verification tokens) for the given phone, if one exists. No-op when
 // none exists.
+// Deprecated: use s.Users().DeletePendingPhoneRegistrationByPhone.
 func (s *Service) DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error {
 	if !s.useEphemeralStore() {
 		return nil

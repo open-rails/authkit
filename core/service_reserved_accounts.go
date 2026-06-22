@@ -60,6 +60,7 @@ func (s *Service) enforceReservedPlaceholderCredentialInvariantTx(ctx context.Co
 	return qtx.UserClearLoginIdentifiers(ctx, userID)
 }
 
+// Deprecated: use s.Users().GetUserMetadata.
 func (s *Service) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -84,6 +85,7 @@ func (s *Service) GetUserMetadata(ctx context.Context, userID string) (map[strin
 	return out, nil
 }
 
+// Deprecated: use s.Users().PatchUserMetadata.
 func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -108,6 +110,7 @@ func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch ma
 	return nil
 }
 
+// Deprecated: use s.Orgs().GetOrgMetadata.
 func (s *Service) GetOrgMetadata(ctx context.Context, orgID string) (map[string]any, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -132,6 +135,7 @@ func (s *Service) GetOrgMetadata(ctx context.Context, orgID string) (map[string]
 	return out, nil
 }
 
+// Deprecated: use s.Orgs().PatchOrgMetadata.
 func (s *Service) PatchOrgMetadata(ctx context.Context, orgID string, patch map[string]any) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -156,6 +160,7 @@ func (s *Service) PatchOrgMetadata(ctx context.Context, orgID string, patch map[
 	return nil
 }
 
+// Deprecated: use s.Orgs().IsOrgReserved.
 func (s *Service) IsOrgReserved(ctx context.Context, orgID string) (bool, error) {
 	state, err := s.GetOrgNamespaceState(ctx, orgID)
 	if err != nil {
@@ -166,6 +171,7 @@ func (s *Service) IsOrgReserved(ctx context.Context, orgID string) (bool, error)
 
 // ReserveAccount reserves a namespace slug without requiring a same-slug login user.
 // For legacy placeholder rows, it still enforces non-loginable reserved invariants.
+// Deprecated: use s.Orgs().ReserveAccount.
 func (s *Service) ReserveAccount(ctx context.Context, slug string) (userID, orgID string, reserved bool, err error) {
 	if err := s.requirePG(); err != nil {
 		return "", "", false, err

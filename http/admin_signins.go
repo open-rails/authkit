@@ -10,17 +10,17 @@ import (
 func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
 	if userID == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.authlogr == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "authlog_unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": ErrAuthlogUnavailable})
 		return
 	}
 
 	events, err := s.authlogr.ListSessionEvents(r.Context(), userID, core.SessionEventCreated, core.SessionEventFailed)
 	if err != nil {
-		serverErr(w, "failed_to_list_signins")
+		serverErr(w, ErrFailedToListSignins)
 		return
 	}
 

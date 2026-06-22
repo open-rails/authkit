@@ -19,7 +19,7 @@ import (
 func (s *Service) handleAdminOrgsListGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsRead) {
@@ -30,7 +30,7 @@ func (s *Service) handleAdminOrgsListGET(w http.ResponseWriter, r *http.Request)
 	offset, _ := strconv.Atoi(strings.TrimSpace(q.Get("offset")))
 	orgs, err := s.svc.AdminListOrgs(r.Context(), q.Get("search"), q.Get("include_deleted") == "true", int32(limit), int32(offset))
 	if err != nil {
-		serverErr(w, "orgs_list_failed")
+		serverErr(w, ErrOrgsListFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orgs": orgs})
@@ -42,7 +42,7 @@ func (s *Service) handleAdminOrgsListGET(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleAdminOrgsDeletedListGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsRead) {
@@ -53,7 +53,7 @@ func (s *Service) handleAdminOrgsDeletedListGET(w http.ResponseWriter, r *http.R
 	offset, _ := strconv.Atoi(strings.TrimSpace(q.Get("offset")))
 	all, err := s.svc.AdminListOrgs(r.Context(), q.Get("search"), true, int32(limit), int32(offset))
 	if err != nil {
-		serverErr(w, "orgs_list_failed")
+		serverErr(w, ErrOrgsListFailed)
 		return
 	}
 	orgs := make([]core.OrgAdminSummary, 0, len(all))
@@ -68,12 +68,12 @@ func (s *Service) handleAdminOrgsDeletedListGET(w http.ResponseWriter, r *http.R
 func (s *Service) handleAdminOrgGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsRead) {
@@ -82,10 +82,10 @@ func (s *Service) handleAdminOrgGET(w http.ResponseWriter, r *http.Request) {
 	detail, err := s.svc.AdminOrgDetail(r.Context(), id)
 	if err != nil {
 		if err == core.ErrOrgNotFound {
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 			return
 		}
-		serverErr(w, "org_detail_failed")
+		serverErr(w, ErrOrgDetailFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
@@ -98,12 +98,12 @@ func (s *Service) handleAdminOrgGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleAdminOrgRenamePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsUpdate) {
@@ -113,27 +113,27 @@ func (s *Service) handleAdminOrgRenamePOST(w http.ResponseWriter, r *http.Reques
 		NewSlug string `json:"new_slug"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewSlug) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := s.svc.RenameOrgSlugForce(r.Context(), id, body.NewSlug, claims.UserID); err != nil {
 		switch err {
 		case core.ErrOrgNotFound:
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 		case core.ErrPersonalOrgLocked:
-			badRequest(w, "personal_org_locked")
+			badRequest(w, ErrPersonalOrgLocked)
 		case core.ErrOwnerSlugTaken:
-			badRequest(w, "owner_slug_taken")
+			badRequest(w, ErrOwnerSlugTaken)
 		case core.ErrInvalidOrgSlug:
-			badRequest(w, "invalid_slug")
+			badRequest(w, ErrInvalidSlug)
 		default:
-			serverErr(w, "org_rename_failed")
+			serverErr(w, ErrOrgRenameFailed)
 		}
 		return
 	}
 	renamed, err := s.svc.ResolveOrgByID(r.Context(), id)
 	if err != nil {
-		serverErr(w, "org_lookup_failed")
+		serverErr(w, ErrOrgLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"org": renamed.Slug})
@@ -146,12 +146,12 @@ func (s *Service) handleAdminOrgRenamePOST(w http.ResponseWriter, r *http.Reques
 func (s *Service) handleAdminOrgTransferOwnerPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsUpdate) {
@@ -161,20 +161,20 @@ func (s *Service) handleAdminOrgTransferOwnerPOST(w http.ResponseWriter, r *http
 		NewOwnerUserID string `json:"new_owner_user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewOwnerUserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	res, err := s.svc.TransferOrgOwner(r.Context(), id, body.NewOwnerUserID)
 	if err != nil {
 		switch err {
 		case core.ErrRecoverInvalid:
-			badRequest(w, "invalid_request")
+			badRequest(w, ErrInvalidRequest)
 		case core.ErrOrgNotFound:
-			notFound(w, "org_not_found")
+			notFound(w, ErrOrgNotFound)
 		case core.ErrUserNotFound:
-			notFound(w, "user_not_found")
+			notFound(w, ErrUserNotFound)
 		default:
-			serverErr(w, "org_transfer_owner_failed")
+			serverErr(w, ErrOrgTransferOwnerFailed)
 		}
 		return
 	}
@@ -184,12 +184,12 @@ func (s *Service) handleAdminOrgTransferOwnerPOST(w http.ResponseWriter, r *http
 func (s *Service) handleAdminOrgDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsDelete) {
@@ -197,7 +197,7 @@ func (s *Service) handleAdminOrgDELETE(w http.ResponseWriter, r *http.Request) {
 	}
 	removed, err := s.svc.SoftDeleteOrg(r.Context(), id)
 	if err != nil {
-		serverErr(w, "org_soft_delete_failed")
+		serverErr(w, ErrOrgSoftDeleteFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": removed})
@@ -206,12 +206,12 @@ func (s *Service) handleAdminOrgDELETE(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleAdminOrgRestorePOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsDelete) {
@@ -219,7 +219,7 @@ func (s *Service) handleAdminOrgRestorePOST(w http.ResponseWriter, r *http.Reque
 	}
 	restored, err := s.svc.RestoreOrg(r.Context(), id)
 	if err != nil {
-		serverErr(w, "org_restore_failed")
+		serverErr(w, ErrOrgRestoreFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": restored})
@@ -232,12 +232,12 @@ func (s *Service) handleAdminOrgRestorePOST(w http.ResponseWriter, r *http.Reque
 func (s *Service) handleAdminOrgRecoverPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		unauthorized(w, "unauthorized")
+		unauthorized(w, ErrUnauthorized)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if !s.requirePlatformPermission(w, r, claims, core.PermPlatformOrgsRecover) {
@@ -250,20 +250,20 @@ func (s *Service) handleAdminOrgRecoverPOST(w http.ResponseWriter, r *http.Reque
 		NewOwnerUserID string `json:"new_owner_user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.NewOwnerUserID) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	res, err := s.svc.RecoverOrg(r.Context(), id, body.NewOwnerUserID)
 	if err != nil {
 		if err == core.ErrRecoverInvalid {
-			badRequest(w, "invalid_request")
+			badRequest(w, ErrInvalidRequest)
 			return
 		}
 		if err == core.ErrUserNotFound {
-			notFound(w, "user_not_found")
+			notFound(w, ErrUserNotFound)
 			return
 		}
-		serverErr(w, "org_recover_failed")
+		serverErr(w, ErrOrgRecoverFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)

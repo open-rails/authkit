@@ -17,28 +17,28 @@ func ptr(s string) *string { return &s }
 func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 	var body struct {
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Password == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
 		if errors.Is(verr, core.ErrPasswordResetRequired) {
 			// The stored hash can never verify (legacy reset-required); the user
 			// cannot reauth with a password and must reset it first.
-			unauthorized(w, "password_reset_required")
+			unauthorized(w, ErrPasswordResetRequired)
 			return
 		}
-		unauthorized(w, "invalid_password")
+		unauthorized(w, ErrInvalidPassword)
 		return
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-		serverErr(w, "reauth_failed")
+		serverErr(w, ErrReauthFailed)
 		return
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
@@ -59,7 +59,7 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 	}
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return
 	}
 
@@ -71,11 +71,11 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 	manager := s.oidcManager()
 	issuer, ok := manager.IssuerFor(provider)
 	if !ok || strings.TrimSpace(issuer) == "" {
-		badRequest(w, "unknown_provider")
+		badRequest(w, ErrUnknownProvider)
 		return
 	}
 	if !s.userHasLinkedIssuerProvider(r, claims.UserID, issuer, provider) {
-		badRequest(w, "provider_not_linked")
+		badRequest(w, ErrProviderNotLinked)
 		return
 	}
 
@@ -87,14 +87,14 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 		var err error
 		verifier, challenge, err = oidckit.GeneratePKCE()
 		if err != nil {
-			serverErr(w, "pkce_generation_failed")
+			serverErr(w, ErrPKCEGenerationFailed)
 			return
 		}
 	}
 	redirectURI := buildRedirectURI(r, provider)
 	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
-		badRequest(w, "oidc_begin_failed")
+		badRequest(w, ErrOIDCBeginFailed)
 		return
 	}
 	if err := s.stateCache().Put(r.Context(), state, oidckit.StateData{
@@ -106,7 +106,7 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 		ReauthSessionID: claims.SessionID,
 		ReauthReturnTo:  sanitizeReauthReturnTo(body.ReturnTo),
 	}); err != nil {
-		serverErr(w, "state_store_failed")
+		serverErr(w, ErrStateStoreFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"auth_url": authURL, "state": state})
@@ -151,20 +151,20 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 	if _, err := s.svc.RequireFreshSession(r.Context(), claims.UserID, claims.SessionID, time.Now()); err == nil {
 		return true
 	} else if !errors.Is(err, core.ErrReauthenticationRequired) {
-		unauthorized(w, "not_authenticated")
+		unauthorized(w, ErrNotAuthenticated)
 		return false
 	}
 	if password != "" {
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
 			if errors.Is(verr, core.ErrPasswordResetRequired) {
-				unauthorized(w, "password_reset_required")
+				unauthorized(w, ErrPasswordResetRequired)
 				return false
 			}
-			unauthorized(w, "invalid_password")
+			unauthorized(w, ErrInvalidPassword)
 			return false
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, "reauth_failed")
+			serverErr(w, ErrReauthFailed)
 			return false
 		}
 		return true
@@ -176,7 +176,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 func (s *Service) reauthRequired(w http.ResponseWriter, r *http.Request, claims Claims) {
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	writeJSON(w, http.StatusForbidden, map[string]any{
-		"error":          "reauth_required",
+		"error":          ErrReauthRequired,
 		"reauth_methods": s.reauthMethods(r, claims.UserID),
 		"fresh_auth":     sessionFreshnessResponse(freshness),
 	})

@@ -34,7 +34,7 @@ func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *
 	}
 
 	if !s.svc.HasEmailSender() {
-		serverErr(w, "email_password_reset_unavailable")
+		serverErr(w, ErrEmailPasswordResetUnavailable)
 		return
 	}
 	ua := r.UserAgent()
@@ -44,7 +44,7 @@ func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *
 			return
 		}
 		s.logInternalError(r, "password_reset_request", "request_password_reset", "password_reset_request_failed", err)
-		serverErr(w, "password_reset_request_failed")
+		serverErr(w, ErrPasswordResetRequestFailed)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "If this email is registered, password reset instructions will be sent."})
@@ -60,21 +60,21 @@ func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *
 		NewPassword  string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.ResetSession) == "" || req.NewPassword == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := core.ValidatePassword(req.NewPassword); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 
 	_, err := s.svc.ConfirmPasswordResetWithSession(r.Context(), strings.TrimSpace(req.ResetSession), req.NewPassword)
 	if err != nil {
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, "invalid_or_expired_reset_session")
+		badRequest(w, ErrInvalidOrExpiredResetSession)
 		return
 	}
 
@@ -90,13 +90,13 @@ func (s *Service) handleEmailPasswordResetConfirmLinkPOST(w http.ResponseWriter,
 		Token string `json:"token"`
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
 	resetSession, err := s.svc.BeginPasswordReset(r.Context(), strings.TrimSpace(req.Token), 15*time.Minute)
 	if err != nil {
-		badRequest(w, "invalid_or_expired_token")
+		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reset_session": resetSession})

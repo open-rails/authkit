@@ -16,13 +16,13 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		PhoneNumber string `json:"phone_number"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
 	phone := strings.TrimSpace(req.PhoneNumber)
 	if err := core.ValidatePhone(phone); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 	phone = core.NormalizePhone(phone)
@@ -34,7 +34,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	if !s.svc.SMSAvailable() {
-		serverErr(w, "phone_verification_unavailable")
+		serverErr(w, ErrPhoneVerificationUnavailable)
 		return
 	}
 	if err := s.svc.RequestPhoneVerification(r.Context(), phone, 0); err != nil {
@@ -45,7 +45,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 			return
 		}
 		s.logInternalError(r, "phone_verify_request", "request_phone_verification", "verification_request_failed", err)
-		serverErr(w, "verification_request_failed")
+		serverErr(w, ErrVerificationRequestFailed)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
@@ -61,14 +61,14 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		Code        string `json:"code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
 	phone := strings.TrimSpace(req.PhoneNumber)
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
 	if phone == "" || code == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -81,7 +81,7 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	userID, err := s.svc.ConfirmPendingPhoneRegistration(r.Context(), phone, code)
 	if err == nil && userID != "" {
 		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
-			serverErr(w, "token_issue_failed")
+			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
 		return
@@ -89,11 +89,11 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 
 	userID, err = s.svc.ConfirmPhoneVerificationUserID(r.Context(), phone, code)
 	if err != nil {
-		badRequest(w, "invalid_or_expired_code")
+		badRequest(w, ErrInvalidOrExpiredCode)
 		return
 	}
 	if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
-		serverErr(w, "token_issue_failed")
+		serverErr(w, ErrTokenIssueFailed)
 		return
 	}
 }

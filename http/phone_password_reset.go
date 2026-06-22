@@ -9,7 +9,7 @@ import (
 
 func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
 	if !s.svc.SMSAvailable() {
-		serverErr(w, "sms_unavailable")
+		serverErr(w, ErrSMSUnavailable)
 		return
 	}
 	if s.rateLimited(w, r, RLPasswordResetRequest) {
@@ -20,12 +20,12 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 		PhoneNumber string `json:"phone_number"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
 	if err := core.ValidatePhone(phone); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 	phone = core.NormalizePhone(phone)
@@ -42,7 +42,7 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 			return
 		}
 		s.logInternalError(r, "phone_password_reset_request", "request_phone_password_reset", "password_reset_request_failed", err)
-		serverErr(w, "password_reset_request_failed")
+		serverErr(w, ErrPasswordResetRequestFailed)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -61,7 +61,7 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 		NewPassword  string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
@@ -69,21 +69,21 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 	newPass := req.NewPassword
 
 	if resetSession == "" {
-		badRequest(w, "invalid_request")
+		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if err := core.ValidatePassword(newPass); err != nil {
-		badRequest(w, core.ValidationErrorCode(err))
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
 
 	userID, err := s.svc.ConfirmPasswordResetWithSession(r.Context(), resetSession, newPass)
 	if err != nil {
-		if code := core.ValidationErrorCode(err); code != "" {
+		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, "invalid_or_expired_reset_session")
+		badRequest(w, ErrInvalidOrExpiredResetSession)
 		return
 	}
 

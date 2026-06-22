@@ -11,6 +11,7 @@ import (
 )
 
 // GenerateAvailableUsername tries base, then minimal numeric suffixes, then a short fallback.
+// Deprecated: use s.Users().GenerateAvailableUsername.
 func (s *Service) GenerateAvailableUsername(ctx context.Context, base string) string {
 	base = cleanUsername(base)
 	if base == "" {
@@ -75,6 +76,7 @@ func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
 }
 
 // DeriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.
+// Deprecated: use s.Users().DeriveUsernameForOAuth.
 func (s *Service) DeriveUsernameForOAuth(ctx context.Context, provider, preferred, email, displayName string) string {
 	// Highest: preferred username from provider
 	if strings.TrimSpace(preferred) != "" {
