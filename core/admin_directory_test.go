@@ -39,12 +39,14 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 
 	suffix := time.Now().UnixNano()
 	prefix := fmt.Sprintf("dir%d", suffix)
-	roleSlug := fmt.Sprintf("dir-role-%d", suffix)
+	// #111: the role plane is now the root permission-group. Roles are
+	// catalog-defined (core.Config), not runtime slugs, so the directory's role
+	// filter resolves a real root catalog role — "admin" maps onto super-admin.
+	const roleSlug = "admin"
 
 	t.Cleanup(func() {
+		// Deleting the users cascades their root-group role assignments.
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username LIKE $1`, prefix+"%")
-		// The role plane is now Layer-2 platform RBAC (legacy global roles dropped).
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.platform_roles WHERE role = $1`, roleSlug)
 	})
 
 	// Four users: aaa, bbb, ccc, ddd (usernames sort deterministically).
@@ -58,8 +60,9 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 	idC := mk("ccc")
 	idD := mk("ddd")
 
-	// A generic platform role on A + B (replaces the old hardcoded "taggers" etc.).
-	require.NoError(t, svc.UpsertRoleBySlug(ctx, "Dir Role", roleSlug, nil))
+	// Assign a real root catalog role to A + B (no hardcoded host slugs; the
+	// directory resolves whatever root role the deployment ships).
+	require.NoError(t, svc.UpsertRoleBySlug(ctx, "Admin", roleSlug, nil))
 	require.NoError(t, svc.AssignRoleBySlug(ctx, idA, roleSlug))
 	require.NoError(t, svc.AssignRoleBySlug(ctx, idB, roleSlug))
 

@@ -130,20 +130,6 @@ UPDATE profiles.users SET username = $2, updated_at = NOW() WHERE id = $1;
 INSERT INTO profiles.user_renames (user_id, from_slug)
 VALUES (sqlc.arg(user_id)::uuid, $2);
 
--- name: PersonalOrgIDSlugByOwner :one
-SELECT id::text, slug
-FROM profiles.orgs
-WHERE owner_user_id = sqlc.arg(owner_user_id)::uuid AND is_personal = true AND deleted_at IS NULL;
-
--- name: PersonalOrgInsertBasic :exec
-INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id)
-VALUES (sqlc.arg(id)::uuid, $2, true, sqlc.arg(owner_user_id)::uuid);
-
--- OrgUpdateSlugUnconditional intentionally has no deleted_at filter — it
--- rides the user-rename transaction in updateUsernameImpl.
--- name: OrgUpdateSlugUnconditional :exec
-UPDATE profiles.orgs SET slug = $1, updated_at = now() WHERE id = sqlc.arg(id)::uuid;
-
 -- name: UserSetEmailAndUnverify :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
 

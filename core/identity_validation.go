@@ -115,6 +115,52 @@ func ValidateUsername(username string) error {
 	return nil
 }
 
+// importUsernameMaxLen bounds operator-provisioned usernames. The import /
+// bootstrap path is for operator-provisioned identities and historically
+// accepted the slug shape (lowercase alnum + internal hyphens), unlike the
+// stricter interactive-registration ValidateUsername. There is no DB-level
+// length cap (username is citext), so this is the only bound.
+const importUsernameMaxLen = 64
+
+// validateImportUsername validates an OPERATOR-provisioned username (ImportUser /
+// bootstrap manifest). It is deliberately more permissive than ValidateUsername:
+// it also accepts hyphens (the historical slug shape) and a larger length cap,
+// because these names are minted by an operator, not chosen interactively. It
+// still requires a letter prefix and rejects '@' / leading '+' (login-identifier
+// ambiguity).
+func validateImportUsername(username string) error {
+	username = strings.TrimSpace(username)
+	if len(username) < usernameMinLen {
+		return newValidationError(ErrCodeUsernameTooShort)
+	}
+	if len(username) > importUsernameMaxLen {
+		return newValidationError(ErrCodeUsernameTooLong)
+	}
+	first := username[0]
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')) {
+		return newValidationError(ErrCodeUsernameMustStartWithLetter)
+	}
+	if strings.Contains(username, "@") {
+		return newValidationError(ErrCodeUsernameCannotContainAt)
+	}
+	if strings.HasPrefix(username, "+") {
+		return newValidationError(ErrCodeUsernameCannotStartWithPlus)
+	}
+	for i := 0; i < len(username); i++ {
+		ch := username[i]
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= 'A' && ch <= 'Z':
+		case ch >= '0' && ch <= '9':
+		case ch == '_':
+		case ch == '-':
+		default:
+			return newValidationError(ErrCodeUsernameInvalidCharacters)
+		}
+	}
+	return nil
+}
+
 func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }

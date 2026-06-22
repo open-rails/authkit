@@ -74,6 +74,18 @@ func (r Routes) OIDCBrowser() []RouteSpec {
 	return r.svc.OIDCBrowserRoutes()
 }
 
+// PermissionGroups returns the auto-generated per-persona group-management
+// routes (members, roles, etc.) implied by this service's declared
+// permission-group schema, plus the cross-persona GET /me/groups discovery
+// route. These are also included in DefaultAPI; this accessor lets a host mount
+// only the group-management surface. See Service.PermissionGroupRoutes.
+func (r Routes) PermissionGroups() []RouteSpec {
+	if r.svc == nil {
+		return nil
+	}
+	return r.svc.PermissionGroupRoutes()
+}
+
 // APIRoutes returns AuthKit's enabled JSON API routes. With no groups it
 // returns the default API surface. With groups, it returns only matching routes.
 func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
@@ -112,7 +124,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/register/resend-email", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationResendPOST)},
 		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
 		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
-
 
 		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyRequestPOST)},
 		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmPOST)},
@@ -202,6 +213,17 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 			continue
 		}
 		route.Handler = lang(route.Handler)
+		out = append(out, route)
+	}
+
+	// #111: the auto-generated per-persona group-management surface is
+	// schema-DERIVED (not a static table), so it is appended here rather than
+	// listed above. Its handlers already carry the required + language middleware
+	// (PermissionGroupRoutes wraps them), so they are not re-wrapped with lang.
+	for _, route := range s.PermissionGroupRoutes() {
+		if !selected(route.Group) {
+			continue
+		}
 		out = append(out, route)
 	}
 	return out

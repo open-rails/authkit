@@ -8,21 +8,17 @@ import (
 	"time"
 )
 
-type ProfilesOrg struct {
-	ID          string
-	Slug        string
-	IsPersonal  bool
-	OwnerUserID *string
-	// Arbitrary org metadata (internal/admin flags such as reserved)
-	Metadata  []byte
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
+type ProfilesGroupCustomRole struct {
+	GroupID     string
+	Role        string
+	Permissions []string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
-type ProfilesOrgInvite struct {
+type ProfilesGroupInvite struct {
 	ID        string
-	OrgID     string
+	GroupID   string
 	UserID    string
 	InvitedBy string
 	Role      string
@@ -34,36 +30,21 @@ type ProfilesOrgInvite struct {
 	DeletedAt *time.Time
 }
 
-type ProfilesOrgMembership struct {
-	OrgID string
-	// Principal id; referent table named by member_kind.
-	MemberID  string
-	Role      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
-	// Principal kind: user | remote_application. One membership system serves both.
-	MemberKind string
+type ProfilesGroupRoleAssignment struct {
+	GroupID     string
+	SubjectID   string
+	SubjectKind string
+	Role        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   *time.Time
 }
 
-type ProfilesOrgRename struct {
-	ID        int64
-	OrgID     string
-	FromSlug  string
-	RenamedAt time.Time
-}
-
-type ProfilesOrgRole struct {
-	OrgID     string
-	Role      string
-	CreatedAt time.Time
-}
-
-type ProfilesOrgRolePermission struct {
-	OrgID      string
-	Role       string
-	Permission string
-	CreatedAt  time.Time
+// The declared containment schema (#111): which parent TYPE(s) each group type allows. The app seeds it from core.Config at bootstrap; the permission_group containment trigger enforces it. root is absent (parentless singleton).
+type ProfilesGroupTypeParent struct {
+	Type              string
+	AllowedParentType string
+	CreatedAt         time.Time
 }
 
 type ProfilesOwnerReservedName struct {
@@ -72,22 +53,17 @@ type ProfilesOwnerReservedName struct {
 	UpdatedAt time.Time
 }
 
-// Layer-2 platform RBAC (#95): named platform roles, assigned to users directly, granting ONLY platform: perms. The disjoint ClusterRole plane — never reaches inside an org.
-type ProfilesPlatformRole struct {
-	Role      string
-	CreatedAt time.Time
-}
-
-type ProfilesPlatformRolePermission struct {
-	Role       string
-	Permission string
-	CreatedAt  time.Time
-}
-
-type ProfilesPlatformUserRole struct {
-	UserID    string
-	Role      string
-	CreatedAt time.Time
+type ProfilesPermissionGroup struct {
+	ID         string
+	Type       string
+	ParentID   *string
+	ParentType *string
+	// Links the group to its app resource AND is the API addressing key: a route (persona, resource-id) resolves to the group via (type, resource_ref). The group id is INTERNAL-only.
+	ResourceRef *string
+	Metadata    []byte
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   *time.Time
 }
 
 type ProfilesRefreshSession struct {
@@ -120,9 +96,9 @@ type ProfilesRemoteApplication struct {
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time
-	// REQUIRED controlling org (#95): remote-apps are org-nested like api-keys. No org-less/operator-managed issuer — every issuer is org-bound and maps to one merchant via its owning org.
-	OrgID          string
-	AllowedOrigins []string
+	// REQUIRED controlling permission-group (#111): remote-apps are group-nested. Authority comes from group_role_assignments (subject_kind=remote_application) + the parent walk.
+	PermissionGroupID string
+	AllowedOrigins    []string
 }
 
 // REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).
@@ -136,17 +112,17 @@ type ProfilesRemoteApplicationAttributeDef struct {
 }
 
 type ProfilesServiceToken struct {
-	ID         string
-	OrgID      string
-	KeyID      string
-	SecretHash []byte
-	Name       string
-	CreatedBy  *string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
-	// The single org role this API key holds. Effective permissions are resolved from the role (org_role_permissions) at use time — edit the role to change every key that holds it. Resource-scope is a separate binding (service_token_resources).
+	ID                string
+	PermissionGroupID string
+	KeyID             string
+	SecretHash        []byte
+	Name              string
+	CreatedBy         *string
+	CreatedAt         time.Time
+	LastUsedAt        *time.Time
+	ExpiresAt         *time.Time
+	RevokedAt         *time.Time
+	// The single catalog/custom role this API key holds within its permission-group. Effective permissions resolve from the group TYPE catalog (core.Config) or a group_custom_role at use time (#111). Resource-scope is a separate binding (service_token_resources).
 	Role string
 }
 

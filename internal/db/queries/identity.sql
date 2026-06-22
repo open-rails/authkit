@@ -22,19 +22,6 @@ UPDATE profiles.users SET username = $2, updated_at = now() WHERE id = $1;
 
 -- Rename-history forwarding (identity/renames.go).
 
--- name: IdentityCurrentOrgSlug :one
-SELECT slug FROM profiles.orgs
-WHERE lower(slug) = $1 AND deleted_at IS NULL
-LIMIT 1;
-
--- name: IdentityForwardOrgSlug :one
-SELECT o.slug
-FROM profiles.org_renames r
-JOIN profiles.orgs o ON o.id = r.org_id AND o.deleted_at IS NULL
-WHERE r.from_slug = $1
-ORDER BY r.renamed_at DESC
-LIMIT 1;
-
 -- name: IdentityCurrentUsername :one
 SELECT username FROM profiles.users
 WHERE username = $1 AND deleted_at IS NULL

@@ -9,48 +9,19 @@ import (
 	"context"
 )
 
-const identityCurrentOrgSlug = `-- name: IdentityCurrentOrgSlug :one
-
-SELECT slug FROM profiles.orgs
-WHERE lower(slug) = $1 AND deleted_at IS NULL
-LIMIT 1
-`
-
-// Rename-history forwarding (identity/renames.go).
-func (q *Queries) IdentityCurrentOrgSlug(ctx context.Context, slug string) (string, error) {
-	row := q.db.QueryRow(ctx, identityCurrentOrgSlug, slug)
-	var slug_2 string
-	err := row.Scan(&slug_2)
-	return slug_2, err
-}
-
 const identityCurrentUsername = `-- name: IdentityCurrentUsername :one
+
 SELECT username FROM profiles.users
 WHERE username = $1 AND deleted_at IS NULL
 LIMIT 1
 `
 
+// Rename-history forwarding (identity/renames.go).
 func (q *Queries) IdentityCurrentUsername(ctx context.Context, username *string) (*string, error) {
 	row := q.db.QueryRow(ctx, identityCurrentUsername, username)
 	var username_2 *string
 	err := row.Scan(&username_2)
 	return username_2, err
-}
-
-const identityForwardOrgSlug = `-- name: IdentityForwardOrgSlug :one
-SELECT o.slug
-FROM profiles.org_renames r
-JOIN profiles.orgs o ON o.id = r.org_id AND o.deleted_at IS NULL
-WHERE r.from_slug = $1
-ORDER BY r.renamed_at DESC
-LIMIT 1
-`
-
-func (q *Queries) IdentityForwardOrgSlug(ctx context.Context, fromSlug string) (string, error) {
-	row := q.db.QueryRow(ctx, identityForwardOrgSlug, fromSlug)
-	var slug string
-	err := row.Scan(&slug)
-	return slug, err
 }
 
 const identityForwardUsername = `-- name: IdentityForwardUsername :one

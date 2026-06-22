@@ -2311,7 +2311,7 @@ func normalizeImportUserInput(input ImportUserInput) (email *string, phone *stri
 		phone = &v
 	}
 	username = strings.TrimSpace(input.Username)
-	if err := ValidateUsername(username); err != nil {
+	if err := validateImportUsername(username); err != nil {
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {

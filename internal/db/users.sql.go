@@ -10,56 +10,6 @@ import (
 	"time"
 )
 
-const orgUpdateSlugUnconditional = `-- name: OrgUpdateSlugUnconditional :exec
-UPDATE profiles.orgs SET slug = $1, updated_at = now() WHERE id = $2::uuid
-`
-
-type OrgUpdateSlugUnconditionalParams struct {
-	Slug string
-	ID   string
-}
-
-// OrgUpdateSlugUnconditional intentionally has no deleted_at filter — it
-// rides the user-rename transaction in updateUsernameImpl.
-func (q *Queries) OrgUpdateSlugUnconditional(ctx context.Context, arg OrgUpdateSlugUnconditionalParams) error {
-	_, err := q.db.Exec(ctx, orgUpdateSlugUnconditional, arg.Slug, arg.ID)
-	return err
-}
-
-const personalOrgIDSlugByOwner = `-- name: PersonalOrgIDSlugByOwner :one
-SELECT id::text, slug
-FROM profiles.orgs
-WHERE owner_user_id = $1::uuid AND is_personal = true AND deleted_at IS NULL
-`
-
-type PersonalOrgIDSlugByOwnerRow struct {
-	ID   string
-	Slug string
-}
-
-func (q *Queries) PersonalOrgIDSlugByOwner(ctx context.Context, ownerUserID string) (PersonalOrgIDSlugByOwnerRow, error) {
-	row := q.db.QueryRow(ctx, personalOrgIDSlugByOwner, ownerUserID)
-	var i PersonalOrgIDSlugByOwnerRow
-	err := row.Scan(&i.ID, &i.Slug)
-	return i, err
-}
-
-const personalOrgInsertBasic = `-- name: PersonalOrgInsertBasic :exec
-INSERT INTO profiles.orgs (id, slug, is_personal, owner_user_id)
-VALUES ($1::uuid, $2, true, $3::uuid)
-`
-
-type PersonalOrgInsertBasicParams struct {
-	ID          string
-	Slug        string
-	OwnerUserID string
-}
-
-func (q *Queries) PersonalOrgInsertBasic(ctx context.Context, arg PersonalOrgInsertBasicParams) error {
-	_, err := q.db.Exec(ctx, personalOrgInsertBasic, arg.ID, arg.Slug, arg.OwnerUserID)
-	return err
-}
-
 const sessionsRevokeAllQuiet = `-- name: SessionsRevokeAllQuiet :exec
 UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2
 `
