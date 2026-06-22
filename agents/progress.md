@@ -7,7 +7,121 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 111
+next_id: 112
+
+---
+
+# #111: generalize `org` → permission-group — N-level resource-scoped RBAC (single-parent inheritance) + app-defined per-type role catalogs with optional custom roles
+
+**Completed:** no
+**Status:** PLANNED 2026-06-22 (Claude + Paul). Deliberate extension of the #95-frozen RBAC model — large, cross-repo. Tensorhub is the main beneficiary (per-repo/dataset/endpoint groups + custom roles); OpenRails adopts the shallow case in its own tracker (openrails #567).
+
+## Principle
+Today RBAC has exactly two scopes — `org` (namespace `org:`) and `platform` (`platform:`) — a K8s-style two-level model (org = namespace, platform = cluster). Generalize to N levels: a **permission-group** is the container that holds roles + assignments and can attach to ANY resource. **`org` stops being an authkit built-in entirely** — there is NO hardcoded `org` table or concept; it becomes just one app-DECLARED group **type** name among many. Each app names its own types, and an app may declare none beyond the root:
+- **doujins / hentai0**: NO user-facing group type at all — users act on their own resources; the only group is `root` (platform moderation). The "org" concept is removed.
+- **tensorhub**: declares `org` (owns repos/datasets/endpoints).
+- **OpenRails**: declares `merchant` (admin control) + a customer-created `org` (balance-sharing) — see openrails #567.
+
+**`root`** is the top group (the former `platform` layer), ancestor of everything. So the migration must strip every hardcoded "org" assumption from authkit and replace it with generic `permission_groups(type, …)`.
+
+A permission-group has a SINGLE **parent**. A permission check walks the parent chain to the root and unions the principal's assignments across that chain — so "act on a repo from the repo itself OR its owning org" falls out of `repo-group.parent = org-group`, declared once, never re-attached. **NO cross-tree sharing** (one parent per group, period — confirmed unneeded; this is the deliberate simplification that keeps the model from going GCP-complex). **Additive-only**: a child group can only ADD authority, never deny what an ancestor granted (matches the existing no-negation rule; keeps the union unambiguous). Permission strings follow a strict `<persona>:<resource>:<action>` shape (see "Permission naming" below) and stay namespace-anchored for glob matching; the group is merely WHERE an assignment applies.
+
+## Authority is moderation-asymmetric — reach ≠ capability (NO parent-superset)
+A parent group does NOT automatically gain its child's capabilities. The walk-up applies a SUBJECT's ancestor-group roles DOWN to descendant resources, but each role grants ONLY its declared permissions — there is no structural "ancestor ⊇ descendant" rule, and **no global wildcard owner** (the `owner` role = every perm in ITS OWN type's catalog, NEVER a bare `*`). So `root` has the widest REACH (ancestor of everything) but the NARROWEST capability (a moderation-only catalog). Reach and capability are independent axes.
+
+Whether a parent IS a superset of a child is a per-edge DESIGN choice, encoded entirely by what the parent type's catalog holds:
+- `org → merchant`: org catalog holds `merchant:*` → the org owner fully controls its merchants (today's `OwnerOwnsAppResources`).
+- `root → org`: root catalog holds only moderation perms (`org:delete`, …) → can delete an org, not run its internals ("platform can delete orgs, but that's about it").
+- `merchant → customer`: merchant catalog holds `subscriptions:cancel` but the catalog has NO `subscriptions:create` → a merchant can cancel a customer's subscription, never create one. Impersonation is structurally impossible.
+
+This asymmetry is ALREADY enforced by two #95 rules and MUST be kept: (1) per-type catalogs are disjoint by namespace; (2) **no bare `*`, namespace-anchored globs** — a `platform:*` grant covers ONLY `platform:` perms and can never match `merchant:`/`customer:`/user perms, so a moderator cannot impersonate. These rules are what make "moderate, don't impersonate" structural rather than disciplinary.
+
+## Roles: app-defined by default, custom-roles an opt-in
+Each group **type** ships a fixed **role catalog** declared by the embedding app — e.g. type `repo` → `owner`, `read`, `write` (and nothing more); type `org` → its roles. `owner` is the ONLY required role per type. By default ONLY catalog roles are assignable in a group of that type: **end users cannot invent roles**. A type may OPT IN via `AllowCustomRoles` to let a group's owner define ADDITIONAL per-group custom roles (permission bundles) on top of the catalog. This **inverts today's model** (where every org defines all its own roles via DefineRole/SetRolePermissions): app-defined catalog is the default; per-group custom is the exception a type opts into (a tensorhub `org` might enable it; a `repo` would not).
+
+## Permission naming: `<persona>:<resource>:<action>` — exactly 3 segments
+Every concrete permission is EXACTLY three lowercase segments — `<persona>:<resource>:<action>` (`merchant:catalog:update`, `root:users:ban`, `customer:spend-delegations:read`). authkit VALIDATES this at catalog-declaration time (`^[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*){2}$`) and REJECTS 2-part (`repo:update`) or 4-part perms — a 2-part perm must grow a resource (`repo:contents:update`); a type may use a `:self:` resource for "the thing itself" actions (`endpoint:self:invoke`). Globs are GRANT patterns only, NEVER catalog entries: `persona:*` (whole persona) and `persona:resource:*` (all actions on a resource).
+
+**persona ≡ group type ≡ namespace.** The first segment IS the group type that owns the perm; authkit enforces that a permission's persona segment is a DECLARED group type. So the `merchant` catalog is exactly the `merchant:*` perms, `root` is exactly `root:*`, etc. This welds the permission catalog to the type system and makes reach≠capability automatic (a `merchant:*` grant can never name a `root:`/`customer:` perm — different persona).
+
+## Per-resource access: the resource IS its own group (scope = which group, not the persona)
+The strict invariant: **a role assigned in a type-`T` group can hold ONLY `T:` perms** (enforced by the per-type catalog). So you can never hand a single-repo collaborator anything `org:`-scoped — structurally impossible. The "add someone to ONE repo, not the whole org" case needs NO special persona (no "alacarte"): a repo IS its own permission-group (`type=repo`, `parent=org`). Per-repo access = MEMBERSHIP in that repo's group with a `repo:` role; the assignment's SCOPE is *which group it lives in* (this repo), never the persona prefix. The same `repo:contents:write` role assigned in repo-A's group vs repo-B's group are two independently-scoped grants of the one `repo` persona. **Scope comes from group membership; the persona is just the resource type.**
+
+Consequence — org-level and resource-level perms are DIFFERENT namespaces:
+- `org:repos:create|delete` — repo LIFECYCLE (the org owns the collection); persona `org`; reaches every repo. (Plural the collection to stay visually distinct from the persona.)
+- `repo:contents:write`, `repo:settings:update`, `repo:collaborators:manage` — work WITHIN one repo; persona `repo`; scoped to its group.
+
+## The `root` built-in group + its catalog
+`root` is the ONE built-in group authkit ships — every deployment has it; it is the former `platform` layer. Its namespace is **`root:`** — the `platform:` permission namespace is RENAMED to `root:` so node and namespace match (supersedes the earlier "keep platform:" note; it's a one-time greenfield rename). The root catalog has two layers:
+- **authkit-intrinsic (the true built-ins — authkit owns these objects):** `root:users:read|suspend|ban`, `root:groups:create|delete`, `root:roles:manage`, `root:remote-apps:manage`, `root:api-keys:revoke`, `root:sessions:revoke`. Present in every deployment.
+- **app-declared moderation (NOT built-in — the app ADDS to the root catalog like any other type catalog):** doujins `root:content:takedown` / `root:comments:delete`; tensorhub `root:orgs:delete`; openrails `root:merchants:delete|restore`.
+
+The root `owner` role holds `root:*` (the super-admin grant) — widest REACH, but namespace-anchored so still moderation-only over the rest of the tree.
+
+## Tree shape: the containment schema (declared once, enforced everywhere)
+Each type declares its allowed PARENT type(s) — a containment schema that fixes the tree shape:
+```
+root      { parent: none }    // singleton, parentless
+org       { parent: root }    // tensorhub
+repo      { parent: org }     // tensorhub
+endpoint  { parent: org }     // tensorhub
+dataset   { parent: org }     // tensorhub
+merchant  { parent: root }    // openrails
+customer  { parent: root }    // openrails
+```
+Rules: **parent is MANDATORY for every non-root type** (`parent_id NOT NULL` except root); **root is a singleton** (one per deployment, parentless); a type's parent must be in its declared `allowedParents` (a SET; usually one). So authkit refuses to create a `repo` whose parent isn't an `org` — `root → repo` is structurally IMPOSSIBLE, not merely discouraged. The schema is the SINGLE SOURCE OF TRUTH for shape: declared once, enforced on every write, no per-call decision to get wrong.
+
+**Two enforcement levels (do BOTH):** (1) authkit app layer — `CreatePermissionGroup` validates `parent.type ∈ allowedParents[childType]` with clear errors ("a `repo` group must have an `org` parent, got `root`"); (2) DB backstop — denormalize `parent_type` onto each `permission_groups` row + a CHECK/trigger against a small `group_type_parents(type, allowed_parent_type)` table, so even a raw SQL insert can't build off-shape. A plain FK is insufficient (it only proves the parent EXISTS, not that it's the right TYPE).
+
+## Vocabulary (no IAM/scope jargon)
+- **permission-group** — the container attached to a resource (the generalization of "org").
+- **persona** — the archetype/position a subject acts in (`merchant`, `customer`, `org`, `repo`, `root`). **persona ≡ group type ≡ the 1st permission segment.** A subject can hold several; the base persona is `self`/`user` (no group, acts on own resources).
+- **role** — a named permission bundle WITHIN a persona; per-type catalog (app-defined), optionally extended per-group. (persona = which position; role = which seat in it.)
+- **assignment** — a (subject, role) pair in a permission-group (subject = user / remote-app / api-key).
+- **parent** — a group's single parent group; gives inheritance via walk-up.
+- **role catalog** — the app-declared role set for a group type; `owner` required.
+- **containment schema** — the app-declared allowed-parent-type per type; fixes the tree shape, enforced on every write.
+
+## Data model (sketch)
+- `permission_groups(id, type, parent_id NULL=root, parent_type, owner_subject, resource_ref, created_at, …)` — replaces `orgs`. `type` selects the role catalog + custom-roles policy; `parent_id` is the one inheritance edge; `parent_type` is denormalized for the containment CHECK; `resource_ref` links the group to its app resource.
+- `group_type_parents(type, allowed_parent_type)` — the containment schema as data, so a CHECK/trigger can reject off-shape rows (e.g. `repo` parent must be `org`). `root` has no row (parentless singleton).
+- `group_role_assignments(group_id, subject, subject_kind, role)` — replaces `org_members`.
+- `group_custom_roles(group_id, role, permissions[])` — only used when the type's `AllowCustomRoles` is set.
+- App-declared catalog: `Config` gains, per type: role definitions (name → 3-segment perm set, `owner` required), `allowedParents []type`, and `AllowCustomRoles bool`. Permissions validated as `<persona>:<resource>:<action>` with persona = a declared type.
+- remote_applications + api-keys: today org-nested → re-nest under a `permission_group` (was `org_id`).
+- The prebuilt `owner` role + `OwnerOwnsAppResources` (#100) generalize to per-type owner roles.
+
+## Authorize API
+`Can(ctx, principal, permission, groupID)` (or `…, resourceRef`): resolve the group, walk `parent_id` to the root, union the principal's assignments across that chain, ALLOW if any granted role covers `permission` (existing namespace-anchored glob match). Additive-only. Memoize the resolved assignment set per (principal, group). The old org-scoped calls (`HasAdminPermission(orgSlug,…)`, membership, role mgmt) become group-scoped.
+
+## Tasks
+- [ ] Schema: `permission_groups` (type, parent_id, resource_ref) + `group_role_assignments` + `group_custom_roles`; migrate `orgs`→groups (type=`org`, parent=root) and `org_members`→assignments (greenfield hard cut, no dual-write).
+- [ ] Config: per-type role catalog (name→perms, `owner` required) + per-type `AllowCustomRoles bool`; default = deny custom-role creation.
+- [ ] Custom roles: gate DefineRole/SetRolePermissions on the type's `AllowCustomRoles`; store in `group_custom_roles`; assignable only within the defining group.
+- [ ] Authorize: add the resource/group parameter + parent-chain walk + additive union; keep namespace-anchored glob matching; memoize per (principal, group).
+- [ ] Re-nest remote_applications + api-keys under a permission-group; update `ResolveRemoteApplicationAuthority` to resolve via group + parent walk.
+- [ ] Owner role per type + generalize `OwnerOwnsAppResources` (#100): owner auto-holds the type's app namespace(s).
+- [ ] Collapse `platform` into the tree as the `root` group (DECIDED): the single built-in group. Ship the authkit-intrinsic root catalog (`root:users:*`, `root:groups:*`, `root:roles:manage`, `root:remote-apps:manage`, `root:api-keys:revoke`, `root:sessions:revoke`); apps extend it with their own moderation perms. **Rename the `platform:` permission namespace to `root:`** (node and namespace match — supersedes the old "keep platform:" call; one-time greenfield rename across consumers). Root catalog is moderation-only; root `owner` holds `root:*` (reach ≠ capability).
+- [ ] Permission naming: VALIDATE every declared catalog perm as `<persona>:<resource>:<action>` (exactly 3 segments, regex above); reject 2-/4-part; enforce persona = a declared group type. Globs (`persona:*`, `persona:resource:*`) allowed in grants only.
+- [ ] Containment schema: per-type `allowedParents` config + `group_type_parents` table + denormalized `parent_type`. Enforce at BOTH levels — `CreatePermissionGroup` validates `parent.type ∈ allowedParents` (clear error), and a DB CHECK/trigger rejects off-shape rows. `parent_id NOT NULL` for non-root; `root` is a parentless singleton.
+- [ ] Remove the built-in `org` ENTIRELY: rename the consumer API (`CreateOrg`→`CreatePermissionGroup(type,…)`, plus `AssignRole`/`DefineRole`/`HasAdminPermission`/membership) to group-scoped + type-parameterized; hard cut, no `org`-named API. An app may declare ZERO non-root types (doujins/hentai0) — authkit must not assume any type exists.
+- [ ] Tests: parent-walk inheritance (repo perm via org owner); additive union; custom-role opt-in ON vs OFF (fixed catalog rejects an unknown role); owner auto-grant; platform-root isolation; single-parent enforced (no cross-tree).
+- [ ] Version bump; update consumers (OpenRails #567; tensorhub separately).
+
+## Acceptance
+- `org` is no authkit built-in; `root` is the single built-in group; every other group is an app-declared `type`. `platform:` → `root:`.
+- Every permission is `<persona>:<resource>:<action>` (3 segments, validated at declaration); persona ≡ type ≡ namespace.
+- Tree shape is fixed by the declared containment schema (allowed-parent-type per type), enforced at the app layer AND the DB; non-root groups have a mandatory typed parent; `root → repo` is impossible.
+- A permission-group attaches to any resource, has one parent, and inherits ancestors' authority via additive walk-up; no cross-tree sharing.
+- By default assignable roles = the app's per-type catalog; custom roles only when the type opts in.
+- reach ≠ capability: a parent is a superset of a child only where its catalog says so; `root` is moderation-only.
+
+## Open decisions (pin before building)
+1. RESOLVED 2026-06-22: `platform` collapses into the tree as the single built-in `root` group; the `platform:` permission namespace is RENAMED to `root:` (node and namespace match). Reach ≠ capability — `root` has the widest reach but a moderation-only catalog, NOT a superset.
+2. Existing per-org custom roles — keep `org` type at `AllowCustomRoles=true` (preserve today's behavior) or migrate orgs to a fixed catalog? (Greenfield → likely fixed catalog + opt-in only where a real need exists.)
+3. Who manages a group's assignments / defines custom roles — the group's `owner` role; and may an ANCESTOR owner manage a DESCENDANT group? (Lean: yes, ancestor owner can.)
+4. Does authkit store `resource_ref → group` (engine walks) or does the app pass `groupID` at authorize time? (Lean: store it.)
+5. **OPEN + load-bearing — how does an org OWNER reach all its repos/endpoints/datasets?** (Nested case only; flat consumers like openrails are unaffected.) Two models CONFLICT: (a) **`OwnerOwnsAppResources` (#100)** puts `repo:*`/`endpoint:*` into the org-owner's grant — simple, but VIOLATES the strict invariant (a type-`org` role holding non-`org:` perms); (b) **implicit descendant ownership** — the org owner is implicitly `owner` of every group BENEATH it, keeping every group's roles namespace-pure, at the cost of an implicit cross-group-membership concept. Cannot have both. **Lean (b)** given the invariant — which means **#100 (shipped in authkit v0.44.0) is likely the WRONG shape for nesting and needs rethinking before tensorhub adopts.** NB #100 still works for openrails because it's FLAT (no descendants), so its merchant/customer owners are unaffected.
 
 ---
 
@@ -207,8 +321,10 @@ Non-goals: not adding an in-memory user store (pg stays mandatory by design); th
 
 # #107: Split into a multi-module repo so the core module graph stays lean
 
-**Completed:** no
-**STATUS 2026-06-22 (Claude): DEFERRED — needs a dedicated, sole-agent release effort, NOT a concurrent code refactor.** Three hard blockers found while scoping it: (1) **Consumer-breaking** — openrails/doujins/hentai0 import exactly the packages this splits out (`riverjobs` ×3, `providers/{sms,email}/twilio`, `adapters/gin` ×2), so each consumer needs new `require` entries + a coordinated per-module tag/publish. (2) **Circular module dependency** — `verify` imports `authbase`+`jwt` (root module) while root's `http` imports `verify`; naively splitting `verify` into its own module creates root⇄verify cycle. Clean split needs a base module (authbase+jwt+verify) that root depends on — a real architecture decision, ~#110-sized. (3) **Publishing chicken-and-egg** — submodule go.mod requires root@version (tag root first); needs `go.work` for local dev + per-module tags (`adapters/gin/vX`). Doing structural module surgery WHILE another agent churns core/http (#104/#105) would also break their builds. Recommend: schedule after #104/#105 land, as a standalone release with consumer go.mod updates planned. #110 already delivered the prerequisite (verify is core-free).
+**Completed:** yes
+**DECISION 2026-06-22 (Claude + Paul): WON'T DO — implemented, evaluated against the real consumers, reverted.** A working split (root + `adapters/gin` + `adapters/chi` + `riverjobs` submodules + `go.work`) was built and validated locally, then reverted — authkit stays a SINGLE module (v0.46.0). Rationale: the split's ONLY effect is go.mod-GRAPH hygiene (keeping unused heavy deps out of a consumer's module graph). It does NOT reduce binary size (Go compiles per-package — a consumer importing only `core`/`http` never compiles gin today, single-module) and does NOT change whether anyone is "forced into" gin/chi (package isolation already guarantees that — openrails uses full authkit with zero gin). Crucially, NONE of the three first-party consumers benefit: openrails imports neither adapter nor riverjobs AND already pulls gin+river as its OWN direct deps (it's a gin app); doujins/hentai0 import `adapters/gin`+`riverjobs` so they need those deps regardless. So the split would add a PERMANENT multi-module release tax (per-module tagging in dependency order on every release, go.work, version chicken-and-egg, consumer go.mod churn) to fix a graph-hygiene problem this repo doesn't actually have. The "usable without gin / any-router" goal is ALREADY met by the net/http design (`RouteSpec` + `APIHandler` + `r.PathValue`); the right follow-up is docs (foreground the mount-on-any-router path), not a module split. Revisit ONLY if authkit gains many external/public consumers where graph bloat becomes real.
+
+ORIGINAL (superseded) STATUS 2026-06-22: DEFERRED — needs a dedicated, sole-agent release effort, NOT a concurrent code refactor.** Three hard blockers found while scoping it: (1) **Consumer-breaking** — openrails/doujins/hentai0 import exactly the packages this splits out (`riverjobs` ×3, `providers/{sms,email}/twilio`, `adapters/gin` ×2), so each consumer needs new `require` entries + a coordinated per-module tag/publish. (2) **Circular module dependency** — `verify` imports `authbase`+`jwt` (root module) while root's `http` imports `verify`; naively splitting `verify` into its own module creates root⇄verify cycle. Clean split needs a base module (authbase+jwt+verify) that root depends on — a real architecture decision, ~#110-sized. (3) **Publishing chicken-and-egg** — submodule go.mod requires root@version (tag root first); needs `go.work` for local dev + per-module tags (`adapters/gin/vX`). Doing structural module surgery WHILE another agent churns core/http (#104/#105) would also break their builds. Recommend: schedule after #104/#105 land, as a standalone release with consumer go.mod updates planned. #110 already delivered the prerequisite (verify is core-free).
 
 Everything ships in **one `go.mod`**, so `gin`, `chi`, `riverqueue/river`, `robfig/cron`, and the Twilio/ClickHouse integrations are all **direct requires** of the module. AuthKit's *internal* decoupling is already good — `core` and `http` import none of those heavy deps (verified) — but the module still *advertises* them, so a consumer who wants only "JWT + Postgres" inherits gin/chi/river in their module graph: more version-conflict surface, noisier `go mod why`, larger supply-chain footprint. Mature Go libraries (aws-sdk-go-v2, etc.) split optional integrations into their own modules.
 
