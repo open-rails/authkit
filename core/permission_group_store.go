@@ -317,3 +317,11 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 	}
 	return out, rows.Err()
 }
+
+// DeleteCustomRole removes a per-group custom role (and its permissions).
+func (st *PermissionGroupStore) DeleteCustomRole(ctx context.Context, groupID, role string) error {
+	_, err := st.q.Exec(ctx,
+		`DELETE FROM profiles.group_custom_roles WHERE group_id = $1::uuid AND role = $2`,
+		groupID, role)
+	return err
+}

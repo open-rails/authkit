@@ -116,3 +116,62 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 		t.Errorf("repo directly under root should be rejected")
 	}
 }
+
+// TestService_CustomRoleDefineDelete exercises the custom-role define/delete path
+// (the last-wired generated-route family) end-to-end against a real Postgres.
+func TestService_CustomRoleDefineDelete(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	clean := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_type_parents`)
+	}
+	clean()
+	t.Cleanup(clean)
+
+	gs, err := BuildSchema(GroupTypeDef{
+		Name: "org", AllowedParents: []string{RootType}, AllowCustomRoles: true,
+		Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true},
+	})
+	if err != nil {
+		t.Fatalf("BuildSchema: %v", err)
+	}
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc.groupSchema = gs
+	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := svc.EnsureRootGroup(ctx); err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Type: "org", ResourceRef: "acme"}); err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	var uid string
+	if err := pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&uid); err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1`, uid) })
+
+	// define a custom role, assign it to a non-owner, authorize.
+	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "auditor", []string{"org:billing:read"}); err != nil {
+		t.Fatalf("DefineGroupCustomRole: %v", err)
+	}
+	if err := svc.AssignGroupRole(ctx, "org", "acme", uid, SubjectKindUser, "auditor"); err != nil {
+		t.Fatalf("assign auditor: %v", err)
+	}
+	if ok, err := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); err != nil || !ok {
+		t.Errorf("custom auditor role should grant org:billing:read; got %v,%v", ok, err)
+	}
+	// cross-persona custom perm is rejected (namespace purity).
+	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "bad", []string{"repo:repo:read"}); err == nil {
+		t.Errorf("a cross-persona custom-role grant must be rejected")
+	}
+	// delete -> the grant is gone.
+	if err := svc.DeleteGroupCustomRole(ctx, "org", "acme", "auditor"); err != nil {
+		t.Fatalf("DeleteGroupCustomRole: %v", err)
+	}
+	if ok, _ := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); ok {
+		t.Errorf("after delete, the custom-role grant must be gone")
+	}
+}

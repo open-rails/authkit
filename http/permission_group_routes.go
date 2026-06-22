@@ -118,8 +118,9 @@ func pathParam(r *http.Request, name string) string {
 //  2. resolves persona + :resource-id from the route/path;
 //  3. authorizes via svc.Can(caller, "user", persona, resource-id, route.Perm)
 //     (403 on deny);
-//  4. performs the operation. members + members/:user/roles/:role are fully
-//     wired; the api-keys / remote-applications / invites families return 501.
+//  4. performs the operation. members, roles (catalog read), api-keys,
+//     remote-applications, and invites are fully wired; only custom-role
+//     DEFINE (POST/DELETE /roles) remains a 501 stub.
 func (s *Service) generatedGroupHandler(gr core.GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -158,8 +159,30 @@ func (s *Service) generatedGroupHandler(gr core.GeneratedRoute) http.HandlerFunc
 			s.groupMemberRole(w, r, gr.Persona, resourceID, pathParam(r, "user"), pathParam(r, "role"), false)
 		case opRolesList:
 			s.groupRolesList(w, gr.Persona)
+		case opRoleDefine:
+			s.groupCustomRoleDefine(w, r, gr.Persona, resourceID)
+		case opRoleDelete:
+			s.groupCustomRoleDelete(w, r, gr.Persona, resourceID, pathParam(r, "role"))
+		case opAPIKeysList:
+			s.groupAPIKeyList(w, r, gr.Persona, resourceID)
+		case opAPIKeyMint:
+			s.groupAPIKeyMint(w, r, gr.Persona, resourceID, claims.UserID)
+		case opAPIKeyRevoke:
+			s.groupAPIKeyRevoke(w, r, gr.Persona, resourceID, pathParam(r, "key"))
+		case opRemoteAppsList:
+			s.groupRemoteAppList(w, r, gr.Persona, resourceID)
+		case opRemoteAppRegister:
+			s.groupRemoteAppRegister(w, r, gr.Persona, resourceID)
+		case opRemoteAppDelete:
+			s.groupRemoteAppDelete(w, r, gr.Persona, resourceID, pathParam(r, "app"))
+		case opInvitesList:
+			s.groupInviteList(w, r, gr.Persona, resourceID)
+		case opInviteCreate:
+			s.groupInviteCreate(w, r, gr.Persona, resourceID, claims.UserID)
+		case opInviteRevoke:
+			s.groupInviteRevoke(w, r, gr.Persona, resourceID, pathParam(r, "invite"))
 		default:
-			// roles-define / api-keys / remote-applications / invites: not wired yet.
+			// roles-define (POST/DELETE /roles): not wired yet.
 			sendErr(w, http.StatusNotImplemented, notImplemented)
 		}
 	}
@@ -177,6 +200,17 @@ const (
 	opMemberRoleAssign
 	opMemberRoleUnassign
 	opRolesList
+	opRoleDefine
+	opRoleDelete
+	opAPIKeysList
+	opAPIKeyMint
+	opAPIKeyRevoke
+	opRemoteAppsList
+	opRemoteAppRegister
+	opRemoteAppDelete
+	opInvitesList
+	opInviteCreate
+	opInviteRevoke
 )
 
 // classifyGeneratedRoute maps a generator route (its method + colon-param path)
@@ -198,11 +232,34 @@ func classifyGeneratedRoute(method, path string) generatedOp {
 			return opMemberAdd
 		}
 		return opMembersList // GET
+	case strings.HasSuffix(path, "/roles/:role"):
+		return opRoleDelete // DELETE custom role
 	case strings.HasSuffix(path, "/roles"):
 		if method == http.MethodGet {
 			return opRolesList
 		}
-		return opStub // POST /roles (custom-role define) not wired
+		return opRoleDefine // POST custom-role define
+	case strings.HasSuffix(path, "/api-keys/:key"):
+		return opAPIKeyRevoke // DELETE
+	case strings.HasSuffix(path, "/api-keys"):
+		if method == http.MethodPost {
+			return opAPIKeyMint
+		}
+		return opAPIKeysList // GET
+	case strings.HasSuffix(path, "/remote-applications/:app"):
+		return opRemoteAppDelete // DELETE
+	case strings.HasSuffix(path, "/remote-applications"):
+		if method == http.MethodPost {
+			return opRemoteAppRegister
+		}
+		return opRemoteAppsList // GET
+	case strings.HasSuffix(path, "/invites/:invite"):
+		return opInviteRevoke // DELETE
+	case strings.HasSuffix(path, "/invites"):
+		if method == http.MethodPost {
+			return opInviteCreate
+		}
+		return opInvitesList // GET
 	default:
 		return opStub
 	}

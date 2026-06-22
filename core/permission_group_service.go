@@ -125,6 +125,18 @@ func (s *Service) resolveGroupID(ctx context.Context, st *PermissionGroupStore, 
 	return st.GroupByResourceRef(ctx, groupType, resourceRef)
 }
 
+// ResolveGroupIDForRef maps the API addressing key (groupType, resourceRef) to
+// the group's INTERNAL id. The id never goes on the wire — this is for callers
+// that must thread the controlling permission_group_id into a sibling resource
+// (e.g. a remote_application's permission_group_id, #111). ErrGroupNotFound if
+// no live group matches.
+func (s *Service) ResolveGroupIDForRef(ctx context.Context, groupType, resourceRef string) (string, error) {
+	if err := s.requirePG(); err != nil {
+		return "", err
+	}
+	return s.resolveGroupID(ctx, s.groupStore(), groupType, resourceRef)
+}
+
 // validRoleForType reports whether role is assignable in a group of groupType: a
 // catalog role, or any role when the type allows custom roles (custom roles are
 // validated at definition time).
@@ -193,4 +205,49 @@ func (s *Service) ListGroupMembers(ctx context.Context, groupType, resourceRef s
 // cross-persona discovery behind /me/groups).
 func (s *Service) ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error) {
 	return s.groupStore().SubjectGroups(ctx, subjectID, subjectKind)
+}
+
+// DefineGroupCustomRole creates/updates a custom role in the group addressed by
+// (groupType, resourceRef). Requires the type to allow custom roles; every
+// permission must be a valid grant pattern in the type's OWN persona namespace
+// (namespace purity) and must not collide with a catalog role name.
+func (s *Service) DefineGroupCustomRole(ctx context.Context, groupType, resourceRef, role string, permissions []string) error {
+	sch := s.groupSchemaOrDefault()
+	td, ok := sch.Type(groupType)
+	if !ok {
+		return fmt.Errorf("unknown group type %q", groupType)
+	}
+	if !td.AllowCustomRoles {
+		return fmt.Errorf("group type %q does not allow custom roles", groupType)
+	}
+	if !segmentRe.MatchString(role) {
+		return fmt.Errorf("custom role name %q must match [a-z][a-z0-9-]*", role)
+	}
+	if _, isCatalog := sch.Role(groupType, role); isCatalog {
+		return fmt.Errorf("role %q is a catalog role and cannot be redefined as custom", role)
+	}
+	for _, p := range permissions {
+		if err := ValidateGrantPattern(p); err != nil {
+			return err
+		}
+		if PermissionPersona(p) != groupType {
+			return fmt.Errorf("custom role grant %q is cross-persona — a %q role may hold only %q: perms", p, groupType, groupType)
+		}
+	}
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, groupType, resourceRef)
+	if err != nil {
+		return err
+	}
+	return st.UpsertCustomRole(ctx, gid, role, permissions)
+}
+
+// DeleteGroupCustomRole removes a custom role from a group.
+func (s *Service) DeleteGroupCustomRole(ctx context.Context, groupType, resourceRef, role string) error {
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, groupType, resourceRef)
+	if err != nil {
+		return err
+	}
+	return st.DeleteCustomRole(ctx, gid, role)
 }

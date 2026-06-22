@@ -120,24 +120,6 @@ func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
 	require.False(t, called, "authorizer must not be consulted without claims")
 }
 
-// TestStubFamiliesReturn501: api-keys (enabled in profile) is wired only to a
-// 501 stub; assert it 501s after the gate allows, confirming the deliberate stub.
-func TestStubFamiliesReturn501(t *testing.T) {
-	s := newTestService(t)
-	s.groupCanFn = func(_ *http.Request, _, _, _, _ string) (bool, error) { return true, nil }
-
-	gr := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource-id/api-keys", Perm: "merchant:api-keys:manage"}
-	h := s.generatedGroupHandler(gr)
-	r := httptest.NewRequest(http.MethodPost, "/merchant/m1/api-keys", strings.NewReader(`{}`))
-	r = withMuxParams(r, gr.Path, map[string]string{"resource-id": "m1"})
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: "caller-1"}))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-
-	require.Equal(t, http.StatusNotImplemented, w.Code)
-	require.Contains(t, w.Body.String(), "not_implemented")
-}
-
 // TestPermissionGroupRoutes_IncludedInDefaultAPI: the root-only default schema
 // has member-assignment on, so the generated members routes appear in the
 // default API surface and in the dedicated PermissionGroups accessor.
@@ -167,4 +149,19 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 		return matched
 	}
 	return r
+}
+
+// TestAllGeneratedRoutesWired asserts the generator emits NO unimplemented routes:
+// every per-persona management route maps to a real operation (no opStub / 501).
+func TestAllGeneratedRoutesWired(t *testing.T) {
+	sch, err := core.BuildSchema(core.GroupTypeDef{
+		Name: "org", AllowedParents: []string{core.RootType}, AllowCustomRoles: true,
+		Routes: core.ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, Invitation: true},
+	})
+	require.NoError(t, err)
+	routes := sch.GeneratedRoutes()
+	require.NotEmpty(t, routes)
+	for _, gr := range routes {
+		require.NotEqualf(t, opStub, classifyGeneratedRoute(gr.Method, gr.Path), "generated route %s %s is unwired (opStub/501)", gr.Method, gr.Path)
+	}
 }

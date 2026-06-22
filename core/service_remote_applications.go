@@ -394,6 +394,47 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 	return out, nil
 }
 
+// ListRemoteApplicationsForGroup returns the remote_applications whose
+// controlling permission_group_id is the group addressed by (groupType,
+// resourceRef) (#111). It resolves the group via the store, then filters
+// remote_applications by permission_group_id so a per-persona management caller
+// sees only the issuers it controls (ListRemoteApplications lists ALL groups').
+func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, groupType, resourceRef string) ([]RemoteApplication, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(groupType), strings.TrimSpace(resourceRef))
+	if err != nil {
+		return nil, err
+	}
+	q := db.ForSchema(s.pg, s.dbSchema())
+	rows, err := q.Query(ctx,
+		`SELECT id::text, slug, COALESCE(permission_group_id::text, ''), issuer, COALESCE(jwks_uri,''),
+		        mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
+		 FROM profiles.remote_applications
+		 WHERE permission_group_id = $1::uuid AND deleted_at IS NULL
+		 ORDER BY created_at DESC`, gid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]RemoteApplication, 0)
+	for rows.Next() {
+		var (
+			ra      RemoteApplication
+			rawKeys []byte
+		)
+		if err := rows.Scan(&ra.ID, &ra.Slug, &ra.OrgID, &ra.Issuer, &ra.JWKSURI,
+			&ra.Mode, &rawKeys, &ra.Audiences, &ra.AllowedOrigins, &ra.Enabled,
+			&ra.CreatedAt, &ra.UpdatedAt); err != nil {
+			return nil, err
+		}
+		ra.PublicKeys = decodeRemoteAppKeys(rawKeys)
+		out = append(out, ra)
+	}
+	return out, rows.Err()
+}
+
 // DeleteRemoteApplication removes a remote_application by OIDC issuer URL.
 // Deprecated: use s.Identity().DeleteRemoteApplication.
 func (s *Service) DeleteRemoteApplication(ctx context.Context, issuer string) error {
