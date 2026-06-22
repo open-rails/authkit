@@ -76,21 +76,31 @@ import (
 )
 
 func main() {
-  // Build core.Config from your app config.
+  // Build core.Config from your app config. Fields are grouped by concern.
   cfg := core.Config{
-    Issuer:            "https://myapp.com",
-    IssuedAudiences:   []string{"myapp"},
-    ExpectedAudiences: []string{"myapp"},
-    BaseURL:           "https://myapp.com",
-    FrontendCallbackPath: "/login/callback",
-    // RegistrationVerification: core.RegistrationVerificationRequired, // none|optional|required
-    // NativeUserRegistrationMode / OrgRegistrationMode: open|invite_only|admin_only|admin_bootstrap_only|... (host policy)
-    // AutoCreatePersonalOrgs: true  // opt in to a personal org per native user
-    // Keys: nil => auto-discovery in AuthKit (env/fs/dev fallback)
+    Token: core.TokenConfig{
+      Issuer:            "https://myapp.com",
+      IssuedAudiences:   []string{"myapp"},
+      ExpectedAudiences: []string{"myapp"},
+    },
+    Frontend: core.FrontendConfig{
+      BaseURL:      "https://myapp.com",
+      CallbackPath: "/login/callback",
+    },
+    // Registration: core.RegistrationConfig{
+    //   Verification:   core.RegistrationVerificationRequired, // none|optional|required
+    //   NativeUserMode: core.RegistrationModeOpen,             // open|invite_only|admin_only|admin_bootstrap_only|...
+    //   OrgMode:        core.RegistrationModeOpen,
+    //   AutoCreatePersonalOrgs: true,                          // opt in to a personal org per native user
+    // },
+    // Keys.Source nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
 
-  svc, _ := authhttp.NewService(cfg)
-  // svc = svc.WithPostgres(pg).WithRedis(redis).WithEmailSender(email).WithSMSSender(sms)...
+  // Postgres is REQUIRED (positional). Optional deps are functional options:
+  svc, _ := authhttp.NewServer(cfg, pg, // pg: your *pgxpool.Pool
+    // authhttp.WithRedis(redis),
+    // authhttp.WithEmailSender(email), authhttp.WithSMSSender(sms),
+  )
 
   router := gin.New()
   v1 := router.Group("/api/v1")
@@ -165,11 +175,13 @@ Bootstrap authority is an operator/deploy action, not a fake AuthKit org.
 
 ```go
 cfg := core.Config{
-  // ...issuer/audiences/keys...
-  NativeUserRegistrationMode: core.RegistrationModeAdminBootstrapOnly,
-  OrgRegistrationMode:     core.RegistrationModeManifestOnly,
+  // ...Token (issuer/audiences) + Keys...
+  Registration: core.RegistrationConfig{
+    NativeUserMode: core.RegistrationModeAdminBootstrapOnly,
+    OrgMode:        core.RegistrationModeManifestOnly,
+  },
 }
-svc, _ := authhttp.NewService(cfg)
+svc, _ := authhttp.NewServer(cfg, pg)
 
 // Mount only the route groups this deployment intentionally exposes:
 authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
@@ -287,14 +299,15 @@ import (
 
 func main() {
   cfg := core.Config{
-    Issuer:            "https://myapp.com",
-    IssuedAudiences:   []string{"myapp"},
-    ExpectedAudiences: []string{"myapp"},
-    BaseURL:           "https://myapp.com",
-    FrontendCallbackPath: "/login/callback",
+    Token: core.TokenConfig{
+      Issuer:            "https://myapp.com",
+      IssuedAudiences:   []string{"myapp"},
+      ExpectedAudiences: []string{"myapp"},
+    },
+    Frontend: core.FrontendConfig{BaseURL: "https://myapp.com", CallbackPath: "/login/callback"},
   }
 
-  svc, _ := authhttp.NewService(cfg)
+  svc, _ := authhttp.NewServer(cfg, pg) // pg: your *pgxpool.Pool (required)
   mux := http.NewServeMux()
   mux.Handle("/.well-known/jwks.json", svc.JWKSHandler())
   mux.Handle("/api/v1/", http.StripPrefix("/api/v1", svc.APIHandler()))
@@ -308,7 +321,7 @@ Optional Twilio providers
 - Optional convenience providers are available:
   - `github.com/open-rails/authkit/providers/email/twilio` for Twilio Email API (SendGrid endpoint).
   - `github.com/open-rails/authkit/providers/sms/twilio` for Twilio Messaging API.
-- AuthKit never reads provider environment variables directly. Host apps load their own config, build the sender, then pass it with `WithEmailSender` / `WithSMSSender`.
+- AuthKit never reads provider environment variables directly. Host apps load their own config, build the sender, then pass it as a constructor option (`authhttp.WithEmailSender` / `authhttp.WithSMSSender`).
 - The SMS provider requires `AccountSID`, `AuthToken`, and `MessagingServiceSID`. It uses Twilio Messaging (`Messages.json`) only; there is no Verify service path and no `From` number fallback path.
 - The email provider requires a SendGrid/Twilio Email API key and a verified from address. Hosts can provide link builders or full message builders for branded/localized copy.
 - A 2xx response from AuthKit means the message was accepted by the configured sender/provider submission call. It does not prove the recipient mailbox or carrier ultimately delivered, accepted, opened, or displayed the message.
@@ -336,8 +349,6 @@ emailSender, err := emailtwilio.New(emailtwilio.Config{
 if err != nil {
     return err
 }
-svc = svc.WithEmailSender(emailSender)
-
 smsSender, err := smstwilio.New(smstwilio.Config{
     AccountSID:          cfg.TwilioAccountSID,
     AuthToken:           cfg.TwilioAuthToken,
@@ -347,7 +358,12 @@ smsSender, err := smstwilio.New(smstwilio.Config{
 if err != nil {
     return err
 }
-svc = svc.WithSMSSender(smsSender)
+
+// Pass the senders as options when constructing the server:
+svc, _ := authhttp.NewServer(cfg, pg,
+    authhttp.WithEmailSender(emailSender),
+    authhttp.WithSMSSender(smsSender),
+)
 ```
 
 External identity providers
@@ -467,11 +483,10 @@ func (p *BillingEntitlementsProvider) ListEntitlements(ctx context.Context, user
     return out, rows.Err()
 }
 
-// Wire it up:
-svc, _ := authhttp.NewService(cfg)
-svc = svc.
-    WithPostgres(pg).
-    WithEntitlements(&BillingEntitlementsProvider{pg: pg})
+// Wire it up (Postgres positional; entitlements as an option):
+svc, _ := authhttp.NewServer(cfg, pg,
+    authhttp.WithEntitlements(&BillingEntitlementsProvider{pg: pg}),
+)
 ```
 
 **Provider failures.** A billing outage must not block login: if the provider
@@ -495,7 +510,7 @@ re-issue the token when a grant changes.
 
 Concepts (concise)
 
-- Service (issuer + storage): used by `authhttp.NewService(cfg)`; backs the built-in handlers (sessions, login, OIDC, etc). Core service facets (`svc.Users()`, `svc.Orgs()`, `svc.Roles()`, `svc.APIKeys()`, `svc.Tokens()`, `svc.TwoFactor()`, `svc.Sessions()`, `svc.Identity()`, `svc.Bootstrap()`) provide a domain-shaped API surface while the old flat methods remain available.
+- Service (issuer + storage): built by `authhttp.NewServer(cfg, pg, opts...)` (Postgres required; optional deps are functional options); backs the built-in handlers (sessions, login, OIDC, etc). Core service facets (`svc.Users()`, `svc.Orgs()`, `svc.Roles()`, `svc.APIKeys()`, `svc.Tokens()`, `svc.TwoFactor()`, `svc.Sessions()`, `svc.Identity()`, `svc.Bootstrap()`) provide a domain-shaped API surface.
 - Middleware: `github.com/open-rails/authkit/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
 - Verify-only: use `authhttp.NewVerifier()` + `verifier.AddIssuer(...)` to accept tokens from other issuers without issuing tokens yourself.
   - **Lean import for pure verification:** the verification layer (`Verifier`, `NewVerifier`, `Claims`, the `Required`/`Optional` middleware, `RequiredServiceJWT`, etc.) lives in the dependency-light `github.com/open-rails/authkit/verify` package, which imports **no Postgres/Redis/storage** — only `authkit/jwt` + `authkit/authbase`. A service that *only* validates tokens (a typical resource server) should import `authkit/verify` directly to keep `pgx`/`redis` out of its build graph. `authkit/http` re-exports the same names (`authhttp.Verifier`, `authhttp.NewVerifier`, `authhttp.Claims`, …) for apps that also issue tokens, so existing embedders need no changes. Attach DB-backed enrichment (live-user/ban gate, role/email hydration, opaque API-key resolution) only when you want it, via `verifier.WithService(coreSvc)` — `*core.Service` satisfies the `verify.Enricher` interface.
@@ -536,12 +551,14 @@ Mint through the `*core.Service` methods:
 
 ```go
 svc, _ := core.NewFromConfig(core.Config{
-    Issuer:            "https://cozy-art.example",
-    IssuedAudiences:   []string{"cozy-art"},
-    ExpectedAudiences: []string{"cozy-art"},
-    // Keys: nil  => local resolver; point it wherever the host renders keys.json:
-    KeysPath:          "/vault/auth", // or set AUTHKIT_KEYS_PATH; default is /vault/auth
-})
+    Token: core.TokenConfig{
+        Issuer:            "https://cozy-art.example",
+        IssuedAudiences:   []string{"cozy-art"},
+        ExpectedAudiences: []string{"cozy-art"},
+    },
+    // Keys.Source nil => local resolver; point it wherever the host renders keys.json:
+    Keys: core.KeysConfig{Path: "/vault/auth"}, // or set AUTHKIT_KEYS_PATH; default is /vault/auth
+}, pg) // pg: your *pgxpool.Pool (may be nil for a pure signing/verify-only service)
 
 // Delegated access JWT (cross-service federation) — params only, no key:
 tok, _ := svc.MintDelegatedAccessToken(ctx, core.DelegatedAccessParams{
@@ -870,10 +887,11 @@ Integration requirements (API server)
   - `429` responses also include `Retry-After: N` plus `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` when the limiter can compute them.
   - **Behind reverse proxies, you must explicitly configure trusted proxies** to safely use `X-Forwarded-For` / `CF-Connecting-IP`. AuthKit will not trust forwarded headers by default (clients can spoof them).
   - For multi-instance production, prefer a Redis/Garnet-backed limiter and a trusted-proxy client IP function, e.g.:
-    - `svc.WithRateLimiter(redislimiter.New(redis, authhttp.ToRedisLimits(authhttp.DefaultRateLimits())))`
-    - `svc.WithClientIPFunc(authhttp.ClientIPFromForwardedHeaders(trustedProxyCIDRs))` where `trustedProxyCIDRs` are the CIDRs of your ingress/proxy layer (nginx, cloudflared, etc.).
-  - Hosts that intentionally want the older public-remote-only fail-open behavior can opt in with `svc.WithClientIPFunc(authhttp.PublicRemoteAddrClientIP())`.
-  - To explicitly opt out: `svc.DisableRateLimiter()`.
+    - `authhttp.WithRateLimiter(redislimiter.New(redis, authhttp.ToRedisLimits(authhttp.DefaultRateLimits())))`
+    - `authhttp.WithClientIPFunc(authhttp.ClientIPFromForwardedHeaders(trustedProxyCIDRs))` where `trustedProxyCIDRs` are the CIDRs of your ingress/proxy layer (nginx, cloudflared, etc.).
+  - These are constructor options — pass them to `authhttp.NewServer(cfg, pg, ...)`.
+  - Hosts that intentionally want the older public-remote-only fail-open behavior can opt in with `authhttp.WithClientIPFunc(authhttp.PublicRemoteAddrClientIP())`.
+  - To explicitly opt out of rate limiting: `authhttp.WithoutRateLimiter()`.
 - Storage: run the SQL migrations in `authkit/migrations/postgres` (includes `profiles.refresh_sessions`).
 - Keys/JWKS: host `/.well-known/jwks.json` using `svc.JWKSHandler()` and rotate keys as needed.
 
