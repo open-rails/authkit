@@ -7,7 +7,20 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 112
+next_id: 113
+
+---
+
+# #112: sanctioned post-construction entitlements setter — break the embedded-billing init cycle
+
+**Completed:** yes
+**STATUS 2026-06-22 (Claude): DONE — shipped in v0.48.0 (additive, non-breaking).** Adds ONE blessed post-construction setter, `(*core.Service).SetEntitlementsProvider(p)` plus the `authhttp.Service`/`Server` delegate — the single deliberate exception to #108's options-only rule. Rationale: an embedded billing engine (OpenRails) authenticates THROUGH the host's authkit (it needs the Verifier+Core, so the Service must exist first) yet is itself the SOURCE of the entitlements provider — a genuine bidirectional init cycle, so the provider cannot exist at NewServer/NewService time. Hosts build auth → build engine with it → `svc.SetEntitlementsProvider(engine.EntitlementsProvider())`. Safe because entitlements are read LAZILY at token-mint time; call during wiring, before serving. Hosts WITHOUT the cycle keep using the `WithEntitlements` construction option. Retires the host-side `deferredEntitlements` holder doujins/hentai0 carried after #108 (see openrails #568, Option B). Files: core/service.go, http/service.go, core/service_token_claims_test.go (`TestSetEntitlementsProvider_LateBoundProviderEnrichesToken` — a provider installed after construction enriches the minted token). build/vet/full PG suite green.
+
+## Tasks
+- [x] `(*core.Service).SetEntitlementsProvider(EntitlementsProvider)` — plain (non-chainable) setter, documented as the cyclic-dependency exception
+- [x] `(*authhttp.Service).SetEntitlementsProvider(core.EntitlementsProvider)` delegate (covers the `Server` alias)
+- [x] Test: build without entitlements, set after construction, assert the minted access token carries the entitlement
+- [x] Tag v0.48.0 (additive); adopt in doujins + hentai0 to delete the holder
 
 ---
 

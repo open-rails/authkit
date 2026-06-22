@@ -179,6 +179,15 @@ func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 func (s *Service) Core() *core.Service { return s.svc }
 func (s *Service) Verifier() *Verifier { return s.verifier }
 
+// SetEntitlementsProvider installs the entitlements provider on the underlying
+// core service after construction. It is the sanctioned late-binding seam for
+// the embedded-billing entitlements cycle (an embedded engine authenticates
+// through this server's Verifier/Core yet also supplies the provider). Call it
+// during wiring, before serving. See core.Service.SetEntitlementsProvider.
+func (s *Service) SetEntitlementsProvider(p core.EntitlementsProvider) {
+	s.svc.SetEntitlementsProvider(p)
+}
+
 // publicRegistrationDisabled reports whether public user self-registration /
 // auto-registration is turned off for this service.
 func (s *Service) publicRegistrationDisabled() bool {

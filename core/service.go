@@ -646,6 +646,20 @@ func (s *Service) qtx(tx pgx.Tx) *db.Queries {
 	return db.New(db.ForSchema(tx, s.dbSchema()))
 }
 
+// SetEntitlementsProvider installs the entitlements provider AFTER construction.
+//
+// This is the ONE sanctioned post-construction setter — #108 otherwise removed
+// every mutating builder in favor of constructor options. It exists for a
+// genuine initialization CYCLE: an embedded billing engine (e.g. OpenRails)
+// authenticates through this Service — it needs the Verifier/Core, so the
+// Service must exist first — yet that same engine is the SOURCE of the
+// entitlements provider, so the provider cannot exist at construction time. The
+// host builds the Service, builds the engine with it, then installs the engine's
+// provider here. Safe because entitlements are read LAZILY at token-mint time;
+// call it during wiring, before serving requests. Hosts WITHOUT this cycle
+// should prefer the WithEntitlements construction option instead.
+func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
+
 // Keyfunc looks up a public key by KID, falling back to the active key if missing.
 func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
 	return func(token *jwt.Token) (any, error) {

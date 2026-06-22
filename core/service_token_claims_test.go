@@ -99,3 +99,25 @@ func TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements(t *testing.T
 		require.False(t, ok, "%s claim must not be minted on normal user access tokens", forbidden)
 	}
 }
+
+// #112: the sanctioned post-construction SetEntitlementsProvider seam (used to
+// break the embedded-billing init cycle) must be honored at mint time — a
+// provider installed AFTER construction enriches the access token exactly as the
+// WithEntitlements construction option would.
+func TestSetEntitlementsProvider_LateBoundProviderEnrichesToken(t *testing.T) {
+	s, pub := newClaimTestService(t, "") // built WITHOUT entitlements
+
+	// No provider yet => no (or empty) entitlements.
+	tok0, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{"sid": "s0"})
+	require.NoError(t, err)
+	cl0 := parseClaimsNoValidate(t, tok0, pub)
+	require.Empty(t, cl0["entitlements"], "no entitlements before a provider is installed")
+
+	// Install the provider after construction (the cyclic-dependency seam).
+	s.SetEntitlementsProvider(&staticEntitlementsProvider{names: []string{"premium"}})
+
+	tok1, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{"sid": "s1"})
+	require.NoError(t, err)
+	cl1 := parseClaimsNoValidate(t, tok1, pub)
+	require.ElementsMatch(t, []any{"premium"}, cl1["entitlements"])
+}
