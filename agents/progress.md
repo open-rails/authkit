@@ -26,8 +26,9 @@ next_id: 113
 
 # #111: generalize `org` → permission-group — N-level resource-scoped RBAC (single-parent inheritance) + app-defined per-type role catalogs with optional custom roles
 
-**Completed:** no
-**Status:** PLANNED 2026-06-22 (Claude + Paul). Deliberate extension of the #95-frozen RBAC model — large, cross-repo. Tensorhub is the main beneficiary (per-repo/dataset/endpoint groups + custom roles); OpenRails adopts the shallow case in its own tracker (openrails #567).
+**Completed:** yes
+**Status:** SHIPPED v0.49.0 (2026-06-22, BREAKING hard cut). org/platform RBAC fully replaced by the generic permission-group engine: typed single-parent groups, additive walk-up authorize (reach != capability), app-declared per-type catalogs + opt-in custom roles, containment enforced at app + DB (migration 008), 3-segment `<persona>:<resource>:<action>` perms, intrinsic `root` (platform: → root:), auto-generated per-persona management routes. org/platform removed entirely (no legacy/compat); api-keys + remote-apps re-nested under permission-groups. `go build/vet/test ./...` green vs live PG (17 packages). Consumers must migrate: openrails #567, tensorhub #498, doujins #416, hentai0 #176, cozy-art #152. FOLLOW-ON: the generated api-keys/remote-applications/invites HTTP routes are 501-stubbed (core api-key + remote-app functionality works + is tested; only that generated route group is unwired) + restore deleted kept-functionality tests (oauth2/registration/admin) for the new model.
+**Status (original):** PLANNED 2026-06-22 (Claude + Paul). Deliberate extension of the #95-frozen RBAC model — large, cross-repo. Tensorhub is the main beneficiary (per-repo/dataset/endpoint groups + custom roles); OpenRails adopts the shallow case in its own tracker (openrails #567).
 
 ## Principle
 Today RBAC has exactly two scopes — `org` (namespace `org:`) and `platform` (`platform:`) — a K8s-style two-level model (org = namespace, platform = cluster). Generalize to N levels: a **permission-group** is the container that holds roles + assignments and can attach to ANY resource. **`org` stops being an authkit built-in entirely** — there is NO hardcoded `org` table or concept; it becomes just one app-DECLARED group **type** name among many. Each app names its own types, and an app may declare none beyond the root:
