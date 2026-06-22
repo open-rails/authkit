@@ -494,6 +494,7 @@ Concepts (concise)
 - Service (issuer + storage): used by `authhttp.NewService(cfg)`; backs the built-in handlers (sessions, login, OIDC, etc).
 - Middleware: `github.com/open-rails/authkit/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
 - Verify-only: use `authhttp.NewVerifier()` + `verifier.AddIssuer(...)` to accept tokens from other issuers without issuing tokens yourself.
+  - **Lean import for pure verification:** the verification layer (`Verifier`, `NewVerifier`, `Claims`, the `Required`/`Optional` middleware, `RequiredServiceJWT`, etc.) lives in the dependency-light `github.com/open-rails/authkit/verify` package, which imports **no Postgres/Redis/storage** — only `authkit/jwt` + `authkit/authbase`. A service that *only* validates tokens (a typical resource server) should import `authkit/verify` directly to keep `pgx`/`redis` out of its build graph. `authkit/http` re-exports the same names (`authhttp.Verifier`, `authhttp.NewVerifier`, `authhttp.Claims`, …) for apps that also issue tokens, so existing embedders need no changes. Attach DB-backed enrichment (live-user/ban gate, role/email hydration, opaque API-key resolution) only when you want it, via `verifier.WithService(coreSvc)` — `*core.Service` satisfies the `verify.Enricher` interface.
 
 ---
 

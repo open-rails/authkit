@@ -8,12 +8,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/authbase"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 var (
-	// ErrAttributeDefNotFound indicates no registered definition matched.
-	ErrAttributeDefNotFound = errors.New("attribute_def_not_found")
+	// ErrAttributeDefNotFound is defined in authbase (core-free) and re-exported here.
+	ErrAttributeDefNotFound = authbase.ErrAttributeDefNotFound
 	// ErrInvalidAttributeDef indicates a malformed definition registration.
 	ErrInvalidAttributeDef = errors.New("invalid_attribute_def")
 )
@@ -23,12 +24,8 @@ var (
 // resolves a token's `attributes.<key>: "<ref>"` reference back to it. The
 // Definition is an OPAQUE JSON doc — AuthKit stores and serves it but NEVER
 // interprets its semantics (same agnosticism as the token attributes bag).
-type RemoteAppAttributeDef struct {
-	RemoteApplicationID string
-	Key                 string
-	Version             int32
-	Definition          json.RawMessage
-}
+// RemoteAppAttributeDef is defined in authbase (core-free) and re-exported here.
+type RemoteAppAttributeDef = authbase.RemoteAppAttributeDef
 
 // RegisterRemoteAppAttributeDef stores (or updates) a definition for the
 // remote_application. version defaults to 1 when zero. The caller authority is

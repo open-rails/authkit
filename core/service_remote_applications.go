@@ -10,18 +10,18 @@ import (
 	"net"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/open-rails/authkit/authbase"
 	"github.com/open-rails/authkit/internal/db"
 )
 
 var (
 	// ErrRemoteApplicationNotFound indicates no remote_application matched.
 	ErrRemoteApplicationNotFound = errors.New("remote_application_not_found")
-	// ErrInvalidRemoteApplication indicates a malformed registration payload.
-	ErrInvalidRemoteApplication = errors.New("invalid_remote_application")
+	// ErrInvalidRemoteApplication is defined in authbase and re-exported here.
+	ErrInvalidRemoteApplication = authbase.ErrInvalidRemoteApplication
 	// ErrReservedIssuer indicates an attempt to register a remote_application
 	// under the platform's own issuer string. The platform issuer is the local,
 	// first-party signing identity; allowing a federated remote_application to
@@ -37,17 +37,16 @@ var (
 //	         kid at the same URL.
 //	static — authorized_keys-style human-managed PEM list for principals without
 //	         a JWKS endpoint; manual rotation by design.
+//
+// Remote-application trust modes are defined in authbase (core-free) and
+// re-exported here.
 const (
-	RemoteAppModeJWKS   = "jwks"
-	RemoteAppModeStatic = "static"
+	RemoteAppModeJWKS   = authbase.RemoteAppModeJWKS
+	RemoteAppModeStatic = authbase.RemoteAppModeStatic
 )
 
-// RemoteAppKey is one entry of a static-mode principal's human-managed key list
-// (stored as jsonb; edited like an authorized_keys file).
-type RemoteAppKey struct {
-	KID          string `json:"kid,omitempty" yaml:"kid,omitempty"`
-	PublicKeyPEM string `json:"public_key_pem" yaml:"public_key_pem"`
-}
+// RemoteAppKey is defined in authbase (core-free) and re-exported here.
+type RemoteAppKey = authbase.RemoteAppKey
 
 // NormalizeRemoteAppTrustSource validates the mutually-exclusive trust source of
 // a registration and returns the normalized mode. Empty mode is inferred: a key
@@ -216,86 +215,19 @@ func decodeRemoteAppKeys(raw []byte) []RemoteAppKey {
 	return keys
 }
 
-// NormalizeAllowedOrigin validates one browser Origin value and returns its
-// canonical exact-match form. It accepts only scheme+host(+port), never paths,
-// queries, fragments, userinfo, wildcards, or the special "null" origin.
-func NormalizeAllowedOrigin(origin string) (string, error) {
-	origin = strings.TrimSpace(origin)
-	if origin == "" || strings.EqualFold(origin, "null") || strings.Contains(origin, "*") {
-		return "", ErrInvalidRemoteApplication
-	}
-	u, err := url.Parse(origin)
-	if err != nil || u == nil {
-		return "", ErrInvalidRemoteApplication
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if (scheme != "http" && scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
-		return "", ErrInvalidRemoteApplication
-	}
-	return scheme + "://" + strings.ToLower(u.Host), nil
-}
-
-// NormalizeAllowedOrigins validates, trims, normalizes, and de-duplicates exact
-// browser origins for a remote_application.
-func NormalizeAllowedOrigins(origins []string) ([]string, error) {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(origins))
-	for _, raw := range origins {
-		if strings.TrimSpace(raw) == "" {
-			continue
-		}
-		origin, err := NormalizeAllowedOrigin(raw)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := seen[origin]; ok {
-			continue
-		}
-		seen[origin] = struct{}{}
-		out = append(out, origin)
-	}
-	return out, nil
-}
-
-// OriginAllowed reports whether origin exactly matches one of allowedOrigins.
-func OriginAllowed(origin string, allowedOrigins []string) bool {
-	origin, err := NormalizeAllowedOrigin(origin)
-	if err != nil {
-		return false
-	}
-	for _, allowed := range allowedOrigins {
-		allowed, err := NormalizeAllowedOrigin(allowed)
-		if err != nil {
-			continue
-		}
-		if origin == allowed {
-			return true
-		}
-	}
-	return false
-}
+// Origin helpers are defined in authbase (core-free) and re-exported here.
+var (
+	NormalizeAllowedOrigin  = authbase.NormalizeAllowedOrigin
+	NormalizeAllowedOrigins = authbase.NormalizeAllowedOrigins
+	OriginAllowed           = authbase.OriginAllowed
+)
 
 // RemoteApplication is a federation principal: an external system that
 // authenticates by signing JWTs verified against its JWKS/public keys. It is
 // optionally owned by an org and may hold org memberships with roles via the
-// same polymorphic membership machinery as users (#74).
-type RemoteApplication struct {
-	ID      string
-	Slug    string
-	OrgID   string // optional controlling org; empty means bootstrap/operator-managed
-	Issuer  string // OIDC iss
-	JWKSURI string // OIDC jwks_uri (jwks mode only)
-	// Mode is the trust source: RemoteAppModeJWKS (fetch from JWKSURI) XOR
-	// RemoteAppModeStatic (human-managed PublicKeys list). Never both.
-	Mode string
-	// PublicKeys is the static-mode key list (empty in jwks mode).
-	PublicKeys     []RemoteAppKey
-	Audiences      []string
-	AllowedOrigins []string
-	Enabled        bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
+// same polymorphic membership machinery as users (#74). Defined in authbase
+// (core-free) and re-exported here.
+type RemoteApplication = authbase.RemoteApplication
 
 func remoteAppFromUpsert(row db.RemoteApplicationUpsertRow) *RemoteApplication {
 	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}

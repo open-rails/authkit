@@ -21,7 +21,7 @@ type delegatedTestRemoteApplicationSource struct {
 func newDelegatedAuthorityTestVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string, permissions []string) *Verifier {
 	t.Helper()
 	v := NewVerifier(WithOrgMode("multi"))
-	v.fedSource = &delegatedTestRemoteApplicationSource{
+	v.SetRemoteApplicationSource(&delegatedTestRemoteApplicationSource{
 		app: core.RemoteApplication{
 			ID:      "remote-app-1",
 			Slug:    "remote-app",
@@ -29,7 +29,7 @@ func newDelegatedAuthorityTestVerifier(t *testing.T, signer *jwtkit.RSASigner, i
 			Enabled: true,
 		},
 		permission: permissions,
-	}
+	})
 	if err := v.AddIssuer(iss, aud, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}); err != nil {

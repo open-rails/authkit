@@ -10,9 +10,29 @@ package authhttp
 import (
 	"crypto"
 	"testing"
+	"time"
 
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
+
+// mintAccessJWT builds a standard first-party access token (iss/aud/sub/iat/exp,
+// typ=access+jwt via signToken) signed by signer, for the AK-AUTH-01 guard tests.
+// Audience is "platform" to match the issuer registered by these tests. extra
+// claims, when non-nil, override/augment the baseline set.
+func mintAccessJWT(t *testing.T, signer jwtkit.Signer, issuer string, extra map[string]any) string {
+	t.Helper()
+	claims := map[string]any{
+		"iss": issuer,
+		"aud": "platform",
+		"sub": "user-1",
+		"iat": time.Now().Add(-time.Minute).Unix(),
+		"exp": time.Now().Add(time.Hour).Unix(),
+	}
+	for k, v := range extra {
+		claims[k] = v
+	}
+	return signToken(t, signer, claims)
+}
 
 // TestAddIssuerRefusesToOverwriteLocalWithFederated is the verifier-layer guard:
 // once an issuer is registered as local, a non-local AddIssuer for the same

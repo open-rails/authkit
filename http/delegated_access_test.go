@@ -259,7 +259,7 @@ func TestPermissionsValidator(t *testing.T) {
 	if err := v.AddIssuer(iss, aud, IssuerOptions{RawKeys: rawKey(signer)}); err != nil {
 		t.Fatal(err)
 	}
-	v.fedSource = &delegatedTestRemoteApplicationSource{
+	v.SetRemoteApplicationSource(&delegatedTestRemoteApplicationSource{
 		app: core.RemoteApplication{
 			ID:      "remote-app-1",
 			Slug:    "remote-app",
@@ -267,7 +267,7 @@ func TestPermissionsValidator(t *testing.T) {
 			Enabled: true,
 		},
 		permission: []string{"openrails:self:billing:read", "openrails:merchant:admin"},
-	}
+	})
 
 	// Good token: only catalog perms.
 	good, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{

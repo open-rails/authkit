@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/open-rails/authkit/authbase"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -38,11 +39,8 @@ type Org struct {
 	OwnerUserID string
 }
 
-// OrgMembership is a user's membership with optional roles.
-type OrgMembership struct {
-	Org   string
-	Roles []string
-}
+// OrgMembership is defined in authbase (core-free) and re-exported here.
+type OrgMembership = authbase.OrgMembership
 
 // CreateOrgForUserRequest is the public org-registration contract. The
 // org is owned by a real authenticated user; ownerless org creation is

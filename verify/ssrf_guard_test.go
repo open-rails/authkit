@@ -1,4 +1,4 @@
-package authhttp
+package verify
 
 // Tests for the SSRF-guarding dialer (second layer: DNS-resolution time).
 // The dialer rejects connections to private/reserved IPs even when the attacker

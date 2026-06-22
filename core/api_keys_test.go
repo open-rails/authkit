@@ -365,7 +365,7 @@ func TestAPIKeyEffectivePermsFollowRole(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{
-		Issuer:      "https://test",
+		Issuer:       "https://test",
 		APIKeyPrefix: "cozy",
 		Permissions: []PermissionDef{
 			{Name: "jobs:read"}, {Name: "jobs:write"},

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/open-rails/authkit/authbase"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -25,21 +26,15 @@ import (
 // app-defined strings, opaque to authkit; the embedding app defines and enforces
 // what each one means. See agents #43 (lifecycle) and #95 (unify principals on roles).
 
+// Token sentinel errors are defined in authbase and re-exported here for
+// backward compatibility (so core.X callers and errors.Is checks are unaffected).
 var (
-	// ErrInvalidAccessToken indicates an API key that does not exist, has a bad
-	// secret, or whose owning org is gone. Deliberately indistinguishable from
-	// a malformed token so callers learn nothing from the error.
-	ErrInvalidAccessToken = errors.New("invalid_token")
-	// ErrAccessTokenRevoked indicates the API key was explicitly revoked.
-	ErrAccessTokenRevoked = errors.New("token_revoked")
-	// ErrAccessTokenExpired indicates the API key is past its expires_at.
-	ErrAccessTokenExpired = errors.New("token_expired")
+	ErrInvalidAccessToken = authbase.ErrInvalidAccessToken
+	ErrAccessTokenRevoked = authbase.ErrAccessTokenRevoked
+	ErrAccessTokenExpired = authbase.ErrAccessTokenExpired
 )
 
 const (
-	// apiKeyTypeSegment is the FIXED, non-configurable type tag. The full marker is
-	// "<app>_st_" when an app prefix is set, or bare "st_" when it is empty.
-	apiKeyTypeSegment    = "st_"
 	apiKeyKeyIDLen       = 16  // base62 chars; non-secret public lookup id
 	apiKeySecretLen      = 43  // base62 chars ~= 256 bits of entropy
 	apiKeyResourceMaxLen = 128 // DB check constraint; resource strings are host-defined.
@@ -47,43 +42,14 @@ const (
 
 const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
-// APIKeyMarker returns the leading marker that identifies an API key for the given
-// application prefix: "<prefix>_st_" when prefix is non-empty, else "st_".
-func APIKeyMarker(prefix string) string {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		return apiKeyTypeSegment
-	}
-	return prefix + "_" + apiKeyTypeSegment
-}
-
-// HasAPIKeyPrefix reports whether token carries the API-key marker for prefix.
-// Used by middleware to route to the API-key path before attempting JWT verification.
-func HasAPIKeyPrefix(prefix, token string) bool {
-	return strings.HasPrefix(token, APIKeyMarker(prefix))
-}
-
-// FormatAPIKey assembles the full presented token: <marker><key_id>_<secret>.
-func FormatAPIKey(prefix, keyID, secret string) string {
-	return APIKeyMarker(prefix) + keyID + "_" + secret
-}
-
-// ParseAPIKey splits a presented token into its key_id and secret. key_id and
-// secret are base62 (no underscores), so the first "_" after the marker is the
-// unambiguous delimiter. ok is false if the token lacks the marker or either
-// part is empty.
-func ParseAPIKey(prefix, token string) (keyID, secret string, ok bool) {
-	marker := APIKeyMarker(prefix)
-	if !strings.HasPrefix(token, marker) {
-		return "", "", false
-	}
-	rest := token[len(marker):]
-	keyID, secret, found := strings.Cut(rest, "_")
-	if !found || keyID == "" || secret == "" {
-		return "", "", false
-	}
-	return keyID, secret, true
-}
+// API-key marker/parse/format helpers are defined in authbase (core-free) and
+// re-exported here for backward compatibility.
+var (
+	APIKeyMarker    = authbase.APIKeyMarker
+	HasAPIKeyPrefix = authbase.HasAPIKeyPrefix
+	FormatAPIKey    = authbase.FormatAPIKey
+	ParseAPIKey     = authbase.ParseAPIKey
+)
 
 func randBase62(n int) (string, error) {
 	out := make([]byte, n)
@@ -121,30 +87,12 @@ type APIKey struct {
 	RevokedAt   *time.Time
 }
 
-// APIKeyResource is one opaque, host-defined resource scope carried by
-// an API key. AuthKit stores and returns the exact Kind/ID pair but does not
-// interpret it. Hosts own resource semantics, including any wildcard-looking IDs
-// such as "*".
-type APIKeyResource struct {
-	Kind string `json:"kind"`
-	ID   string `json:"id"`
-}
+// APIKeyResource is one opaque, host-defined resource scope carried by an API
+// key. Defined in authbase (core-free) and re-exported here.
+type APIKeyResource = authbase.APIKeyResource
 
-// ResolvedAPIKey is the resource-aware API-key resolution result. Permissions is
-// the key's role resolved to its effective permission set AT VERIFY TIME (so a
-// role edit is reflected immediately — perms are never frozen into the key).
-type ResolvedAPIKey struct {
-	APIKeyID string
-	KeyID    string
-	// OrgID is the immutable org uuid — the canonical identifier for
-	// persistence and cross-service references. OrgSlug is the mutable
-	// human-readable name, for presentation/logging only.
-	OrgID       string
-	OrgSlug     string
-	Role        string
-	Permissions []string
-	Resources   []APIKeyResource
-}
+// ResolvedAPIKey is defined in authbase (core-free) and re-exported here.
+type ResolvedAPIKey = authbase.ResolvedAPIKey
 
 // APIKeyMintOptions is the resource-aware API-key mint request. The key references
 // exactly ONE org ROLE (Role, a role slug that must already exist in the owning

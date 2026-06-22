@@ -1,4 +1,4 @@
-package authhttp
+package verify
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/authbase"
 )
 
 // ServiceJWTPrincipal is the verified machine principal in a service JWT. The
@@ -21,7 +21,7 @@ type ServiceJWTPrincipal struct {
 	Org         string
 	Audiences   []string
 	Permissions []string
-	Resources   []core.APIKeyResource
+	Resources   []authbase.APIKeyResource
 	JTI         string
 	ExpiresAt   time.Time
 }
@@ -40,7 +40,7 @@ func setServiceJWTPrincipal(ctx context.Context, p ServiceJWTPrincipal) context.
 }
 
 // ServiceJWTReplayChecker lets hosts reject already-seen jti values.
-type ServiceJWTReplayChecker func(ctx context.Context, claims core.ServiceJWTClaims) error
+type ServiceJWTReplayChecker func(ctx context.Context, claims authbase.ServiceJWTClaims) error
 
 type serviceJWTVerifyConfig struct {
 	maxLifetime time.Duration
@@ -86,83 +86,83 @@ func RequiredServiceJWT(v *Verifier, opts ...ServiceJWTVerifyOption) func(http.H
 // verifier's registered issuer/JWKS store and returns the requested
 // permissions/resources. AuthKit does not grant those permissions; the host must
 // intersect them with server-side grants for the issuer/subject/resource.
-func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts ...ServiceJWTVerifyOption) (core.ServiceJWTClaims, ServiceJWTPrincipal, error) {
-	cfg := serviceJWTVerifyConfig{maxLifetime: core.DefaultServiceJWTLifetime}
+func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts ...ServiceJWTVerifyOption) (authbase.ServiceJWTClaims, ServiceJWTPrincipal, error) {
+	cfg := serviceJWTVerifyConfig{maxLifetime: authbase.DefaultServiceJWTLifetime}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
 	if cfg.maxLifetime <= 0 {
-		cfg.maxLifetime = core.DefaultServiceJWTLifetime
+		cfg.maxLifetime = authbase.DefaultServiceJWTLifetime
 	}
 
 	mc, err := v.VerifyClaims(tokenStr)
 	if err != nil {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
 	}
 	claims, principal, err := v.serviceJWTClaimsFromMap(mc, cfg.maxLifetime)
 	if err != nil {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
 	}
 	if cfg.replay != nil {
 		if err := cfg.replay(ctx, claims); err != nil {
-			return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+			return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
 		}
 	}
 	return claims, principal, nil
 }
 
-func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Duration) (core.ServiceJWTClaims, ServiceJWTPrincipal, error) {
+func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Duration) (authbase.ServiceJWTClaims, ServiceJWTPrincipal, error) {
 	issuer := strings.TrimSpace(strClaim(mc, "iss"))
 	subject := strings.TrimSpace(strClaim(mc, "sub"))
 	tokenUse := strings.TrimSpace(strClaim(mc, "token_use"))
 	jti := strings.TrimSpace(strClaim(mc, "jti"))
-	if issuer == "" || subject == "" || tokenUse != core.ServiceJWTTokenUse || jti == "" {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, core.ErrInvalidServiceJWT
+	if issuer == "" || subject == "" || tokenUse != authbase.ServiceJWTTokenUse || jti == "" {
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, authbase.ErrInvalidServiceJWT
 	}
 	if strings.TrimSpace(strClaim(mc, "delegated_sub")) != "" {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, core.ErrInvalidServiceJWT
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, authbase.ErrInvalidServiceJWT
 	}
 	iatUnix, ok := toUnix(mc["iat"])
 	if !ok {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_iat")
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_iat")
 	}
 	nbfUnix, ok := toUnix(mc["nbf"])
 	if !ok {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_nbf")
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_nbf")
 	}
 	expUnix, ok := toUnix(mc["exp"])
 	if !ok {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_exp")
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_exp")
 	}
 	iat := time.Unix(iatUnix, 0).UTC()
 	nbf := time.Unix(nbfUnix, 0).UTC()
 	exp := time.Unix(expUnix, 0).UTC()
 	if exp.Sub(iat) > maxLifetime {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("service_jwt_lifetime_exceeded")
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("service_jwt_lifetime_exceeded")
 	}
 	audiences := audSlice(mc["aud"])
 	if len(audiences) == 0 {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_audience")
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_audience")
 	}
 	permissions, err := stringArrayClaim(mc, "permissions")
 	if err != nil {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
 	}
 	if len(permissions) == 0 {
 		permissions = scopeSlice(mc["scope"])
 	}
 	resources, err := serviceJWTResources(mc["resources"])
 	if err != nil {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
 	}
 
 	match := v.matchIssuer(issuer)
 	if match == nil {
-		return core.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("bad_issuer")
+		return authbase.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("bad_issuer")
 	}
-	claims := core.ServiceJWTClaims{
+	claims := authbase.ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
 		IssuedAt: iat, NotBefore: nbf, ExpiresAt: exp, JTI: jti,
 		TokenUse: tokenUse, Permissions: permissions, Resources: resources,
@@ -258,7 +258,7 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 	}
 }
 
-func serviceJWTResources(v any) ([]core.APIKeyResource, error) {
+func serviceJWTResources(v any) ([]authbase.APIKeyResource, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -266,7 +266,7 @@ func serviceJWTResources(v any) ([]core.APIKeyResource, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resources []core.APIKeyResource
+	var resources []authbase.APIKeyResource
 	if err := json.Unmarshal(raw, &resources); err != nil {
 		return nil, err
 	}

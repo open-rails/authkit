@@ -183,3 +183,172 @@ Non-goals: removing the local backend (kept as default for dev/simple prod); cha
 - [ ] Latency/auth-lifecycle hardening: connection reuse, lease renewal, fail-closed on auth loss; document the per-mint round-trip trade-off.
 - [ ] Docs: "Remote signing (Vault Transit)" — security model (key never leaves Vault), config, rotation, degraded mode, perf; cross-link #70.
 - [ ] Tests: sign→verify round-trip against a dev Vault Transit; rotation adds a new JWKS entry; alg/marshaling correctness; Vault-down degraded path.
+
+---
+
+# #101: TOTP (authenticator-app) 2FA method — offline second factor alongside email/SMS
+
+**Completed:** no
+
+Add **TOTP** (RFC 6238 — Google Authenticator / Authy / 1Password / Microsoft Authenticator) as a third 2FA `method`, alongside the existing `email` and `sms` code delivery. Today `profiles.two_factor_settings.method IN ('email','sms')` and every second factor is a server-sent 6-digit code (`Require2FAForLogin` → email/SMS). Both require deliverability and are the weaker factors: SMS is SIM-swap/intercept-prone and costs per send; email 2FA falls to mailbox compromise. TOTP is the industry-standard **offline** second factor — the authenticator app and server independently derive the same `HMAC(secret, time_step)` code, so there's no message to deliver, intercept, or pay for, and it's phishing/SIM-swap resistant relative to SMS. Both peer libraries ship it (authboss `totp2fa`, go-auth TOTP); authkit is the gap. It matters more here because authkit's 2FA is explicitly aimed at **admin accounts** (`COMMENT ON TABLE … 'admin accounts'`), exactly where offline, delivery-independent MFA belongs.
+
+This reuses the existing single-method-per-user model, backup codes (10× 8-char, already hashed + single-use), the `Create/Verify/Clear2FAChallenge` gate, and the generic `POST /2fa/verify` endpoint (`handleUser2FAVerifyPOST` is already method-agnostic — it just calls `Verify2FACode`). A user picks **email OR sms OR totp**; multi-method / TOTP-with-SMS-fallback stays out of scope (separate future expansion).
+
+## What's genuinely different from email/sms (the design work)
+
+1. **No send step.** `Require2FAForLogin` must branch on method: for `totp` it skips code generation, the ephemeral store, and email/SMS delivery entirely. The `/password/login` 2FA branch returns `{requires_2fa:true, user_id, method:"totp", challenge}` with nothing sent — the user reads the code from their app. Verify still goes through the existing challenge-gated `/2fa/verify`.
+
+2. **Two-step prove-possession enrollment** (mirrors today's SMS setup, which already verifies a code before enabling):
+   - `POST /user/2fa/totp/start` (new, auth-required) → server generates a random **160-bit base32** secret, stores it as **pending/unconfirmed** (NOT enabled), returns `{secret, otpauth_uri}`. AuthKit returns the `otpauth://totp/{issuer}:{account}?secret=…&issuer=…&algorithm=SHA1&digits=6&period=30` provisioning URI — **not** a QR image. Host renders the QR (consistent with authkit's "host owns the frontend" stance; same reason we don't render reset/verify pages).
+   - `POST /user/2fa/enable` with `{method:"totp", code:"123456"}` → verify the code against the **pending** secret; on success flip `enabled=true`, persist the secret, and return `backup_codes` (existing `handleUser2FAEnablePOST` response shape, unchanged).
+
+3. **Verify computes instead of compares.** `Verify2FACode` must branch: for `totp`, compute the expected code(s) from the stored secret over the current 30s step **±1 window** (RFC 6238 defaults: SHA1 / 6 digits / 30s) for clock skew, instead of looking up an ephemeral stored hash. `VerifyBackupCode` is unchanged.
+
+4. **Replay protection (new).** A TOTP code is valid for its whole 30s window, so it can be replayed within that window — email/SMS codes don't have this problem (single-use ephemeral hash, deleted on consume). Track the **last consumed time-step per user** and reject reuse: either a `last_totp_step bigint` column or an ephemeral key `2fa:totp:laststep:<user_id>`. Without this, a captured code is replayable for up to ~90s with the ±1 window.
+
+5. **Secret at rest = first persistent 2FA secret.** email/sms 2FA store no long-lived secret; the TOTP shared secret is bearer-equivalent — anyone who reads it can mint codes forever. It must be stored **encrypted**, not plaintext base32. Preferred: a host-provided encryption key (new `core.Config` field, AES-GCM envelope) so a DB read alone doesn't yield live secrets; at minimum, document the trust requirement and gate enrollment on a key being configured. **This is the main new security decision — resolve before merge.**
+
+## Schema & deps
+
+- New migration `migrations/postgres/00N_totp_2fa.up.sql` (do NOT edit `001_auth_schema.up.sql` — migrations are name-tracked in `public.migrations` and never re-applied): add `totp_secret bytea` (the encrypted envelope) nullable, relax the `method` CHECK to `IN ('email','sms','totp')`, optionally add `last_totp_step bigint`. Keep the `phone_required_for_sms` constraint. `method varchar(10)` already fits `'totp'`. Then `make sqlc` to regenerate `internal/db` and update `TwoFactorEnable` / `TwoFactorSettingsByUser`.
+- **Dependency choice:** implement RFC 6238 with the stdlib (`crypto/hmac`, `crypto/sha1`, `encoding/base32`, `encoding/binary`) — HOTP+TOTP is ~40 lines and matches authkit's minimal-dependency posture — OR adopt `github.com/pquerna/otp` (well-tested, also builds provisioning URIs). Recommend stdlib to avoid new dependency surface in an auth library; decide during implementation.
+
+## Integration points (real symbols)
+
+- **core**: `TwoFactorSettings` (add `TOTPSecret`), `Enable2FA` (accept `totp`, persist secret from pending), `Get2FASettings`, `Require2FAForLogin` (branch — no-op delivery for totp), `Verify2FACode` (branch — compute vs. compare); new `StartTOTPEnrollment` / `generateTOTPSecret` / `verifyTOTPCode` + secret encrypt/decrypt helpers.
+- **http**: new `handleUser2FAStartTOTPPOST`; `handleUser2FAEnablePOST` (accept `method:"totp"` + verify code against pending secret, parallel to the existing SMS branch); `twoFactorStatusResponse` / `handleUser2FAStatusGET` (report `"totp"`); `/password/login` 2FA branch (skip send for totp). `handleUser2FAVerifyPOST` needs no change.
+- **routes/buckets**: register `POST /user/2fa/totp/start`; add a `RL2FAStartTOTP` rate-limit bucket (parallel to `RL2FAStartPhone`).
+- **docs**: README 2FA section (method list, totp enroll flow, otpauth URI, secret-at-rest note) and `agents/api-endpoints.md`.
+
+## Non-goals
+
+WebAuthn/passkeys (separate future); QR-image generation (return the otpauth URI); multi-method / per-method fallback; encrypted-secret key management beyond one host-provided key.
+
+**Tasks:**
+- [ ] Decide secret-at-rest model (host-provided AES-GCM key via `core.Config` vs. documented-plaintext) and the RFC 6238 impl choice (stdlib vs `pquerna/otp`)
+- [ ] Migration `00N_totp_2fa.up.sql`: `totp_secret`, `method` CHECK += `'totp'`, optional `last_totp_step`; `make sqlc` + regenerate `internal/db`
+- [ ] core: `generateTOTPSecret` (160-bit base32), `otpauth://` URI builder, `verifyTOTPCode` (±1 window), secret encrypt/decrypt
+- [ ] core: branch `Require2FAForLogin` (no send for totp) and `Verify2FACode` (compute for totp); extend `Enable2FA` to persist the confirmed secret
+- [ ] core: pending-secret storage (ephemeral store, single-use, short TTL) + replay guard (`last_totp_step` / `2fa:totp:laststep:<user>`)
+- [ ] http: `handleUser2FAStartTOTPPOST` (returns `{secret, otpauth_uri}`); enable branch for `method:"totp"`; status reports `"totp"`; login branch skips send
+- [ ] routes + `RL2FAStartTOTP` bucket
+- [ ] Tests: enroll→confirm→login round-trip; wrong/expired code; ±1 window skew; replay rejected within a window; backup-code path still works; secret stored encrypted (not plaintext base32)
+- [ ] Docs: README 2FA + `agents/api-endpoints.md`
+- [ ] `go test ./...`
+
+---
+
+# #102: Broaden audit taxonomy to org/RBAC/admin/credential security events + optional PII redaction
+
+**Completed:** no
+
+AuthKit already has the audit *mechanism* — a pluggable, best-effort `AuthEventLogger` sink (`core/audit.go`) with a ClickHouse implementation (`migrations/clickhouse/001_auth_analytics.up.sql` → `user_auth_session_events`) and a reader (`AuthEventLogReader.ListSessionEvents`, consumed by `http/admin_signins.go`). But the taxonomy is **session-lifecycle only**: `SessionEventType` is exactly `session_created | session_revoked | password_changed | password_recovery | session_failed`, and `AuthSessionEvent` is session-shaped (`user_id`, `session_id`, `method`, `reason`, `ip`, `ua`).
+
+The irony driving this issue: AuthKit *generates* exactly the events a compliance auditor (SOC2 / GDPR / HIPAA) cares about — and that single-tenant auth libraries can't — precisely because of its multi-tenant authority surface, yet **none of them reach the sink**:
+
+- **API keys** — mint, revoke (org-owned machine credentials gaining/losing authority).
+- **Org RBAC** — `DefineRole`, `SetRolePermissions`, role delete, membership add/remove, role (re)assignment.
+- **Org lifecycle** — create, rename, provision (`ProvisionOrg` / `ReconcileOrgManifest`), `EnsureOwnerGrants`.
+- **2FA** — `Enable2FA`, `Disable2FA`, `RegenerateBackupCodes`.
+- **Identity linking** — OAuth/OIDC account link complete, unlink.
+- **Admin actions** — admin set-password, ban/unban, soft-delete, `ImportUser`, `CreateUser`.
+- **Invites** — create, accept, decline, revoke.
+
+"Who granted `merchant:payments:refund` to which role in which org, and when" is the canonical audit question, and today it's unanswerable from the event stream. Turning the existing-but-narrow sink into a full security-event stream leans into where AuthKit is already ahead of authboss/go-auth (which inspired this — go-auth advertises "comprehensive audit logging with PII redaction" but, being single-tenant, has far less worth auditing).
+
+## The core design call: a new `SecurityEvent`, added *additively* — do NOT widen `AuthSessionEvent`
+
+The new events are **actor → target (+ org)** shaped, not session shaped. A role-permission change has an *actor* (who did it — a user, an admin, an API key, a service principal), a *target* (the role/org/user affected), an *org context* (auditors filter by org), an *action*, and a *detail* (permissions added/removed; old/new role). Forcing that into the session-shaped `AuthSessionEvent` (which has `session_id`/`method`/`reason`) is wrong.
+
+So: keep `AuthEventLogger.LogSessionEvent` / `AuthSessionEvent` **unchanged** (existing ClickHouse sinks must not break — this is a hard back-compat constraint), and add a **separate, optional** `SecurityEventLogger.LogSecurityEvent(ctx, SecurityEvent)`. A sink may implement zero, one, or both interfaces. `SecurityEvent` carries: `OccurredAt`, `Issuer`, `OrgID`, `ActorType`+`ActorID`, `Action` (a new `SecurityEventType`), `TargetType`+`TargetID`, `Detail map[string]any` (or structured JSON), `IPAddr`, `UserAgent`, `RequestID`. This whole change is **purely additive**: new interface, new struct, new optional hook, new ClickHouse table — existing callers/sinks/readers are untouched.
+
+## PII redaction hook (the other half of go-auth's pitch)
+
+Add an optional `Redactor` applied in the emit path **before** the event reaches the sink, to BOTH session and security events. Default is **no-op** (zero overhead, matching the existing best-effort/non-blocking contract and go-auth's "no-op by default"). Ship a built-in `DefaultPIIRedactor` keyed by a host secret: HMAC/truncate `ip_addr` (e.g. zero the last octet or HMAC it), drop or hash `user_agent`, hash any email/phone/username that appears in `Detail`, keep the stable pseudonymous `user_id`/`org_id`. Hosts under GDPR/HIPAA can enable it; hosts that want raw forensics leave it off.
+
+## Best-effort vs. assurance (surface, don't over-build)
+
+Existing session audit is fire-and-forget (`_ = s.authlog.LogSessionEvent(...)`) — an audit-sink outage must never fail an auth mutation, and that invariant stays the default. But compliance auditors dislike silently dropped grant events. Decide whether a small set of high-assurance security events (e.g. permission grants, admin set-password) get an opt-in strict/buffered mode (fail-closed or local spool) — or whether that's explicitly out of scope and documented as a known limitation. Default stays best-effort regardless.
+
+## Emission sites
+
+Emit one `SecurityEvent` at each authority-mutation site, ideally through a single internal helper so the actor/org/request-context extraction isn't duplicated. The authoritative list: role define/replace/delete (`DefineRole`, `SetRolePermissions`), membership add/remove/assign, org create/rename/provision, `Enable2FA`/`Disable2FA`/`RegenerateBackupCodes`, API-key mint/revoke, OAuth link/unlink, admin set-password/ban/unban/soft-delete, `ImportUser`, invite create/accept/decline/revoke. Actor identity comes from the request claims (user / admin / API key / service principal); `ProvisionOrg` and `ReconcileOrgManifest` emit with a deploy/bootstrap actor.
+
+## Reader & optional org-scoped audit API
+
+Extend the reader with `ListSecurityEvents(ctx, filter)` (filter by org, actor, action types, time range). Optionally expose an **org-scoped** audit-read endpoint (`GET /orgs/:org/audit` or `/admin/security-events`) gated by a new reserved `org:audit:read` permission — letting an org owner see their own org's audit trail is itself a compliance feature. Scope-flag this: the event stream + redaction is the core deliverable; the read API can be a follow-up if it bloats the change.
+
+## Non-goals
+
+- **No per-access-token mint telemetry** — the ClickHouse comment already draws this line ("no per-access-token mint telemetry"); user-access-token issuance is high-volume hot-path and stays out. Machine-credential *mint* (API key / service principal provisioning) is in because it's low-volume authority granting.
+- Not a SIEM, query UI, or alerting engine — just a structured, pluggable, redactable event stream + reader.
+- No change to the existing `AuthEventLogger`/`AuthSessionEvent`/`user_auth_session_events` contract.
+
+**Tasks:**
+- [ ] Decide event model (recommended: additive `SecurityEvent` + `SecurityEventLogger.LogSecurityEvent`, leave `AuthEventLogger.LogSessionEvent` unchanged)
+- [ ] Define `SecurityEventType` taxonomy (api_key.mint/revoke, role.define/permissions_changed/delete, member.add/remove/role_changed, org.create/rename/provision, twofactor.enable/disable/codes_regenerated, identity.link/unlink, admin.set_password/ban/unban/soft_delete/import_user, invite.create/accept/decline/revoke)
+- [ ] `SecurityEvent` struct (occurred_at, issuer, org_id, actor_{type,id}, action, target_{type,id}, detail, ip, ua, request_id) + central emit helper that pulls actor/org/request-context from claims
+- [ ] Optional `Redactor` hook applied to BOTH session + security events before the sink; default no-op; ship `DefaultPIIRedactor` (HMAC ip/email/phone, drop ua) keyed by a host secret
+- [ ] Wire `WithSecurityLogger` + `WithRedactor` on core + http `Service`; preserve best-effort/non-blocking emit
+- [ ] Add emits at every authority-mutation site listed above (one event each, correct actor/target/org)
+- [ ] ClickHouse migration `002_*.up.sql`: new `auth_security_events` table (do NOT edit `001_*`; name-tracked, never re-applied); `ORDER BY (issuer, org_id, occurred_at, action)`
+- [ ] Decide best-effort vs. opt-in strict/buffered mode for high-assurance events; document the choice
+- [ ] Reader `ListSecurityEvents(ctx, filter)` (+ optional org-scoped `GET /orgs/:org/audit` gated by reserved `org:audit:read` — scope-flag)
+- [ ] Tests: each emit site fires exactly one event with correct actor/target/org; redactor applied; sink outage never fails the mutation; existing `AuthEventLogger` sink + `ListSessionEvents` unaffected (back-compat)
+- [ ] Docs: README "Audit & security events" section + `agents/api-endpoints.md`; state the no-per-token-mint-telemetry non-goal
+
+---
+
+# #103: Emit OIDC `amr`/`acr`/`auth_time` assurance claims — let resource servers gate sensitive ops on fresh + MFA auth ("sudo mode")
+
+**Completed:** no
+
+Pairs with #101 (TOTP) and should land alongside it. Today AuthKit access tokens say *who* the user is (`sub`, `sid`, entitlements) but not *how* or *when* they authenticated. Add the OIDC-standard `amr` (authentication methods, RFC 8176), `acr` (assurance class), and `auth_time` (last authentication unix ts) claims so any resource server holding the token can enforce **step-up / "sudo mode"** — the GitHub pattern: re-prove identity for a sensitive action (delete repo, rotate keys, change billing), then hold elevated privilege for a bounded window. A resource server gates a sensitive endpoint by requiring `amr` contains a strong factor (`otp`) AND `auth_time` is recent. GitHub's window is 2h sliding; the point is it's bounded and the policy lives at the consuming endpoint.
+
+**The window already exists server-side — this projects it into the token.** AuthKit has the sudo-mode machinery internally: `RequireFreshSession(ctx, userID, sessionID, now) (SessionFreshness, error)` returns `ReauthRequiredForSensitiveOps` / `ErrReauthenticationRequired`, and `MarkSessionAuthenticated(...)` is the elevate step (used today by `handleUserPasswordPOST` → password change, and `SetPasswordAfterFreshAuth`). But it's **session-bound and issuer-local**: the freshness lives on the session record and is only legible to the issuing service via a DB lookup. In AuthKit's whole paradigm — bearer tokens verified by *downstream* resource servers (cozy-art → tensorhub, etc.) — those services can't call `RequireFreshSession`; they only hold the JWT. So they currently cannot gate on "was this user MFA-fresh." `amr`/`acr`/`auth_time` is the cross-service projection of the freshness state AuthKit already tracks. (authboss's "half-auth vs full-auth" distinction is the same idea; this is its token-native form.)
+
+Two gaps to close:
+1. **Method is not recorded.** `MarkSessionAuthenticated` flips a freshness timestamp but doesn't capture whether the re-auth was a password or a strong factor (email/SMS 2FA, TOTP #101, passkey). GitHub gates some actions on 2FA specifically; AuthKit can't express "MFA-fresh" vs merely "password-fresh" until the method is stored.
+2. **Nothing reaches the JWT.** `auth_time`/`amr`/`acr` aren't emitted, so no downstream gate is possible.
+
+## Design
+
+**Record method + assurance at (re)authentication time.** Extend the session freshness record to store the methods used and the authentication timestamp (the freshness ts already written by `MarkSessionAuthenticated` IS `auth_time`). Give `MarkSessionAuthenticated` (and the initial login/2FA paths) an `amr []string` so each auth path declares its factor. Map AuthKit methods → RFC 8176 `amr` values:
+- password login → `["pwd"]`
+- email/SMS 2FA → `["pwd","otp","mfa"]` (or `sms`)
+- TOTP (#101) → `["pwd","otp","mfa"]`
+- Solana SIWS → `["swk"]` (software-secured key) — decide exact value
+- OIDC login → pass through the upstream IdP's `amr` when present, else `["pwd"]` — decide
+- passkey (future) → `["swk"|"hwk","mfa"]`
+
+**Emit the claims.** Add `amr`, `acr`, `auth_time` to the `extra map[string]any` already threaded into `IssueAccessToken` by every login path (`password_login_post.go`, `user_2fa_verify_post.go`, `oidc_browser.go`, `oauth2_browser.go`, `service_solana.go`, `service_sessions.go` refresh). `acr` is an optional assurance class string — either NIST-style `aal1`/`aal2` or an app-defined level; decide whether AuthKit sets it or leaves it host-policy.
+
+**Verify side + gating middleware.** Add `AMR []string`, `ACR string`, `AuthTime time.Time` to `http/claims.go` `Claims` and parse them. Add helpers `Claims.HasAMR(m)`, `Claims.AuthenticatedWithin(d)`, and middleware mirroring the existing `RequireEntitlement` family in `http/middleware.go`:
+- `RequireFreshAuth(maxAge)` — `auth_time` within the window (sudo mode for resource servers).
+- `RequireMFA()` / `RequireAMR("otp")` — a strong factor was used.
+- `RequireACR(level)` — minimum assurance class.
+
+These compose: `RequireMFA()` + `RequireFreshAuth(15*time.Minute)` = "MFA used within 15 min." Like `RequireEntitlement`, they **fail closed** and **deny machine credentials** (service JWT / API key / delegated have no interactive `amr`/`auth_time`).
+
+## Subtleties to get right
+
+- **Snapshot semantics (reuse the entitlements mental model).** `amr`/`acr`/`auth_time` are snapshotted into the access token at issuance, exactly like entitlements. A step-up (`MarkSessionAuthenticated`) only becomes visible to resource servers once the client **re-issues the access token** (refresh via `POST /token`). Document this as the token-model analog of GitHub's cookie sudo timer: after re-auth, refresh, then retry the sensitive call. The README already explains snapshot-vs-live for entitlements — point at it.
+- **Single source of truth.** The `auth_time` claim must come from the same session freshness timestamp `MarkSessionAuthenticated` writes — do not invent a parallel clock. `RequireFreshSession` stays the issuer-local gate for AuthKit's own sensitive routes; the claims are its downstream projection. Keep them consistent.
+- **Back-compat.** Purely additive. Tokens minted before this carry no `amr`/`auth_time`; routes that don't require them are unaffected; the new middleware denies tokens lacking the claims (fail-closed by design).
+- **OIDC pass-through** vs. flattening to `["pwd"]` is a real decision — upstream IdPs may assert their own `amr`/`acr` and a federation may want to honor it.
+
+## Non-goals
+
+- Not a full AAL/IAL identity-proofing framework — just the three standard claims + freshness gating.
+- No change to `RequireFreshSession`/`MarkSessionAuthenticated` semantics beyond recording the method (the window logic stays).
+- Per-endpoint sudo policy (which actions need step-up, and the window length) is **host/resource-server policy**, expressed by mounting the middleware — AuthKit ships the primitive, not the catalog of sensitive actions.
+
+**Tasks:**
+- [ ] Store auth method(s) + timestamp on the session freshness record; extend `MarkSessionAuthenticated` (and initial login/2FA) to accept `amr []string`
+- [ ] Decide the AuthKit-method → RFC 8176 `amr` mapping (pwd/otp/mfa/sms/swk; OIDC pass-through y/n) and whether AuthKit sets `acr`
+- [ ] Emit `amr`/`acr`/`auth_time` via the `extra` map in every `IssueAccessToken` call site (password, 2FA, oidc, oauth2, solana, refresh)
+- [ ] `Claims` gains `AMR`/`ACR`/`AuthTime` + parsing (`http/claims.go`); helpers `HasAMR`, `AuthenticatedWithin`
+- [ ] Middleware `RequireFreshAuth(maxAge)`, `RequireMFA()`/`RequireAMR(...)`, `RequireACR(level)` in `http/middleware.go`; fail-closed; deny machine credentials
+- [ ] Ensure `auth_time` is sourced from the same freshness ts as `RequireFreshSession` (one clock)
+- [ ] Tests: each login path emits the right `amr`; step-up updates `auth_time` only after refresh; `RequireFreshAuth`/`RequireMFA` allow/deny correctly incl. machine creds; back-compat for claimless tokens
+- [ ] Docs: README token-claims + a "Step-up / sudo mode" section (snapshot semantics, refresh-after-reauth, compose with #101); `agents/api-endpoints.md`

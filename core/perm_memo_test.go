@@ -36,7 +36,7 @@ func (c *countingDBTX) QueryRow(ctx context.Context, sql string, args ...interfa
 }
 
 func (c *countingDBTX) count() int64 { return atomic.LoadInt64(&c.n) }
-func (c *countingDBTX) reset()        { atomic.StoreInt64(&c.n, 0) }
+func (c *countingDBTX) reset()       { atomic.StoreInt64(&c.n, 0) }
 
 // TestPermissionMemoizationSingleResolution proves the #95 memoization clause:
 // within ONE request context, a handler that checks N permissions issues exactly

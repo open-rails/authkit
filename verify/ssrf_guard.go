@@ -1,4 +1,4 @@
-package authhttp
+package verify
 
 import (
 	"context"

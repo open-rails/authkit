@@ -1,4 +1,4 @@
-package authhttp
+package verify
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/authbase"
 )
 
 // Claims is a typed view of authenticated user information attached by middleware.
@@ -90,7 +90,7 @@ type Claims struct {
 	// Resources are opaque host-defined resource scopes carried by an
 	// API key. Empty means the service principal has no AuthKit-stored
 	// resource constraints; resource-aware hosts decide whether to require them.
-	Resources []core.APIKeyResource
+	Resources []authbase.APIKeyResource
 
 	// RemoteApplicationID / RemoteApplicationSlug identify the remote_application
 	// authenticated by a remote application access token. Populated ONLY for
@@ -233,7 +233,7 @@ func (c Claims) AttributeIsReference(key string) bool {
 // the requested concrete permission.
 func (c Claims) HasPermission(perm string) bool {
 	for _, p := range c.Permissions {
-		if core.PermissionTokenCovers(p, perm) {
+		if authbase.PermissionTokenCovers(p, perm) {
 			return true
 		}
 	}
@@ -260,7 +260,7 @@ func (c Claims) HasEntitlement(ent string) bool {
 
 type claimsCtxKey struct{}
 
-func setClaims(ctx context.Context, cl Claims) context.Context {
+func SetClaims(ctx context.Context, cl Claims) context.Context {
 	return context.WithValue(ctx, claimsCtxKey{}, cl)
 }
 
@@ -273,7 +273,7 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 	return cl, ok
 }
 
-func getClaims(ctx context.Context) (Claims, error) {
+func GetClaims(ctx context.Context) (Claims, error) {
 	if cl, ok := ClaimsFromContext(ctx); ok {
 		return cl, nil
 	}

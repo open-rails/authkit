@@ -7,7 +7,7 @@
 > replacement — never rewrite the whole file.
 
 
-next_id: 101
+next_id: 110
 
 ---
 
@@ -108,3 +108,223 @@ NON-GOALS: enterprise/attestation-conveyance policy (accept 'none'); MDS metadat
 - [ ] Tests: full register + login ceremonies via a software-authenticator fixture; sign-count regression rejection; usernameless login; list/delete; anti-enumeration; rate limits.
 - [ ] Docs: api-endpoints.md + README passkey section (RP config, ceremony flow, frontend navigator.credentials notes, security model, recovery out-of-scope).
 - [ ] Version bump + publish; consumer notes (host mounts RoutePasskeys + sets RP config; frontend integrates the WebAuthn JS ceremonies).
+
+---
+
+# #104: Export the HTTP error-code catalog — typed constants for the 200 stringly-typed wire codes
+
+**Completed:** no
+
+AuthKit's HTTP handlers emit ~**200 distinct string-literal error codes** (`badRequest(w, "invalid_request")`, `unauthorized(w, "password_reset_required")`, `"rate_limited"`, `"org_management_disabled"`, …) and there are **zero exported constants** for them. These strings ARE part of AuthKit's public API: every embedding frontend and service matches on them to drive UX (route to reset flow, show cooldown timer, etc.). Today they're scattered literals — no compile-time safety, no godoc, no discoverability, and a one-character typo silently changes the contract with no test or type catching it.
+
+Make the wire contract explicit. This is **non-breaking** (the emitted strings don't change — only their source representation) and high value-per-effort, so it can land before the larger API-hardening pass.
+
+Approach:
+- Introduce an exported catalog — a dedicated package (e.g. `github.com/open-rails/authkit/http/authcode`) or exported consts in `authhttp` (`authcode.PasswordResetRequired = "password_reset_required"`). A package keeps the 200-name surface out of the main `authhttp` namespace; decide which.
+- Replace the bare literals in `http/*.go` with the constants; godoc each (when emitted, what it means, the HTTP status it ships with).
+- **Single source of truth with core validation codes.** Some codes originate in `core` via `ValidationErrorCode` (`password_too_short`, `invalid_email`, …); ensure the HTTP catalog and core's validation codes don't diverge — reference one set, don't fork it.
+- Keep the shared action-availability shapes (`rate_limited`, `registration_disabled`, `org_management_disabled`, the 429 envelope) centralized so their code + payload shape stay in lockstep.
+- Optional: a `code → {httpStatus, description}` registry to auto-generate the `agents/api-endpoints.md` error table, and a CI grep/lint that fails on a new bare string literal in the error helpers (prevents regression).
+
+Non-goals: changing any wire string; reducing the number of codes (200 reflects real endpoint/failure richness — the fix is to type them, not prune them).
+
+**Tasks:**
+- [ ] Inventory the ~200 distinct codes across `http/*.go` (and the core `ValidationErrorCode` set)
+- [ ] Define the exported catalog (decide package `authcode` vs `authhttp` consts); one source of truth shared with core validation codes
+- [ ] Replace bare literals in `badRequest`/`unauthorized`/`serverErr`/`forbidden`/`conflict` call sites with constants; godoc each (meaning + HTTP status)
+- [ ] Optional `code→{status,description}` registry; generate the api-endpoints.md error table from it
+- [ ] CI guard (grep/lint) rejecting new bare-string error codes in the helpers
+- [ ] Docs: README "Error contract" section + cross-link from `agents/api-endpoints.md`
+
+---
+
+# #105: Facet the 400-method `core.Service` god-object into domain sub-services
+
+**Completed:** no
+
+`core.Service` carries **~400 methods** and `core/service.go` is **4095 lines** — the single biggest library-ergonomics problem. For someone embedding AuthKit this is undiscoverable: godoc is an unnavigable wall, the type couples every domain together, and `service.go` is a catch-all that keeps growing. The domain seams already exist as files (`service_orgs.go`, `api_keys.go`, `service_sessions.go`, `org_role_permissions.go`, `service_remote_applications.go`, …), so this is mostly **receiver-regrouping, not a rewrite**.
+
+Introduce thin domain facets reachable from `Service`, each a focused handle over the same shared state (pg/redis/keys/config):
+- `svc.Users()` — create/import/get/ban/soft-delete/rename/password
+- `svc.Orgs()` — create/rename/provision/membership/invites
+- `svc.Roles()` — define/set-permissions/effective-permissions
+- `svc.APIKeys()` — mint/list/revoke/resolve
+- `svc.Tokens()` — the four mint entry points (`MintServiceJWT`, `MintDelegatedAccessToken`, `MintRemoteApplicationAccessToken`, `MintCustomJWT`) + access/refresh issuance
+- `svc.TwoFactor()` — enable/disable/verify/backup-codes (and TOTP from #101)
+- `svc.Sessions()` — refresh sessions, freshness/step-up (`RequireFreshSession`, `MarkSessionAuthenticated`), revocation
+- `svc.Identity()` — OIDC/OAuth/Solana linking
+- `svc.Bootstrap()` — manifest reconcile / `ProvisionOrg`
+
+Sequencing so it can start **non-breaking**: (1) add the facet accessors as additive APIs delegating to the existing flat methods; (2) move method bodies onto the facet receivers and split `service.go` by domain so no file is a dumping ground; (3) deprecate the flat `Service` methods; (4) remove them at the v-next major bump. Steps 1–2 are safe today; step 4 is the breaking part — **batch it with #107/#108/#109** in one deliberate API-stability release rather than dribbling breaking changes.
+
+Non-goals: no behavior/semantic changes (pure surface re-org); facets are not independent objects with separate lifecycles — they share one `Service`'s deps; not touching `internal/db`.
+
+**Tasks:**
+- [ ] Agree the facet taxonomy + accessor names (Users/Orgs/Roles/APIKeys/Tokens/TwoFactor/Sessions/Identity/Bootstrap)
+- [ ] Phase 1: add facet accessors delegating to existing methods (additive, non-breaking)
+- [ ] Phase 2: move method receivers onto facets; split `service.go` (4095 lines) by domain; eliminate the catch-all
+- [ ] Phase 3: deprecate flat `Service` methods (doc comments + `//Deprecated:`)
+- [ ] Phase 4 (major bump, with #107/#108/#109): remove deprecated flat methods
+- [ ] Keep `go test ./...` green at each phase; godoc reads as a navigable per-domain surface
+- [ ] Docs: README "Concepts" + a per-facet quick reference
+
+---
+
+# #106: Make Postgres a required constructor arg; validate only the *conditional* deps at construction
+
+**Completed:** no
+
+AuthKit has **two tiers**, and the constructor design should reflect it:
+- **Issuing `Service`** (`NewService`) needs Postgres for *everything*. There is **no in-memory user/org/role store** — `storage/memory/` is ephemeral-only (kv / siws / state caches); even a plain password login reads the user row from pg. So pg is **mandatory, with no fallback**.
+- **Verify-only `Verifier`** (`NewVerifier` + `AddIssuer` + `Required`) needs **no pg at all**; `Verifier.WithService` is optional, only for DB-backed admin checks. (Decoupling its deps is #107.)
+
+Today the mutating builder (`NewService(cfg).WithPostgres(pg)…`) lets a **pg-less `Service` exist and be called**, which is the root cause of the **44 `"... not configured"` runtime guards** in `core` that fail mid-request instead of at startup.
+
+Fix it structurally, **co-designed with #108's constructor change**:
+- **Make pg a required positional argument** — `NewService(cfg core.Config, pg *pgxpool.Pool, opts ...Option)`. The type system then makes a pg-less issuing Service *unconstructable*, so the entire `"postgres not configured"` guard class becomes **dead code to delete** — the compiler enforces it. Strictly better than runtime-validating pg presence.
+- **Construction-time validation then covers only the genuinely *conditional* deps** (the ones with a fallback or that are feature-gated): an ephemeral store required in production (memory fallback in dev) and for SIWS/verification/2FA challenge flows; an email/SMS sender required when `RegistrationVerificationRequired` or email/SMS 2FA is enabled. `NewService` already returns `(svc, error)` — fail once at boot, naming exactly what's missing for the configured feature set.
+- Replace the remaining ad-hoc `fmt.Errorf("ephemeral store not configured")` strings with **shared sentinels** (`ErrEphemeralStoreRequired`, `ErrEmailSenderRequired`, …) — defense-in-depth but matchable.
+
+Mild behavior change (lenient construction now errors at boot when misconfigured) — caught at startup, never in prod traffic. Note in changelog.
+
+Non-goals: not adding an in-memory user store (pg stays mandatory by design); the `With*`→options conversion itself is #108 (this issue assumes that signature).
+
+**Tasks:**
+- [ ] Change `NewService` to `(cfg core.Config, pg *pgxpool.Pool, opts ...Option)` (with #108); pg mandatory
+- [ ] Delete the pg-presence guard class now made unreachable by the type system
+- [ ] Define the *conditional*-dep matrix (ephemeral store in prod / for challenge flows; sender for verification + email/SMS 2FA)
+- [ ] Validate conditional deps in `NewService`; emit one startup error naming everything missing for the chosen mode
+- [ ] Replace remaining "not configured" strings with shared sentinels (`ErrEphemeralStoreRequired`, `ErrEmailSenderRequired`, …)
+- [ ] Tests: pg omitted → won't compile (doc example); prod without Redis / 2FA without sender → clear startup error; valid config passes
+- [ ] Docs: README "Integration requirements" — pg-required constructor + conditional-dep validation contract
+
+---
+
+# #107: Split into a multi-module repo so the core module graph stays lean
+
+**Completed:** no
+
+Everything ships in **one `go.mod`**, so `gin`, `chi`, `riverqueue/river`, `robfig/cron`, and the Twilio/ClickHouse integrations are all **direct requires** of the module. AuthKit's *internal* decoupling is already good — `core` and `http` import none of those heavy deps (verified) — but the module still *advertises* them, so a consumer who wants only "JWT + Postgres" inherits gin/chi/river in their module graph: more version-conflict surface, noisier `go mod why`, larger supply-chain footprint. Mature Go libraries (aws-sdk-go-v2, etc.) split optional integrations into their own modules.
+
+Approach — convert to a multi-module repo:
+- Keep the root module `github.com/open-rails/authkit` lean: `core`, `http`, `jwt`, `storage`, `oidc`, `siws`, `migrations` — deps roughly pgx, golang-jwt, google/uuid, redis, zitadel/oidc, x/crypto, x/oauth2, yaml, migratekit. (redis + zitadel/oidc are arguably core — ephemeral store default + OIDC RP — so they stay; decide.)
+- Give each optional integration its own `go.mod`, each `require`-ing the root: `adapters/gin` (gin), `adapters/chi` (chi), `providers/email/twilio`, `providers/sms/twilio`, `riverjobs` (river + cron), and the ClickHouse analytics package.
+- Import paths for consumers **don't change** (same paths, now separate modules) — but each submodule is `go get`/tagged independently.
+
+**First-class deliverable — a pg-free verify path.** The leanest consumer is the worst-served today: an app that only wants to *verify* tokens (`authhttp.NewVerifier` + `AddIssuer` + `Required`) still transitively pulls **pgx + redis + the whole storage layer**, because the verifier lives in package `authhttp`, which imports `core`, which imports pgx. Yet verification needs none of it — `Verifier.WithService` is optional (DB-backed admin checks only), and the low-level `jwt/` package is **already pgx-clean**, proving the decoupling is achievable. Carve the verify surface (`Verifier`, `Required`/`Optional`, claims extraction, the issuer/JWKS registry) into its own package/module that imports **nothing** from `core`: define the optional `WithService`/`RequireAdmin(pg)` hooks against a **small local interface** so the dependency points inward to an interface, not outward to pgx. A verify-only consumer then depends on just JWT + JWKS fetching. This is the single clearest beneficiary of the split.
+
+Honest costs to plan for: multi-module repos need **per-module version tags** (`adapters/gin/v1.2.0`), a `go.work` for local dev, and a CI matrix that builds/tests each module. Document the release process; this is the main downside.
+
+Non-goals: not making `core` storage-agnostic (that would gut the batteries-included value — explicitly out); not moving genuinely-core deps (pgx, golang-jwt, redis, zitadel/oidc) out.
+
+**Tasks:**
+- [ ] Decide module boundaries (confirm gin/chi/river/cron/twilio/clickhouse out; redis/zitadel stay) + a pg-free verify package
+- [ ] Carve the verify path (`Verifier`/`Required`/`Optional`/claims/issuer+JWKS registry) into a `core`-free package/module; redefine `WithService`/`RequireAdmin(pg)` hooks against a local interface so it imports no pgx
+- [ ] Add nested `go.mod` per extracted module; root `go.work` for local dev
+- [ ] Per-module tagging scheme + release/runbook docs
+- [ ] CI: build + test matrix across all modules; `go mod tidy` enforced per module
+- [ ] Verify a verify-only consumer pulls neither pgx nor redis (`go mod why` clean), and a minimal `core`+`http`+`adapters/gin` consumer no longer pulls river/clickhouse
+- [ ] Docs: README "Modules & dependencies" map; migration note (consumers may need an extra `go get` for adapters)
+
+---
+
+# #108: Replace the mutating `With*` builder with constructor-time functional options; group the 30 `Config` fields
+
+**Completed:** no
+
+Configuration is split across **two parallel systems**: `core.Config` has **~30 top-level fields** and there are **~20 mutating `With*` builder methods** (`svc = svc.WithPostgres(pg).WithRedis(r)…`), and the boundary is arbitrary enough that the README needs an **ownership table** to explain it.
+
+Two problems, one fix:
+1. The **mutating** builder is the weakest constructor idiom — it permits a half-built, observable `Service` (the root cause of #106's guards) and it mutates-and-returns-self (aliasing footgun: `a := NewService(); b := a.WithX()` share one pointer, and `a` is mutated too).
+2. Two systems a consumer must learn (struct fields vs `.With*()`).
+
+Decision (settled with the maintainer): adopt **constructor-time functional options** with a clear split by *kind* of input. Note `NewVerifier` **already uses functional options** (`NewVerifier(opts ...VerifierOption)`), so this makes both entry points consistent.
+
+```go
+func NewService(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Service, error)
+```
+
+- **Data / policy → `cfg` (grouped sub-structs).** Host-owned config the app loads from its own YAML/env and inspects — stays *data*, not code. Group the 30 flat fields: `Config.Token` (Issuer, IssuedAudiences, ExpectedAudiences, durations), `Config.Registration` (modes, RegistrationVerification, AutoCreatePersonalOrgs), `Config.Keys` (Keys, KeysPath), `Config.RateLimit`, `Config.Schema`, `Config.Solana`, `Config.Frontend` (BaseURL, FrontendCallbackPath).
+- **Mandatory dependency → positional arg.** Postgres (#106) — required, no fallback — so positional, not an option.
+- **Optional deps / behavior → functional options** applied *inside* the constructor before the Service is observable (this is what gives #106 its single validation point): `WithRedis`, `WithEmailSender`, `WithSMSSender`, `WithRateLimiter`, `WithClientIPFunc`, `WithAuthLogger`, `WithSecurityLogger`/`WithRedactor` (#102), `WithEntitlements`. Each `WithX` returns an `Option` closure; the mutating chain is gone.
+
+One rule a consumer can hold in their head: **data → `cfg`; the one required dep → positional; everything optional → options.** Kills the ownership-table ambiguity *and* the mutating-builder footgun.
+
+**Breaking** (signature + field regrouping) → batch with the v-next major bump alongside #105/#107/#109. Ease migration: keep flat `Config` fields as `//Deprecated:` aliases for one minor version; optionally keep thin deprecated `With*` shims that forward to options.
+
+Non-goals: not pushing *policy* into options (sub-structs keep `Config` inspectable/loadable — suits the host-owned-config story); not changing defaults or behavior.
+
+**Tasks:**
+- [ ] Define `type Option func(*Service)` (or `func(*options)` for tighter encapsulation) + a `WithX` constructor per optional dep
+- [ ] Change `NewService` to `(cfg, pg, opts ...Option)` (with #106); apply options inside the constructor, then validate
+- [ ] Group the 30 `Config` fields into sub-structs (Token/Registration/Keys/RateLimit/Schema/Solana/Frontend); flat fields become deprecated aliases for one release
+- [ ] Convert the ~20 mutating `With*` methods to option constructors; optional deprecated forwarding shims
+- [ ] Update README — replace the ownership table with the one structural rule; show `NewService(cfg, pg, WithRedis(...), …)`
+- [ ] Tests: option application + last-wins ordering; alias→sub-struct mapping; zero-value defaults unchanged
+- [ ] Schedule removal of deprecated aliases/shims for the major bump (with #105/#107/#109)
+
+---
+
+# #109: Disambiguate the two `Service` types (`core.Service` vs `http.Service`)
+
+**Completed:** no
+
+Both `core.Service` (the ~400-method engine, #105) and `http.Service` (the transport wrapper holding `svc *core.Service`) are named **`Service`**, and both expose overlapping `With*` methods (e.g. both have `WithAuthLogger`). In consumer code and godoc, "I'm holding a `Service`" is ambiguous, and the wrapper's internal `s.svc` reinforces the confusion.
+
+Rename the HTTP type to a role-specific name. `core.Service` is the canonical engine and keeps its name; the HTTP type is what you *mount*, so `authhttp.Server` (or `authhttp.Handler`) reads correctly: `svc, _ := authhttp.NewService(cfg)` → `srv, _ := authhttp.NewServer(cfg)`. This removes the name collision and the overlapping-`With*` confusion at a glance.
+
+**Breaking rename** → batch with the v-next major bump (#105/#107/#108). Ease migration with a deprecated type alias `// Deprecated: use Server` `type Service = Server` and `var NewService = NewServer` for one release.
+
+Non-goals: not changing the wrapper's responsibilities or the `core.Service` name; purely a rename + alias.
+
+**Tasks:**
+- [ ] Pick the name (`authhttp.Server` recommended; `Handler` alt) and rename the type + constructor
+- [ ] Add deprecated `type Service = Server` / `NewService` aliases for one release
+- [ ] Update internal references, README, and `agents/api-endpoints.md` examples
+- [ ] Schedule alias removal for the major bump (with #105/#107/#108)
+
+---
+
+# #110: Decouple the verifier from `core` — a pgx-free verify package for verify-only consumers
+
+**Completed:** yes
+**DONE 2026-06-21 (Claude): the verification layer now lives in the core-free `github.com/open-rails/authkit/verify` package — validated `go list -deps ./verify` contains NO core, NO pgx, NO redis (only `authbase` + `jwt`).** Phase 0 extracted every shared primitive to `authbase`; phase 1 inverted the `*core.Service` enrich hook to a 9-method `Enricher` interface and physically moved the verifier subsystem (`verifier.go`, `claims.go`, `middleware.go`, `service_jwt.go`, `remote_application_origins.go`, `ssrf_guard.go` + helpers) into `verify`, re-exporting the full public surface from `authhttp` as aliases (zero embedder churn). `core.WithPermissionMemo` is wired via `verify.SetRequestContextHook` (authhttp's init) so middleware needn't import core. New `verify/verifyonly_integration_test.go` (external `verify_test` pkg, imports only verify+jwtkit) proves mint→verify→middleware-gate works with no storage stack; its test binary also pulls no core/pgx. Validation: `go build ./...` + `go vet ./...` clean (also fixed the pre-existing `mintAccessJWT` test so the whole tree vets for the first time); full suites green — `verify` (incl. integration), `http` (64s), `core` (15s) against PG. Docs: README "Verify-only" updated. Two small public seams added for relocated tests/handlers: `verify.RemoteAppOptions`, `verify.MaxDelegatedRoles`, `(*Verifier).HTTPClient()`, `(*Verifier).SetRemoteApplicationSource(...)`. (Module split — separate go.mod for `verify` — remains #107; this issue only severs the import edge.)
+
+**FINDING 2026-06-21 (Claude) — the "shallow coupling" premise below was WRONG; phase 0 was the necessary groundwork.** Measured the real `core` edges in the verify surface: `http/verifier.go` references `core.Service` (×10) but ALSO `core.ParseAPIKey`/`core.HasAPIKeyPrefix` (the verifier resolves opaque API keys *before* JWT — it is not JWT-only), `core.RemoteApplication`/`core.RemoteAppModeStatic`, `core.OrgMembership`, `core.PermissionTokenCovers`, `core.IssuerAccept`, `core.ErrInvalidAccessToken`/`ErrAccessTokenRevoked`/`ErrAccessTokenExpired`/`ErrAttributeDefNotFound`, `core.Config`. `claims.go` uses `core.PermissionTokenCovers`/`core.APIKeyResource`; `middleware.go` uses `core.WithPermissionMemo`. So the coupling is NOT "two optional admin hooks" — the verifier depends on core's API-key parsing, remote-app types, permission-coverage logic, and access-token sentinels. A genuinely `core`-free `verify` package therefore needs a **phase 0** first: extract those shared primitives (`ParseAPIKey`/`HasAPIKeyPrefix`, `PermissionTokenCovers`, the `RemoteApplication`/`OrgMembership`/`APIKeyResource` types, `IssuerAccept`, the access-token sentinel errors) into a lower core-free base package that BOTH `core` and `verify` import; **phase 1** then moves the verifier onto it. This is a staged, security-critical refactor, not a single non-breaking PR. NOT started — the approach section below is superseded by this finding.
+
+Split out from #107 (it's the prerequisite, and it can land independently). A pure-verification consumer — verify a JWT against JWKS, no issuing, no DB — should compile **only JWT + JWKS fetching**. Today it can't: `authhttp.NewVerifier` + `Required`/`Optional` live in package `authhttp`, which imports `core`, which imports `pgx` — so importing authkit to verify tokens transitively drags in **pgx, redis, and the whole storage layer** even though no connection is ever opened. The low-level `jwt/` package is **already pgx-clean**, proving the decoupling is achievable; the gap is only the middleware-level verifier.
+
+The coupling is shallow and accidental: the verify path is welded to `core` **only** because two *optional* hooks reference it — `Verifier.WithService(*core.Service)` and `RequireAdmin(pg)` (DB-backed admin checks). Pure verification uses neither.
+
+**Landable NOW, independently, and non-breaking via re-exports — do not wait for #107's multi-module conversion.** Even within the current single module this is a real win: Go compiles per-package, so once the verify package no longer imports `core`, a consumer importing only it won't compile pgx into their binary. #107 then just *moves* the already-`core`-free package into its own module (the breaking-the-import-edge work is done here).
+
+Approach:
+- Extract the verify surface — `Verifier`, `Required`/`Optional`, claims extraction (`Claims`, `ClaimsFromContext`), the issuer/JWKS registry, `IssuerOptions`/`VerifierOption` — into a new `core`-free package (e.g. `github.com/open-rails/authkit/verify`). It may import `jwt/` (clean) but **nothing** from `core`.
+- Invert the optional hooks to a **small local interface** so the dependency points inward: e.g. `type AdminChecker interface { IsAdmin(ctx context.Context, userID string) (bool, error) }` (plus whatever `WithService` genuinely needs). `core.Service` satisfies it; the verify package never imports `core`. `RequireAdmin` takes the interface, not `pg`.
+- **Back-compat via re-export:** keep `authhttp.NewVerifier`/`Required`/`Claims`/… as aliases (`type Verifier = verify.Verifier`, `var NewVerifier = verify.NewVerifier`) so existing embedders (doujins/openrails/tensorhub) don't change a line. Full-service consumers keep importing `authhttp` (still pulls `core`, as expected); verify-only consumers import the lean `verify` package.
+
+Non-goals: not changing verification behavior or claim semantics; not moving `jwt/` (already clean); the module packaging itself is #107.
+
+**STATUS 2026-06-21 (Claude): phase 0 COMPLETE — all shared primitives extracted to new `authbase` package; full PG core suite green.** Created `github.com/open-rails/authkit/authbase` (stdlib-only, imports nothing from core) and moved every shared primitive there, re-exporting each from `core` as an alias so all `core.X` callers + tests are untouched: token sentinels (`ErrInvalidAccessToken`/`ErrAccessTokenRevoked`/`ErrAccessTokenExpired`), `ErrAttributeDefNotFound`, API-key marker/parse/format (`APIKeyMarker`/`HasAPIKeyPrefix`/`FormatAPIKey`/`ParseAPIKey` + the private `st_` type segment), `APIKeyResource`, `OrgMembership`, `RemoteApplication`+`RemoteAppKey`+`RemoteAppModeJWKS`/`RemoteAppModeStatic`, AND the authz-matching cluster `PermWildcard`/`PermMatches`(exported)/`PermissionTokenCovers` (core's private `permMatches` is now `var permMatches = authbase.PermMatches`). Files: `authbase/{apikey,remoteapp,org,permission}.go` (new); `core/{api_keys,remote_application_attribute_defs,service_remote_applications,service_orgs,org_role_permissions}.go` (definitions → aliases). `go build ./...` green; `core`+`authbase` vet-clean; **full core PG suite green twice** (`ok ~8–11s`, incl. no-escalation/cover-token/wildcard RBAC tests); jwt/siws/ratelimit green. The verify surface's ONLY remaining core edges are now genuine phase-1 work, not shared primitives: `core.Service` (enrich hook → interface), `core.Config` (→ verify's own config), `core.WithPermissionMemo` (request-scoped memo container). (`core.IssuerAccept` in verifier.go is a comment, not a dep.) NOTE (unrelated pre-existing): `http/local_issuer_overwrite_test.go` references an undefined `mintAccessJWT` — `go test ./http/...` was already red before this work (invisible to `go build`, which skips test files); flag for a separate fix.
+
+**Tasks (staged):**
+
+Phase 0 — core-free `authbase` base package (extract shared primitives; re-export from core) — ✅ COMPLETE:
+- [x] Inventory the verify→core edges — NOT just `WithService`/`RequireAdmin`: also `ParseAPIKey`/`HasAPIKeyPrefix`, `RemoteApplication`/`RemoteAppKey`/modes, `OrgMembership`, `APIKeyResource`, `PermissionTokenCovers`, the token sentinels, `ErrAttributeDefNotFound`, `core.Config` (`core.IssuerAccept` was a false alarm — comment only)
+- [x] Create `authbase` (stdlib-only) and move the CLEAN leaves (sentinels, API-key marker/parse/format, `APIKeyResource`, `OrgMembership`, `RemoteApplication`+`RemoteAppKey`+modes); re-export all from `core` as aliases (zero churn); build green + core API-key tests pass
+- [x] Move the authz-matching cluster: `PermissionTokenCovers` + `permMatches`(→ exported `authbase.PermMatches`) + `PermWildcard` → `authbase`; re-exported from core; full core PG suite + RBAC no-escalation/cover-token/wildcard tests green
+- [x] Phase-0 gate: `go build ./...` green; `core`+`authbase` vet-clean; full core PG suite green (`ok ~8–11s`, twice)
+
+**STATUS 2026-06-21 (Claude): phase 1 interface-inversion DONE; physical move REMAINS.** Moved the last two primitives `ResolvedAPIKey` + `RemoteAppAttributeDef` → `authbase` (aliased in core). Defined the `Enricher` interface in `http/verifier.go` (9 methods: `ResolveAPIKeyWithResources`, `GetRemoteApplication`, `ListRemoteApplications`, `ResolveRemoteApplicationAuthority`, `ResolveRemoteAppAttributeDef`, `GetProviderUsername`, `ListRoleSlugsByUser`, `GetEmailByUserID`, `IsUserAllowed`) and replaced `enrich *core.Service` → `enrich Enricher`; `WithService(Enricher)`. `*core.Service` satisfies it (compiler-verified); all 12 `WithService` callers pass a real `coreSvc` (no interface typed-nil risk). `go build ./...` green; full core PG suite green (`ok ~30s`). KEY finding: `core.Config` in verifier.go is comment-only — none of verifier/claims/middleware actually use `core.Config` in code, so the "verify needs its own config" item is dropped. After inversion, the verify surface's ONLY genuine remaining core dependency is `core.WithPermissionMemo` (middleware) + intra-package helpers `unauthorized`/`forbidden`/`bearerToken` (entangled with `http/errors.go`); everything else is authbase-backed aliases written as `core.X` that a blanket `core.→authbase.` swap converts during the move. Entanglement scan: `verifier.go`+`claims.go` are CLEAN (only intra-package `getClaims`/`setClaims`); only `middleware.go` touches external helpers.
+
+Phase 1 — extract the verifier into a core-free `verify` package:
+- [x] Define the `Enricher` interface (9 methods) and replace `enrich *core.Service` → `enrich Enricher`; `WithService(Enricher)` — *core.Service satisfies it; build + full core PG suite green
+- [x] Move the last interface-surface primitives `ResolvedAPIKey` + `RemoteAppAttributeDef` → `authbase` (aliased in core)
+- [x] Relocate the entangled helpers `unauthorized`/`forbidden`/`bearerToken` (replicated core-free in `verify/helpers.go`, byte-identical `{"error":code}`) so `middleware.go` can leave `authhttp`
+- [x] Handle `core.WithPermissionMemo` — installed via `verify.SetRequestContextHook` (authhttp init wires it to `core.WithPermissionMemo`); middleware imports no core
+- [x] Move `Verifier`/`Required`/`Optional`/`Claims`/`ClaimsFromContext`/issuer+JWKS registry (+ `service_jwt.go`, `remote_application_origins.go`, `ssrf_guard.go`) into the `core`-free `verify` package; blanket-swapped `core.X` → `authbase.X`
+- [x] Re-export the full public surface from `authhttp` as aliases (`http/verify_aliases.go`) — zero consumer churn; existing embedders untouched
+- [x] CI assertion: `verify`'s import graph contains no `core`/pgx/redis (`go list -deps ./verify` → only `authbase`+`jwt`) ✅
+- [x] Confirm a verify-only consumer compiles without pgx: external `verify_test` integration test + `go list -deps -test ./verify` both pgx-free ✅
+- [x] Fixed the pre-existing `mintAccessJWT` undefined in `http/local_issuer_overwrite_test.go` (restored from `signToken`) — `go test/vet ./http/...` now run; whole tree vets clean
+- [x] Docs: README "Verify-only" now points pure-verification consumers at the lean `verify` package

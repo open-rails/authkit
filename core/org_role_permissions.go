@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/open-rails/authkit/authbase"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -23,9 +24,8 @@ import (
 
 const (
 	// PermWildcard is the wildcard CHARACTER used inside namespace-anchored
-	// globs (`org:*`, `org:members:*`, `org:*:read`, `platform:*`). A bare
-	// standalone `*` is NOT a valid grant — it is rejected everywhere.
-	PermWildcard = "*"
+	// globs. Defined in authbase (core-free) and re-exported here.
+	PermWildcard = authbase.PermWildcard
 
 	// reservedPermissionPrefix is the namespace authkit owns for its base
 	// org-management permissions; app catalogs must not declare under it, and
@@ -119,41 +119,9 @@ func IsAPIKeyGrantableReservedPermission(name string) bool {
 }
 
 // permMatches reports whether a GRANT token authorizes a CONCRETE permission.
-// The grant may be a literal (`org:members:read`) or a namespace-anchored glob
-// where `*` wildcards a whole segment (`org:members:*`, `org:*:read`, `org:*`).
-// The namespace (segment 0) must be a literal — a bare `*` (or a `*` namespace)
-// never matches. A two-segment glob `ns:*` matches every concrete `ns:…` perm.
-func permMatches(grant, concrete string) bool {
-	grant = strings.TrimSpace(grant)
-	concrete = strings.TrimSpace(concrete)
-	if grant == "" || grant == PermWildcard {
-		return false // bare "*" is not a valid grant — it never matches
-	}
-	g := strings.Split(grant, ":")
-	c := strings.Split(concrete, ":")
-	if g[0] == "" || g[0] == PermWildcard {
-		return false // namespace must be a literal prefix (namespace-anchored)
-	}
-	// Two-segment namespace-wide glob: `ns:*` covers every `ns:<resource>:<action>`.
-	if len(g) == 2 && g[1] == PermWildcard {
-		return len(c) >= 1 && c[0] == g[0]
-	}
-	if len(g) != len(c) {
-		return false
-	}
-	for i := range g {
-		if i == 0 {
-			if g[i] != c[i] {
-				return false
-			}
-			continue
-		}
-		if g[i] != PermWildcard && g[i] != c[i] {
-			return false
-		}
-	}
-	return true
-}
+// The authz-critical matcher is defined in authbase (core-free) and aliased here
+// so core's internal callers are unchanged.
+var permMatches = authbase.PermMatches
 
 // permNamespace returns the namespace segment (segment 0) of a permission name or
 // grant glob — "org" for "org:members:read", "merchant" for "merchant:*". Returns
@@ -583,10 +551,8 @@ func EffectivePermsForTokens(tokens []string, catalog map[string]bool) map[strin
 }
 
 // PermissionTokenCovers reports whether a stored grant token covers a requested
-// permission token using AuthKit's namespace-anchored glob semantics.
-func PermissionTokenCovers(grant, requested string) bool {
-	return permMatches(strings.TrimSpace(grant), strings.TrimSpace(requested))
-}
+// permission token. Defined in authbase (core-free) and re-exported here.
+var PermissionTokenCovers = authbase.PermissionTokenCovers
 
 // UnknownRoleTokenNames returns every grant token that expands to NOTHING in the
 // catalog (a bare `*`, a typo'd literal, or a glob matching no catalog perm) —

@@ -1,4 +1,4 @@
-package authhttp
+package verify
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/authbase"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
@@ -34,7 +34,7 @@ type Verifier struct {
 	skew       time.Duration
 	algorithms []string
 
-	// tokenPrefix is the host application's API-key brand prefix (see core.Config
+	// tokenPrefix is the host application's API-key brand prefix (see authbase.Config
 	// APIKeyPrefix). Used to detect API keys in the middleware
 	// before JWT verification. Empty -> bare "st_".
 	tokenPrefix string
@@ -45,10 +45,10 @@ type Verifier struct {
 	issuers []issuerEntry
 	byIss   map[string]*issuerKeys
 
-	enrich *core.Service
+	enrich Enricher
 
 	// Remote-application lazy-load coherence state. fedSource is the store the
-	// lazy-load-on-miss path consults; it defaults to enrich (*core.Service) but
+	// lazy-load-on-miss path consults; it defaults to enrich (*authbase.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
 	// issuer is registered with the SAME audiences the bulk LoadOrgIssuers
 	// used. fedKnown records which issuers were sourced from the org store
@@ -82,7 +82,7 @@ type Verifier struct {
 	attrResolver AttributeDefResolver
 }
 
-// issuerEntry describes a trusted issuer (private — replaces core.IssuerAccept).
+// issuerEntry describes a trusted issuer (private — replaces authbase.IssuerAccept).
 type issuerEntry struct {
 	issuer    string
 	audiences []string
@@ -181,7 +181,7 @@ func WithAttributesPolicy(fn AttributesValidator) VerifierOption {
 // AttributeDefResolver resolves a REFERENCE-mode attribute (#75) to its opaque
 // definition, given the token's validated issuer, the attribute key, and the
 // reference value the token carried. It returns the resolved definition (raw
-// JSON) to substitute for the reference, or an error. *core.Service-backed
+// JSON) to substitute for the reference, or an error. *authbase.Service-backed
 // resolvers map issuer -> remote_application -> registered definition.
 type AttributeDefResolver func(ctx context.Context, issuer, key, ref string) (json.RawMessage, error)
 
@@ -206,26 +206,26 @@ func WithAttributeHydration(resolver AttributeDefResolver) VerifierOption {
 // service-principal Claims on success or a sanitized error on failure. When the
 // token is not an API key, matched is false and the caller proceeds to JWT verify.
 func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, matched bool, err error) {
-	if !core.HasAPIKeyPrefix(v.tokenPrefix, token) {
+	if !authbase.HasAPIKeyPrefix(v.tokenPrefix, token) {
 		return Claims{}, false, nil
 	}
 	// Shaped like an API key: from here we never fall through to JWT verification.
 	if v.enrich == nil {
 		return Claims{}, true, errors.New("invalid_token")
 	}
-	keyID, secret, ok := core.ParseAPIKey(v.tokenPrefix, token)
+	keyID, secret, ok := authbase.ParseAPIKey(v.tokenPrefix, token)
 	if !ok {
 		return Claims{}, true, errors.New("invalid_token")
 	}
 	resolved, rerr := v.enrich.ResolveAPIKeyWithResources(ctx, keyID, secret)
 	if rerr != nil {
 		switch {
-		case errors.Is(rerr, core.ErrAccessTokenRevoked):
-			return Claims{}, true, core.ErrAccessTokenRevoked
-		case errors.Is(rerr, core.ErrAccessTokenExpired):
-			return Claims{}, true, core.ErrAccessTokenExpired
-		case errors.Is(rerr, core.ErrInvalidAccessToken):
-			return Claims{}, true, core.ErrInvalidAccessToken
+		case errors.Is(rerr, authbase.ErrAccessTokenRevoked):
+			return Claims{}, true, authbase.ErrAccessTokenRevoked
+		case errors.Is(rerr, authbase.ErrAccessTokenExpired):
+			return Claims{}, true, authbase.ErrAccessTokenExpired
+		case errors.Is(rerr, authbase.ErrInvalidAccessToken):
+			return Claims{}, true, authbase.ErrInvalidAccessToken
 		default:
 			// Never leak DB/internal errors through the auth response.
 			return Claims{}, true, errors.New("invalid_token")
@@ -242,14 +242,14 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 
 // RemoteApplicationAuthoritySource resolves a remote application's STORED
 // authority (#76): its org memberships (slug + role names) and effective
-// permission set (direct grants ∪ role-derived). *core.Service satisfies it.
+// permission set (direct grants ∪ role-derived). *authbase.Service satisfies it.
 type RemoteApplicationAuthoritySource interface {
-	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []core.OrgMembership, permissions []string, err error)
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []authbase.OrgMembership, permissions []string, err error)
 }
 
 // remoteApplicationAuthority maps a validated issuer to its remote_application
 // and loads the stored authority assigned to that application.
-func (v *Verifier) remoteApplicationAuthority(ctx context.Context, issuer string) (*core.RemoteApplication, []core.OrgMembership, []string, error) {
+func (v *Verifier) remoteApplicationAuthority(ctx context.Context, issuer string) (*authbase.RemoteApplication, []authbase.OrgMembership, []string, error) {
 	issuer = strings.TrimSpace(issuer)
 	if issuer == "" {
 		return nil, nil, nil, errors.New("bad_issuer")
@@ -298,7 +298,7 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 		}
 		ok := false
 		for _, grant := range authorityPerms {
-			if core.PermissionTokenCovers(grant, p) {
+			if authbase.PermissionTokenCovers(grant, p) {
 				ok = true
 				break
 			}
@@ -404,7 +404,7 @@ type IssuerOptions struct {
 	// refreshing by calling AddIssuer again with updated keys.
 	Keys []IssuerKey
 
-	// RawKeys are pre-provided public keys (e.g., from a co-located core.Service).
+	// RawKeys are pre-provided public keys (e.g., from a co-located authbase.Service).
 	RawKeys map[string]crypto.PublicKey
 
 	// CacheTTL controls how long fetched JWKS keys are considered fresh.
@@ -534,10 +534,29 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 // Enrichment
 // ---------------------------------------------------------------------------
 
+// Enricher is the optional, DB-backed hook surface the Verifier and middleware
+// use for best-effort enrichment (roles/email/provider username), the live-user
+// ban/deleted gate, opaque API-key resolution, and remote_application authority
+// + attribute lookups. *authbase.Service satisfies it. The Verifier holds this as an
+// INTERFACE (not *authbase.Service) so the verification layer carries no hard
+// dependency on core's storage stack — a verify-only consumer can leave it nil
+// or supply a lightweight implementation (#110).
+type Enricher interface {
+	ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (authbase.ResolvedAPIKey, error)
+	GetRemoteApplication(ctx context.Context, issuer string) (*authbase.RemoteApplication, error)
+	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authbase.RemoteApplication, error)
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []authbase.OrgMembership, permissions []string, err error)
+	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authbase.RemoteAppAttributeDef, error)
+	GetProviderUsername(ctx context.Context, userID, provider string) (string, error)
+	ListRoleSlugsByUser(ctx context.Context, userID string) []string
+	GetEmailByUserID(ctx context.Context, id string) (string, error)
+	IsUserAllowed(ctx context.Context, userID string) (bool, error)
+}
+
 // WithService enables best-effort enrichment hooks (roles/provider usernames)
-// from Postgres, and wires the same *core.Service as the default
-// org-issuer source for lazy-load-on-miss (see keyForToken).
-func (v *Verifier) WithService(svc *core.Service) *Verifier {
+// from Postgres, and wires the same enricher as the default org-issuer source
+// for lazy-load-on-miss (see keyForToken). *authbase.Service satisfies Enricher.
+func (v *Verifier) WithService(svc Enricher) *Verifier {
 	v.enrich = svc
 	v.mu.Lock()
 	if v.fedSource == nil && svc != nil {
@@ -554,9 +573,9 @@ func (v *Verifier) WithService(svc *core.Service) *Verifier {
 // remoteAppOptions maps a stored remote_application to verifier options for its
 // trust mode (#74): jwks mode fetches+refreshes from the URI; static mode seeds
 // the human-managed PEM list (no URL fetching ever for static principals).
-func remoteAppOptions(ra core.RemoteApplication) IssuerOptions {
+func remoteAppOptions(ra authbase.RemoteApplication) IssuerOptions {
 	opts := IssuerOptions{OrgSlug: ra.Slug}
-	if ra.Mode == core.RemoteAppModeStatic {
+	if ra.Mode == authbase.RemoteAppModeStatic {
 		for _, k := range ra.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
 		}
@@ -567,14 +586,14 @@ func remoteAppOptions(ra core.RemoteApplication) IssuerOptions {
 }
 
 // RemoteApplicationSource is the minimal store contract the Verifier needs to
-// load remote_application principals (#74). *core.Service satisfies it. An
+// load remote_application principals (#74). *authbase.Service satisfies it. An
 // embedding app may supply its own implementation in tests.
 type RemoteApplicationSource interface {
-	ListRemoteApplications(ctx context.Context, enabledOnly bool) ([]core.RemoteApplication, error)
+	ListRemoteApplications(ctx context.Context, enabledOnly bool) ([]authbase.RemoteApplication, error)
 	// GetRemoteApplication fetches a SINGLE remote_application by its issuer,
-	// used by the lazy-load-on-miss path in keyForToken. *core.Service already
+	// used by the lazy-load-on-miss path in keyForToken. *authbase.Service already
 	// implements this.
-	GetRemoteApplication(ctx context.Context, issuer string) (*core.RemoteApplication, error)
+	GetRemoteApplication(ctx context.Context, issuer string) (*authbase.RemoteApplication, error)
 }
 
 // LoadRemoteApplications loads the ACTIVE remote_applications from authkit's OWN
@@ -585,7 +604,7 @@ type RemoteApplicationSource interface {
 // audiences, when non-empty, is applied to every loaded issuer (typically this
 // resource server's own audience). Call this at startup, and re-call (e.g. on
 // a ticker, or after an inbound registration) to pick up store changes. Pass
-// the embedding app's core.Service (or any RemoteApplicationSource); if nil, the
+// the embedding app's authbase.Service (or any RemoteApplicationSource); if nil, the
 // Service provided via WithService is used.
 func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplicationSource, audiences []string) error {
 	if src == nil {
@@ -956,7 +975,7 @@ func (v *Verifier) hydrateAttributes(cl *Claims) error {
 		}
 		def, err := resolver(context.Background(), cl.Issuer, key, ref)
 		if err != nil {
-			if errors.Is(err, core.ErrAttributeDefNotFound) {
+			if errors.Is(err, authbase.ErrAttributeDefNotFound) {
 				continue
 			}
 			return err

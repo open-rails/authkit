@@ -1,4 +1,4 @@
-package authhttp
+package verify
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/authbase"
 )
 
 var errNoRemoteApplicationSource = errors.New("no remote_application source available")
@@ -29,7 +29,7 @@ func (v *Verifier) RemoteApplicationAllowedOrigins(ctx context.Context) ([]strin
 	var out []string
 	for _, app := range apps {
 		for _, raw := range app.AllowedOrigins {
-			origin, err := core.NormalizeAllowedOrigin(raw)
+			origin, err := authbase.NormalizeAllowedOrigin(raw)
 			if err != nil {
 				continue
 			}
@@ -58,7 +58,7 @@ func (v *Verifier) OriginAllowedForIssuer(ctx context.Context, issuer, origin st
 	if err != nil || app == nil || !app.Enabled {
 		return false, err
 	}
-	return core.OriginAllowed(origin, app.AllowedOrigins), nil
+	return authbase.OriginAllowed(origin, app.AllowedOrigins), nil
 }
 
 func (v *Verifier) remoteApplicationSource() RemoteApplicationSource {
@@ -89,7 +89,7 @@ func RemoteApplicationCORS(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 			origins, err := v.RemoteApplicationAllowedOrigins(r.Context())
-			allowed := err == nil && core.OriginAllowed(origin, origins)
+			allowed := err == nil && authbase.OriginAllowed(origin, origins)
 			if !allowed {
 				if r.Method == http.MethodOptions {
 					forbidden(w, "origin_not_allowed")

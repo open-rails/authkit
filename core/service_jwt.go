@@ -9,40 +9,27 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/authbase"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
 const (
-	// ServiceJWTTokenUse is the required `token_use` claim for service JWTs.
-	ServiceJWTTokenUse = "service"
+	// ServiceJWTTokenUse + DefaultServiceJWTLifetime are defined in authbase
+	// (core-free) and re-exported here.
+	ServiceJWTTokenUse = authbase.ServiceJWTTokenUse
 	// ServiceJWTType is the JOSE typ header AuthKit stamps on minted service JWTs.
-	ServiceJWTType = "service+jwt"
-	// DefaultServiceJWTLifetime is the recommended lifetime for first-party
-	// machine-to-machine service JWTs.
-	DefaultServiceJWTLifetime = 15 * time.Minute
+	ServiceJWTType            = "service+jwt"
+	DefaultServiceJWTLifetime = authbase.DefaultServiceJWTLifetime
 )
 
 var (
-	ErrInvalidServiceJWT = errors.New("invalid_service_jwt")
+	// ErrInvalidServiceJWT is defined in authbase and re-exported here.
+	ErrInvalidServiceJWT = authbase.ErrInvalidServiceJWT
 	ErrMissingSigner     = errors.New("missing_signer")
 )
 
-// ServiceJWTClaims is the canonical AuthKit claim shape for caller-minted
-// machine-to-machine JWTs. Permissions are requested capabilities; receiving
-// services must still intersect them with server-side grants.
-type ServiceJWTClaims struct {
-	Issuer      string
-	Subject     string
-	Audiences   []string
-	IssuedAt    time.Time
-	NotBefore   time.Time
-	ExpiresAt   time.Time
-	JTI         string
-	TokenUse    string
-	Permissions []string
-	Resources   []APIKeyResource
-	Scope       []string
-}
+// ServiceJWTClaims is defined in authbase (core-free) and re-exported here.
+type ServiceJWTClaims = authbase.ServiceJWTClaims
 
 // ServiceJWTMintOptions controls service-JWT minting for embedded hosts.
 type ServiceJWTMintOptions struct {

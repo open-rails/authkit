@@ -1,11 +1,9 @@
-package authhttp
+package verify
 
 import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	core "github.com/open-rails/authkit/core"
 )
 
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
@@ -30,7 +28,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 					unauthorized(w, serr.Error())
 					return
 				}
-				r = r.WithContext(core.WithPermissionMemo(setClaims(r.Context(), scl)))
+				r = r.WithContext(applyRequestContext(SetClaims(r.Context(), scl)))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -86,7 +84,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				}
 			}
 
-			r = r.WithContext(core.WithPermissionMemo(setClaims(r.Context(), cl)))
+			r = r.WithContext(applyRequestContext(SetClaims(r.Context(), cl)))
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -123,7 +121,7 @@ func RequireEntitlement(ent string) func(http.Handler) http.Handler {
 func RequireAnyEntitlement(ents ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl, err := getClaims(r.Context())
+			cl, err := GetClaims(r.Context())
 			if err != nil {
 				forbidden(w, "forbidden")
 				return
