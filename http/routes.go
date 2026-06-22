@@ -97,7 +97,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		// "What are my permissions" introspection (#76 amendment): the caller's
 		// GRANTED ceiling + identity, for any programmatic principal.
-		{Method: http.MethodGet, Path: "/me/permissions", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleMePermissionsGET))},
 		{Method: http.MethodPost, Path: "/reauth/password", Group: RoutePassword, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
 
 		{Method: http.MethodPost, Path: "/password/login", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
@@ -114,7 +113,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
 		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
-		{Method: http.MethodGet, Path: "/namespaces/{slug}", Group: RouteOwners, Handler: http.HandlerFunc(s.handleOwnerNamespaceInfoGET)},
 
 		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyRequestPOST)},
 		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmPOST)},
@@ -184,19 +182,13 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// org is in the PATH and management gates in-handler on
 		// org:remote_applications:{create,update,delete}. Every issuer is org-owned
 		// (org_id NOT NULL); there is no flat/global route and no global-admin.
-		{Method: http.MethodPost, Path: "/orgs/{org}/remote-applications", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationRegisterPOST))},
-		{Method: http.MethodDelete, Path: "/orgs/{org}/remote-applications/{slug}", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationDeleteDELETE))},
 		// A remote_application's org memberships (assigned via the SAME role
 		// machinery as users); {org} is the issuer's owning org.
-		{Method: http.MethodPost, Path: "/orgs/{org}/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipPOST))},
-		{Method: http.MethodDelete, Path: "/orgs/{org}/remote-applications/{slug}/memberships", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleRemoteApplicationMembershipDELETE))},
 		// Attribute definition registry (#75) — the federation token-CONTRACT
 		// layer, NOT org management: the write is self-authored by the
 		// remote_application and the read resolves a token reference for ANY
 		// authenticated platform (no org context). Addressed by issuer {slug}
 		// globally, so these stay flat (not org-nested).
-		{Method: http.MethodPost, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefPutPOST))},
-		{Method: http.MethodGet, Path: "/remote-applications/{slug}/attribute-defs", Group: RouteOrgIssuers, Handler: required(http.HandlerFunc(s.handleAttributeDefGET))},
 	}
 
 	// #111: the org/platform RBAC HTTP surface (members, roles, invites, org

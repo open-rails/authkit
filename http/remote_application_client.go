@@ -123,3 +123,14 @@ func (fc *OrgIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string
 	}
 	return nil
 }
+
+// remoteApplicationRegistration is the JSON payload RegisterIssuer posts to a
+// remote AuthKit's remote-application registration endpoint (#111: the issuer is
+// nested under a permission-group on the receiving side).
+type remoteApplicationRegistration struct {
+	Slug           string              `json:"slug"`
+	Issuer         string              `json:"issuer"`
+	JWKSURI        string              `json:"jwks_uri,omitempty"`
+	PublicKeys     []core.RemoteAppKey `json:"public_keys,omitempty"`
+	AllowedOrigins []string            `json:"allowed_origins,omitempty"`
+}

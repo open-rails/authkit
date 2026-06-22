@@ -111,25 +111,13 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		enabledProviders = append(enabledProviders, provider)
 	}
 
-	// (issue 60) Always return the user's global roles AND their org memberships
-	// (memberships may be empty for org-free users). No org-mode branch.
+	// Return the user's roles.
 	var rolesPtr *[]string
-	var orgsPtr *[]orgMembership
 	roles := adminUser.Roles
 	if roles == nil {
 		roles = []string{}
 	}
 	rolesPtr = &roles
-	mems, mErr := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), adminUser.ID)
-	if mErr != nil {
-		serverErr(w, ErrOrgMembershipsLookupFailed)
-		return
-	}
-	orgs := make([]orgMembership, 0, len(mems))
-	for _, m := range mems {
-		orgs = append(orgs, orgMembership{Org: m.Org, Roles: m.Roles})
-	}
-	orgsPtr = &orgs
 
 	var createdAt *string
 	if !adminUser.CreatedAt.IsZero() {
@@ -164,7 +152,6 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		PhoneVerified:                     adminUser.PhoneVerified,
 		HasPassword:                       hasPassword,
 		Roles:                             rolesPtr,
-		Orgs:                              orgsPtr,
 		Entitlements:                      adminUser.Entitlements,
 		Biography:                         adminUser.Biography,
 		PreferredLocale:                   preferredLocale,

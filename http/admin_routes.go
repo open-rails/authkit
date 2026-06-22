@@ -34,7 +34,6 @@ func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 		PageSize:    size,
 		Search:      strings.TrimSpace(q.Get("search")),
 		Role:        strings.TrimSpace(q.Get("role")),
-		OrgSlug:     strings.TrimSpace(q.Get("org")),
 		Status:      core.AdminUserStatus(strings.TrimSpace(q.Get("status"))),
 		Sort:        sort,
 		Desc:        desc,

@@ -34,29 +34,8 @@ func (s *Service) handleUserBootstrapGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	personalOrg, err := s.svc.GetPersonalOrgForUser(r.Context(), claims.UserID)
-	if err != nil {
-		serverErr(w, ErrPersonalOrgLookupFailed)
-		return
-	}
-	mems, err := s.svc.ListUserOrgMembershipsAndRoles(r.Context(), claims.UserID)
-	if err != nil {
-		serverErr(w, ErrOrgMembershipsLookupFailed)
-		return
-	}
-	orgs := make([]orgMembership, 0, len(mems))
-	for _, m := range mems {
-		orgs = append(orgs, orgMembership{Org: m.Org, Roles: m.Roles})
-	}
-
-	userAliases, _ := s.svc.ListUserSlugAliases(r.Context(), claims.UserID)
-	personalAliases, _ := s.svc.ListOrgAliases(r.Context(), personalOrg.ID)
 	writeJSON(w, http.StatusOK, userBootstrapResponse{
-		UserID:             claims.UserID,
-		Username:           username,
-		PersonalOrg:        personalOrg.Slug,
-		Orgs:               orgs,
-		UserAliases:        userAliases,
-		PersonalOrgAliases: personalAliases,
+		UserID:   claims.UserID,
+		Username: username,
 	})
 }

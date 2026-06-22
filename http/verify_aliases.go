@@ -1,7 +1,6 @@
 package authhttp
 
 import (
-	core "github.com/open-rails/authkit/core"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -24,7 +23,6 @@ type (
 	AttributesValidator              = verify.AttributesValidator
 	AttributeDefResolver             = verify.AttributeDefResolver
 	RemoteApplicationSource          = verify.RemoteApplicationSource
-	RemoteApplicationAuthoritySource = verify.RemoteApplicationAuthoritySource
 
 	ServiceJWTPrincipal     = verify.ServiceJWTPrincipal
 	ServiceJWTReplayChecker = verify.ServiceJWTReplayChecker
@@ -47,7 +45,6 @@ var (
 	WithAlgorithms         = verify.WithAlgorithms
 	WithHTTPClient         = verify.WithHTTPClient
 	WithSSRFGuard          = verify.WithSSRFGuard
-	WithOrgMode            = verify.WithOrgMode
 	WithAPIKeyPrefix       = verify.WithAPIKeyPrefix
 	WithPermissions        = verify.WithPermissions
 	WithAttributesPolicy   = verify.WithAttributesPolicy
@@ -71,9 +68,3 @@ var (
 	setClaims = verify.SetClaims
 	getClaims = verify.GetClaims
 )
-
-func init() {
-	// Wire core's per-request permission memo into the verify middleware without
-	// the verify package importing core.
-	verify.SetRequestContextHook(core.WithPermissionMemo)
-}
