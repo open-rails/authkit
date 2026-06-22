@@ -175,6 +175,12 @@ type RBACConfig struct {
 	// keeps the #95 contract (owner = `org:*`). `platform:` is never owned by an
 	// org role. Backfill existing orgs with EnsureOwnerGrants. (#100)
 	OwnerOwnsAppResources bool
+
+	// Groups declares the app's permission-group types (#111): the containment
+	// schema + per-type role catalogs + management profiles. authkit injects the
+	// intrinsic `root` type when absent, so an empty slice yields a valid
+	// root-only deployment. Validated by NewFromConfig via BuildSchema.
+	Groups []GroupTypeDef
 }
 
 // PermissionDef is one entry in the permission set: an opaque permission

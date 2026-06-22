@@ -184,7 +184,8 @@ type Service struct {
 	sms            SMSSender
 	pg             *pgxpool.Pool
 	q              *db.Queries
-	schema         string // validated Postgres schema name; db.DefaultSchema when unset
+	schema         string        // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema    *GroupSchema  // #111 permission-group type schema (nil ⇒ root-only default)
 	entitlements   EntitlementsProvider
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
@@ -358,7 +359,15 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	// nil pg simply yields a Service with no querier. The mandatory-Postgres
 	// contract (#106) is enforced at the host-facing authhttp.NewServer, not here.
 	coreOpts := append([]Option{WithPostgres(pg)}, extraOpts...)
-	return NewService(opts, ks, coreOpts...), nil
+	svc := NewService(opts, ks, coreOpts...)
+	// #111: build + validate the permission-group schema (intrinsic root injected
+	// when the app declares none). A bad catalog/containment fails construction.
+	gs, gerr := BuildSchema(cfg.RBAC.Groups...)
+	if gerr != nil {
+		return nil, fmt.Errorf("permission-group schema: %w", gerr)
+	}
+	svc.groupSchema = gs
+	return svc, nil
 }
 
 // validAPIKeyPrefix reports whether p is an acceptable API-key application prefix:

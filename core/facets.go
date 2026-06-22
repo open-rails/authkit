@@ -12,8 +12,6 @@ import (
 // UsersFacet is the user/account view of Service.
 type UsersFacet struct{ svc *Service }
 
-// OrgsFacet is the org/membership/invite view of Service.
-type OrgsFacet struct{ svc *Service }
 
 // RolesFacet is the role and permission view of Service.
 type RolesFacet struct{ svc *Service }
@@ -38,9 +36,6 @@ type BootstrapFacet struct{ svc *Service }
 
 // Users returns the user/account facet.
 func (s *Service) Users() UsersFacet { return UsersFacet{svc: s} }
-
-// Orgs returns the org/membership/invite facet.
-func (s *Service) Orgs() OrgsFacet { return OrgsFacet{svc: s} }
 
 // Roles returns the role and permission facet.
 func (s *Service) Roles() RolesFacet { return RolesFacet{svc: s} }
@@ -458,246 +453,6 @@ func (f UsersFacet) VerifyUserPassword(ctx context.Context, userID, pass string)
 	return f.svc.VerifyUserPassword(ctx, userID, pass)
 }
 
-// AcceptOrgInvite calls Service.AcceptOrgInvite.
-func (f OrgsFacet) AcceptOrgInvite(ctx context.Context, inviteID, userID string) error {
-	return f.svc.AcceptOrgInvite(ctx, inviteID, userID)
-}
-
-// AddMember calls Service.AddMember.
-func (f OrgsFacet) AddMember(ctx context.Context, orgSlug, userID string) error {
-	return f.svc.AddMember(ctx, orgSlug, userID)
-}
-
-// AdminListOrgs calls Service.AdminListOrgs.
-func (f OrgsFacet) AdminListOrgs(ctx context.Context, search string, includeDeleted bool, limit, offset int32) ([]OrgAdminSummary, error) {
-	return f.svc.AdminListOrgs(ctx, search, includeDeleted, limit, offset)
-}
-
-// AdminOrgDetail calls Service.AdminOrgDetail.
-func (f OrgsFacet) AdminOrgDetail(ctx context.Context, orgID string) (*OrgAdminDetail, error) {
-	return f.svc.AdminOrgDetail(ctx, orgID)
-}
-
-// ClaimOrgNamespace calls Service.ClaimOrgNamespace.
-func (f OrgsFacet) ClaimOrgNamespace(ctx context.Context, slug, ownerUserID string) (orgID string, created bool, err error) {
-	return f.svc.ClaimOrgNamespace(ctx, slug, ownerUserID)
-}
-
-// ClaimUserNamespace calls Service.ClaimUserNamespace.
-func (f OrgsFacet) ClaimUserNamespace(ctx context.Context, slug string) (userID, orgID string, created bool, err error) {
-	return f.svc.ClaimUserNamespace(ctx, slug)
-}
-
-// CreateOrg calls Service.CreateOrg.
-func (f OrgsFacet) CreateOrg(ctx context.Context, slug string) (*Org, error) {
-	return f.svc.CreateOrg(ctx, slug)
-}
-
-// CreateOrgForUser calls Service.CreateOrgForUser.
-func (f OrgsFacet) CreateOrgForUser(ctx context.Context, req CreateOrgForUserRequest) (*Org, error) {
-	return f.svc.CreateOrgForUser(ctx, req)
-}
-
-// CreateOrgInvite calls Service.CreateOrgInvite.
-func (f OrgsFacet) CreateOrgInvite(ctx context.Context, orgSlug, userID, invitedBy, role string, expiresAt *time.Time) (*OrgInvite, error) {
-	return f.svc.CreateOrgInvite(ctx, orgSlug, userID, invitedBy, role, expiresAt)
-}
-
-// DeclineOrgInvite calls Service.DeclineOrgInvite.
-func (f OrgsFacet) DeclineOrgInvite(ctx context.Context, inviteID, userID string) error {
-	return f.svc.DeclineOrgInvite(ctx, inviteID, userID)
-}
-
-// GetOrgMetadata calls Service.GetOrgMetadata.
-func (f OrgsFacet) GetOrgMetadata(ctx context.Context, orgID string) (map[string]any, error) {
-	return f.svc.GetOrgMetadata(ctx, orgID)
-}
-
-// GetOrgNamespaceState calls Service.GetOrgNamespaceState.
-func (f OrgsFacet) GetOrgNamespaceState(ctx context.Context, orgID string) (OwnerNamespaceState, error) {
-	return f.svc.GetOrgNamespaceState(ctx, orgID)
-}
-
-// GetOwnerNamespaceStateBySlug calls Service.GetOwnerNamespaceStateBySlug.
-func (f OrgsFacet) GetOwnerNamespaceStateBySlug(ctx context.Context, slug string) (OwnerNamespaceState, error) {
-	return f.svc.GetOwnerNamespaceStateBySlug(ctx, slug)
-}
-
-// GetPersonalOrgForUser calls Service.GetPersonalOrgForUser.
-func (f OrgsFacet) GetPersonalOrgForUser(ctx context.Context, userID string) (*Org, error) {
-	return f.svc.GetPersonalOrgForUser(ctx, userID)
-}
-
-// IsOrgMember calls Service.IsOrgMember.
-func (f OrgsFacet) IsOrgMember(ctx context.Context, orgSlug, userID string) (bool, error) {
-	return f.svc.IsOrgMember(ctx, orgSlug, userID)
-}
-
-// IsOrgReserved calls Service.IsOrgReserved.
-func (f OrgsFacet) IsOrgReserved(ctx context.Context, orgID string) (bool, error) {
-	return f.svc.IsOrgReserved(ctx, orgID)
-}
-
-// IsUserReserved calls Service.IsUserReserved.
-func (f OrgsFacet) IsUserReserved(ctx context.Context, userID string) (bool, error) {
-	return f.svc.IsUserReserved(ctx, userID)
-}
-
-// ListOrgAliases calls Service.ListOrgAliases.
-func (f OrgsFacet) ListOrgAliases(ctx context.Context, orgID string) ([]string, error) {
-	return f.svc.ListOrgAliases(ctx, orgID)
-}
-
-// ListOrgInvites calls Service.ListOrgInvites.
-func (f OrgsFacet) ListOrgInvites(ctx context.Context, orgSlug, status string) ([]OrgInvite, error) {
-	return f.svc.ListOrgInvites(ctx, orgSlug, status)
-}
-
-// ListOrgMembers calls Service.ListOrgMembers.
-func (f OrgsFacet) ListOrgMembers(ctx context.Context, orgSlug string) ([]string, error) {
-	return f.svc.ListOrgMembers(ctx, orgSlug)
-}
-
-// ListOrgMembershipsForUser calls Service.ListOrgMembershipsForUser.
-func (f OrgsFacet) ListOrgMembershipsForUser(ctx context.Context, userID string) ([]string, error) {
-	return f.svc.ListOrgMembershipsForUser(ctx, userID)
-}
-
-// ListUserInvites calls Service.ListUserInvites.
-func (f OrgsFacet) ListUserInvites(ctx context.Context, userID, status string) ([]OrgInvite, error) {
-	return f.svc.ListUserInvites(ctx, userID, status)
-}
-
-// ListUserOrgMembershipsAndRoles calls Service.ListUserOrgMembershipsAndRoles.
-func (f OrgsFacet) ListUserOrgMembershipsAndRoles(ctx context.Context, userID string) ([]OrgMembership, error) {
-	return f.svc.ListUserOrgMembershipsAndRoles(ctx, userID)
-}
-
-// ListUserSlugAliases calls Service.ListUserSlugAliases.
-func (f OrgsFacet) ListUserSlugAliases(ctx context.Context, userID string) ([]string, error) {
-	return f.svc.ListUserSlugAliases(ctx, userID)
-}
-
-// LookupOwnerNamespace calls Service.LookupOwnerNamespace.
-func (f OrgsFacet) LookupOwnerNamespace(ctx context.Context, slug string) (*OwnerNamespaceLookup, error) {
-	return f.svc.LookupOwnerNamespace(ctx, slug)
-}
-
-// ParkOrgNamespace calls Service.ParkOrgNamespace.
-func (f OrgsFacet) ParkOrgNamespace(ctx context.Context, slug string) (orgID string, created bool, err error) {
-	return f.svc.ParkOrgNamespace(ctx, slug)
-}
-
-// ParkUserNamespace calls Service.ParkUserNamespace.
-func (f OrgsFacet) ParkUserNamespace(ctx context.Context, slug string) (userID, orgID string, created bool, err error) {
-	return f.svc.ParkUserNamespace(ctx, slug)
-}
-
-// PatchOrgMetadata calls Service.PatchOrgMetadata.
-func (f OrgsFacet) PatchOrgMetadata(ctx context.Context, orgID string, patch map[string]any) error {
-	return f.svc.PatchOrgMetadata(ctx, orgID, patch)
-}
-
-// PromoteParkedOrgToRegistered calls Service.PromoteParkedOrgToRegistered.
-func (f OrgsFacet) PromoteParkedOrgToRegistered(ctx context.Context, slug, ownerUserID string) (orgID string, err error) {
-	return f.svc.PromoteParkedOrgToRegistered(ctx, slug, ownerUserID)
-}
-
-// PromoteReservedNameToRegistered calls Service.PromoteReservedNameToRegistered.
-func (f OrgsFacet) PromoteReservedNameToRegistered(ctx context.Context, slug, ownerUserID string) (orgID string, created bool, err error) {
-	return f.svc.PromoteReservedNameToRegistered(ctx, slug, ownerUserID)
-}
-
-// RecoverOrg calls Service.RecoverOrg.
-func (f OrgsFacet) RecoverOrg(ctx context.Context, orgID, newOwnerUserID string) (RecoverOrgResult, error) {
-	return f.svc.RecoverOrg(ctx, orgID, newOwnerUserID)
-}
-
-// RemoveMember calls Service.RemoveMember.
-func (f OrgsFacet) RemoveMember(ctx context.Context, orgSlug, userID string) error {
-	return f.svc.RemoveMember(ctx, orgSlug, userID)
-}
-
-// RenameOrgSlug calls Service.RenameOrgSlug.
-func (f OrgsFacet) RenameOrgSlug(ctx context.Context, orgID, newSlug, actorUserID string) error {
-	return f.svc.RenameOrgSlug(ctx, orgID, newSlug, actorUserID)
-}
-
-// RenameOrgSlugForce calls Service.RenameOrgSlugForce.
-func (f OrgsFacet) RenameOrgSlugForce(ctx context.Context, orgID, newSlug, actorUserID string) error {
-	return f.svc.RenameOrgSlugForce(ctx, orgID, newSlug, actorUserID)
-}
-
-// ReserveAccount calls Service.ReserveAccount.
-func (f OrgsFacet) ReserveAccount(ctx context.Context, slug string) (userID, orgID string, reserved bool, err error) {
-	return f.svc.ReserveAccount(ctx, slug)
-}
-
-// ResolveOrgByID calls Service.ResolveOrgByID.
-func (f OrgsFacet) ResolveOrgByID(ctx context.Context, id string) (*Org, error) {
-	return f.svc.ResolveOrgByID(ctx, id)
-}
-
-// ResolveOrgBySlug calls Service.ResolveOrgBySlug.
-func (f OrgsFacet) ResolveOrgBySlug(ctx context.Context, slug string) (*Org, error) {
-	return f.svc.ResolveOrgBySlug(ctx, slug)
-}
-
-// ResolveUserBySlug calls Service.ResolveUserBySlug.
-func (f OrgsFacet) ResolveUserBySlug(ctx context.Context, slug string) (userID string, username string, err error) {
-	return f.svc.ResolveUserBySlug(ctx, slug)
-}
-
-// RestoreOrg calls Service.RestoreOrg.
-func (f OrgsFacet) RestoreOrg(ctx context.Context, orgID string) (bool, error) {
-	return f.svc.RestoreOrg(ctx, orgID)
-}
-
-// RestrictOwnerNamespaceSlugs calls Service.RestrictOwnerNamespaceSlugs.
-func (f OrgsFacet) RestrictOwnerNamespaceSlugs(ctx context.Context, slugs []string) (restricted []string, alreadyRestricted []string, err error) {
-	return f.svc.RestrictOwnerNamespaceSlugs(ctx, slugs)
-}
-
-// RevokeOrgInvite calls Service.RevokeOrgInvite.
-func (f OrgsFacet) RevokeOrgInvite(ctx context.Context, orgSlug, inviteID string) error {
-	return f.svc.RevokeOrgInvite(ctx, orgSlug, inviteID)
-}
-
-// SetOrgNamespaceState calls Service.SetOrgNamespaceState.
-func (f OrgsFacet) SetOrgNamespaceState(ctx context.Context, orgID string, state OwnerNamespaceState) error {
-	return f.svc.SetOrgNamespaceState(ctx, orgID, state)
-}
-
-// SoftDeleteOrg calls Service.SoftDeleteOrg.
-func (f OrgsFacet) SoftDeleteOrg(ctx context.Context, orgID string) (bool, error) {
-	return f.svc.SoftDeleteOrg(ctx, orgID)
-}
-
-// TimeUntilOrgRenameAvailable calls Service.TimeUntilOrgRenameAvailable.
-func (f OrgsFacet) TimeUntilOrgRenameAvailable(ctx context.Context, orgID string, now time.Time) (int64, error) {
-	return f.svc.TimeUntilOrgRenameAvailable(ctx, orgID, now)
-}
-
-// TransferOrgOwner calls Service.TransferOrgOwner.
-func (f OrgsFacet) TransferOrgOwner(ctx context.Context, orgID, newOwnerUserID string) (TransferOrgOwnerResult, error) {
-	return f.svc.TransferOrgOwner(ctx, orgID, newOwnerUserID)
-}
-
-// UnrestrictOwnerNamespaceSlugs calls Service.UnrestrictOwnerNamespaceSlugs.
-func (f OrgsFacet) UnrestrictOwnerNamespaceSlugs(ctx context.Context, slugs []string) (unrestricted []string, notRestricted []string, err error) {
-	return f.svc.UnrestrictOwnerNamespaceSlugs(ctx, slugs)
-}
-
-// ValidateInviteRoleGrant calls Service.ValidateInviteRoleGrant.
-func (f OrgsFacet) ValidateInviteRoleGrant(ctx context.Context, orgSlug, grantorUserID, role string) error {
-	return f.svc.ValidateInviteRoleGrant(ctx, orgSlug, grantorUserID, role)
-}
-
-// AssignPlatformRole calls Service.AssignPlatformRole.
-func (f RolesFacet) AssignPlatformRole(ctx context.Context, userID, role string) error {
-	return f.svc.AssignPlatformRole(ctx, userID, role)
-}
-
 // AssignRole calls Service.AssignRole.
 func (f RolesFacet) AssignRole(ctx context.Context, orgSlug, userID, role string) error {
 	return f.svc.AssignRole(ctx, orgSlug, userID, role)
@@ -708,19 +463,9 @@ func (f RolesFacet) AssignRoleBySlug(ctx context.Context, userID, slug string) e
 	return f.svc.AssignRoleBySlug(ctx, userID, slug)
 }
 
-// DefinePlatformRole calls Service.DefinePlatformRole.
-func (f RolesFacet) DefinePlatformRole(ctx context.Context, role string) error {
-	return f.svc.DefinePlatformRole(ctx, role)
-}
-
 // DefineRole calls Service.DefineRole.
 func (f RolesFacet) DefineRole(ctx context.Context, orgSlug, role string) error {
 	return f.svc.DefineRole(ctx, orgSlug, role)
-}
-
-// DeletePlatformRole calls Service.DeletePlatformRole.
-func (f RolesFacet) DeletePlatformRole(ctx context.Context, role string) (int64, error) {
-	return f.svc.DeletePlatformRole(ctx, role)
 }
 
 // DeleteRole calls Service.DeleteRole.
@@ -733,11 +478,6 @@ func (f RolesFacet) EffectivePermissions(ctx context.Context, orgSlug, userID st
 	return f.svc.EffectivePermissions(ctx, orgSlug, userID)
 }
 
-// EffectivePlatformPermissions calls Service.EffectivePlatformPermissions.
-func (f RolesFacet) EffectivePlatformPermissions(ctx context.Context, userID string) ([]string, error) {
-	return f.svc.EffectivePlatformPermissions(ctx, userID)
-}
-
 // EffectiveRolePermissions calls Service.EffectiveRolePermissions.
 func (f RolesFacet) EffectiveRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
 	return f.svc.EffectiveRolePermissions(ctx, orgSlug, role)
@@ -746,16 +486,6 @@ func (f RolesFacet) EffectiveRolePermissions(ctx context.Context, orgSlug, role 
 // EnsureOwnerGrants calls Service.EnsureOwnerGrants.
 func (f RolesFacet) EnsureOwnerGrants(ctx context.Context, orgSlug string) error {
 	return f.svc.EnsureOwnerGrants(ctx, orgSlug)
-}
-
-// EnsurePlatformSuperAdmin calls Service.EnsurePlatformSuperAdmin.
-func (f RolesFacet) EnsurePlatformSuperAdmin(ctx context.Context, userID string) error {
-	return f.svc.EnsurePlatformSuperAdmin(ctx, userID)
-}
-
-// GetPlatformRolePermissions calls Service.GetPlatformRolePermissions.
-func (f RolesFacet) GetPlatformRolePermissions(ctx context.Context, role string) ([]string, error) {
-	return f.svc.GetPlatformRolePermissions(ctx, role)
 }
 
 // GetRolePermissions calls Service.GetRolePermissions.
@@ -768,19 +498,9 @@ func (f RolesFacet) HasPermission(ctx context.Context, orgSlug, userID, perm str
 	return f.svc.HasPermission(ctx, orgSlug, userID, perm)
 }
 
-// HasPlatformPermission calls Service.HasPlatformPermission.
-func (f RolesFacet) HasPlatformPermission(ctx context.Context, userID, perm string) (bool, error) {
-	return f.svc.HasPlatformPermission(ctx, userID, perm)
-}
-
 // ListOrgDefinedRoles calls Service.ListOrgDefinedRoles.
 func (f RolesFacet) ListOrgDefinedRoles(ctx context.Context, orgSlug string) ([]string, error) {
 	return f.svc.ListOrgDefinedRoles(ctx, orgSlug)
-}
-
-// ListPlatformRoles calls Service.ListPlatformRoles.
-func (f RolesFacet) ListPlatformRoles(ctx context.Context) ([]string, error) {
-	return f.svc.ListPlatformRoles(ctx)
 }
 
 // ListRoleSlugsByUser calls Service.ListRoleSlugsByUser.
@@ -798,21 +518,6 @@ func (f RolesFacet) Permissions() []PermissionDef {
 	return f.svc.Permissions()
 }
 
-// PlatformPermissions calls Service.PlatformPermissions.
-func (f RolesFacet) PlatformPermissions() []PermissionDef {
-	return f.svc.PlatformPermissions()
-}
-
-// PlatformRoleMembers calls Service.PlatformRoleMembers.
-func (f RolesFacet) PlatformRoleMembers(ctx context.Context, role string) ([]string, error) {
-	return f.svc.PlatformRoleMembers(ctx, role)
-}
-
-// PlatformRolesForUser calls Service.PlatformRolesForUser.
-func (f RolesFacet) PlatformRolesForUser(ctx context.Context, userID string) ([]string, error) {
-	return f.svc.PlatformRolesForUser(ctx, userID)
-}
-
 // ReadMemberRoles calls Service.ReadMemberRoles.
 func (f RolesFacet) ReadMemberRoles(ctx context.Context, orgSlug, userID string) ([]string, error) {
 	return f.svc.ReadMemberRoles(ctx, orgSlug, userID)
@@ -823,19 +528,9 @@ func (f RolesFacet) RemoveRoleBySlug(ctx context.Context, userID, slug string) e
 	return f.svc.RemoveRoleBySlug(ctx, userID, slug)
 }
 
-// SetPlatformRolePermissions calls Service.SetPlatformRolePermissions.
-func (f RolesFacet) SetPlatformRolePermissions(ctx context.Context, role string, perms []string) error {
-	return f.svc.SetPlatformRolePermissions(ctx, role, perms)
-}
-
 // SetRolePermissions calls Service.SetRolePermissions.
 func (f RolesFacet) SetRolePermissions(ctx context.Context, orgSlug, role string, perms []string) error {
 	return f.svc.SetRolePermissions(ctx, orgSlug, role, perms)
-}
-
-// UnassignPlatformRole calls Service.UnassignPlatformRole.
-func (f RolesFacet) UnassignPlatformRole(ctx context.Context, userID, role string) (bool, error) {
-	return f.svc.UnassignPlatformRole(ctx, userID, role)
 }
 
 // UnassignRole calls Service.UnassignRole.
@@ -851,11 +546,6 @@ func (f RolesFacet) UpsertRoleBySlug(ctx context.Context, name, slug string, des
 // ValidateGrant calls Service.ValidateGrant.
 func (f RolesFacet) ValidateGrant(ctx context.Context, orgSlug, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
 	return f.svc.ValidateGrant(ctx, orgSlug, actorUserID, tokens, actorAll)
-}
-
-// ValidatePlatformGrant calls Service.ValidatePlatformGrant.
-func (f RolesFacet) ValidatePlatformGrant(ctx context.Context, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
-	return f.svc.ValidatePlatformGrant(ctx, actorUserID, tokens, actorAll)
 }
 
 // AuthorizeAPIKeyResources calls Service.AuthorizeAPIKeyResources.
