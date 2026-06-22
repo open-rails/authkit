@@ -57,15 +57,8 @@ type Options struct {
 	// triggered it (e.g. registration). Empty/<=0 defaults to 15 seconds.
 	VerificationSendTimeout time.Duration
 
-	// AutoCreatePersonalOrgs creates a personal org for each native user at
-	// signup (direct opt-in; authkit issue 60). False keeps native users
-	// org-free by default.
-	AutoCreatePersonalOrgs bool
-
 	// NativeUserRegistrationMode controls public native-user self-registration.
 	NativeUserRegistrationMode RegistrationMode
-	// OrgRegistrationMode controls public org onboarding/management.
-	OrgRegistrationMode RegistrationMode
 
 	// Environment is host-provided runtime mode used for dev/prod behavior checks.
 	Environment string
@@ -184,8 +177,8 @@ type Service struct {
 	sms            SMSSender
 	pg             *pgxpool.Pool
 	q              *db.Queries
-	schema         string        // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema    *GroupSchema  // #111 permission-group type schema (nil ⇒ root-only default)
+	schema         string       // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema    *GroupSchema // #111 permission-group type schema (nil ⇒ root-only default)
 	entitlements   EntitlementsProvider
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
@@ -203,9 +196,6 @@ type Service struct {
 func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
 		opts.NativeUserRegistrationMode = mode
-	}
-	if mode, err := normalizeRegistrationMode(opts.OrgRegistrationMode); err == nil {
-		opts.OrgRegistrationMode = mode
 	}
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
@@ -313,10 +303,6 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	if err != nil {
 		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, closed)", cfg.Registration.NativeUserMode)
 	}
-	orgRegistrationMode, err := normalizeRegistrationMode(cfg.Registration.OrgMode)
-	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid OrgRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, manifest_only, closed)", cfg.Registration.OrgMode)
-	}
 	tokenPrefix := strings.TrimSpace(cfg.APIKeys.Prefix)
 	if !validAPIKeyPrefix(tokenPrefix) {
 		return nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", tokenPrefix)
@@ -340,9 +326,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		FrontendCallbackPath:       frontendCallbackPath,
 		Schema:                     schema,
 		RegistrationVerification:   registrationVerification,
-		AutoCreatePersonalOrgs:     cfg.Registration.AutoCreatePersonalOrgs,
 		NativeUserRegistrationMode: nativeUserRegistrationMode,
-		OrgRegistrationMode:        orgRegistrationMode,
 		Environment:                strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:              strings.TrimSpace(cfg.SolanaNetwork),
 		SolanaSNSEnabled:           true,
@@ -458,21 +442,10 @@ func (o Options) RegistrationVerificationEnabled() bool {
 	return o.RegistrationVerificationPolicy() != RegistrationVerificationNone
 }
 
-func (o Options) AutoCreatePersonalOrgsEnabled() bool {
-	return o.AutoCreatePersonalOrgs
-}
-
 // PublicNativeUserRegistrationEnabled reports whether public native-user
 // self-registration / auto-registration is allowed.
 func (o Options) PublicNativeUserRegistrationEnabled() bool {
 	mode, err := normalizeRegistrationMode(o.NativeUserRegistrationMode)
-	return err == nil && mode == RegistrationModeOpen
-}
-
-// PublicOrgRegistrationEnabled reports whether public org onboarding /
-// management HTTP routes are allowed.
-func (o Options) PublicOrgRegistrationEnabled() bool {
-	mode, err := normalizeRegistrationMode(o.OrgRegistrationMode)
 	return err == nil && mode == RegistrationModeOpen
 }
 
@@ -2310,13 +2283,6 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if s.pg == nil {
 		return nil, nil
 	}
-	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateOrgSlug(slug) != nil {
-		return nil, fmt.Errorf("invalid_username_for_owner_namespace")
-	}
-	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
-		return nil, err
-	}
 	userID, err := newUUIDV7String()
 	if err != nil {
 		return nil, err
@@ -2326,12 +2292,6 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 		return nil, err
 	}
 	u := User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
-
-	if s.opts.AutoCreatePersonalOrgsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, u.ID, username); err != nil {
-			return nil, err
-		}
-	}
 	return &u, nil
 }
 
@@ -2351,9 +2311,8 @@ func normalizeImportUserInput(input ImportUserInput) (email *string, phone *stri
 		phone = &v
 	}
 	username = strings.TrimSpace(input.Username)
-	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateOrgSlug(slug) != nil {
-		return nil, nil, "", nil, "", time.Time{}, time.Time{}, fmt.Errorf("invalid_username_for_owner_namespace")
+	if err := ValidateUsername(username); err != nil {
+		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
 		v := strings.TrimSpace(*input.BannedBy)
@@ -2388,10 +2347,6 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 	if err != nil {
 		return nil, err
 	}
-	slug := ownerSlugFromUsername(username)
-	if err := s.ensureOwnerSlugAvailable(ctx, slug, "", ""); err != nil {
-		return nil, err
-	}
 	userID, err := newUUIDV7String()
 	if err != nil {
 		return nil, err
@@ -2414,11 +2369,6 @@ func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User,
 	if err != nil {
 		return nil, err
 	}
-	if s.opts.AutoCreatePersonalOrgsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
-			return nil, err
-		}
-	}
 	return s.getUserByID(ctx, userID)
 }
 
@@ -2433,9 +2383,6 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 	}
 	email, phone, username, bannedBy, metadata, createdAt, updatedAt, err := normalizeImportUserInput(input)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := s.ensureUserOwnerSlugAvailable(ctx, userID, username); err != nil {
 		return nil, err
 	}
 	updatedID, err := s.q.UserImportUpdate(ctx, db.UserImportUpdateParams{
@@ -2458,11 +2405,6 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 	}
 	if err != nil {
 		return nil, err
-	}
-	if s.opts.AutoCreatePersonalOrgsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, userID, username); err != nil {
-			return nil, err
-		}
 	}
 	return s.getUserByID(ctx, updatedID)
 }
@@ -2648,8 +2590,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 		return nil
 	}
 	newUsername := strings.TrimSpace(username)
-	newSlug, excludeOrgID, err := s.ValidateUsernameForUser(ctx, newUsername, id)
-	if err != nil {
+	if err := ValidateUsername(newUsername); err != nil {
 		return err
 	}
 	tx, err := s.pg.Begin(ctx)
@@ -2666,14 +2607,9 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	if strings.EqualFold(strings.TrimSpace(oldUsername), newUsername) {
 		return nil
 	}
-	if err := s.ensureOwnerSlugAvailable(ctx, newSlug, id, excludeOrgID); err != nil {
-		return err
-	}
 
-	// Cooldown check (issue #58). The cooldown applies to the user's
-	// rename intent only — the personal-org rename below is a
-	// by-product, not separately rate-limited. Walks the
-	// `(user_id, renamed_at DESC)` index to grab the most recent rename.
+	// Cooldown check (issue #58). Walks the `(user_id, renamed_at DESC)` index
+	// to grab the most recent rename.
 	if !bypassCooldown {
 		lastRenamedAt, err := qtx.UserLastRenamedAt(ctx, id)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -2690,50 +2626,6 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	// Audit row for the user rename.
 	if err := qtx.UserRenameInsert(ctx, db.UserRenameInsertParams{UserID: id, FromSlug: strings.ToLower(strings.TrimSpace(oldUsername))}); err != nil {
 		return err
-	}
-
-	if s.opts.AutoCreatePersonalOrgsEnabled() {
-		var orgID, oldOrgSlug string
-		pt, err := qtx.PersonalOrgIDSlugByOwner(ctx, id)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err == nil {
-			orgID, oldOrgSlug = pt.ID, pt.Slug
-		}
-		if strings.TrimSpace(orgID) == "" {
-			derivedOrgID, err := newUUIDV7String()
-			if err != nil {
-				return err
-			}
-			if err := qtx.PersonalOrgInsertBasic(ctx, db.PersonalOrgInsertBasicParams{ID: derivedOrgID, Slug: newSlug, OwnerUserID: id}); err != nil {
-				return err
-			}
-			pt, err := qtx.PersonalOrgIDSlugByOwner(ctx, id)
-			if err != nil {
-				return err
-			}
-			orgID = pt.ID
-		} else if !strings.EqualFold(oldOrgSlug, newSlug) {
-			// Personal-org rename rides the user-rename intent — write
-			// the org_renames audit row in the same tx. Cooldown was
-			// already checked against user_renames above; we don't
-			// re-gate here.
-			if err := qtx.OrgRenameInsert(ctx, db.OrgRenameInsertParams{OrgID: orgID, FromSlug: strings.ToLower(strings.TrimSpace(oldOrgSlug))}); err != nil {
-				return err
-			}
-			if err := qtx.OrgUpdateSlugUnconditional(ctx, db.OrgUpdateSlugUnconditionalParams{Slug: newSlug, ID: orgID}); err != nil {
-				return err
-			}
-		}
-		if strings.TrimSpace(orgID) != "" {
-			if err := qtx.OrgRolesSeedOwnerMember(ctx, db.OrgRolesSeedOwnerMemberParams{OrgID: orgID, OwnerRole: orgOwnerRole, MemberRole: orgMemberRole}); err != nil {
-				return err
-			}
-			if err := qtx.OrgMembershipUpsertRole(ctx, db.OrgMembershipUpsertRoleParams{OrgID: orgID, UserID: id, Role: orgOwnerRole}); err != nil {
-				return err
-			}
-		}
 	}
 	return tx.Commit(ctx)
 }
@@ -3007,33 +2899,53 @@ func (s *Service) createResetToken(ctx context.Context, userID, tokenHash string
 	return fmt.Errorf("ephemeral store not configured")
 }
 
-// listRoleSlugsByUser returns a user's platform role names. The legacy global
-// roles plane was hard-cut; "roles" in the admin directory now means a user's
-// Layer-2 platform roles (profiles.platform_user_roles).
+// normalizeRootRoleSlug maps an admin/manifest role slug onto a role of the
+// root permission-group's catalog. "admin" is the familiar slug for the seeded
+// root super-admin (root:*); every other name is taken as-is (it must be a
+// catalog role of the root type, declared in core.Config).
+func normalizeRootRoleSlug(slug string) string {
+	role := strings.ToLower(strings.TrimSpace(slug))
+	if role == "admin" {
+		return SuperAdminRoleName
+	}
+	return role
+}
+
+// listRoleSlugsByUser returns a user's roles in the root permission-group (the
+// former "platform" plane, #111). Operator authority is now just a root-group
+// assignment; "admin" is reported as the seeded super-admin slug.
 func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
 	if s.pg == nil {
 		return nil
 	}
-	roles, err := s.PlatformRolesForUser(ctx, userID)
+	st := s.groupStore()
+	gid, err := st.RootGroupID(ctx)
 	if err != nil {
 		return nil
 	}
-	return roles
+	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(userID), SubjectKindUser)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, a := range asg {
+		out = append(out, a.Roles...)
+	}
+	return out
 }
 
 var ErrReservedRoleSlug = errors.New("reserved_role_slug")
 var ErrUserRoleNotFound = errors.New("user_role_not_found")
 
 // ErrCannotRemoveLastAdminRole is retained for the admin HTTP adapter's error
-// mapping. The platform layer has no "last admin" lock (super-admin is seeded
+// mapping. The root layer has no "last admin" lock (super-admin is seeded
 // out-of-band via the bootstrap manifest), so core no longer returns it, but
 // the exported symbol stays so dependents keep compiling.
 var ErrCannotRemoveLastAdminRole = errors.New("cannot_remove_last_admin_role")
 
-// assignRoleBySlug grants a user a platform role by name (defining the role if
-// it does not yet exist). A manifest/admin role named "admin" is mapped onto the
-// platform super-admin (platform:*); any other name becomes a same-named
-// platform role with no perms until they are set explicitly.
+// assignRoleBySlug grants a user a role in the root permission-group (#111).
+// "admin" maps onto the root super-admin (root:*); every other name must be a
+// catalog role of the root type. The "owner" slug is reserved.
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
 	if strings.EqualFold(strings.TrimSpace(slug), "owner") {
 		return ErrReservedRoleSlug
@@ -3041,19 +2953,18 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 	if s.pg == nil {
 		return nil
 	}
-	role := strings.ToLower(strings.TrimSpace(slug))
-	if role == "admin" {
-		return s.EnsurePlatformSuperAdmin(ctx, userID)
-	}
-	if err := s.DefinePlatformRole(ctx, role); err != nil {
+	if _, err := s.EnsureRootGroup(ctx); err != nil {
 		return err
 	}
-	return s.AssignPlatformRole(ctx, userID, role)
+	role := normalizeRootRoleSlug(slug)
+	return s.AssignGroupRole(ctx, RootType, "", strings.TrimSpace(userID), SubjectKindUser, role)
 }
 
-// upsertRoleBySlug defines a platform role by name. The legacy global-role
-// name/description fields no longer exist; "admin" seeds the super-admin role
-// (platform:*) and every other name is defined as an empty platform role.
+// upsertRoleBySlug is a no-op under the permission-group model: catalog roles
+// live in core.Config (the GroupSchema), not the DB, so there is nothing to
+// "define" at runtime. It validates the slug is a known root catalog role (or
+// "admin"), ensures the root group exists, and returns. Kept so manifest/admin
+// callers compile unchanged.
 func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
 	if s.pg == nil {
 		return nil
@@ -3067,31 +2978,25 @@ func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, descr
 	if role == "owner" {
 		return ErrReservedRoleSlug
 	}
-	if role == "admin" {
-		if err := s.DefinePlatformRole(ctx, PlatformSuperAdminRole); err != nil {
-			return err
-		}
-		return s.SetPlatformRolePermissions(ctx, PlatformSuperAdminRole, []string{PlatformSuperAdminGrant})
+	if _, err := s.EnsureRootGroup(ctx); err != nil {
+		return err
 	}
-	return s.DefinePlatformRole(ctx, role)
+	role = normalizeRootRoleSlug(slug)
+	if !s.validRoleForType(s.groupSchemaOrDefault(), RootType, role) {
+		return fmt.Errorf("invalid_role")
+	}
+	return nil
 }
 
-// removeRoleBySlug revokes a user's platform role by name. "admin" maps onto the
-// super-admin role.
+// removeRoleBySlug revokes a user's role in the root permission-group. "admin"
+// maps onto the super-admin role.
 func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) error {
 	if s.pg == nil {
 		return nil
 	}
-	role := strings.ToLower(strings.TrimSpace(slug))
-	if role == "admin" {
-		role = PlatformSuperAdminRole
-	}
-	removed, err := s.UnassignPlatformRole(ctx, userID, role)
-	if err != nil {
+	role := normalizeRootRoleSlug(slug)
+	if err := s.UnassignGroupRole(ctx, RootType, "", strings.TrimSpace(userID), SubjectKindUser, role); err != nil {
 		return err
-	}
-	if !removed {
-		return ErrUserRoleNotFound
 	}
 	return nil
 }
@@ -3215,15 +3120,14 @@ const (
 )
 
 // AdminUserListOptions is the GENERIC admin user-directory query (issue #91). It
-// carries no host product knowledge: Role is any global-role slug, OrgSlug is any
-// org slug, Status/Sort are closed enums. Entitlement filtering delegates to the
-// billing provider (EntitlementFilterProvider), never a cross-schema join.
+// carries no host product knowledge: Role is any root permission-group role slug,
+// Status/Sort are closed enums. Entitlement filtering delegates to the billing
+// provider (EntitlementFilterProvider), never a cross-schema join.
 type AdminUserListOptions struct {
 	Page        int
 	PageSize    int
 	Search      string          // ILIKE over username/email/phone_number
-	Role        string          // global-role slug (e.g. "admin"); empty = no role filter
-	OrgSlug     string          // org membership; empty = no org filter
+	Role        string          // root-group role slug (e.g. "admin"); empty = no role filter
 	Status      AdminUserStatus // empty = non-deleted (historical default)
 	Sort        AdminUserSort   // empty = created_at
 	Desc        bool            // true = descending
@@ -3268,18 +3172,11 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 	}
 
 	if slug := strings.TrimSpace(o.Role); slug != "" {
-		// "role" now filters on a user's Layer-2 platform role (the legacy global
-		// roles plane was hard-cut). admin == the seeded super-admin role.
-		if strings.EqualFold(slug, "admin") {
-			slug = PlatformSuperAdminRole
-		}
-		from += " JOIN profiles.platform_user_roles pur ON pur.user_id = u.id AND pur.role = $" + fmt.Sprint(argIdx)
-		args = append(args, slug)
-		argIdx++
-	}
-
-	if slug := strings.TrimSpace(o.OrgSlug); slug != "" {
-		from += " JOIN profiles.org_memberships m ON m.member_id = u.id::text AND m.member_kind = 'user' JOIN profiles.orgs o ON o.id = m.org_id AND o.deleted_at IS NULL AND o.slug = $" + fmt.Sprint(argIdx)
+		// "role" now filters on a user's role in the ROOT permission-group (the
+		// former platform plane, #111). admin == the seeded super-admin role.
+		slug = normalizeRootRoleSlug(slug)
+		from += " JOIN profiles.group_role_assignments gra ON gra.subject_id = u.id AND gra.subject_kind = 'user' AND gra.deleted_at IS NULL AND gra.role = $" + fmt.Sprint(argIdx) +
+			" JOIN profiles.permission_groups pg ON pg.id = gra.group_id AND pg.type = 'root' AND pg.deleted_at IS NULL"
 		args = append(args, slug)
 		argIdx++
 	}
@@ -4214,3 +4111,28 @@ func isDevEnvironment(env string) bool {
 }
 
 // (SetUserActive removed; use BanUser/UnbanUser or SoftDeleteUser.)
+
+// requirePG returns an error when no Postgres pool is configured (verify-only /
+// config-only construction). Store-backed methods guard on it.
+func (s *Service) requirePG() error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	return nil
+}
+
+// dedupeStrings trims, drops empties, and de-duplicates a string slice,
+// preserving first-seen order.
+func dedupeStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}

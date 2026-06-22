@@ -36,7 +36,7 @@ func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 		GlobalRoles:   []string{"admin"},
 	}}}
 
-	result, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{DryRun: true})
+	result, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{DryRun: true})
 	if err != nil {
 		t.Fatalf("dry-run reconcile: %v", err)
 	}
@@ -48,59 +48,37 @@ func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 	}
 }
 
-func TestReconcileBootstrapManifestSeedsUsersRolesAndOrgMemberships(t *testing.T) {
+// #111: the bootstrap admin is seeded as a root permission-group owner/super-admin.
+// "admin" maps onto the root super-admin role; reconcile is idempotent.
+func TestReconcileBootstrapManifestSeedsRootAdmin(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	username := fmt.Sprintf("bootstrap-admin-%d", suffix)
-	orgSlug := fmt.Sprintf("bootstrap-org-%d", suffix)
-	roleSlug := fmt.Sprintf("bootstrap-role-%d", suffix)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, orgSlug)
-		// The legacy global-roles plane is gone; manifest roles are now platform
-		// roles (profiles.platform_roles + platform_user_roles).
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.platform_roles WHERE role=$1`, roleSlug)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
 	})
 
 	manifest := BootstrapManifest{
-		GlobalRoles: []BootstrapManifestGlobalRole{{
-			Name: "Bootstrap Role",
-			Slug: roleSlug,
-		}},
 		Users: []BootstrapManifestUser{{
 			Ref:           "admin",
 			Email:         username + "@example.com",
 			Username:      username,
 			EmailVerified: true,
 			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-			GlobalRoles:   []string{roleSlug},
+			GlobalRoles:   []string{"admin"},
 			Metadata:      map[string]any{"source": "bootstrap-test"},
-		}},
-		Orgs: []OrgManifestOrg{{
-			Slug: orgSlug,
-			Roles: []OrgManifestRole{{
-				Name:        "operator",
-				Permissions: []string{PermOrgSettingsRead},
-			}},
-			Memberships: []OrgManifestMembership{{
-				UserRef: "admin",
-				Role:    "operator",
-			}},
 		}},
 	}
 
-	first, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{})
+	first, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if first.UsersCreated != 1 || first.UsersUpdated != 0 || first.PasswordsSet != 1 || first.PasswordsKept != 0 || first.GlobalRoles != 1 || first.GlobalRoleAssignments != 1 {
+	if first.UsersCreated != 1 || first.UsersUpdated != 0 || first.PasswordsSet != 1 || first.PasswordsKept != 0 || first.GlobalRoleAssignments != 1 {
 		t.Fatalf("first result=%+v", first)
-	}
-	if first.OrgManifest.Orgs != 1 || first.OrgManifest.Roles != 1 || first.OrgManifest.Memberships != 1 {
-		t.Fatalf("first org result=%+v", first.OrgManifest)
 	}
 
 	user, err := svc.getUserByUsername(ctx, username)
@@ -110,65 +88,15 @@ func TestReconcileBootstrapManifestSeedsUsersRolesAndOrgMemberships(t *testing.T
 	if err := svc.CheckUserPassword(ctx, user.ID, "bootstrap-password-1"); err != nil {
 		t.Fatalf("seeded password check: %v", err)
 	}
-	if roles := svc.ListRoleSlugsByUser(ctx, user.ID); !containsString(roles, roleSlug) {
-		t.Fatalf("platform roles=%v, want %q", roles, roleSlug)
-	}
-	if orgRoles, err := svc.ReadMemberRoles(ctx, orgSlug, user.ID); err != nil {
-		t.Fatalf("list member roles: %v", err)
-	} else if !containsString(orgRoles, "operator") {
-		t.Fatalf("org roles=%v, want operator", orgRoles)
+	if roles := svc.ListRoleSlugsByUser(ctx, user.ID); !containsString(roles, SuperAdminRoleName) {
+		t.Fatalf("root roles=%v, want %q", roles, SuperAdminRoleName)
 	}
 
-	second, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{})
+	second, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
 	if err != nil {
 		t.Fatalf("second reconcile: %v", err)
 	}
 	if second.UsersCreated != 0 || second.UsersUpdated != 1 || second.PasswordsSet != 0 || second.PasswordsKept != 1 {
-		t.Fatalf("second result=%+v", second)
-	}
-}
-
-func TestReconcileBootstrapManifestIdempotentWithPersonalOrgAutoCreate(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	svc := NewService(Options{
-		Issuer:                 "https://test",
-		AutoCreatePersonalOrgs: true,
-	}, Keyset{}, WithPostgres(pool))
-
-	suffix := time.Now().UnixNano()
-	username := fmt.Sprintf("bootstrap-personal-%d", suffix)
-	orgSlug := fmt.Sprintf("bootstrap-personal-org-%d", suffix)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, orgSlug)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	})
-
-	manifest := BootstrapManifest{
-		Users: []BootstrapManifestUser{{
-			Ref:           "admin",
-			Email:         username + "@example.com",
-			Username:      username,
-			EmailVerified: true,
-			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		}},
-		Orgs: []OrgManifestOrg{{
-			Slug: orgSlug,
-			Memberships: []OrgManifestMembership{{
-				UserRef: "admin",
-				Role:    "owner",
-			}},
-		}},
-	}
-
-	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{}); err != nil {
-		t.Fatalf("first reconcile: %v", err)
-	}
-	second, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{})
-	if err != nil {
-		t.Fatalf("second reconcile: %v", err)
-	}
-	if second.UsersCreated != 0 || second.UsersUpdated != 1 || second.PasswordsKept != 1 {
 		t.Fatalf("second result=%+v", second)
 	}
 }

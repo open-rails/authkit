@@ -42,7 +42,7 @@ func TestReconcileBootstrapManifestPasswordSeedOnce(t *testing.T) {
 	}}}
 
 	// First reconcile creates the user and seeds the password.
-	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{}); err != nil {
+	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
 	user, err := svc.getUserByUsername(ctx, username)
@@ -57,7 +57,7 @@ func TestReconcileBootstrapManifestPasswordSeedOnce(t *testing.T) {
 	}
 
 	// Re-applying the SAME manifest (default, seed-once) must NOT revert it.
-	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, nil, BootstrapReconcileOptions{}); err != nil {
+	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
 		t.Fatalf("second reconcile (seed-once): %v", err)
 	}
 	if err := svc.CheckUserPassword(ctx, user.ID, rotated); err != nil {
@@ -75,7 +75,7 @@ func TestReconcileBootstrapManifestPasswordSeedOnce(t *testing.T) {
 		EmailVerified: true,
 		Password:      &BootstrapUserPassword{Plaintext: seeded, Enforce: true},
 	}}
-	if _, err := svc.ReconcileBootstrapManifest(ctx, enforce, nil, BootstrapReconcileOptions{}); err != nil {
+	if _, err := svc.ReconcileBootstrapManifest(ctx, enforce, BootstrapReconcileOptions{}); err != nil {
 		t.Fatalf("enforce reconcile: %v", err)
 	}
 	if err := svc.CheckUserPassword(ctx, user.ID, seeded); err != nil {

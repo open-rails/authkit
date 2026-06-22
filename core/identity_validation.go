@@ -115,10 +115,6 @@ func ValidateUsername(username string) error {
 	return nil
 }
 
-func OwnerSlugFromUsername(username string) string {
-	return ownerSlugFromUsername(username)
-}
-
 func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
@@ -166,64 +162,28 @@ func ValidatePassword(value string) error {
 	return nil
 }
 
-func UsernameOwnerNamespaceError(lookup *OwnerNamespaceLookup, allowedUserID string) string {
-	if lookup == nil || lookup.Status == OwnerNamespaceStatusUnregistered {
-		return ""
-	}
-	allowedUserID = strings.TrimSpace(allowedUserID)
-	switch lookup.Status {
-	case OwnerNamespaceStatusRegisteredUser:
-		if allowedUserID != "" && lookup.User != nil && strings.TrimSpace(lookup.User.ID) == allowedUserID {
-			return ""
-		}
-		return ErrCodeOwnerSlugTaken
-	case OwnerNamespaceStatusRegisteredOrg:
-		if allowedUserID != "" && lookup.Org != nil && strings.TrimSpace(lookup.Org.OwnerUserID) == allowedUserID {
-			return ""
-		}
-		return ErrCodeOwnerSlugTaken
-	case OwnerNamespaceStatusParkedUser,
-		OwnerNamespaceStatusParkedOrg,
-		OwnerNamespaceStatusRestrictedName:
-		return ErrCodeUsernameNotAllowed
-	case OwnerNamespaceStatusRenamedUser,
-		OwnerNamespaceStatusRenamedOrg,
-		OwnerNamespaceStatusHeldByDeletedUser,
-		OwnerNamespaceStatusHeldByDeletedOrg,
-		OwnerNamespaceStatusHeldByRecentUserRename,
-		OwnerNamespaceStatusHeldByRecentOrgRename:
-		return ErrCodeOwnerSlugTaken
-	default:
-		if !lookup.Claimable {
-			return ErrCodeOwnerSlugTaken
-		}
-		return ""
-	}
-}
-
+// ValidateUsernameForUser validates a desired username and confirms no OTHER
+// live user already holds it (#111: the org-slug reservation plane was removed,
+// so username uniqueness is the only constraint). The returned slug is the
+// lowercased username; excludeOrgID is retained in the signature for dependent
+// adapters but is always empty under the permission-group model.
 // Deprecated: use s.Users().ValidateUsernameForUser.
 func (s *Service) ValidateUsernameForUser(ctx context.Context, username, userID string) (slug, excludeOrgID string, err error) {
 	if err := ValidateUsername(username); err != nil {
 		return "", "", err
 	}
-	slug = OwnerSlugFromUsername(username)
-	if slug == "" || validateOrgSlug(slug) != nil {
-		return "", "", newValidationError(ErrCodeUsernameInvalidCharacters)
-	}
+	slug = strings.ToLower(strings.TrimSpace(username))
 	if s == nil || s.pg == nil {
 		return slug, "", nil
 	}
-	lookup, err := s.LookupOwnerNamespace(ctx, slug)
-	if err != nil {
+	existing, err := s.getUserByUsername(ctx, username)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", err
 	}
-	if code := UsernameOwnerNamespaceError(lookup, userID); code != "" {
-		return "", "", newValidationError(code)
+	if existing != nil && strings.TrimSpace(existing.ID) != strings.TrimSpace(userID) {
+		return "", "", newValidationError(ErrCodeOwnerSlugTaken)
 	}
-	if lookup != nil && lookup.Org != nil && strings.TrimSpace(lookup.Org.OwnerUserID) == strings.TrimSpace(userID) {
-		excludeOrgID = strings.TrimSpace(lookup.Org.ID)
-	}
-	return slug, excludeOrgID, nil
+	return slug, "", nil
 }
 
 // Deprecated: use s.Users().ValidateUsernameForRegistration.
@@ -239,31 +199,6 @@ func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID s
 	}
 	var lastRenamedAt *time.Time
 	if v, err := s.q.UserLastRenamedAt(ctx, strings.TrimSpace(userID)); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, nil
-		}
-		return 0, err
-	} else {
-		lastRenamedAt = &v
-	}
-	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
-		return 0, nil
-	}
-	availableAt := lastRenamedAt.Add(renameCooldown)
-	if !availableAt.After(now) {
-		return 0, nil
-	}
-	remaining := availableAt.Sub(now)
-	return int64((remaining + time.Second - time.Nanosecond) / time.Second), nil
-}
-
-// Deprecated: use s.Orgs().TimeUntilOrgRenameAvailable.
-func (s *Service) TimeUntilOrgRenameAvailable(ctx context.Context, orgID string, now time.Time) (int64, error) {
-	if s == nil || s.pg == nil || strings.TrimSpace(orgID) == "" {
-		return 0, nil
-	}
-	var lastRenamedAt *time.Time
-	if v, err := s.q.OrgLastRenamedAt(ctx, strings.TrimSpace(orgID)); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}

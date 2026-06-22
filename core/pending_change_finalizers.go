@@ -10,9 +10,8 @@ import (
 
 // finalizeRegisterEmail completes an email+password signup: it enforces
 // "first to verify wins" (email/username may have been taken since the pending
-// record was created), creates the verified user, applies the preferred locale,
-// and provisions a personal org when the host opts in. Mirrors the historical
-// ConfirmPendingRegistration body.
+// record was created), creates the verified user, and applies the preferred
+// locale. Mirrors the historical ConfirmPendingRegistration body.
 func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) (string, error) {
 	email := rec.Target
 	username := rec.Username
@@ -33,11 +32,6 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 	}
 	if rec.PreferredLocale != "" {
 		if err := s.SetPreferredLocale(ctx, uid, rec.PreferredLocale, "registration"); err != nil {
-			return "", err
-		}
-	}
-	if s.opts.AutoCreatePersonalOrgsEnabled() {
-		if err := s.ensurePersonalOrgForUser(ctx, uid, username); err != nil {
 			return "", err
 		}
 	}

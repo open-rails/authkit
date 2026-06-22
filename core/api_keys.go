@@ -17,14 +17,14 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// API keys: long-lived, revocable shared-secret bearer credentials
-// owned by an org (not a person), for machine/automation callers. An API key holds
-// exactly ONE org ROLE (#95); its effective permissions are resolved FROM that role
-// (org_role_permissions) at use time, so editing the role updates every key that
-// holds it. The bespoke-permission use case is served by a custom org role.
-// Resource-scope ({Kind,ID}) stays a SEPARATE, orthogonal binding. Permissions are
-// app-defined strings, opaque to authkit; the embedding app defines and enforces
-// what each one means. See agents #43 (lifecycle) and #95 (unify principals on roles).
+// API keys: long-lived, revocable shared-secret bearer credentials owned by a
+// permission-group (not a person), for machine/automation callers (#111). An
+// API key holds exactly ONE role of its group's TYPE catalog (or a group custom
+// role); its effective permissions are resolved FROM that role (the GroupSchema
+// catalog / group_custom_roles) at use time, so editing the role updates every
+// key that holds it. Resource-scope ({Kind,ID}) stays a SEPARATE, orthogonal
+// binding. Permissions are app-defined strings, opaque to authkit. See agents
+// #43 (lifecycle) and #111 (permission-groups).
 
 // Token sentinel errors are defined in authbase and re-exported here for
 // backward compatibility (so core.X callers and errors.Is checks are unaffected).
@@ -70,9 +70,10 @@ func sha256Raw(s string) []byte {
 }
 
 // APIKey is the non-secret metadata view of an API key. The secret is never
-// stored or returned after creation. Role is the single org role the key holds;
-// Permissions is that role's RESOLVED effective permission set (a convenience
-// projection — the role is the source of truth, edit it to change the key).
+// stored or returned after creation. Role is the single group role the key
+// holds; Permissions is that role's RESOLVED effective permission set (a
+// convenience projection — the role is the source of truth, edit it to change
+// the key).
 type APIKey struct {
 	ID          string
 	KeyID       string
@@ -94,10 +95,10 @@ type APIKeyResource = authbase.APIKeyResource
 // ResolvedAPIKey is defined in authbase (core-free) and re-exported here.
 type ResolvedAPIKey = authbase.ResolvedAPIKey
 
-// APIKeyMintOptions is the resource-aware API-key mint request. The key references
-// exactly ONE org ROLE (Role, a role slug that must already exist in the owning
-// org); its permissions are resolved from that role at use time. Resource-scope is
-// a separate binding. The token format is unchanged.
+// APIKeyMintOptions is the resource-aware API-key mint request. The key
+// references exactly ONE role (Role) that must be valid for the owning group's
+// TYPE catalog (or a group custom role); its permissions are resolved from that
+// role at use time. Resource-scope is a separate binding.
 type APIKeyMintOptions struct {
 	Name      string
 	Role      string
@@ -110,7 +111,8 @@ type APIKeyMintOptions struct {
 // API-key mint route receives resource scopes. AuthKit has already validated shape
 // and permission no-escalation before this hook runs.
 type ResourceScopeAuthorizationRequest struct {
-	OrgSlug     string
+	GroupType   string
+	ResourceRef string
 	ActorUserID string
 	Permissions []string
 	Resources   []APIKeyResource
@@ -130,7 +132,8 @@ func (s *Service) AuthorizeAPIKeyResources(ctx context.Context, req ResourceScop
 	if s.opts.ResourceScopeAuthorizer == nil {
 		return nil
 	}
-	req.OrgSlug = strings.TrimSpace(req.OrgSlug)
+	req.GroupType = strings.TrimSpace(req.GroupType)
+	req.ResourceRef = strings.TrimSpace(req.ResourceRef)
 	req.ActorUserID = strings.TrimSpace(req.ActorUserID)
 	req.Resources = resources
 	req.Permissions = dedupeStrings(req.Permissions)
@@ -159,14 +162,35 @@ func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 	return out, nil
 }
 
-// MintAPIKey inserts a new API key for the org bound to role and returns its
-// metadata plus the full plaintext token (shown ONCE). The role must already
-// exist in the org and the grant decision (no-escalation) lives in the HTTP
-// handler / host hook. expiresAt is optional (nil = no expiry) and is capped to
-// APIKeyMaxTTL when set.
+// effectiveGroupRolePermissions resolves a role NAME to its effective permission
+// set within a permission-group of groupType: a catalog role from the schema
+// (core.Config), or a per-group custom role from group_custom_roles. The role —
+// not any snapshot — is the source of truth, so resolution repeats at use time.
+func (s *Service) effectiveGroupRolePermissions(ctx context.Context, groupID, groupType, role string) ([]string, error) {
+	sch := s.groupSchemaOrDefault()
+	if def, ok := sch.Role(groupType, role); ok {
+		perms := append([]string(nil), def.Permissions...)
+		return perms, nil
+	}
+	// Not a catalog role: look for a per-group custom role.
+	resolver, err := s.groupStore().CustomRolesFor(ctx, []string{groupID})
+	if err != nil {
+		return nil, err
+	}
+	if perms, ok := resolver(groupID, role); ok {
+		return append([]string(nil), perms...), nil
+	}
+	return []string{}, nil
+}
+
+// MintAPIKey inserts a new API key for the permission-group addressed by
+// (groupType, resourceRef), bound to role, and returns its metadata plus the
+// full plaintext token (shown ONCE). The role must be valid for the group's
+// type; no-escalation is enforced by the HTTP handler / host hook. expiresAt is
+// optional (nil = no expiry) and is capped to APIKeyMaxTTL when set.
 // Deprecated: use s.APIKeys().MintAPIKey.
-func (s *Service) MintAPIKey(ctx context.Context, orgSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
-	return s.MintAPIKeyWithOptions(ctx, orgSlug, APIKeyMintOptions{
+func (s *Service) MintAPIKey(ctx context.Context, groupType, resourceRef, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
+	return s.MintAPIKeyWithOptions(ctx, groupType, resourceRef, APIKeyMintOptions{
 		Name:      name,
 		Role:      role,
 		CreatedBy: createdBy,
@@ -175,16 +199,16 @@ func (s *Service) MintAPIKey(ctx context.Context, orgSlug, name, role, createdBy
 }
 
 // MintAPIKeyWithOptions inserts a new API key using the resource-aware mint
-// contract. The key references exactly ONE org role (opts.Role), which must
-// already exist in the org; its effective permissions are resolved from the role.
-// No-escalation is the caller's responsibility (the HTTP handler validates the
-// minter holds everything the role confers). Resources are a separate binding.
+// contract. The key references exactly ONE role (opts.Role) valid for the owning
+// group's TYPE; its effective permissions are resolved from the role at use
+// time. No-escalation is the caller's responsibility. Resources are a separate
+// binding.
 // Deprecated: use s.APIKeys().MintAPIKeyWithOptions.
-func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
+func (s *Service) MintAPIKeyWithOptions(ctx context.Context, groupType, resourceRef string, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return APIKey{}, "", err
 	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(groupType), strings.TrimSpace(resourceRef))
 	if err != nil {
 		return APIKey{}, "", err
 	}
@@ -192,22 +216,21 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opt
 	if name == "" {
 		return APIKey{}, "", errors.New("missing_name")
 	}
-	role := canonicalizeOrgRole(opts.Role)
-	if err := validateOrgRole(role); err != nil {
+	role := strings.ToLower(strings.TrimSpace(opts.Role))
+	if role == "" {
 		return APIKey{}, "", errors.New("invalid_role")
 	}
-	// The role MUST exist in the owning org (also enforced by the DB FK, but
-	// checked here to return a precise error rather than a constraint violation).
-	exists, err := s.q.OrgRoleExists(ctx, db.OrgRoleExistsParams{OrgID: org.ID, Role: role})
-	if err != nil {
-		return APIKey{}, "", err
+	// The role must be valid for the group's TYPE: a catalog role, any role for
+	// custom-enabled types, or an existing group custom role.
+	if !s.validRoleForType(s.groupSchemaOrDefault(), groupType, role) {
+		if _, ok, cerr := s.lookupGroupCustomRole(ctx, gid, role); cerr != nil {
+			return APIKey{}, "", cerr
+		} else if !ok {
+			return APIKey{}, "", errors.New("unknown_role")
+		}
 	}
-	if !exists {
-		return APIKey{}, "", errors.New("unknown_role")
-	}
-	// Resolve the role's effective permissions for the returned view. The role —
-	// not this snapshot — is the source of truth; resolution repeats at verify time.
-	permissions, err := s.EffectiveRolePermissions(ctx, org.Slug, role)
+	// Resolve the role's effective permissions for the returned view.
+	permissions, err := s.effectiveGroupRolePermissions(ctx, gid, groupType, role)
 	if err != nil {
 		return APIKey{}, "", err
 	}
@@ -254,16 +277,15 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opt
 		if err != nil {
 			return APIKey{}, "", err
 		}
-		qtx := s.qtx(tx)
-		ins, err := qtx.APIKeyInsert(ctx, db.APIKeyInsertParams{
-			OrgID:      org.ID,
-			KeyID:      keyID,
-			SecretHash: secretHash,
-			Name:       name,
-			Role:       role,
-			CreatedBy:  createdByArg,
-			ExpiresAt:  expiresAt,
-		})
+		q := db.ForSchema(tx, s.dbSchema())
+		var id string
+		var createdAt time.Time
+		err = q.QueryRow(ctx,
+			`INSERT INTO profiles.service_tokens
+			   (permission_group_id, key_id, secret_hash, name, role, created_by, expires_at)
+			 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+			 RETURNING id::text, created_at`,
+			gid, keyID, secretHash, name, role, createdByArg, expiresAt).Scan(&id, &createdAt)
 		if err != nil {
 			_ = tx.Rollback(ctx)
 			var pgErr *pgconn.PgError
@@ -272,9 +294,10 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opt
 			}
 			return APIKey{}, "", err
 		}
-		id := ins.ID
 		for _, r := range resources {
-			if err := qtx.APIKeyResourceInsert(ctx, db.APIKeyResourceInsertParams{ApiKeyID: id, Kind: r.Kind, ResourceID: r.ID}); err != nil {
+			if _, err := q.Exec(ctx,
+				`INSERT INTO profiles.service_token_resources (token_id, kind, resource_id)
+				 VALUES ($1::uuid, $2, $3)`, id, r.Kind, r.ID); err != nil {
 				_ = tx.Rollback(ctx)
 				return APIKey{}, "", err
 			}
@@ -290,7 +313,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opt
 			Permissions: permissions,
 			Resources:   resources,
 			CreatedBy:   strings.TrimSpace(opts.CreatedBy),
-			CreatedAt:   ins.CreatedAt,
+			CreatedAt:   createdAt,
 			ExpiresAt:   expiresAt,
 		}
 		return out, FormatAPIKey(s.opts.APIKeyPrefix, keyID, secret), nil
@@ -298,37 +321,53 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opt
 	return APIKey{}, "", errors.New("key_id_generation_failed")
 }
 
-// ListAPIKeys returns metadata for every API key of the org (including
-// revoked/expired ones, so an admin can see and clean them up). The secret is
-// never returned.
+// lookupGroupCustomRole reports whether role is an existing per-group custom
+// role and returns its permissions.
+func (s *Service) lookupGroupCustomRole(ctx context.Context, groupID, role string) ([]string, bool, error) {
+	resolver, err := s.groupStore().CustomRolesFor(ctx, []string{groupID})
+	if err != nil {
+		return nil, false, err
+	}
+	perms, ok := resolver(groupID, role)
+	return perms, ok, nil
+}
+
+// ListAPIKeys returns metadata for every API key of the permission-group
+// addressed by (groupType, resourceRef), including revoked/expired ones. The
+// secret is never returned.
 // Deprecated: use s.APIKeys().ListAPIKeys.
-func (s *Service) ListAPIKeys(ctx context.Context, orgSlug string) ([]APIKey, error) {
+func (s *Service) ListAPIKeys(ctx context.Context, groupType, resourceRef string) ([]APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(groupType), strings.TrimSpace(resourceRef))
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.q.APIKeysByOrg(ctx, org.ID)
+	q := db.ForSchema(s.pg, s.dbSchema())
+	rows, err := q.Query(ctx,
+		`SELECT id::text, key_id, name, role, COALESCE(created_by::text, ''),
+		        created_at, last_used_at, expires_at, revoked_at
+		 FROM profiles.service_tokens
+		 WHERE permission_group_id = $1::uuid
+		 ORDER BY created_at DESC`, gid)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var out []APIKey
-	for _, r := range rows {
-		out = append(out, APIKey{
-			ID:         r.ID,
-			KeyID:      r.KeyID,
-			Name:       r.Name,
-			Role:       r.Role,
-			CreatedBy:  r.CreatedBy,
-			CreatedAt:  r.CreatedAt,
-			LastUsedAt: r.LastUsedAt,
-			ExpiresAt:  r.ExpiresAt,
-			RevokedAt:  r.RevokedAt,
-		})
+	for rows.Next() {
+		var k APIKey
+		if err := rows.Scan(&k.ID, &k.KeyID, &k.Name, &k.Role, &k.CreatedBy,
+			&k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
 	}
-	if err := s.loadAPIKeyPermissions(ctx, org.Slug, out); err != nil {
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.loadAPIKeyPermissions(ctx, gid, groupType, out); err != nil {
 		return nil, err
 	}
 	if err := s.loadAPIKeyResources(ctx, out); err != nil {
@@ -337,33 +376,35 @@ func (s *Service) ListAPIKeys(ctx context.Context, orgSlug string) ([]APIKey, er
 	return out, nil
 }
 
-// RevokeAPIKey marks the API key revoked. It is scoped to the org so a
-// token cannot be revoked from a different org. Returns false if no matching,
+// RevokeAPIKey marks the API key revoked. It is scoped to the group so a token
+// cannot be revoked from a different group. Returns false if no matching,
 // not-already-revoked token exists.
 // Deprecated: use s.APIKeys().RevokeAPIKey.
-func (s *Service) RevokeAPIKey(ctx context.Context, orgSlug, tokenID string) (bool, error) {
+func (s *Service) RevokeAPIKey(ctx context.Context, groupType, resourceRef, tokenID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(groupType), strings.TrimSpace(resourceRef))
 	if err != nil {
 		return false, err
 	}
-	n, err := s.q.APIKeyRevoke(ctx, db.APIKeyRevokeParams{ID: strings.TrimSpace(tokenID), OrgID: org.ID})
+	q := db.ForSchema(s.pg, s.dbSchema())
+	tag, err := q.Exec(ctx,
+		`UPDATE profiles.service_tokens SET revoked_at = now()
+		 WHERE id = $1::uuid AND permission_group_id = $2::uuid AND revoked_at IS NULL`,
+		strings.TrimSpace(tokenID), gid)
 	if err != nil {
 		return false, err
 	}
-	return n > 0, nil
+	return tag.RowsAffected() > 0, nil
 }
 
-// ResolveAPIKey validates a presented API key (key_id + secret) and returns
-// the owning org's current slug and the key's effective permissions resolved
-// from its org ROLE at verify time (a role edit is reflected immediately — perms
-// are never frozen into the key). It performs an indexed lookup by key_id, a
-// constant-time secret compare, and revoked / expired / org-deleted checks, then
-// best-effort async-touches last_used_at.
+// ResolveAPIKey validates a presented API key (key_id + secret) and returns the
+// owning group's id (in OrgSlug for backward-compat callers) and the key's
+// effective permissions resolved from its role at verify time (a role edit is
+// reflected immediately — perms are never frozen into the key).
 // Deprecated: use s.APIKeys().ResolveAPIKey.
-func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (orgSlug string, permissions []string, err error) {
+func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (groupRef string, permissions []string, err error) {
 	resolved, err := s.ResolveAPIKeyWithResources(ctx, keyID, secret)
 	if err != nil {
 		return "", nil, err
@@ -371,16 +412,33 @@ func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (orgS
 	return resolved.OrgSlug, resolved.Permissions, nil
 }
 
-// ResolveAPIKeyWithResources validates a presented API key and returns the
-// full resource-aware result. Existing tokens with no resources return an empty
-// Resources slice and remain org-wide for hosts that use the compatibility
-// resolver.
+// ResolveAPIKeyWithResources validates a presented API key and returns the full
+// resource-aware result. The key's permission-group id is carried in both OrgID
+// and OrgSlug of ResolvedAPIKey (the authbase struct field names are retained;
+// they now hold the controlling permission_group_id).
 // Deprecated: use s.APIKeys().ResolveAPIKeyWithResources.
 func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return ResolvedAPIKey{}, err
 	}
-	row, err := s.q.APIKeyByKeyID(ctx, keyID)
+	q := db.ForSchema(s.pg, s.dbSchema())
+	var (
+		id           string
+		secretHash   []byte
+		role         string
+		expiresAt    *time.Time
+		revokedAt    *time.Time
+		groupID      string
+		groupType    string
+		groupDeleted *time.Time
+	)
+	err := q.QueryRow(ctx,
+		`SELECT t.id::text, t.secret_hash, t.role, t.expires_at, t.revoked_at,
+		        pg.id::text, pg.type, pg.deleted_at
+		 FROM profiles.service_tokens t
+		 JOIN profiles.permission_groups pg ON pg.id = t.permission_group_id
+		 WHERE t.key_id = $1`, keyID).
+		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &groupType, &groupDeleted)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ResolvedAPIKey{}, ErrInvalidAccessToken
@@ -389,40 +447,38 @@ func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret 
 	}
 
 	// Constant-time secret comparison.
-	if subtle.ConstantTimeCompare(row.SecretHash, sha256Raw(secret)) != 1 {
+	if subtle.ConstantTimeCompare(secretHash, sha256Raw(secret)) != 1 {
 		return ResolvedAPIKey{}, ErrInvalidAccessToken
 	}
-	if row.RevokedAt != nil {
+	if revokedAt != nil {
 		return ResolvedAPIKey{}, ErrAccessTokenRevoked
 	}
-	if row.ExpiresAt != nil && !row.ExpiresAt.After(time.Now().UTC()) {
+	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
 		return ResolvedAPIKey{}, ErrAccessTokenExpired
 	}
-	if row.OrgDeletedAt != nil {
+	if groupDeleted != nil {
 		return ResolvedAPIKey{}, ErrInvalidAccessToken
 	}
 
-	s.touchAccessTokenAsync(row.ID)
-	// Resolve the key's role to its effective permission set AT VERIFY TIME, so a
-	// role edit immediately changes every key that holds it (#95). Perms are never
-	// frozen into the key.
-	gotPerms, err := s.EffectiveRolePermissions(ctx, row.Slug, row.Role)
+	s.touchAccessTokenAsync(id)
+	// Resolve the key's role to its effective permission set AT VERIFY TIME (#111).
+	gotPerms, err := s.effectiveGroupRolePermissions(ctx, groupID, groupType, role)
 	if err != nil {
 		return ResolvedAPIKey{}, err
 	}
 	if gotPerms == nil {
 		gotPerms = []string{}
 	}
-	resources, err := s.listAPIKeyResources(ctx, row.ID)
+	resources, err := s.listAPIKeyResources(ctx, id)
 	if err != nil {
 		return ResolvedAPIKey{}, err
 	}
 	return ResolvedAPIKey{
-		APIKeyID:    row.ID,
+		APIKeyID:    id,
 		KeyID:       keyID,
-		OrgID:       row.OrgID,
-		OrgSlug:     row.Slug,
-		Role:        row.Role,
+		OrgID:       groupID,
+		OrgSlug:     groupID,
+		Role:        role,
 		Permissions: gotPerms,
 		Resources:   resources,
 	}, nil
@@ -434,13 +490,14 @@ func (s *Service) touchAccessTokenAsync(id string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = s.q.APIKeyTouchLastUsed(ctx, id)
+		q := db.ForSchema(s.pg, s.dbSchema())
+		_, _ = q.Exec(ctx, `UPDATE profiles.service_tokens SET last_used_at = now() WHERE id = $1::uuid`, id)
 	}()
 }
 
 // loadAPIKeyPermissions fills each key's Permissions with its ROLE resolved to
-// effective permissions (#95). Keys sharing a role resolve once (cached per role).
-func (s *Service) loadAPIKeyPermissions(ctx context.Context, orgSlug string, tokens []APIKey) error {
+// effective permissions (#111). Keys sharing a role resolve once (cached per role).
+func (s *Service) loadAPIKeyPermissions(ctx context.Context, groupID, groupType string, tokens []APIKey) error {
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -450,7 +507,7 @@ func (s *Service) loadAPIKeyPermissions(ctx context.Context, orgSlug string, tok
 		perms, ok := byRole[role]
 		if !ok {
 			var err error
-			perms, err = s.EffectiveRolePermissions(ctx, orgSlug, role)
+			perms, err = s.effectiveGroupRolePermissions(ctx, groupID, groupType, role)
 			if err != nil {
 				return err
 			}
@@ -475,26 +532,42 @@ func (s *Service) loadAPIKeyResources(ctx context.Context, tokens []APIKey) erro
 		ids = append(ids, tokens[i].ID)
 		byID[tokens[i].ID] = i
 	}
-	rows, err := s.q.APIKeyResourcesByAPIKeyIDs(ctx, ids)
+	q := db.ForSchema(s.pg, s.dbSchema())
+	rows, err := q.Query(ctx,
+		`SELECT token_id::text, kind, resource_id FROM profiles.service_token_resources
+		 WHERE token_id = ANY($1::uuid[])`, ids)
 	if err != nil {
 		return err
 	}
-	for _, r := range rows {
-		if i, ok := byID[r.ApiKeyID]; ok {
-			tokens[i].Resources = append(tokens[i].Resources, APIKeyResource{Kind: r.Kind, ID: r.ResourceID})
+	defer rows.Close()
+	for rows.Next() {
+		var tokenID, kind, resourceID string
+		if err := rows.Scan(&tokenID, &kind, &resourceID); err != nil {
+			return err
+		}
+		if i, ok := byID[tokenID]; ok {
+			tokens[i].Resources = append(tokens[i].Resources, APIKeyResource{Kind: kind, ID: resourceID})
 		}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (s *Service) listAPIKeyResources(ctx context.Context, tokenID string) ([]APIKeyResource, error) {
-	rows, err := s.q.APIKeyResourcesByAPIKeyID(ctx, strings.TrimSpace(tokenID))
+	q := db.ForSchema(s.pg, s.dbSchema())
+	rows, err := q.Query(ctx,
+		`SELECT kind, resource_id FROM profiles.service_token_resources WHERE token_id = $1::uuid`,
+		strings.TrimSpace(tokenID))
 	if err != nil {
 		return nil, err
 	}
-	out := make([]APIKeyResource, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, APIKeyResource{Kind: r.Kind, ID: r.ResourceID})
+	defer rows.Close()
+	out := make([]APIKeyResource, 0)
+	for rows.Next() {
+		var kind, resourceID string
+		if err := rows.Scan(&kind, &resourceID); err != nil {
+			return nil, err
+		}
+		out = append(out, APIKeyResource{Kind: kind, ID: resourceID})
 	}
-	return out, nil
+	return out, rows.Err()
 }

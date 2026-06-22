@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,17 @@ import (
 	"github.com/open-rails/authkit/authbase"
 	"github.com/open-rails/authkit/internal/db"
 )
+
+// remoteAppSlugRe validates a remote_application slug: lowercase alnum with
+// internal hyphens (the historical org-slug shape, now group-local).
+var remoteAppSlugRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+func validateRemoteAppSlug(slug string) error {
+	if slug == "" || len(slug) > 63 || !remoteAppSlugRe.MatchString(slug) {
+		return ErrInvalidRemoteApplication
+	}
+	return nil
+}
 
 var (
 	// ErrRemoteApplicationNotFound indicates no remote_application matched.
@@ -255,7 +267,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if platformIssuer := strings.TrimSpace(s.opts.Issuer); platformIssuer != "" && strings.EqualFold(issuer, platformIssuer) {
 		return nil, ErrReservedIssuer
 	}
-	if err := validateOrgSlug(slug); err != nil {
+	if err := validateRemoteAppSlug(slug); err != nil {
 		return nil, ErrInvalidRemoteApplication
 	}
 	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys)
@@ -273,12 +285,14 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 			return nil, ErrInvalidRemoteApplication
 		}
 	}
-	// #95: remote-applications are a pure ORG sub-resource — org_id is REQUIRED.
-	// There is no org-less / operator-managed issuer; an issuer "attached to
-	// nothing" is rejected so every issuer maps to one merchant via its org.
+	// #111: remote-applications are group-nested — the controlling
+	// permission_group_id is REQUIRED. There is no group-less / operator-managed
+	// issuer; an issuer "attached to nothing" is rejected so every issuer maps to
+	// one controlling permission-group. (RemoteApplication.OrgID carries the
+	// permission_group_id; the authbase field name is retained.)
 	t := strings.TrimSpace(in.OrgID)
 	if t == "" {
-		return nil, fmt.Errorf("%w: org_id is required (remote-applications are org-nested)", ErrInvalidRemoteApplication)
+		return nil, fmt.Errorf("%w: permission_group_id is required (remote-applications are group-nested)", ErrInvalidRemoteApplication)
 	}
 	org := &t
 
@@ -319,11 +333,12 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	return &RemoteApplication{ID: row.ID, Slug: row.Slug, OrgID: row.OrgID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
-// ResolveRemoteApplicationOrg returns the owning org_id of the
-// remote_application registered for issuer (#77). Empty string means
-// unowned/bootstrap-managed; ErrRemoteApplicationNotFound if unknown.
-// Deprecated: use s.Identity().ResolveRemoteApplicationOrg.
-func (s *Service) ResolveRemoteApplicationOrg(ctx context.Context, issuer string) (string, error) {
+// ResolveRemoteApplicationGroup returns the controlling permission_group_id of
+// the remote_application registered for issuer (#111). ErrRemoteApplicationNotFound
+// if unknown. (RemoteApplication.OrgID carries the permission_group_id; the
+// authbase field name is retained.)
+// Deprecated: use s.Identity().ResolveRemoteApplicationGroup.
+func (s *Service) ResolveRemoteApplicationGroup(ctx context.Context, issuer string) (string, error) {
 	ra, err := s.GetRemoteApplication(ctx, issuer)
 	if err != nil {
 		return "", err

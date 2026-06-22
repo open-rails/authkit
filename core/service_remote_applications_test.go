@@ -29,18 +29,18 @@ func testPG(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// createTestOrg makes a fresh org for a remote_application fixture and returns
-// its id (org_id is OPTIONAL since #80; fixtures still bind one). Cleanup runs
-// after the RA cleanup (LIFO).
-func createTestOrg(t *testing.T, ctx context.Context, svc *Service, pool *pgxpool.Pool, slug string) string {
+// createTestGroup ensures the root permission-group exists and returns its id
+// for a remote_application fixture (#111: remote-apps are group-nested; their
+// permission_group_id FK just needs to point at a live group). The slug arg is
+// unused now but kept for call-site stability.
+func createTestGroup(t *testing.T, ctx context.Context, svc *Service, pool *pgxpool.Pool, slug string) string {
 	t.Helper()
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug) })
-	org, err := svc.CreateOrg(ctx, slug)
+	_ = slug
+	gid, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
-		t.Fatalf("create org %q: %v", slug, err)
+		t.Fatalf("ensure root group: %v", err)
 	}
-	return org.ID
+	return gid
 }
 
 func TestRemoteApplicationRoundTrip(t *testing.T) {
@@ -49,7 +49,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
-	orgID := createTestOrg(t, ctx, svc, pool, "cozy-art-org")
+	orgID := createTestGroup(t, ctx, svc, pool, "cozy-art-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "cozy-art")
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "cozy-art") })
 
@@ -151,9 +151,9 @@ func TestRemoteApplicationOrgOptionalOwnerUserRemoved(t *testing.T) {
 		t.Fatalf("remote_applications.owner_user_id should not exist after migration")
 	}
 
-	// #95: org_id is now REQUIRED. An org-less ("bootstrap/operator-managed")
-	// remote application is REJECTED — every issuer must be org-bound, so it maps
-	// to exactly one merchant via its owning org (no orphan issuers).
+	// #111: permission_group_id is now REQUIRED. A group-less
+	// ("bootstrap/operator-managed") remote application is REJECTED — every issuer
+	// must map to exactly one controlling permission-group (no orphan issuers).
 	_, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:    "bootstrap-issuer",
 		Issuer:  "https://bootstrap.example/issuer",
@@ -272,7 +272,7 @@ func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 
 	iss := "https://static.example/issuer"
 	slug := "static-keys-app"
-	orgID := createTestOrg(t, ctx, svc, pool, "static-keys-org")
+	orgID := createTestGroup(t, ctx, svc, pool, "static-keys-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
 

@@ -10,120 +10,139 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// MemberKindRemoteApplication is the polymorphic org_memberships.member_kind
-// for a remote_application principal. MemberKindUser is the user principal.
-const (
-	MemberKindUser              = "user"
-	MemberKindRemoteApplication = "remote_application"
-)
+// SubjectKindRemoteApp is the group_role_assignments.subject_kind for a
+// remote_application principal (mirrors the migration-008 polymorphic subject).
+// SubjectKindUser is the user principal. (SubjectKind* live in
+// permission_group_store.go.)
 
-// AddRemoteApplicationMember makes a remote_application a member of a org with
-// the given role, via the SAME polymorphic org_memberships machinery as
-// users. role defaults to 'member'; the role must be defined on the org (or a
-// materializable default). appID is the remote_application uuid.
-// Deprecated: use s.Identity().AddRemoteApplicationMember.
-func (s *Service) AddRemoteApplicationMember(ctx context.Context, orgSlug, appID, role string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
-	if err != nil {
-		return err
-	}
+// ErrNotGroupMember is returned when a remote_application holds no role in its
+// controlling permission-group.
+var ErrNotGroupMember = errors.New("not_group_member")
+
+// remoteApplicationGroupID resolves a remote_application's controlling
+// permission_group_id (its REQUIRED group, #111). appID is the remote_application
+// uuid. Returns ErrInvalidRemoteApplication on empty input and
+// ErrRemoteApplicationNotFound when no such app exists.
+func (s *Service) remoteApplicationGroupID(ctx context.Context, appID string) (string, error) {
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
-		return ErrInvalidRemoteApplication
+		return "", ErrInvalidRemoteApplication
 	}
-	role = canonicalizeOrgRole(role)
-	if err := validateOrgRole(role); err != nil {
-		return err
-	}
-	// Materialize a default-role template the same way user assignment does, so
-	// the org_roles row the membership FK requires exists.
-	if err := s.materializeDefaultRole(ctx, org.ID, role); err != nil {
-		return err
-	}
-	return s.q.OrgMembershipUpsertRolePrincipal(ctx, db.OrgMembershipUpsertRolePrincipalParams{
-		OrgID:      org.ID,
-		MemberID:   appID,
-		MemberKind: MemberKindRemoteApplication,
-		Role:       role,
-	})
-}
-
-// RemoveRemoteApplicationMember soft-deletes a remote_application's membership in
-// a org.
-// Deprecated: use s.Identity().RemoveRemoteApplicationMember.
-func (s *Service) RemoveRemoteApplicationMember(ctx context.Context, orgSlug, appID string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
-	if err != nil {
-		return err
-	}
-	return s.q.OrgMemberSoftDeletePrincipal(ctx, db.OrgMemberSoftDeletePrincipalParams{
-		OrgID:      org.ID,
-		MemberID:   strings.TrimSpace(appID),
-		MemberKind: MemberKindRemoteApplication,
-	})
-}
-
-// RemoteApplicationOrgRole returns the role a remote_application holds in a
-// org, or ErrNotOrgMember when it holds none.
-// Deprecated: use s.Identity().RemoteApplicationOrgRole.
-func (s *Service) RemoteApplicationOrgRole(ctx context.Context, orgSlug, appID string) (string, error) {
-	if err := s.requirePG(); err != nil {
-		return "", err
-	}
-	org, err := s.ResolveOrgBySlug(ctx, orgSlug)
-	if err != nil {
-		return "", err
-	}
-	role, err := s.q.OrgMemberRolePrincipal(ctx, db.OrgMemberRolePrincipalParams{
-		OrgID:      org.ID,
-		MemberID:   strings.TrimSpace(appID),
-		MemberKind: MemberKindRemoteApplication,
-	})
+	q := db.ForSchema(s.pg, s.dbSchema())
+	var gid string
+	err := q.QueryRow(ctx,
+		`SELECT permission_group_id::text FROM profiles.remote_applications WHERE id = $1::uuid`,
+		appID).Scan(&gid)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNotOrgMember
+		return "", ErrRemoteApplicationNotFound
 	}
 	if err != nil {
 		return "", err
 	}
-	return role, nil
+	return gid, nil
 }
 
-// RemoteApplicationOrgRoles returns every (org slug, role) the
-// remote_application principal holds — the verifier uses this to resolve a
-// remote_app's org roles, the same way it would for a user principal.
-// Deprecated: use s.Identity().RemoteApplicationOrgRoles.
-func (s *Service) RemoteApplicationOrgRoles(ctx context.Context, appID string) ([]OrgMembership, error) {
+// AddRemoteApplicationMember grants a remote_application a role in its own
+// controlling permission-group via group_role_assignments (subject_kind=
+// remote_application) — the same machinery as users (#111). role defaults to
+// the base member role.
+// Deprecated: use s.Identity().AddRemoteApplicationMember.
+func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role string) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	gid, err := s.remoteApplicationGroupID(ctx, appID)
+	if err != nil {
+		return err
+	}
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		role = MemberRoleName
+	}
+	return s.groupStore().AssignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
+}
+
+// RemoveRemoteApplicationMember soft-deletes a remote_application's role in its
+// controlling permission-group.
+// Deprecated: use s.Identity().RemoveRemoteApplicationMember.
+func (s *Service) RemoveRemoteApplicationMember(ctx context.Context, appID, role string) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	gid, err := s.remoteApplicationGroupID(ctx, appID)
+	if err != nil {
+		return err
+	}
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		// Remove every role the app holds in its controlling group.
+		q := db.ForSchema(s.pg, s.dbSchema())
+		_, err := q.Exec(ctx,
+			`UPDATE profiles.group_role_assignments SET deleted_at = now(), updated_at = now()
+			 WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3 AND deleted_at IS NULL`,
+			gid, strings.TrimSpace(appID), SubjectKindRemoteApp)
+		return err
+	}
+	return s.groupStore().UnassignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
+}
+
+// RemoteApplicationRoles returns the roles a remote_application holds in its
+// controlling permission-group, or ErrNotGroupMember when it holds none.
+// Deprecated: use s.Identity().RemoteApplicationRoles.
+func (s *Service) RemoteApplicationRoles(ctx context.Context, appID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	appID = strings.TrimSpace(appID)
-	if appID == "" {
-		return nil, ErrInvalidRemoteApplication
-	}
-	rows, err := s.q.OrgRolesForPrincipal(ctx, db.OrgRolesForPrincipalParams{
-		MemberID:   appID,
-		MemberKind: MemberKindRemoteApplication,
-	})
+	gid, err := s.remoteApplicationGroupID(ctx, appID)
 	if err != nil {
 		return nil, err
 	}
-	// Collapse to one OrgMembership per org with its roles.
-	byOrg := map[string]int{}
-	var out []OrgMembership
-	for _, r := range rows {
-		idx, ok := byOrg[r.Slug]
-		if !ok {
-			out = append(out, OrgMembership{Org: r.Slug})
-			idx = len(out) - 1
-			byOrg[r.Slug] = idx
-		}
-		out[idx].Roles = append(out[idx].Roles, r.Role)
+	asg, err := s.groupStore().WalkAssignments(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	var roles []string
+	for _, a := range asg {
+		roles = append(roles, a.Roles...)
+	}
+	if len(roles) == 0 {
+		return nil, ErrNotGroupMember
+	}
+	return roles, nil
+}
+
+// ResolveRemoteApplicationAuthority resolves a remote_application's effective
+// permissions: the additive walk-up of every role it holds across its
+// controlling permission-group's parent chain (#111). Returns an empty slice
+// (no error) when the app holds no roles.
+// Deprecated: use s.Identity().ResolveRemoteApplicationAuthority.
+func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error) {
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	gid, err := s.remoteApplicationGroupID(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	st := s.groupStore()
+	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp)
+	if err != nil {
+		return nil, err
+	}
+	if len(asg) == 0 {
+		return []string{}, nil
+	}
+	ids := make([]string, 0, len(asg))
+	for _, a := range asg {
+		ids = append(ids, a.GroupID)
+	}
+	resolver, err := st.CustomRolesFor(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	perms := s.groupSchemaOrDefault().ResolveGrants(asg, resolver)
+	if perms == nil {
+		perms = []string{}
+	}
+	return perms, nil
 }

@@ -16,7 +16,7 @@ func TestUpsertRemoteApplicationRejectsPlatformIssuer(t *testing.T) {
 	svc := NewService(Options{Issuer: platformIssuer}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
-	orgID := createTestOrg(t, ctx, svc, pool, "reserved-issuer-org")
+	orgID := createTestGroup(t, ctx, svc, pool, "reserved-issuer-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "reserved-issuer-ra")
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "reserved-issuer-ra")
@@ -52,7 +52,7 @@ func TestUpsertRemoteApplicationAllowsNonPlatformIssuer(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://platform.example"}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
-	orgID := createTestOrg(t, ctx, svc, pool, "ok-issuer-org")
+	orgID := createTestGroup(t, ctx, svc, pool, "ok-issuer-org")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "ok-issuer-ra")
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "ok-issuer-ra")

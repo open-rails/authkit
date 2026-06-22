@@ -6,7 +6,6 @@ func TestServiceFacetsReturnSameService(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://issuer.example"}, Keyset{})
 
 	if svc.Users().svc != svc ||
-		svc.Orgs().svc != svc ||
 		svc.Roles().svc != svc ||
 		svc.APIKeys().svc != svc ||
 		svc.Tokens().svc != svc ||

@@ -80,18 +80,10 @@ type RegistrationConfig struct {
 	// Verification controls registration verification: "none"|"optional"|
 	// "required". Empty defaults to "none".
 	Verification RegistrationVerificationPolicy
-	// AutoCreatePersonalOrgs creates a personal org for each native user at
-	// signup (authkit issue 60). Empty/false means native users can exist
-	// without org rows; hosts that want personal/team workspaces opt in.
-	AutoCreatePersonalOrgs bool
 	// NativeUserMode controls public native-user self-registration. Empty
 	// defaults to "open". Non-open modes disable every public user-creation path
 	// while leaving embedded admin/bootstrap core APIs available.
 	NativeUserMode RegistrationMode
-	// OrgMode controls public org onboarding/management. Empty defaults to
-	// "open". Non-open modes disable public org mutation routes while leaving
-	// manifest/admin/bootstrap core APIs available.
-	OrgMode RegistrationMode
 }
 
 // KeysConfig controls signing-key resolution.

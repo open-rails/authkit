@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -18,20 +17,19 @@ const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 var ErrInvalidBootstrapManifest = errors.New("invalid_bootstrap_manifest")
 
 // BootstrapManifest is AuthKit's first-class closed-deployment authority
-// manifest. It owns AuthKit state only: users, platform roles, orgs, org RBAC,
-// trusted issuers, and generated API-key outputs.
+// manifest. It owns AuthKit state only: users, root permission-group roles, and
+// password seeding.
 //
-// The legacy "global roles" plane was hard-cut in favor of Layer-2 platform
-// RBAC (profiles.platform_roles + `platform:*` perms). The manifest still uses
-// the `global_roles` field names for backward compatibility, but they now seed
-// and assign PLATFORM roles: a role named "admin" maps onto the seeded platform
-// super-admin (platform:*), and any other name is defined as an empty platform
-// role (no perms until set explicitly). The legacy role name/description fields
-// no longer have a target column and are accepted-but-ignored.
+// The org/platform RBAC planes were hard-cut in favor of the permission-group
+// model (#111): operator authority is a role assignment in the singleton root
+// group. The manifest still uses the `global_roles` field names for backward
+// compatibility, but they now seed root-group roles: a role named "admin" maps
+// onto the root super-admin (root:*), and any other name must be a catalog role
+// of the root type (declared in core.Config). The legacy role name/description
+// fields no longer have a target and are accepted-but-ignored.
 type BootstrapManifest struct {
 	Users       []BootstrapManifestUser       `json:"users" yaml:"users"`
 	GlobalRoles []BootstrapManifestGlobalRole `json:"global_roles" yaml:"global_roles"`
-	Orgs        []OrgManifestOrg              `json:"orgs" yaml:"orgs"`
 }
 
 type BootstrapManifestUser struct {
@@ -48,16 +46,15 @@ type BootstrapManifestUser struct {
 	BannedBy      *string                `json:"banned_by" yaml:"banned_by"`
 	Metadata      map[string]any         `json:"metadata" yaml:"metadata"`
 	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
-	// GlobalRoles assigns platform roles to this user by name (hard-cut: was the
-	// legacy global-roles plane). "admin" mints the platform super-admin
-	// (platform:*); any other name is assigned as a same-named platform role.
+	// GlobalRoles assigns root permission-group roles to this user by name (#111).
+	// "admin" mints the root super-admin (root:*); any other name is assigned as a
+	// same-named catalog role of the root type.
 	GlobalRoles []string `json:"global_roles" yaml:"global_roles"`
 }
 
-// BootstrapManifestGlobalRole declares a platform role to define. Only Slug is
-// meaningful now (the role name); Name/Description are accepted for backward
-// compatibility but ignored, since platform roles have no name/description
-// columns. "admin" seeds the super-admin role (platform:*).
+// BootstrapManifestGlobalRole declares a root-group role to ensure exists. Only
+// Slug is meaningful (the role name); Name/Description are accepted for backward
+// compatibility but ignored. "admin" seeds the super-admin role (root:*).
 type BootstrapManifestGlobalRole struct {
 	Name        string  `json:"name" yaml:"name"`
 	Slug        string  `json:"slug" yaml:"slug"`
@@ -84,19 +81,14 @@ type BootstrapReconcileOptions struct {
 }
 
 type BootstrapManifestResult struct {
-	DryRun                bool              `json:"dry_run"`
-	UsersCreated          int               `json:"users_created"`
-	UsersUpdated          int               `json:"users_updated"`
-	PasswordsSet          int               `json:"passwords_set"`
-	PasswordsKept         int               `json:"passwords_kept"`
-	GlobalRoles           int               `json:"global_roles"`
-	GlobalRoleAssignments int               `json:"global_role_assignments"`
-	OrgManifest           OrgManifestResult `json:"org_manifest"`
+	DryRun                bool `json:"dry_run"`
+	UsersCreated          int  `json:"users_created"`
+	UsersUpdated          int  `json:"users_updated"`
+	PasswordsSet          int  `json:"passwords_set"`
+	PasswordsKept         int  `json:"passwords_kept"`
+	GlobalRoles           int  `json:"global_roles"`
+	GlobalRoleAssignments int  `json:"global_role_assignments"`
 }
-
-type BootstrapTokenStore = OrgManifestTokenStore
-type BootstrapAPIKeyOutput = OrgManifestAPIKeyOutput
-type FileBootstrapTokenStore = FileOrgManifestTokenStore
 
 func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	var manifest BootstrapManifest
@@ -105,7 +97,7 @@ func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	if err := dec.Decode(&manifest); err != nil {
 		return BootstrapManifest{}, err
 	}
-	if len(manifest.Users) == 0 && len(manifest.GlobalRoles) == 0 && len(manifest.Orgs) == 0 {
+	if len(manifest.Users) == 0 && len(manifest.GlobalRoles) == 0 {
 		return BootstrapManifest{}, ErrInvalidBootstrapManifest
 	}
 	if err := validateBootstrapManifest(manifest); err != nil {
@@ -127,7 +119,7 @@ func LoadBootstrapManifestFile(path string) (BootstrapManifest, error) {
 }
 
 // Deprecated: use s.Bootstrap().ReconcileBootstrapManifest.
-func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, store BootstrapTokenStore, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
 	if err := s.requirePG(); err != nil {
 		return BootstrapManifestResult{}, err
 	}
@@ -136,7 +128,6 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 	}
 
 	result := BootstrapManifestResult{DryRun: opts.DryRun}
-	userRefs := map[string]string{}
 	if opts.DryRun {
 		result.UsersCreated = len(manifest.Users)
 		for _, role := range manifest.GlobalRoles {
@@ -147,24 +138,17 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		for _, user := range manifest.Users {
 			result.PasswordsSet += boolToInt(user.Password != nil)
 			result.GlobalRoleAssignments += len(user.GlobalRoles)
-			registerDryRunUserRefs(userRefs, user)
-		}
-		orgManifest, err := bootstrapOrgManifest(manifest, userRefs)
-		if err != nil {
-			return result, err
-		}
-		result.OrgManifest.Orgs = len(orgManifest.Orgs)
-		for _, org := range orgManifest.Orgs {
-			apiKeys, err := org.apiKeys()
-			if err != nil {
-				return result, err
-			}
-			result.OrgManifest.Issuers += len(org.Issuers)
-			result.OrgManifest.Roles += len(org.Roles)
-			result.OrgManifest.Memberships += len(org.Memberships)
-			result.OrgManifest.APIKeysMinted += len(apiKeys)
 		}
 		return result, nil
+	}
+
+	// The root permission-group is the operator authority plane (#111). Ensure it
+	// exists and seed the declared containment so any root-role assignment lands.
+	if _, err := s.EnsureRootGroup(ctx); err != nil {
+		return result, err
+	}
+	if err := s.SeedPermissionGroupContainment(ctx); err != nil {
+		return result, err
 	}
 
 	for _, role := range manifest.GlobalRoles {
@@ -188,7 +172,6 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		} else {
 			result.UsersUpdated++
 		}
-		registerBootstrapUserRefs(userRefs, user, applied.ID)
 		if user.Password != nil {
 			// Seed-once (#89): apply a manifest password only when the user was
 			// just CREATED, or when the password explicitly opts into
@@ -213,9 +196,8 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 			if slug == "" {
 				continue
 			}
-			if err := s.UpsertRoleBySlug(ctx, slug, slug, nil); err != nil {
-				return result, err
-			}
+			// AssignRoleBySlug seeds the bootstrap admin as a root-group owner/
+			// super-admin (admin -> super-admin), or any other declared root role.
 			if err := s.AssignRoleBySlug(ctx, applied.ID, slug); err != nil {
 				return result, err
 			}
@@ -223,17 +205,6 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		}
 	}
 
-	orgManifest, err := bootstrapOrgManifest(manifest, userRefs)
-	if err != nil {
-		return result, err
-	}
-	if len(orgManifest.Orgs) > 0 {
-		orgResult, err := s.ReconcileOrgManifest(ctx, orgManifest, store)
-		if err != nil {
-			return result, err
-		}
-		result.OrgManifest = orgResult
-	}
 	return result, nil
 }
 
@@ -258,11 +229,6 @@ func validateBootstrapManifest(manifest BootstrapManifest) error {
 	}
 	for _, role := range manifest.GlobalRoles {
 		if strings.TrimSpace(role.Slug) == "" {
-			return ErrInvalidBootstrapManifest
-		}
-	}
-	for _, org := range manifest.Orgs {
-		if strings.TrimSpace(org.Slug) == "" {
 			return ErrInvalidBootstrapManifest
 		}
 	}
@@ -377,84 +343,6 @@ func (s *Service) applyBootstrapUserPassword(ctx context.Context, userID string,
 		return false, err
 	}
 	return true, s.UpsertPasswordHash(ctx, userID, strings.TrimSpace(p.Hash), strings.TrimSpace(p.HashAlgo), params)
-}
-
-func bootstrapOrgManifest(manifest BootstrapManifest, userRefs map[string]string) (OrgManifest, error) {
-	orgs := make([]OrgManifestOrg, len(manifest.Orgs))
-	copy(orgs, manifest.Orgs)
-	for i := range orgs {
-		memberships := make([]OrgManifestMembership, len(orgs[i].Memberships))
-		copy(memberships, orgs[i].Memberships)
-		for j := range memberships {
-			if strings.TrimSpace(memberships[j].UserID) == "" {
-				ref := strings.TrimSpace(memberships[j].UserRef)
-				if ref != "" {
-					userID := strings.TrimSpace(userRefs[ref])
-					if userID == "" {
-						return OrgManifest{}, fmt.Errorf("%w: unknown user_ref %q", ErrInvalidBootstrapManifest, ref)
-					}
-					memberships[j].UserID = userID
-				}
-			}
-			memberships[j].UserRef = ""
-		}
-		orgs[i].Memberships = memberships
-	}
-	return OrgManifest{Orgs: orgs}, nil
-}
-
-func (s *Service) resolveOrgManifestMembershipUserID(ctx context.Context, membership OrgManifestMembership) (string, error) {
-	if userID := strings.TrimSpace(membership.UserID); userID != "" {
-		return userID, nil
-	}
-	if strings.TrimSpace(membership.UserRef) != "" {
-		return "", ErrInvalidOrgManifest
-	}
-	if username := strings.TrimSpace(membership.Username); username != "" {
-		user, err := s.getUserByUsername(ctx, username)
-		if errors.Is(err, pgx.ErrNoRows) || user == nil {
-			return "", ErrInvalidOrgOwner
-		}
-		if err != nil {
-			return "", err
-		}
-		return user.ID, nil
-	}
-	if email := strings.TrimSpace(membership.Email); email != "" {
-		user, err := s.getUserByEmail(ctx, NormalizeEmail(email))
-		if errors.Is(err, pgx.ErrNoRows) || user == nil {
-			return "", ErrInvalidOrgOwner
-		}
-		if err != nil {
-			return "", err
-		}
-		return user.ID, nil
-	}
-	return "", nil
-}
-
-func registerBootstrapUserRefs(refs map[string]string, user BootstrapManifestUser, userID string) {
-	if ref := strings.TrimSpace(user.Ref); ref != "" {
-		refs[ref] = userID
-	}
-	if username := strings.TrimSpace(user.Username); username != "" {
-		refs["username:"+username] = userID
-	}
-	if email := strings.TrimSpace(user.Email); email != "" {
-		refs["email:"+NormalizeEmail(email)] = userID
-	}
-}
-
-func registerDryRunUserRefs(refs map[string]string, user BootstrapManifestUser) {
-	if ref := strings.TrimSpace(user.Ref); ref != "" {
-		refs[ref] = ref
-	}
-	if username := strings.TrimSpace(user.Username); username != "" {
-		refs["username:"+username] = username
-	}
-	if email := strings.TrimSpace(user.Email); email != "" {
-		refs["email:"+NormalizeEmail(email)] = email
-	}
 }
 
 func boolToInt(v bool) int {

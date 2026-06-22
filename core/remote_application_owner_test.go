@@ -7,24 +7,23 @@ import (
 	"time"
 )
 
-// #88(b) (DB): the `owner` role is assignable to a remote_application member —
-// there is no reserved-role guard treating owner as human-founder-only — and it
-// confers the wildcard permission that gives the issuer full authority over its
-// merchant. Skips without AUTHKIT_TEST_DATABASE_URL.
+// #111 (DB): the `owner` role is assignable to a remote_application member of a
+// permission-group, and it confers the type-namespace wildcard (`<type>:*`) that
+// gives the issuer full authority within that group. Skips without
+// AUTHKIT_TEST_DATABASE_URL.
 func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
-	orgSlug := fmt.Sprintf("ra-owner-%d", suffix)
-	org, err := svc.CreateOrg(ctx, orgSlug)
+	gid, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("ensure root group: %v", err)
 	}
 	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:    fmt.Sprintf("ra-app-%d", suffix),
-		OrgID:   org.ID,
+		OrgID:   gid, // permission_group_id (controlling group = root)
 		Issuer:  fmt.Sprintf("https://app-%d.example", suffix),
 		JWKSURI: fmt.Sprintf("https://app-%d.example/.well-known/jwks.json", suffix),
 		Enabled: true,
@@ -32,42 +31,29 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert remote_application: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.remote_applications WHERE id=$1::uuid`, ra.ID)
+	})
 
 	// The load-bearing assertion: owner is assignable to a remote_application.
-	if err := svc.AddRemoteApplicationMember(ctx, org.Slug, ra.ID, "owner"); err != nil {
+	if err := svc.AddRemoteApplicationMember(ctx, ra.ID, OwnerRoleName); err != nil {
 		t.Fatalf("add owner member to remote_application: %v", err)
 	}
 
-	memberships, perms, err := svc.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	roles, err := svc.RemoteApplicationRoles(ctx, ra.ID)
+	if err != nil {
+		t.Fatalf("remote_application roles: %v", err)
+	}
+	if !containsString(roles, OwnerRoleName) {
+		t.Fatalf("remote_application should hold owner role, got %+v", roles)
+	}
+
+	perms, err := svc.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 	if err != nil {
 		t.Fatalf("resolve remote_application authority: %v", err)
 	}
-
-	gotOwner := false
-	for _, m := range memberships {
-		if m.Org != orgSlug {
-			continue
-		}
-		for _, r := range m.Roles {
-			if r == "owner" {
-				gotOwner = true
-			}
-		}
-	}
-	if !gotOwner {
-		t.Fatalf("remote_application should hold owner role in %s, got memberships=%+v", orgSlug, memberships)
-	}
-
-	// owner = `org:*` (#95, tightened from a bare `*`), which EXPANDS to AuthKit's
-	// full org base perm set for the remote_application member — full authority
-	// over its merchant's org (but never the separate `platform:` layer).
-	have := map[string]bool{}
-	for _, p := range perms {
-		have[p] = true
-	}
-	for _, d := range BasePermissions() {
-		if !have[d.Name] {
-			t.Fatalf("owner role should confer full org authority (missing %s); got perms=%v", d.Name, perms)
-		}
+	// owner of the root type holds the namespace-pure apex grant root:*.
+	if !containsString(perms, OwnerGrant(RootType)) {
+		t.Fatalf("owner role should confer %q; got perms=%v", OwnerGrant(RootType), perms)
 	}
 }

@@ -31,12 +31,6 @@ func TestValidateUsernameCanonicalPolicy(t *testing.T) {
 	}
 }
 
-func TestOwnerSlugFromUsernameCanonicalPolicy(t *testing.T) {
-	if got := OwnerSlugFromUsername("Fidika_Art"); got != "fidika-art" {
-		t.Fatalf("OwnerSlugFromUsername()=%q", got)
-	}
-}
-
 func TestValidateEmailCanonicalPolicy(t *testing.T) {
 	if got := NormalizeEmail(" USER@Example.COM "); got != "user@example.com" {
 		t.Fatalf("NormalizeEmail()=%q", got)

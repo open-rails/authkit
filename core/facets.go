@@ -12,7 +12,6 @@ import (
 // UsersFacet is the user/account view of Service.
 type UsersFacet struct{ svc *Service }
 
-
 // RolesFacet is the role and permission view of Service.
 type RolesFacet struct{ svc *Service }
 
@@ -453,99 +452,24 @@ func (f UsersFacet) VerifyUserPassword(ctx context.Context, userID, pass string)
 	return f.svc.VerifyUserPassword(ctx, userID, pass)
 }
 
-// AssignRole calls Service.AssignRole.
-func (f RolesFacet) AssignRole(ctx context.Context, orgSlug, userID, role string) error {
-	return f.svc.AssignRole(ctx, orgSlug, userID, role)
-}
-
-// AssignRoleBySlug calls Service.AssignRoleBySlug.
+// AssignRoleBySlug calls Service.AssignRoleBySlug (root-group role).
 func (f RolesFacet) AssignRoleBySlug(ctx context.Context, userID, slug string) error {
 	return f.svc.AssignRoleBySlug(ctx, userID, slug)
 }
 
-// DefineRole calls Service.DefineRole.
-func (f RolesFacet) DefineRole(ctx context.Context, orgSlug, role string) error {
-	return f.svc.DefineRole(ctx, orgSlug, role)
-}
-
-// DeleteRole calls Service.DeleteRole.
-func (f RolesFacet) DeleteRole(ctx context.Context, orgSlug, role string) error {
-	return f.svc.DeleteRole(ctx, orgSlug, role)
-}
-
-// EffectivePermissions calls Service.EffectivePermissions.
-func (f RolesFacet) EffectivePermissions(ctx context.Context, orgSlug, userID string) ([]string, error) {
-	return f.svc.EffectivePermissions(ctx, orgSlug, userID)
-}
-
-// EffectiveRolePermissions calls Service.EffectiveRolePermissions.
-func (f RolesFacet) EffectiveRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
-	return f.svc.EffectiveRolePermissions(ctx, orgSlug, role)
-}
-
-// EnsureOwnerGrants calls Service.EnsureOwnerGrants.
-func (f RolesFacet) EnsureOwnerGrants(ctx context.Context, orgSlug string) error {
-	return f.svc.EnsureOwnerGrants(ctx, orgSlug)
-}
-
-// GetRolePermissions calls Service.GetRolePermissions.
-func (f RolesFacet) GetRolePermissions(ctx context.Context, orgSlug, role string) ([]string, error) {
-	return f.svc.GetRolePermissions(ctx, orgSlug, role)
-}
-
-// HasPermission calls Service.HasPermission.
-func (f RolesFacet) HasPermission(ctx context.Context, orgSlug, userID, perm string) (bool, error) {
-	return f.svc.HasPermission(ctx, orgSlug, userID, perm)
-}
-
-// ListOrgDefinedRoles calls Service.ListOrgDefinedRoles.
-func (f RolesFacet) ListOrgDefinedRoles(ctx context.Context, orgSlug string) ([]string, error) {
-	return f.svc.ListOrgDefinedRoles(ctx, orgSlug)
-}
-
-// ListRoleSlugsByUser calls Service.ListRoleSlugsByUser.
+// ListRoleSlugsByUser calls Service.ListRoleSlugsByUser (root-group roles).
 func (f RolesFacet) ListRoleSlugsByUser(ctx context.Context, userID string) []string {
 	return f.svc.ListRoleSlugsByUser(ctx, userID)
 }
 
-// OrgRoleExists calls Service.OrgRoleExists.
-func (f RolesFacet) OrgRoleExists(ctx context.Context, orgSlug, role string) (bool, error) {
-	return f.svc.OrgRoleExists(ctx, orgSlug, role)
-}
-
-// Permissions calls Service.Permissions.
-func (f RolesFacet) Permissions() []PermissionDef {
-	return f.svc.Permissions()
-}
-
-// ReadMemberRoles calls Service.ReadMemberRoles.
-func (f RolesFacet) ReadMemberRoles(ctx context.Context, orgSlug, userID string) ([]string, error) {
-	return f.svc.ReadMemberRoles(ctx, orgSlug, userID)
-}
-
-// RemoveRoleBySlug calls Service.RemoveRoleBySlug.
+// RemoveRoleBySlug calls Service.RemoveRoleBySlug (root-group role).
 func (f RolesFacet) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {
 	return f.svc.RemoveRoleBySlug(ctx, userID, slug)
 }
 
-// SetRolePermissions calls Service.SetRolePermissions.
-func (f RolesFacet) SetRolePermissions(ctx context.Context, orgSlug, role string, perms []string) error {
-	return f.svc.SetRolePermissions(ctx, orgSlug, role, perms)
-}
-
-// UnassignRole calls Service.UnassignRole.
-func (f RolesFacet) UnassignRole(ctx context.Context, orgSlug, userID, role string) error {
-	return f.svc.UnassignRole(ctx, orgSlug, userID, role)
-}
-
-// UpsertRoleBySlug calls Service.UpsertRoleBySlug.
+// UpsertRoleBySlug calls Service.UpsertRoleBySlug (root-group catalog role).
 func (f RolesFacet) UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
 	return f.svc.UpsertRoleBySlug(ctx, name, slug, description)
-}
-
-// ValidateGrant calls Service.ValidateGrant.
-func (f RolesFacet) ValidateGrant(ctx context.Context, orgSlug, actorUserID string, tokens []string, actorAll bool) (unknown, offending []string, err error) {
-	return f.svc.ValidateGrant(ctx, orgSlug, actorUserID, tokens, actorAll)
 }
 
 // AuthorizeAPIKeyResources calls Service.AuthorizeAPIKeyResources.
@@ -554,22 +478,22 @@ func (f APIKeysFacet) AuthorizeAPIKeyResources(ctx context.Context, req Resource
 }
 
 // ListAPIKeys calls Service.ListAPIKeys.
-func (f APIKeysFacet) ListAPIKeys(ctx context.Context, orgSlug string) ([]APIKey, error) {
-	return f.svc.ListAPIKeys(ctx, orgSlug)
+func (f APIKeysFacet) ListAPIKeys(ctx context.Context, groupType, resourceRef string) ([]APIKey, error) {
+	return f.svc.ListAPIKeys(ctx, groupType, resourceRef)
 }
 
 // MintAPIKey calls Service.MintAPIKey.
-func (f APIKeysFacet) MintAPIKey(ctx context.Context, orgSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
-	return f.svc.MintAPIKey(ctx, orgSlug, name, role, createdBy, expiresAt)
+func (f APIKeysFacet) MintAPIKey(ctx context.Context, groupType, resourceRef, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
+	return f.svc.MintAPIKey(ctx, groupType, resourceRef, name, role, createdBy, expiresAt)
 }
 
 // MintAPIKeyWithOptions calls Service.MintAPIKeyWithOptions.
-func (f APIKeysFacet) MintAPIKeyWithOptions(ctx context.Context, orgSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
-	return f.svc.MintAPIKeyWithOptions(ctx, orgSlug, opts)
+func (f APIKeysFacet) MintAPIKeyWithOptions(ctx context.Context, groupType, resourceRef string, opts APIKeyMintOptions) (APIKey, string, error) {
+	return f.svc.MintAPIKeyWithOptions(ctx, groupType, resourceRef, opts)
 }
 
 // ResolveAPIKey calls Service.ResolveAPIKey.
-func (f APIKeysFacet) ResolveAPIKey(ctx context.Context, keyID, secret string) (orgSlug string, permissions []string, err error) {
+func (f APIKeysFacet) ResolveAPIKey(ctx context.Context, keyID, secret string) (groupRef string, permissions []string, err error) {
 	return f.svc.ResolveAPIKey(ctx, keyID, secret)
 }
 
@@ -579,8 +503,8 @@ func (f APIKeysFacet) ResolveAPIKeyWithResources(ctx context.Context, keyID, sec
 }
 
 // RevokeAPIKey calls Service.RevokeAPIKey.
-func (f APIKeysFacet) RevokeAPIKey(ctx context.Context, orgSlug, tokenID string) (bool, error) {
-	return f.svc.RevokeAPIKey(ctx, orgSlug, tokenID)
+func (f APIKeysFacet) RevokeAPIKey(ctx context.Context, groupType, resourceRef, tokenID string) (bool, error) {
+	return f.svc.RevokeAPIKey(ctx, groupType, resourceRef, tokenID)
 }
 
 // IssueAccessToken calls Service.IssueAccessToken.
@@ -754,8 +678,8 @@ func (f SessionsFacet) SessionFreshness(ctx context.Context, userID, sessionID s
 }
 
 // AddRemoteApplicationMember calls Service.AddRemoteApplicationMember.
-func (f IdentityFacet) AddRemoteApplicationMember(ctx context.Context, orgSlug, appID, role string) error {
-	return f.svc.AddRemoteApplicationMember(ctx, orgSlug, appID, role)
+func (f IdentityFacet) AddRemoteApplicationMember(ctx context.Context, appID, role string) error {
+	return f.svc.AddRemoteApplicationMember(ctx, appID, role)
 }
 
 // CountProviderLinks calls Service.CountProviderLinks.
@@ -868,19 +792,14 @@ func (f IdentityFacet) RegisterRemoteAppAttributeDef(ctx context.Context, appID,
 	return f.svc.RegisterRemoteAppAttributeDef(ctx, appID, key, version, definition)
 }
 
-// RemoteApplicationOrgRole calls Service.RemoteApplicationOrgRole.
-func (f IdentityFacet) RemoteApplicationOrgRole(ctx context.Context, orgSlug, appID string) (string, error) {
-	return f.svc.RemoteApplicationOrgRole(ctx, orgSlug, appID)
-}
-
-// RemoteApplicationOrgRoles calls Service.RemoteApplicationOrgRoles.
-func (f IdentityFacet) RemoteApplicationOrgRoles(ctx context.Context, appID string) ([]OrgMembership, error) {
-	return f.svc.RemoteApplicationOrgRoles(ctx, appID)
+// RemoteApplicationRoles calls Service.RemoteApplicationRoles.
+func (f IdentityFacet) RemoteApplicationRoles(ctx context.Context, appID string) ([]string, error) {
+	return f.svc.RemoteApplicationRoles(ctx, appID)
 }
 
 // RemoveRemoteApplicationMember calls Service.RemoveRemoteApplicationMember.
-func (f IdentityFacet) RemoveRemoteApplicationMember(ctx context.Context, orgSlug, appID string) error {
-	return f.svc.RemoveRemoteApplicationMember(ctx, orgSlug, appID)
+func (f IdentityFacet) RemoveRemoteApplicationMember(ctx context.Context, appID, role string) error {
+	return f.svc.RemoveRemoteApplicationMember(ctx, appID, role)
 }
 
 // ResolveAndStoreSolanaSNS calls Service.ResolveAndStoreSolanaSNS.
@@ -894,13 +813,13 @@ func (f IdentityFacet) ResolveRemoteAppAttributeDef(ctx context.Context, appID, 
 }
 
 // ResolveRemoteApplicationAuthority calls Service.ResolveRemoteApplicationAuthority.
-func (f IdentityFacet) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (memberships []OrgMembership, permissions []string, err error) {
+func (f IdentityFacet) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (permissions []string, err error) {
 	return f.svc.ResolveRemoteApplicationAuthority(ctx, appID)
 }
 
-// ResolveRemoteApplicationOrg calls Service.ResolveRemoteApplicationOrg.
-func (f IdentityFacet) ResolveRemoteApplicationOrg(ctx context.Context, issuer string) (string, error) {
-	return f.svc.ResolveRemoteApplicationOrg(ctx, issuer)
+// ResolveRemoteApplicationGroup calls Service.ResolveRemoteApplicationGroup.
+func (f IdentityFacet) ResolveRemoteApplicationGroup(ctx context.Context, issuer string) (string, error) {
+	return f.svc.ResolveRemoteApplicationGroup(ctx, issuer)
 }
 
 // SetProviderUsername calls Service.SetProviderUsername.
@@ -923,17 +842,7 @@ func (f IdentityFacet) VerifySIWSAndLogin(ctx context.Context, cache siws.Challe
 	return f.svc.VerifySIWSAndLogin(ctx, cache, output, extra)
 }
 
-// ProvisionOrg calls Service.ProvisionOrg.
-func (f BootstrapFacet) ProvisionOrg(ctx context.Context, req OrgProvisionRequest, store OrgManifestTokenStore) (OrgProvisionResult, error) {
-	return f.svc.ProvisionOrg(ctx, req, store)
-}
-
 // ReconcileBootstrapManifest calls Service.ReconcileBootstrapManifest.
-func (f BootstrapFacet) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, store BootstrapTokenStore, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
-	return f.svc.ReconcileBootstrapManifest(ctx, manifest, store, opts)
-}
-
-// ReconcileOrgManifest calls Service.ReconcileOrgManifest.
-func (f BootstrapFacet) ReconcileOrgManifest(ctx context.Context, manifest OrgManifest, store OrgManifestTokenStore) (OrgManifestResult, error) {
-	return f.svc.ReconcileOrgManifest(ctx, manifest, store)
+func (f BootstrapFacet) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+	return f.svc.ReconcileBootstrapManifest(ctx, manifest, opts)
 }

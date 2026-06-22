@@ -1,9 +1,31 @@
 package core
 
 import (
-	"context"
 	"testing"
+
+	jwtkit "github.com/open-rails/authkit/jwt"
 )
+
+func mustGeneratedKeys(t *testing.T) jwtkit.KeySource {
+	t.Helper()
+	ks, err := jwtkit.NewGeneratedKeySource()
+	if err != nil {
+		t.Fatalf("generate keys: %v", err)
+	}
+	return ks
+}
+
+func baseTestConfig(t *testing.T) Config {
+	t.Helper()
+	return Config{
+		Token: TokenConfig{
+			Issuer:            "https://issuer.test",
+			IssuedAudiences:   []string{"app"},
+			ExpectedAudiences: []string{"app"},
+		},
+		Keys: KeysConfig{Source: mustGeneratedKeys(t)},
+	}
+}
 
 func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 	cfg := baseTestConfig(t)
@@ -15,21 +37,14 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 	if opts.NativeUserRegistrationMode != RegistrationModeOpen {
 		t.Fatalf("NativeUserRegistrationMode should default to open")
 	}
-	if opts.OrgRegistrationMode != RegistrationModeOpen {
-		t.Fatalf("OrgRegistrationMode should default to open")
-	}
 	if !opts.PublicNativeUserRegistrationEnabled() {
 		t.Fatalf("PublicNativeUserRegistrationEnabled should default to true")
-	}
-	if !opts.PublicOrgRegistrationEnabled() {
-		t.Fatalf("PublicOrgRegistrationEnabled should default to true")
 	}
 }
 
 func TestPolicySwitches_Plumbed(t *testing.T) {
 	cfg := baseTestConfig(t)
 	cfg.Registration.NativeUserMode = RegistrationModeAdminBootstrapOnly
-	cfg.Registration.OrgMode = RegistrationModeManifestOnly
 	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
@@ -38,14 +53,8 @@ func TestPolicySwitches_Plumbed(t *testing.T) {
 	if opts.NativeUserRegistrationMode != RegistrationModeAdminBootstrapOnly {
 		t.Fatalf("NativeUserRegistrationMode not plumbed through NewFromConfig")
 	}
-	if opts.OrgRegistrationMode != RegistrationModeManifestOnly {
-		t.Fatalf("OrgRegistrationMode not plumbed through NewFromConfig")
-	}
 	if opts.PublicNativeUserRegistrationEnabled() {
 		t.Fatalf("PublicNativeUserRegistrationEnabled should be false when disabled")
-	}
-	if opts.PublicOrgRegistrationEnabled() {
-		t.Fatalf("PublicOrgRegistrationEnabled should be false when disabled")
 	}
 }
 
@@ -76,17 +85,10 @@ func TestPolicySwitches_RegistrationModes(t *testing.T) {
 		RegistrationModeClosed,
 	} {
 		t.Run(string(mode), func(t *testing.T) {
-			opts := Options{
-				NativeUserRegistrationMode: mode,
-				OrgRegistrationMode:        mode,
-			}
-			svc := NewService(opts, Keyset{})
+			svc := NewService(Options{NativeUserRegistrationMode: mode}, Keyset{})
 			got := svc.Options()
 			if got.PublicNativeUserRegistrationEnabled() {
 				t.Fatalf("native public registration should be disabled for %q", mode)
-			}
-			if got.PublicOrgRegistrationEnabled() {
-				t.Fatalf("org public registration should be disabled for %q", mode)
 			}
 		})
 	}
@@ -96,29 +98,20 @@ func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 	tests := []struct {
 		name                  string
 		nativeMode            RegistrationMode
-		orgMode               RegistrationMode
 		wantPublicNativeUsers bool
-		wantPublicOrgs        bool
-		wantPersonalOrgAuto   bool
 	}{
 		{
 			name:                  "doujins-hentai0-native-app",
 			nativeMode:            RegistrationModeOpen,
-			orgMode:               RegistrationModeClosed,
 			wantPublicNativeUsers: true,
-			wantPublicOrgs:        false,
 		},
 		{
-			name:           "tensorhub-b2b-admin-created",
-			nativeMode:     RegistrationModeAdminOnly,
-			orgMode:        RegistrationModeAdminBootstrapOnly,
-			wantPublicOrgs: false,
+			name:       "tensorhub-b2b-admin-created",
+			nativeMode: RegistrationModeAdminOnly,
 		},
 		{
-			name:           "openrails-relying-party-closed",
-			nativeMode:     RegistrationModeClosed,
-			orgMode:        RegistrationModeManifestOnly,
-			wantPublicOrgs: false,
+			name:       "openrails-relying-party-closed",
+			nativeMode: RegistrationModeClosed,
 		},
 	}
 
@@ -127,17 +120,10 @@ func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 			svc := NewService(Options{
 				Issuer:                     "https://test",
 				NativeUserRegistrationMode: tt.nativeMode,
-				OrgRegistrationMode:        tt.orgMode,
 			}, Keyset{})
 			opts := svc.Options()
 			if opts.PublicNativeUserRegistrationEnabled() != tt.wantPublicNativeUsers {
 				t.Fatalf("PublicNativeUserRegistrationEnabled=%v, want %v", opts.PublicNativeUserRegistrationEnabled(), tt.wantPublicNativeUsers)
-			}
-			if opts.PublicOrgRegistrationEnabled() != tt.wantPublicOrgs {
-				t.Fatalf("PublicOrgRegistrationEnabled=%v, want %v", opts.PublicOrgRegistrationEnabled(), tt.wantPublicOrgs)
-			}
-			if opts.AutoCreatePersonalOrgsEnabled() != tt.wantPersonalOrgAuto {
-				t.Fatalf("AutoCreatePersonalOrgsEnabled=%v, want %v", opts.AutoCreatePersonalOrgsEnabled(), tt.wantPersonalOrgAuto)
 			}
 		})
 	}
@@ -148,121 +134,5 @@ func TestPolicySwitches_RejectsLegacyBootstrapOnlyMode(t *testing.T) {
 	cfg.Registration.NativeUserMode = RegistrationMode("bootstrap_only")
 	if _, err := NewFromConfig(cfg, nil); err == nil {
 		t.Fatalf("legacy bootstrap_only mode should be rejected")
-	}
-}
-
-func TestPolicySwitches_NativeUsersDoNotCreatePersonalOrgsByDefault(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	const username = "orglessuser"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
-	})
-
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
-	u, err := svc.CreateUser(ctx, "", username)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	var count int
-	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM profiles.orgs
-		WHERE owner_user_id=$1::uuid
-		  AND is_personal=true
-		  AND deleted_at IS NULL
-	`, u.ID).Scan(&count); err != nil {
-		t.Fatalf("count personal orgs: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("expected no default personal org, got %d", count)
-	}
-}
-
-func TestPolicySwitches_AutoCreatePersonalOrgsOptIn(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	const username = "personalorguser"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, username)
-	})
-
-	svc := NewService(Options{
-		Issuer:                 "https://test",
-		AutoCreatePersonalOrgs: true,
-	}, Keyset{}, WithPostgres(pool))
-	u, err := svc.CreateUser(ctx, "", username)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	var count int
-	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM profiles.orgs
-		WHERE owner_user_id=$1::uuid
-		  AND is_personal=true
-		  AND deleted_at IS NULL
-	`, u.ID).Scan(&count); err != nil {
-		t.Fatalf("count personal orgs: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("expected opted-in personal org, got %d", count)
-	}
-}
-
-func TestPolicySwitches_ClosedRelyingPartyAcceptsDelegatedUsersWithoutNativeUsers(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	const (
-		slug   = "closed-relying-party"
-		issuer = "https://closed-relying-party.example"
-	)
-
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.orgs WHERE slug=$1`, slug)
-	})
-
-	var usersBefore int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM profiles.users`).Scan(&usersBefore); err != nil {
-		t.Fatalf("count users before: %v", err)
-	}
-
-	svc := NewService(Options{
-		Issuer:                     "https://test",
-		NativeUserRegistrationMode: RegistrationModeClosed,
-		OrgRegistrationMode:        RegistrationModeManifestOnly,
-	}, Keyset{}, WithPostgres(pool))
-	org, err := svc.CreateOrg(ctx, slug)
-	if err != nil {
-		t.Fatalf("bootstrap CreateOrg: %v", err)
-	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
-	if _, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
-		Slug:      slug,
-		OrgID:     org.ID,
-		Issuer:    issuer,
-		JWKSURI:   issuer + "/.well-known/jwks.json",
-		Audiences: []string{"openrails"},
-		Enabled:   true,
-	}); err != nil {
-		t.Fatalf("UpsertRemoteApplication: %v", err)
-	}
-	if _, err := svc.CreatePendingRegistration(ctx, "blocked@example.com", "blockeduser", "hash", 0); err != ErrRegistrationDisabled {
-		t.Fatalf("closed native registration should reject public user creation, got %v", err)
-	}
-
-	var usersAfter int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM profiles.users`).Scan(&usersAfter); err != nil {
-		t.Fatalf("count users after: %v", err)
-	}
-	if usersAfter != usersBefore {
-		t.Fatalf("delegated relying-party path created native users: before=%d after=%d", usersBefore, usersAfter)
 	}
 }

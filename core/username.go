@@ -47,15 +47,10 @@ func usernameWithSuffix(base, suffix string) string {
 	return base + suffix
 }
 
-// usernameAvailable reports whether username and its derived owner-namespace
-// slug are both free. Both halves matter:
-//   - getUserByUsername returns pgx.ErrNoRows for a free name, so ErrNoRows is
-//     the available case, not a failure.
-//   - createUser reserves a slug per username (underscores collapse to
-//     dashes), so distinct usernames like "a_b" and "a__b" contend for the
-//     same slug, and reserved names occupy slugs with no matching user row.
-//     Checking only the username would let derivation pick a name that
-//     createUser then rejects with ErrOwnerSlugTaken.
+// usernameAvailable reports whether username is free. getUserByUsername returns
+// pgx.ErrNoRows for a free name, so ErrNoRows is the available case (#111: the
+// org-slug reservation plane was removed, so username uniqueness is the only
+// constraint).
 func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
 	if s.pg == nil {
 		return true
@@ -64,15 +59,7 @@ func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false
 	}
-	if u != nil {
-		return false
-	}
-	slug := ownerSlugFromUsername(username)
-	if slug == "" || validateOrgSlug(slug) != nil {
-		return false
-	}
-	ok, err := s.ownerSlugAvailable(ctx, slug, "", "")
-	return err == nil && ok
+	return u == nil
 }
 
 // DeriveUsernameForOAuth prefers provider-preferred usernames; falls back to email local part or display name.
