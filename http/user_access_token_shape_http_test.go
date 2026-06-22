@@ -52,7 +52,7 @@ func assertSlimUserAccessClaims(t *testing.T, claims jwt.MapClaims) {
 
 func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 	ctx := context.Background()
-	pool := routeCleanupPG(t)
+	pool := newServerTestPool(t)
 	const email = "slim-token-shape-http@example.com"
 	const username = "slimtokenshapehttp"
 	const pass = "correct-horse-battery-97"

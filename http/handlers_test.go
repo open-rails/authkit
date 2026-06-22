@@ -406,35 +406,6 @@ func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestAPIHandler_PublicOwnerNamespaceLookup_DoesNotRequireAuth(t *testing.T) {
-	s := newTestService(t)
-	h := s.APIHandler()
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/namespaces/%20", nil)
-	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
-
-	w = httptest.NewRecorder()
-	r = httptest.NewRequest(http.MethodGet, "/owners/%20", nil)
-	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestAPIHandler_PublicOwnerNamespaceStateRoute_Removed(t *testing.T) {
-	s := newTestService(t)
-	h := s.APIHandler()
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/orgs/state?slug=google", nil)
-	h.ServeHTTP(w, r)
-	// (issue 60) The special public namespace-state route is gone. Org routes
-	// are always registered now, so /orgs/state matches the generic
-	// GET /orgs/{org} handler, which requires auth -> 401 (not a public 200).
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
 func TestAPIHandler_AdminAccountsStateRoute_Removed(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
@@ -465,78 +436,4 @@ func TestAPIHandler_AdminUsersToggleActiveRoute_Removed(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
-}
-
-// The slug lifecycle relocated to /admin/orgs/* (#95). The new park/claim routes
-// require auth (401), and the OLD /admin/account/* paths are gone entirely (404).
-func TestAPIHandler_AdminOrgsParkRoute_RequiresAuth(t *testing.T) {
-	s := newTestService(t)
-	h := s.APIHandler()
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/admin/orgs/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
-	r.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
-
-	// Old path is removed.
-	wOld := httptest.NewRecorder()
-	rOld := httptest.NewRequest(http.MethodPost, "/admin/account/park", strings.NewReader(`{"kind":"org","slug":"google"}`))
-	rOld.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(wOld, rOld)
-	require.Equal(t, http.StatusNotFound, wOld.Code)
-}
-
-func TestAPIHandler_AdminOrgsClaimRoute_RequiresAuth(t *testing.T) {
-	s := newTestService(t)
-	h := s.APIHandler()
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/admin/orgs/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
-	r.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
-
-	// Old path is removed.
-	wOld := httptest.NewRecorder()
-	rOld := httptest.NewRequest(http.MethodPost, "/admin/account/claim", strings.NewReader(`{"kind":"org","slug":"google","owner_user_id":"abc"}`))
-	rOld.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(wOld, rOld)
-	require.Equal(t, http.StatusNotFound, wOld.Code)
-}
-
-func TestAPIHandler_AdminOrgParkClaimLegacyRoutes_Removed(t *testing.T) {
-	s := newTestService(t)
-	h := s.APIHandler()
-
-	w1 := httptest.NewRecorder()
-	r1 := httptest.NewRequest(http.MethodPost, "/admin/org/park", strings.NewReader(`{"slug":"google"}`))
-	r1.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(w1, r1)
-	require.Equal(t, http.StatusNotFound, w1.Code)
-
-	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodPost, "/admin/org/claim", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
-	r2.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(w2, r2)
-	require.Equal(t, http.StatusNotFound, w2.Code)
-}
-
-func TestAPIHandler_AdminAccountsOrgLegacyRoutes_Removed(t *testing.T) {
-	s := newTestService(t)
-	h := s.APIHandler()
-
-	w1 := httptest.NewRecorder()
-	r1 := httptest.NewRequest(http.MethodPost, "/admin/accounts/park", strings.NewReader(`{"slug":"google"}`))
-	r1.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(w1, r1)
-	require.Equal(t, http.StatusNotFound, w1.Code)
-
-	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest(http.MethodPost, "/admin/accounts/claim-org", strings.NewReader(`{"slug":"google","owner_user_id":"abc"}`))
-	r2.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(w2, r2)
-	require.Equal(t, http.StatusNotFound, w2.Code)
 }

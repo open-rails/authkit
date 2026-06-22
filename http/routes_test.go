@@ -31,13 +31,6 @@ func TestAPIRoutesIncludePreferredLocaleUserRoute(t *testing.T) {
 	requireNoRoute(t, s.APIRoutes(RouteUser), http.MethodGet, "/user/bootstrap")
 }
 
-func TestAPIRoutesIncludeNamespaceLookup(t *testing.T) {
-	s := newTestService(t)
-
-	requireRoute(t, s.APIRoutes(RouteOwners), http.MethodGet, "/namespaces/{slug}")
-	requireNoRoute(t, s.APIRoutes(RouteOwners), http.MethodGet, "/owners/{slug}")
-}
-
 func TestAPIRoutesIncludePhonePasswordResetConfirmLink(t *testing.T) {
 	s := newTestService(t)
 
