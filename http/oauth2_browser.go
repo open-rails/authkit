@@ -40,7 +40,7 @@ func (s *Service) handleOAuthLoginGET(w http.ResponseWriter, r *http.Request, pr
 		unauthorized(w, ErrAuthRequiredForLink)
 		return
 	}
-	s.startOAuthBrowserFlow(w, r, provider, claimsUserID, "", "")
+	s.startOAuthBrowserFlow(w, r, provider, claimsUserID, "", "", sanitizeReturnTo(r.URL.Query().Get("return_to")))
 }
 
 func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
@@ -49,7 +49,7 @@ func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
-	s.startOAuthBrowserFlow(w, r, provider, claims.UserID, "", "")
+	s.startOAuthBrowserFlow(w, r, provider, claims.UserID, "", "", "")
 }
 
 func (s *Service) handleOAuthReauthStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
@@ -72,10 +72,10 @@ func (s *Service) handleOAuthReauthStartPOST(w http.ResponseWriter, r *http.Requ
 		badRequest(w, ErrProviderNotLinked)
 		return
 	}
-	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeReauthReturnTo(body.ReturnTo))
+	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeReauthReturnTo(body.ReturnTo), "")
 }
 
-func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, reauthUserID, reauthReturnTo string) {
+func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, reauthUserID, reauthReturnTo, returnTo string) {
 	cfg, ok := s.oauth2Provider(provider)
 	if !ok {
 		badRequest(w, ErrUnknownProvider)
@@ -119,6 +119,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		Verifier:        verifier,
 		RedirectURI:     redirectURI,
 		LinkUserID:      linkUserID,
+		ReturnTo:        returnTo,
 		ReauthUserID:    reauthUserID,
 		ReauthSessionID: sessionID,
 		ReauthReturnTo:  reauthReturnTo,
@@ -288,7 +289,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	if base == "" {
 		base = "/"
 	}
-	frag := "#access_token=" + accessToken + "&refresh_token=" + rt + "&expires_in=" + fmt.Sprint(int64(time.Until(exp).Seconds())) + "&provider=" + cfg.Name + "&state=" + state
+	frag := buildAuthResultFragment(accessToken, rt, int64(time.Until(exp).Seconds()), cfg.Name, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.svc.Options().FrontendCallbackPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
 }

@@ -188,6 +188,7 @@ type StateData struct {
 	Nonce       string
 	RedirectURI string
 	LinkUserID  string
+	ReturnTo    string
 	// Reauth* fields identify a step-up reauthentication flow for an existing
 	// session. Login/link flows leave these empty.
 	ReauthUserID    string

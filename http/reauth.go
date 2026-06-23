@@ -338,16 +338,24 @@ func obfuscateVerificationID(value string) string {
 	return strings.Repeat("*", len(value)-5) + value[len(value)-5:]
 }
 
-func sanitizeReauthReturnTo(value string) string {
+func sanitizeReturnTo(value string) string {
 	value = strings.TrimSpace(value)
-	if value == "" || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") {
+	if value == "" || strings.ContainsAny(value, "\\\r\n\t") || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") {
+		return "/"
+	}
+	u, err := url.Parse(value)
+	if err != nil || u == nil || u.IsAbs() || u.Host != "" || u.Scheme != "" {
 		return "/"
 	}
 	return value
 }
 
+func sanitizeReauthReturnTo(value string) string {
+	return sanitizeReturnTo(value)
+}
+
 func redirectReauthResult(w http.ResponseWriter, r *http.Request, returnTo, status string) {
-	target := sanitizeReauthReturnTo(returnTo)
+	target := sanitizeReturnTo(returnTo)
 	u, err := url.Parse(target)
 	if err != nil || u == nil {
 		u = &url.URL{Path: "/"}
