@@ -229,5 +229,5 @@ func TestRestoredOAuthCallback_MissingStateOrCode(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/oidc/github/callback", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 }

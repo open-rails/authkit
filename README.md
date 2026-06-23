@@ -971,9 +971,8 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
 - User profile:
   - GET /user/me (requires auth)
   - PATCH /user/username (requires auth)
-  - POST /user/email/change/request (requires auth)
-  - POST /user/email/change/confirm (requires auth)
-  - POST /user/email/change/resend (requires auth)
+  - POST /user/email/change (requires auth)
+  - POST /user/phone/change (requires auth)
   - PATCH /user/biography (requires auth)
   - POST /user/password (requires auth)
   - DELETE /user (requires auth)
@@ -1080,13 +1079,11 @@ Frontend (React) quick guide
 - Current user
   - GET /user/me → {id, email, pending_email?, phone_number?, username, discord_username?, email_verified, phone_verified, has_password, roles, entitlements, biography}.
   - Email change
-    - POST /user/email/change/request with `{email}` (Authorization) → sends verification code
-    - POST /user/email/change/confirm with `{code}` (Authorization) → confirms email change
-    - POST /user/email/change/resend (Authorization) → resends verification code
+    - POST /user/email/change with `{new_email,password?}` (Authorization) → sends verification code
+    - POST /user/email/change with `{code}` (Authorization) → confirms email change
   - Phone number change
-    - POST /user/phone/change/request with `{phone_number}` (Authorization) → sends verification code
-    - POST /user/phone/change/confirm with `{code}` (Authorization) → confirms phone number change
-    - POST /user/phone/change/resend (Authorization) → resends verification code
+    - POST /user/phone/change with `{phone_number,password?}` (Authorization) → sends verification code
+    - POST /user/phone/change with `{phone_number,code}` (Authorization) → confirms phone number change
 - User profile updates
   - PATCH /user/username with `{username}` (Authorization)
   - PATCH /user/biography with `{biography}` (Authorization)

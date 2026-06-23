@@ -48,6 +48,62 @@ func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
+		unauthorized(w, ErrNotAuthenticated)
+		return
+	}
+	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, claims.UserID) {
+		return
+	}
+
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+
+	if strings.TrimSpace(body.Code) == "" {
+		destination, method, err := s.svc.Require2FAForReauth(r.Context(), claims.UserID, claims.SessionID)
+		if err != nil {
+			if s.handleDeliveryError(w, r, "reauth_2fa", "send_2fa_code", err) {
+				return
+			}
+			serverErr(w, ErrTwoFASendFailed)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"requires_2fa":    true,
+			"method":          method,
+			"verification_id": obfuscateVerificationID(destination),
+		})
+		return
+	}
+
+	valid, err := s.svc.Verify2FAReauthCode(r.Context(), claims.UserID, claims.SessionID, strings.TrimSpace(body.Code))
+	if err != nil || !valid {
+		unauthorized(w, ErrInvalidCode)
+		return
+	}
+
+	methods := []string{"otp", "mfa"}
+	if freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now()); err == nil {
+		methods = append(freshness.AuthMethods, methods...)
+	}
+	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, methods); err != nil {
+		serverErr(w, ErrReauthFailed)
+		return
+	}
+	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"fresh_auth": sessionFreshnessResponse(freshness),
+	})
+}
+
 func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Request) {
 	provider := strings.TrimSpace(r.PathValue("provider"))
 	if cfg, ok := s.oauth2Provider(provider); ok {
@@ -186,6 +242,9 @@ func (s *Service) reauthMethods(r *http.Request, userID string) []string {
 	if s.svc.HasPassword(r.Context(), userID) {
 		methods = append(methods, "password")
 	}
+	if settings, err := s.svc.Get2FASettings(r.Context(), userID); err == nil && settings != nil && settings.Enabled {
+		methods = append(methods, "2fa")
+	}
 	pg := s.svc.Postgres()
 	if pg == nil {
 		return methods
@@ -210,7 +269,17 @@ func sessionFreshnessResponse(f core.SessionFreshness) map[string]any {
 	if !f.LastAuthenticatedAt.IsZero() {
 		out["last_authenticated_at"] = f.LastAuthenticatedAt.UTC().Format(time.RFC3339)
 	}
+	if len(f.AuthMethods) > 0 {
+		out["auth_methods"] = f.AuthMethods
+	}
 	return out
+}
+
+func obfuscateVerificationID(value string) string {
+	if len(value) <= 5 {
+		return value
+	}
+	return strings.Repeat("*", len(value)-5) + value[len(value)-5:]
 }
 
 func sanitizeReauthReturnTo(value string) string {

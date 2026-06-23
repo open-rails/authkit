@@ -144,11 +144,11 @@ func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
 
 	w = serveJSON(srv, http.MethodPost, "/email/password/reset/confirm", `{"token":"`+token+`","new_password":"Another-password-12345"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"error":"invalid_or_expired_token"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_or_expired_token"`)
 
 	w = serveJSON(srv, http.MethodPost, "/email/password/reset/confirm", `{"reset_session":"legacy","new_password":"Another-password-12345"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 
 	phone := uniquePhone()
 	phoneUser, err := srv.Core().CreateUser(ctx, "reset-phone-"+suffix+"@example.com", "resetphone"+suffix)

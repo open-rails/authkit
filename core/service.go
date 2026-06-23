@@ -3983,6 +3983,89 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 	return destination, nil
 }
 
+// Require2FAForReauth sends a 2FA code for authenticated step-up reauth.
+func (s *Service) Require2FAForReauth(ctx context.Context, userID, sessionID string) (destination, method string, err error) {
+	settings, err := s.Get2FASettings(ctx, userID)
+	if err != nil || !settings.Enabled {
+		return "", "", fmt.Errorf("2FA not enabled")
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return "", "", jwt.ErrTokenInvalidClaims
+	}
+
+	user, err := s.AdminGetUser(ctx, userID)
+	if err != nil {
+		return "", "", err
+	}
+
+	code := randAlphanumeric(6)
+	hash := sha256Hex(code)
+
+	switch settings.Method {
+	case "email":
+		if user.Email == nil {
+			return "", "", fmt.Errorf("no email address configured")
+		}
+		destination = *user.Email
+	case "sms":
+		if settings.PhoneNumber == nil {
+			return "", "", fmt.Errorf("no phone number configured for SMS 2FA")
+		}
+		destination = *settings.PhoneNumber
+	default:
+		return "", "", fmt.Errorf("unsupported 2FA method")
+	}
+
+	if !s.useEphemeralStore() {
+		return "", "", fmt.Errorf("ephemeral store not configured")
+	}
+	if err := s.storeTwoFactorReauthCode(ctx, userID, sessionID, hash, settings.Method, destination, 10*time.Minute); err != nil {
+		return "", "", err
+	}
+
+	username := ""
+	if user.Username != nil {
+		username = *user.Username
+	}
+
+	if settings.Method == "email" {
+		if s.email != nil {
+			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+				return s.email.SendLoginCode(sendCtx, destination, username, code)
+			}); err != nil {
+				return "", "", emailDeliveryError(err)
+			}
+		} else if !s.isDevEnvironment() {
+			return "", "", fmt.Errorf("email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
+		}
+	} else {
+		if s.sms != nil {
+			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+				return s.sms.SendLoginCode(sendCtx, destination, code)
+			}); err != nil {
+				return "", "", smsDeliveryError(err)
+			}
+		} else if !s.isDevEnvironment() {
+			return "", "", fmt.Errorf("SMS 2FA unavailable: SMS sender not configured (SMS 2FA requires delivery in production)")
+		}
+	}
+
+	return destination, settings.Method, nil
+}
+
+// Verify2FAReauthCode verifies a session-scoped 2FA reauth code.
+func (s *Service) Verify2FAReauthCode(ctx context.Context, userID, sessionID, code string) (bool, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return false, jwt.ErrTokenInvalidClaims
+	}
+	if !s.useEphemeralStore() {
+		return false, fmt.Errorf("ephemeral store not configured")
+	}
+	return s.consumeTwoFactorReauthCode(ctx, userID, sessionID, sha256Hex(code))
+}
+
 // Create2FAChallenge creates a short-lived challenge to prove password verification before 2FA.
 // Deprecated: use s.TwoFactor().Create2FAChallenge.
 func (s *Service) Create2FAChallenge(ctx context.Context, userID string) (string, error) {

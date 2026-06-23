@@ -2,11 +2,13 @@ package authhttp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/open-rails/authkit/authbase"
 	core "github.com/open-rails/authkit/core"
 	"github.com/stretchr/testify/require"
 )
@@ -56,14 +58,14 @@ func TestHandleVerificationRequestErrorMapsHonestTargetErrors(t *testing.T) {
 		name   string
 		err    error
 		status int
-		body   string
+		code   string
 	}{
-		{name: "invalid_email", err: core.ValidateEmail("bad"), status: http.StatusBadRequest, body: `{"error":"invalid_email"}`},
-		{name: "user_not_found", err: core.ErrUserNotFound, status: http.StatusNotFound, body: `{"error":"user_not_found"}`},
-		{name: "pending_registration_not_found", err: core.ErrPendingRegistrationNotFound, status: http.StatusNotFound, body: `{"error":"pending_registration_not_found"}`},
-		{name: "email_already_verified", err: core.ErrEmailAlreadyVerified, status: http.StatusConflict, body: `{"error":"email_already_verified"}`},
-		{name: "phone_already_verified", err: core.ErrPhoneAlreadyVerified, status: http.StatusConflict, body: `{"error":"phone_already_verified"}`},
-		{name: "verification_link_expired", err: core.ErrVerificationLinkExpired, status: http.StatusGone, body: `{"error":"verification_link_expired"}`},
+		{name: "invalid_email", err: core.ValidateEmail("bad"), status: http.StatusBadRequest, code: "invalid_email"},
+		{name: "user_not_found", err: core.ErrUserNotFound, status: http.StatusNotFound, code: "user_not_found"},
+		{name: "pending_registration_not_found", err: core.ErrPendingRegistrationNotFound, status: http.StatusNotFound, code: "pending_registration_not_found"},
+		{name: "email_already_verified", err: core.ErrEmailAlreadyVerified, status: http.StatusConflict, code: "email_already_verified"},
+		{name: "phone_already_verified", err: core.ErrPhoneAlreadyVerified, status: http.StatusConflict, code: "phone_already_verified"},
+		{name: "verification_link_expired", err: core.ErrVerificationLinkExpired, status: http.StatusGone, code: "verification_link_expired"},
 	}
 
 	for _, tt := range tests {
@@ -75,7 +77,13 @@ func TestHandleVerificationRequestErrorMapsHonestTargetErrors(t *testing.T) {
 			if w.Code != tt.status {
 				t.Fatalf("status=%d, want %d; body=%s", w.Code, tt.status, w.Body.String())
 			}
-			require.JSONEq(t, tt.body, w.Body.String())
+			// Stripe-style nested envelope (#115): assert code, plus that type +
+			// message are always populated.
+			var env authbase.ErrorEnvelope
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+			require.Equal(t, tt.code, env.Error.Code)
+			require.NotEmpty(t, env.Error.Type)
+			require.NotEmpty(t, env.Error.Message)
 		})
 	}
 }

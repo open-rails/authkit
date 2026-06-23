@@ -183,7 +183,7 @@ func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
 	h.ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
-	require.JSONEq(t, `{"error":"email_delivery_failed"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "email_delivery_failed")
 }
 
 func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
@@ -205,7 +205,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 	h.ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
-	require.JSONEq(t, `{"error":"email_delivery_failed"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "email_delivery_failed")
 }
 
 func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
@@ -274,7 +274,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	r.RemoteAddr = "172.21.0.1:1234"
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
-	require.JSONEq(t, `{"error":"pending_registration_not_found"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "pending_registration_not_found")
 
 	w = httptest.NewRecorder()
 	r = httptest.NewRequest(http.MethodPost, "/register/resend-email", strings.NewReader(`{"email":"user@example.com"}`))
@@ -286,7 +286,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	require.Equal(t, "6", w.Header().Get("RateLimit-Limit"))
 	require.Equal(t, "5", w.Header().Get("RateLimit-Remaining"))
 	require.Equal(t, "60", w.Header().Get("RateLimit-Reset"))
-	require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+	require.Contains(t, w.Body.String(), `"code":"rate_limited"`)
 	require.Contains(t, w.Body.String(), `"action":"request_email_verification"`)
 	require.Contains(t, w.Body.String(), `"allowed":false`)
 	require.Contains(t, w.Body.String(), `"reason":"cooldown"`)

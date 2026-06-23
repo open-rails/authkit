@@ -54,7 +54,7 @@ func TestPerIdentifierRateLimit_2FAVerify(t *testing.T) {
 	r.RemoteAddr = "198.51.100.7:1234"
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusTooManyRequests, w.Code, "per-identifier budget should trip on a fresh IP")
-	require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+	require.Contains(t, w.Body.String(), `"code":"rate_limited"`)
 
 	// A different user_id from yet another fresh IP is unaffected.
 	w = httptest.NewRecorder()

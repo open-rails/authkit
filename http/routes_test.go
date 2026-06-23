@@ -44,6 +44,26 @@ func TestAPIRoutesRemoveConfirmLinkRoutes(t *testing.T) {
 	requireRoute(t, s.APIRoutes(RoutePhoneVerification), http.MethodPost, "/phone/verify/confirm")
 }
 
+func TestAPIRoutesCollapseContactChangeRoutes(t *testing.T) {
+	s := newTestService(t)
+	routes := s.APIRoutes(RouteUser)
+
+	requireRoute(t, routes, http.MethodPost, "/user/email/change")
+	requireRoute(t, routes, http.MethodPost, "/user/phone/change")
+	for _, path := range []string{
+		"/user/email/change/request",
+		"/user/email/change/confirm",
+		"/user/email/change/resend",
+		"/user/email/change/cancel",
+		"/user/phone/change/request",
+		"/user/phone/change/confirm",
+		"/user/phone/change/resend",
+		"/user/phone/change/cancel",
+	} {
+		requireNoRoute(t, routes, http.MethodPost, path)
+	}
+}
+
 func TestAPIRoutesIncludeProviderDiscovery(t *testing.T) {
 	s := newTestService(t)
 

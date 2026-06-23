@@ -119,6 +119,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// "What are my permissions" introspection (#76 amendment): the caller's
 		// GRANTED ceiling + identity, for any programmatic principal.
 		{Method: http.MethodPost, Path: "/reauth/password", Group: RoutePassword, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
+		{Method: http.MethodPost, Path: "/reauth/2fa", Group: RouteTwoFactor, Handler: required(http.HandlerFunc(s.handleTwoFactorReauthPOST))},
 
 		{Method: http.MethodPost, Path: "/password/login", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
 		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RoutePassword, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
@@ -146,14 +147,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/me/bootstrap", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBootstrapGET))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-locale", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPreferredLocalePATCH))},
-		{Method: http.MethodPost, Path: "/user/email/change/request", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeRequestPOST))},
-		{Method: http.MethodPost, Path: "/user/email/change/confirm", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeConfirmPOST))},
-		{Method: http.MethodPost, Path: "/user/email/change/resend", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeResendPOST))},
-		{Method: http.MethodPost, Path: "/user/email/change/cancel", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangeCancelPOST))},
-		{Method: http.MethodPost, Path: "/user/phone/change/request", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeRequestPOST))},
-		{Method: http.MethodPost, Path: "/user/phone/change/confirm", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeConfirmPOST))},
-		{Method: http.MethodPost, Path: "/user/phone/change/resend", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeResendPOST))},
-		{Method: http.MethodPost, Path: "/user/phone/change/cancel", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangeCancelPOST))},
+		{Method: http.MethodPost, Path: "/user/email/change", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangePOST))},
+		{Method: http.MethodPost, Path: "/user/phone/change", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangePOST))},
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
 		{Method: http.MethodDelete, Path: "/user", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
 		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},

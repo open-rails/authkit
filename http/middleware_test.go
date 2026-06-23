@@ -60,7 +60,7 @@ func TestRequired_RequiresExp_ServiceIssued(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	protected.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.JSONEq(t, `{"error":"missing_exp"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "missing_exp")
 }
 
 func TestRequired_RejectsExpired_ServiceIssued(t *testing.T) {
@@ -87,7 +87,7 @@ func TestRequired_RejectsExpired_ServiceIssued(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	protected.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.JSONEq(t, `{"error":"token_expired"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "token_expired")
 }
 
 func TestRequired_RejectsNbfInFuture_WhenPresent(t *testing.T) {
@@ -114,7 +114,7 @@ func TestRequired_RejectsNbfInFuture_WhenPresent(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	protected.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.JSONEq(t, `{"error":"token_not_yet_valid"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "token_not_yet_valid")
 }
 
 func TestRequired_RejectsIatInFuture_WhenPresent(t *testing.T) {
@@ -140,7 +140,7 @@ func TestRequired_RejectsIatInFuture_WhenPresent(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	protected.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.JSONEq(t, `{"error":"token_not_yet_valid"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "token_not_yet_valid")
 }
 
 func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
@@ -167,7 +167,7 @@ func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	protected.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.JSONEq(t, `{"error":"missing_exp"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "missing_exp")
 }
 
 func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
@@ -202,7 +202,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		h.ServeHTTP(w, r)
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
 		require.NotEmpty(t, w.Header().Get("Retry-After"))
-		require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+		require.Contains(t, w.Body.String(), `"code":"rate_limited"`)
 		require.Contains(t, w.Body.String(), `"retry_after_seconds"`)
 	}
 
@@ -240,7 +240,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		r.Header.Set("X-Forwarded-For", "203.0.113.99")
 		h.ServeHTTP(w, r)
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
-		require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+		require.Contains(t, w.Body.String(), `"code":"rate_limited"`)
 	}
 
 	// Spoofed forwarded headers from untrusted peers are ignored; the peer identity is used.
@@ -288,6 +288,6 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
 	require.NotEmpty(t, w.Header().Get("Retry-After"))
-	require.Contains(t, w.Body.String(), `"error":"rate_limited"`)
+	require.Contains(t, w.Body.String(), `"code":"rate_limited"`)
 	require.Contains(t, w.Body.String(), `"retry_after_seconds"`)
 }

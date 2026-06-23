@@ -40,7 +40,7 @@ func TestRequireEntitlement_DeniesWhenMissing(t *testing.T) {
 	h := entitlementProtected(RequireEntitlement("premium"))
 	w := serveWithClaims(h, &Claims{UserID: "u1", Entitlements: []string{"basic"}})
 	require.Equal(t, http.StatusForbidden, w.Code)
-	require.JSONEq(t, `{"error":"forbidden"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "forbidden")
 }
 
 func TestRequireEntitlement_DeniesWhenNoClaims(t *testing.T) {

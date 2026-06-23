@@ -226,7 +226,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 		rec := httptest.NewRecorder()
 		protected.ServeHTTP(rec, req)
 		require.Equal(t, http.StatusUnauthorized, rec.Code)
-		require.JSONEq(t, `{"error":"access_token_wrong_typ"}`, rec.Body.String())
+		requireErrorCode(t, rec.Body.String(), "access_token_wrong_typ")
 	})
 
 	t.Run("service required rejects user jwt", func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 		rec := httptest.NewRecorder()
 		protected.ServeHTTP(rec, req)
 		require.Equal(t, http.StatusUnauthorized, rec.Code)
-		require.JSONEq(t, `{"error":"invalid_service_jwt"}`, rec.Body.String())
+		requireErrorCode(t, rec.Body.String(), "invalid_service_jwt")
 	})
 
 	t.Run("service required rejects delegated jwt", func(t *testing.T) {
@@ -250,7 +250,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 		rec := httptest.NewRecorder()
 		protected.ServeHTTP(rec, req)
 		require.Equal(t, http.StatusUnauthorized, rec.Code)
-		require.JSONEq(t, `{"error":"invalid_service_jwt"}`, rec.Body.String())
+		requireErrorCode(t, rec.Body.String(), "invalid_service_jwt")
 	})
 
 	t.Run("delegated verifier rejects service jwt", func(t *testing.T) {

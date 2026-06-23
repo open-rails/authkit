@@ -94,7 +94,7 @@ func TestAPIHandler_Token_InvalidRequest(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(`{}`))
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 }
 
 func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
@@ -109,7 +109,7 @@ func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+tok)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"missing_sid_claim"`)
+	require.Contains(t, w.Body.String(), `"code":"missing_sid_claim"`)
 }
 
 func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
@@ -120,7 +120,7 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 }
 
 func TestOIDCHandler_ReauthCallback_MissingStateOrCode(t *testing.T) {
@@ -131,7 +131,7 @@ func TestOIDCHandler_ReauthCallback_MissingStateOrCode(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/reauth/callback", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 }
 
 func TestOIDCHandler_LegacyAuthPathNotMounted(t *testing.T) {
@@ -253,7 +253,10 @@ func TestFreshReauthRouteContract(t *testing.T) {
 
 	for _, marker := range []string{
 		"handlePasswordReauthPOST",
+		"handleTwoFactorReauthPOST",
 		"handleOIDCReauthStartPOST",
+		"Require2FAForReauth",
+		"Verify2FAReauthCode",
 		"ReauthUserID",
 		"ReauthSessionID",
 		"GetProviderLinkByIssuer(r.Context(), issuer, subject)",
@@ -300,6 +303,9 @@ func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
 		{name: "user sessions revoke all", method: http.MethodDelete, path: "/user/sessions", want: http.StatusUnauthorized},
 		{name: "logout", method: http.MethodDelete, path: "/logout", want: http.StatusUnauthorized},
 		{name: "password reauth", method: http.MethodPost, path: "/reauth/password", body: `{}`, want: http.StatusUnauthorized},
+		{name: "2fa reauth", method: http.MethodPost, path: "/reauth/2fa", body: `{}`, want: http.StatusUnauthorized},
+		{name: "email change", method: http.MethodPost, path: "/user/email/change", body: `{}`, want: http.StatusUnauthorized},
+		{name: "phone change", method: http.MethodPost, path: "/user/phone/change", body: `{}`, want: http.StatusUnauthorized},
 		{name: "provider link start", method: http.MethodPost, path: "/oidc/google/link/start", want: http.StatusUnauthorized},
 		{name: "provider reauth start", method: http.MethodPost, path: "/oidc/google/reauth/start", want: http.StatusUnauthorized},
 		{name: "2fa status", method: http.MethodGet, path: "/user/2fa", want: http.StatusUnauthorized},
@@ -389,7 +395,7 @@ func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"address_required"`)
+	require.Contains(t, w.Body.String(), `"code":"address_required"`)
 }
 
 func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
@@ -400,7 +406,7 @@ func TestAPIHandler_UserBootstrap_RequiresAuth(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/me/bootstrap", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"missing_token"`)
+	require.Contains(t, w.Body.String(), `"code":"missing_token"`)
 
 	w = httptest.NewRecorder()
 	r = httptest.NewRequest(http.MethodGet, "/user/bootstrap", nil)

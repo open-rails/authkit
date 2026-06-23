@@ -23,7 +23,7 @@ func TestRestoredRegisterAvailability_MissingFields(t *testing.T) {
 	h.ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.JSONEq(t, `{"error":"invalid_request"}`, w.Body.String())
+	requireErrorCode(t, w.Body.String(), "invalid_request")
 }
 
 func TestRestoredRegisterAvailability_InvalidUsernameDoesNotRequireDatabase(t *testing.T) {

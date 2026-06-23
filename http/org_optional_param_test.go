@@ -29,7 +29,7 @@ func TestPasswordLogin_OrgParamRejected(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	svc.APIHandler().ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 }
 
 func TestAuthToken_OrgParamRejected(t *testing.T) {
@@ -50,5 +50,5 @@ func TestAuthToken_OrgParamRejected(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	svc.APIHandler().ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 }

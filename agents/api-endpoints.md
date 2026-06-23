@@ -129,12 +129,8 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | PATCH | `/user/username` | AUTH | Change username |
 | PATCH | `/user/biography` | AUTH | Update biography |
 | POST | `/user/password` | AUTH | Change password |
-| POST | `/user/email/change/request` | AUTH | Request email change |
-| POST | `/user/email/change/confirm` | AUTH | Confirm email change |
-| POST | `/user/email/change/resend` | AUTH | Resend email change verification |
-| POST | `/user/phone/change/request` | AUTH | Request phone number change |
-| POST | `/user/phone/change/confirm` | AUTH | Confirm phone number change |
-| POST | `/user/phone/change/resend` | AUTH | Resend phone number change verification |
+| POST | `/user/email/change` | AUTH | Start/restart or confirm email change |
+| POST | `/user/phone/change` | AUTH | Start/restart or confirm phone number change |
 | DELETE | `/user` | AUTH | Delete own account |
 | DELETE | `/user/providers/:provider` | AUTH | Unlink OAuth provider |
 

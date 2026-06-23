@@ -567,6 +567,11 @@ func (f TwoFactorFacet) Require2FAForLogin(ctx context.Context, userID string) (
 	return f.svc.Require2FAForLogin(ctx, userID)
 }
 
+// Require2FAForReauth calls Service.Require2FAForReauth.
+func (f TwoFactorFacet) Require2FAForReauth(ctx context.Context, userID, sessionID string) (destination, method string, err error) {
+	return f.svc.Require2FAForReauth(ctx, userID, sessionID)
+}
+
 // SendPhone2FASetupCode calls Service.SendPhone2FASetupCode.
 func (f TwoFactorFacet) SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
 	return f.svc.SendPhone2FASetupCode(ctx, userID, phone, code)
@@ -580,6 +585,11 @@ func (f TwoFactorFacet) Verify2FAChallenge(ctx context.Context, userID, challeng
 // Verify2FACode calls Service.Verify2FACode.
 func (f TwoFactorFacet) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
 	return f.svc.Verify2FACode(ctx, userID, code)
+}
+
+// Verify2FAReauthCode calls Service.Verify2FAReauthCode.
+func (f TwoFactorFacet) Verify2FAReauthCode(ctx context.Context, userID, sessionID, code string) (bool, error) {
+	return f.svc.Verify2FAReauthCode(ctx, userID, sessionID, code)
 }
 
 // VerifyBackupCode calls Service.VerifyBackupCode.

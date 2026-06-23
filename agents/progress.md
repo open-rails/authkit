@@ -443,7 +443,7 @@ Remove old ceremony routes from the canonical API surface:
 # #103: Emit OIDC `amr`/`acr`/`auth_time` assurance claims and collapse sensitive contact-change routes
 
 **Completed:** no
-**Status:** IN PROGRESS 2026-06-23 (Paul + Codex). Token assurance primitives are implemented; `/reauth/2fa` and contact-change route collapse remain. Promote the existing issuer-local fresh-auth machinery into token-visible assurance claims, and use the same "stale session -> reauth required -> retry" pattern to simplify the account email/phone change API.
+**Status:** IN PROGRESS 2026-06-23 (Paul + Codex). Token assurance primitives and `/reauth/2fa` email/SMS step-up are implemented; contact-change route collapse remains. Promote the existing issuer-local fresh-auth machinery into token-visible assurance claims, and use the same "stale session -> reauth required -> retry" pattern to simplify the account email/phone change API.
 
 ## Naming
 
@@ -526,7 +526,7 @@ Authenticated step-up route:
 - [x] Emit `amr`/`auth_time` from every access-token issuance path by deriving them from the `sid` session. `acr` remains unset until a real assurance-class mapping exists.
 - [x] Parse `amr`/`acr`/`auth_time` into verified claims; add `HasAMR` and `AuthenticatedWithin`.
 - [x] Add `RequireFreshAuth(maxAge)`, `RequireMFA()` / `RequireAMR(...)`, and `RequireACR(level)` middleware; fail closed and deny machine credentials.
-- [ ] Add `POST /reauth/2fa` for authenticated MFA step-up; do not reuse login-only `POST /2fa/verify`.
+- [x] Add `POST /reauth/2fa` for authenticated MFA step-up; do not reuse login-only `POST /2fa/verify`. Current implementation supports the existing email/SMS 2FA methods with user+session-scoped codes; TOTP plugs in under #101.
 - [ ] Gate `DELETE /user/2fa` and `POST /user/2fa/backup-codes` on fresh auth / MFA step-up.
 - [ ] Collapse email change to `POST /user/email/change` for both start/restart and confirm.
 - [ ] Collapse phone change to `POST /user/phone/change` for both start/restart and confirm.
