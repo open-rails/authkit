@@ -80,7 +80,7 @@ Database queries (sqlc)
 - All static Postgres queries are written as raw SQL in `internal/db/queries/*.sql` (one file per domain) and compiled to type-safe Go by [sqlc](https://docs.sqlc.dev) into the `internal/db` package (committed, never hand-edited).
 - To add or change a query: edit the `.sql` file, run `task sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`. (Tasks are defined in `Taskfile.yml`; `task --list` shows them. Install: https://taskfile.dev/installation.)
 - The schema source of truth for sqlc is `migrations/postgres/` — generated code is always type-checked against the real migrations. CI fails if `internal/db` drifts from the query files (`task sqlc-check`).
-- Escape hatch: queries whose SQL is assembled at runtime stay on raw pgx with a comment explaining why (currently `core.AdminListUsers` and the advisory-lock path in `core.ReconcileOrgManifest`). ClickHouse queries are out of sqlc's scope.
+- Escape hatch: queries whose SQL is assembled at runtime stay on raw pgx with a comment explaining why (currently `core.AdminListUsers`). ClickHouse queries are out of sqlc's scope.
 
 Passkeys
 - Configure `core.Config.Passkeys` when enabling passkey routes:
@@ -778,8 +778,8 @@ Permission groups
 - Token claim shape (uniform; no mode):
   - A user access token includes registered JWT claims, `sub`, `sid`, and
     authoritative short-lived `entitlements`.
-  - User access tokens do not include `global_roles`, `roles`, `org_roles`,
-    `email`, `email_verified`, `username`, or `discord_username`.
+  - User access tokens do not include profile snapshots such as `email`,
+    `email_verified`, `username`, or `discord_username`.
   - Membership, role, permission, and profile data are resolved server-side
     from `/me`, route resource state, and stored memberships.
 
@@ -822,19 +822,17 @@ Service JWTs (OIDC/JWKS machine credentials)
   integrations.
 
 Reserved slug policy
-- Owner namespaces use explicit states:
+- Owner namespaces reserve user-facing slugs:
   - `restricted_name`: slug is blocked in `profiles.owner_reserved_names` and not publicly registrable.
-  - `parked_org`: org exists and is platform-held (`metadata.namespace_state=parked_org`, `metadata.reserved=true`).
-  - `registered_org`: normal org lifecycle (`metadata.namespace_state=registered_org`).
-- Public lookup endpoint: `GET /namespaces/{slug}` returns public namespace metadata for the slug:
+- Public lookup endpoint: `GET /namespaces/{slug}` returns public user-namespace metadata for the slug:
   - `requested_slug`: normalized slug from the request.
   - `slug`: current canonical slug when the request resolves to a live or held namespace; otherwise the requested slug.
-  - `claimable`: `{user, org}` booleans.
+  - `claimable`: whether the user slug can be claimed.
   - `renamed`: whether this lookup resolved through rename history.
   - `hold_until`: present for rename reuse holds.
-  - optional `org` and/or `user` payloads when records exist.
+  - optional `user` payload when a record exists.
 - The PostgreSQL baseline schema creates `profiles.owner_reserved_names` and seeds canonical restricted names (`admin`, `superuser`, `root`, `sudo`) directly.
-- Public register/create/rename/org-create/org-rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
+- Public register and rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
 - Reserved users are non-loginable (reserved placeholder credentials/providers are cleared by migration and reserve flows).
 
 Verification delivery and expiry
@@ -1067,9 +1065,8 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /admin/users/:user_id/restore (`root:users:delete`)
   - GET /admin/users/:user_id/signins (`root:users:read`)
   - POST /admin/users/:user_id/sessions/revoke (`root:sessions:revoke`)
-- There is no admin org recovery flow; org routes were removed with the old org plane.
 - Public owner-namespace lookup:
-  - GET /namespaces/:slug → typed public namespace metadata + per-kind `claimable`
+  - GET /namespaces/:slug → public user-namespace metadata + `claimable`
 - Solana wallet authentication (SIWS):
   - POST /solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
   - POST /solana/login → {access_token, refresh_token, user}
@@ -1361,9 +1358,6 @@ Canonical claim contract:
   unknown, or cross-profile `typ` values.
 - A delegated access JWT must not carry a normal `sub`; the receiving service
   authorizes by trusted issuer plus delegated subject, not by a local user row.
-- Delegated access JWTs must not carry legacy AuthKit organization claims;
-  `Verify()` rejects them (`delegated_access_has_org`,
-  `delegated_access_has_org_id`).
 - `roles` are not a top-level delegated access JWT claim. Receiving services
   authorize on `permissions` plus explicit `attributes` policy.
 - Tier/plan metadata belongs under `attributes.tier`; a top-level `user_tier`

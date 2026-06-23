@@ -104,8 +104,10 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
 		{Method: http.MethodPost, Path: "/passkeys/login/finish", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginFinishPOST)},
 		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
+		{Method: http.MethodGet, Path: "/email/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmGET)},
 		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
 		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
+		{Method: http.MethodGet, Path: "/phone/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmGET)},
 		{Method: http.MethodPost, Path: "/phone/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST)},
 
 		{Method: http.MethodPost, Path: "/register", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
@@ -115,9 +117,11 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
 		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyRequestPOST)},
+		{Method: http.MethodGet, Path: "/email/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmGET)},
 		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmPOST)},
 
 		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyRequestPOST)},
+		{Method: http.MethodGet, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmGET)},
 		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmPOST)},
 
 		{Method: http.MethodPost, Path: "/user/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPasswordPOST))},
@@ -168,10 +172,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
 	}
-
-	// #111: the legacy organization/platform RBAC HTTP surface was removed. The
-	// permission-group route generator re-homes group management; the api-key and
-	// remote-application handlers survive in their own files to be re-nested there.
 
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {

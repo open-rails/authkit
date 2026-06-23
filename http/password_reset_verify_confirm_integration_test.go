@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,14 +31,14 @@ func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, ms
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code
-	s.verifyToken = msg.LinkToken
+	s.verifyToken = tokenFromURL(msg.LinkURL)
 	return nil
 }
 
-func (s *captureEmailSender) SendPasswordResetLink(_ context.Context, _, _, token string) error {
+func (s *captureEmailSender) SendPasswordResetLink(_ context.Context, _, _, resetURL string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.resetToken = token
+	s.resetToken = tokenFromURL(resetURL)
 	return nil
 }
 
@@ -79,14 +80,14 @@ func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg cor
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code
-	s.verifyToken = msg.LinkToken
+	s.verifyToken = tokenFromURL(msg.LinkURL)
 	return nil
 }
 
-func (s *captureSMSSender) SendPasswordResetLink(_ context.Context, _ string, token string) error {
+func (s *captureSMSSender) SendPasswordResetLink(_ context.Context, _ string, resetURL string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.resetToken = token
+	s.resetToken = tokenFromURL(resetURL)
 	return nil
 }
 
@@ -114,6 +115,14 @@ func (s *captureSMSSender) verificationToken(t *testing.T) string {
 	defer s.mu.Unlock()
 	require.NotEmpty(t, s.verifyToken)
 	return s.verifyToken
+}
+
+func tokenFromURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(u.Query().Get("token"))
 }
 
 func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {

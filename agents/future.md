@@ -44,7 +44,7 @@ Out of scope: magic-link login (passwordless login links). Track separately.
 
 **Completed:** yes
 
-Superseded by #86. Product/API terminology is **API key**: an org-owned opaque shared secret with assigned permissions and optional resource scopes. It is not a user access token, refresh token, delegated access token, service JWT, or remote application/issuer.
+Superseded by #86. Product/API terminology is **API key**: a permission-group-owned opaque shared secret with assigned permissions and optional resource scopes. It is not a user access token, refresh token, delegated access token, service JWT, or remote application/issuer.
 
 Storage still uses `profiles.service_tokens` and generated sqlc names until a separate storage migration is worth the churn.
 
@@ -186,7 +186,7 @@ Non-goals: removing the local backend (kept as default for dev/simple prod); cha
 
 ---
 
-# #102: Broaden audit taxonomy to org/RBAC/admin/credential security events + optional PII redaction
+# #102: Broaden audit taxonomy to permission-group/RBAC/admin/credential security events + optional PII redaction
 
 **Completed:** no
 
@@ -194,15 +194,15 @@ AuthKit already has the audit *mechanism* — a pluggable, best-effort `AuthEven
 
 The irony driving this issue: AuthKit *generates* exactly the events a compliance auditor (SOC2 / GDPR / HIPAA) cares about — and that single-tenant auth libraries can't — precisely because of its multi-tenant authority surface, yet **none of them reach the sink**:
 
-- **API keys** — mint, revoke (org-owned machine credentials gaining/losing authority).
-- **Org RBAC** — `DefineRole`, `SetRolePermissions`, role delete, membership add/remove, role (re)assignment.
-- **Org lifecycle** — create, rename, provision (`ProvisionOrg` / `ReconcileOrgManifest`), `EnsureOwnerGrants`.
+- **API keys** — mint, revoke (permission-group-owned machine credentials gaining/losing authority).
+- **Permission-group RBAC** — custom-role define/delete, membership add/remove, role (re)assignment.
+- **Permission-group lifecycle** — create, delete, provision, owner grants.
 - **2FA** — `Enable2FA`, `Disable2FA`, `RegenerateBackupCodes`.
 - **Identity linking** — OAuth/OIDC account link complete, unlink.
 - **Admin actions** — admin set-password, ban/unban, soft-delete, `ImportUser`, `CreateUser`.
 - **Invites** — create, accept, decline, revoke.
 
-"Who granted `merchant:payments:refund` to which role in which org, and when" is the canonical audit question, and today it's unanswerable from the event stream. Turning the existing-but-narrow sink into a full security-event stream leans into where AuthKit is already ahead of authboss/go-auth (which inspired this — go-auth advertises "comprehensive audit logging with PII redaction" but, being single-tenant, has far less worth auditing).
+"Who granted `merchant:payments:refund` to which role in which permission group, and when" is the canonical audit question, and today it's unanswerable from the event stream. Turning the existing-but-narrow sink into a full security-event stream leans into where AuthKit is already ahead of authboss/go-auth (which inspired this — go-auth advertises "comprehensive audit logging with PII redaction" but, being single-tenant, has far less worth auditing).
 
 ## The core design call: a new `SecurityEvent`, added *additively* — do NOT widen `AuthSessionEvent`
 

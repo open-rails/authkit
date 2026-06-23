@@ -41,7 +41,7 @@ func TestMintCustomJWTRoundTrip(t *testing.T) {
 			"cap_kind":   "worker",
 			"grants":     []string{"job:run", "job:report"},
 			"release_id": "rel-2026-06-13",
-			"org":        "cozy-art",
+			"tenant":     "cozy-art",
 		},
 		Subject:   "service:tensorhub",
 		Audiences: []string{"cozy.scheduler"},
@@ -57,8 +57,8 @@ func TestMintCustomJWTRoundTrip(t *testing.T) {
 	if claims["release_id"] != "rel-2026-06-13" {
 		t.Fatalf("release_id=%v", claims["release_id"])
 	}
-	if claims["org"] != "cozy-art" {
-		t.Fatalf("org=%v", claims["org"])
+	if claims["tenant"] != "cozy-art" {
+		t.Fatalf("tenant=%v", claims["tenant"])
 	}
 	grants, ok := claims["grants"].([]any)
 	if !ok || len(grants) != 2 || grants[0] != "job:run" {

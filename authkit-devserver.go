@@ -32,9 +32,8 @@ type config struct {
 	IssuedAudiences          []string
 	ExpectedAudiences        []string
 	Environment              string
-	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
-	// catalog) so existing deployments are unaffected; the e2e suite sets
-	// these to exercise the multi-org API-key/RBAC surface against a real server.
+	// Permission-group/RBAC knobs. Default to authkit's zero values; the e2e
+	// suite sets these to exercise API keys and RBAC against a real server.
 	APIKeyPrefix              string
 	PermissionCatalog         []string
 	StaticEntitlements        []string

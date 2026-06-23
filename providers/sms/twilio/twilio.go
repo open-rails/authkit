@@ -16,10 +16,10 @@ import (
 const messagesURLFormat = "https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json"
 
 // VerificationBuilder renders a verification SMS body.
-type VerificationBuilder func(ctx context.Context, phone string, msg core.VerificationMessage, verificationURL string) string
+type VerificationBuilder func(ctx context.Context, phone string, msg core.VerificationMessage) string
 
 // PasswordResetBuilder renders a password reset SMS body.
-type PasswordResetBuilder func(ctx context.Context, phone, token, resetURL string) string
+type PasswordResetBuilder func(ctx context.Context, phone, resetURL string) string
 
 // LoginCodeBuilder renders a login code SMS body.
 type LoginCodeBuilder func(ctx context.Context, phone, code string) string
@@ -31,9 +31,6 @@ type Config struct {
 	MessagingServiceSID string
 	AppName             string
 	Client              *http.Client
-
-	VerificationLinkURL func(token string) string
-	ResetLinkURL        func(token string) string
 
 	VerificationBuilder  VerificationBuilder
 	PasswordResetBuilder PasswordResetBuilder
@@ -57,9 +54,6 @@ type Sender struct {
 	MessagingServiceSID string
 	AppName             string
 	Client              *http.Client
-
-	VerificationLinkURL func(token string) string
-	ResetLinkURL        func(token string) string
 
 	VerificationBuilder  VerificationBuilder
 	PasswordResetBuilder PasswordResetBuilder
@@ -89,8 +83,6 @@ func New(cfg Config) (*Sender, error) {
 		MessagingServiceSID:    messagingServiceSID,
 		AppName:                strings.TrimSpace(cfg.AppName),
 		Client:                 cfg.Client,
-		VerificationLinkURL:    cfg.VerificationLinkURL,
-		ResetLinkURL:           cfg.ResetLinkURL,
 		VerificationBuilder:    cfg.VerificationBuilder,
 		PasswordResetBuilder:   cfg.PasswordResetBuilder,
 		LoginCodeBuilder:       cfg.LoginCodeBuilder,
@@ -110,33 +102,19 @@ func (s *Sender) SendVerification(ctx context.Context, phone string, msg core.Ve
 	if err := msg.Validate(); err != nil {
 		return err
 	}
-	link := ""
-	if strings.TrimSpace(msg.LinkToken) != "" {
-		link = strings.TrimSpace(msg.LinkToken)
-		if s.VerificationLinkURL != nil {
-			if built := strings.TrimSpace(s.VerificationLinkURL(link)); built != "" {
-				link = built
-			}
-		}
-	}
 	if s.VerificationBuilder != nil {
-		return s.sendMessage(ctx, phone, s.VerificationBuilder(ctx, phone, msg, link))
+		return s.sendMessage(ctx, phone, s.VerificationBuilder(ctx, phone, msg))
 	}
 
-	return s.sendMessage(ctx, phone, defaultVerificationBody(ctx, s.appLabel(), msg, link))
+	return s.sendMessage(ctx, phone, defaultVerificationBody(ctx, s.appLabel(), msg))
 }
 
-func (s *Sender) SendPasswordResetLink(ctx context.Context, phone, token string) error {
-	linkOrToken := strings.TrimSpace(token)
-	if s.ResetLinkURL != nil {
-		if built := strings.TrimSpace(s.ResetLinkURL(linkOrToken)); built != "" {
-			linkOrToken = built
-		}
-	}
+func (s *Sender) SendPasswordResetLink(ctx context.Context, phone, resetURL string) error {
+	resetURL = strings.TrimSpace(resetURL)
 	if s.PasswordResetBuilder != nil {
-		return s.sendMessage(ctx, phone, s.PasswordResetBuilder(ctx, phone, token, linkOrToken))
+		return s.sendMessage(ctx, phone, s.PasswordResetBuilder(ctx, phone, resetURL))
 	}
-	body := defaultPasswordResetBody(ctx, s.appLabel(), linkOrToken)
+	body := defaultPasswordResetBody(ctx, s.appLabel(), resetURL)
 	return s.sendMessage(ctx, phone, body)
 }
 
@@ -175,7 +153,7 @@ func contextLanguage(ctx context.Context) string {
 	}
 }
 
-func defaultVerificationBody(ctx context.Context, app string, msg core.VerificationMessage, link string) string {
+func defaultVerificationBody(ctx context.Context, app string, msg core.VerificationMessage) string {
 	parts := make([]string, 0, 2)
 	if strings.TrimSpace(msg.Code) != "" {
 		if contextLanguage(ctx) == "es" {
@@ -184,11 +162,11 @@ func defaultVerificationBody(ctx context.Context, app string, msg core.Verificat
 			parts = append(parts, fmt.Sprintf("%s verification code: %s", app, strings.TrimSpace(msg.Code)))
 		}
 	}
-	if strings.TrimSpace(link) != "" {
+	if strings.TrimSpace(msg.LinkURL) != "" {
 		if contextLanguage(ctx) == "es" {
-			parts = append(parts, "Verificar: "+strings.TrimSpace(link))
+			parts = append(parts, "Verificar: "+strings.TrimSpace(msg.LinkURL))
 		} else {
-			parts = append(parts, "Verify: "+strings.TrimSpace(link))
+			parts = append(parts, "Verify: "+strings.TrimSpace(msg.LinkURL))
 		}
 	}
 	return strings.Join(parts, "\n")

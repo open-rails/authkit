@@ -14,7 +14,7 @@ import (
 //	username of the user that holds it. Single-hop; rename rows always carry
 //	the immutable user_id so we never need to walk a chain.
 //
-// The org-slug equivalent was dropped with the org plane (#111).
+// Permission-group resource slug forwarding is host-owned.
 //
 // See e2e/agents/progress.json issue #58 for the design + index choices.
 // All queries hit covering indexes; sub-ms in steady state.

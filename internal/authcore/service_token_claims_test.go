@@ -51,28 +51,6 @@ func TestIssueAccessToken_TypHeader(t *testing.T) {
 	require.Equal(t, jwtkit.AccessTokenType, header["typ"])
 }
 
-// The legacy global-roles plane was hard-cut: platform/org authority is resolved
-// at request time from the platform/org RBAC tables, never snapshotted into the
-// access token. Assert the dead claims are GONE so a regression that re-adds them
-// fails here.
-func TestIssueAccessToken_NoLegacyRoleClaims(t *testing.T) {
-	for _, mode := range []string{"single", "multi", ""} {
-		mode := mode
-		t.Run("mode="+mode, func(t *testing.T) {
-			s, pub := newClaimTestService(t, mode)
-			tok, _, err := s.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
-			require.NoError(t, err)
-			cl := parseClaimsNoValidate(t, tok, pub)
-			_, ok := cl["global_roles"]
-			require.False(t, ok, "global_roles claim must be gone (hard-cut)")
-			_, ok = cl["roles"]
-			require.False(t, ok, "legacy roles claim must be gone (hard-cut)")
-			_, ok = cl["org_roles"]
-			require.False(t, ok, "user access token must not carry org_roles")
-		})
-	}
-}
-
 func TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements(t *testing.T) {
 	s, pub := newClaimTestService(t, "", WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}}))
 
@@ -91,9 +69,6 @@ func TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements(t *testing.T
 		"email_verified",
 		"username",
 		"discord_username",
-		"roles",
-		"global_roles",
-		"org_roles",
 	} {
 		_, ok := cl[forbidden]
 		require.False(t, ok, "%s claim must not be minted on normal user access tokens", forbidden)

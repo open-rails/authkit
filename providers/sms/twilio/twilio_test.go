@@ -50,17 +50,14 @@ func TestSendVerificationUsesMessagingAPIWithCodeAndLink(t *testing.T) {
 		MessagingServiceSID: " MG123 ",
 		AppName:             "Example",
 		Client:              client,
-		VerificationLinkURL: func(token string) string {
-			return "https://example.com/verify?token=" + token
-		},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
 	err = s.SendVerification(context.Background(), "+15555550123", core.VerificationMessage{
-		Code:      "123456",
-		LinkToken: "verify-token",
+		Code:    "123456",
+		LinkURL: "https://example.com/verify?token=verify-token",
 	})
 	if err != nil {
 		t.Fatalf("SendVerification: %v", err)

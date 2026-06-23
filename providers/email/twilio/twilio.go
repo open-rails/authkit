@@ -25,10 +25,10 @@ type Message struct {
 }
 
 // VerificationBuilder renders a verification email.
-type VerificationBuilder func(ctx context.Context, email, username string, msg core.VerificationMessage, verificationURL string) Message
+type VerificationBuilder func(ctx context.Context, email, username string, msg core.VerificationMessage) Message
 
 // PasswordResetBuilder renders a password reset email.
-type PasswordResetBuilder func(ctx context.Context, email, username, token, resetURL string) Message
+type PasswordResetBuilder func(ctx context.Context, email, username, resetURL string) Message
 
 // LoginCodeBuilder renders a login code email.
 type LoginCodeBuilder func(ctx context.Context, email, username, code string) Message
@@ -43,9 +43,6 @@ type Config struct {
 	FromName  string
 	AppName   string
 	Client    *http.Client
-
-	VerificationLinkURL func(token string) string
-	ResetLinkURL        func(token string) string
 
 	Categories []string
 	CustomArgs map[string]string
@@ -63,9 +60,6 @@ type Sender struct {
 	FromName  string
 	AppName   string
 	Client    *http.Client
-
-	VerificationLinkURL func(token string) string
-	ResetLinkURL        func(token string) string
 
 	Categories []string
 	CustomArgs map[string]string
@@ -92,8 +86,6 @@ func New(cfg Config) (*Sender, error) {
 		FromName:             strings.TrimSpace(cfg.FromName),
 		AppName:              strings.TrimSpace(cfg.AppName),
 		Client:               cfg.Client,
-		VerificationLinkURL:  cfg.VerificationLinkURL,
-		ResetLinkURL:         cfg.ResetLinkURL,
 		Categories:           compactStrings(cfg.Categories),
 		CustomArgs:           compactStringMap(cfg.CustomArgs),
 		VerificationBuilder:  cfg.VerificationBuilder,
@@ -114,19 +106,10 @@ func (s *Sender) SendVerification(ctx context.Context, email, username string, m
 	if err := msg.Validate(); err != nil {
 		return err
 	}
-	link := ""
-	if strings.TrimSpace(msg.LinkToken) != "" {
-		link = strings.TrimSpace(msg.LinkToken)
-		if s.VerificationLinkURL != nil {
-			if built := strings.TrimSpace(s.VerificationLinkURL(link)); built != "" {
-				link = built
-			}
-		}
-	}
 	if s.VerificationBuilder != nil {
-		return s.sendEmail(ctx, email, s.VerificationBuilder(ctx, email, username, msg, link))
+		return s.sendEmail(ctx, email, s.VerificationBuilder(ctx, email, username, msg))
 	}
-	return s.sendEmail(ctx, email, defaultVerificationMessage(ctx, s.appLabel(), msg, link))
+	return s.sendEmail(ctx, email, defaultVerificationMessage(ctx, s.appLabel(), msg))
 }
 
 type defaultCopy struct {
@@ -196,40 +179,35 @@ func contextLanguage(ctx context.Context) string {
 	}
 }
 
-func defaultVerificationMessage(ctx context.Context, app string, msg core.VerificationMessage, link string) Message {
+func defaultVerificationMessage(ctx context.Context, app string, msg core.VerificationMessage) Message {
 	copy := copyForContext(ctx, app)
 	lines := []string{copy.verifyIntro}
 	if strings.TrimSpace(msg.Code) != "" {
 		lines = append(lines, copy.codeLabel+": "+strings.TrimSpace(msg.Code))
 	}
-	if strings.TrimSpace(link) != "" {
-		lines = append(lines, copy.verifyLinkLabel+": "+strings.TrimSpace(link))
+	if strings.TrimSpace(msg.LinkURL) != "" {
+		lines = append(lines, copy.verifyLinkLabel+": "+strings.TrimSpace(msg.LinkURL))
 	}
 	html := "<p>" + escapeHTML(copy.verifyIntro) + "</p><ul>"
 	if strings.TrimSpace(msg.Code) != "" {
 		html += "<li><strong>" + escapeHTML(copy.codeLabel) + ":</strong> " + escapeHTML(strings.TrimSpace(msg.Code)) + "</li>"
 	}
-	if strings.TrimSpace(link) != "" {
-		html += "<li><strong>" + escapeHTML(copy.verifyLinkLabel) + ":</strong> " + escapeHTML(strings.TrimSpace(link)) + "</li>"
+	if strings.TrimSpace(msg.LinkURL) != "" {
+		html += "<li><strong>" + escapeHTML(copy.verifyLinkLabel) + ":</strong> " + escapeHTML(strings.TrimSpace(msg.LinkURL)) + "</li>"
 	}
 	html += "</ul>"
 	return Message{Subject: copy.verifySubject, TextBody: strings.Join(lines, "\n"), HTMLBody: html, Categories: []string{"auth", "email-verification"}}
 }
 
-func (s *Sender) SendPasswordResetLink(ctx context.Context, email, username, token string) error {
+func (s *Sender) SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error {
 	app := s.appLabel()
-	linkOrToken := strings.TrimSpace(token)
-	if s.ResetLinkURL != nil {
-		if built := strings.TrimSpace(s.ResetLinkURL(linkOrToken)); built != "" {
-			linkOrToken = built
-		}
-	}
+	resetURL = strings.TrimSpace(resetURL)
 	if s.PasswordResetBuilder != nil {
-		return s.sendEmail(ctx, email, s.PasswordResetBuilder(ctx, email, username, token, linkOrToken))
+		return s.sendEmail(ctx, email, s.PasswordResetBuilder(ctx, email, username, resetURL))
 	}
 	copy := copyForContext(ctx, app)
-	text := fmt.Sprintf("%s\n%s", copy.resetIntro, linkOrToken)
-	html := fmt.Sprintf("<p>%s</p><p>%s</p>", escapeHTML(copy.resetIntro), escapeHTML(linkOrToken))
+	text := fmt.Sprintf("%s\n%s", copy.resetIntro, resetURL)
+	html := fmt.Sprintf("<p>%s</p><p>%s</p>", escapeHTML(copy.resetIntro), escapeHTML(resetURL))
 	return s.sendEmail(ctx, email, Message{Subject: copy.resetSubject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "password-reset"}})
 }
 

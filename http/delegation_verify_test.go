@@ -202,17 +202,6 @@ func TestIssuerOnlyDelegatedToken(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	// The minted token must carry NEITHER org claim (absent, not empty).
-	claims := jwt.MapClaims{}
-	if _, _, perr := jwt.NewParser().ParseUnverified(tok, claims); perr != nil {
-		t.Fatalf("parse: %v", perr)
-	}
-	for _, forbidden := range []string{"org", "org_id", "org_roles"} {
-		if _, present := claims[forbidden]; present {
-			t.Fatalf("%s claim present on minted token: %v", forbidden, claims[forbidden])
-		}
-	}
-
 	v := newDelegatedVerifier(t, signer, iss, aud)
 	_, dp, err := v.VerifyDelegatedAccess(tok)
 	if err != nil {

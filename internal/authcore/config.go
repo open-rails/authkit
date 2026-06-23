@@ -74,9 +74,14 @@ type FrontendConfig struct {
 	// NewFromConfig defaults it to the issuer.
 	BaseURL string
 	// CallbackPath is the host-owned frontend route that receives full-page OIDC
-	// login results. Empty defaults to "/login/callback". (Paths for
-	// reset/verify are fixed to "/reset"/"/verify" — not configurable.)
+	// login results. Empty defaults to "/login/callback".
 	CallbackPath string
+	// VerifyPath is the host-owned frontend route that receives scanner-safe
+	// verification link landings. Empty defaults to "/verify".
+	VerifyPath string
+	// PasswordResetPath is the host-owned frontend route that receives
+	// scanner-safe password reset link landings. Empty defaults to "/reset".
+	PasswordResetPath string
 }
 
 // RegistrationConfig controls verification policy and public self-registration.

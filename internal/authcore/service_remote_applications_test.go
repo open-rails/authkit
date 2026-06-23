@@ -61,14 +61,14 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
-	orgID := createTestGroup(t, ctx, svc, pool, "cozy-art-org")
+	groupID := createTestGroup(t, ctx, svc, pool, "cozy-art")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "cozy-art")
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, "cozy-art") })
 
 	// Upsert (insert).
 	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:              "cozy-art",
-		PermissionGroupID: orgID,
+		PermissionGroupID: groupID,
 		Issuer:            iss,
 		JWKSURI:           "https://cozy.example/.well-known/jwks.json",
 		AllowedOrigins:    []string{"https://Cozy.example", "https://cozy.example"},
@@ -105,7 +105,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	// Upsert (update jwks + Enabled).
 	upd, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:              "cozy-art",
-		PermissionGroupID: orgID,
+		PermissionGroupID: groupID,
 		Issuer:            iss,
 		JWKSURI:           "https://cozy.example/v2/jwks.json",
 		AllowedOrigins:    []string{"https://billing.cozy.example"},
@@ -144,7 +144,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRemoteApplicationOrgOptionalOwnerUserRemoved(t *testing.T) {
+func TestRemoteApplicationOwnerUserColumnRemoved(t *testing.T) {
 	pool := testPG(t)
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
@@ -173,7 +173,7 @@ func TestRemoteApplicationOrgOptionalOwnerUserRemoved(t *testing.T) {
 		Enabled: true,
 	})
 	if !errors.Is(err, ErrInvalidRemoteApplication) {
-		t.Fatalf("org-less remote application should be rejected with ErrInvalidRemoteApplication, got %v", err)
+		t.Fatalf("group-less remote application should be rejected with ErrInvalidRemoteApplication, got %v", err)
 	}
 }
 
@@ -284,14 +284,14 @@ func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 
 	iss := "https://static.example/issuer"
 	slug := "static-keys-app"
-	orgID := createTestGroup(t, ctx, svc, pool, "static-keys-org")
+	groupID := createTestGroup(t, ctx, svc, pool, "static-keys")
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, slug) })
 
 	// Static insert.
 	ra, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:              slug,
-		PermissionGroupID: orgID,
+		PermissionGroupID: groupID,
 		Issuer:            iss,
 		PublicKeys:        []RemoteAppKey{{KID: "k1", PublicKeyPEM: pemKey}},
 		Enabled:           true,
@@ -325,7 +325,7 @@ func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 	// Mode switch static -> jwks (human console action): atomically clears keys.
 	ra2, err := svc.UpsertRemoteApplication(ctx, RemoteApplication{
 		Slug:              slug,
-		PermissionGroupID: orgID,
+		PermissionGroupID: groupID,
 		Issuer:            iss,
 		JWKSURI:           "https://static.example/jwks.json",
 		Enabled:           true,

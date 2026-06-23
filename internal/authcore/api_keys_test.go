@@ -129,13 +129,13 @@ func TestAPIKeyResourceContract(t *testing.T) {
 		t.Fatalf("wildcard-looking ID should be stored opaquely, got %+v", resources[1])
 	}
 
-	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "org", ID: "x"}, {Kind: "org", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "merchant", ID: "x"}, {Kind: "merchant", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
 		t.Fatalf("duplicate err=%v, want duplicate_resource", err)
 	}
 	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "", ID: "x"}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("empty kind err=%v, want invalid_resource", err)
 	}
-	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "org", ID: strings.Repeat("x", apiKeyResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "merchant", ID: strings.Repeat("x", apiKeyResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("long id err=%v, want invalid_resource", err)
 	}
 }

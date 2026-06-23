@@ -21,9 +21,8 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 // delegated subject, and a resource service accepts it after issuer/JWKS/
 // audience validation. The token represents a delegated subject
 // (DelegatedSubject) acting under the resource account that the VALIDATED
-// `iss` resolves to in the receiver's issuer registry — the token itself
-// carries no organization claims. It NEVER carries a normal `sub` — no local account
-// is implied in the receiving service.
+// `iss` resolves to in the receiver's issuer registry. It NEVER carries a
+// normal `sub` — no local account is implied in the receiving service.
 type DelegatedAccessParams struct {
 	// Issuer becomes the `iss` claim: the AuthKit issuer that signed the token.
 	// Must match a remote_application registered with the validating resource server.

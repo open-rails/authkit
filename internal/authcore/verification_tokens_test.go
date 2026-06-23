@@ -15,7 +15,7 @@ func TestVerificationMessageValidate(t *testing.T) {
 	if err := (VerificationMessage{Code: "123456"}).Validate(); err != nil {
 		t.Fatalf("unexpected validation error for code-only message: %v", err)
 	}
-	if err := (VerificationMessage{LinkToken: "token"}).Validate(); err != nil {
+	if err := (VerificationMessage{LinkURL: "https://example.test/verify?token=token"}).Validate(); err != nil {
 		t.Fatalf("unexpected validation error for link-only message: %v", err)
 	}
 }

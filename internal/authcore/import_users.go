@@ -171,49 +171,6 @@ func (s *Service) ImportUsers(ctx context.Context, inputs []ImportUserInput) (Im
 	return res, nil
 }
 
-// existingImportIdentities returns the subset of the batch's usernames/emails/
-// phones that already exist in the users table.
-func (s *Service) existingImportIdentities(ctx context.Context, prepared []preparedImportRow) (users, emails, phones map[string]struct{}, err error) {
-	usernames := make([]string, 0, len(prepared))
-	emailList := make([]string, 0, len(prepared))
-	phoneList := make([]string, 0, len(prepared))
-	for _, p := range prepared {
-		usernames = append(usernames, p.username)
-		if p.email != nil {
-			emailList = append(emailList, *p.email)
-		}
-		if p.phone != nil {
-			phoneList = append(phoneList, *p.phone)
-		}
-	}
-	users = map[string]struct{}{}
-	emails = map[string]struct{}{}
-	phones = map[string]struct{}{}
-	sql := db.RewriteSQL(`SELECT username, email, phone_number FROM profiles.users
-WHERE username = ANY($1::text[]) OR email = ANY($2::text[]) OR phone_number = ANY($3::text[])`, s.dbSchema())
-	rows, err := s.pg.Query(ctx, sql, usernames, emailList, phoneList)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var uname, email, phone *string
-		if err := rows.Scan(&uname, &email, &phone); err != nil {
-			return nil, nil, nil, err
-		}
-		if uname != nil {
-			users[*uname] = struct{}{}
-		}
-		if email != nil {
-			emails[*email] = struct{}{}
-		}
-		if phone != nil {
-			phones[*phone] = struct{}{}
-		}
-	}
-	return users, emails, phones, rows.Err()
-}
-
 // bulkInsertUsers inserts a chunk via one multi-row INSERT and returns the set of
 // ids that actually landed (ON CONFLICT DO NOTHING drops racing duplicates).
 func (s *Service) bulkInsertUsers(ctx context.Context, chunk []preparedImportRow) (map[string]struct{}, error) {
@@ -266,11 +223,6 @@ func (s *Service) bulkInsertPasswordHashes(ctx context.Context, rows []preparedI
 	b.WriteString(" ON CONFLICT (user_id) DO NOTHING")
 	_, err := s.pg.Exec(ctx, db.RewriteSQL(b.String(), s.dbSchema()), args...)
 	return err
-}
-
-func setHas(m map[string]struct{}, k string) bool {
-	_, ok := m[k]
-	return ok
 }
 
 // importRejectReason maps a validation error to a stable-ish reason string for

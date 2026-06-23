@@ -46,7 +46,7 @@ library/CLI bootstrap path, not a public HTTP admin route:
 `core.LoadBootstrapManifestFile`, `core.ParseBootstrapManifestYAML`, and
 `(*Service).ReconcileBootstrapManifest(ctx, manifest, store, opts)`, or
 `authkit bootstrap apply --file ./bootstrap.yaml`. Host applications layer their
-own domain bootstrap after AuthKit has reconciled users, orgs, roles, trusted
+own domain bootstrap after AuthKit has reconciled users, root roles, trusted
 issuers, and API keys.
 
 ## Authentication Levels
@@ -132,7 +132,7 @@ Passkeys:
   `navigator.credentials.get({ publicKey, mediation: "conditional" })`.
 
 Reserved slug policy:
-- Reserved owner slugs are seeded in DB migrations as reserved user + personal-org placeholders.
+- Reserved owner slugs are seeded in DB migrations as reserved user placeholders.
 - Public APIs do not use a hardcoded slug denylist; reserved slug claims are rejected by normal in-use/owner-namespace conflicts.
 
 ---
@@ -378,11 +378,9 @@ least one factor. Disabling MFA removes those MFA-required user role assignments
 | POST | `/admin/users/:user_id/restore` | `root:users:delete` | Restore (undelete) user |
 | GET | `/admin/users/:user_id/signins` | `root:users:read` | List recent signin events for a user |
 | POST | `/admin/users/:user_id/sessions/revoke` | `root:sessions:revoke` | Revoke all refresh sessions for a target user |
-| GET | `/namespaces/:slug` | PUBLIC | Fetch public namespace metadata: `requested_slug`, `slug`, `renamed`, optional `hold_until`, typed `user`/`org`, and `claimable.user`/`claimable.org` |
+| GET | `/namespaces/:slug` | PUBLIC | Fetch public user-namespace metadata: `requested_slug`, `slug`, `renamed`, optional `hold_until`, optional `user`, and `claimable` |
 
-There is no admin organization recovery flow; those routes were removed with the old organization plane.
-
-Namespace lookup returns typed resources instead of one owner winner; a same-slug user and org can both appear in the response.
+Namespace lookup returns the user namespace plus rename/claimability metadata.
 
 ## Remote Application Issuers (resource-server side)
 
@@ -394,16 +392,13 @@ Go `authhttp.RemoteApplicationIssuersClient`.
 
 Delegated access JWTs are minted with `authhttp.MintDelegatedAccessToken`.
 They carry `typ=delegated-access+jwt`, `delegated_sub`, resource-defined
-`permissions`, optional JSON `attributes`, and no normal `sub`. They carry no
-organization claims of any kind: the validated `iss` is the remote-application
-identity. Verification rejects tokens carrying the legacy claims
-(`delegated_access_has_org`, `delegated_access_has_org_id`). `delegated_sub` must be the issuer's **immutable, never-reassigned**
+`permissions`, optional JSON `attributes`, and no normal `sub`. The validated
+`iss` is the remote-application identity. `delegated_sub` must be the issuer's **immutable, never-reassigned**
 subject identifier (OIDC `sub` semantics) — never a username, slug, or email.
 All authkit identifiers are opaque strings that happen to be uuidv7; consumers
 must not parse them or branch on their format. Ordinary AuthKit access JWTs carry `typ=access+jwt`; resource servers
 reject missing, unknown, or cross-profile `typ` values. Delegated access JWTs
-must not carry legacy claims such as `org`, `roles`, or
-top-level `user_tier`; those are rejected. Resource servers should validate them
+should be authorized from `permissions` and namespaced `attributes`. Resource servers should validate them
 with `Verifier.VerifyDelegatedAccess`, optionally installing
 permissions and attributes-policy hooks. Remote applications loaded from this
 store are bound to the permission group that registered them; downstream

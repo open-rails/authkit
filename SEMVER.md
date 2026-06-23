@@ -521,9 +521,8 @@ differ only in claims/`typ`. The **`typ` header values and claim semantics are f
 | API key | opaque `<prefix>_st_<key_id>_<secret>` | DB perms/resources resolved by hashing secret |
 
 **User access-token claims** are uniform: registered claims + `sub` + `sid` +
-authoritative short-lived `entitlements`. They **do not** carry `global_roles`, `roles`,
-`org_roles`, `email`, `email_verified`, `username`, or `discord_username` — that data is
-resolved server-side via `/me` and route state. This exclusion is a covered invariant.
+authoritative short-lived `entitlements`. Profile and permission-group state is
+resolved server-side via `/me` and route state. This compact shape is a covered invariant.
 
 The Go view is `verify.Claims` (covered struct). Removing/retyping a field is MAJOR;
 adding a field is MINOR. Key fields: `UserID`, `SessionID`, `Entitlements`, `AMR`, `ACR`,

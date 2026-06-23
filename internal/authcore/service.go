@@ -37,10 +37,12 @@ type Options struct {
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 	SessionMaxPerUser    int
-	// Optional link building (paths are fixed: /reset and /verify)
+	// Optional link building.
 	BaseURL string
 	// FrontendCallbackPath is the host-owned frontend route that receives full-page OIDC login results.
 	FrontendCallbackPath    string
+	FrontendVerifyPath      string
+	FrontendPasswordResetPath string
 	PasskeyRPID             string
 	PasskeyRPDisplayName    string
 	PasskeyOrigins          []string
@@ -166,7 +168,11 @@ var (
 	ErrSMSSenderUnavailable    = errors.New("sms_unavailable")
 )
 
-const defaultFrontendCallbackPath = "/login/callback"
+const (
+	defaultFrontendCallbackPath      = "/login/callback"
+	defaultFrontendVerifyPath        = "/verify"
+	defaultFrontendPasswordResetPath = "/reset"
+)
 
 // (storage layer collapsed into direct Postgres/Redis helpers)
 
@@ -200,6 +206,12 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 	}
 	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
 		opts.FrontendCallbackPath = defaultFrontendCallbackPath
+	}
+	if strings.TrimSpace(opts.FrontendVerifyPath) == "" {
+		opts.FrontendVerifyPath = defaultFrontendVerifyPath
+	}
+	if strings.TrimSpace(opts.FrontendPasswordResetPath) == "" {
+		opts.FrontendPasswordResetPath = defaultFrontendPasswordResetPath
 	}
 	opts.PasskeyUserVerification = normalizePasskeyUserVerification(opts.PasskeyUserVerification)
 	opts.APIKeyPrefix = strings.TrimSpace(opts.APIKeyPrefix)
@@ -273,6 +285,14 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	if err != nil {
 		return nil, err
 	}
+	frontendVerifyPath, err := normalizeFrontendPath("FrontendVerifyPath", cfg.Frontend.VerifyPath, defaultFrontendVerifyPath)
+	if err != nil {
+		return nil, err
+	}
+	frontendPasswordResetPath, err := normalizeFrontendPath("FrontendPasswordResetPath", cfg.Frontend.PasswordResetPath, defaultFrontendPasswordResetPath)
+	if err != nil {
+		return nil, err
+	}
 	passkeyRPID, passkeyName, passkeyOrigins, passkeyUV, err := normalizePasskeyConfig(cfg.Passkeys, baseURL, issuer)
 	if err != nil {
 		return nil, err
@@ -330,6 +350,8 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		SessionMaxPerUser:          maxSess,
 		BaseURL:                    baseURL,
 		FrontendCallbackPath:       frontendCallbackPath,
+		FrontendVerifyPath:         frontendVerifyPath,
+		FrontendPasswordResetPath:  frontendPasswordResetPath,
 		PasskeyRPID:                passkeyRPID,
 		PasskeyRPDisplayName:       passkeyName,
 		PasskeyOrigins:             passkeyOrigins,
@@ -412,25 +434,29 @@ func normalizeRegistrationMode(v RegistrationMode) (RegistrationMode, error) {
 }
 
 func normalizeFrontendCallbackPath(raw string) (string, error) {
+	return normalizeFrontendPath("FrontendCallbackPath", raw, defaultFrontendCallbackPath)
+}
+
+func normalizeFrontendPath(name, raw, defaultPath string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return defaultFrontendCallbackPath, nil
+		return defaultPath, nil
 	}
 	if strings.Contains(value, "#") {
-		return "", fmt.Errorf("authkit: FrontendCallbackPath must not contain a fragment")
+		return "", fmt.Errorf("authkit: %s must not contain a fragment", name)
 	}
 	u, err := url.Parse(value)
 	if err != nil {
-		return "", fmt.Errorf("authkit: invalid FrontendCallbackPath %q: %w", raw, err)
+		return "", fmt.Errorf("authkit: invalid %s %q: %w", name, raw, err)
 	}
 	if u.IsAbs() || u.Host != "" || strings.HasPrefix(value, "//") {
-		return "", fmt.Errorf("authkit: FrontendCallbackPath must be a relative absolute-path, got %q", raw)
+		return "", fmt.Errorf("authkit: %s must be a relative absolute-path, got %q", name, raw)
 	}
 	if u.Path == "" || !strings.HasPrefix(u.Path, "/") {
-		return "", fmt.Errorf("authkit: FrontendCallbackPath must start with '/', got %q", raw)
+		return "", fmt.Errorf("authkit: %s must start with '/', got %q", name, raw)
 	}
 	if u.Fragment != "" {
-		return "", fmt.Errorf("authkit: FrontendCallbackPath must not contain a fragment")
+		return "", fmt.Errorf("authkit: %s must not contain a fragment", name)
 	}
 	return u.RequestURI(), nil
 }
@@ -737,7 +763,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		return err
 	}
 
-	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	msg := VerificationMessage{Code: code}
 
 	// Send verification message to new phone
 	if s.sms != nil {
@@ -817,7 +843,7 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 		return err
 	}
 
-	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	msg := VerificationMessage{Code: code}
 	// Send new credentials.
 	if s.sms != nil {
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
@@ -1156,15 +1182,49 @@ func (s *Service) SetPasswordAfterFreshAuth(ctx context.Context, userID, new str
 type VerificationMessage struct {
 	// Fixed-length numeric code for manual entry (optional).
 	Code string
-	// High-entropy token for one-click verification link flow (optional).
-	LinkToken string
+	// AuthKit-built scanner-safe verification link (optional).
+	LinkURL string
 }
 
 func (m VerificationMessage) Validate() error {
-	if strings.TrimSpace(m.Code) == "" && strings.TrimSpace(m.LinkToken) == "" {
-		return fmt.Errorf("verification message must contain at least one of code or link token")
+	if strings.TrimSpace(m.Code) == "" && strings.TrimSpace(m.LinkURL) == "" {
+		return fmt.Errorf("verification message must contain at least one of code or link URL")
 	}
 	return nil
+}
+
+func (s *Service) authkitURL(path string, q url.Values) string {
+	base := strings.TrimRight(strings.TrimSpace(s.opts.BaseURL), "/")
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	out := base + path
+	if encoded := q.Encode(); encoded != "" {
+		out += "?" + encoded
+	}
+	return out
+}
+
+func (s *Service) verificationURL(path, token string) string {
+	q := url.Values{}
+	q.Set("token", token)
+	return s.authkitURL(path, q)
+}
+
+func (s *Service) emailVerificationURL(token string) string {
+	return s.verificationURL("/email/verify/confirm", token)
+}
+
+func (s *Service) phoneVerificationURL(token string) string {
+	return s.verificationURL("/phone/verify/confirm", token)
+}
+
+func (s *Service) emailPasswordResetURL(token string) string {
+	return s.verificationURL("/email/password/reset/confirm", token)
+}
+
+func (s *Service) phonePasswordResetURL(token string) string {
+	return s.verificationURL("/phone/password/reset/confirm", token)
 }
 
 var (
@@ -1175,7 +1235,7 @@ var (
 // EmailSender sends verification/login/reset emails.
 type EmailSender interface {
 	SendVerification(ctx context.Context, email, username string, msg VerificationMessage) error
-	SendPasswordResetLink(ctx context.Context, email, username, token string) error
+	SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error
 	SendLoginCode(ctx context.Context, email, username, code string) error
 	SendWelcome(ctx context.Context, email, username string) error
 }
@@ -1183,7 +1243,7 @@ type EmailSender interface {
 // SMSSender sends verification/login/reset SMS messages.
 type SMSSender interface {
 	SendVerification(ctx context.Context, phone string, msg VerificationMessage) error
-	SendPasswordResetLink(ctx context.Context, phone, token string) error
+	SendPasswordResetLink(ctx context.Context, phone, resetURL string) error
 	SendLoginCode(ctx context.Context, phone, code string) error
 }
 
@@ -1340,7 +1400,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 
 	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
 	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-		return s.email.SendPasswordResetLink(sendCtx, *u.Email, username, token)
+		return s.email.SendPasswordResetLink(sendCtx, *u.Email, username, s.emailPasswordResetURL(token))
 	}); err != nil {
 		return emailDeliveryError(err)
 	}
@@ -1467,7 +1527,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 	if u.Username != nil {
 		username = *u.Username
 	}
-	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken)}
 	if err := msg.Validate(); err != nil {
 		return nil
 	}
@@ -1607,7 +1667,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		}); err != nil {
 			return "", err
 		}
-		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken)}
 		if err := msg.Validate(); err == nil {
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 				return s.email.SendVerification(sendCtx, normEmail, username, msg)
@@ -1642,7 +1702,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 			return "", fmt.Errorf("ephemeral store not configured")
 		}
 
-		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken)}
 		if err := msg.Validate(); err == nil {
 			if s.email != nil {
 				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
@@ -1789,7 +1849,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 		}); err != nil {
 			return "", err
 		}
-		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken)}
 		if err := msg.Validate(); err == nil {
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 				return "", smsDeliveryError(err)
@@ -1818,7 +1878,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 			return "", fmt.Errorf("ephemeral store not configured")
 		}
 
-		msg := VerificationMessage{Code: code, LinkToken: linkToken}
+		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken)}
 		if err := msg.Validate(); err == nil {
 			if s.sms != nil {
 				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
@@ -1975,7 +2035,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 		return nil
 	}
 
-	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken)}
 	if err := msg.Validate(); err != nil {
 		return nil
 	}
@@ -2073,7 +2133,9 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 	}
 
 	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
-	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendPasswordResetLink(sendCtx, phone, token) }); err != nil {
+	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
+		return s.sms.SendPasswordResetLink(sendCtx, phone, s.phonePasswordResetURL(token))
+	}); err != nil {
 		return smsDeliveryError(err)
 	}
 
@@ -2772,7 +2834,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	}
 
 	// Send verification message to NEW email
-	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	msg := VerificationMessage{Code: code}
 	if s.email != nil {
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, trimmed, username, msg) }); err != nil {
@@ -2853,7 +2915,7 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		username = *u.Username
 	}
 
-	msg := VerificationMessage{Code: code, LinkToken: linkToken}
+	msg := VerificationMessage{Code: code}
 	// Send new credentials.
 	if s.email != nil {
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)

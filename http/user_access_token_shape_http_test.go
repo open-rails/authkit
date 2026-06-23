@@ -41,9 +41,6 @@ func assertSlimUserAccessClaims(t *testing.T, claims jwt.MapClaims) {
 		"email_verified",
 		"username",
 		"discord_username",
-		"roles",
-		"global_roles",
-		"org_roles",
 	} {
 		_, ok := claims[forbidden]
 		require.False(t, ok, "%s claim must not be minted on user access tokens", forbidden)

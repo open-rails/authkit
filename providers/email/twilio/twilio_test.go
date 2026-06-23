@@ -59,17 +59,14 @@ func TestSendVerificationPayload(t *testing.T) {
 			"platform",
 		},
 		CustomArgs: map[string]string{"org": "cozy-art"},
-		VerificationLinkURL: func(token string) string {
-			return "https://example.com/verify?token=" + token
-		},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
 	err = s.SendVerification(context.Background(), "user@example.com", "alice", core.VerificationMessage{
-		Code:      "123456",
-		LinkToken: "verify-token",
+		Code:    "123456",
+		LinkURL: "https://example.com/verify?token=verify-token",
 	})
 	if err != nil {
 		t.Fatalf("SendVerification: %v", err)

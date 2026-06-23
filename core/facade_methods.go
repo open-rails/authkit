@@ -101,6 +101,10 @@ func (s *Service) GetProviderUsername(ctx context.Context, userID, provider stri
 	return s.impl.GetProviderUsername(ctx, userID, provider)
 }
 
+func (s *Service) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
+	return s.impl.GetUserMetadata(ctx, userID)
+}
+
 func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error) {
 	return s.impl.GetRemoteApplication(ctx, issuer)
 }
@@ -155,6 +159,10 @@ func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
 
 func (s *Service) LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error {
 	return s.impl.LinkProvider(ctx, userID, provider, subject, email)
+}
+
+func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
+	return s.impl.LinkProviderByIssuer(ctx, userID, issuer, providerSlug, subject, email)
 }
 
 func (s *Service) ListAPIKeys(ctx context.Context, persona, resourceSlug string) ([]APIKey, error) {
@@ -219,6 +227,10 @@ func (s *Service) Options() Options {
 
 func (s *Service) Postgres() *pgxpool.Pool {
 	return s.impl.Postgres()
+}
+
+func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
+	return s.impl.PatchUserMetadata(ctx, userID, patch)
 }
 
 func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
@@ -287,6 +299,10 @@ func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) {
 
 func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	return s.impl.SoftDeleteUser(ctx, id)
+}
+
+func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {
+	return s.impl.TimeUntilUsernameRenameAvailable(ctx, userID, now)
 }
 
 func (s *Service) UnbanUser(ctx context.Context, userID string) error {
