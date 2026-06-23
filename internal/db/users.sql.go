@@ -12,12 +12,11 @@ import (
 
 const groupAssignmentsDeleteByUser = `-- name: GroupAssignmentsDeleteByUser :exec
 
-DELETE FROM profiles.group_role_assignments
-WHERE subject_id = $1::uuid AND subject_kind = 'user'
+DELETE FROM profiles.group_user_roles
+WHERE user_id = $1::uuid
 `
 
-// #125 D7: pre-delete cleanup for the hard-delete/purge path. group_role_assignments
-// uses a polymorphic trigger-FK (no cascade) so user assignments would orphan;
+// #125 D7: pre-delete cleanup for the hard-delete/purge path.
 // group_invites.invited_by is ON DELETE RESTRICT so sent invites must be cleared
 // before the user row is removed.
 func (q *Queries) GroupAssignmentsDeleteByUser(ctx context.Context, userID string) error {

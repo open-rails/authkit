@@ -59,14 +59,22 @@ type ProfilesGroupPersonaParent struct {
 	CreatedAt            time.Time
 }
 
-type ProfilesGroupRoleAssignment struct {
-	GroupID     string
-	SubjectID   string
-	SubjectKind string
-	Role        string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
+type ProfilesGroupRemoteApplicationRole struct {
+	GroupID             string
+	RemoteApplicationID string
+	Role                string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeletedAt           *time.Time
+}
+
+type ProfilesGroupUserRole struct {
+	GroupID   string
+	UserID    string
+	Role      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
 }
 
 // Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings
@@ -143,7 +151,7 @@ type ProfilesRemoteApplication struct {
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time
-	// Required controlling permission-group. Authority comes from group_role_assignments and the parent walk.
+	// Required controlling permission-group. Authority comes from group_remote_application_roles and the parent walk.
 	PermissionGroupID string
 	AllowedOrigins    []string
 }

@@ -39,7 +39,7 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 }
 
 // finalizeRegisterPhone completes a phone+password signup. Mirrors the historical
-// ConfirmPendingPhoneRegistration body (no personal-org provisioning, matching
+// ConfirmPendingPhoneRegistration body (no permission-group provisioning, matching
 // prior behavior).
 func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) (string, error) {
 	phone := rec.Target

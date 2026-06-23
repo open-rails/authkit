@@ -19,7 +19,7 @@ import (
 )
 
 // remoteAppSlugRe validates a remote_application slug: lowercase alnum with
-// internal hyphens (the historical org-slug shape, now group-local).
+// internal hyphens.
 var remoteAppSlugRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 func validateRemoteAppSlug(slug string) error {

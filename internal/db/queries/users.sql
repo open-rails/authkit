@@ -152,14 +152,13 @@ DELETE FROM profiles.users WHERE id = $1;
 -- name: SessionsRevokeAllQuiet :exec
 UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2;
 
--- #125 D7: pre-delete cleanup for the hard-delete/purge path. group_role_assignments
--- uses a polymorphic trigger-FK (no cascade) so user assignments would orphan;
+-- #125 D7: pre-delete cleanup for the hard-delete/purge path.
 -- group_invites.invited_by is ON DELETE RESTRICT so sent invites must be cleared
 -- before the user row is removed.
 
 -- name: GroupAssignmentsDeleteByUser :exec
-DELETE FROM profiles.group_role_assignments
-WHERE subject_id = sqlc.arg(user_id)::uuid AND subject_kind = 'user';
+DELETE FROM profiles.group_user_roles
+WHERE user_id = sqlc.arg(user_id)::uuid;
 
 -- name: GroupInvitesDeleteByInviter :exec
 DELETE FROM profiles.group_invites

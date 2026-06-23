@@ -48,7 +48,7 @@ func usernameWithSuffix(base, suffix string) string {
 
 // usernameAvailable reports whether username is free. getUserByUsername returns
 // pgx.ErrNoRows for a free name, so ErrNoRows is the available case (#111: the
-// org-slug reservation plane was removed, so username uniqueness is the only
+// organization-slug reservation plane was removed, so username uniqueness is the only
 // constraint).
 func (s *Service) usernameAvailable(ctx context.Context, username string) bool {
 	if s.pg == nil {

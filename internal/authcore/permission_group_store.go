@@ -16,12 +16,23 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// SubjectKindUser / SubjectKindRemoteApplication are the polymorphic subject
-// kinds a group assignment may target (mirrors group_role_assignments).
+// SubjectKindUser / SubjectKindRemoteApplication select the concrete group-role
+// table used for a principal.
 const (
 	SubjectKindUser      = "user"
 	SubjectKindRemoteApp = "remote_application"
 )
+
+func groupRoleTable(subjectKind string) (table, subjectColumn string, err error) {
+	switch subjectKind {
+	case SubjectKindUser:
+		return "profiles.group_user_roles", "user_id", nil
+	case SubjectKindRemoteApp:
+		return "profiles.group_remote_application_roles", "remote_application_id", nil
+	default:
+		return "", "", fmt.Errorf("invalid group subject kind %q", subjectKind)
+	}
+}
 
 // ErrGroupNotFound is returned when a (persona, resource_slug) or id resolves to no
 // live permission-group.
@@ -77,7 +88,7 @@ func (st *PermissionGroupStore) CreateGroup(ctx context.Context, persona, parent
 }
 
 // GroupByResourceSlug resolves a group by its API addressing key (persona,
-// resource_slug) — the route layer's (persona, resource-id). Returns the internal
+// resource_slug) — the route layer's (persona, resource_slug). Returns the internal
 // id, which never leaves authkit.
 func (st *PermissionGroupStore) GroupByResourceSlug(ctx context.Context, persona, resourceSlug string) (string, error) {
 	var id string
@@ -111,8 +122,12 @@ func (st *PermissionGroupStore) RootGroupID(ctx context.Context) (string, error)
 // exactly the []GroupAssignment that GroupSchema.ResolveGrants/Can consume. This
 // is the additive walk-up made concrete.
 func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, subjectID, subjectKind string) ([]GroupAssignment, error) {
+	table, subjectColumn, err := groupRoleTable(subjectKind)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := st.q.Query(ctx,
-		`WITH RECURSIVE chain AS (
+		fmt.Sprintf(`WITH RECURSIVE chain AS (
 			SELECT id, persona, parent_id FROM profiles.permission_groups
 			WHERE id = $1::uuid AND deleted_at IS NULL
 			UNION ALL
@@ -121,11 +136,10 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 		)
 		SELECT c.id::text, c.persona, a.role
 		FROM chain c
-		LEFT JOIN profiles.group_role_assignments a
-		  ON a.group_id = c.id AND a.subject_id = $2::uuid
-		     AND a.subject_kind = $3 AND a.deleted_at IS NULL
-		ORDER BY c.id`,
-		groupID, subjectID, subjectKind)
+		LEFT JOIN %s a
+		  ON a.group_id = c.id AND a.%s = $2::uuid AND a.deleted_at IS NULL
+		ORDER BY c.id`, table, subjectColumn),
+		groupID, subjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,38 +185,48 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 // that same group. The role NAME is validated against the persona catalog / custom
 // roles by the caller before assignment.
 func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID, subjectID, subjectKind, role string) error {
-	_, err := st.q.Exec(ctx,
-		`WITH replaced AS (
-		   UPDATE profiles.group_role_assignments
+	table, subjectColumn, err := groupRoleTable(subjectKind)
+	if err != nil {
+		return err
+	}
+	_, err = st.q.Exec(ctx,
+		fmt.Sprintf(`WITH replaced AS (
+		   UPDATE %s
 		      SET deleted_at = now(), updated_at = now()
-		    WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3
-		      AND role <> $4 AND deleted_at IS NULL
+		    WHERE group_id = $1::uuid AND %s = $2::uuid AND role <> $3 AND deleted_at IS NULL
 		 )
-		 INSERT INTO profiles.group_role_assignments (group_id, subject_id, subject_kind, role)
-		 VALUES ($1::uuid, $2::uuid, $3, $4)
-		 ON CONFLICT (group_id, subject_id, subject_kind, role) WHERE deleted_at IS NULL
-		 DO UPDATE SET updated_at = now()`,
-		groupID, subjectID, subjectKind, role)
+		 INSERT INTO %s (group_id, %s, role)
+		 VALUES ($1::uuid, $2::uuid, $3)
+		 ON CONFLICT (group_id, %s, role) WHERE deleted_at IS NULL
+		 DO UPDATE SET updated_at = now()`, table, subjectColumn, table, subjectColumn, subjectColumn),
+		groupID, subjectID, role)
 	return err
 }
 
 // UnassignRole soft-deletes a role assignment.
 func (st *PermissionGroupStore) UnassignRole(ctx context.Context, groupID, subjectID, subjectKind, role string) error {
-	_, err := st.q.Exec(ctx,
-		`UPDATE profiles.group_role_assignments SET deleted_at = now(), updated_at = now()
-		 WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3
-		   AND role = $4 AND deleted_at IS NULL`,
-		groupID, subjectID, subjectKind, role)
+	table, subjectColumn, err := groupRoleTable(subjectKind)
+	if err != nil {
+		return err
+	}
+	_, err = st.q.Exec(ctx,
+		fmt.Sprintf(`UPDATE %s SET deleted_at = now(), updated_at = now()
+		 WHERE group_id = $1::uuid AND %s = $2::uuid AND role = $3 AND deleted_at IS NULL`,
+			table, subjectColumn),
+		groupID, subjectID, role)
 	return err
 }
 
 // UnassignSubject soft-deletes every active role assignment a subject holds in a group.
 func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID, subjectID, subjectKind string) error {
-	_, err := st.q.Exec(ctx,
-		`UPDATE profiles.group_role_assignments SET deleted_at = now(), updated_at = now()
-		 WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3
-		   AND deleted_at IS NULL`,
-		groupID, subjectID, subjectKind)
+	table, subjectColumn, err := groupRoleTable(subjectKind)
+	if err != nil {
+		return err
+	}
+	_, err = st.q.Exec(ctx,
+		fmt.Sprintf(`UPDATE %s SET deleted_at = now(), updated_at = now()
+		 WHERE group_id = $1::uuid AND %s = $2::uuid AND deleted_at IS NULL`, table, subjectColumn),
+		groupID, subjectID)
 	return err
 }
 
@@ -286,8 +310,13 @@ type GroupMember struct {
 // GroupMembers lists the live role-assignments in a group.
 func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
 	rows, err := st.q.Query(ctx,
-		`SELECT subject_id::text, subject_kind, role FROM profiles.group_role_assignments
-		 WHERE group_id = $1::uuid AND deleted_at IS NULL ORDER BY subject_id, role`, groupID)
+		`SELECT user_id::text, 'user' AS subject_kind, role FROM profiles.group_user_roles
+		 WHERE group_id = $1::uuid AND deleted_at IS NULL
+		 UNION ALL
+		 SELECT remote_application_id::text, 'remote_application' AS subject_kind, role
+		   FROM profiles.group_remote_application_roles
+		  WHERE group_id = $1::uuid AND deleted_at IS NULL
+		 ORDER BY 1, 3`, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -313,12 +342,16 @@ type SubjectGroupMembership struct {
 // SubjectGroups lists every group membership a subject holds (cross-persona),
 // the data behind /me/groups.
 func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error) {
+	table, subjectColumn, err := groupRoleTable(subjectKind)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := st.q.Query(ctx,
-		`SELECT g.persona, COALESCE(g.resource_slug, ''), a.role
-		 FROM profiles.group_role_assignments a
+		fmt.Sprintf(`SELECT g.persona, COALESCE(g.resource_slug, ''), a.role
+		 FROM %s a
 		 JOIN profiles.permission_groups g ON g.id = a.group_id AND g.deleted_at IS NULL
-		 WHERE a.subject_id = $1::uuid AND a.subject_kind = $2 AND a.deleted_at IS NULL
-		 ORDER BY g.persona, g.resource_slug, a.role`, subjectID, subjectKind)
+		 WHERE a.%s = $1::uuid AND a.deleted_at IS NULL
+		 ORDER BY g.persona, g.resource_slug, a.role`, table, subjectColumn), subjectID)
 	if err != nil {
 		return nil, err
 	}

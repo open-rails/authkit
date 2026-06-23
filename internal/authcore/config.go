@@ -24,7 +24,7 @@ type Config struct {
 	Keys KeysConfig
 	// Identity declares external OAuth2/OIDC identity providers.
 	Identity IdentityConfig
-	// APIKeys configures opaque org-owned machine credentials.
+	// APIKeys configures opaque permission-group-owned machine credentials.
 	APIKeys APIKeysConfig
 	// TwoFactor configures optional MFA features.
 	TwoFactor TwoFactorConfig
@@ -141,7 +141,7 @@ type IdentityConfig struct {
 	ProviderDescriptors map[string]authprovider.Provider
 }
 
-// APIKeysConfig configures opaque org-owned machine credentials.
+// APIKeysConfig configures opaque permission-group-owned machine credentials.
 type APIKeysConfig struct {
 	// Prefix is the issuing application's brand prefix for generated API keys
 	// (single value per deployment). Empty defaults to the bare `st_` marker.

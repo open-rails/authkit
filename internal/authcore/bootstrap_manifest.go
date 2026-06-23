@@ -20,8 +20,8 @@ var ErrInvalidBootstrapManifest = errors.New("invalid_bootstrap_manifest")
 // manifest. It owns AuthKit state only: users, root permission-group roles, and
 // password seeding.
 //
-// The org/platform RBAC planes were hard-cut in favor of the permission-group
-// model (#111): operator authority is a role assignment in the singleton root
+// The legacy organization/platform RBAC planes were hard-cut in favor of the
+// permission-group model (#111): operator authority is a role assignment in the singleton root
 // group. The manifest still uses the `global_roles` field names for backward
 // compatibility, but they now seed root-group roles: a role named "admin" maps
 // onto the root super-admin (root:*), and any other name must be a catalog role

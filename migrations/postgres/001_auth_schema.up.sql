@@ -339,7 +339,7 @@ CREATE INDEX IF NOT EXISTS remote_applications_group_idx
 COMMENT ON TABLE profiles.remote_applications IS
   'Federation principals: external systems that authenticate by signing JWTs verified against configured keys.';
 COMMENT ON COLUMN profiles.remote_applications.permission_group_id IS
-  'Required controlling permission-group. Authority comes from group_role_assignments and the parent walk.';
+  'Required controlling permission-group. Authority comes from group_remote_application_roles and the parent walk.';
 
 CREATE TABLE IF NOT EXISTS profiles.remote_application_attribute_defs (
   remote_application_id uuid NOT NULL REFERENCES profiles.remote_applications(id) ON DELETE CASCADE,
@@ -360,47 +360,43 @@ CREATE INDEX IF NOT EXISTS raad_app_key_idx
 COMMENT ON TABLE profiles.remote_application_attribute_defs IS
   'Reference-mode attribute definitions: opaque JSON by remote application, key, and version.';
 
-CREATE TABLE IF NOT EXISTS profiles.group_role_assignments (
+CREATE TABLE IF NOT EXISTS profiles.group_user_roles (
   group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
-  subject_id uuid NOT NULL,
-  subject_kind text NOT NULL DEFAULT 'user',
+  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   role text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
-  CONSTRAINT gra_subject_kind_chk CHECK (subject_kind IN ('user', 'remote_application')),
-  CONSTRAINT gra_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
+  CONSTRAINT gur_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
-CREATE UNIQUE INDEX IF NOT EXISTS gra_group_subject_role_uidx
-  ON profiles.group_role_assignments (group_id, subject_id, subject_kind, role)
+CREATE UNIQUE INDEX IF NOT EXISTS gur_group_user_role_uidx
+  ON profiles.group_user_roles (group_id, user_id, role)
   WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS gra_subject_idx
-  ON profiles.group_role_assignments (subject_id, subject_kind)
+CREATE INDEX IF NOT EXISTS gur_user_idx
+  ON profiles.group_user_roles (user_id)
   WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS gra_group_idx
-  ON profiles.group_role_assignments (group_id)
+CREATE INDEX IF NOT EXISTS gur_group_idx
+  ON profiles.group_user_roles (group_id)
   WHERE deleted_at IS NULL;
 
-CREATE OR REPLACE FUNCTION profiles.trg_group_assignment_subject_fk() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-  IF NEW.subject_kind = 'user' THEN
-    IF NOT EXISTS (SELECT 1 FROM profiles.users WHERE id = NEW.subject_id) THEN
-      RAISE EXCEPTION 'group_role_assignments.subject_id % is not a users row', NEW.subject_id
-        USING ERRCODE = 'foreign_key_violation';
-    END IF;
-  ELSIF NEW.subject_kind = 'remote_application' THEN
-    IF NOT EXISTS (SELECT 1 FROM profiles.remote_applications WHERE id = NEW.subject_id) THEN
-      RAISE EXCEPTION 'group_role_assignments.subject_id % is not a remote_applications row', NEW.subject_id
-        USING ERRCODE = 'foreign_key_violation';
-    END IF;
-  END IF;
-  RETURN NEW;
-END;
-$$;
-CREATE TRIGGER group_assignment_subject_fk
-  BEFORE INSERT OR UPDATE OF subject_id, subject_kind ON profiles.group_role_assignments
-  FOR EACH ROW EXECUTE FUNCTION profiles.trg_group_assignment_subject_fk();
+CREATE TABLE IF NOT EXISTS profiles.group_remote_application_roles (
+  group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  remote_application_id uuid NOT NULL REFERENCES profiles.remote_applications(id) ON DELETE CASCADE,
+  role text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
+  CONSTRAINT grar_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS grar_group_remote_application_role_uidx
+  ON profiles.group_remote_application_roles (group_id, remote_application_id, role)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS grar_remote_application_idx
+  ON profiles.group_remote_application_roles (remote_application_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS grar_group_idx
+  ON profiles.group_remote_application_roles (group_id)
+  WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS profiles.group_custom_roles (
   group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,

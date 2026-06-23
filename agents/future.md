@@ -206,13 +206,13 @@ The irony driving this issue: AuthKit *generates* exactly the events a complianc
 
 ## The core design call: a new `SecurityEvent`, added *additively* — do NOT widen `AuthSessionEvent`
 
-The new events are **actor → target (+ org)** shaped, not session shaped. A role-permission change has an *actor* (who did it — a user, an admin, an API key, a service principal), a *target* (the role/org/user affected), an *org context* (auditors filter by org), an *action*, and a *detail* (permissions added/removed; old/new role). Forcing that into the session-shaped `AuthSessionEvent` (which has `session_id`/`method`/`reason`) is wrong.
+The new events are **actor -> target (+ permission group)** shaped, not session shaped. A role-permission change has an *actor* (who did it — a user, an admin, an API key, a service principal), a *target* (the role/permission-group/user affected), a *permission-group context* (auditors filter by group), an *action*, and a *detail* (permissions added/removed; old/new role). Forcing that into the session-shaped `AuthSessionEvent` (which has `session_id`/`method`/`reason`) is wrong.
 
-So: keep `AuthEventLogger.LogSessionEvent` / `AuthSessionEvent` **unchanged** (existing ClickHouse sinks must not break — this is a hard back-compat constraint), and add a **separate, optional** `SecurityEventLogger.LogSecurityEvent(ctx, SecurityEvent)`. A sink may implement zero, one, or both interfaces. `SecurityEvent` carries: `OccurredAt`, `Issuer`, `OrgID`, `ActorType`+`ActorID`, `Action` (a new `SecurityEventType`), `TargetType`+`TargetID`, `Detail map[string]any` (or structured JSON), `IPAddr`, `UserAgent`, `RequestID`. This whole change is **purely additive**: new interface, new struct, new optional hook, new ClickHouse table — existing callers/sinks/readers are untouched.
+So: keep `AuthEventLogger.LogSessionEvent` / `AuthSessionEvent` **unchanged** (existing ClickHouse sinks must not break — this is a hard back-compat constraint), and add a **separate, optional** `SecurityEventLogger.LogSecurityEvent(ctx, SecurityEvent)`. A sink may implement zero, one, or both interfaces. `SecurityEvent` carries: `OccurredAt`, `Issuer`, `PermissionGroupID`, `ActorType`+`ActorID`, `Action` (a new `SecurityEventType`), `TargetType`+`TargetID`, `Detail map[string]any` (or structured JSON), `IPAddr`, `UserAgent`, `RequestID`. This whole change is **purely additive**: new interface, new struct, new optional hook, new ClickHouse table — existing callers/sinks/readers are untouched.
 
 ## PII redaction hook (the other half of go-auth's pitch)
 
-Add an optional `Redactor` applied in the emit path **before** the event reaches the sink, to BOTH session and security events. Default is **no-op** (zero overhead, matching the existing best-effort/non-blocking contract and go-auth's "no-op by default"). Ship a built-in `DefaultPIIRedactor` keyed by a host secret: HMAC/truncate `ip_addr` (e.g. zero the last octet or HMAC it), drop or hash `user_agent`, hash any email/phone/username that appears in `Detail`, keep the stable pseudonymous `user_id`/`org_id`. Hosts under GDPR/HIPAA can enable it; hosts that want raw forensics leave it off.
+Add an optional `Redactor` applied in the emit path **before** the event reaches the sink, to BOTH session and security events. Default is **no-op** (zero overhead, matching the existing best-effort/non-blocking contract and go-auth's "no-op by default"). Ship a built-in `DefaultPIIRedactor` keyed by a host secret: HMAC/truncate `ip_addr` (e.g. zero the last octet or HMAC it), drop or hash `user_agent`, hash any email/phone/username that appears in `Detail`, keep stable pseudonymous ids. Hosts under GDPR/HIPAA can enable it; hosts that want raw forensics leave it off.
 
 ## Best-effort vs. assurance (surface, don't over-build)
 
@@ -220,11 +220,11 @@ Existing session audit is fire-and-forget (`_ = s.authlog.LogSessionEvent(...)`)
 
 ## Emission sites
 
-Emit one `SecurityEvent` at each authority-mutation site, ideally through a single internal helper so the actor/org/request-context extraction isn't duplicated. The authoritative list: role define/replace/delete (`DefineRole`, `SetRolePermissions`), membership add/remove/assign, org create/rename/provision, `Enable2FA`/`Disable2FA`/`RegenerateBackupCodes`, API-key mint/revoke, OAuth link/unlink, admin set-password/ban/unban/soft-delete, `ImportUser`, invite create/accept/decline/revoke. Actor identity comes from the request claims (user / admin / API key / service principal); `ProvisionOrg` and `ReconcileOrgManifest` emit with a deploy/bootstrap actor.
+Emit one `SecurityEvent` at each authority-mutation site, ideally through a single internal helper so the actor/permission-group/request-context extraction isn't duplicated. The authoritative list: role define/replace/delete (`DefineRole`, `SetRolePermissions`), membership add/remove/assign, permission-group create/rename/provision, `Enable2FA`/`Disable2FA`/`RegenerateBackupCodes`, API-key mint/revoke, OAuth link/unlink, admin set-password/ban/unban/soft-delete, `ImportUser`, invite create/accept/decline/revoke. Actor identity comes from the request claims (user / admin / API key / service principal); bootstrap reconcile emits with a deploy/bootstrap actor.
 
-## Reader & optional org-scoped audit API
+## Reader & optional permission-group-scoped audit API
 
-Extend the reader with `ListSecurityEvents(ctx, filter)` (filter by org, actor, action types, time range). Optionally expose an **org-scoped** audit-read endpoint (`GET /orgs/:org/audit` or `/admin/security-events`) gated by a new reserved `org:audit:read` permission — letting an org owner see their own org's audit trail is itself a compliance feature. Scope-flag this: the event stream + redaction is the core deliverable; the read API can be a follow-up if it bloats the change.
+Extend the reader with `ListSecurityEvents(ctx, filter)` (filter by permission group, actor, action types, time range). Optionally expose a permission-group-scoped audit-read endpoint (`GET /:persona/:resource_slug/audit` or `/admin/security-events`) gated by a new `<persona>:audit:read` permission. Scope-flag this: the event stream + redaction is the core deliverable; the read API can be a follow-up if it bloats the change.
 
 ## Non-goals
 
@@ -234,15 +234,15 @@ Extend the reader with `ListSecurityEvents(ctx, filter)` (filter by org, actor, 
 
 **Tasks:**
 - [ ] Decide event model (recommended: additive `SecurityEvent` + `SecurityEventLogger.LogSecurityEvent`, leave `AuthEventLogger.LogSessionEvent` unchanged)
-- [ ] Define `SecurityEventType` taxonomy (api_key.mint/revoke, role.define/permissions_changed/delete, member.add/remove/role_changed, org.create/rename/provision, twofactor.enable/disable/codes_regenerated, identity.link/unlink, admin.set_password/ban/unban/soft_delete/import_user, invite.create/accept/decline/revoke)
-- [ ] `SecurityEvent` struct (occurred_at, issuer, org_id, actor_{type,id}, action, target_{type,id}, detail, ip, ua, request_id) + central emit helper that pulls actor/org/request-context from claims
+- [ ] Define `SecurityEventType` taxonomy (api_key.mint/revoke, role.define/permissions_changed/delete, member.add/remove/role_changed, permission_group.create/rename/provision, twofactor.enable/disable/codes_regenerated, identity.link/unlink, admin.set_password/ban/unban/soft_delete/import_user, invite.create/accept/decline/revoke)
+- [ ] `SecurityEvent` struct (occurred_at, issuer, permission_group_id, actor_{type,id}, action, target_{type,id}, detail, ip, ua, request_id) + central emit helper that pulls actor/permission-group/request-context from claims
 - [ ] Optional `Redactor` hook applied to BOTH session + security events before the sink; default no-op; ship `DefaultPIIRedactor` (HMAC ip/email/phone, drop ua) keyed by a host secret
 - [ ] Wire `WithSecurityLogger` + `WithRedactor` on core + http `Service`; preserve best-effort/non-blocking emit
-- [ ] Add emits at every authority-mutation site listed above (one event each, correct actor/target/org)
-- [ ] ClickHouse migration `002_*.up.sql`: new `auth_security_events` table (do NOT edit `001_*`; name-tracked, never re-applied); `ORDER BY (issuer, org_id, occurred_at, action)`
+- [ ] Add emits at every authority-mutation site listed above (one event each, correct actor/target/permission-group)
+- [ ] ClickHouse migration `002_*.up.sql`: new `auth_security_events` table (do NOT edit `001_*`; name-tracked, never re-applied); `ORDER BY (issuer, permission_group_id, occurred_at, action)`
 - [ ] Decide best-effort vs. opt-in strict/buffered mode for high-assurance events; document the choice
-- [ ] Reader `ListSecurityEvents(ctx, filter)` (+ optional org-scoped `GET /orgs/:org/audit` gated by reserved `org:audit:read` — scope-flag)
-- [ ] Tests: each emit site fires exactly one event with correct actor/target/org; redactor applied; sink outage never fails the mutation; existing `AuthEventLogger` sink + `ListSessionEvents` unaffected (back-compat)
+- [ ] Reader `ListSecurityEvents(ctx, filter)` (+ optional permission-group-scoped `GET /:persona/:resource_slug/audit` gated by `<persona>:audit:read` — scope-flag)
+- [ ] Tests: each emit site fires exactly one event with correct actor/target/permission-group; redactor applied; sink outage never fails the mutation; existing `AuthEventLogger` sink + `ListSessionEvents` unaffected
 - [ ] Docs: README "Audit & security events" section + `agents/api-endpoints.md`; state the no-per-token-mint-telemetry non-goal
 
 ---

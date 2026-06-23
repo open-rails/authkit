@@ -16,7 +16,8 @@ func TestService_GroupInviteFlow(t *testing.T) {
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invites`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_role_assignments`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
 	}

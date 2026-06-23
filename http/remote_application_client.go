@@ -13,49 +13,49 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// OrgIssuersClient publishes THIS org's issuer registration to a resource
-// server's inbound accept endpoint. It is the OUTBOUND (send-side) half of the
-// AuthKit-owned federation handshake — the platform/IdP side (e.g. cozy-art)
-// uses it to tell a resource server (e.g. tensorhub) "trust delegated tokens I
-// mint with this issuer + JWKS URL". The resource server's
-// handleOrgIssuerRegisterPOST stores the registration.
-type OrgIssuersClient struct {
+// RemoteApplicationIssuersClient publishes this remote application's issuer
+// registration to a resource server's inbound accept endpoint. It is the
+// outbound half of the AuthKit-owned federation handshake: the platform/IdP
+// side tells a resource server "trust delegated tokens I mint with this issuer
+// + JWKS URL".
+type RemoteApplicationIssuersClient struct {
 	httpClient *http.Client
 	// AuthToken, when set, is sent as a Bearer token on the registration
-	// request. The accept endpoint authorizes by org owner/admin, so this must
-	// be a API key for a user who owns the org being registered.
+	// request. The accept endpoint authorizes through the receiving
+	// permission-group route.
 	authToken string
 }
 
-// OrgIssuersClientOption configures a OrgIssuersClient.
-type OrgIssuersClientOption func(*OrgIssuersClient)
+// RemoteApplicationIssuersClientOption configures a RemoteApplicationIssuersClient.
+type RemoteApplicationIssuersClientOption func(*RemoteApplicationIssuersClient)
 
-// WithOrgIssuersHTTPClient sets the HTTP client used for registration calls.
-func WithOrgIssuersHTTPClient(c *http.Client) OrgIssuersClientOption {
-	return func(fc *OrgIssuersClient) {
+// WithRemoteApplicationIssuersHTTPClient sets the HTTP client used for
+// registration calls.
+func WithRemoteApplicationIssuersHTTPClient(c *http.Client) RemoteApplicationIssuersClientOption {
+	return func(fc *RemoteApplicationIssuersClient) {
 		if c != nil {
 			fc.httpClient = c
 		}
 	}
 }
 
-// WithOrgIssuersAuthToken sets the Bearer token used to authenticate to the
-// resource server's accept endpoint (owner/admin of the org being registered).
-func WithOrgIssuersAuthToken(token string) OrgIssuersClientOption {
-	return func(fc *OrgIssuersClient) { fc.authToken = strings.TrimSpace(token) }
+// WithRemoteApplicationIssuersAuthToken sets the Bearer token used to
+// authenticate to the resource server's accept endpoint.
+func WithRemoteApplicationIssuersAuthToken(token string) RemoteApplicationIssuersClientOption {
+	return func(fc *RemoteApplicationIssuersClient) { fc.authToken = strings.TrimSpace(token) }
 }
 
-// NewOrgIssuersClient creates a OrgIssuersClient.
-func NewOrgIssuersClient(opts ...OrgIssuersClientOption) *OrgIssuersClient {
-	fc := &OrgIssuersClient{httpClient: defaultOutboundHTTPClient}
+// NewRemoteApplicationIssuersClient creates a RemoteApplicationIssuersClient.
+func NewRemoteApplicationIssuersClient(opts ...RemoteApplicationIssuersClientOption) *RemoteApplicationIssuersClient {
+	fc := &RemoteApplicationIssuersClient{httpClient: defaultOutboundHTTPClient}
 	for _, o := range opts {
 		o(fc)
 	}
 	return fc
 }
 
-// OrgIssuersRegistration is the payload published to a resource server.
-type OrgIssuersRegistration struct {
+// RemoteApplicationIssuerRegistration is the payload published to a resource server.
+type RemoteApplicationIssuerRegistration struct {
 	// Slug is this remote_application's slug on the receiving service.
 	Slug string
 	// Issuer is THIS platform's issuer URL (the `iss` of delegated tokens).
@@ -75,7 +75,7 @@ type OrgIssuersRegistration struct {
 // server's accept endpoint (acceptURL is the fully-qualified URL of the inbound
 // handler, e.g. "https://tensorhub.example/api/v1/remote-applications"). It
 // returns an error for non-2xx responses.
-func (fc *OrgIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string, reg OrgIssuersRegistration) error {
+func (fc *RemoteApplicationIssuersClient) RegisterIssuer(ctx context.Context, acceptURL string, reg RemoteApplicationIssuerRegistration) error {
 	acceptURL = strings.TrimSpace(acceptURL)
 	if acceptURL == "" {
 		return errors.New("accept URL required")

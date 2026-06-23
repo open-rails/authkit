@@ -33,7 +33,7 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireNoRoute(t, admin, http.MethodPost, "/admin/users/toggle-active")
 
 	permissions := s.APIRoutes(RoutePermissionGroups)
-	requireRoute(t, permissions, http.MethodPost, "/root/{resource_id}/members")
+	requireRoute(t, permissions, http.MethodPost, "/root/{resource_slug}/members")
 	requireRoute(t, permissions, http.MethodGet, "/me/groups")
 	requireNoRoute(t, permissions, http.MethodPost, "/password/login")
 

@@ -3,7 +3,7 @@ package authcore
 // Route-surface generation (#111): the auto-generated management routes are
 // DERIVED from each configured group persona's management profile. Public routes
 // and permission strings call that type name the persona: a `merchant` type
-// emits `/merchant/:resource-id/...` routes gated by `merchant:<area>:<action>`.
+// emits `/merchant/:resource_slug/...` routes gated by `merchant:<area>:<action>`.
 // A disabled capability emits NO route, so calling it 404s, which is stronger
 // than a runtime 403. Group ids never appear in a path.
 
@@ -22,11 +22,11 @@ func PermInvitesManage(t string) string    { return t + ":invites:manage" }
 func PermInvitesRead(t string) string      { return t + ":invites:read" }
 
 // GeneratedRoute is one auto-generated management endpoint: addressed by the
-// RESOURCE's own id (:resource-id), gated by Perm (a concrete <persona>:<res>:<act>).
+// RESOURCE's own id (:resource_slug), gated by Perm (a concrete <persona>:<res>:<act>).
 type GeneratedRoute struct {
 	Persona string
 	Method  string
-	Path    string // e.g. /merchant/:resource-id/members
+	Path    string // e.g. /merchant/:resource_slug/members
 	Perm    string
 }
 
@@ -38,7 +38,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 	var out []GeneratedRoute
 	for _, persona := range s.Personas() {
 		td, _ := s.Persona(persona)
-		base := "/" + persona + "/:resource-id"
+		base := "/" + persona + "/:resource_slug"
 		p := td.Routes
 
 		if p.MemberAssignment {

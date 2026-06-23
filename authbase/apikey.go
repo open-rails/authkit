@@ -14,7 +14,7 @@ import (
 
 var (
 	// ErrInvalidAccessToken indicates an API key that does not exist, has a bad
-	// secret, or whose owning org is gone. Deliberately indistinguishable from
+	// secret, or whose owning permission group is gone. Deliberately indistinguishable from
 	// a malformed token so callers learn nothing from the error.
 	ErrInvalidAccessToken = errors.New("invalid_token")
 	// ErrAccessTokenRevoked indicates the API key was explicitly revoked.

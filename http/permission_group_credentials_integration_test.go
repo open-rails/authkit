@@ -63,9 +63,9 @@ func newCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 // drive runs one generated route handler at a concrete (no sub-resource) path,
 // with the caller's claims set, and returns the recorder. Sub-resource DELETEs
 // (:key / :app / :invite) are driven inline via driveSub.
-func (s *Service) drive(t *testing.T, gr core.GeneratedRoute, resourceID, caller, body string) *httptest.ResponseRecorder {
+func (s *Service) drive(t *testing.T, gr core.GeneratedRoute, resourceSlug, caller, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	path := strings.ReplaceAll(gr.Path, ":resource-id", resourceID)
+	path := strings.ReplaceAll(gr.Path, ":resource_slug", resourceSlug)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, strings.NewReader(body))
 	r = withMuxParams(r, gr.Path, nil)
 	r = r.WithContext(setClaims(r.Context(), Claims{UserID: caller}))
@@ -99,7 +99,7 @@ func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND resource_slug='m-keys'`)
 	})
 
-	mintGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource-id/api-keys", Perm: "merchant:api-keys:manage"}
+	mintGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource_slug/api-keys", Perm: "merchant:api-keys:manage"}
 	w := s.drive(t, mintGR, "m-keys", caller, `{"name":"ci","role":"member"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	var minted map[string]any
@@ -110,7 +110,7 @@ func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {
 	tokenID, _ := minted["id"].(string)
 
 	// List: secret never present; the minted key is returned.
-	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:resource-id/api-keys", Perm: "merchant:api-keys:read"}
+	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:resource_slug/api-keys", Perm: "merchant:api-keys:read"}
 	w = s.drive(t, listGR, "m-keys", caller, "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
@@ -123,8 +123,8 @@ func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {
 	require.Equal(t, tokenID, listed.Data[0]["id"])
 
 	// Revoke by token id (sub-resource path).
-	revGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodDelete, Path: "/merchant/:resource-id/api-keys/:key", Perm: "merchant:api-keys:manage"}
-	repl := strings.NewReplacer(":resource-id", "m-keys", ":key", tokenID)
+	revGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodDelete, Path: "/merchant/:resource_slug/api-keys/:key", Perm: "merchant:api-keys:manage"}
+	repl := strings.NewReplacer(":resource_slug", "m-keys", ":key", tokenID)
 	require.Equal(t, http.StatusOK, s.driveSub(t, revGR, repl, caller).Code)
 
 	// Second revoke => 404 (already revoked).
@@ -144,7 +144,7 @@ func TestGroupRemoteAppLifecycle_HTTP(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND resource_slug='m-apps'`)
 	})
 
-	regGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource-id/remote-applications", Perm: "merchant:remote-apps:manage"}
+	regGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource_slug/remote-applications", Perm: "merchant:remote-apps:manage"}
 	body := `{"slug":"ci-ra-one","issuer":"https://issuer.ci.example/one","jwks_uri":"https://issuer.ci.example/.well-known/jwks.json","enabled":true}`
 	w := s.drive(t, regGR, "m-apps", caller, body)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
@@ -153,7 +153,7 @@ func TestGroupRemoteAppLifecycle_HTTP(t *testing.T) {
 	require.Equal(t, "ci-ra-one", reg["slug"])
 
 	// List-for-group returns only this group's apps.
-	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:resource-id/remote-applications", Perm: "merchant:remote-apps:read"}
+	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:resource_slug/remote-applications", Perm: "merchant:remote-apps:read"}
 	w = s.drive(t, listGR, "m-apps", caller, "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
@@ -164,8 +164,8 @@ func TestGroupRemoteAppLifecycle_HTTP(t *testing.T) {
 	require.Equal(t, "ci-ra-one", listed.Data[0]["slug"])
 
 	// Delete by slug (group-scoped).
-	delGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodDelete, Path: "/merchant/:resource-id/remote-applications/:app", Perm: "merchant:remote-apps:manage"}
-	require.Equal(t, http.StatusOK, s.driveSub(t, delGR, strings.NewReplacer(":resource-id", "m-apps", ":app", "ci-ra-one"), caller).Code)
+	delGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodDelete, Path: "/merchant/:resource_slug/remote-applications/:app", Perm: "merchant:remote-apps:manage"}
+	require.Equal(t, http.StatusOK, s.driveSub(t, delGR, strings.NewReplacer(":resource_slug", "m-apps", ":app", "ci-ra-one"), caller).Code)
 
 	// Now empty.
 	w = s.drive(t, listGR, "m-apps", caller, "")
@@ -193,7 +193,7 @@ func TestGroupInviteLifecycle_HTTP(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = ANY($1::uuid[])`, []string{invitee, invitee2})
 	})
 
-	createGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource-id/invites", Perm: "merchant:invites:manage"}
+	createGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource_slug/invites", Perm: "merchant:invites:manage"}
 	w := s.drive(t, createGR, "m-inv", caller, `{"user_id":"`+invitee+`","role":"member"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	var created map[string]any
@@ -202,7 +202,7 @@ func TestGroupInviteLifecycle_HTTP(t *testing.T) {
 	inviteID, _ := created["id"].(string)
 	require.NotEmpty(t, inviteID)
 
-	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:resource-id/invites", Perm: "merchant:invites:read"}
+	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:resource_slug/invites", Perm: "merchant:invites:read"}
 	w = s.drive(t, listGR, "m-inv", caller, "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
@@ -225,6 +225,6 @@ func TestGroupInviteLifecycle_HTTP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &c2))
 	id2, _ := c2["id"].(string)
 
-	revGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodDelete, Path: "/merchant/:resource-id/invites/:invite", Perm: "merchant:invites:manage"}
-	require.Equal(t, http.StatusOK, s.driveSub(t, revGR, strings.NewReplacer(":resource-id", "m-inv", ":invite", id2), caller).Code)
+	revGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodDelete, Path: "/merchant/:resource_slug/invites/:invite", Perm: "merchant:invites:manage"}
+	require.Equal(t, http.StatusOK, s.driveSub(t, revGR, strings.NewReplacer(":resource_slug", "m-inv", ":invite", id2), caller).Code)
 }

@@ -36,7 +36,7 @@ Registration behavior:
 - `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
 
 Bootstrap manifest:
-- `AUTHKIT_BOOTSTRAP_PATH=/path/to/bootstrap.yaml` - strict YAML manifest declaring AuthKit users, global roles, orgs, trusted issuers, org roles, memberships, and optional API-key outputs. Defaults to `/etc/authkit/bootstrap.yaml`.
+- `AUTHKIT_BOOTSTRAP_PATH=/path/to/bootstrap.yaml` - strict YAML manifest declaring AuthKit users, root roles, permission groups, trusted remote applications, memberships, and optional API-key outputs. Defaults to `/etc/authkit/bootstrap.yaml`.
 - `AUTHKIT_BOOTSTRAP_ON_START=true` - opt-in startup hook. When enabled, the devserver applies the manifest after migrations and before serving traffic.
 - `DEVSERVER_PERMISSION_CATALOG=repo:read,endpoint:deploy` - app permission catalog used when manifest roles include host-defined permissions.
 - `DEVSERVER_TOKEN_PREFIX=cozy` - brand prefix for opaque API keys minted by the manifest reconciler.

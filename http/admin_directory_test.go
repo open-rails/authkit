@@ -112,7 +112,7 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	idC := mk("ccc")
 	idD := mk("ddd")
 
-	// Root catalog role assignment for A + B (group_role_assignments via the root group).
+	// Root catalog role assignment for A + B.
 	require.NoError(t, s.svc.UpsertRoleBySlug(ctx, "Admin", roleSlug, nil))
 	require.NoError(t, s.svc.AssignRoleBySlug(ctx, idA, roleSlug))
 	require.NoError(t, s.svc.AssignRoleBySlug(ctx, idB, roleSlug))

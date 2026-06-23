@@ -18,6 +18,6 @@ var ErrRenameRateLimited = errors.New("rename_rate_limited")
 
 // ErrOwnerSlugTaken is retained as a stable sentinel for identity-policy error
 // mapping. Under the permission-group model usernames are unique on their own
-// (the org-slug reservation plane was removed); kept so dependents' errors.Is
+// (the owner-slug reservation plane was removed); kept so dependents' errors.Is
 // checks keep compiling.
 var ErrOwnerSlugTaken = errors.New("owner_slug_taken")

@@ -71,12 +71,14 @@ issuers, and API keys.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/oidc/:provider/login` | PUBLIC | Start browser login (Google, Apple, Discord, etc.) |
+| GET | `/oidc/:provider/login` | PUBLIC | Start browser login (Google, Apple, Discord, etc.); optional app-relative `return_to` |
 | GET | `/oidc/:provider/callback` | PUBLIC | OIDC/OAuth callback |
 
 Notes:
 - Browser OIDC routes are served by `OIDCHandler()`, not `APIHandler()`, and should usually be public routes such as `/oidc/:provider/login` and `/oidc/:provider/callback`.
 - After AuthKit handles the provider callback, full-page login redirects to `{BaseURL}{FrontendCallbackPath}`. The default frontend callback path is `/login/callback`; host apps may configure another app-relative path.
+- `GET /oidc/:provider/login?return_to=/subscribe?plan=pro` preserves the app-relative path through the provider redirect and returns it as `return_to` in the callback URL fragment. AuthKit rejects absolute URLs, protocol-relative URLs, backslashes, and CR/LF before storing it.
+- JSON/SPAs flows such as password login, registration, in-app 2FA, and POST-based verification/reset do not navigate away; the client owns any `return_to` state for those flows.
 
 ---
 
@@ -108,7 +110,7 @@ Token taxonomy:
   `iss -> remote_application`.
 - Service JWT: JWT `typ=service+jwt` plus `token_use=service`; receiver
   intersects requested permissions/resources with server-side grants.
-- API key: opaque bearer secret; it holds ONE org role (#95) and its permissions resolve FROM that role at verify time; resources are a separate per-key binding.
+- API key: opaque bearer secret; it holds one permission-group role and its permissions resolve from that role at verify time; resources are a separate per-key binding.
 
 Reauth updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
 
@@ -121,8 +123,8 @@ Passkeys:
 - Management routes are authenticated: `GET /passkeys`, `PATCH /passkeys/:id`
   with `{ "label": "..." }`, and `DELETE /passkeys/:id`.
 - Login sessions require WebAuthn user verification and mint normal
-  access/refresh tokens with MFA assurance claims. Passkeys do not replace
-  mandatory AuthKit 2FA enrollment policy unless that policy is explicitly
+  access/refresh tokens with MFA assurance claims. Passkeys do not satisfy
+  `RoleDef.RequiresMFA` enrollment requirements unless that policy is explicitly
   extended later.
 - Frontends should use `navigator.credentials.create({ publicKey })` and
   `navigator.credentials.get({ publicKey })`; for conditional UI, render the
@@ -181,40 +183,40 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 ## Permission Groups
 
-The old static `/orgs/*` route group was removed. Hosts expose resource-scoped
+The old static organization route group was removed. Hosts expose resource-scoped
 management through generated permission-group routes instead.
 
-Terminology: a configured permission-group `type` is the public route and
-permission `persona`. For example, a `merchant` group type generates
-`/merchant/:resource_id/...` routes and `merchant:<area>:<action>` permissions.
+Terminology: a configured permission-group persona is the public route and
+permission namespace. For example, a `merchant` persona generates
+`/merchant/:resource_slug/...` routes and `merchant:<area>:<action>` permissions.
 
 Always:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/me/groups` | AUTH | List the caller's direct `{persona, resource-id, role}` memberships |
+| GET | `/me/groups` | AUTH | List the caller's direct `{persona, resource_slug, role}` memberships |
 
 For each configured persona, AuthKit emits only the route families enabled by
 that persona's management profile:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/:persona/:resource_id/members` | PERM | List members |
-| POST | `/:persona/:resource_id/members` | PERM | Add member role |
-| DELETE | `/:persona/:resource_id/members/:user` | PERM | Remove member from group |
-| PUT | `/:persona/:resource_id/members/:user/roles/:role` | PERM | Assign or replace the member's role |
-| GET | `/:persona/:resource_id/roles` | PERM | List role catalog |
-| POST | `/:persona/:resource_id/roles` | PERM | Define custom role |
-| DELETE | `/:persona/:resource_id/roles/:role` | PERM | Delete custom role |
-| GET | `/:persona/:resource_id/api-keys` | PERM | List API keys |
-| POST | `/:persona/:resource_id/api-keys` | PERM | Mint API key |
-| DELETE | `/:persona/:resource_id/api-keys/:key` | PERM | Revoke API key |
-| GET | `/:persona/:resource_id/remote-applications` | PERM | List remote applications |
-| POST | `/:persona/:resource_id/remote-applications` | PERM | Register remote application |
-| DELETE | `/:persona/:resource_id/remote-applications/:app` | PERM | Delete remote application |
-| GET | `/:persona/:resource_id/invites` | PERM | List invites |
-| POST | `/:persona/:resource_id/invites` | PERM | Create invite |
-| DELETE | `/:persona/:resource_id/invites/:invite` | PERM | Revoke invite |
+| GET | `/:persona/:resource_slug/members` | PERM | List members |
+| POST | `/:persona/:resource_slug/members` | PERM | Add member role |
+| DELETE | `/:persona/:resource_slug/members/:user` | PERM | Remove member from group |
+| PUT | `/:persona/:resource_slug/members/:user/roles/:role` | PERM | Assign or replace the member's role |
+| GET | `/:persona/:resource_slug/roles` | PERM | List role catalog |
+| POST | `/:persona/:resource_slug/roles` | PERM | Define custom role |
+| DELETE | `/:persona/:resource_slug/roles/:role` | PERM | Delete custom role |
+| GET | `/:persona/:resource_slug/api-keys` | PERM | List API keys |
+| POST | `/:persona/:resource_slug/api-keys` | PERM | Mint API key |
+| DELETE | `/:persona/:resource_slug/api-keys/:key` | PERM | Revoke API key |
+| GET | `/:persona/:resource_slug/remote-applications` | PERM | List remote applications |
+| POST | `/:persona/:resource_slug/remote-applications` | PERM | Register remote application |
+| DELETE | `/:persona/:resource_slug/remote-applications/:app` | PERM | Delete remote application |
+| GET | `/:persona/:resource_slug/invites` | PERM | List invites |
+| POST | `/:persona/:resource_slug/invites` | PERM | Create invite |
+| DELETE | `/:persona/:resource_slug/invites/:invite` | PERM | Revoke invite |
 
 Built-in `root` emits member-management plus role-list routes by default.
 
@@ -222,16 +224,12 @@ Built-in `root` emits member-management plus role-list routes by default.
 
 ## API keys (opaque machine credentials)
 
-Long-lived, revocable bearer credentials **owned by an org** (not a person), for
-machine/automation callers (CI, the e2e operator CLI, service-to-service). An
-API key acts **as the org**: middleware sets `Claims.OrgID`
-(immutable org uuid — the canonical identifier to persist) + `Claims.Org`
-(mutable slug, presentation/logging only) + `Claims.Permissions`
-(the token's app-defined permission strings) and a service marker
-(`Claims.IsService()`), with **no** `UserID`, mirroring the delegated-principal
-pattern. Permissions are opaque to authkit — the embedding app owns the
-vocabulary and enforces meaning. (Users, by contrast, carry `OrgRoles`; the
-resource server expands role→permission at request time.)
+Long-lived, revocable bearer credentials owned by a permission group, for
+machine/automation callers (CI, operator CLIs, service-to-service). An API key
+acts as a service principal for that permission group: middleware sets
+`Claims.Permissions`, `Claims.Resources`, and a service marker
+(`Claims.IsService()`), with no `UserID`. Permissions are opaque to AuthKit; the
+embedding app owns the vocabulary and enforces meaning.
 
 **Presentation.** `Authorization: Bearer <prefix>_st_<key_id>_<secret>`. `<prefix>` is
 the host's configured `APIKeyPrefix` brand ( e.g. `cozy` → `cozy_st_…`); empty →
@@ -240,24 +238,18 @@ bare `st_`. `key_id` is a non-secret public id for O(1) indexed lookup; only
 
 **Resolution** happens in the `Required`/`Optional` middleware *before* JWT
 verification: tokens carrying the configured marker are looked up by `key_id`,
-the secret is compared in constant time, and revoked/expired/org-deleted tokens
+the secret is compared in constant time, and revoked/expired/group-deleted tokens
 are rejected. Non-API-key credentials fall through to normal JWT verification. The API key
 path is distinct from the password-login handler, so API keys **bypass the
 interactive password-login rate limiter by design** (a robot must not use the
 human login path).
 
-**Mint authorization (native, permission-based).** Minting requires
-`org:api_keys:manage`. authkit validates the requested permissions itself against
-the org's effective permission set: each must be a defined permission (else `400
-unknown_permission`) the caller themselves holds (else `403
-permission_grant_denied`, offending named) — no privilege escalation. The
-reserved **write/mint** management permissions (`org:roles:manage`,
-`org:members:manage`, `org:api_keys:manage`) and wildcards/exclusions are barred
-from API keys (`403 permission_not_grantable_to_api_key`) — an API key does machine work,
-not org management. The read-only `org:read` IS grantable (escalation-harmless,
-for monitoring/audit automation), still subject to no-escalation. Permissions
-are frozen at mint time (revoke to reduce). An API key
-carries no user, so it can never mint/list/revoke API keys.
+**Mint authorization (native, role-based).** Minting requires the generated
+`<persona>:api-keys:manage` permission. The request body supplies one `role`;
+AuthKit validates that the role exists in the target group and enforces
+no-escalation. Permissions resolve from that role at verify time rather than
+being frozen into the key. An API key carries no user, so it can never
+mint/list/revoke API keys.
 
 **Resource scopes.** API keys may also carry `resources: [{kind, id}]`. AuthKit
 stores these as opaque exact-match Kind/ID pairs and returns them from
@@ -280,8 +272,8 @@ optional `resources: [{kind,id}]`. AuthKit's default mint lifetime is 15 minutes
 
 Use `core.MintServiceJWT` or `(*core.Service).MintServiceJWT` on the caller side,
 and `authhttp.Verifier.VerifyServiceJWT` or `authhttp.RequiredServiceJWT` on the
-receiver side. Verification uses registered issuers/JWKS, including org issuer
-lazy-load; disabled issuer rows fail closed. AuthKit parses requested
+receiver side. Verification uses registered issuers/JWKS, including
+remote-application issuer lazy-load; disabled issuer rows fail closed. AuthKit parses requested
 permissions/resources but does not grant them. The resource service must
 intersect requested permissions with server-side grants for the issuer/subject.
 
@@ -346,11 +338,10 @@ Kind/ID scope rows.
 | POST | `/2fa/challenge` | PUBLIC | Start a selected non-default factor from an existing password-login 2FA challenge |
 | POST | `/2fa/verify` | PUBLIC | Verify 2FA code during login; accepts `factor_id` for selected factors or `backup_code: true` for recovery codes |
 
-Hosts may configure mandatory 2FA for permission-group roles, e.g.
-`TwoFactor.Mandatory: []core.Mandatory2FAPolicy{{GroupType: "root", Roles: []string{"admin"}}}`.
-Covered users without 2FA receive `2fa_enrollment_required` on password login
-with an enrollment-only bearer token for `GET/POST /user/2fa`; `/token` refresh
-returns `2fa_enrollment_required` rather than minting a fresh access token.
+Hosts may require 2FA for permission-group roles with
+`core.RoleDef{RequiresMFA: true}`. Assigning that role, or accepting an invite
+for it, returns `2fa_enrollment_required` until account MFA is enabled with at
+least one factor. Disabling MFA removes those MFA-required user role assignments.
 
 ---
 
@@ -389,27 +380,24 @@ returns `2fa_enrollment_required` rather than minting a fresh access token.
 | POST | `/admin/users/:user_id/sessions/revoke` | `root:sessions:revoke` | Revoke all refresh sessions for a target user |
 | GET | `/namespaces/:slug` | PUBLIC | Fetch public namespace metadata: `requested_slug`, `slug`, `renamed`, optional `hold_until`, typed `user`/`org`, and `claimable.user`/`claimable.org` |
 
-There is no admin org recovery flow; org routes were removed with the old org plane.
+There is no admin organization recovery flow; those routes were removed with the old organization plane.
 
 Namespace lookup returns typed resources instead of one owner winner; a same-slug user and org can both appear in the response.
 
-## Org Issuers (resource-server side)
+## Remote Application Issuers (resource-server side)
 
 The inbound accept-side of the platform-delegation handshake. The resource
-server stores trusted org issuers; delegated tokens minted by those
+server stores trusted remote applications; delegated tokens minted by those
 issuers (carrying `delegated_sub`) are then validated by the Verifier with
 in-house JWKS fetch/refresh (no external push/sync). The outbound side is the
-Go `authhttp.OrgIssuersClient` (no route).
+Go `authhttp.RemoteApplicationIssuersClient`.
 
 Delegated access JWTs are minted with `authhttp.MintDelegatedAccessToken`.
 They carry `typ=delegated-access+jwt`, `delegated_sub`, resource-defined
-`permissions`, optional JSON `attributes`, and no normal `sub`. They carry NO
-org claims of any kind: the VALIDATED `iss` IS the org identity — the
-receiving service's issuer registry maps the issuer to exactly one internal
-org record (slug + uuid), so neither identifier ever rides in the token and
-a host's complete identity is its issuer URL + signing key. Verification
-rejects tokens carrying the legacy claims (`delegated_access_has_org`,
-`delegated_access_has_org_id`). `delegated_sub` must be the issuer's **immutable, never-reassigned**
+`permissions`, optional JSON `attributes`, and no normal `sub`. They carry no
+organization claims of any kind: the validated `iss` is the remote-application
+identity. Verification rejects tokens carrying the legacy claims
+(`delegated_access_has_org`, `delegated_access_has_org_id`). `delegated_sub` must be the issuer's **immutable, never-reassigned**
 subject identifier (OIDC `sub` semantics) — never a username, slug, or email.
 All authkit identifiers are opaque strings that happen to be uuidv7; consumers
 must not parse them or branch on their format. Ordinary AuthKit access JWTs carry `typ=access+jwt`; resource servers
@@ -417,9 +405,9 @@ reject missing, unknown, or cross-profile `typ` values. Delegated access JWTs
 must not carry legacy claims such as `org`, `roles`, or
 top-level `user_tier`; those are rejected. Resource servers should validate them
 with `Verifier.VerifyDelegatedAccess`, optionally installing
-permissions and attributes-policy hooks. Org issuers loaded from
-this store are bound to their registered `org_slug`; delegated tokens claiming
-another resource account are rejected with `resource_account_issuer_mismatch`.
+permissions and attributes-policy hooks. Remote applications loaded from this
+store are bound to the permission group that registered them; downstream
+authorization should intersect token permissions with that stored authority.
 For browser-direct OpenRails billing, a host app should expose its own
 authenticated current-user token endpoint, mint a short-lived `aud=openrails`
 delegated access JWT for its resource account with self-scoped permissions such as
@@ -428,6 +416,6 @@ browser call OpenRails directly; the host does not need to proxy billing routes.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/org-issuers` | AUTH (org owner/admin) | Register/upsert a org issuer (`{org, issuer, jwks_uri, enabled?}`); also added to the live Verifier |
-| DELETE | `/org-issuers` | AUTH (org owner/admin) | Remove a org issuer registration (`{org, issuer}`) |
-| GET | `/org-issuers` | ADMIN | List registered org issuers |
+| POST | `/:persona/:resource_slug/remote-applications` | PERM | Register/upsert a remote application issuer |
+| DELETE | `/:persona/:resource_slug/remote-applications/:app` | PERM | Remove a remote application issuer registration |
+| GET | `/:persona/:resource_slug/remote-applications` | PERM | List registered remote applications for a permission group |

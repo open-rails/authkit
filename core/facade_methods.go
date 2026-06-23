@@ -1,6 +1,6 @@
 // Curated embedder-facing methods of the public core.Service facade. Each one
 // delegates to the internal engine (s.impl, *authcore.Service). Driven by real
-// consumer usage (audited against doujins), kept minimal (see SEMVER.md, #126).
+// consumer usage, kept minimal (see SEMVER.md, #126/#130).
 package core
 
 import (
@@ -41,6 +41,10 @@ func (s *Service) AssignRoleBySlug(ctx context.Context, userID, slug string) err
 	return s.impl.AssignRoleBySlug(ctx, userID, slug)
 }
 
+func (s *Service) AssignGroupRole(ctx context.Context, persona, resourceSlug, subjectID, subjectKind, role string) error {
+	return s.impl.AssignGroupRole(ctx, persona, resourceSlug, subjectID, subjectKind, role)
+}
+
 func (s *Service) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
 	return s.impl.BanUser(ctx, userID, reason, until, bannedBy)
 }
@@ -59,22 +63,6 @@ func (s *Service) CheckSMSHealth(ctx context.Context) error {
 
 func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
 	return s.impl.CleanupExpiredAuthState(ctx)
-}
-
-func (s *Service) ConfirmEmailVerification(ctx context.Context, email, code string) (string, error) {
-	return s.impl.ConfirmEmailVerification(ctx, email, code)
-}
-
-func (s *Service) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, token string) (string, error) {
-	return s.impl.ConfirmPendingPhoneRegistrationByToken(ctx, token)
-}
-
-func (s *Service) ConfirmPendingRegistration(ctx context.Context, email, code string) (string, error) {
-	return s.impl.ConfirmPendingRegistration(ctx, email, code)
-}
-
-func (s *Service) ConfirmPhoneVerificationByToken(ctx context.Context, token string) error {
-	return s.impl.ConfirmPhoneVerificationByToken(ctx, token)
 }
 
 func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error) {
@@ -107,14 +95,6 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 
 func (s *Service) GetEmailByUserID(ctx context.Context, id string) (string, error) {
 	return s.impl.GetEmailByUserID(ctx, id)
-}
-
-func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
-	return s.impl.GetPendingPhoneRegistrationByPhone(ctx, phone)
-}
-
-func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
-	return s.impl.GetPendingRegistrationByEmail(ctx, email)
 }
 
 func (s *Service) GetProviderUsername(ctx context.Context, userID, provider string) (string, error) {
@@ -153,8 +133,8 @@ func (s *Service) HasSMSSender() bool {
 	return s.impl.HasSMSSender()
 }
 
-func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User, error) {
-	return s.impl.ImportUser(ctx, input)
+func (s *Service) ImportUsers(ctx context.Context, inputs []ImportUserInput) (ImportUsersResult, error) {
+	return s.impl.ImportUsers(ctx, inputs)
 }
 
 func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
@@ -189,6 +169,10 @@ func (s *Service) ListGroupMembers(ctx context.Context, persona, resourceSlug st
 	return s.impl.ListGroupMembers(ctx, persona, resourceSlug)
 }
 
+func (s *Service) ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error) {
+	return s.impl.ListSubjectGroups(ctx, subjectID, subjectKind)
+}
+
 func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) ([]RemoteApplication, error) {
 	return s.impl.ListRemoteApplications(ctx, activeOnly)
 }
@@ -207,6 +191,10 @@ func (s *Service) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, 
 
 func (s *Service) MintAPIKey(ctx context.Context, persona, resourceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
 	return s.impl.MintAPIKey(ctx, persona, resourceSlug, name, role, createdBy, expiresAt)
+}
+
+func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, resourceSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
+	return s.impl.MintAPIKeyWithOptions(ctx, persona, resourceSlug, opts)
 }
 
 func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error) {
@@ -253,6 +241,10 @@ func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret 
 	return s.impl.ResolveAPIKeyWithResources(ctx, keyID, secret)
 }
 
+func (s *Service) ResolveGroupIDForSlug(ctx context.Context, persona, resourceSlug string) (string, error) {
+	return s.impl.ResolveGroupIDForSlug(ctx, persona, resourceSlug)
+}
+
 func (s *Service) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error) {
 	return s.impl.ResolveRemoteAppAttributeDef(ctx, appID, key, version)
 }
@@ -281,6 +273,10 @@ func (s *Service) Schema() string {
 	return s.impl.Schema()
 }
 
+func (s *Service) SeedPermissionGroupContainment(ctx context.Context) error {
+	return s.impl.SeedPermissionGroupContainment(ctx)
+}
+
 func (s *Service) SetEmailVerified(ctx context.Context, id string, v bool) error {
 	return s.impl.SetEmailVerified(ctx, id, v)
 }
@@ -307,10 +303,6 @@ func (s *Service) UpdateBiography(ctx context.Context, id string, bio *string) e
 
 func (s *Service) UpdateEmail(ctx context.Context, id, email string) error {
 	return s.impl.UpdateEmail(ctx, id, email)
-}
-
-func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
-	return s.impl.UpdateImportedUser(ctx, userID, input)
 }
 
 func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {

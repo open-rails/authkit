@@ -102,8 +102,8 @@ Passkeys
   `navigator.credentials.create()` or `navigator.credentials.get()`, then POST
   the returned `PublicKeyCredential` JSON to the matching `finish` route.
 - AuthKit requires WebAuthn user verification before minting a session and
-  records MFA assurance claims on the access token. Passkeys do not replace
-  mandatory AuthKit 2FA enrollment policy yet.
+  records MFA assurance claims on the access token. Passkeys do not satisfy
+  `RoleDef.RequiresMFA` enrollment requirements yet.
 
 Full DB-backed tests
 - `go test ./...` is a fast DB-free smoke when `AUTHKIT_TEST_DATABASE_URL` is unset; DB-backed integration tests skip in that mode.
@@ -279,7 +279,7 @@ permission_groups:
         role: operator
     api_keys:
       - name: openrails-runtime
-        role: operator            # the single org role this key holds (#95)
+        role: operator            # the single permission-group role this key holds
         resources:
           - kind: openrails.merchant
             id: cozy-art
@@ -308,19 +308,17 @@ AUTHKIT_BOOTSTRAP_PATH=/manifests/bootstrap.yaml \
 
 Use `AUTHKIT_BOOTSTRAP_ON_START=true` only for local/dev or
 simple self-hosted deployments. Production systems should usually run the
-one-shot command as a release job, or call `core.ReconcileOrgManifest` from
-their own job with a Vault/Kubernetes-backed `BootstrapTokenStore`, so API pods
-do not need long-lived secret-write credentials. The older
-`org-manifest apply` command remains as a compatibility alias for org-only
-deployments.
+one-shot command as a release job, or call `core.ReconcileBootstrapManifest`
+from their own job with host-owned secret handling, so API pods do not need
+long-lived secret-write credentials.
 
 Hosted SaaS deployments can later set native registration to `open` and mount
 the `RouteRegister` group to enable public signup without code changes.
 
 OpenRails' bootstrap flow should pass its `auth:` section through to AuthKit
-bootstrap for users, orgs, roles, API keys, and trusted issuers, then
-reconcile OpenRails-owned merchants, catalog, prices, entitlements, grants,
-billing, and provider state itself.
+bootstrap for users, root roles, permission groups, API keys, and trusted remote
+applications, then reconcile OpenRails-owned merchants, catalog, prices,
+entitlements, grants, billing, and provider state itself.
 
 Quick Start (net/http)
 
@@ -561,7 +559,7 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 | Area | Ownership | Notes |
 | --- | --- | --- |
 | `Issuer`, `IssuedAudiences`, `ExpectedAudiences` | Host config | Required token contract inputs. |
-| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `AutoCreatePersonalOrgs`, `NativeUserRegistrationMode`, `OrgRegistrationMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
+| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `NativeUserRegistrationMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
 | `Keys` provided (`cfg.Keys != nil`) | Host config | Fully disables library key env/filesystem discovery. |
 | `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `<KeysPath>/keys.json` (default `/vault/auth`), `.runtime/authkit/*`). |
 | `KeysPath` / `AUTHKIT_KEYS_PATH` | Host config | Overrides the filesystem **directory** the local resolver scans for `keys.json`. Default `/vault/auth` (unchanged). See "Signing & key resolution for embedders". |
@@ -698,6 +696,14 @@ Token/session model
   backend serves the frontend route but does not receive the tokens. The default
   frontend callback path is `/login/callback`; configured paths must be
   app-relative, may include a query string, and must not include a fragment.
+- Full-page OIDC login accepts an optional app-relative `return_to` query
+  parameter, for example `/oidc/google/login?return_to=/subscribe?plan=pro`.
+  AuthKit stores it in OIDC state and returns it as `return_to` in the callback
+  fragment after rejecting absolute/external URLs, `//host`, backslashes, and
+  CR/LF.
+- JSON/SPAs flows such as password login, registration, in-app 2FA, and POST
+  verification/reset return tokens or status in JSON and do not navigate away;
+  the client owns any `return_to` state there.
 - AuthKit stores refresh-session records server-side for refresh-token lifecycle
   and revocation, but it does not provide an opaque `session_id` browser-cookie
   mode or HttpOnly cookie token mode.
@@ -709,7 +715,7 @@ Token taxonomy
 
 | Credential | Wire signal | Authority source |
 | --- | --- | --- |
-| User access token | JWT `typ=access+jwt` | Local user identity, session id, and authoritative short-lived entitlements in the token; profile data comes from `/me`; org/role data comes from live DB lookups and org routes. |
+| User access token | JWT `typ=access+jwt` | Local user identity, session id, and authoritative short-lived entitlements in the token; profile and permission-group data comes from `/me` and live DB lookups. |
 | Delegated access token | JWT `typ=delegated-access+jwt` + `delegated_sub` | Concrete `permissions` claim, validated against the issuer remote application's stored authority. |
 | Remote application access token | JWT `typ=remote-application-access+jwt`, no `sub` or `delegated_sub` | Stored authority for the registered remote_application resolved from validated `iss`. |
 | Service JWT | JWT `typ=service+jwt` + `token_use=service` | Receiver intersects requested permissions/resources with server-side grants for the issuer/subject. |
@@ -742,31 +748,31 @@ Roles (global storage)
 - Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
 
 Permission groups
-- The old static org route plane was removed. AuthKit now exposes
+- The old static organization route plane was removed. AuthKit now exposes
   resource-scoped membership, roles, and credentials through generated
   permission-group routes derived from the host's configured schema.
-- Terminology: a configured permission-group `type` is the public route and
-  permission `persona`. For example, a `merchant` group type generates
-  `/merchant/:resource_id/...` routes and `merchant:<area>:<action>`
+- Terminology: a configured permission-group persona is the public route and
+  permission namespace. For example, a `merchant` persona generates
+  `/merchant/:resource_slug/...` routes and `merchant:<area>:<action>`
   permissions.
 - Generated permission-group routes:
   - GET /me/groups
-  - GET /:persona/:resource_id/members
-  - POST /:persona/:resource_id/members
-  - DELETE /:persona/:resource_id/members/:user
-  - PUT /:persona/:resource_id/members/:user/roles/:role
-  - GET /:persona/:resource_id/roles
-  - POST /:persona/:resource_id/roles
-  - DELETE /:persona/:resource_id/roles/:role
-  - GET /:persona/:resource_id/api-keys
-  - POST /:persona/:resource_id/api-keys
-  - DELETE /:persona/:resource_id/api-keys/:key
-  - GET /:persona/:resource_id/remote-applications
-  - POST /:persona/:resource_id/remote-applications
-  - DELETE /:persona/:resource_id/remote-applications/:app
-  - GET /:persona/:resource_id/invites
-  - POST /:persona/:resource_id/invites
-  - DELETE /:persona/:resource_id/invites/:invite
+  - GET /:persona/:resource_slug/members
+  - POST /:persona/:resource_slug/members
+  - DELETE /:persona/:resource_slug/members/:user
+  - PUT /:persona/:resource_slug/members/:user/roles/:role
+  - GET /:persona/:resource_slug/roles
+  - POST /:persona/:resource_slug/roles
+  - DELETE /:persona/:resource_slug/roles/:role
+  - GET /:persona/:resource_slug/api-keys
+  - POST /:persona/:resource_slug/api-keys
+  - DELETE /:persona/:resource_slug/api-keys/:key
+  - GET /:persona/:resource_slug/remote-applications
+  - POST /:persona/:resource_slug/remote-applications
+  - DELETE /:persona/:resource_slug/remote-applications/:app
+  - GET /:persona/:resource_slug/invites
+  - POST /:persona/:resource_slug/invites
+  - DELETE /:persona/:resource_slug/invites/:invite
   - Each persona emits only the route families enabled by its management
     profile. Built-in `root` emits member-management plus role-list routes.
 - Token claim shape (uniform; no mode):
@@ -805,7 +811,7 @@ Service JWTs (OIDC/JWKS machine credentials)
 - AuthKit provides `core.MintServiceJWT` / `(*core.Service).MintServiceJWT` and
   `authhttp.Verifier.VerifyServiceJWT` plus `RequiredServiceJWT`. Verification
   uses the same issuer/JWKS registry as delegated access tokens, including
-  org issuer lazy-load and disabled-issuer fail-closed behavior.
+  remote-application issuer lazy-load and disabled-issuer fail-closed behavior.
 - `permissions: []` is the canonical requested-capability claim. OAuth `scope`
   is accepted only as an explicit compatibility bridge. AuthKit parses requested
   permissions/resources but does not grant them; resource servers such as
@@ -920,12 +926,11 @@ Two-Factor Authentication (2FA):
   3. First enable responses include `backup_codes` array - **show these to user ONCE and tell them to save them**
   4. User can regenerate codes with POST `/user/2fa/backup-codes` (invalidates old codes)
   5. User can delete one factor with `DELETE /user/2fa?factor_id=...` or disable all 2FA with `DELETE /user/2fa`
-- Hosts can require 2FA for selected permission-group roles:
-  `TwoFactor.Mandatory: []core.Mandatory2FAPolicy{{GroupType: "root", Roles: []string{"admin"}}}`.
-  Matching uses live permission-group assignments. A covered user without 2FA gets
-  `2fa_enrollment_required` from password login with an enrollment-only bearer token
-  that can call `GET/POST /user/2fa`; refresh-token exchange also fails closed with
-  `2fa_enrollment_required` until enrollment is complete.
+- Hosts can require 2FA for selected permission-group roles with
+  `core.RoleDef{RequiresMFA: true}`. AuthKit rejects assigning or accepting that
+  role until the user has account MFA enabled with at least one factor. If the
+  user later disables MFA, AuthKit removes those MFA-required user role
+  assignments.
 - Backup codes are single-use and removed after verification.
 - Server-sent 2FA codes expire in **10 minutes**.
 
@@ -960,7 +965,7 @@ Integration requirements (API server)
 AuthKit API route specs, and the `APIHandler()` net/http compatibility handler built from those same specs, are shown relative to the host-selected API mount prefix. With the recommended `/api/v1` mount, `GET /me` is served at `GET /api/v1/me`. Browser OIDC routes are served separately and are usually mounted outside API versioning at `/oidc/*`.
 - GET /.well-known/jwks.json
 - OIDC:
-  - GET /oidc/:provider/login
+  - GET /oidc/:provider/login?return_to=/app/path
   - GET /oidc/:provider/callback
   - POST /oidc/:provider/link/start (RouteUser API group, requires auth) -> {auth_url}
 - Password:
@@ -1090,8 +1095,8 @@ DELETE FROM profiles.phone_verifications WHERE expires_at <= now();
 -- Pending registrations now live in Redis/Garnet; no SQL cleanup needed.
 DELETE FROM profiles.pending_phone_registrations WHERE expires_at <= now();
 
--- Remove expired 2FA verification codes
-DELETE FROM profiles.two_factor_verifications WHERE expires_at <= now();
+-- 2FA verification codes live in Redis/Garnet or the in-memory ephemeral store;
+-- no SQL cleanup is needed.
 ```
 
 Run these from your scheduler (cron, pg_cron, or your job system).
@@ -1243,11 +1248,11 @@ const linkWallet = async (accessToken: string) => {
 Use the verifier when a service needs to accept JWTs issued by one or more
 AuthKit-powered APIs (e.g., spacex), without mounting any auth routes.
 
-- Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`. (`WithOrgMode` is a deprecated no-op shim kept for back-compat; org claims are parsed whenever present.)
+- Create with `authhttp.NewVerifier(opts...)` — options: `WithSkew`, `WithAlgorithms`, `WithHTTPClient`.
 - Add issuers via `verifier.AddIssuer(issuerID, audiences, opts)` — each may specify a JWKS URL (defaults to `/.well-known/jwks.json`), pre-provided PEM keys, or raw `*rsa.PublicKey` maps.
 - For service JWTs, call `verifier.VerifyServiceJWT(ctx, token)` or mount
   `authhttp.RequiredServiceJWT(verifier)`. This returns a machine principal with
-  issuer, subject, org/resource account, permissions, resources, and JTI; the
+  issuer, subject, remote-application slug, permissions, resources, and JTI; the
   host still owns final authorization.
 - Keep route classes explicit: ordinary user/delegated routes use
   `authhttp.Required`, delegated-only resource routes use
@@ -1304,41 +1309,38 @@ SpaceX accepts JWTs from multiple issuers; both tesla.com and x.com.
 
 ---
 
-### Org Issuers & Delegated Access JWTs
+### Remote Application Issuers & Delegated Access JWTs
 
 AuthKit owns the shared identity primitives for federation: a resource service
-registers org issuers, verifies their OIDC/JWKS metadata, and records minimal
-delegated users as `(org_id, issuer, subject)` — where the org uuid is
-resolved server-side from the issuer registration (tokens carry only
-`delegated_sub`; the validated issuer IS the org identity). Product-specific approval,
-quota, billing, and resource policy still belong to the receiving product.
+registers remote applications, verifies their OIDC/JWKS metadata, and accepts
+delegated users as `(issuer, delegated_sub)`. Product-specific approval, quota,
+billing, and resource policy still belong to the receiving product.
 
-This lets a org bring external principals that live in the org's own
-system. Those principals authenticate via the org's **issuer** rather than
-local passwords. Two AuthKit-embedding services register with and trust each
-other:
+This lets an external system bring principals that live in its own identity
+store. Those principals authenticate through the remote application's issuer
+rather than local passwords. Two AuthKit-embedding services register with and
+trust each other:
 
-- the **platform / IdP** side (e.g. cozy-art) **mints** delegated tokens and
-  **sends** its registration;
-- the **resource-server** side (e.g. tensorhub) **accepts** registrations and
-  **validates** the delegated tokens.
+- the **platform / IdP** side (e.g. cozy-art) mints delegated tokens and sends
+  its remote-application issuer registration;
+- the **resource-server** side (e.g. tensorhub) accepts registrations and
+  validates delegated tokens.
 
 There are three roles, all owned by AuthKit:
 
 | Role | Side | API |
 |---|---|---|
-| **register** | both | `OrgIssuersClient.RegisterIssuer` (outbound) → `POST /org-issuers` (inbound) |
+| **register** | both | `RemoteApplicationIssuersClient.RegisterIssuer` (outbound) -> `POST /:persona/:resource_slug/remote-applications` (inbound) |
 | **mint** | platform | `MintDelegatedAccessToken(ctx, signer, DelegatedAccessParams)` |
-| **validate** | resource server | `Verifier.LoadOrgIssuers` + `Verifier.VerifyDelegatedAccess` → `Claims.DelegatedAccess()` |
+| **validate** | resource server | `Verifier.LoadRemoteApplications` + `Verifier.VerifyDelegatedAccess` -> `Claims.DelegatedAccess()` |
 
 #### Delegated access JWTs
 
-A **delegated access JWT** is AuthKit's standard primitive for user or
-org-admin federation: one AuthKit issuer signs a short-lived JWT for an
-external delegated subject, and a resource service (OpenRails, Tensorhub,
-Gen-Orchestrator, ...) accepts it after issuer/JWKS/audience/resource-account
-validation.
-Mint it with `MintDelegatedAccessToken` / `DelegatedAccessParams`.
+A **delegated access JWT** is AuthKit's standard primitive for federation: one
+AuthKit issuer signs a short-lived JWT for an external delegated subject, and a
+resource service (OpenRails, Tensorhub, Gen-Orchestrator, ...) accepts it after
+issuer/JWKS/audience validation. Mint it with `MintDelegatedAccessToken` /
+`DelegatedAccessParams`.
 
 Canonical claim contract:
 
@@ -1346,11 +1348,10 @@ Canonical claim contract:
 |---|---|---|
 | header `typ=delegated-access+jwt` | identifies a delegated access JWT (`DelegatedAccessTokenType`) | `Claims.TokenTyp` / `IsDelegatedAccessToken()` |
 | `iss` | AuthKit issuer that signed the token | `Claims.Issuer` |
-| `aud` | target resource API (`openrails`, `tensorhub`, `gen-orchestrator`) | (matched at verify) |
-| `org` | target resource-service account slug, e.g. `doujins` in OpenRails | `Claims.Org` |
-| `delegated_sub` | issuer-side subject id, e.g. Paul's Doujins-side subject id; **no local account is implied** | `Claims.DelegatedSubject` |
-| `permissions []string` | resource-defined permission strings (NOT OAuth space-delimited scope) — the **authority source** | `Claims.Permissions` / `HasPermission()` |
-| `attributes {}` | issuer policy metadata, e.g. `{"tier":"cozy_free"}` (arbitrary JSON) | `Claims.Attributes` / `Attribute(key)` |
+| `aud` | target resource API (`openrails`, `tensorhub`, `gen-orchestrator`) | matched at verify |
+| `delegated_sub` | issuer-side subject id; no local account is implied | `Claims.DelegatedSubject` |
+| `permissions []string` | resource-defined permission strings, not OAuth scope | `Claims.Permissions` / `HasPermission()` |
+| `attributes {}` | issuer policy metadata, e.g. `{"tier":"cozy_free"}` | `Claims.Attributes` / `Attribute(key)` |
 | `iat`/`exp`/`nbf`/`jti` | standard timing + token id | `Claims.JTI` |
 
 **Hard invariants** (enforced + tested):
@@ -1358,27 +1359,18 @@ Canonical claim contract:
 - Ordinary AuthKit access JWTs use header `typ=access+jwt`; delegated access
   tokens use header `typ=delegated-access+jwt`. `Verify()` rejects missing,
   unknown, or cross-profile `typ` values.
-- A delegated access JWT **MUST NOT** carry a normal `sub`. `Verify()` rejects
-  a `typ=delegated-access+jwt` token that carries `sub`
-  (`access_token_has_sub`).
-- A token carrying **both** `sub` and `delegated_sub` is rejected
-  (`conflicting_subject`).
-- `roles` are not part of delegated access JWTs. `MintDelegatedAccessToken`
-  does not mint them, and `Verify()` rejects delegated access JWTs carrying a
-  `roles` claim (`delegated_access_has_roles`). Receiving services authorize on
-  `permissions` + explicit `attributes` policy.
-- The `org` JWT claim is required and means the target resource-service
-  account. Delegated access JWTs MUST NOT carry the legacy AuthKit `org` claim;
-  `Verify()` rejects it (`delegated_access_has_org`).
-- Tier/plan metadata belongs under `attributes.tier`. Delegated access JWTs
-  MUST NOT carry a top-level `user_tier` claim
-  (`delegated_access_has_user_tier`).
-- Org issuers loaded from AuthKit's `org_issuers` store are
-  also bound to the registered resource account (`org_slug` in the storage row):
-  delegated access JWTs from that issuer must claim the same resource account,
-  or verification rejects them with `resource_account_issuer_mismatch`. This
-  prevents one trusted issuer from minting a delegated token for another
-  resource account.
+- A delegated access JWT must not carry a normal `sub`; the receiving service
+  authorizes by trusted issuer plus delegated subject, not by a local user row.
+- Delegated access JWTs must not carry legacy AuthKit organization claims;
+  `Verify()` rejects them (`delegated_access_has_org`,
+  `delegated_access_has_org_id`).
+- `roles` are not a top-level delegated access JWT claim. Receiving services
+  authorize on `permissions` plus explicit `attributes` policy.
+- Tier/plan metadata belongs under `attributes.tier`; a top-level `user_tier`
+  claim is rejected.
+- Remote applications loaded from AuthKit's registry are bound to the permission
+  group that registered them; downstream authorization should intersect token
+  permissions with that stored authority.
 
 Receiving services can install validation hooks:
 
@@ -1388,43 +1380,34 @@ v := authhttp.NewVerifier(
     authhttp.WithAttributesPolicy(func(a map[string]json.RawMessage) error { /* check schema */ }),
 )
 cl, dp, err := v.VerifyDelegatedAccess(token) // requires typ=delegated-access+jwt + runs hooks
-// dp.Org, dp.DelegatedSubject, dp.Permissions, dp.Attributes, dp.JTI, dp.Issuer
+// dp.Issuer, dp.DelegatedSubject, dp.Permissions, dp.Attributes, dp.JTI
 ```
 
 Because a delegated access JWT has no `sub`, the resource server's middleware
-**skips the local-user gate** (no `user_disabled` lookup) — authorization is by
-issuer/resource-account trust + `permissions`, not local-user existence.
-
-Recommended OpenRails permission naming uses a service prefix even though
-`aud=openrails` is present, because a host AuthKit permission set may carry
-permissions for several resource services: self-scoped
-`openrails:self:billing:read`, `openrails:self:checkout:create`,
-`openrails:self:subscriptions:cancel`; org/admin
-`openrails:merchant:catalog:write`, `openrails:merchant:payments:refund`,
-`openrails:merchant:admin`. Routes must still check scope semantics, not just
-string presence.
+skips the local-user gate. Authorization is by issuer trust plus `permissions`,
+not local-user existence.
 
 For browser-direct self-service billing, the host app still has one
 authenticated AuthKit touchpoint: a current-user token endpoint owned by the
 host app. That endpoint authenticates the normal app session, decides which
 self-scoped OpenRails permissions the current user may receive, then calls
-`MintDelegatedAccessToken` with `aud=openrails`, `org`, `delegated_sub` set
-to the current user id, short `TTL`, and permissions such as
+`MintDelegatedAccessToken` with `aud=openrails`, `delegated_sub` set to the
+current user id, short `TTL`, and permissions such as
 `openrails:self:billing:read` or `openrails:self:checkout:create`. The browser
-then calls OpenRails directly with that delegated access JWT; the host does
-not proxy billing reads or checkout/subscription actions.
+then calls OpenRails directly with that delegated access JWT; the host does not
+proxy billing reads or checkout/subscription actions.
 
-#### Registration handshake (both sides)
+#### Registration handshake
 
-**Outbound (platform side, e.g. cozy-art)** — publish this org's issuer +
-JWKS URL to a resource server's accept endpoint:
+**Outbound (platform side, e.g. cozy-art)** — publish this remote application's
+issuer + JWKS URL to a resource server's accept endpoint:
 
 ```go
-fc := authhttp.NewOrgIssuersClient(
-    authhttp.WithOrgIssuersAuthToken(ownerAccessToken), // org owner/admin token
+fc := authhttp.NewRemoteApplicationIssuersClient(
+    authhttp.WithRemoteApplicationIssuersAuthToken(ownerAccessToken),
 )
 err := fc.RegisterIssuer(ctx, "https://tensorhub.example/api/v1/remote-applications",
-    authhttp.OrgIssuersRegistration{
+    authhttp.RemoteApplicationIssuerRegistration{
         Slug:           "cozy-art",
         Issuer:         "https://cozy.art",
         JWKSURI:        "https://cozy.art/.well-known/jwks.json",
@@ -1438,27 +1421,25 @@ remote-application origins because it has no JWT; mount
 `authhttp.RequireDelegatedOrigin` after `authhttp.Required` to enforce the real
 request's `Origin` against the verified token issuer.
 
-**Inbound (resource-server side, e.g. tensorhub)** — use the remote-application
-management routes. `POST /remote-applications` accepts + stores a registration, authorized
-by the **org owner/admin** of the registering org (global admins may register
-for any org); `DELETE /remote-applications` removes one; `GET
-/remote-applications` (global-admin) lists them. This is the AuthKit-owned home
-for what services used to expose as a bespoke `/api/v1/platform/issuers`
-endpoint.
+**Inbound (resource-server side, e.g. tensorhub)** — use the generated
+remote-application management routes. `POST /:persona/:resource_slug/remote-applications`
+accepts and stores a registration authorized by the controlling permission
+group; `DELETE /:persona/:resource_slug/remote-applications/:app` removes one;
+`GET /:persona/:resource_slug/remote-applications` lists that group's apps.
 
 #### In-house JWKS — no external push/sync
 
-The resource server loads registered org issuers from AuthKit's **own
-store** (the `profiles.org_issuers` table) and registers each with the
-Verifier, whose existing in-house JWKS fetch/refresh then handles the keys.
-There is **no external key push or sync** — the resource server pulls JWKS from
-each issuer's URL on demand and refreshes per `CacheTTL`.
+The resource server loads registered remote applications from AuthKit's own
+store and registers each with the Verifier, whose existing in-house JWKS
+fetch/refresh then handles the keys. There is no external key push or sync; the
+resource server pulls JWKS from each issuer's URL on demand and refreshes per
+`CacheTTL`.
 
 ```go
 // At startup (and re-run on a ticker / after a registration) to pick up store changes:
-err := verifier.LoadOrgIssuers(ctx, coreSvc /* or any OrgIssuerSource */, []string{"tensorhub"})
+err := verifier.LoadRemoteApplications(ctx, coreSvc, []string{"tensorhub"})
 ```
 
-`LoadOrgIssuers` registers only `enabled` issuers. A newly-accepted
+`LoadRemoteApplications` registers only `enabled` issuers. A newly-accepted
 registration is also added to the Verifier immediately by the inbound handler,
 so it is usable without waiting for the next store load.

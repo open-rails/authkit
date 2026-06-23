@@ -12,6 +12,16 @@ import (
 func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
+	clean := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_custom_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
+	}
+	clean()
+	t.Cleanup(clean)
+
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)

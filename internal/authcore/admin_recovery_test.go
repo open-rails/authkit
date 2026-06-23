@@ -48,7 +48,7 @@ func TestAdminRecoverUserEmailReplacesLoginFactors(t *testing.T) {
 	require.NoError(t, svc.LinkProvider(ctx, user.ID, "google", "google-subject-"+suffix, nil))
 	_, err = svc.Enable2FA(ctx, user.ID, "email", nil)
 	require.NoError(t, err)
-	_, _, _, err = svc.IssueRefreshSession(ctx, user.ID, "test", net.ParseIP("127.0.0.1"))
+	_, _, _, err = svc.IssueRefreshSessionWithAuthMethods(ctx, user.ID, "test", net.ParseIP("127.0.0.1"), []string{"pwd", "otp", "mfa"})
 	require.NoError(t, err)
 
 	require.NoError(t, svc.AdminRecoverUser(ctx, user.ID, AdminRecoverUserInput{Email: newEmail}))

@@ -98,10 +98,9 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]RemovedMFARoleAssignment, error) {
 	rows, err := q.Query(ctx,
 		`SELECT a.group_id::text, g.persona, COALESCE(g.resource_slug, ''), a.role
-		   FROM profiles.group_role_assignments a
+		   FROM profiles.group_user_roles a
 		   JOIN profiles.permission_groups g ON g.id = a.group_id
-		  WHERE a.subject_id = $1::uuid
-		    AND a.subject_kind = 'user'
+		  WHERE a.user_id = $1::uuid
 		    AND a.deleted_at IS NULL
 		    AND g.deleted_at IS NULL`,
 		userID)
@@ -126,11 +125,10 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 	}
 	for _, r := range removals {
 		if _, err := q.Exec(ctx,
-			`UPDATE profiles.group_role_assignments
+			`UPDATE profiles.group_user_roles
 			    SET deleted_at = now(), updated_at = now()
 			  WHERE group_id = $1::uuid
-			    AND subject_id = $2::uuid
-			    AND subject_kind = 'user'
+			    AND user_id = $2::uuid
 			    AND role = $3
 			    AND deleted_at IS NULL`,
 			r.GroupID, userID, r.Role); err != nil {

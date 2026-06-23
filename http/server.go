@@ -28,7 +28,7 @@ type Server = Service
 type Option func(*Server)
 
 // NewServer constructs the auth Server. Postgres is REQUIRED (the durable user/
-// org/role store has no in-memory fallback) and is a positional argument the
+// role and permission-group store has no in-memory fallback and is a positional argument the
 // type system enforces (#106); pure token verification with no storage uses
 // authhttp.NewVerifier / authkit/verify instead. Every optional dependency is a
 // functional option:

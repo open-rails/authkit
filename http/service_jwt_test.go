@@ -19,7 +19,7 @@ func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string
 	t.Helper()
 	v := NewVerifier(WithSkew(time.Second))
 	require.NoError(t, v.AddIssuer(issuer, audiences, IssuerOptions{
-		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+		RawKeys:               map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 		RemoteApplicationSlug: "hentai0",
 	}))
 	return v
@@ -259,7 +259,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	})
 }
 
-func TestVerifyServiceJWTDisabledOrgIssuerFailsClosed(t *testing.T) {
+func TestVerifyServiceJWTDisabledRemoteApplicationIssuerFailsClosed(t *testing.T) {
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 	issuer := "https://disabled-issuer.example"
@@ -269,7 +269,7 @@ func TestVerifyServiceJWTDisabledOrgIssuerFailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	v := NewVerifier()
-	src := disabledOrgIssuerSource{issuer: core.RemoteApplication{
+	src := disabledRemoteApplicationIssuerSource{issuer: core.RemoteApplication{
 		Slug: "hentai0", Issuer: issuer, JWKSURI: "https://disabled-issuer.example/jwks", Enabled: false,
 	}}
 	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"openrails"}))
@@ -277,15 +277,15 @@ func TestVerifyServiceJWTDisabledOrgIssuerFailsClosed(t *testing.T) {
 	require.EqualError(t, err, "invalid_token")
 }
 
-type disabledOrgIssuerSource struct {
+type disabledRemoteApplicationIssuerSource struct {
 	issuer core.RemoteApplication
 }
 
-func (s disabledOrgIssuerSource) ListRemoteApplications(context.Context, bool) ([]core.RemoteApplication, error) {
+func (s disabledRemoteApplicationIssuerSource) ListRemoteApplications(context.Context, bool) ([]core.RemoteApplication, error) {
 	return nil, nil
 }
 
-func (s disabledOrgIssuerSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
+func (s disabledRemoteApplicationIssuerSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
 	if issuerID == s.issuer.Issuer {
 		return &s.issuer, nil
 	}

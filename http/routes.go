@@ -169,8 +169,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
 	}
 
-	// #111: the org/platform RBAC HTTP surface (members, roles, invites, org
-	// permissions, the org-nested api-keys mount) was removed. The
+	// #111: the legacy organization/platform RBAC HTTP surface was removed. The
 	// permission-group route generator re-homes group management; the api-key and
 	// remote-application handlers survive in their own files to be re-nested there.
 

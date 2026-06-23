@@ -10,11 +10,6 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// SubjectKindRemoteApp is the group_role_assignments.subject_kind for a
-// remote_application principal (mirrors the migration-008 polymorphic subject).
-// SubjectKindUser is the user principal. (SubjectKind* live in
-// permission_group_store.go.)
-
 // ErrNotGroupMember is returned when a remote_application holds no role in its
 // controlling permission-group.
 var ErrNotGroupMember = errors.New("not_group_member")
@@ -43,9 +38,7 @@ func (s *Service) remoteApplicationGroupID(ctx context.Context, appID string) (s
 }
 
 // AddRemoteApplicationMember grants a remote_application a role in its own
-// controlling permission-group via group_role_assignments (subject_kind=
-// remote_application) — the same machinery as users (#111). role defaults to
-// the base member role.
+// controlling permission-group. role defaults to the base member role.
 func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -76,9 +69,9 @@ func (s *Service) RemoveRemoteApplicationMember(ctx context.Context, appID, role
 		// Remove every role the app holds in its controlling group.
 		q := db.ForSchema(s.pg, s.dbSchema())
 		_, err := q.Exec(ctx,
-			`UPDATE profiles.group_role_assignments SET deleted_at = now(), updated_at = now()
-			 WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3 AND deleted_at IS NULL`,
-			gid, strings.TrimSpace(appID), SubjectKindRemoteApp)
+			`UPDATE profiles.group_remote_application_roles SET deleted_at = now(), updated_at = now()
+			 WHERE group_id = $1::uuid AND remote_application_id = $2::uuid AND deleted_at IS NULL`,
+			gid, strings.TrimSpace(appID))
 		return err
 	}
 	return s.groupStore().UnassignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)

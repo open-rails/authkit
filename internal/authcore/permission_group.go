@@ -1,7 +1,7 @@
 package authcore
 
-// Permission-group model (#111): the generalization of "org" into an N-level,
-// resource-scoped RBAC tree. A permission-group is a typed container that holds
+// Permission-group model (#111): an N-level, resource-scoped RBAC tree. A
+// permission-group is a typed container that holds
 // role assignments and has a SINGLE parent; a permission check walks the parent
 // chain to the root and unions the subject's assignments across it.
 //

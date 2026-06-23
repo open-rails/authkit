@@ -86,10 +86,10 @@ type Options struct {
 	TOTPSecretKey []byte
 	// ResourceScopeAuthorizer optionally authorizes host-defined API-key resource
 	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
-	// opaquely for callers who may manage API keys for the org.
+	// opaquely for callers who may manage API keys for the permission group.
 	ResourceScopeAuthorizer ResourceScopeAuthorizer
 	// Permissions is the app's permission vocabulary (merged with authkit's
-	// base `org:` permissions).
+	// base permission-group permissions).
 	Permissions []PermissionDef
 }
 
@@ -160,10 +160,10 @@ var (
 	ErrRegistrationDisabled = errors.New("registration_disabled")
 	// ErrVerificationLinkExpired indicates a verification link/token no longer has a pending verification record.
 	ErrVerificationLinkExpired = errors.New("verification_link_expired")
-	ErrEmailInUse             = errors.New("email_in_use")
-	ErrPhoneInUse             = errors.New("phone_in_use")
-	ErrEmailSenderUnavailable = errors.New("email_sender_unavailable")
-	ErrSMSSenderUnavailable   = errors.New("sms_unavailable")
+	ErrEmailInUse              = errors.New("email_in_use")
+	ErrPhoneInUse              = errors.New("phone_in_use")
+	ErrEmailSenderUnavailable  = errors.New("email_sender_unavailable")
+	ErrSMSSenderUnavailable    = errors.New("sms_unavailable")
 )
 
 const defaultFrontendCallbackPath = "/login/callback"
@@ -1685,7 +1685,7 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, email, code st
 		return "", jwt.ErrTokenInvalidClaims
 	}
 	// The register_email finalizer enforces "first to verify wins", creates the
-	// verified user, and applies language + personal org.
+	// verified user, and applies language.
 	uid, err := s.finalizePendingChange(ctx, rec)
 	if err != nil {
 		return "", err
@@ -2245,6 +2245,15 @@ type ImportUserInput struct {
 	Metadata      map[string]any
 	CreatedAt     *time.Time
 	UpdatedAt     *time.Time
+
+	// Optional pre-hashed credential to import alongside the user (bulk legacy
+	// migration). When PasswordHash is non-empty and the user row is inserted,
+	// ImportUsers stores it verbatim. The verify-time whitelist (argon2id/bcrypt,
+	// else legacy-reset-required) still governs login; bulk import does not
+	// re-validate the hash, matching single-row UpsertPasswordHash.
+	PasswordHash string
+	HashAlgo     string
+	HashParams   []byte
 }
 
 func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, error) {
@@ -3208,8 +3217,8 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 		// root_role filters on a user's role in the singleton root group.
 		// admin == the seeded super-admin role.
 		slug = normalizeRootRoleSlug(slug)
-		from += " JOIN profiles.group_role_assignments gra ON gra.subject_id = u.id AND gra.subject_kind = 'user' AND gra.deleted_at IS NULL AND gra.role = $" + fmt.Sprint(argIdx) +
-			" JOIN profiles.permission_groups pg ON pg.id = gra.group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"
+		from += " JOIN profiles.group_user_roles gur ON gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $" + fmt.Sprint(argIdx) +
+			" JOIN profiles.permission_groups pg ON pg.id = gur.group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"
 		args = append(args, slug)
 		argIdx++
 	}
@@ -3279,7 +3288,7 @@ func (s *Service) AdminCountUsers(ctx context.Context, opts AdminUserListOptions
 }
 
 // AdminListUsers is the generic admin user-directory list (issue #91): generic
-// role/org/status filter + search + sort + offset pagination, with optional
+// role/status filter + search + sort + offset pagination, with optional
 // provider-backed entitlement filtering. Each row is enriched with role slugs
 // and (via the entitlements provider) entitlement names.
 func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error) {
@@ -3478,9 +3487,8 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 	}
 	// Revoke all sessions
 	_ = s.q.SessionsRevokeAllQuiet(ctx, db.SessionsRevokeAllQuietParams{UserID: id, Issuer: s.opts.Issuer})
-	// #125 D7: group_role_assignments uses a polymorphic trigger-FK (no cascade)
-	// so the user's assignments would orphan; group_invites.invited_by is ON
-	// DELETE RESTRICT so any invites the user sent must be cleared first.
+	// #125 D7: group_invites.invited_by is ON DELETE RESTRICT, so any invites
+	// the user sent must be cleared before the user row is removed.
 	if err := s.q.GroupAssignmentsDeleteByUser(ctx, id); err != nil {
 		return err
 	}
@@ -4001,7 +4009,7 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 		return nil, err
 	}
 
-	_ = factor // per-factor data lives only on two_factor_factors (#125)
+	_ = factor // per-factor data lives only on mfa_factors (#125)
 	// Settings holds only the account-level gate + backup codes (#125).
 	if err := qtx.MFAUpsertSettings(ctx, db.MFAUpsertSettingsParams{
 		UserID:      userID,

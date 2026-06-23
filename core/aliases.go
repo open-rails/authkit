@@ -7,6 +7,16 @@ package core
 import authcore "github.com/open-rails/authkit/internal/authcore"
 
 // Re-exported types.
+// #130 bulk-import result types + status constants (hand-added; the generator
+// also picks these up on a full regen).
+type ImportUsersResult = authcore.ImportUsersResult
+type ImportUserResult = authcore.ImportUserResult
+type ImportUserStatus = authcore.ImportUserStatus
+
+const ImportStatusInserted = authcore.ImportStatusInserted
+const ImportStatusSkipped = authcore.ImportStatusSkipped
+const ImportStatusRejected = authcore.ImportStatusRejected
+
 type APIKey = authcore.APIKey
 type APIKeyMintOptions = authcore.APIKeyMintOptions
 type APIKeyResource = authcore.APIKeyResource

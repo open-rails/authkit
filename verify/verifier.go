@@ -84,12 +84,12 @@ type Verifier struct {
 
 // issuerEntry describes a trusted issuer (private — replaces authbase.IssuerAccept).
 type issuerEntry struct {
-	issuer    string
-	audiences []string
-	jwksURL   string
-	cacheTTL  time.Duration
-	maxStale  time.Duration
-	remoteApplicationSlug   string
+	issuer                string
+	audiences             []string
+	jwksURL               string
+	cacheTTL              time.Duration
+	maxStale              time.Duration
+	remoteApplicationSlug string
 	// isLocal marks the first-party (host application's own) token signer, as
 	// opposed to a remote_application/federated issuer. It guards the signing-key
 	// registry: a non-local registration must never overwrite the local issuer's
@@ -403,13 +403,13 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	}
 
 	ie := issuerEntry{
-		issuer:    issuerID,
-		audiences: audiences,
-		jwksURL:   strings.TrimSpace(opts.JWKSURI),
-		cacheTTL:  opts.CacheTTL,
-		maxStale:  opts.MaxStale,
-		remoteApplicationSlug:   strings.TrimSpace(opts.RemoteApplicationSlug),
-		isLocal:   opts.IsLocal,
+		issuer:                issuerID,
+		audiences:             audiences,
+		jwksURL:               strings.TrimSpace(opts.JWKSURI),
+		cacheTTL:              opts.CacheTTL,
+		maxStale:              opts.MaxStale,
+		remoteApplicationSlug: strings.TrimSpace(opts.RemoteApplicationSlug),
+		isLocal:               opts.IsLocal,
 	}
 
 	v.mu.Lock()
@@ -573,7 +573,7 @@ type RemoteApplicationSource interface {
 func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplicationSource, audiences []string) error {
 	if src == nil {
 		if v.enrich == nil {
-			return errors.New("no org-issuer source available")
+			return errors.New("no remote-application source available")
 		}
 		src = v.enrich
 	}

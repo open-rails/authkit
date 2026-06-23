@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// #125 D7: hard-deleting a user must clear their permission-group assignments
-// (polymorphic trigger-FK, no cascade -> would orphan) and any invites they sent
+// #125 D7: hard-deleting a user must clear any invites they sent
 // (group_invites.invited_by is ON DELETE RESTRICT -> would BLOCK the delete).
 func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invites`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_role_assignments`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
 	}
@@ -60,7 +60,7 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 
 	countAssignments := func(uid string) int {
 		var n int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_role_assignments WHERE subject_id=$1::uuid AND subject_kind='user'`, uid).Scan(&n); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM profiles.group_user_roles WHERE user_id=$1::uuid`, uid).Scan(&n); err != nil {
 			t.Fatalf("count assignments: %v", err)
 		}
 		return n

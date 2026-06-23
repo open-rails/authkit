@@ -21,7 +21,7 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 //   - remote application access token (this file): a remote_application signs a
 //     JWT with typ=remote-application-access+jwt; we verify it against the
 //     application's registered JWKS and grant the authority WE ASSIGNED
-//     (org role membership only, #95), NEVER what role claims in the token
+//     (permission-group role membership only), NEVER what role claims in the token
 //     self-assert.
 //
 // This stored-authority token is the canonical remote application "act as
@@ -34,7 +34,7 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 // RemoteApplicationAccessParams describes a remote application access token to
 // mint (#76): a remote_application signs a short-lived JWT that authenticates it
 // AS ITSELF. The principal's authority is the STORED set AuthKit assigned it
-// (org role membership only, #95), resolved at verify from the validated
+// (permission-group role membership only), resolved at verify from the validated
 // `iss`. The token therefore carries NO authority role claims of its own — and
 // even if a caller adds them, the verifier ignores them.
 type RemoteApplicationAccessParams struct {

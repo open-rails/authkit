@@ -64,7 +64,7 @@ func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch ma
 
 // IsUserReserved reports whether a user is a reserved, non-loginable placeholder
 // (the `reserved` metadata flag). The login gate (ensureUserAccess) consults it
-// so reserved placeholders cannot authenticate. The org-namespace reservation
+// so reserved placeholders cannot authenticate. The owner-namespace reservation
 // FLOW that set this flag was removed in the permission-group hard cut (#111);
 // the read gate stays as defense-in-depth for any externally-set flag.
 func (s *Service) IsUserReserved(ctx context.Context, userID string) (bool, error) {

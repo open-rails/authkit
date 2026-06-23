@@ -39,16 +39,16 @@ func TestGeneratedRouteTable_GatesOnDeclaredPerm(t *testing.T) {
 	for _, gr := range routes {
 		gr := gr
 		var gotPerm, gotPersona, gotResource string
-		s.groupCanFn = func(_ *http.Request, _, persona, resourceID, perm string) (bool, error) {
-			gotPersona, gotResource, gotPerm = persona, resourceID, perm
+		s.groupCanFn = func(_ *http.Request, _, persona, resourceSlug, perm string) (bool, error) {
+			gotPersona, gotResource, gotPerm = persona, resourceSlug, perm
 			return false, nil // deny -> 403, but we only assert the gate inputs
 		}
 		h := s.generatedGroupHandler(gr)
 
 		// Drive the handler with a claims-bearing request at the concrete path.
-		path := strings.NewReplacer(":resource-id", "m1", ":user", "u9", ":role", "support").Replace(gr.Path)
+		path := strings.NewReplacer(":resource_slug", "m1", ":user", "u9", ":role", "support").Replace(gr.Path)
 		r := httptest.NewRequest(gr.Method, path, nil)
-		r = withMuxParams(r, gr.Path, map[string]string{"resource-id": "m1", "user": "u9", "role": "support"})
+		r = withMuxParams(r, gr.Path, map[string]string{"resource_slug": "m1", "user": "u9", "role": "support"})
 		r = r.WithContext(setClaims(r.Context(), Claims{UserID: "caller-1"}))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
@@ -67,10 +67,10 @@ func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
 	called := false
 	s.groupCanFn = func(_ *http.Request, _, _, _, _ string) (bool, error) { called = true; return true, nil }
 
-	gr := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource-id/members", Perm: "merchant:members:manage"}
+	gr := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource_slug/members", Perm: "merchant:members:manage"}
 	h := s.generatedGroupHandler(gr)
 	r := httptest.NewRequest(http.MethodPost, "/merchant/m1/members", strings.NewReader(`{"user_id":"u9"}`))
-	r = withMuxParams(r, gr.Path, map[string]string{"resource-id": "m1"})
+	r = withMuxParams(r, gr.Path, map[string]string{"resource_slug": "m1"})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 

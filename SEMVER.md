@@ -171,14 +171,14 @@ apps; identity linking; sessions; bootstrap; and accessors (`JWKS`, `Postgres`, 
 `ImportUserInput`, `Session`, `SessionFreshness`, `SessionRevokeReason`,
 `SessionEventType`, `AuthSessionEvent`, `PendingRegistration`, `PendingChangeKind`,
 `PreferredLanguage`, `Passkey`, `PasskeyLoginResult`, `APIKey`, `APIKeyMintOptions`, `APIKeyResource` (alias),
-`ResolvedAPIKey` (alias), `TwoFactorSettings`, `TwoFactorFactor`, `Mandatory2FAPolicy`,
-`Mandatory2FAStatus`, `VerificationMessage`, `SolanaLinkedAccount`, `ValidationError`.
+`ResolvedAPIKey` (alias), `TwoFactorSettings`, `TwoFactorFactor`, `MFAStatus`,
+`RemovedMFARoleAssignment`, `VerificationMessage`, `SolanaLinkedAccount`, `ValidationError`.
 
-**Permission-group / RBAC types** (covered): `GroupSchema`, `GroupTypeDef`, `RoleDef`,
-`DefaultRole`, `PermissionDef`, `ManagementProfile`, `GeneratedRoute`, `GroupAssignment`,
+**Permission-group / RBAC types** (covered): `GroupSchema`, `PersonaDef`, `RoleDef`,
+`PermissionDef`, `ManagementProfile`, `GeneratedRoute`, `GroupAssignment`,
 `GroupMember`, `GroupInvite`, `GroupInviteStatus*` consts, `SubjectGroupMembership`,
 `CreatePermissionGroupRequest`, `CustomRoleResolver`, `PermissionGroupStore`,
-`SubjectKindUser`/`SubjectKind*` consts, `RootType`, the `PermRoot*` constants, and the
+`SubjectKindUser`/`SubjectKind*` consts, `RootPersona`, the `PermRoot*` constants, and the
 `Perm*(t string) string` / `OwnerGrant` / `PermissionPersona` permission-builder funcs.
 
 **Interfaces consumers implement** (covered — adding a method is MAJOR for an interface
@@ -242,7 +242,7 @@ Consts: AccessTokenType, ServicePrincipalType="service", RemoteApplicationTokenT
 `verifier.WithService(coreSvc)`.
 
 **`authbase`** (Stable, verify-only): `ErrorEnvelope`, `ErrorObject`, `NewErrorEnvelope`
-(see [§6.1](#61-error-envelope)); `APIKeyResource`, `OrgMembership`, `RemoteApplication`,
+(see [§6.1](#61-error-envelope)); `APIKeyResource`, `RemoteApplication`,
 `RemoteAppKey`, `RemoteAppAttributeDef`, `ResolvedAPIKey`, `ServiceJWTClaims`; opaque-key
 funcs `APIKeyMarker`, `FormatAPIKey`, `ParseAPIKey`, `HasAPIKeyPrefix`; permission match
 funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
@@ -310,7 +310,7 @@ Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders, PublicRe
 Language: LanguageConfig, LanguageMiddleware
 Routing: RouteGroup (+consts), RouteSpec, Routes
 Errors: ErrorCode (+the full constant set, §6.2), InternalErrorEvent
-Org issuers client: OrgIssuersClient (+options/registration)
+Remote-application issuers client: RemoteApplicationIssuersClient (+options/registration)
 ```
 
 ---
@@ -403,29 +403,29 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 
 ### 5.4 Generated permission-group routes (covered, schema-derived)
 
-For each configured permission-group `type` (a `persona`), AuthKit **generates** routes
-addressed by resource id. A capability a profile disables emits **no** route (calling it
+For each configured permission-group persona, AuthKit **generates** routes
+addressed by resource slug. A capability a profile disables emits **no** route (calling it
 404s — stronger than 403). The cross-persona `GET /me/groups` is always present.
 
 | Method | Path shape | Wired |
 |---|---|---|
 | GET | `/me/groups` | yes |
-| GET | `/{persona}/{resource_id}/members` | yes |
-| POST | `/{persona}/{resource_id}/members` | yes |
-| DELETE | `/{persona}/{resource_id}/members/{user}` | yes |
-| PUT | `/{persona}/{resource_id}/members/{user}/roles/{role}` | yes |
-| GET | `/{persona}/{resource_id}/roles` | yes (catalog read) |
-| POST | `/{persona}/{resource_id}/roles` | **501 stub** |
-| DELETE | `/{persona}/{resource_id}/roles/{role}` | **501 stub** |
-| GET | `/{persona}/{resource_id}/api-keys` | yes |
-| POST | `/{persona}/{resource_id}/api-keys` | yes |
-| DELETE | `/{persona}/{resource_id}/api-keys/{key}` | yes |
-| GET | `/{persona}/{resource_id}/remote-applications` | yes |
-| POST | `/{persona}/{resource_id}/remote-applications` | yes |
-| DELETE | `/{persona}/{resource_id}/remote-applications/{app}` | yes |
-| GET | `/{persona}/{resource_id}/invites` | yes |
-| POST | `/{persona}/{resource_id}/invites` | yes |
-| DELETE | `/{persona}/{resource_id}/invites/{invite}` | yes |
+| GET | `/{persona}/{resource_slug}/members` | yes |
+| POST | `/{persona}/{resource_slug}/members` | yes |
+| DELETE | `/{persona}/{resource_slug}/members/{user}` | yes |
+| PUT | `/{persona}/{resource_slug}/members/{user}/roles/{role}` | yes |
+| GET | `/{persona}/{resource_slug}/roles` | yes (catalog read) |
+| POST | `/{persona}/{resource_slug}/roles` | **501 stub** |
+| DELETE | `/{persona}/{resource_slug}/roles/{role}` | **501 stub** |
+| GET | `/{persona}/{resource_slug}/api-keys` | yes |
+| POST | `/{persona}/{resource_slug}/api-keys` | yes |
+| DELETE | `/{persona}/{resource_slug}/api-keys/{key}` | yes |
+| GET | `/{persona}/{resource_slug}/remote-applications` | yes |
+| POST | `/{persona}/{resource_slug}/remote-applications` | yes |
+| DELETE | `/{persona}/{resource_slug}/remote-applications/{app}` | yes |
+| GET | `/{persona}/{resource_slug}/invites` | yes |
+| POST | `/{persona}/{resource_slug}/invites` | yes |
+| DELETE | `/{persona}/{resource_slug}/invites/{invite}` | yes |
 
 > The custom-role **define/delete** routes return `501 not_implemented`. Promoting them
 > from 501 to a working response is **not** breaking; the `not_implemented` code on those
@@ -435,12 +435,14 @@ addressed by resource id. A capability a profile disables emits **no** route (ca
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/{provider}/login` | begins OIDC, redirects to provider |
-| GET | `/{provider}/callback` | full-page callback → `{BaseURL}{CallbackPath}#access_token=…&refresh_token=…` |
+| GET | `/{provider}/login` | begins OIDC, redirects to provider; optional app-relative `return_to` |
+| GET | `/{provider}/callback` | full-page callback → `{BaseURL}{CallbackPath}#access_token=…&refresh_token=…&return_to=…` |
 | GET | `/{provider}/reauth/callback` | reauth variant |
 
 The fragment-callback contract (tokens in the URL `#fragment`, default callback
-`/login/callback`) is covered.
+`/login/callback`) is covered. `return_to`, when supplied at login start, is
+validated as an app-relative path and emitted in the callback fragment; absolute,
+protocol-relative, backslash, and CR/LF values are dropped.
 
 ---
 
@@ -482,7 +484,7 @@ The full set is enumerated in `http/error_codes.go` (~260 codes). Notable stable
 referenced by behavior elsewhere in this contract: `invalid_request`, `not_found`,
 `unauthorized`, `forbidden`, `rate_limited`, `database_error`, `invalid_credentials`,
 `password_too_short`, `password_reset_required`, `registration_disabled`,
-`org_management_disabled`, `reauth_required`, `2fa_enrollment_required`,
+`reauth_required`, `2fa_enrollment_required`,
 `rename_rate_limited`, `owner_slug_taken`, `username_not_allowed`,
 `permission_grant_denied`, `unknown_permission`, `unknown_role`,
 `role_not_grantable_to_api_key`, `resource_scope_denied`.
@@ -535,13 +537,13 @@ opaque escape hatch AuthKit transports but never interprets.
 `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is
 `Config.APIKeys.Prefix`. `key_id` is a non-secret indexed id; only `sha256(secret)` is
 stored; the full key is shown once at mint. Parsing is via `authbase.ParseAPIKey` /
-`FormatAPIKey`. An API key holds exactly **one** org role; its permissions re-resolve
+`FormatAPIKey`. An API key holds exactly **one** permission-group role; its permissions re-resolve
 from that role at verify time. The format and resolution semantics are covered.
 
 ### 6.6 Bootstrap manifest YAML
 
-The bootstrap manifest schema (`users`/`global_roles`/`orgs`/`roles`/`memberships`/
-`api_keys`/`issuers`, and the three password modes: `plaintext`, `hash`+`hash_algo`,
+The bootstrap manifest schema (`users`/`global_roles`, and the three password modes:
+`plaintext`, `hash`+`hash_algo`,
 `reset_required`) is a covered wire contract parsed by `LoadBootstrapManifestFile` /
 `ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR.
 
@@ -621,10 +623,9 @@ an optional field with a backward-compatible zero-value default is MINOR.
   `ProviderDescriptors` (`map[string]authprovider.Provider`).
 - **`APIKeys`** `APIKeysConfig`: `Prefix` (lowercase alnum 1–16; empty ⇒ bare `st_`),
   `MaxTTL` (0 ⇒ uncapped).
-- **`TwoFactor`** `TwoFactorConfig`: `TOTPSecretKey` (16/24/32 bytes), `Mandatory`
-  (`[]Mandatory2FAPolicy`).
-- **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `DefaultRoles` (legacy),
-  `OwnerOwnsAppResources` (legacy no-op), `Groups` (`[]GroupTypeDef` — current model).
+- **`TwoFactor`** `TwoFactorConfig`: `TOTPSecretKey` (16/24/32 bytes). Role-level
+  MFA requirements live on `RoleDef.RequiresMFA`.
+- **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `Groups` (`[]PersonaDef`).
 - **Top-level**: `Environment`, `Schema`, `SolanaNetwork`.
 
 The constructor-injected dependencies (`WithPostgres`/`WithRedis`/`WithEmailSender`/

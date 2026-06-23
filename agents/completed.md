@@ -8,6 +8,95 @@
 
 ---
 
+# #129: Hard-cut remaining org terminology to persona / permission groups
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). Remaining AuthKit-owned org terminology was hard-cut to permission groups, personas, and resource slugs. The public/API naming now uses `Persona`, `PermissionGroupID`, and `ResourceSlug`; stale org errors/types/routes/docs were removed or converted, and a terminology guard prevents reintroducing the old live surface.
+
+## Validation
+
+- `rg 'OrgID|OrgSlug|OrgMembership|GroupType|ResourceRef|resource_ref|/orgs|profiles\\.org|org_' ...` shows only negative-contract docs/tests and the terminology guard.
+- `go test ./...`
+- `task test` passed against `authkit_sqlc_tmp`.
+
+---
+
+# #128: Add admin-directory indexes and rename API-key storage tables
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). The compact Postgres baseline defines admin-directory btree indexes plus `profiles.api_keys` / `profiles.api_key_resources`; runtime API-key SQL, generated sqlc models, cleanup tests, and docs use the API-key storage names. Bearer token format stayed unchanged.
+
+## Validation
+
+- `task sqlc`
+- Focused API-key/admin-directory integration tests passed against a migrated scratch Postgres database.
+- `task test` passed against `authkit_sqlc_tmp`.
+
+---
+
+# #127: Rename 2FA storage to MFA and enforce MFA-required roles at assignment time
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). Storage now uses `profiles.mfa_settings` and `profiles.mfa_factors`; sqlc query/model names use MFA storage names. `RoleDef.RequiresMFA` is the policy source, role assignment and invite acceptance reject MFA-required roles until the user has enabled MFA with at least one factor, and disabling/removing the last factor removes only human-user MFA-required role assignments in the same transaction.
+
+## Validation
+
+- `task sqlc`
+- `TestMFARequiredRoleAssignmentAndDisableLifecycle`
+- `TestMFARequiredInviteAcceptLifecycle`
+- `TestMFARequiredRoleHTTPIntegration`
+- `task test` passed against `authkit_sqlc_tmp`.
+
+---
+
+# #124: Clarify DB-backed test setup and prune low-value test coverage
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). The DB-backed test path is documented, CI uses the compose/migrated Postgres path for `task test`, and low-value route/source/private-helper tests were pruned while retaining behavior/security coverage.
+
+## Validation
+
+- `go test ./...`
+- `task test` passed against `authkit_sqlc_tmp`.
+
+---
+
+# #122: Make sensitive-action reauth support 2FA refresh without full password login
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). Sensitive-action checks require recent `auth_time`; MFA no longer bypasses freshness, `/reauth/2fa` supports default and method-selected factors without exposing factor IDs, and `/user/me` / `reauth_required` expose display-safe 2FA reauth options.
+
+## Validation
+
+- Reauth/freshness regression coverage is present in the HTTP and verify suites.
+- `go test ./...`
+- `task test` passed against `authkit_sqlc_tmp`.
+
+---
+
+# #125: 2FA factor hard-delete + Postgres schema cleanup
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). The 2FA/MFA storage cleanup is implemented in the compact Postgres baseline and current service/query code: per-factor soft-disable is gone, factors are hard-deleted, account settings hold only the login gate plus backup codes, dead schema objects were removed, sqlc was regenerated against a scratch current-schema Postgres, and role/data cleanup regressions are covered.
+
+## Validation
+
+- `SQLC_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_sqlc_tmp?sslmode=disable' task sqlc`
+- `AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_sqlc_tmp?sslmode=disable' go test ./authprovider ./http ./internal/authcore ./migrations/postgres -run 'Test.*(EmailVerify|Security|MFARequiredRole|TwoFactorFactorHardDelete|TwoFactorSettingsDeriveFromDefaultFactor|AdminDeleteUserClearsGroupData|ClientIP|DecodeJSON|GitHub)' -count=1 -v`
+
+---
+
+# #123: Harden against security-audit findings
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). The audit fixes are implemented: email verification codes are email-scoped with identifier rate limits and failed-attempt invalidation, OAuth/OIDC redirect URIs no longer trust forwarded host headers, OAuth/OIDC state is browser-bound, GitHub email verification mapping is no longer hardcoded true, SIWS link nonce consumption is atomic, forwarded IP parsing uses the right-most untrusted hop, and JSON bodies are capped.
+
+## Validation
+
+- `AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_sqlc_tmp?sslmode=disable' go test ./authprovider ./http ./internal/authcore ./migrations/postgres -run 'Test.*(EmailVerify|Security|MFARequiredRole|TwoFactorFactorHardDelete|TwoFactorSettingsDeriveFromDefaultFactor|AdminDeleteUserClearsGroupData|ClientIP|DecodeJSON|GitHub)' -count=1 -v`
+
+---
+
 # #45: Passkey (WebAuthn/FIDO2) authentication — register, login, manage
 
 **Completed:** yes

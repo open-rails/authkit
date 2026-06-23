@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	core "github.com/open-rails/authkit/core"
 	"github.com/open-rails/authkit/password"
@@ -16,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMandatory2FARootRolePolicyHTTPIntegration(t *testing.T) {
+func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := mandatory2FATestConfig()
@@ -25,45 +24,21 @@ func TestMandatory2FARootRolePolicyHTTPIntegration(t *testing.T) {
 	require.NoError(t, srv.svc.SeedPermissionGroupContainment(ctx))
 	_, err = srv.svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", mustPasswordUser(t, srv, "mandatory-admin"), core.SubjectKindUser, "admin"))
 
-	adminID := mustPasswordUser(t, srv, "mandatory-admin-login")
+	operatorID := mustPasswordUser(t, srv, "mfa-required-operator")
+	_, err = srv.svc.Enable2FA(ctx, operatorID, "email", nil)
+	require.NoError(t, err)
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", operatorID, core.SubjectKindUser, "admin"))
+
+	adminID := mustPasswordUser(t, srv, "mfa-required-admin")
+	err = srv.svc.AssignGroupRole(ctx, core.RootPersona, "", adminID, core.SubjectKindUser, "admin")
+	require.True(t, errors.Is(err, core.ErrTwoFAEnrollmentRequired), "assign without MFA = %v", err)
+
+	_, err = srv.svc.Enable2FA(ctx, adminID, "email", nil)
+	require.NoError(t, err)
 	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", adminID, core.SubjectKindUser, "admin"))
-	_, _, _, err = srv.svc.IssueRefreshSessionWithAuthMethods(ctx, adminID, "oidc-test", nil, []string{"oauth"})
-	require.True(t, errors.Is(err, core.ErrTwoFAEnrollmentRequired), "OIDC/OAuth session mint must fail closed for mandatory 2FA users, got %v", err)
 
-	w := login(t, srv, "mandatory-admin-login", adminID)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var enrollment struct {
-		Error                 string   `json:"error"`
-		Requires2FAEnrollment bool     `json:"requires_2fa_enrollment"`
-		AllowedMethods        []string `json:"allowed_methods"`
-		AccessToken           string   `json:"access_token"`
-		RefreshToken          string   `json:"refresh_token"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &enrollment))
-	require.Equal(t, "2fa_enrollment_required", enrollment.Error)
-	require.True(t, enrollment.Requires2FAEnrollment)
-	require.ElementsMatch(t, []string{"email", "sms", "totp"}, enrollment.AllowedMethods)
-	require.NotEmpty(t, enrollment.AccessToken)
-	require.Empty(t, enrollment.RefreshToken)
-
-	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, enrollment.AccessToken)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, enrollment.AccessToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var setup struct {
-		Secret string `json:"secret"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &setup))
-	require.NotEmpty(t, setup.Secret)
-
-	code := testTOTPCode(t, setup.Secret, time.Now().Unix()/30)
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp","code":"`+code+`"}`, enrollment.AccessToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-
-	w = login(t, srv, "mandatory-admin-login", adminID)
+	w := login(t, srv, "mfa-required-admin", adminID)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var challenge struct {
 		Requires2FA bool   `json:"requires_2fa"`
@@ -72,28 +47,20 @@ func TestMandatory2FARootRolePolicyHTTPIntegration(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
 	require.True(t, challenge.Requires2FA)
-	require.Equal(t, "totp", challenge.Method)
+	require.Equal(t, "email", challenge.Method)
 
-	loginCode := testTOTPCode(t, setup.Secret, time.Now().Unix()/30+1)
-	w = serveJSON(srv, http.MethodPost, "/2fa/verify", `{"user_id":"`+adminID+`","challenge":"`+challenge.Challenge+`","code":"`+loginCode+`"}`)
+	ordinaryID := mustPasswordUser(t, srv, "mfa-required-refresh")
+	w = login(t, srv, "mfa-required-refresh", ordinaryID)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var tokens struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
-	require.NotEmpty(t, tokens.RefreshToken)
-	claims := unverifiedAccessClaims(t, tokens.AccessToken)
-	require.Equal(t, "urn:authkit:loa:2", claims["acr"])
-	require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"])
-
-	ordinaryID := mustPasswordUser(t, srv, "mandatory-refresh")
-	w = login(t, srv, "mandatory-refresh", ordinaryID)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.AccessToken)
 	require.NotEmpty(t, tokens.RefreshToken)
-	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", ordinaryID, core.SubjectKindUser, "admin"))
+	_, err = srv.svc.Enable2FA(ctx, ordinaryID, "email", nil)
+	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
@@ -102,16 +69,12 @@ func TestMandatory2FARootRolePolicyHTTPIntegration(t *testing.T) {
 
 func mandatory2FATestConfig() core.Config {
 	cfg := newServerTestConfig()
-	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	cfg.TwoFactor.Mandatory = []core.Mandatory2FAPolicy{{
-		Persona: core.RootPersona,
-		Roles:   []string{"admin"},
-	}}
 	cfg.RBAC.Groups = []core.PersonaDef{{
 		Name: core.RootPersona,
 		Roles: []core.RoleDef{{
 			Name:        "admin",
 			Permissions: []string{"root:*"},
+			RequiresMFA: true,
 		}},
 		Routes: core.ManagementProfile{MemberAssignment: true},
 	}}

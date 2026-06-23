@@ -16,7 +16,7 @@ import (
 	authkittesting "github.com/open-rails/authkit/testing"
 )
 
-func TestVerifierAcceptsES256OrgIssuer(t *testing.T) {
+func TestVerifierAcceptsES256RemoteApplicationIssuer(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestVerifierAcceptsES256OrgIssuer(t *testing.T) {
 	}
 }
 
-func TestVerifierAcceptsEdDSAOrgIssuer(t *testing.T) {
+func TestVerifierAcceptsEdDSARemoteApplicationIssuer(t *testing.T) {
 	signer, err := jwtkit.NewEd25519Signer("ed-kid")
 	if err != nil {
 		t.Fatal(err)
