@@ -146,7 +146,7 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 		{
 			name:  "no root",
 			types: []PersonaDef{{Name: "org", AllowedParents: []string{"root"}}},
-			want:  "no root type declared",
+			want:  "no root persona declared",
 		},
 		{
 			name: "parentless not named root",
@@ -189,7 +189,7 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 				{Name: "root"},
 				{Name: "repo", AllowedParents: []string{"org"}}, // org not declared
 			},
-			want: "not a declared type",
+			want: "not a declared persona",
 		},
 		{
 			name: "custom-role route without capability",

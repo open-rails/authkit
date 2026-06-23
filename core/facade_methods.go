@@ -321,6 +321,10 @@ func (s *Service) UpdateEmail(ctx context.Context, id, email string) error {
 	return s.impl.UpdateEmail(ctx, id, email)
 }
 
+func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
+	return s.impl.UpdateImportedUser(ctx, userID, input)
+}
+
 func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {
 	return s.impl.UpdateUsername(ctx, id, username)
 }
