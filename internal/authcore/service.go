@@ -86,10 +86,6 @@ type Options struct {
 	APIKeyMaxTTL time.Duration
 	// TOTPSecretKey encrypts persisted authenticator-app shared secrets.
 	TOTPSecretKey []byte
-	// ResourceScopeAuthorizer optionally authorizes host-defined API-key resource
-	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
-	// opaquely for callers who may manage API keys for the permission group.
-	ResourceScopeAuthorizer ResourceScopeAuthorizer
 	// Permissions is the app's permission vocabulary (merged with authkit's
 	// base permission-group permissions).
 	Permissions []PermissionDef

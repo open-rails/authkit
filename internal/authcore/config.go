@@ -154,8 +154,7 @@ type APIKeysConfig struct {
 	Prefix string
 	// MaxTTL caps how far in the future a minted API key may expire. 0 (default)
 	// means no cap (keys may be non-expiring); when set, a requested expiry
-	// beyond now+MaxTTL (incl. no-expiry) is capped at mint time. The resource-
-	// scope authorizer is injected via the WithResourceScopeAuthorizer option.
+	// beyond now+MaxTTL (incl. no-expiry) is capped at mint time.
 	MaxTTL time.Duration
 }
 

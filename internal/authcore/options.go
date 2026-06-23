@@ -46,12 +46,6 @@ func WithEmailSender(sender EmailSender) Option { return func(s *Service) { s.em
 // WithSMSSender sets the SMS provider.
 func WithSMSSender(sender SMSSender) Option { return func(s *Service) { s.sms = sender } }
 
-// WithResourceScopeAuthorizer sets the optional API-key resource-scope authorizer
-// (host hook for resource no-escalation at mint time).
-func WithResourceScopeAuthorizer(fn ResourceScopeAuthorizer) Option {
-	return func(s *Service) { s.opts.ResourceScopeAuthorizer = fn }
-}
-
 // WithSolanaSNSResolver turns on Solana Name Service resolution using the
 // host-provided resolver (SNS is off when no resolver is supplied).
 func WithSolanaSNSResolver(r SolanaSNSResolver) Option {

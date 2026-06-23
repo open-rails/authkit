@@ -142,11 +142,6 @@ func WithAuthLogger(l core.AuthEventLogger) Option {
 	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithAuthLogger(l)) }
 }
 
-// WithResourceScopeAuthorizer supplies the API-key resource-scope authorizer hook.
-func WithResourceScopeAuthorizer(fn core.ResourceScopeAuthorizer) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithResourceScopeAuthorizer(fn)) }
-}
-
 // WithSolanaSNSResolver enables Solana Name Service resolution via the host resolver.
 func WithSolanaSNSResolver(r core.SolanaSNSResolver) Option {
 	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithSolanaSNSResolver(r)) }

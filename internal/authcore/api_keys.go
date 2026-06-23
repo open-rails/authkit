@@ -107,41 +107,6 @@ type APIKeyMintOptions struct {
 	ExpiresAt *time.Time
 }
 
-// ResourceScopeAuthorizationRequest is passed to a host callback when the HTTP
-// API-key mint route receives resource scopes. AuthKit has already validated shape
-// and permission no-escalation before this hook runs.
-type ResourceScopeAuthorizationRequest struct {
-	Persona      string
-	ResourceSlug string
-	ActorUserID  string
-	Permissions  []string
-	Resources    []APIKeyResource
-}
-
-// ResourceScopeAuthorizer is an optional host callback for API-key resource-scope
-// no-escalation. Return an error to deny minting. AuthKit treats resource kinds
-// and IDs as opaque and never interprets their semantics itself.
-type ResourceScopeAuthorizer func(ctx context.Context, req ResourceScopeAuthorizationRequest) error
-
-func (s *Service) AuthorizeAPIKeyResources(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
-	resources, err := normalizeAPIKeyResources(req.Resources)
-	if err != nil {
-		return err
-	}
-	if s.opts.ResourceScopeAuthorizer == nil {
-		if len(resources) > 0 {
-			return errors.New("invalid_resource")
-		}
-		return nil
-	}
-	req.Persona = strings.TrimSpace(req.Persona)
-	req.ResourceSlug = strings.TrimSpace(req.ResourceSlug)
-	req.ActorUserID = strings.TrimSpace(req.ActorUserID)
-	req.Resources = resources
-	req.Permissions = dedupeStrings(req.Permissions)
-	return s.opts.ResourceScopeAuthorizer(ctx, req)
-}
-
 func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 	if in == nil {
 		return []APIKeyResource{}, nil
@@ -239,15 +204,6 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, resourceSl
 	}
 	resources, err := normalizeAPIKeyResources(opts.Resources)
 	if err != nil {
-		return APIKey{}, "", err
-	}
-	if err := s.AuthorizeAPIKeyResources(ctx, ResourceScopeAuthorizationRequest{
-		Persona:      persona,
-		ResourceSlug: resourceSlug,
-		ActorUserID:  opts.CreatedBy,
-		Permissions:  permissions,
-		Resources:    resources,
-	}); err != nil {
 		return APIKey{}, "", err
 	}
 

@@ -1,8 +1,6 @@
 package authcore
 
 import (
-	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -137,114 +135,5 @@ func TestAPIKeyResourceContract(t *testing.T) {
 	}
 	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "merchant", ID: strings.Repeat("x", apiKeyResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("long id err=%v, want invalid_resource", err)
-	}
-}
-
-// TestResourceScopeAuthorizer verifies the host resource-scope callback receives
-// the group-addressed identity (#111: persona+resourceSlug addressing).
-func TestResourceScopeAuthorizer(t *testing.T) {
-	allowed := false
-	svc := NewService(Options{
-		Issuer: "https://test",
-		ResourceScopeAuthorizer: func(ctx context.Context, req ResourceScopeAuthorizationRequest) error {
-			if req.Persona != "merchant" || req.ResourceSlug != "acme" || req.ActorUserID != "user-1" {
-				t.Fatalf("unexpected request identity: %+v", req)
-			}
-			if len(req.Resources) != 1 || req.Resources[0] != (APIKeyResource{Kind: "repo", ID: "alpha"}) {
-				t.Fatalf("unexpected resources: %+v", req.Resources)
-			}
-			allowed = true
-			return nil
-		},
-	}, Keyset{})
-	err := svc.AuthorizeAPIKeyResources(context.Background(), ResourceScopeAuthorizationRequest{
-		Persona:      " merchant ",
-		ResourceSlug: " acme ",
-		ActorUserID:  " user-1 ",
-		Resources:    []APIKeyResource{{Kind: " repo ", ID: " alpha "}},
-	})
-	if err != nil {
-		t.Fatalf("authorize resources: %v", err)
-	}
-	if !allowed {
-		t.Fatalf("authorizer was not called")
-	}
-
-	if err := NewService(Options{Issuer: "https://test"}, Keyset{}).AuthorizeAPIKeyResources(context.Background(), ResourceScopeAuthorizationRequest{
-		Resources: []APIKeyResource{{Kind: "repo", ID: "alpha"}},
-	}); err == nil || err.Error() != "invalid_resource" {
-		t.Fatalf("missing authorizer err=%v, want invalid_resource", err)
-	}
-
-	deniedErr := errors.New("denied")
-	denySvc := NewService(Options{
-		Issuer:                  "https://test",
-		ResourceScopeAuthorizer: func(context.Context, ResourceScopeAuthorizationRequest) error { return deniedErr },
-	}, Keyset{})
-	if err := denySvc.AuthorizeAPIKeyResources(context.Background(), ResourceScopeAuthorizationRequest{
-		Resources: []APIKeyResource{{Kind: "repo", ID: "alpha"}},
-	}); !errors.Is(err, deniedErr) {
-		t.Fatalf("denied err=%v, want %v", err, deniedErr)
-	}
-}
-
-func TestMintAPIKeyWithOptionsDeniesUnauthorizedResourcesBeforeInsert(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	clean := func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
-	}
-	clean()
-	t.Cleanup(clean)
-
-	deniedErr := errors.New("resource_denied")
-	called := false
-	svc := NewService(Options{
-		Issuer: "https://test",
-		ResourceScopeAuthorizer: func(_ context.Context, req ResourceScopeAuthorizationRequest) error {
-			called = true
-			if req.Persona != "merchant" || req.ResourceSlug != "acme" || req.ActorUserID != "creator" {
-				t.Fatalf("unexpected authorization request: %+v", req)
-			}
-			if len(req.Permissions) != 1 || req.Permissions[0] != "merchant:items:read" {
-				t.Fatalf("permissions = %+v, want merchant:items:read", req.Permissions)
-			}
-			if len(req.Resources) != 1 || req.Resources[0] != (APIKeyResource{Kind: "repo", ID: "alpha"}) {
-				t.Fatalf("resources = %+v, want repo alpha", req.Resources)
-			}
-			return deniedErr
-		},
-	}, Keyset{}, WithPostgres(pool))
-	gs, err := BuildSchema(PersonaDef{
-		Name:           "merchant",
-		AllowedParents: []string{RootPersona},
-		Routes:         ManagementProfile{APIKeyMinting: true},
-		Roles:          []RoleDef{{Name: "member", Permissions: []string{"merchant:items:read"}}},
-	})
-	if err != nil {
-		t.Fatalf("build schema: %v", err)
-	}
-	svc.groupSchema = gs
-	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
-		t.Fatalf("seed containment: %v", err)
-	}
-	if _, err := svc.EnsureRootGroup(ctx); err != nil {
-		t.Fatalf("ensure root: %v", err)
-	}
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", ResourceSlug: "acme"}); err != nil {
-		t.Fatalf("create group: %v", err)
-	}
-	_, _, err = svc.MintAPIKeyWithOptions(ctx, "merchant", "acme", APIKeyMintOptions{
-		Name:      "ci",
-		Role:      "member",
-		CreatedBy: "creator",
-		Resources: []APIKeyResource{{Kind: "repo", ID: "alpha"}},
-	})
-	if !errors.Is(err, deniedErr) {
-		t.Fatalf("mint err=%v, want %v", err, deniedErr)
-	}
-	if !called {
-		t.Fatalf("mint did not call resource authorizer")
 	}
 }
