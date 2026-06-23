@@ -8,22 +8,7 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handlePhoneVerifyConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPhoneVerifyConfirm) {
-		return
-	}
-
-	var req struct {
-		Token       string `json:"token"`
-		Identifier  string `json:"identifier"`
-		PhoneNumber string `json:"phone_number"`
-	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-
-	token := strings.TrimSpace(req.Token)
+func (s *Service) confirmPhoneVerificationToken(w http.ResponseWriter, r *http.Request, token, identifier, phoneNumber string) {
 	if userID, err := s.svc.ConfirmPendingPhoneRegistrationByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
 			serverErr(w, ErrTokenIssueFailed)
@@ -39,7 +24,7 @@ func (s *Service) handlePhoneVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 		return
 	}
 
-	s.handlePhoneVerifyLinkFailure(w, r.Context(), req.Identifier, req.PhoneNumber)
+	s.handlePhoneVerifyLinkFailure(w, r.Context(), identifier, phoneNumber)
 }
 
 func (s *Service) handlePhoneVerifyLinkFailure(w http.ResponseWriter, ctx context.Context, identifier, phoneNumber string) {

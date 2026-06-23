@@ -1370,28 +1370,40 @@ func (s *Service) ConfirmPasswordResetWithSession(ctx context.Context, resetSess
 	if err != nil {
 		return "", err
 	}
-	phc, err := password.HashArgon2id(newPassword)
-	if err != nil {
+	if err := s.finishPasswordReset(ctx, userID, newPassword); err != nil {
 		return "", err
 	}
-	if err := s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil); err != nil {
-		return "", err
-	}
-	// Revoke all sessions to invalidate any potentially compromised refresh tokens.
-	_ = s.RevokeAllSessions(ctx, userID, nil)
-	s.LogPasswordChanged(ctx, userID, "", nil, nil)
-
 	return userID, nil
 }
 
 // ConfirmPasswordReset verifies token and sets a new password.
 // Deprecated: use s.Users().ConfirmPasswordReset.
 func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword string) (string, error) {
-	resetSession, err := s.BeginPasswordReset(ctx, token, 15*time.Minute)
+	if s.pg == nil {
+		return "", jwt.ErrTokenUnverifiable
+	}
+	rt, err := s.useResetToken(ctx, sha256Hex(token))
 	if err != nil {
 		return "", err
 	}
-	return s.ConfirmPasswordResetWithSession(ctx, resetSession, newPassword)
+	if err := s.finishPasswordReset(ctx, rt.UserID, newPassword); err != nil {
+		return "", err
+	}
+	return rt.UserID, nil
+}
+
+func (s *Service) finishPasswordReset(ctx context.Context, userID, newPassword string) error {
+	phc, err := password.HashArgon2id(newPassword)
+	if err != nil {
+		return err
+	}
+	if err := s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil); err != nil {
+		return err
+	}
+	// Revoke all sessions to invalidate any potentially compromised refresh tokens.
+	_ = s.RevokeAllSessions(ctx, userID, nil)
+	s.LogPasswordChanged(ctx, userID, "", nil, nil)
+	return nil
 }
 
 // RequestEmailVerification creates a verification code and dispatches an email.

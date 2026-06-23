@@ -31,10 +31,17 @@ func TestAPIRoutesIncludePreferredLocaleUserRoute(t *testing.T) {
 	requireNoRoute(t, s.APIRoutes(RouteUser), http.MethodGet, "/user/bootstrap")
 }
 
-func TestAPIRoutesIncludePhonePasswordResetConfirmLink(t *testing.T) {
+func TestAPIRoutesRemoveConfirmLinkRoutes(t *testing.T) {
 	s := newTestService(t)
 
-	requireRoute(t, s.APIRoutes(RoutePassword), http.MethodPost, "/phone/password/reset/confirm-link")
+	requireNoRoute(t, s.APIRoutes(RoutePassword), http.MethodPost, "/email/password/reset/confirm-link")
+	requireNoRoute(t, s.APIRoutes(RoutePassword), http.MethodPost, "/phone/password/reset/confirm-link")
+	requireNoRoute(t, s.APIRoutes(RouteEmailVerification), http.MethodPost, "/email/verify/confirm-link")
+	requireNoRoute(t, s.APIRoutes(RoutePhoneVerification), http.MethodPost, "/phone/verify/confirm-link")
+	requireRoute(t, s.APIRoutes(RoutePassword), http.MethodPost, "/email/password/reset/confirm")
+	requireRoute(t, s.APIRoutes(RoutePassword), http.MethodPost, "/phone/password/reset/confirm")
+	requireRoute(t, s.APIRoutes(RouteEmailVerification), http.MethodPost, "/email/verify/confirm")
+	requireRoute(t, s.APIRoutes(RoutePhoneVerification), http.MethodPost, "/phone/verify/confirm")
 }
 
 func TestAPIRoutesIncludeProviderDiscovery(t *testing.T) {

@@ -57,18 +57,18 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 	}
 
 	var req struct {
-		ResetSession string `json:"reset_session"`
-		NewPassword  string `json:"new_password"`
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
 
-	resetSession := strings.TrimSpace(req.ResetSession)
+	token := strings.TrimSpace(req.Token)
 	newPass := req.NewPassword
 
-	if resetSession == "" {
+	if token == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -77,13 +77,13 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 		return
 	}
 
-	userID, err := s.svc.ConfirmPasswordResetWithSession(r.Context(), resetSession, newPass)
+	userID, err := s.svc.ConfirmPasswordReset(r.Context(), token, newPass)
 	if err != nil {
 		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, ErrInvalidOrExpiredResetSession)
+		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
 

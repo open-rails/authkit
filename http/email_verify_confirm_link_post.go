@@ -9,22 +9,7 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLEmailVerifyConfirm) {
-		return
-	}
-
-	var req struct {
-		Token      string `json:"token"`
-		Identifier string `json:"identifier"`
-		Email      string `json:"email"`
-	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-
-	token := strings.TrimSpace(req.Token)
+func (s *Service) confirmEmailVerificationToken(w http.ResponseWriter, r *http.Request, token, identifier, email string) {
 	if userID, err := s.svc.ConfirmPendingRegistration(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
@@ -48,7 +33,7 @@ func (s *Service) handleEmailVerifyConfirmLinkPOST(w http.ResponseWriter, r *htt
 		return
 	}
 
-	s.handleEmailVerifyLinkFailure(w, r.Context(), req.Identifier, req.Email)
+	s.handleEmailVerifyLinkFailure(w, r.Context(), identifier, email)
 }
 
 func (s *Service) handleEmailVerifyLinkFailure(w http.ResponseWriter, ctx context.Context, identifier, email string) {

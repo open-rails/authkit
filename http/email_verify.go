@@ -62,14 +62,25 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var req struct {
-		Code string `json:"code"`
+		Code       string `json:"code"`
+		Token      string `json:"token"`
+		Identifier string `json:"identifier"`
+		Email      string `json:"email"`
 	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Code) == "" {
+	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if token := strings.TrimSpace(req.Token); token != "" {
+		s.confirmEmailVerificationToken(w, r, token, req.Identifier, req.Email)
 		return
 	}
 
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
+	if code == "" {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
 
 	// Try pending registration first (new flow)
 	userID, err := s.svc.ConfirmPendingRegistration(r.Context(), code)

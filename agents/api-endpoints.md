@@ -97,11 +97,9 @@ Reserved slug policy:
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/email/password/reset/request` | PUBLIC | Request password reset by email |
-| POST | `/email/password/reset/confirm-link` | PUBLIC | Consume email reset token and return one-time `reset_session` |
-| POST | `/email/password/reset/confirm` | PUBLIC | Confirm email password reset using `reset_session` + `new_password` |
+| POST | `/email/password/reset/confirm` | PUBLIC | Confirm email password reset using `token` + `new_password` |
 | POST | `/phone/password/reset/request` | PUBLIC | Request password reset (phone) |
-| POST | `/phone/password/reset/confirm-link` | PUBLIC | Consume phone reset token and return one-time `reset_session` |
-| POST | `/phone/password/reset/confirm` | PUBLIC | Confirm phone password reset using `reset_session` + `new_password` |
+| POST | `/phone/password/reset/confirm` | PUBLIC | Confirm phone password reset using `token` + `new_password` |
 
 Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
 
@@ -114,11 +112,9 @@ Registration resend and email/phone verification request endpoints are honest ab
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/email/verify/request` | PUBLIC | Request email verification |
-| POST | `/email/verify/confirm` | PUBLIC | Confirm email verification |
-| POST | `/email/verify/confirm-link` | PUBLIC | Confirm email verification (expects `token`) |
+| POST | `/email/verify/confirm` | PUBLIC | Confirm email verification using `code` or `token` |
 | POST | `/phone/verify/request` | PUBLIC | Request phone verification (sends SMS) |
-| POST | `/phone/verify/confirm` | PUBLIC | Confirm phone verification |
-| POST | `/phone/verify/confirm-link` | PUBLIC | Confirm phone verification (expects `token`) |
+| POST | `/phone/verify/confirm` | PUBLIC | Confirm phone verification using `phone_number` + `code`, or `token` |
 
 ---
 

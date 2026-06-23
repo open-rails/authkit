@@ -59,9 +59,15 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	var req struct {
 		PhoneNumber string `json:"phone_number"`
 		Code        string `json:"code"`
+		Token       string `json:"token"`
+		Identifier  string `json:"identifier"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if token := strings.TrimSpace(req.Token); token != "" {
+		s.confirmPhoneVerificationToken(w, r, token, req.Identifier, req.PhoneNumber)
 		return
 	}
 

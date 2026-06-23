@@ -9,7 +9,7 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 114
+next_id: 115
 
 ---
 
@@ -267,3 +267,64 @@ The same admin route must authorize all supported principal shapes:
 - Admin authority is permission-based, not route-name-based or role-name-based.
 - All four supported principal classes can call admin routes when they carry the required root permission.
 - Deleted-user dashboard listing uses `GET /admin/users?status=deleted`; the duplicate `/admin/users/deleted` route is removed.
+
+---
+
+# #114: collapse password reset + verification link APIs to one confirm route per channel
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). Hard-cut the redundant `confirm-link` JSON endpoints. Password reset confirm now accepts `{token,new_password}` and consumes the one-time reset token directly; no public reset-session handoff remains. Email/phone verification token confirms were folded into `/email/verify/confirm` and `/phone/verify/confirm` alongside the existing code paths. Removed public `*/confirm-link` route registrations and updated docs. Validation: `go test ./http`; `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable go test ./http -run 'TestPasswordResetConfirmConsumesTokenDirectly|TestVerificationConfirmAcceptsCodeOrToken' -count=1`; `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable go test ./...` all passed.
+
+## Current surface
+Password reset currently has three routes per channel:
+- `POST /email/password/reset/request`
+- `POST /email/password/reset/confirm` with `{reset_session,new_password}`
+- `POST /email/password/reset/confirm-link` with `{token}` -> `{reset_session}`
+- `POST /phone/password/reset/request`
+- `POST /phone/password/reset/confirm` with `{reset_session,new_password}`
+- `POST /phone/password/reset/confirm-link` with `{token}` -> `{reset_session}`
+
+Email/phone verification does make the same route-shape mistake, but with a real distinction in payloads: `confirm` is the code path and `confirm-link` is the token path.
+- `POST /email/verify/request`
+- `POST /email/verify/confirm` with `{code}`
+- `POST /email/verify/confirm-link` with `{token, identifier?, email?}`
+- `POST /phone/verify/request`
+- `POST /phone/verify/confirm` with `{phone_number, code}`
+- `POST /phone/verify/confirm-link` with `{token, identifier?, phone_number?}`
+
+## Target surface
+Password reset:
+- `POST /email/password/reset/request`
+- `POST /email/password/reset/confirm` with `{token,new_password}`
+- `POST /phone/password/reset/request`
+- `POST /phone/password/reset/confirm` with `{token,new_password}`
+
+Verification:
+- `POST /email/verify/request`
+- `POST /email/verify/confirm` with either `{code}` or `{token, identifier?, email?}`
+- `POST /phone/verify/request`
+- `POST /phone/verify/confirm` with either `{phone_number,code}` or `{token, identifier?, phone_number?}`
+
+## Notes
+- The reset token is already a short-lived, one-time bearer secret stored by hash in the ephemeral store. `core.ConfirmPasswordReset(ctx, token, new_password)` already exists, so the HTTP handler should call it directly.
+- The existing `reset_session` adds a second bearer secret and a second request without materially improving security for this API surface.
+- Hosts should set the reset/verify page with `Referrer-Policy: no-referrer` or same-origin and call `history.replaceState` after reading the token from the URL.
+- No AuthKit `GET` link endpoint is needed; clicked links land on the host frontend, not on AuthKit JSON routes.
+
+## Tasks
+- [x] Change email password reset confirm to accept `{token,new_password}` and call `ConfirmPasswordReset`; delete `reset_session` from the HTTP contract.
+- [x] Change phone password reset confirm to accept `{token,new_password}` and call `ConfirmPasswordReset`; keep the current phone response shape only if an existing consumer needs `user_id`.
+- [x] Remove `POST /email/password/reset/confirm-link` and `POST /phone/password/reset/confirm-link` from `http/routes.go`.
+- [x] Merge email verification token confirmation into `POST /email/verify/confirm`: `{code}` keeps the current code path; `{token}` runs the current `confirm-link` path.
+- [x] Merge phone verification token confirmation into `POST /phone/verify/confirm`: `{phone_number,code}` keeps the current code path; `{token}` runs the current `confirm-link` path.
+- [x] Remove `POST /email/verify/confirm-link` and `POST /phone/verify/confirm-link` from `http/routes.go`.
+- [x] Delete now-unused confirm-link handlers/tests or fold their test cases into the confirm-route tests.
+- [x] Update `agents/api-endpoints.md`, README examples, and route-table tests so the public surface shows two routes per channel.
+- [x] Add/adjust focused HTTP tests: reset token+password succeeds once, reused token fails, reset-session payload is rejected, code verification still works, token verification works, removed confirm-link routes 404.
+- [x] Run `go test ./...` and update this issue with the exact validation result. Result: passed with `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable`.
+
+## Acceptance
+- Password reset has exactly two public routes per channel: `request` and `confirm`.
+- Email and phone verification have exactly two public routes per channel: `request` and `confirm`.
+- There is no public `*/confirm-link` route in the canonical API surface.
+- Existing one-time token semantics remain enforced by the ephemeral store.

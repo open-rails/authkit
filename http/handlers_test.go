@@ -291,10 +291,8 @@ func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
 		{name: "current session lookup", method: http.MethodPost, path: "/sessions/current", body: `{}`, want: http.StatusBadRequest},
 		{name: "password login", method: http.MethodPost, path: "/password/login", body: `{}`, want: http.StatusBadRequest},
 		{name: "email password reset request", method: http.MethodPost, path: "/email/password/reset/request", body: `{}`, want: http.StatusAccepted},
-		{name: "email password reset confirm link", method: http.MethodPost, path: "/email/password/reset/confirm-link", body: `{}`, want: http.StatusBadRequest},
 		{name: "email password reset confirm", method: http.MethodPost, path: "/email/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
 		{name: "phone password reset request", method: http.MethodPost, path: "/phone/password/reset/request", body: `{}`, want: http.StatusInternalServerError},
-		{name: "phone password reset confirm link", method: http.MethodPost, path: "/phone/password/reset/confirm-link", body: `{}`, want: http.StatusBadRequest},
 		{name: "phone password reset confirm", method: http.MethodPost, path: "/phone/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
 		{name: "user me", method: http.MethodGet, path: "/user/me", want: http.StatusUnauthorized},
 		{name: "user sessions list", method: http.MethodGet, path: "/user/sessions", want: http.StatusUnauthorized},
@@ -343,6 +341,10 @@ func TestAPIHandler_GenericPasswordResetRoutesRemoved(t *testing.T) {
 		"/password/reset/request",
 		"/password/reset/confirm-link",
 		"/password/reset/confirm",
+		"/email/password/reset/confirm-link",
+		"/phone/password/reset/confirm-link",
+		"/email/verify/confirm-link",
+		"/phone/verify/confirm-link",
 	} {
 		t.Run(path, func(t *testing.T) {
 			w := httptest.NewRecorder()

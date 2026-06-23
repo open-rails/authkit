@@ -784,12 +784,11 @@ Verification delivery and expiry
 - Sender integrations receive `core.VerificationMessage{Code, LinkToken}` and must send only provided fields; at least one must be present.
 - Code-based and link-based flows are both supported:
   - Email verify code: `POST /email/verify/confirm` with `{"code":"123456"}`
-  - Email verify link token: `POST /email/verify/confirm-link` with `{"token":"..."}`
+  - Email verify link token: `POST /email/verify/confirm` with `{"token":"..."}`
   - Phone verify code: `POST /phone/verify/confirm` with `{"phone_number":"+1...","code":"123456"}`
-  - Phone verify link token: `POST /phone/verify/confirm-link` with `{"token":"..."}`
-  - Email password reset link handoff: `POST /email/password/reset/confirm-link` with `{"token":"..."}` returns `{"ok":true,"reset_session":"..."}`
-  - Email password reset confirm: `POST /email/password/reset/confirm` with `{"reset_session":"...","new_password":"..."}`
-  - Phone password reset link handoff: `POST /phone/password/reset/confirm-link` with `{"token":"..."}` returns `{"ok":true,"reset_session":"..."}`
+  - Phone verify link token: `POST /phone/verify/confirm` with `{"token":"..."}`
+  - Email password reset confirm: `POST /email/password/reset/confirm` with `{"token":"...","new_password":"..."}`
+  - Phone password reset confirm: `POST /phone/password/reset/confirm` with `{"token":"...","new_password":"..."}`
 - AuthKit API routes are prefix-neutral. Your API can live under a prefix (recommended: `/api/v1`); do not add an extra `/auth` segment when embedding AuthKit.
 
 Identity validation policy
@@ -906,8 +905,7 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
 - Password:
   - POST /password/login (accepts email, phone, or username in identifier field)
   - POST /email/password/reset/request
-  - POST /email/password/reset/confirm-link ({token} -> {reset_session})
-  - POST /email/password/reset/confirm ({reset_session, new_password})
+  - POST /email/password/reset/confirm ({token, new_password})
 - Registration (unified - accepts email or phone in identifier field):
   - POST /register (server auto-detects email vs phone based on format)
     - Success response includes `{ok, username, email, phone_number, discord_username, next_action}`
@@ -956,16 +954,13 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
 
 - Email verification:
   - POST /email/verify/request
-  - POST /email/verify/confirm
-  - POST /email/verify/confirm-link
+  - POST /email/verify/confirm ({code} or {token})
   - Verification request endpoints return explicit target-state errors: `user_not_found`, `email_already_verified`, or `phone_already_verified`.
 - Phone verification and password reset:
   - POST /phone/verify/request
-  - POST /phone/verify/confirm
-  - POST /phone/verify/confirm-link
+  - POST /phone/verify/confirm ({phone_number, code} or {token})
   - POST /phone/password/reset/request
-  - POST /phone/password/reset/confirm-link ({token} -> {reset_session})
-  - POST /phone/password/reset/confirm ({reset_session, new_password})
+  - POST /phone/password/reset/confirm ({token, new_password})
 - Sessions:
   - POST /token { grant_type: "refresh_token", refresh_token }
   - POST /sessions/current { refresh_token } → { session_id }
@@ -1072,11 +1067,9 @@ Frontend (React) quick guide
   - POST /password/login with `{login, password}` where login can be email/phone/username → {id_token, refresh_token}
 - Password Reset
   - POST /email/password/reset/request with `{email}` → check email for reset instructions
-  - POST /email/password/reset/confirm-link with `{token}` → {reset_session}
-  - POST /email/password/reset/confirm with `{reset_session, new_password}` → {ok: true}
+  - POST /email/password/reset/confirm with `{token, new_password}` → {ok: true}
   - POST /phone/password/reset/request with `{phone_number}` → check SMS for reset instructions
-  - POST /phone/password/reset/confirm-link with `{token}` → {reset_session}
-  - POST /phone/password/reset/confirm with `{reset_session, new_password}` → {ok: true}
+  - POST /phone/password/reset/confirm with `{token, new_password}` → {ok: true}
 - OIDC
   - Start: window.location = `/oidc/${provider}/login`.
   - Link: POST `/api/v1/oidc/:provider/link/start` (with Authorization) → {auth_url}; then window.location = auth_url.

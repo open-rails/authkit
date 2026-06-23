@@ -3,7 +3,6 @@ package authhttp
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	core "github.com/open-rails/authkit/core"
 )
@@ -56,10 +55,10 @@ func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *
 	}
 
 	var req struct {
-		ResetSession string `json:"reset_session"`
-		NewPassword  string `json:"new_password"`
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
 	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.ResetSession) == "" || req.NewPassword == "" {
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" || req.NewPassword == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -68,36 +67,15 @@ func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *
 		return
 	}
 
-	_, err := s.svc.ConfirmPasswordResetWithSession(r.Context(), strings.TrimSpace(req.ResetSession), req.NewPassword)
+	_, err := s.svc.ConfirmPasswordReset(r.Context(), strings.TrimSpace(req.Token), req.NewPassword)
 	if err != nil {
 		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		badRequest(w, ErrInvalidOrExpiredResetSession)
+		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (s *Service) handleEmailPasswordResetConfirmLinkPOST(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLPasswordResetConfirm) {
-		return
-	}
-
-	var req struct {
-		Token string `json:"token"`
-	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-
-	resetSession, err := s.svc.BeginPasswordReset(r.Context(), strings.TrimSpace(req.Token), 15*time.Minute)
-	if err != nil {
-		badRequest(w, ErrInvalidOrExpiredToken)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reset_session": resetSession})
 }
