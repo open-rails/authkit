@@ -47,5 +47,11 @@ jobs:
             PGPASSWORD=admin_password psql -h 127.0.0.1 -p 35432 -U admin -d authkit_db -v ON_ERROR_STOP=1 -f "$f"
           done
 
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: sqlc generate + vet, fail on drift
-        run: make sqlc-check
+        run: task sqlc-check

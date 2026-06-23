@@ -77,8 +77,8 @@ Configurable schema (issue 69)
 
 Database queries (sqlc)
 - All static Postgres queries are written as raw SQL in `internal/db/queries/*.sql` (one file per domain) and compiled to type-safe Go by [sqlc](https://docs.sqlc.dev) into the `internal/db` package (committed, never hand-edited).
-- To add or change a query: edit the `.sql` file, run `make sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose -f docker-compose.devserver.yaml up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`.
-- The schema source of truth for sqlc is `migrations/postgres/` — generated code is always type-checked against the real migrations. CI fails if `internal/db` drifts from the query files (`make sqlc-check`).
+- To add or change a query: edit the `.sql` file, run `task sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose -f docker-compose.devserver.yaml up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`. (Tasks are defined in `Taskfile.yml`; `task --list` shows them. Install: https://taskfile.dev/installation.)
+- The schema source of truth for sqlc is `migrations/postgres/` — generated code is always type-checked against the real migrations. CI fails if `internal/db` drifts from the query files (`task sqlc-check`).
 - Escape hatch: queries whose SQL is assembled at runtime stay on raw pgx with a comment explaining why (currently `core.AdminListUsers` and the advisory-lock path in `core.ReconcileOrgManifest`). ClickHouse queries are out of sqlc's scope.
 
 ---
@@ -1033,7 +1033,7 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /2fa/verify (during login) → {access_token, refresh_token}
 - Reauth:
   - POST /reauth/password with `{password}` (requires auth) → {access_token, token_type, expires_in, fresh_auth}
-  - POST /reauth/2fa with `{factor_id?}` starts selected/default 2FA reauth; final `{code, factor_id?, backup_code?}` returns {access_token, token_type, expires_in, fresh_auth}
+  - POST /reauth/2fa with optional `{method:"email|sms|totp"}` starts selected/default 2FA reauth; final `{code, method?, backup_code?}` returns {access_token, token_type, expires_in, fresh_auth}. Reauth is a hard-cut method-name API: it does not accept or return `factor_id`.
   - Reauth does not rotate refresh tokens; clients retry sensitive actions with the returned access token. Refresh-token rotation remains `POST /token`.
 - Admin roles (admin only):
   - POST /admin/roles/grant
@@ -1126,7 +1126,7 @@ Frontend (React) quick guide
   - PATCH /user/biography with `{biography}` (Authorization)
   - POST /user/password with `{old_password, new_password}` (Authorization)
   - DELETE /user (Authorization) → deletes account
-  - Sensitive-action `reauth_required` errors mean call `/reauth/password` or `/reauth/2fa`, replace the in-memory access token with the returned `access_token`, then retry. Do not call `/token` just to finish reauth.
+  - Sensitive-action `reauth_required` errors include `reauth_methods` and, when 2FA is enabled, `reauth_2fa` with available methods/default method/display-safe destinations. Call `/reauth/password` or `/reauth/2fa`, replace the in-memory access token with the returned `access_token`, then retry. Do not call `/token` just to finish reauth.
 - Solana Wallet (SIWS)
   - Login/Register: POST /solana/challenge → wallet.signIn(input) → POST /solana/login
   - Link wallet: POST /solana/challenge → wallet.signIn(input) → POST /solana/link (with Authorization)

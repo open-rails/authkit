@@ -1,0 +1,37 @@
+# Task runner config (https://taskfile.dev). Replaces the old Makefile.
+# Run `task --list` to see available tasks.
+version: '3'
+
+vars:
+  # Pinned sqlc version; `go run` keeps the tool out of the library's go.mod.
+  # Override via the SQLC_VERSION env var or `task SQLC_VERSION=vX.Y.Z sqlc`.
+  SQLC_VERSION: '{{.SQLC_VERSION | default "v1.31.1"}}'
+  SQLC: 'go run github.com/sqlc-dev/sqlc/cmd/sqlc@{{.SQLC_VERSION}}'
+  # sqlc vet's db-prepare rule PREPAREs every query against a real database.
+  # Defaults to the devserver Postgres (docker compose -f
+  # docker-compose.devserver.yaml up -d postgres) with migrations applied.
+  SQLC_DATABASE_URL: '{{.SQLC_DATABASE_URL | default "postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable"}}'
+
+# Exported to every task's commands (Makefile: `export SQLC_DATABASE_URL`).
+env:
+  SQLC_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
+
+tasks:
+  sqlc:
+    desc: Regenerate type-safe query code and lint queries (generate + vet, always as a pair)
+    cmds:
+      - '{{.SQLC}} generate'
+      - '{{.SQLC}} vet'
+
+  sqlc-check:
+    desc: 'CI guard: fail if committed generated code drifts from queries'
+    deps: [sqlc]
+    cmds:
+      - git diff --exit-code -- internal/db
+
+  test:
+    desc: Run the full test suite against the devserver Postgres
+    env:
+      AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
+    cmds:
+      - go test ./...

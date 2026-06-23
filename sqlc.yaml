@@ -4,8 +4,8 @@
 # source of truth is the numbered migration files in migrations/postgres/.
 # Generated code is committed at internal/db (package db) and never hand-edited.
 #
-# Workflow (always run as a pair; see Makefile):
-#   make sqlc        # sqlc generate + sqlc vet
+# Workflow (always run as a pair; see Taskfile.yml):
+#   task sqlc        # sqlc generate + sqlc vet
 #
 # Type mapping policy: uuid -> string (the Go API passes uuids as strings,
 # matching the pre-sqlc convention), timestamptz -> time.Time, citext -> string,
