@@ -42,7 +42,7 @@ func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 
 // requirePermission is the granular permission gate for AuthKit's intrinsic
 // routes. It authorizes the calling principal against permission `perm` on the
-// (groupType, resourceRef) permission-group, for EVERY supported principal
+// (persona, resourceSlug) permission group, for EVERY supported principal
 // shape:
 //   - user JWT: resolved through the permission-group (svc.Can, walking the
 //     parent chain to root and unioning assignments);
@@ -53,7 +53,7 @@ func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 // over the user directory is simply the `root:users:*` permissions on the root
 // group, gated here the same way every other permission is. Callers that gate an
 // inherently root-scoped intrinsic route pass (core.RootPersona, "", perm).
-func (s *Service) requirePermission(groupType, resourceRef, perm string, next http.Handler) http.Handler {
+func (s *Service) requirePermission(persona, resourceSlug, perm string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := ClaimsFromContext(r.Context())
 		if !ok {
@@ -67,7 +67,7 @@ func (s *Service) requirePermission(groupType, resourceRef, perm string, next ht
 				return
 			}
 		case strings.TrimSpace(claims.UserID) != "":
-			allowed, err := s.svc.Can(r.Context(), claims.UserID, core.SubjectKindUser, groupType, resourceRef, perm)
+			allowed, err := s.svc.Can(r.Context(), claims.UserID, core.SubjectKindUser, persona, resourceSlug, perm)
 			if err != nil {
 				serverErr(w, ErrDatabaseError)
 				return
@@ -117,12 +117,12 @@ func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request) {
+	userID := strings.TrimSpace(r.PathValue("user_id"))
 	var req struct {
-		UserID string  `json:"user_id"`
 		Reason *string `json:"reason"`
 		Until  *string `json:"until"`
 	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.UserID) == "" {
+	if err := decodeOptionalJSON(r, &req); err != nil || userID == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -147,29 +147,27 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 			untilPtr = &parsed
 		}
 	}
-	if err := s.svc.BanUser(r.Context(), req.UserID, req.Reason, untilPtr, claims.UserID); err != nil {
+	if err := s.svc.BanUser(r.Context(), userID, req.Reason, untilPtr, claims.UserID); err != nil {
 		serverErr(w, ErrFailedToBan)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
 }
 
 func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID string `json:"user_id"`
-	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.UserID) == "" {
+	userID := strings.TrimSpace(r.PathValue("user_id"))
+	if userID == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
-	if err := s.svc.UnbanUser(r.Context(), req.UserID); err != nil {
+	if err := s.svc.UnbanUser(r.Context(), userID); err != nil {
 		serverErr(w, ErrFailedToUnban)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
 }
 
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {

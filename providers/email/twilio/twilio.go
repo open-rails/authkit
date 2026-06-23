@@ -181,14 +181,22 @@ func contextLanguage(ctx context.Context) string {
 
 func defaultVerificationMessage(ctx context.Context, app string, msg core.VerificationMessage) Message {
 	copy := copyForContext(ctx, app)
-	lines := []string{copy.verifyIntro}
+	intro := copy.verifyIntro
+	if strings.TrimSpace(msg.Purpose) == "contact_change" {
+		if contextLanguage(ctx) == "es" {
+			intro = "Usa los siguientes datos para confirmar el cambio:"
+		} else {
+			intro = "Use the following details to confirm this change:"
+		}
+	}
+	lines := []string{intro}
 	if strings.TrimSpace(msg.Code) != "" {
 		lines = append(lines, copy.codeLabel+": "+strings.TrimSpace(msg.Code))
 	}
 	if strings.TrimSpace(msg.LinkURL) != "" {
 		lines = append(lines, copy.verifyLinkLabel+": "+strings.TrimSpace(msg.LinkURL))
 	}
-	html := "<p>" + escapeHTML(copy.verifyIntro) + "</p><ul>"
+	html := "<p>" + escapeHTML(intro) + "</p><ul>"
 	if strings.TrimSpace(msg.Code) != "" {
 		html += "<li><strong>" + escapeHTML(copy.codeLabel) + ":</strong> " + escapeHTML(strings.TrimSpace(msg.Code)) + "</li>"
 	}

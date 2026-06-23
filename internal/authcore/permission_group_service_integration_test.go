@@ -54,9 +54,9 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = ANY($1::uuid[])`, []string{owner, dev})
 	})
 
-	// Create org (owner seeded) under root; then a repo under the org.
+	// Create an org persona group (owner seeded) under root; then a repo under it.
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme", OwnerSubjectID: owner}); err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("create org permission group: %v", err)
 	}
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "repo", ResourceSlug: "r1", ParentResourceSlug: "acme"}); err != nil {
 		t.Fatalf("create repo: %v", err)
@@ -117,7 +117,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 
 	// Role validation: repo disallows custom roles, so an unknown role is rejected.
 	if err := svc.AssignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, "nonsense"); err == nil {
-		t.Errorf("unknown role on a fixed-catalog type should be rejected")
+		t.Errorf("unknown role on a fixed-catalog persona should be rejected")
 	}
 
 	// Containment enforced at the service layer (before the DB): repo under root.
@@ -154,7 +154,7 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 		t.Fatalf("root: %v", err)
 	}
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme"}); err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("create org permission group: %v", err)
 	}
 	var uid string
 	if err := pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&uid); err != nil {

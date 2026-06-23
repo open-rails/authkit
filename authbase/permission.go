@@ -3,7 +3,7 @@ package authbase
 import "strings"
 
 // PermWildcard is the wildcard CHARACTER used inside namespace-anchored globs
-// (`org:*`, `org:members:*`, `org:*:read`, `platform:*`). A bare standalone `*`
+// (`org:*`, `org:members:*`, `org:*:read`, `root:*`). A bare standalone `*`
 // is NOT a valid grant — it is rejected everywhere.
 const PermWildcard = "*"
 

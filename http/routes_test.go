@@ -29,7 +29,11 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireNoRoute(t, sessionUser, http.MethodGet, "/me/bootstrap")
 
 	admin := s.APIRoutes(RouteAdmin)
+	requireRoute(t, admin, http.MethodPost, "/admin/users/{user_id}/ban")
+	requireRoute(t, admin, http.MethodPost, "/admin/users/{user_id}/unban")
 	requireRoute(t, admin, http.MethodPost, "/admin/users/{user_id}/recover")
+	requireNoRoute(t, admin, http.MethodPost, "/admin/users/ban")
+	requireNoRoute(t, admin, http.MethodPost, "/admin/users/unban")
 	requireNoRoute(t, admin, http.MethodPost, "/admin/users/toggle-active")
 
 	permissions := s.APIRoutes(RoutePermissionGroups)

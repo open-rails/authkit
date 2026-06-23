@@ -4795,8 +4795,8 @@ The same admin route must authorize all supported principal shapes:
 - `GET /admin/users` -> `root:users:read`
 - `GET /admin/users/{user_id}` -> `root:users:read`
 - `GET /admin/users/{user_id}/signins` -> `root:users:read`
-- `POST /admin/users/ban` -> `root:users:ban`
-- `POST /admin/users/unban` -> `root:users:ban`
+- `POST /admin/users/{user_id}/ban` -> `root:users:ban`
+- `POST /admin/users/{user_id}/unban` -> `root:users:ban`
 - `POST /admin/users/set-email` -> add/use `root:users:update`
 - `POST /admin/users/set-username` -> add/use `root:users:update`
 - `POST /admin/users/set-password` -> add/use `root:users:update`

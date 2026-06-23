@@ -137,8 +137,10 @@ func main() {
       ExpectedAudiences: []string{"myapp"},
     },
     Frontend: core.FrontendConfig{
-      BaseURL:      "https://myapp.com",
-      CallbackPath: "/login/callback",
+      BaseURL:           "https://myapp.com",
+      CallbackPath:      "/login/callback",
+      VerifyPath:        "/verify",
+      PasswordResetPath: "/reset",
     },
     // Registration: core.RegistrationConfig{
     //   Verification:   core.RegistrationVerificationRequired, // none|optional|required
@@ -358,7 +360,7 @@ Optional Twilio providers
   - `github.com/open-rails/authkit/providers/sms/twilio` for Twilio Messaging API.
 - AuthKit never reads provider environment variables directly. Host apps load their own config, build the sender, then pass it as a constructor option (`authhttp.WithEmailSender` / `authhttp.WithSMSSender`).
 - The SMS provider requires `AccountSID`, `AuthToken`, and `MessagingServiceSID`. It uses Twilio Messaging (`Messages.json`) only; there is no Verify service path and no `From` number fallback path.
-- The email provider requires a SendGrid/Twilio Email API key and a verified from address. Hosts can provide link builders or full message builders for branded/localized copy.
+- The email provider requires a SendGrid/Twilio Email API key and a verified from address. AuthKit builds verification/reset links; hosts can provide message builders for branded/localized copy.
 - A 2xx response from AuthKit means the message was accepted by the configured sender/provider submission call. It does not prove the recipient mailbox or carrier ultimately delivered, accepted, opened, or displayed the message.
 
 Preferred language
@@ -374,12 +376,6 @@ emailSender, err := emailtwilio.New(emailtwilio.Config{
     FromEmail: cfg.TwilioEmailFromAddress,
     FromName:  cfg.TwilioEmailFromName,
     AppName:   "Example",
-    VerificationLinkURL: func(token string) string {
-        return cfg.SiteBaseURL + "/verify-registration?token=" + url.QueryEscape(token)
-    },
-    ResetLinkURL: func(token string) string {
-        return cfg.SiteBaseURL + "/reset-password?token=" + url.QueryEscape(token)
-    },
 })
 if err != nil {
     return err
@@ -748,8 +744,7 @@ Roles (global storage)
 - Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
 
 Permission groups
-- The old static organization route plane was removed. AuthKit now exposes
-  resource-scoped membership, roles, and credentials through generated
+- AuthKit exposes resource-scoped membership, roles, and credentials through generated
   permission-group routes derived from the host's configured schema.
 - Terminology: a configured permission-group persona is the public route and
   permission namespace. For example, a `merchant` persona generates
@@ -839,13 +834,17 @@ Verification delivery and expiry
 - Email verification codes and links expire in 60 minutes.
 - Phone/SMS verification codes and links expire in 15 minutes.
 - Password reset link tokens expire in 1 hour.
-- Sender integrations receive `core.VerificationMessage{Code, LinkToken}` and must send only provided fields; at least one must be present.
+- Sender integrations receive `core.VerificationMessage{Code, LinkURL}` and must send only provided fields; at least one must be present. Password-reset senders receive the final reset URL, not a raw token.
 - Code-based and link-based flows are both supported:
-  - Email verify code: `POST /email/verify/confirm` with `{"code":"123456"}`
+  - Email verify code: `POST /email/verify/confirm` with `{"email":"user@example.com","code":"123456"}`
+  - Email verify browser link: `GET /email/verify/confirm?token=...` redirects to `Frontend.VerifyPath`; frontend then posts the token.
   - Email verify link token: `POST /email/verify/confirm` with `{"token":"..."}`
   - Phone verify code: `POST /phone/verify/confirm` with `{"phone_number":"+1...","code":"123456"}`
+  - Phone verify browser link: `GET /phone/verify/confirm?token=...` redirects to `Frontend.VerifyPath`; frontend then posts the token.
   - Phone verify link token: `POST /phone/verify/confirm` with `{"token":"..."}`
+  - Email password reset browser link: `GET /email/password/reset/confirm?token=...` redirects to `Frontend.PasswordResetPath`; frontend then posts the token and new password.
   - Email password reset confirm: `POST /email/password/reset/confirm` with `{"token":"...","new_password":"..."}`
+  - Phone password reset browser link: `GET /phone/password/reset/confirm?token=...` redirects to `Frontend.PasswordResetPath`; frontend then posts the token and new password.
   - Phone password reset confirm: `POST /phone/password/reset/confirm` with `{"token":"...","new_password":"..."}`
 - AuthKit API routes are prefix-neutral. Your API can live under a prefix (recommended: `/api/v1`); do not add an extra `/auth` segment when embedding AuthKit.
 
@@ -969,6 +968,7 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
 - Password:
   - POST /password/login (accepts email, phone, or username in identifier field)
   - POST /email/password/reset/request
+  - GET /email/password/reset/confirm?token=... (browser landing; redirects to Frontend.PasswordResetPath)
   - POST /email/password/reset/confirm ({token, new_password})
 - Registration (unified - accepts email or phone in identifier field):
   - POST /register (server auto-detects email vs phone based on format)
@@ -1018,12 +1018,15 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
 
 - Email verification:
   - POST /email/verify/request
-  - POST /email/verify/confirm ({code} or {token})
+  - GET /email/verify/confirm?token=... (browser landing; redirects to Frontend.VerifyPath)
+  - POST /email/verify/confirm ({email, code} or {token})
   - Verification request endpoints return explicit target-state errors: `user_not_found`, `email_already_verified`, or `phone_already_verified`.
 - Phone verification and password reset:
   - POST /phone/verify/request
+  - GET /phone/verify/confirm?token=... (browser landing; redirects to Frontend.VerifyPath)
   - POST /phone/verify/confirm ({phone_number, code} or {token})
   - POST /phone/password/reset/request
+  - GET /phone/password/reset/confirm?token=... (browser landing; redirects to Frontend.PasswordResetPath)
   - POST /phone/password/reset/confirm ({token, new_password})
 - Sessions:
   - POST /token { grant_type: "refresh_token", refresh_token }
@@ -1035,8 +1038,8 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
 - User profile:
   - GET /me (requires auth)
   - PATCH /user/username (requires auth)
-  - POST /user/email (requires auth)
-  - POST /user/phone (requires auth)
+  - POST /email/verify/request (optional auth; with auth starts email change)
+  - POST /phone/verify/request (optional auth; with auth starts phone change)
   - PATCH /user/biography (requires auth)
   - POST /user/password (requires auth)
   - DELETE /user (requires auth)
@@ -1058,8 +1061,8 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
 - Admin users (root permission required):
   - GET /admin/users (`root:users:read`; query supports `root_role` and `status=deleted`)
   - GET /admin/users/:user_id (`root:users:read`)
-  - POST /admin/users/ban (`root:users:ban`)
-  - POST /admin/users/unban (`root:users:ban`)
+  - POST /admin/users/:user_id/ban (`root:users:ban`; body may include `{reason, until}`; omit `until` for an indefinite ban)
+  - POST /admin/users/:user_id/unban (`root:users:ban`)
   - POST /admin/users/:user_id/recover (`root:users:update`; body has exactly one of `{email}` or `{phone_number}`; revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request)
   - DELETE /admin/users/:user_id (`root:users:delete`)
   - POST /admin/users/:user_id/restore (`root:users:delete`)
@@ -1109,7 +1112,7 @@ Frontend (React) quick guide
   - POST /register with `{identifier, username, password}` where identifier is email or phone
   - On success, branch on `next_action`: `none`, `verify_email`, or `verify_phone`
   - If `next_action` is `none`, store the returned access/refresh tokens immediately; do not replay the password
-  - Email registration: check email for 6-char code → POST /email/verify/confirm with `{code}`
+  - Email registration: check email for 6-char code → POST /email/verify/confirm with `{email, code}`
   - Phone registration: check SMS for 6-char code → POST /phone/verify/confirm with `{phone_number, code}`
   - Successful email/phone code or link confirmation returns access/refresh tokens
   - Resend codes: POST /register/resend-email or POST /register/resend-phone
@@ -1131,11 +1134,11 @@ Frontend (React) quick guide
 - Current user
   - GET /me → {id, email, pending_email?, phone_number?, username, user_aliases?, discord_username?, email_verified, phone_verified, has_password, roles, entitlements, biography, preferred_language?}.
   - Email change
-    - POST /user/email with `{new_email,password?}` (Authorization) → sends verification code
-    - POST /user/email with `{code}` (Authorization) → confirms email change
+    - POST /email/verify/request with `{email,password?}` (Authorization) → sends verification code and link to the new email
+    - POST /email/verify/confirm with `{email,code}` (Authorization) or `{token}` → confirms email change
   - Phone number change
-    - POST /user/phone with `{phone_number,password?}` (Authorization) → sends verification code
-    - POST /user/phone with `{phone_number,code}` (Authorization) → confirms phone number change
+    - POST /phone/verify/request with `{phone_number,password?}` (Authorization) → sends verification code and link to the new phone
+    - POST /phone/verify/confirm with `{phone_number,code}` (Authorization) or `{token}` → confirms phone number change
 - User profile updates
   - PATCH /user/username with `{username}` (Authorization)
   - PATCH /user/preferred-language with `{preferred_language}` (Authorization)

@@ -23,6 +23,10 @@ func (s *Service) confirmPhoneVerificationToken(w http.ResponseWriter, r *http.R
 		}
 		return
 	}
+	if userID, err := s.svc.ConfirmPhoneChangeByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Phone number changed successfully"})
+		return
+	}
 
 	s.handlePhoneVerifyLinkFailure(w, r.Context(), identifier, phoneNumber)
 }

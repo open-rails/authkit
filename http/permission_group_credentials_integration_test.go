@@ -16,7 +16,7 @@ import (
 )
 
 // credTestConfig enables the credential/invite management capabilities under
-// test: a "merchant" type with api-key minting, remote-app registration, and
+// test: a "merchant" persona with api-key minting, remote-app registration, and
 // invitations, plus a role catalog the keys/invites can reference. Passed via
 // RBAC.Groups so authcore.NewFromConfig builds + installs the schema.
 func credTestConfig() core.Config {

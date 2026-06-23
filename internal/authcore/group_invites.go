@@ -2,8 +2,8 @@ package authcore
 
 // Group-invite flow (#111): the human "invite a user to a permission-group with a
 // role" lifecycle. An invite names a single role
-// that must be valid for the group's TYPE catalog (or a custom role for
-// custom-enabled types) — validated exactly like AssignGroupRole. Accepting an
+// that must be valid for the group's persona catalog (or a custom role for
+// custom-enabled personas) — validated exactly like AssignGroupRole. Accepting an
 // invite assigns that role to the invited user (atomically with the status flip).
 // Group ids stay INTERNAL; callers address the owning group by (persona, resource_slug).
 
@@ -37,7 +37,7 @@ var (
 )
 
 // GroupInvite is the non-secret view of a pending/acted invite. Role resolves via
-// the type catalog / custom roles (not a DB FK); on accept it is assigned to UserID.
+// the persona catalog / custom roles (not a DB FK); on accept it is assigned to UserID.
 type GroupInvite struct {
 	ID        string
 	GroupID   string
@@ -52,11 +52,11 @@ type GroupInvite struct {
 }
 
 // CreateGroupInvite records a pending invite for userID to hold role in the group
-// addressed by (groupType, resourceRef), attributed to invitedBy. The role is
-// validated against the type catalog (catalog role, or any role for custom-enabled
-// types) exactly as AssignGroupRole does. Returns the new invite's id. A pending
+// addressed by (persona, resourceSlug), attributed to invitedBy. The role is
+// validated against the persona catalog (catalog role, or any role for
+// custom-enabled personas) exactly as AssignGroupRole does. Returns the new invite's id. A pending
 // invite for the same (group, user) is unique at the DB; a duplicate is rejected.
-func (s *Service) CreateGroupInvite(ctx context.Context, groupType, resourceRef, userID, role, invitedBy string) (string, error) {
+func (s *Service) CreateGroupInvite(ctx context.Context, persona, resourceSlug, userID, role, invitedBy string) (string, error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
 	}
@@ -66,10 +66,10 @@ func (s *Service) CreateGroupInvite(ctx context.Context, groupType, resourceRef,
 	if userID == "" || invitedBy == "" {
 		return "", errors.New("invalid_invite")
 	}
-	if !s.validRoleForPersona(s.groupSchemaOrDefault(), groupType, role) {
-		return "", fmt.Errorf("role %q is not assignable in a %q group", role, groupType)
+	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
+		return "", fmt.Errorf("role %q is not assignable in a %q group", role, persona)
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(groupType), strings.TrimSpace(resourceRef))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(resourceSlug))
 	if err != nil {
 		return "", err
 	}
@@ -87,12 +87,12 @@ func (s *Service) CreateGroupInvite(ctx context.Context, groupType, resourceRef,
 }
 
 // ListGroupInvites returns every (non-deleted) invite of the group addressed by
-// (groupType, resourceRef), including acted ones, newest first.
-func (s *Service) ListGroupInvites(ctx context.Context, groupType, resourceRef string) ([]GroupInvite, error) {
+// (persona, resourceSlug), including acted ones, newest first.
+func (s *Service) ListGroupInvites(ctx context.Context, persona, resourceSlug string) ([]GroupInvite, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(groupType), strings.TrimSpace(resourceRef))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(resourceSlug))
 	if err != nil {
 		return nil, err
 	}
@@ -215,9 +215,9 @@ func (s *Service) DeclineGroupInvite(ctx context.Context, inviteID, userID strin
 }
 
 // RevokeGroupInvite flips a pending invite to revoked. It is scoped to the group
-// addressed by (groupType, resourceRef) so a manager cannot revoke an invite from
+// addressed by (persona, resourceSlug) so a manager cannot revoke an invite from
 // another group. ErrInviteNotFound if absent; ErrInviteNotPending if already acted.
-func (s *Service) RevokeGroupInvite(ctx context.Context, groupType, resourceRef, inviteID string) error {
+func (s *Service) RevokeGroupInvite(ctx context.Context, persona, resourceSlug, inviteID string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (s *Service) RevokeGroupInvite(ctx context.Context, groupType, resourceRef,
 	if inviteID == "" {
 		return errors.New("invalid_invite")
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(groupType), strings.TrimSpace(resourceRef))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(resourceSlug))
 	if err != nil {
 		return err
 	}

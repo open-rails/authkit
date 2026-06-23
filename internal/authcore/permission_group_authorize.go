@@ -10,25 +10,25 @@ package authcore
 import "github.com/open-rails/authkit/authbase"
 
 // GroupAssignment is a subject's role-assignment set within ONE permission-group,
-// tagged with that group's TYPE. The engine produces a slice of these by walking
+// tagged with that group's persona. The engine produces a slice of these by walking
 // a target group's parent chain (resolving the subject's roles at each level);
 // the slice order is irrelevant — the union is additive and order-independent.
 type GroupAssignment struct {
-	Persona string   // the declared type of the group this assignment lives in
+	Persona string   // the declared persona of the group this assignment lives in
 	GroupID string   // opaque group id; used ONLY to scope custom-role lookups
 	Roles   []string // role names the subject holds in this group
 }
 
 // CustomRoleResolver returns the grant tokens of a per-group custom role, or
-// (nil, false) if no such custom role exists. Consulted only for types whose
+// (nil, false) if no such custom role exists. Consulted only for personas whose
 // AllowCustomRoles is set; pass nil when the deployment defines no custom roles.
 type CustomRoleResolver func(groupID, role string) ([]string, bool)
 
 // ResolveGrants computes the additive, de-duplicated UNION of grant tokens a
 // subject holds across the given assignments. For each (persona, role): a
-// catalog role contributes the type's catalog grants; otherwise, if the type
+// catalog role contributes the persona's catalog grants; otherwise, if the persona
 // allows custom roles, the per-group custom role's grants are used. Unknown
-// types and unknown roles contribute NOTHING (fail-closed). Every returned token
+// personas and unknown roles contribute NOTHING (fail-closed). Every returned token
 // is a grant pattern already validated at schema-construction time.
 func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom CustomRoleResolver) []string {
 	seen := make(map[string]bool)
@@ -42,7 +42,7 @@ func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom Custom
 	for _, a := range assignments {
 		td, ok := s.types[a.Persona]
 		if !ok {
-			continue // unknown type: fail-closed
+			continue // unknown persona: fail-closed
 		}
 		for _, role := range a.Roles {
 			if r, ok := roleByName(td.Roles, role); ok {
@@ -67,7 +67,7 @@ func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom Custom
 // parent chain) holds a grant covering perm. ALLOW if any granted token covers
 // perm under authkit's namespace-anchored glob semantics (a bare `*` never
 // matches). Additive walk-up union; the caller constructs the exact perm to
-// check (e.g. for a resource of type RT acted on from an ancestor of type LT,
+// check (e.g. for a resource of persona RT acted on from an ancestor of persona LT,
 // the perm is `LT:RT:<action>` — the two-persona rule, decision #5).
 func (s *GroupSchema) Can(assignments []GroupAssignment, custom CustomRoleResolver, perm string) bool {
 	return anyGrantCovers(s.ResolveGrants(assignments, custom), perm)

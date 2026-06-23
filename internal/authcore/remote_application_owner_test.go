@@ -8,7 +8,7 @@ import (
 )
 
 // #111 (DB): the `owner` role is assignable to a remote_application member of a
-// permission-group, and it confers the type-namespace wildcard (`<type>:*`) that
+// permission-group, and it confers the persona-namespace wildcard (`<persona>:*`) that
 // gives the issuer full authority within that group. Skips without
 // AUTHKIT_TEST_DATABASE_URL.
 func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
@@ -52,7 +52,7 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve remote_application authority: %v", err)
 	}
-	// owner of the root type holds the namespace-pure apex grant root:*.
+	// owner of the root persona holds the namespace-pure apex grant root:*.
 	if !containsString(perms, OwnerGrant(RootPersona)) {
 		t.Fatalf("owner role should confer %q; got perms=%v", OwnerGrant(RootPersona), perms)
 	}

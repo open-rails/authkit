@@ -97,7 +97,7 @@ type ResolvedAPIKey = authbase.ResolvedAPIKey
 
 // APIKeyMintOptions is the resource-aware API-key mint request. The key
 // references exactly ONE role (Role) that must be valid for the owning group's
-// PERSONA catalog (or a group custom role); its permissions are resolved from that
+// persona catalog (or a group custom role); its permissions are resolved from that
 // role at use time. Resource-scope is a separate binding.
 type APIKeyMintOptions struct {
 	Name      string
@@ -188,7 +188,7 @@ func (s *Service) effectiveGroupRolePermissions(ctx context.Context, groupID, pe
 // MintAPIKey inserts a new API key for the permission-group addressed by
 // (persona, resourceSlug), bound to role, and returns its metadata plus the
 // full plaintext token (shown ONCE). The role must be valid for the group's
-// type; no-escalation is enforced by the HTTP handler / host hook. expiresAt is
+// persona; no-escalation is enforced by the HTTP handler / host hook. expiresAt is
 // optional (nil = no expiry) and is capped to APIKeyMaxTTL when set.
 func (s *Service) MintAPIKey(ctx context.Context, persona, resourceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
 	return s.MintAPIKeyWithOptions(ctx, persona, resourceSlug, APIKeyMintOptions{
@@ -220,8 +220,8 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, resourceSl
 	if role == "" {
 		return APIKey{}, "", errors.New("invalid_role")
 	}
-	// The role must be valid for the group's TYPE: a catalog role, any role for
-	// custom-enabled types, or an existing group custom role.
+	// The role must be valid for the group's persona: a catalog role, any role
+	// for custom-enabled personas, or an existing group custom role.
 	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
 		if _, ok, cerr := s.lookupGroupCustomRole(ctx, gid, role); cerr != nil {
 			return APIKey{}, "", cerr

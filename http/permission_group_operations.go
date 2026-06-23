@@ -503,7 +503,7 @@ type customRoleRequest struct {
 }
 
 // groupCustomRoleDefine creates/updates a custom role in the group (custom-role
-// types only). Validation failures (bad perm, cross-persona, type disallows
+// personas only). Validation failures (bad perm, cross-persona, persona disallows
 // custom roles) are client errors (400); an unknown resource is 404.
 func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, persona, resourceSlug string) {
 	var body customRoleRequest

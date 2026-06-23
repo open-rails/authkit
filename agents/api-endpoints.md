@@ -142,13 +142,15 @@ Reserved slug policy:
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/email/password/reset/request` | PUBLIC | Request password reset by email |
+| GET | `/email/password/reset/confirm` | PUBLIC | Browser reset-link landing; redirects to frontend with token |
 | POST | `/email/password/reset/confirm` | PUBLIC | Confirm email password reset using `token` + `new_password` |
 | POST | `/phone/password/reset/request` | PUBLIC | Request password reset (phone) |
+| GET | `/phone/password/reset/confirm` | PUBLIC | Browser reset-link landing; redirects to frontend with token |
 | POST | `/phone/password/reset/confirm` | PUBLIC | Confirm phone password reset using `token` + `new_password` |
 
 Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
 
-Registration resend and email/phone verification request endpoints are honest about malformed input and target state. They return validation errors for malformed identifiers, `pending_registration_not_found` for missing pending registration resend targets, `user_not_found` for missing verification targets, and `email_already_verified` / `phone_already_verified` for already-verified accounts.
+Registration resend and email/phone verification request endpoints are honest about malformed input and target state. They return validation errors for malformed identifiers, `pending_registration_not_found` for missing pending registration resend targets, `user_not_found` for missing public verification targets, and `email_already_verified` / `phone_already_verified` for already-verified accounts.
 
 ---
 
@@ -156,10 +158,12 @@ Registration resend and email/phone verification request endpoints are honest ab
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/email/verify/request` | PUBLIC | Request email verification |
-| POST | `/email/verify/confirm` | PUBLIC | Confirm email verification using `code` or `token` |
-| POST | `/phone/verify/request` | PUBLIC | Request phone verification (sends SMS) |
-| POST | `/phone/verify/confirm` | PUBLIC | Confirm phone verification using `phone_number` + `code`, or `token` |
+| POST | `/email/verify/request` | PUBLIC or AUTH | Request email verification; with Authorization, starts a fresh-auth-gated email change for `{email,password?}` |
+| GET | `/email/verify/confirm` | PUBLIC | Browser verification-link landing; redirects to frontend with token |
+| POST | `/email/verify/confirm` | PUBLIC or AUTH | Confirm email verification or email change using `{email,code}` with auth for change codes, or `{token}` |
+| POST | `/phone/verify/request` | PUBLIC or AUTH | Request phone verification; with Authorization, starts a fresh-auth-gated phone change for `{phone_number,password?}` |
+| GET | `/phone/verify/confirm` | PUBLIC | Browser verification-link landing; redirects to frontend with token |
+| POST | `/phone/verify/confirm` | PUBLIC or AUTH | Confirm phone verification or phone change using `{phone_number,code}` with auth for change codes, or `{token}` |
 
 ---
 
@@ -174,8 +178,6 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 | PATCH | `/user/preferred-language` | AUTH | Change preferred language |
 | PATCH | `/user/biography` | AUTH | Update biography |
 | POST | `/user/password` | AUTH | Change password |
-| POST | `/user/email` | AUTH | Start/restart or confirm email change |
-| POST | `/user/phone` | AUTH | Start/restart or confirm phone number change |
 | DELETE | `/user` | AUTH | Delete own account |
 | DELETE | `/user/providers/:provider` | AUTH | Unlink OAuth provider |
 
@@ -183,8 +185,7 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 ## Permission Groups
 
-The old static organization route group was removed. Hosts expose resource-scoped
-management through generated permission-group routes instead.
+Hosts expose resource-scoped management through generated permission-group routes.
 
 Terminology: a configured permission-group persona is the public route and
 permission namespace. For example, a `merchant` persona generates
@@ -371,8 +372,8 @@ least one factor. Disabling MFA removes those MFA-required user role assignments
 | POST | `/admin/roles/revoke` | ADMIN | Revoke role from user |
 | GET | `/admin/users` | `root:users:read` | Dashboard user list. Query: `page`, `page_size`, `search`, `root_role`, `status=active\|banned\|deleted\|any`, `sort=created_at\|last_login\|username\|email`, `order=asc\|desc`, `entitlement` |
 | GET | `/admin/users/:user_id` | `root:users:read` | Get user details |
-| POST | `/admin/users/ban` | `root:users:ban` | Ban user |
-| POST | `/admin/users/unban` | `root:users:ban` | Unban user |
+| POST | `/admin/users/:user_id/ban` | `root:users:ban` | Ban user. Body may include `reason` and RFC3339 `until`; omit `until` for an indefinite ban. |
+| POST | `/admin/users/:user_id/unban` | `root:users:ban` | Unban user |
 | POST | `/admin/users/:user_id/recover` | `root:users:update` | Recover a compromised account. Body has exactly one of `{email}` or `{phone_number}`; AuthKit revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request. |
 | DELETE | `/admin/users/:user_id` | `root:users:delete` | Delete user |
 | POST | `/admin/users/:user_id/restore` | `root:users:delete` | Restore (undelete) user |

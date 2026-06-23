@@ -32,6 +32,10 @@ func (s *Service) confirmEmailVerificationToken(w http.ResponseWriter, r *http.R
 		}
 		return
 	}
+	if userID, err := s.svc.ConfirmEmailChangeByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Email changed successfully"})
+		return
+	}
 
 	s.handleEmailVerifyLinkFailure(w, r.Context(), identifier, email)
 }

@@ -14,6 +14,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 
 	var req struct {
 		PhoneNumber string `json:"phone_number"`
+		Password    string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
@@ -35,6 +36,37 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 
 	if !s.svc.SMSAvailable() {
 		serverErr(w, ErrPhoneVerificationUnavailable)
+		return
+	}
+	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
+		if s.rateLimited(w, r, RLUserPhoneChangeRequest) || !ok {
+			return
+		}
+		if err := s.svc.RequestPhoneChange(r.Context(), claims.UserID, phone); err != nil {
+			if s.handleDeliveryError(w, r, "user_phone_change_request", "send_phone_verification", err) {
+				return
+			}
+			if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+				badRequest(w, code)
+				return
+			}
+			msg := err.Error()
+			switch {
+			case strings.Contains(msg, "same as current"):
+				badRequest(w, ErrPhoneUnchanged)
+			case strings.Contains(msg, "already in use"):
+				badRequest(w, ErrPhoneInUse)
+			default:
+				badRequest(w, ErrFailedToRequestPhoneChange)
+			}
+			return
+		}
+		resp := map[string]any{"ok": true, "message": "Verification sent to new phone"}
+		for k, v := range authMeta {
+			resp[k] = v
+		}
+		writeJSON(w, http.StatusAccepted, resp)
 		return
 	}
 	if err := s.svc.RequestPhoneVerification(r.Context(), phone, 0); err != nil {
@@ -94,12 +126,20 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	userID, err = s.svc.ConfirmPhoneVerificationUserID(r.Context(), phone, code)
-	if err != nil {
-		badRequest(w, ErrInvalidOrExpiredCode)
+	if err == nil && userID != "" {
+		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
+			serverErr(w, ErrTokenIssueFailed)
+			return
+		}
 		return
 	}
-	if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
-		serverErr(w, ErrTokenIssueFailed)
-		return
+
+	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+		if err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code); err == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Phone number changed successfully"})
+			return
+		}
 	}
+
+	badRequest(w, ErrInvalidOrExpiredCode)
 }

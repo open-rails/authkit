@@ -10,7 +10,7 @@ import (
 
 func TestVerificationMessageValidate(t *testing.T) {
 	if err := (VerificationMessage{}).Validate(); err == nil {
-		t.Fatal("expected validation error when both code and link token are missing")
+		t.Fatal("expected validation error when both code and link URL are missing")
 	}
 	if err := (VerificationMessage{Code: "123456"}).Validate(); err != nil {
 		t.Fatalf("unexpected validation error for code-only message: %v", err)

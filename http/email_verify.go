@@ -22,20 +22,23 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var req struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := core.ValidateEmail(req.Email); err != nil {
+	email := strings.TrimSpace(req.Email)
+	if err := core.ValidateEmail(email); err != nil {
 		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
 		return
 	}
+	email = core.NormalizeEmail(email)
 
 	// Per-identifier check: prevents verification-mail bombing of a single
 	// address from many IPs.
-	if s.rateLimitedByIdentifier(w, r, RLEmailVerifyRequest, req.Email) {
+	if s.rateLimitedByIdentifier(w, r, RLEmailVerifyRequest, email) {
 		return
 	}
 
@@ -43,7 +46,40 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		serverErr(w, ErrEmailVerificationUnavailable)
 		return
 	}
-	if err := s.svc.RequestEmailVerification(r.Context(), req.Email, 0); err != nil {
+
+	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
+		if s.rateLimited(w, r, RLUserEmailChangeRequest) || !ok {
+			return
+		}
+		if err := s.svc.RequestEmailChange(r.Context(), claims.UserID, email); err != nil {
+			if s.handleDeliveryError(w, r, "user_email_change_request", "send_email_verification", err) {
+				return
+			}
+			if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+				badRequest(w, code)
+				return
+			}
+			msg := err.Error()
+			switch {
+			case strings.Contains(msg, "same as current"):
+				badRequest(w, ErrEmailUnchanged)
+			case strings.Contains(msg, "already in use"):
+				badRequest(w, ErrEmailInUse)
+			default:
+				badRequest(w, ErrFailedToRequestEmailChange)
+			}
+			return
+		}
+		resp := map[string]any{"ok": true, "message": "Verification sent to new email address"}
+		for k, v := range authMeta {
+			resp[k] = v
+		}
+		writeJSON(w, http.StatusAccepted, resp)
+		return
+	}
+
+	if err := s.svc.RequestEmailVerification(r.Context(), email, 0); err != nil {
 		if s.handleDeliveryError(w, r, "email_verify_request", "send_email_verification", err) {
 			return
 		}
@@ -127,6 +163,14 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 			return
 		}
 		return
+	}
+
+	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+		if err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, email, code); err == nil {
+			s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Email changed successfully"})
+			return
+		}
 	}
 
 	// Both failed: count the bad guess and (after the cap) invalidate the code.

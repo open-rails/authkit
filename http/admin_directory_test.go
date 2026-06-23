@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
@@ -189,6 +190,58 @@ func TestAdminUsersListOptionsFromQuery(t *testing.T) {
 	require.Equal(t, core.AdminUserSortEmail, got.Sort)
 	require.False(t, got.Desc) // order=asc
 	require.Equal(t, "premium", got.Entitlement)
+}
+
+func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
+	pool := newServerTestPool(t)
+	ctx := context.Background()
+	s := newAdminDirectoryService(t, pool)
+
+	suffix := time.Now().UnixNano()
+	prefix := fmt.Sprintf("hban%d", suffix)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username LIKE $1`, prefix+"%")
+	})
+
+	adminID := createAdminTestUser(t, s, ctx, prefix+"admin", true)
+	targetID := createAdminTestUser(t, s, ctx, prefix+"target", false)
+	token, _, err := s.svc.IssueAccessToken(ctx, adminID, "", nil)
+	require.NoError(t, err)
+
+	post := func(path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		if body != "" {
+			r.Header.Set("Content-Type", "application/json")
+		}
+		s.APIHandler().ServeHTTP(w, r)
+		return w
+	}
+
+	until := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	w := post("/admin/users/"+targetID+"/ban", `{"reason":"test ban","until":"`+until+`"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	u, err := s.svc.AdminGetUser(ctx, targetID)
+	require.NoError(t, err)
+	require.NotNil(t, u.BannedAt)
+	require.NotNil(t, u.BannedUntil)
+	require.NotNil(t, u.BanReason)
+	require.Equal(t, "test ban", *u.BanReason)
+
+	w = post("/admin/users/"+targetID+"/unban", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	u, err = s.svc.AdminGetUser(ctx, targetID)
+	require.NoError(t, err)
+	require.Nil(t, u.BannedAt)
+	require.Nil(t, u.BannedUntil)
+	require.Nil(t, u.BanReason)
+
+	w = post("/admin/users/ban", `{"user_id":"`+targetID+`"}`)
+	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
 }
 
 func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {

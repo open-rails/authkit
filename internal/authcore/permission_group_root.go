@@ -5,7 +5,7 @@ package authcore
 // node and its namespace match (a one-time greenfield rename). These gate
 // authkit's own identity/admin surface. Apps EXTEND the root catalog with their
 // own moderation perms (doujins `root:content:takedown`, openrails
-// `root:merchants:delete`) — declared as ordinary roles on the root type.
+// `root:merchants:delete`) — declared as ordinary roles on the root persona.
 //
 // reach != capability: the root `owner` holds `root:*` (super-admin) — the
 // widest REACH (ancestor of every group) but, being namespace-anchored, still
@@ -32,13 +32,13 @@ const (
 
 	// SuperAdminRoleName is the root role authkit ships in addition to owner:
 	// the apex operator. Like owner it holds root:* (they are equivalent on the
-	// root type); kept as a distinct name for the familiar "super-admin" slug.
+	// root persona); kept as a distinct name for the familiar "super-admin" slug.
 	SuperAdminRoleName = "super-admin"
 )
 
 // IntrinsicRootPermissions returns the authkit-built-in root: permission set
 // (every deployment ships these). Apps add their own root: moderation perms on
-// top via the root type's roles.
+// top via the root persona's roles.
 func IntrinsicRootPermissions() []string {
 	return []string{
 		PermRootUsersRead, PermRootUsersSuspend, PermRootUsersBan, PermRootUsersUpdate, PermRootUsersDelete,
@@ -48,9 +48,9 @@ func IntrinsicRootPermissions() []string {
 }
 
 // IntrinsicRootPersona returns the base `root` PersonaDef authkit ships: the
-// parentless singleton type whose owner/super-admin hold root:*. An app passes
+// parentless singleton persona whose owner/super-admin hold root:*. An app passes
 // this to BuildSchema along with EXTRA root roles (moderation bundles) and its
-// other types; the extra root roles may hold any root: perm (intrinsic or
+// other personas; the extra root roles may hold any root: perm (intrinsic or
 // app-declared). Custom roles are OFF on root (operators are not end users).
 func IntrinsicRootPersona(extraRootRoles ...RoleDef) PersonaDef {
 	roles := make([]RoleDef, 0, len(extraRootRoles)+1)
@@ -60,16 +60,16 @@ func IntrinsicRootPersona(extraRootRoles ...RoleDef) PersonaDef {
 	return PersonaDef{
 		Name:  RootPersona,
 		Roles: roles,
-		// AllowedParents empty ⇒ parentless singleton (the only such type).
+		// AllowedParents empty ⇒ parentless singleton (the only such persona).
 		Routes: ManagementProfile{MemberAssignment: true}, // operators are assigned root roles via API
 	}
 }
 
 // BuildSchema assembles the deployment's GroupSchema from authkit's intrinsic
-// root type plus the app's declared types, and validates the whole. If the app
-// passes its OWN root type (to add moderation roles) it is used as-is; otherwise
+// root persona plus the app's declared personas, and validates the whole. If the app
+// passes its OWN root persona (to add moderation roles) it is used as-is; otherwise
 // the bare IntrinsicRootPersona() is injected. This is the consumer entry point:
-// an app declares only its non-root types (+ optional extra root roles) and gets
+// an app declares only its non-root personas (+ optional extra root roles) and gets
 // a validated schema, or a clear error.
 func BuildSchema(appTypes ...PersonaDef) (*GroupSchema, error) {
 	hasRoot := false

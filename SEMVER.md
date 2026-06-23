@@ -186,6 +186,8 @@ consumers implement): `EmailSender`, `SMSSender`, `SMSHealthChecker`,
 `EntitlementsProvider`, `BatchEntitlementsProvider`, `EntitlementFilterProvider`,
 `EphemeralStore`, `AuthEventLogger`, `AuthEventLogReader`, `SolanaSNSResolver`,
 `ResourceScopeAuthorizer`, `CustomRoleResolver`.
+Verification senders receive final AuthKit-built URLs in `VerificationMessage.LinkURL`;
+password-reset senders receive the final reset URL, not a raw token.
 
 **Bootstrap types** (covered): `BootstrapManifest`, `BootstrapManifestUser`,
 `BootstrapManifestGlobalRole`, `BootstrapManifestResult`, `BootstrapReconcileOptions`,
@@ -349,8 +351,10 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/passkeys/login/begin` | passkeys | none |
 | POST | `/passkeys/login/finish` | passkeys | none |
 | POST | `/email/password/reset/request` | session | none |
+| GET | `/email/password/reset/confirm` | session | none |
 | POST | `/email/password/reset/confirm` | session | none |
 | POST | `/phone/password/reset/request` | session | none |
+| GET | `/phone/password/reset/confirm` | session | none |
 | POST | `/phone/password/reset/confirm` | session | none |
 | POST | `/2fa/challenge` | session | none |
 | POST | `/2fa/verify` | session | none |
@@ -361,10 +365,12 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/register/resend-email` | register | none |
 | POST | `/register/resend-phone` | register | none |
 | POST | `/register/abandon` | register | none |
-| POST | `/email/verify/request` | register | none |
-| POST | `/email/verify/confirm` | register | none |
-| POST | `/phone/verify/request` | register | none |
-| POST | `/phone/verify/confirm` | register | none |
+| POST | `/email/verify/request` | register/user | optional |
+| GET | `/email/verify/confirm` | register | none |
+| POST | `/email/verify/confirm` | register/user | optional |
+| POST | `/phone/verify/request` | register/user | optional |
+| GET | `/phone/verify/confirm` | register | none |
+| POST | `/phone/verify/confirm` | register/user | optional |
 | GET | `/me` | user | required |
 | POST | `/user/password` | user | required |
 | GET | `/user/sessions` | user | required |
@@ -373,8 +379,6 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | PATCH | `/user/username` | user | required |
 | PATCH | `/user/preferred-language` | user | required |
 | PATCH | `/user/biography` | user | required |
-| POST | `/user/email` | user | required |
-| POST | `/user/phone` | user | required |
 | DELETE | `/user` | user | required |
 | DELETE | `/user/providers/{provider}` | user | required |
 | POST | `/passkeys/register/begin` | passkeys | required |
@@ -394,8 +398,8 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | GET | `/admin/users` | admin | `root:users:read` |
 | GET | `/admin/users/{user_id}` | admin | `root:users:read` |
 | GET | `/admin/users/{user_id}/signins` | admin | `root:users:read` |
-| POST | `/admin/users/ban` | admin | `root:users:ban` |
-| POST | `/admin/users/unban` | admin | `root:users:ban` |
+| POST | `/admin/users/{user_id}/ban` | admin | `root:users:ban` |
+| POST | `/admin/users/{user_id}/unban` | admin | `root:users:ban` |
 | POST | `/admin/users/{user_id}/recover` | admin | `root:users:update` |
 | POST | `/admin/users/{user_id}/sessions/revoke` | admin | `root:sessions:revoke` |
 | DELETE | `/admin/users/{user_id}` | admin | `root:users:delete` |
@@ -612,7 +616,8 @@ an optional field with a backward-compatible zero-value default is MINOR.
 - **`Token`** `TokenConfig`: `Issuer`, `IssuedAudiences`, `ExpectedAudiences`,
   `AccessTokenDuration`, `RefreshTokenDuration`, `SessionMaxPerUser` (0 ⇒ default 3).
 - **`Frontend`** `FrontendConfig`: `BaseURL` (defaults to issuer if empty),
-  `CallbackPath` (default `/login/callback`; `/reset` & `/verify` are fixed, not configurable).
+  `CallbackPath` (default `/login/callback`), `VerifyPath` (default `/verify`),
+  `PasswordResetPath` (default `/reset`).
 - **`Registration`** `RegistrationConfig`: `Verification` (`none`|`optional`|`required`,
   default `none`), `NativeUserMode` (`open` default; non-open disables public signup).
   The `RegistrationMode` & `RegistrationVerificationPolicy` enum value sets are covered.

@@ -24,7 +24,7 @@ var ErrInvalidBootstrapManifest = errors.New("invalid_bootstrap_manifest")
 // manifest uses the `global_roles` field names for bootstrap compatibility, but
 // they seed root-group roles: a role named "admin" maps onto the root
 // super-admin (root:*), and any other name must be a catalog role of the root
-// type (declared in core.Config). Role name/description fields no longer have a
+// persona (declared in core.Config). Role name/description fields no longer have a
 // target and are accepted-but-ignored.
 type BootstrapManifest struct {
 	Users       []BootstrapManifestUser       `json:"users" yaml:"users"`
@@ -47,7 +47,7 @@ type BootstrapManifestUser struct {
 	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
 	// GlobalRoles assigns root permission-group roles to this user by name (#111).
 	// "admin" mints the root super-admin (root:*); any other name is assigned as a
-	// same-named catalog role of the root type.
+	// same-named catalog role of the root persona.
 	GlobalRoles []string `json:"global_roles" yaml:"global_roles"`
 }
 

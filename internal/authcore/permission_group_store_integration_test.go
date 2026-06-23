@@ -55,7 +55,7 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 	}
 	orgID, err := st.CreateGroup(ctx, "org", rootID, "root", "acme")
 	if err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("create org permission group: %v", err)
 	}
 	repoID, err := st.CreateGroup(ctx, "repo", orgID, "org", "r1")
 	if err != nil {
@@ -102,7 +102,7 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 		t.Errorf("org owner must NOT hold repo:repo:write")
 	}
 
-	// Resource addressing: (type, resource_slug) -> internal id.
+	// Resource addressing: (persona, resource_slug) -> internal id.
 	if got, err := st.GroupByResourceSlug(ctx, "org", "acme"); err != nil || got != orgID {
 		t.Errorf("GroupByResourceSlug(org,acme) = %q,%v; want %q", got, err, orgID)
 	}

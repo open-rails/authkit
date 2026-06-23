@@ -2,13 +2,13 @@ package authcore
 
 // Route-surface generation (#111): the auto-generated management routes are
 // DERIVED from each configured group persona's management profile. Public routes
-// and permission strings call that type name the persona: a `merchant` type
+// and permission strings call that configured name the persona: a `merchant` persona
 // emits `/merchant/:resource_slug/...` routes gated by `merchant:<area>:<action>`.
 // A disabled capability emits NO route, so calling it 404s, which is stronger
 // than a runtime 403. Group ids never appear in a path.
 
 // Built-in per-persona group-management permissions (authkit-provisioned in
-// every type's catalog). All are 3-segment <persona>:<area>:<action>. The owner
+// every persona's catalog). All are 3-segment <persona>:<area>:<action>. The owner
 // role (=<persona>:*) covers them all; an app may grant them to other roles.
 func PermMembersManage(t string) string    { return t + ":members:manage" }
 func PermMembersRead(t string) string      { return t + ":members:read" }

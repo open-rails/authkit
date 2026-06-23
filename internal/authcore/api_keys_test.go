@@ -141,7 +141,7 @@ func TestAPIKeyResourceContract(t *testing.T) {
 }
 
 // TestResourceScopeAuthorizer verifies the host resource-scope callback receives
-// the group-addressed identity (#111: groupType+resourceRef replaced orgSlug).
+// the group-addressed identity (#111: persona+resourceSlug addressing).
 func TestResourceScopeAuthorizer(t *testing.T) {
 	allowed := false
 	svc := NewService(Options{

@@ -240,8 +240,8 @@ func (s *Service) ListSubjectGroups(ctx context.Context, subjectID, subjectKind 
 }
 
 // DefineGroupCustomRole creates/updates a custom role in the group addressed by
-// (persona, resourceSlug). Requires the type to allow custom roles; every
-// permission must be a valid grant pattern in the type's OWN persona namespace
+// (persona, resourceSlug). Requires the persona to allow custom roles; every
+// permission must be a valid grant pattern in that persona's namespace
 // (namespace purity) and must not collide with a catalog role name.
 func (s *Service) DefineGroupCustomRole(ctx context.Context, persona, resourceSlug, role string, permissions []string) error {
 	sch := s.groupSchemaOrDefault()

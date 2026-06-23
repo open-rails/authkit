@@ -117,14 +117,14 @@ func tensorhubSchema(t *testing.T) *GroupSchema {
 func TestNewGroupSchema_SeedsOwnerAndMember(t *testing.T) {
 	s := tensorhubSchema(t)
 
-	// owner injected = <type>:* for every type.
+	// owner injected = <persona>:* for every persona.
 	for _, ty := range []string{"root", "org", "repo"} {
 		r, ok := s.Role(ty, OwnerRoleName)
 		if !ok {
-			t.Fatalf("type %q missing seeded owner role", ty)
+			t.Fatalf("persona %q missing seeded owner role", ty)
 		}
 		if len(r.Permissions) != 1 || r.Permissions[0] != OwnerGrant(ty) {
-			t.Errorf("type %q owner perms = %v, want [%s]", ty, r.Permissions, OwnerGrant(ty))
+			t.Errorf("persona %q owner perms = %v, want [%s]", ty, r.Permissions, OwnerGrant(ty))
 		}
 	}
 	// member present (declared on org, injected elsewhere).
@@ -209,7 +209,7 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 			want: "cycle",
 		},
 		{
-			name: "bad type name",
+			name: "bad persona name",
 			types: []PersonaDef{
 				{Name: "root"},
 				{Name: "Merchant", AllowedParents: []string{"root"}},

@@ -40,13 +40,13 @@ type Options struct {
 	// Optional link building.
 	BaseURL string
 	// FrontendCallbackPath is the host-owned frontend route that receives full-page OIDC login results.
-	FrontendCallbackPath    string
-	FrontendVerifyPath      string
+	FrontendCallbackPath      string
+	FrontendVerifyPath        string
 	FrontendPasswordResetPath string
-	PasskeyRPID             string
-	PasskeyRPDisplayName    string
-	PasskeyOrigins          []string
-	PasskeyUserVerification string
+	PasskeyRPID               string
+	PasskeyRPDisplayName      string
+	PasskeyOrigins            []string
+	PasskeyUserVerification   string
 	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
 	// "profiles". Must match ^[a-z_][a-z0-9_]*$ (max 63 bytes); NewService
 	// panics on an invalid non-empty value because a malformed name would be
@@ -185,7 +185,7 @@ type Service struct {
 	pg             *pgxpool.Pool
 	q              *db.Queries
 	schema         string       // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema    *GroupSchema // #111 permission-group type schema (nil ⇒ root-only default)
+	groupSchema    *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
 	entitlements   EntitlementsProvider
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
@@ -730,9 +730,11 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		return fmt.Errorf("user not found")
 	}
 
-	// Check if trying to change to the same phone
 	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, trimmed) {
-		return fmt.Errorf("new phone is the same as current phone")
+		if u.PhoneVerified {
+			return ErrPhoneAlreadyVerified
+		}
+		return s.SendPhoneVerificationToUser(ctx, trimmed, userID, 0)
 	}
 
 	// Check if new phone is already in use by another user
@@ -763,7 +765,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		return err
 	}
 
-	msg := VerificationMessage{Code: code}
+	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
 
 	// Send verification message to new phone
 	if s.sms != nil {
@@ -808,6 +810,11 @@ func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code st
 	return nil
 }
 
+// ConfirmPhoneChangeByToken applies a pending phone change using its high-entropy link token.
+func (s *Service) ConfirmPhoneChangeByToken(ctx context.Context, token string) (string, error) {
+	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindChangePhone)
+}
+
 // ResendPhoneChangeCode resends the verification code for a pending phone change.
 func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone string) error {
 	// Get current user
@@ -843,7 +850,7 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 		return err
 	}
 
-	msg := VerificationMessage{Code: code}
+	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
 	// Send new credentials.
 	if s.sms != nil {
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
@@ -1184,6 +1191,8 @@ type VerificationMessage struct {
 	Code string
 	// AuthKit-built scanner-safe verification link (optional).
 	LinkURL string
+	// Purpose lets senders vary copy without adding new sender methods.
+	Purpose string
 }
 
 func (m VerificationMessage) Validate() error {
@@ -1205,26 +1214,37 @@ func (s *Service) authkitURL(path string, q url.Values) string {
 	return out
 }
 
-func (s *Service) verificationURL(path, token string) string {
+// verificationURL builds the host-facing link AuthKit emails for a
+// verification/reset flow: BaseURL + a host-configured FRONTEND landing path +
+// ?token=…&channel=email|phone. The frontend page reads the token (and channel)
+// and POSTs to the matching confirm endpoint — the SPA-link model (#131). The
+// landing path is configurable (FrontendVerifyPath / FrontendPasswordResetPath)
+// so a host keeps its own routes; channel lets one landing page serve both
+// email and phone. Verify and reset are symmetric — same mechanism, different
+// configured path.
+func (s *Service) verificationURL(frontendPath, channel, token string) string {
 	q := url.Values{}
 	q.Set("token", token)
-	return s.authkitURL(path, q)
+	if channel != "" {
+		q.Set("channel", channel)
+	}
+	return s.authkitURL(frontendPath, q)
 }
 
 func (s *Service) emailVerificationURL(token string) string {
-	return s.verificationURL("/email/verify/confirm", token)
+	return s.verificationURL(s.opts.FrontendVerifyPath, "email", token)
 }
 
 func (s *Service) phoneVerificationURL(token string) string {
-	return s.verificationURL("/phone/verify/confirm", token)
+	return s.verificationURL(s.opts.FrontendVerifyPath, "phone", token)
 }
 
 func (s *Service) emailPasswordResetURL(token string) string {
-	return s.verificationURL("/email/password/reset/confirm", token)
+	return s.verificationURL(s.opts.FrontendPasswordResetPath, "email", token)
 }
 
 func (s *Service) phonePasswordResetURL(token string) string {
-	return s.verificationURL("/phone/password/reset/confirm", token)
+	return s.verificationURL(s.opts.FrontendPasswordResetPath, "phone", token)
 }
 
 var (
@@ -1527,7 +1547,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 	if u.Username != nil {
 		username = *u.Username
 	}
-	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken)}
+	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_verify"}
 	if err := msg.Validate(); err != nil {
 		return nil
 	}
@@ -1667,7 +1687,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		}); err != nil {
 			return "", err
 		}
-		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken)}
+		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "signup"}
 		if err := msg.Validate(); err == nil {
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 				return s.email.SendVerification(sendCtx, normEmail, username, msg)
@@ -1702,7 +1722,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 			return "", fmt.Errorf("ephemeral store not configured")
 		}
 
-		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken)}
+		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "signup"}
 		if err := msg.Validate(); err == nil {
 			if s.email != nil {
 				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, email, username, msg) }); err != nil {
@@ -1849,7 +1869,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 		}); err != nil {
 			return "", err
 		}
-		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken)}
+		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "signup"}
 		if err := msg.Validate(); err == nil {
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 				return "", smsDeliveryError(err)
@@ -1878,7 +1898,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 			return "", fmt.Errorf("ephemeral store not configured")
 		}
 
-		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken)}
+		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "signup"}
 		if err := msg.Validate(); err == nil {
 			if s.sms != nil {
 				if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
@@ -2035,7 +2055,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 		return nil
 	}
 
-	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken)}
+	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_verify"}
 	if err := msg.Validate(); err != nil {
 		return nil
 	}
@@ -2798,9 +2818,11 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 		return fmt.Errorf("user not found")
 	}
 
-	// Check if trying to change to the same email
 	if u.Email != nil && strings.EqualFold(*u.Email, trimmed) {
-		return fmt.Errorf("new email is the same as current email")
+		if u.EmailVerified {
+			return ErrEmailAlreadyVerified
+		}
+		return s.sendEmailVerificationToUser(ctx, u, 0)
 	}
 
 	// Check if new email is already in use by another user
@@ -2834,7 +2856,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	}
 
 	// Send verification message to NEW email
-	msg := VerificationMessage{Code: code}
+	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
 	if s.email != nil {
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, trimmed, username, msg) }); err != nil {
@@ -2856,7 +2878,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 
 // ConfirmEmailChange verifies the code and updates the user's email address.
 // This is called when the user enters the verification code sent to their new email.
-func (s *Service) ConfirmEmailChange(ctx context.Context, userID, code string) error {
+func (s *Service) ConfirmEmailChange(ctx context.Context, userID, email, code string) error {
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
@@ -2871,11 +2893,19 @@ func (s *Service) ConfirmEmailChange(ctx context.Context, userID, code string) e
 	if rec.UserID != userID {
 		return jwt.ErrTokenInvalidClaims
 	}
+	if strings.TrimSpace(email) != "" && !strings.EqualFold(NormalizeEmail(email), rec.Target) {
+		return jwt.ErrTokenUnverifiable
+	}
 	if _, err := s.finalizeChangeEmail(ctx, rec); err != nil {
 		return err
 	}
 	s.deletePendingChangeByToken(ctx, hash)
 	return nil
+}
+
+// ConfirmEmailChangeByToken applies a pending email change using its high-entropy link token.
+func (s *Service) ConfirmEmailChangeByToken(ctx context.Context, token string) (string, error) {
+	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindChangeEmail)
 }
 
 // ResendEmailChangeCode resends the verification code for a pending email change.
@@ -2915,7 +2945,7 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 		username = *u.Username
 	}
 
-	msg := VerificationMessage{Code: code}
+	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
 	// Send new credentials.
 	if s.email != nil {
 		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
@@ -3015,7 +3045,7 @@ func (s *Service) createResetToken(ctx context.Context, userID, tokenHash string
 // normalizeRootRoleSlug maps an admin/manifest role slug onto a role of the
 // root permission-group's catalog. "admin" is the familiar slug for the seeded
 // root super-admin (root:*); every other name is taken as-is (it must be a
-// catalog role of the root type, declared in core.Config).
+// catalog role of the root persona, declared in core.Config).
 func normalizeRootRoleSlug(slug string) string {
 	role := strings.ToLower(strings.TrimSpace(slug))
 	if role == "admin" {
@@ -3024,9 +3054,9 @@ func normalizeRootRoleSlug(slug string) string {
 	return role
 }
 
-// listRoleSlugsByUser returns a user's roles in the root permission-group (the
-// former "platform" plane, #111). Operator authority is now just a root-group
-// assignment; "admin" is reported as the seeded super-admin slug.
+// listRoleSlugsByUser returns a user's root permission-group roles. Operator
+// authority is a root-group assignment; "admin" is reported as the seeded
+// super-admin slug.
 func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
 	if s.pg == nil {
 		return nil
@@ -3058,7 +3088,7 @@ var ErrCannotRemoveLastAdminRole = errors.New("cannot_remove_last_admin_role")
 
 // assignRoleBySlug grants a user a role in the root permission-group (#111).
 // "admin" maps onto the root super-admin (root:*); every other name must be a
-// catalog role of the root type. The "owner" slug is reserved.
+// catalog role of the root persona. The "owner" slug is reserved.
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
 	if strings.EqualFold(strings.TrimSpace(slug), "owner") {
 		return ErrReservedRoleSlug

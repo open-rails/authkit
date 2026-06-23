@@ -231,8 +231,8 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID, su
 }
 
 // UpsertCustomRole defines/updates a per-group custom role's permission set.
-// Only meaningful for types whose AllowCustomRoles is set; the caller enforces
-// that + validates each grant pattern (namespace-pure to the group's type).
+// Only meaningful for personas whose AllowCustomRoles is set; the caller
+// enforces that + validates each grant pattern against the group's persona.
 func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID, role string, permissions []string) error {
 	_, err := st.q.Exec(ctx,
 		`INSERT INTO profiles.group_custom_roles (group_id, role, permissions)
@@ -279,7 +279,7 @@ func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 // CanOnGroup is the end-to-end DB-backed authorization check: walk the target
 // group's chain, preload any custom roles, and test perm coverage against the
 // schema. The caller constructs perm per the two-persona rule (e.g. for an
-// action on a type-RT resource reached from an ancestor of type LT, the perm is
+// action on a persona-RT resource reached from an ancestor of persona LT, the perm is
 // `LT:RT:<action>`).
 func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSchema, subjectID, subjectKind, groupID, perm string) (bool, error) {
 	asg, err := st.WalkAssignments(ctx, groupID, subjectID, subjectKind)

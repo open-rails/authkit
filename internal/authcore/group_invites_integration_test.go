@@ -55,10 +55,10 @@ func TestService_GroupInviteFlow(t *testing.T) {
 	})
 
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme", OwnerSubjectID: owner}); err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("create org permission group: %v", err)
 	}
 
-	// Role validation: an unknown role for a fixed-catalog type is rejected.
+	// Role validation: an unknown role for a fixed-catalog persona is rejected.
 	if _, err := svc.CreateGroupInvite(ctx, "org", "acme", invitee, "nonsense", owner); err == nil {
 		t.Errorf("invite with an unknown role should be rejected")
 	}

@@ -68,7 +68,7 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 		t.Fatalf("admin role should be removed after disabling MFA")
 	}
 	if ok, _ := svc.Can(ctx, userID, SubjectKindUser, "org", "acme", "org:repo:read"); !ok {
-		t.Fatalf("ordinary org role should remain after disabling MFA")
+		t.Fatalf("ordinary org persona role should remain after disabling MFA")
 	}
 }
 

@@ -52,7 +52,7 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 
 	// owner gets a group assignment; owner also sends an invite to invitee.
 	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme", OwnerSubjectID: owner}); err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("create org permission group: %v", err)
 	}
 	if _, err := svc.CreateGroupInvite(ctx, "org", "acme", invitee, "member", owner); err != nil {
 		t.Fatalf("CreateGroupInvite: %v", err)

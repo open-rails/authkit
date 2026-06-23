@@ -156,10 +156,18 @@ func contextLanguage(ctx context.Context) string {
 func defaultVerificationBody(ctx context.Context, app string, msg core.VerificationMessage) string {
 	parts := make([]string, 0, 2)
 	if strings.TrimSpace(msg.Code) != "" {
+		action := "verification"
+		if strings.TrimSpace(msg.Purpose) == "contact_change" {
+			action = "change confirmation"
+		}
 		if contextLanguage(ctx) == "es" {
-			parts = append(parts, fmt.Sprintf("%s codigo de verificacion: %s", app, strings.TrimSpace(msg.Code)))
+			if action == "change confirmation" {
+				parts = append(parts, fmt.Sprintf("%s codigo de confirmacion: %s", app, strings.TrimSpace(msg.Code)))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s codigo de verificacion: %s", app, strings.TrimSpace(msg.Code)))
+			}
 		} else {
-			parts = append(parts, fmt.Sprintf("%s verification code: %s", app, strings.TrimSpace(msg.Code)))
+			parts = append(parts, fmt.Sprintf("%s %s code: %s", app, action, strings.TrimSpace(msg.Code)))
 		}
 	}
 	if strings.TrimSpace(msg.LinkURL) != "" {

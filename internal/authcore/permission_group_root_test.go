@@ -14,7 +14,7 @@ func TestIntrinsicRootPermissionsAreValid3Segment(t *testing.T) {
 }
 
 func TestBuildSchema_InjectsRootAndValidates(t *testing.T) {
-	// An app declaring no root type gets the intrinsic root injected.
+	// An app declaring no root persona gets the intrinsic root injected.
 	s, err := BuildSchema(
 		PersonaDef{Name: "merchant", AllowedParents: []string{RootPersona},
 			Routes: ManagementProfile{MemberAssignment: true, APIKeyMinting: true},
@@ -26,7 +26,7 @@ func TestBuildSchema_InjectsRootAndValidates(t *testing.T) {
 		t.Fatalf("BuildSchema: %v", err)
 	}
 	if _, ok := s.Persona(RootPersona); !ok {
-		t.Fatalf("root type not present after BuildSchema")
+		t.Fatalf("root persona not present after BuildSchema")
 	}
 	// root owner = root:* (super-admin reach), moderation-only.
 	owner, _ := s.Role(RootPersona, OwnerRoleName)
@@ -36,7 +36,7 @@ func TestBuildSchema_InjectsRootAndValidates(t *testing.T) {
 	if _, ok := s.Role(RootPersona, SuperAdminRoleName); !ok {
 		t.Errorf("root missing super-admin role")
 	}
-	// the merchant type is a child of root.
+	// the merchant persona is a child of root.
 	if err := s.ValidateParent("merchant", RootPersona); err != nil {
 		t.Errorf("merchant should be allowed under root: %v", err)
 	}

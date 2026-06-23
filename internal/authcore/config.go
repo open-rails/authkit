@@ -183,8 +183,8 @@ type RBACConfig struct {
 	Permissions []PermissionDef
 
 	// Groups declares the app's permission-group personas (#111): the containment
-	// schema + per-type role catalogs + management profiles. authkit injects the
-	// intrinsic `root` type when absent, so an empty slice yields a valid
+	// schema + per-persona role catalogs + management profiles. authkit injects the
+	// intrinsic `root` persona when absent, so an empty slice yields a valid
 	// root-only deployment. Validated by NewFromConfig via BuildSchema.
 	Groups []PersonaDef
 }

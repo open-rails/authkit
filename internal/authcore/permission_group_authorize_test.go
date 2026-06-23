@@ -8,7 +8,7 @@ func TestResolveGrants_UnionDedupFailClosed(t *testing.T) {
 		{Persona: "org", GroupID: "g_org", Roles: []string{"owner"}},    // org:*
 		{Persona: "repo", GroupID: "g_repo", Roles: []string{"writer"}}, // repo:repo:read, repo:repo:write
 		{Persona: "org", GroupID: "g_org", Roles: []string{"owner"}},    // duplicate -> deduped
-		{Persona: "ghost", GroupID: "g_x", Roles: []string{"owner"}},    // unknown type -> nothing
+		{Persona: "ghost", GroupID: "g_x", Roles: []string{"owner"}},    // unknown persona -> nothing
 		{Persona: "repo", GroupID: "g_repo", Roles: []string{"nope"}},   // unknown role -> nothing
 	}
 	got := s.ResolveGrants(asg, nil)
@@ -90,7 +90,7 @@ func TestResolveGrants_CustomRoles(t *testing.T) {
 	if s.Can(repoCustom, custom, "repo:repo:read") {
 		t.Errorf("repo disallows custom roles; the custom 'auditor' must be ignored")
 	}
-	// nil resolver is safe even for a custom-capable type.
+	// nil resolver is safe even for a custom-capable persona.
 	if s.Can(orgCustom, nil, "org:billing:read") {
 		t.Errorf("with no resolver, an unknown role grants nothing")
 	}

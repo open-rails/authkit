@@ -93,6 +93,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	rootPermission := func(perm string, h http.HandlerFunc) http.Handler {
 		return required(s.requirePermission(core.RootPersona, "", perm, h))
 	}
+	optional := Optional(s.verifier)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
 		{Method: http.MethodGet, Path: "/identity-providers", Group: RoutePublic, Handler: http.HandlerFunc(s.handleProvidersGET)},
@@ -116,13 +117,13 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
 		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
-		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyRequestPOST)},
+		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handleEmailVerifyRequestPOST))},
 		{Method: http.MethodGet, Path: "/email/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmGET)},
-		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmPOST)},
+		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handleEmailVerifyConfirmPOST))},
 
-		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyRequestPOST)},
+		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyRequestPOST))},
 		{Method: http.MethodGet, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmGET)},
-		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmPOST)},
+		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyConfirmPOST))},
 
 		{Method: http.MethodPost, Path: "/user/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPasswordPOST))},
 		{Method: http.MethodGet, Path: "/user/sessions", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionsGET))},
@@ -131,8 +132,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/me", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
-		{Method: http.MethodPost, Path: "/user/email", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangePOST))},
-		{Method: http.MethodPost, Path: "/user/phone", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangePOST))},
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
 		{Method: http.MethodDelete, Path: "/user", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
 		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},
@@ -165,8 +164,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUsersListGET)},
 		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUserGET)},
 		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUserSigninsGET)},
-		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersBanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersBanPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/recover", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUserRecoverPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: rootPermission(core.PermRootSessionsRevoke, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},

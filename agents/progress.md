@@ -141,13 +141,21 @@ integration tests (compose Postgres). Branch: refactor/126-shrink-public-api.
 
 # #130: Bulk user import (ImportUsers) for fast legacy migration (500k+)
 
-**Completed:** no
+**Completed:** yes
 
-STATUS 2026-06-23 (Claude, overnight): CODE-COMPLETE, UNVERIFIED. Implemented
+STATUS 2026-06-23 (Codex): AuthKit-side implementation is done and tested:
+AuthKit builds verification/reset URLs, senders receive final URLs, GET link
+landings redirect scanner-safely to frontend paths without consuming tokens,
+and the existing POST confirm routes remain the only token-consuming endpoints.
+Remaining #131 work is the downstream doujins migration against a tagged/bumped
+AuthKit version.
+
+STATUS 2026-06-23 (Claude): DONE + VERIFIED + BENCHMARKED. Implemented
 `ImportUsers` in `internal/authcore/import_users.go` (validate/normalize in Go →
-in-batch dedup → set-based existing-check → chunked multi-row `INSERT ... ON
-CONFLICT DO NOTHING RETURNING id`, 1000/chunk; + bulk password-hash insert for
-inserted rows). Added optional `PasswordHash`/`HashAlgo`/`HashParams` to
+in-batch dedup → chunked multi-row `INSERT ... ON CONFLICT DO NOTHING RETURNING
+id`, 1000/chunk, relying on ON CONFLICT for skip-existing — no giant ANY() pre-
+check; + bulk password-hash insert for inserted rows). Added optional
+`PasswordHash`/`HashAlgo`/`HashParams` to
 `ImportUserInput`. Wired `ImportUsers` onto the `core` facade and added
 `ImportUsersResult`/`ImportUserResult`/`ImportUserStatus` aliases; REMOVED
 `ImportUser`/`UpdateImportedUser` from the facade (they stay unexported-internal in
@@ -157,13 +165,15 @@ original "ON CONFLICT DO UPDATE upsert": went INSERT-OR-SKIP — for a legacy
 migration a re-run should RESUME (skip already-imported) not CLOBBER data a user
 changed in AuthKit post-import; cross-identity reporting via per-row
 `ImportUserResult{inserted|skipped|rejected}`.
-COULD NOT VERIFY (`go build/test`): the shared tree is mid-rewrite by the
-concurrent #125/#127/#129/#45 agents (MFA + org→persona renames) and does not
-compile (e.g. `core.RootType`/`GroupTypeDef`/`Mandatory2FAPolicy`/aliases.go all
-broken by their in-flight edits — NOT this issue). `import_users.go` itself has
-zero diagnostics (all its references resolve). REMAINING: build+vet+test once the
-tree is green; benchmark 500k; tests (dedup, skip-existing, reject isolation,
-idempotent re-run, password import + login); decide bulk role-assignment.
+VERIFIED 2026-06-23: `internal/authcore/import_users_test.go` — 5 DB-backed tests
+PASS (basic insert, in-batch dedup, skip-existing idempotent re-run, reject
+isolation, password import + login) against compose Postgres. `go build`/`go vet
+./...` green; DB-free `go test ./...` green.
+BENCHMARK (`import_users_bench_test.go`, gated by AUTHKIT_IMPORT_BENCH): 100,000
+users inserted in 11.1s = ~9,000 users/sec (multi-row INSERT, 1000/chunk) →
+~500k in ≈55s, vs the old per-user loop (500k round-trips = many minutes/hours).
+REMAINING (optional): decide bulk role-assignment for migration; CopyFrom path if
+>9k/sec ever needed; the doujins real-data 500k run lands via doujins #419.
 
 STATUS 2026-06-23 (Codex): OIDC login `return_to` is implemented and tested.
 Shared app-relative validation rejects open-redirect inputs; OIDC/OAuth browser
@@ -272,6 +282,27 @@ CONSTRAINTS:
 
 **Completed:** no
 
+STATUS 2026-06-23 (Claude): AuthKit side DONE + VERIFIED. AuthKit now builds the
+verification/reset link at the host-configured FRONTEND landing path (SPA-link
+model, Paul's choice): `verificationURL` wires `s.opts.FrontendVerifyPath` /
+`FrontendPasswordResetPath` (previously DEFINED-BUT-UNUSED; links wrongly pointed
+at fixed API paths) + a `channel=email|phone` param. Verify & reset are symmetric;
+reset is link-only (no OTP — a short reset code would be brute-forceable). Unit
+tests `internal/authcore/verification_url_test.go` PASS; `go build`/`vet ./...`
+green; #130 import tests still green. NOTE: this wiring is on master/unreleased;
+consumers' pin (v0.56.2) has the config field but still ignores it (fixed paths).
+CONSUMER STATUS (verified each BUILDS against local master authkit, exit 0 — no
+breakage): cozy-art already consumes AuthKit's `msg.LinkURL`/`resetURL` (cleanest);
+hentai0 + doujins still also build their OWN link (and doujins hosts backend
+redirect handlers `handleVerifyRegistrationLinkGET`/`handleResetPasswordLinkGET`).
+REMAINING consumer work (release-PAIRED — must land with the authkit bump, else
+runtime breaks since v0.56.2 ignores VerifyPath; + involves each app's SPA):
+- set `core.Config.Frontend.VerifyPath`/`PasswordResetPath` to each app's existing
+  SPA route (doujins: `/verify-registration` + `/reset-password`),
+- drop each app's own link-builder; rely on AuthKit's `msg.LinkURL`/`resetURL`,
+- doujins: delete the two backend link handlers + their routes (server.go),
+- each SPA route reads `?token=&channel=` and POSTs to the matching confirm endpoint.
+
 GUIDING PRINCIPLE (Paul, 2026-06-23): AuthKit should be **batteries-included** for
 sending email/SMS and handling the communication round-trip — as much as possible,
 a host wires transport + branding and gets working verification/reset/notification
@@ -285,7 +316,7 @@ ownership boundary is backwards and is the actual bug behind the doujins mess in
 #126/#130.
 
 - `core.EmailSender`/`core.SMSSender` receive only `VerificationMessage{Code,
-  LinkToken}` — a bare token, no URL. Even AuthKit's OWN Twilio providers ask the
+  LinkToken}` — a bare token, no URL. Even AuthKit's OWN Twilio providers asked the
   host for `VerificationLinkURL func(token) string` / `ResetLinkURL func(token)
   string` (`providers/email/twilio/twilio.go:47-48`). So the host builds the link.
 - Because the host owns the link, the host must also host the confirm route and
@@ -339,30 +370,36 @@ CONSEQUENCES:
 - Ties to #132 (return_to through the AuthKit-owned redirect).
 
 **Tasks:**
-- [ ] Move verification/reset LINK construction into AuthKit (`BaseURL` + verify/
+- [x] Move verification/reset LINK construction into AuthKit (`BaseURL` + verify/
   reset path + typed token). Replace the token-only `VerificationMessage` link
   path with a rendered message / final URL handed to the sender.
-- [ ] Add the built-in confirm endpoint(s) AuthKit's links point at: consume token
-  (type known), confirm, 302-redirect to the host frontend path with `?status=…`
-  and a validated app-relative `return_to` (reuse #132's shared validator).
-  Decide + implement the scanner-safe GET/POST mode.
-- [ ] Add `FrontendConfig` landing path(s) for verify/reset redirects; validate
+- [x] Add the built-in link landing endpoints AuthKit's links point at. Decision:
+  scanner-safe GET does not consume token; it 302-redirects to the host frontend
+  path with `status`, typed `channel`, `token`, and validated app-relative
+  `return_to`. Existing POST confirm routes remain the consuming endpoints.
+- [x] Add `FrontendConfig` landing path(s) for verify/reset redirects; validate
   app-relative (reuse #132's `return_to` validator).
-- [ ] Change the `EmailSender`/`SMSSender` contract + Twilio providers: REMOVE host
+- [x] Change the `EmailSender`/`SMSSender` contract + Twilio providers: REMOVE host
   `VerificationLinkURL`/`ResetLinkURL`; keep transport host-injected and keep
   branding/template/per-language hooks (HARD CUT, no shim).
-- [ ] Decide session-on-confirm behavior, consistent with the current POST confirm.
+- [x] Decide session-on-confirm behavior, consistent with the current POST confirm:
+  GET landings issue no session; POST verification confirm still returns tokens,
+  and POST password reset confirm returns `{ok:true}`.
 - [ ] Migrate doujins: delete its verify GET handler, try-chain, `GetPending*`
   status helpers, and link-builder config; wire only transport + branding.
 - [x] DONE 2026-06-23: removed the 6 `Confirm*`/`GetPending*` methods from the #126
   facade immediately (facade 81→75); they remain in `internal/authcore` for the
   HTTP handlers. `go build`/`go vet ./...` green; `verify.Enricher` assertion
   unaffected (none of the 6 are Enricher methods).
-- [ ] Update `SEMVER.md` + README: AuthKit-owned verification/reset flow; new
+- [x] Update `SEMVER.md` + README: AuthKit-owned verification/reset flow; new
   endpoint(s)/config; the breaking `EmailSender`/`SMSSender` + Twilio provider
   contract change.
-- [ ] Tests: AuthKit-built link round-trips through the built-in confirm; scanner
+- [x] Tests: AuthKit-built link round-trips through the built-in confirm; scanner
   mode; status mapping; transport still host-injected (provider-agnostic intact).
+  Validation: `go test ./...`, forced `go test ./internal/authcore -run
+  TestNewGroupSchema_Rejections -count=1 -v`, and focused DB-backed `go test ./http -run
+  'TestPasswordResetConfirmConsumesTokenDirectly|TestVerificationConfirmAcceptsCodeOrToken|TestAuthKitBuiltLinksRedirectWithoutConsumingToken'
+  -count=1 -v` passed against scratch Postgres `authkit_issue131`.
 
 ---
 
@@ -510,5 +547,110 @@ TARGET:
   removal, MFA-required role removal when MFA is disabled, hard-delete cleanup,
   admin role filtering, and baseline migration.
 - [x] Run `task sqlc`, DB-backed focused tests, and `go test ./...`.
+
+---
+
+# #134: Unify signup/contact-change email+phone verification on one verification pipeline
+
+**Completed:** no
+
+AuthKit currently has two verification implementations that do the same job:
+prove control of an email address or phone number before applying a state
+transition.
+
+CURRENT STATE:
+- Signup / existing unverified contact verification uses the public
+  `/email/verify/request`, `/email/verify/confirm`, `/phone/verify/request`, and
+  `/phone/verify/confirm` routes.
+- Those flows generate both a short manual code and a high-entropy link token,
+  store both hashed, and send `VerificationMessage{Code, LinkURL}`.
+- Account contact changes use authenticated `/user/email` and `/user/phone` as
+  overloaded request+confirm endpoints.
+- Contact-change code stores a second token hash, but sends only
+  `VerificationMessage{Code: code}` and confirms through separate
+  `ConfirmEmailChange` / `ConfirmPhoneChange` methods. That is duplication and
+  inconsistent behavior.
+
+TARGET:
+- One verification primitive for email and phone:
+  - Generate short OTP code + high-entropy link token.
+  - Store both hashed with TTL and one-time consume semantics.
+  - Send one `VerificationMessage` through the existing `EmailSender` /
+    `SMSSender` methods.
+  - Confirm via the same HTTP routes, with the stored record deciding the
+    finalizer.
+- Use the same request/confirm route surface for signup, existing unverified
+  contact, and pending contact-change verification:
+  - `POST /email/verify/request`
+  - `POST /email/verify/confirm`
+  - `POST /phone/verify/request`
+  - `POST /phone/verify/confirm`
+- Different finalizers, not different verification systems:
+  - pending email registration -> create/verify user
+  - existing unverified email -> mark email verified
+  - pending email change -> apply pending `old -> new` email
+  - pending phone registration -> create/verify user
+  - existing unverified phone -> mark phone verified
+  - pending phone change -> apply pending `old -> new` phone
+- Keep different copy without adding route/interface variants. Add a small
+  public purpose field to `VerificationMessage` if needed, e.g.
+  `Purpose: "signup"|"contact_verify"|"contact_change"`, so builders/default
+  Twilio copy can say "verify your account" vs "confirm your new email/phone".
+
+ROUTE DECISION:
+- Hard-cut the duplicated confirm behavior out of `/user/email` and
+  `/user/phone`. Those routes should not be a second verification API.
+- Prefer making authenticated `POST /email/verify/request` /
+  `POST /phone/verify/request` start a pending contact change when the caller is
+  authenticated and the requested identifier differs from the current one,
+  using the same fresh-auth/Sensitive gate that `/user/email` and `/user/phone`
+  currently enforce.
+- If keeping `/user/email` and `/user/phone` as account-setting convenience
+  routes is still useful, make them thin aliases that call the same shared
+  verification request helper and return the same response shape. Do not keep
+  separate confirmation logic there.
+
+SECURITY INVARIANTS:
+- Short code paths stay scoped and rate-limited by identifier; for pending
+  account changes, also bind to the authenticated user/session when confirming
+  by code.
+- Link-token paths use only the high-entropy token, are one-time-use, and never
+  use the short OTP in URLs.
+- Starting a contact change remains authenticated and fresh-auth/Sensitive
+  gated. Confirming applies only the pending change associated with the consumed
+  token/code record.
+- Do not let a public unauthenticated request create or overwrite a pending
+  contact change for an existing signed-in user's account.
+
+**Tasks:**
+- [x] Extract a shared verification request helper for email and phone that
+  accepts purpose/finalizer metadata and emits `VerificationMessage{Code,
+  LinkURL, Purpose}`.
+- [x] Make account email/phone change request generation use the same helper as
+  signup/existing-contact verification; send both code and link token.
+- [x] Make `/email/verify/confirm` and `/phone/verify/confirm` dispatch by
+  stored record kind so pending contact changes finalize through the same route
+  as signup/existing-contact verification.
+- [x] Remove duplicated confirmation branches from `/user/email` and
+  `/user/phone`, or reduce those routes to thin request aliases with no private
+  verification logic.
+- [x] Delete now-redundant `ConfirmEmailChange` / `ConfirmPhoneChange` plumbing
+  or make them internal thin wrappers over the shared finalizer if still needed
+  by tests.
+- [x] Update Twilio default copy/builders to receive enough purpose context for
+  signup/contact-change wording without adding new sender interface methods.
+- [x] Update README, SEMVER, and `agents/api-endpoints.md` to document the single
+  verification route surface and the hard-cut behavior.
+- [x] Tests: email signup code+link, phone signup code+link, existing unverified
+  email/phone code+link, email change code+link, phone change code+link, token
+  reuse fails, wrong-user/wrong-identifier code confirm fails, public unauth
+  request cannot start an account change, fresh-auth required for starting
+  contact changes.
+- [x] Run focused DB-backed HTTP integration tests and `go test ./...`.
+
+VALIDATION:
+- `go test ./http ./internal/authcore ./providers/email/twilio ./providers/sms/twilio`
+- `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_issue134?sslmode=disable go test ./http -run 'TestVerificationConfirmAcceptsCodeOrToken|TestUnifiedVerificationRoutesHandleContactChanges|TestUnifiedVerificationContactChangeTokenAndFreshAuth|TestAuthKitBuiltLinksRedirectWithoutConsumingToken|TestPasswordResetConfirmConsumesTokenDirectly' -count=1 -v`
+- `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_issue134?sslmode=disable go test ./...`
 
 ---
