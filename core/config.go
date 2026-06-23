@@ -26,6 +26,8 @@ type Config struct {
 	Identity IdentityConfig
 	// APIKeys configures opaque org-owned machine credentials.
 	APIKeys APIKeysConfig
+	// TwoFactor configures optional MFA features.
+	TwoFactor TwoFactorConfig
 	// RBAC declares the app permission catalog, default roles, and owner policy.
 	RBAC RBACConfig
 
@@ -148,6 +150,13 @@ type APIKeysConfig struct {
 	// beyond now+MaxTTL (incl. no-expiry) is capped at mint time. The resource-
 	// scope authorizer is injected via the WithResourceScopeAuthorizer option.
 	MaxTTL time.Duration
+}
+
+// TwoFactorConfig configures optional 2FA methods.
+type TwoFactorConfig struct {
+	// TOTPSecretKey encrypts persisted authenticator-app shared secrets. It must
+	// be 16, 24, or 32 bytes. Without it, TOTP enrollment fails closed.
+	TOTPSecretKey []byte
 }
 
 // RBACConfig declares the app permission catalog, default roles, and owner policy.

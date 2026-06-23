@@ -77,6 +77,7 @@ func DefaultRateLimits() map[string]Limit {
 
 		// Two-factor setup + verify
 		RL2FAStartPhone:      {Limit: 3, Window: 10 * time.Minute},
+		RL2FAStartTOTP:       {Limit: 6, Window: time.Hour},
 		RL2FAEnable:          {Limit: 6, Window: time.Hour},
 		RL2FADisable:         {Limit: 6, Window: time.Hour},
 		RL2FARegenerateCodes: {Limit: 3, Window: time.Hour},

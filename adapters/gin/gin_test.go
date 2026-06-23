@@ -47,7 +47,7 @@ func TestRegisterOIDCMountPath(t *testing.T) {
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil))
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), `"error":"invalid_request"`)
+	require.Contains(t, rec.Body.String(), `"code":"invalid_request"`)
 }
 
 func newTestService(t *testing.T) *authhttp.Service {

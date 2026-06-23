@@ -64,6 +64,25 @@ func TestAPIRoutesCollapseContactChangeRoutes(t *testing.T) {
 	}
 }
 
+func TestAPIRoutesCollapseTwoFactorRoutes(t *testing.T) {
+	s := newTestService(t)
+	routes := s.APIRoutes(RouteTwoFactor)
+
+	requireRoute(t, routes, http.MethodGet, "/user/2fa")
+	requireRoute(t, routes, http.MethodPost, "/user/2fa")
+	requireRoute(t, routes, http.MethodDelete, "/user/2fa")
+	requireRoute(t, routes, http.MethodPost, "/user/2fa/backup-codes")
+	requireRoute(t, routes, http.MethodPost, "/2fa/verify")
+	for _, path := range []string{
+		"/user/2fa/start-phone",
+		"/user/2fa/enable",
+		"/user/2fa/disable",
+		"/user/2fa/regenerate-codes",
+	} {
+		requireNoRoute(t, routes, http.MethodPost, path)
+	}
+}
+
 func TestAPIRoutesIncludeProviderDiscovery(t *testing.T) {
 	s := newTestService(t)
 

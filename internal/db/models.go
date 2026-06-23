@@ -138,13 +138,17 @@ type ProfilesServiceTokenResource struct {
 type ProfilesTwoFactorSetting struct {
 	UserID  string
 	Enabled bool
-	// Preferred 2FA method: email or sms
+	// Preferred 2FA method: email, sms, or totp
 	Method      string
 	PhoneNumber *string
 	// Hashed backup codes for account recovery (10 codes)
 	BackupCodes []string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// Encrypted TOTP shared secret for authenticator-app 2FA
+	TotpSecret []byte
+	// Last accepted TOTP time step, used to reject replay
+	LastTotpStep *int64
 }
 
 type ProfilesUser struct {

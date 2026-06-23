@@ -7,7 +7,30 @@ package db
 
 import (
 	"context"
+	"time"
 )
+
+const twoFactorConsumeTOTPStep = `-- name: TwoFactorConsumeTOTPStep :execrows
+UPDATE profiles.two_factor_settings
+SET last_totp_step = $1, updated_at = NOW()
+WHERE user_id = $2
+  AND enabled = true
+  AND method = 'totp'
+  AND (last_totp_step IS NULL OR last_totp_step < $1)
+`
+
+type TwoFactorConsumeTOTPStepParams struct {
+	Step   *int64
+	UserID string
+}
+
+func (q *Queries) TwoFactorConsumeTOTPStep(ctx context.Context, arg TwoFactorConsumeTOTPStepParams) (int64, error) {
+	result, err := q.db.Exec(ctx, twoFactorConsumeTOTPStep, arg.Step, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 const twoFactorDisable = `-- name: TwoFactorDisable :exec
 UPDATE profiles.two_factor_settings
@@ -22,13 +45,15 @@ func (q *Queries) TwoFactorDisable(ctx context.Context, userID string) error {
 
 const twoFactorEnable = `-- name: TwoFactorEnable :exec
 
-INSERT INTO profiles.two_factor_settings (user_id, enabled, method, phone_number, backup_codes, updated_at)
-VALUES ($1, true, $2, $3, $4, NOW())
+INSERT INTO profiles.two_factor_settings (user_id, enabled, method, phone_number, backup_codes, totp_secret, last_totp_step, updated_at)
+VALUES ($1, true, $2, $3, $4, $5, NULL, NOW())
 ON CONFLICT (user_id) DO UPDATE SET
   enabled = true,
   method = EXCLUDED.method,
   phone_number = EXCLUDED.phone_number,
   backup_codes = EXCLUDED.backup_codes,
+  totp_secret = EXCLUDED.totp_secret,
+  last_totp_step = NULL,
   updated_at = NOW()
 `
 
@@ -37,6 +62,7 @@ type TwoFactorEnableParams struct {
 	Method      string
 	PhoneNumber *string
 	BackupCodes []string
+	TotpSecret  []byte
 }
 
 // Two-factor settings queries (core/service.go).
@@ -46,6 +72,7 @@ func (q *Queries) TwoFactorEnable(ctx context.Context, arg TwoFactorEnableParams
 		arg.Method,
 		arg.PhoneNumber,
 		arg.BackupCodes,
+		arg.TotpSecret,
 	)
 	return err
 }
@@ -67,20 +94,34 @@ func (q *Queries) TwoFactorSetBackupCodes(ctx context.Context, arg TwoFactorSetB
 }
 
 const twoFactorSettingsByUser = `-- name: TwoFactorSettingsByUser :one
-SELECT user_id, enabled, method, phone_number, backup_codes, created_at, updated_at
+SELECT user_id, enabled, method, phone_number, backup_codes, totp_secret, last_totp_step, created_at, updated_at
 FROM profiles.two_factor_settings
 WHERE user_id = $1
 `
 
-func (q *Queries) TwoFactorSettingsByUser(ctx context.Context, userID string) (ProfilesTwoFactorSetting, error) {
+type TwoFactorSettingsByUserRow struct {
+	UserID       string
+	Enabled      bool
+	Method       string
+	PhoneNumber  *string
+	BackupCodes  []string
+	TotpSecret   []byte
+	LastTotpStep *int64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+func (q *Queries) TwoFactorSettingsByUser(ctx context.Context, userID string) (TwoFactorSettingsByUserRow, error) {
 	row := q.db.QueryRow(ctx, twoFactorSettingsByUser, userID)
-	var i ProfilesTwoFactorSetting
+	var i TwoFactorSettingsByUserRow
 	err := row.Scan(
 		&i.UserID,
 		&i.Enabled,
 		&i.Method,
 		&i.PhoneNumber,
 		&i.BackupCodes,
+		&i.TotpSecret,
+		&i.LastTotpStep,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

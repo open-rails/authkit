@@ -4,6 +4,7 @@ package authhttp
 const (
 	// 2FA-specific rate limit buckets
 	RL2FAStartPhone      = "auth_2fa_start_phone"
+	RL2FAStartTOTP       = "auth_2fa_start_totp"
 	RL2FAEnable          = "auth_2fa_enable"
 	RL2FADisable         = "auth_2fa_disable"
 	RL2FARegenerateCodes = "auth_2fa_regenerate_codes"

@@ -341,8 +341,8 @@ Verification:
 
 # #101: TOTP (authenticator-app) 2FA method — offline second factor alongside email/SMS
 
-**Completed:** no
-**Status:** PLANNED 2026-06-23 (Paul + Codex). Move into active work because it feeds #103: AuthKit needs a strong offline MFA method before token assurance can distinguish merely password-fresh sessions from MFA-fresh sessions.
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). TOTP is implemented as the third 2FA method, with encrypted shared secrets, pending enrollment, +/-1 step verification, replay rejection, login and reauth support, and the collapsed canonical 2FA management routes. Validation: `make sqlc`; `go test ./... -count=1`; clean-Postgres integration pass with `SQLC_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35433/authkit_db?sslmode=disable make sqlc`, `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35433/authkit_db?sslmode=disable go test ./core -run TestTOTPEnrollmentVerifyAndReplay -count=1`, and `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35433/authkit_db?sslmode=disable go test ./http -run 'TestTOTPEnrollmentAndLoginHTTPIntegration|TestPasswordResetConfirmConsumesTokenDirectly|TestVerificationConfirmAcceptsCodeOrToken' -count=1`.
 
 ## Linkage
 
@@ -412,22 +412,22 @@ Remove old ceremony routes from the canonical API surface:
 
 ## Tasks
 
-- [ ] Add host-provided AES-GCM TOTP secret encryption config; fail closed for TOTP enrollment when missing.
-- [ ] Add migration for `totp_secret`, `last_totp_step`, and `method IN ('email','sms','totp')`; regenerate sqlc.
-- [ ] Add stdlib TOTP secret generation, otpauth URI builder, and code verification with +/-1 step skew.
-- [ ] Add pending TOTP enrollment storage with short TTL.
-- [ ] Extend `Enable2FA` to verify pending TOTP before enabling and persisting the encrypted secret.
-- [ ] Branch `Require2FAForLogin` and `Verify2FACode` for `totp`.
-- [ ] Add replay protection for consumed TOTP time steps.
-- [ ] Replace setup/enable routes with unified `POST /user/2fa`; keep per-method rate limits internally as needed.
-- [ ] Replace `POST /user/2fa/disable` with `DELETE /user/2fa`.
-- [ ] Replace `POST /user/2fa/regenerate-codes` with `POST /user/2fa/backup-codes`.
-- [ ] Update 2FA status to report `method:"totp"`.
-- [ ] Wire TOTP into #103 reauth so a TOTP code can upgrade the current session and record MFA `amr`.
-- [ ] Remove old 2FA ceremony routes from `http/routes.go`.
-- [ ] Add tests: enroll -> confirm -> login, wrong/expired code, +/-1 skew, replay rejected, backup-code path still works, secret is not stored plaintext.
-- [ ] Update README and `agents/api-endpoints.md`.
-- [ ] Run `go test ./...` and record the result here.
+- [x] Add host-provided AES-GCM TOTP secret encryption config; fail closed for TOTP enrollment when missing.
+- [x] Add migration for `totp_secret`, `last_totp_step`, and `method IN ('email','sms','totp')`; regenerate sqlc.
+- [x] Add stdlib TOTP secret generation, otpauth URI builder, and code verification with +/-1 step skew.
+- [x] Add pending TOTP enrollment storage with short TTL.
+- [x] Extend `Enable2FA` to verify pending TOTP before enabling and persisting the encrypted secret.
+- [x] Branch `Require2FAForLogin` and `Verify2FACode` for `totp`.
+- [x] Add replay protection for consumed TOTP time steps.
+- [x] Replace setup/enable routes with unified `POST /user/2fa`; keep per-method rate limits internally as needed.
+- [x] Replace `POST /user/2fa/disable` with `DELETE /user/2fa`.
+- [x] Replace `POST /user/2fa/regenerate-codes` with `POST /user/2fa/backup-codes`.
+- [x] Update 2FA status to report `method:"totp"`.
+- [x] Wire TOTP into #103 reauth so a TOTP code can upgrade the current session and record MFA `amr`.
+- [x] Remove old 2FA ceremony routes from `http/routes.go`.
+- [x] Add tests: enroll -> confirm -> login, wrong/expired code, +/-1 skew, replay rejected, backup-code path still works, secret is not stored plaintext.
+- [x] Update README and `agents/api-endpoints.md`.
+- [x] Run `go test ./...` and record the result here.
 
 ## Acceptance
 
@@ -443,7 +443,7 @@ Remove old ceremony routes from the canonical API surface:
 # #103: Emit OIDC `amr`/`acr`/`auth_time` assurance claims and collapse sensitive contact-change routes
 
 **Completed:** yes
-**Status:** DONE 2026-06-23 (Codex). Token assurance primitives, `/reauth/2fa` email/SMS step-up, fresh-auth gates for 2FA management, and contact-change route collapse are implemented. `acr` is parsed/gated but intentionally not minted until AuthKit has a concrete assurance-class policy. TOTP-specific step-up remains tracked in #101. Validation: `make sqlc`; `go test ./... -count=1`.
+**Status:** DONE 2026-06-23 (Codex). Token assurance primitives, `/reauth/2fa` email/SMS step-up, fresh-auth gates for 2FA management, and contact-change route collapse are implemented. `acr` is parsed/gated but intentionally not minted until AuthKit has a concrete assurance-class policy. TOTP-specific step-up is completed in #101. Validation: `make sqlc`; `go test ./... -count=1`.
 
 ## Naming
 

@@ -870,23 +870,23 @@ Password hash policy (verification whitelist):
 
 Two-Factor Authentication (2FA):
 - Optional security feature for admin accounts to prevent account takeover if password is leaked.
-- Users can enable 2FA via email or SMS methods.
-- When enabled, login requires both password AND a 6-digit code sent via email/SMS.
+- Users can enable 2FA via email, SMS, or TOTP authenticator-app methods.
+- When enabled, login requires both password AND a 6-digit second-factor code.
 - Each user gets **10 backup codes** (8-character alphanumeric) for account recovery in case they lose access to their 2FA method.
 - **Login flow with 2FA**:
   1. POST `/password/login` with email/password
-  2. If 2FA enabled: response has `{"requires_2fa": true, "user_id": "...", "method": "email|sms", "verification_id": "..."}`
-  3. User receives 6-digit code via email or SMS
+  2. If 2FA enabled: response has `{"requires_2fa": true, "user_id": "...", "method": "email|sms|totp", "verification_id": "..."}`
+  3. User receives a 6-digit email/SMS code or enters their authenticator-app code
   4. POST `/2fa/verify` with `{"user_id": "...", "code": "123456"}` (or `{"user_id": "...", "code": "ABC123XY", "backup_code": true}` for backup codes)
   5. Response contains access_token and refresh_token as usual
 - **Setup flow**:
   1. GET `/user/2fa` to check current enabled
-  2. POST `/user/2fa/enable` with `{"method": "email"}` or `{"method": "sms", "phone_number": "+1..."}`
-  3. Response includes `backup_codes` array - **show these to user ONCE and tell them to save them**
-  4. User can regenerate codes with POST `/user/2fa/regenerate-codes` (invalidates old codes)
-  5. User can disable with POST `/user/2fa/disable`
+  2. POST `/user/2fa` with `{"method": "email"}` to enable email 2FA, `{"method": "sms", "phone_number": "+1..."}` then `{"method": "sms", "phone_number": "+1...", "code": "123456"}` for SMS, or `{"method": "totp"}` then `{"method": "totp", "code": "123456"}` for TOTP.
+  3. Enable responses include `backup_codes` array - **show these to user ONCE and tell them to save them**
+  4. User can regenerate codes with POST `/user/2fa/backup-codes` (invalidates old codes)
+  5. User can disable with DELETE `/user/2fa`
 - Backup codes are single-use and removed after verification.
-- 2FA codes expire in **15 minutes**.
+- Server-sent 2FA codes expire in **10 minutes**.
 
 Operation:
 - Key rotation is outside the scope of this library and should be handled by your infrastructure (e.g., External Secrets Operator updating mounted secrets, then restarting pods).
@@ -999,10 +999,9 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - DELETE /user/providers/:provider (requires auth)
 - Two-Factor Authentication (2FA):
   - GET /user/2fa (requires auth) → {enabled, method, phone_number}
-  - POST /user/2fa/start-phone (requires auth) → starts phone 2FA setup, sends code to phone
-  - POST /user/2fa/enable (requires auth) →  → {enabled, method, backup_codes}
-  - POST /user/2fa/disable (requires auth)
-  - POST /user/2fa/regenerate-codes (requires auth) → {backup_codes}
+  - POST /user/2fa (requires auth) → starts or confirms email/SMS/TOTP enrollment
+  - DELETE /user/2fa (requires auth)
+  - POST /user/2fa/backup-codes (requires auth) → {backup_codes}
   - POST /2fa/verify (during login) → {access_token, refresh_token}
 - Admin roles (admin only):
   - POST /admin/roles/grant

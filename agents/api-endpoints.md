@@ -320,11 +320,10 @@ Kind/ID scope rows.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/user/2fa` | AUTH | Get 2FA enabled |
-| POST | `/user/2fa/start-phone` | AUTH | Start phone-based 2FA enrollment |
-| POST | `/user/2fa/enable` | AUTH | Enable 2FA |
-| POST | `/user/2fa/disable` | AUTH | Disable 2FA |
-| POST | `/user/2fa/regenerate-codes` | AUTH | Regenerate backup codes |
+| GET | `/user/2fa` | AUTH | Get 2FA status |
+| POST | `/user/2fa` | AUTH | Start or confirm email/SMS/TOTP 2FA enrollment |
+| DELETE | `/user/2fa` | AUTH | Disable 2FA |
+| POST | `/user/2fa/backup-codes` | AUTH | Regenerate backup codes |
 | POST | `/2fa/verify` | PUBLIC | Verify 2FA code during login |
 
 ---

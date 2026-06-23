@@ -78,6 +78,8 @@ type Options struct {
 	APIKeyPrefix string
 	// APIKeyMaxTTL caps a minted API key's expiry (0 = no cap).
 	APIKeyMaxTTL time.Duration
+	// TOTPSecretKey encrypts persisted authenticator-app shared secrets.
+	TOTPSecretKey []byte
 	// ResourceScopeAuthorizer optionally authorizes host-defined API-key resource
 	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
 	// opaquely for callers who may manage API keys for the org.
@@ -334,6 +336,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		SolanaSNSCacheTTL:          24 * time.Hour,
 		APIKeyPrefix:               tokenPrefix,
 		APIKeyMaxTTL:               maxTTL,
+		TOTPSecretKey:              append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),
 		Permissions:                cfg.RBAC.Permissions,
 		DefaultRoles:               cfg.RBAC.DefaultRoles,
 		OwnerOwnsAppResources:      cfg.RBAC.OwnerOwnsAppResources,
@@ -3823,31 +3826,38 @@ func (s *Service) VerifyPendingPhonePassword(ctx context.Context, phone, pass st
 
 // TwoFactorSettings represents a user's 2FA configuration
 type TwoFactorSettings struct {
-	UserID      string
-	Enabled     bool
-	Method      string // "email" or "sms"
-	PhoneNumber *string
-	BackupCodes []string // Hashed backup codes
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	UserID       string
+	Enabled      bool
+	Method       string // "email", "sms", or "totp"
+	PhoneNumber  *string
+	TOTPSecret   []byte
+	LastTOTPStep *int64
+	BackupCodes  []string // Hashed backup codes
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // Enable2FA enables two-factor authentication for a user and generates backup codes.
 // Returns the plaintext backup codes (caller must show these to user ONCE).
 // Deprecated: use s.TwoFactor().Enable2FA.
 func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string) ([]string, error) {
+	return s.enable2FA(ctx, userID, method, phoneNumber, nil)
+}
+
+func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
 
-	// Validate method
-	if method != "email" && method != "sms" {
-		return nil, fmt.Errorf("invalid 2FA method: must be 'email' or 'sms'")
+	method = strings.ToLower(strings.TrimSpace(method))
+	if method != "email" && method != "sms" && method != "totp" {
+		return nil, fmt.Errorf("invalid 2FA method: must be 'email', 'sms', or 'totp'")
 	}
-
-	// If SMS, phone number is required
 	if method == "sms" && (phoneNumber == nil || *phoneNumber == "") {
 		return nil, fmt.Errorf("phone number required for SMS 2FA")
+	}
+	if method == "totp" && len(totpSecret) == 0 {
+		return nil, fmt.Errorf("totp secret required for TOTP 2FA")
 	}
 
 	// Generate 10 backup codes (8-character alphanumeric)
@@ -3860,7 +3870,7 @@ func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNum
 	}
 
 	// Insert or update 2FA settings
-	if err := s.q.TwoFactorEnable(ctx, db.TwoFactorEnableParams{UserID: userID, Method: method, PhoneNumber: phoneNumber, BackupCodes: hashedCodes}); err != nil {
+	if err := s.q.TwoFactorEnable(ctx, db.TwoFactorEnableParams{UserID: userID, Method: method, PhoneNumber: phoneNumber, BackupCodes: hashedCodes, TotpSecret: totpSecret}); err != nil {
 		return nil, err
 	}
 
@@ -3889,13 +3899,15 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 		return nil, err
 	}
 	return &TwoFactorSettings{
-		UserID:      row.UserID,
-		Enabled:     row.Enabled,
-		Method:      row.Method,
-		PhoneNumber: row.PhoneNumber,
-		BackupCodes: row.BackupCodes,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		UserID:       row.UserID,
+		Enabled:      row.Enabled,
+		Method:       row.Method,
+		PhoneNumber:  row.PhoneNumber,
+		TOTPSecret:   row.TotpSecret,
+		LastTOTPStep: row.LastTotpStep,
+		BackupCodes:  row.BackupCodes,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
 	}, nil
 }
 
@@ -3911,6 +3923,9 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 	}
 	if !settings.Enabled {
 		return "", fmt.Errorf("2FA not enabled")
+	}
+	if settings.Method == "totp" {
+		return "authenticator app", nil
 	}
 
 	// Get user info for email/username
@@ -3992,6 +4007,9 @@ func (s *Service) Require2FAForReauth(ctx context.Context, userID, sessionID str
 	if strings.TrimSpace(sessionID) == "" {
 		return "", "", jwt.ErrTokenInvalidClaims
 	}
+	if settings.Method == "totp" {
+		return "authenticator app", "totp", nil
+	}
 
 	user, err := s.AdminGetUser(ctx, userID)
 	if err != nil {
@@ -4060,6 +4078,13 @@ func (s *Service) Verify2FAReauthCode(ctx context.Context, userID, sessionID, co
 	if strings.TrimSpace(sessionID) == "" {
 		return false, jwt.ErrTokenInvalidClaims
 	}
+	settings, err := s.Get2FASettings(ctx, userID)
+	if err != nil || !settings.Enabled {
+		return false, fmt.Errorf("2FA not enabled")
+	}
+	if settings.Method == "totp" {
+		return s.Verify2FACode(ctx, userID, code)
+	}
 	if !s.useEphemeralStore() {
 		return false, fmt.Errorf("ephemeral store not configured")
 	}
@@ -4109,6 +4134,20 @@ func (s *Service) Clear2FAChallenge(ctx context.Context, userID string) error {
 // Returns true if code is valid, false otherwise.
 // Deprecated: use s.TwoFactor().Verify2FACode.
 func (s *Service) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
+	settings, err := s.Get2FASettings(ctx, userID)
+	if err == nil && settings.Enabled && settings.Method == "totp" {
+		secret, err := s.decryptTOTPSecret(settings.TOTPSecret)
+		if err != nil {
+			return false, err
+		}
+		step, ok, err := matchingTOTPStep(secret, code, time.Now())
+		if err != nil || !ok {
+			return false, err
+		}
+		rows, err := s.q.TwoFactorConsumeTOTPStep(ctx, db.TwoFactorConsumeTOTPStepParams{UserID: userID, Step: &step})
+		return rows > 0, err
+	}
+
 	hash := sha256Hex(code)
 
 	if s.useEphemeralStore() {

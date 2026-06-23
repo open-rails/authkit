@@ -552,6 +552,11 @@ func (f TwoFactorFacet) Enable2FA(ctx context.Context, userID, method string, ph
 	return f.svc.Enable2FA(ctx, userID, method, phoneNumber)
 }
 
+// EnableTOTP2FA calls Service.EnableTOTP2FA.
+func (f TwoFactorFacet) EnableTOTP2FA(ctx context.Context, userID, code string) ([]string, error) {
+	return f.svc.EnableTOTP2FA(ctx, userID, code)
+}
+
 // Get2FASettings calls Service.Get2FASettings.
 func (f TwoFactorFacet) Get2FASettings(ctx context.Context, userID string) (*TwoFactorSettings, error) {
 	return f.svc.Get2FASettings(ctx, userID)
@@ -575,6 +580,11 @@ func (f TwoFactorFacet) Require2FAForReauth(ctx context.Context, userID, session
 // SendPhone2FASetupCode calls Service.SendPhone2FASetupCode.
 func (f TwoFactorFacet) SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
 	return f.svc.SendPhone2FASetupCode(ctx, userID, phone, code)
+}
+
+// StartTOTPEnrollment calls Service.StartTOTPEnrollment.
+func (f TwoFactorFacet) StartTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error) {
+	return f.svc.StartTOTPEnrollment(ctx, userID)
 }
 
 // Verify2FAChallenge calls Service.Verify2FAChallenge.
