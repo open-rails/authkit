@@ -216,6 +216,17 @@ func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 	}
 }
 
+func configureGitHubOAuthForTest(t *testing.T, s *Service) {
+	t.Helper()
+	s.oidcProviders = map[string]oidckit.RPConfig{
+		"github": {ClientID: "github-client", ClientSecret: "github-secret"},
+	}
+	var err error
+	s.authProvidersByName, err = buildAuthProvidersMap(s.oidcProviders, s.providers)
+	require.NoError(t, err)
+	s.resetOIDCManagerForTest()
+}
+
 func TestBuildFrontendCallbackURL(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -236,6 +247,86 @@ func TestBuildFrontendCallbackURL(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestSanitizeReturnTo(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: "/"},
+		{name: "normal path", in: "/subscribe", want: "/subscribe"},
+		{name: "path query", in: "/subscribe?plan=pro&coupon=AK", want: "/subscribe?plan=pro&coupon=AK"},
+		{name: "absolute", in: "https://evil.example/subscribe", want: "/"},
+		{name: "scheme relative", in: "//evil.example/subscribe", want: "/"},
+		{name: "scheme text", in: "javascript:alert(1)", want: "/"},
+		{name: "backslash", in: `/\evil`, want: "/"},
+		{name: "crlf", in: "/ok\r\nLocation:https://evil.example", want: "/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, sanitizeReturnTo(tt.in))
+		})
+	}
+}
+
+func TestBuildAuthResultFragment_ReturnTo(t *testing.T) {
+	frag := buildAuthResultFragment("access", "refresh", 60, "google", "state", "/subscribe?plan=pro")
+	v, err := url.ParseQuery(strings.TrimPrefix(frag, "#"))
+	require.NoError(t, err)
+	require.Equal(t, "access", v.Get("access_token"))
+	require.Equal(t, "refresh", v.Get("refresh_token"))
+	require.Equal(t, "60", v.Get("expires_in"))
+	require.Equal(t, "google", v.Get("provider"))
+	require.Equal(t, "state", v.Get("state"))
+	require.Equal(t, "/subscribe?plan=pro", v.Get("return_to"))
+
+	frag = buildAuthResultFragment("access", "refresh", 60, "google", "state", "https://evil.example/")
+	v, err = url.ParseQuery(strings.TrimPrefix(frag, "#"))
+	require.NoError(t, err)
+	require.Empty(t, v.Get("return_to"))
+
+	frag = buildAuthResultFragment("access", "refresh", 60, "google", "state", "")
+	v, err = url.ParseQuery(strings.TrimPrefix(frag, "#"))
+	require.NoError(t, err)
+	require.Empty(t, v.Get("return_to"))
+}
+
+func TestOIDCLoginStoresReturnTo(t *testing.T) {
+	s := newTestService(t)
+	configureGitHubOAuthForTest(t, s)
+	h := s.OIDCHandler()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/github/login?return_to=%2Fsubscribe%3Fplan%3Dpro", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusFound, w.Code)
+	loc, err := url.Parse(w.Header().Get("Location"))
+	require.NoError(t, err)
+	state := loc.Query().Get("state")
+	require.NotEmpty(t, state)
+	sd, ok, err := s.stateCache().Get(context.Background(), state)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "/subscribe?plan=pro", sd.ReturnTo)
+}
+
+func TestOIDCLoginDropsMaliciousReturnTo(t *testing.T) {
+	s := newTestService(t)
+	configureGitHubOAuthForTest(t, s)
+	h := s.OIDCHandler()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/github/login?return_to=https%3A%2F%2Fevil.example%2F", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusFound, w.Code)
+	loc, err := url.Parse(w.Header().Get("Location"))
+	require.NoError(t, err)
+	state := loc.Query().Get("state")
+	require.NotEmpty(t, state)
+	sd, ok, err := s.stateCache().Get(context.Background(), state)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "/", sd.ReturnTo)
 }
 
 func TestOIDCCallbackPath_ReauthStartUsesReauthCallback(t *testing.T) {

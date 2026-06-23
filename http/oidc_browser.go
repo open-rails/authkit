@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -60,6 +61,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		Verifier:    verifier,
 		Nonce:       nonce,
 		RedirectURI: redirectURI,
+		ReturnTo:    sanitizeReturnTo(r.URL.Query().Get("return_to")),
 		UI:          ui,
 		PopupNonce:  popupNonce,
 	}); err != nil {
@@ -163,7 +165,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// SECURITY (C-2): never silently link a fresh IdP identity to a
 		// pre-existing local account by matching its asserted email. An IdP that
 		// asserts (or lies about) a victim's email — Apple private-relay, a
-		// hostile/federated issuer, a org-controlled mailbox — would otherwise
+		// hostile/federated issuer, an organization-controlled mailbox — would otherwise
 		// take over the victim's existing account with no proof the caller
 		// controls it. If a local account already owns this email, refuse and
 		// require the user to sign in and link the provider via the authenticated
@@ -276,7 +278,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	if base == "" {
 		base = "/"
 	}
-	frag := "#access_token=" + token + "&refresh_token=" + rt + "&expires_in=" + fmt.Sprint(int64(time.Until(exp).Seconds())) + "&provider=" + provider + "&state=" + state
+	frag := buildAuthResultFragment(token, rt, int64(time.Until(exp).Seconds()), provider, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.svc.Options().FrontendCallbackPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
 }
@@ -301,6 +303,19 @@ func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {
 		path = "/login/callback"
 	}
 	return strings.TrimRight(base, "/") + path + fragment
+}
+
+func buildAuthResultFragment(accessToken, refreshToken string, expiresIn int64, provider, state, returnTo string) string {
+	v := url.Values{}
+	v.Set("access_token", accessToken)
+	v.Set("refresh_token", refreshToken)
+	v.Set("expires_in", fmt.Sprint(expiresIn))
+	v.Set("provider", provider)
+	v.Set("state", state)
+	if rt := sanitizeReturnTo(returnTo); rt != "/" {
+		v.Set("return_to", rt)
+	}
+	return "#" + v.Encode()
 }
 
 func buildPopupHTML(payloadJSON []byte, targetOrigin string) []byte {
