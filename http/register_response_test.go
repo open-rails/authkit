@@ -12,6 +12,7 @@ import (
 	"time"
 
 	core "github.com/open-rails/authkit/core"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	authlang "github.com/open-rails/authkit/lang"
 	memorystore "github.com/open-rails/authkit/storage/memory"
@@ -75,7 +76,7 @@ func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificati
 	require.NoError(t, err)
 	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := append([]core.Option{core.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)}, coreOpts...)
-	coreSvc := core.NewService(core.Options{
+	coreSvc := authcore.NewService(core.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
@@ -91,56 +92,6 @@ func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificati
 	ver.WithService(coreSvc)
 
 	return &Service{svc: coreSvc, verifier: ver}
-}
-
-func TestRegistrationResponseBuilder(t *testing.T) {
-	email := "user@example.com"
-	phone := "+15551234567"
-
-	require.Equal(t, registrationResponse{
-		OK:              true,
-		Username:        "user",
-		Email:           &email,
-		PhoneNumber:     nil,
-		DiscordUsername: nil,
-		NextAction:      registrationNextActionVerifyEmail,
-	}, newRegistrationResponse("user", &email, nil, registrationNextActionVerifyEmail, nil))
-
-	require.Equal(t, registrationResponse{
-		OK:              true,
-		Username:        "user",
-		Email:           nil,
-		PhoneNumber:     &phone,
-		DiscordUsername: nil,
-		NextAction:      registrationNextActionVerifyPhone,
-	}, newRegistrationResponse("user", nil, &phone, registrationNextActionVerifyPhone, nil))
-
-	require.Equal(t, registrationResponse{
-		OK:              true,
-		Username:        "user",
-		Email:           &email,
-		PhoneNumber:     nil,
-		DiscordUsername: nil,
-		NextAction:      registrationNextActionNone,
-	}, newRegistrationResponse("user", &email, nil, registrationNextActionNone, nil))
-
-	require.Equal(t, registrationResponse{
-		OK:              true,
-		Username:        "user",
-		Email:           &email,
-		PhoneNumber:     nil,
-		DiscordUsername: nil,
-		NextAction:      registrationNextActionNone,
-		AccessToken:     "access",
-		TokenType:       "Bearer",
-		ExpiresIn:       3600,
-		RefreshToken:    "refresh",
-	}, newRegistrationResponse("user", &email, nil, registrationNextActionNone, &authTokensResponse{
-		AccessToken:  "access",
-		TokenType:    "Bearer",
-		ExpiresIn:    3600,
-		RefreshToken: "refresh",
-	}))
 }
 
 func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {

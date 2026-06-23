@@ -20,9 +20,8 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		Email    string `json:"email"`
 		Login    string `json:"login"` // email or username
 		Password string `json:"password"`
-		Org      string `json:"org"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.Password == "" || strings.TrimSpace(req.Org) != "" {
+	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -341,26 +340,6 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			})
 			return
 		}
-		if ok, err := s.svc.UserSatisfiesMandatory2FA(r.Context(), finalUserID); err != nil {
-			serverErr(w, ErrDatabaseError)
-			return
-		} else if !ok {
-			token, exp, err := s.svc.Issue2FAEnrollmentToken(r.Context(), finalUserID)
-			if err != nil {
-				serverErr(w, ErrTokenIssueFailed)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{
-				"error":                   ErrTwoFAEnrollmentRequired,
-				"requires_2fa_enrollment": true,
-				"allowed_methods":         []string{"email", "sms", "totp"},
-				"access_token":            token,
-				"token_type":              "Bearer",
-				"expires_in":              int64(time.Until(exp).Seconds()),
-			})
-			return
-		}
-
 		sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), finalUserID, r.UserAgent(), nil)
 		if err != nil {
 			if errors.Is(err, core.ErrUserBanned) {

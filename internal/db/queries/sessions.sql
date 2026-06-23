@@ -6,7 +6,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 RETURNING id::text, family_id::text;
 
 -- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, family_id::text
+SELECT id::text, user_id, family_id::text,
+       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
 FROM profiles.refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());

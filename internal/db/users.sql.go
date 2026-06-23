@@ -10,6 +10,31 @@ import (
 	"time"
 )
 
+const groupAssignmentsDeleteByUser = `-- name: GroupAssignmentsDeleteByUser :exec
+
+DELETE FROM profiles.group_role_assignments
+WHERE subject_id = $1::uuid AND subject_kind = 'user'
+`
+
+// #125 D7: pre-delete cleanup for the hard-delete/purge path. group_role_assignments
+// uses a polymorphic trigger-FK (no cascade) so user assignments would orphan;
+// group_invites.invited_by is ON DELETE RESTRICT so sent invites must be cleared
+// before the user row is removed.
+func (q *Queries) GroupAssignmentsDeleteByUser(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, groupAssignmentsDeleteByUser, userID)
+	return err
+}
+
+const groupInvitesDeleteByInviter = `-- name: GroupInvitesDeleteByInviter :exec
+DELETE FROM profiles.group_invites
+WHERE invited_by = $1::uuid
+`
+
+func (q *Queries) GroupInvitesDeleteByInviter(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, groupInvitesDeleteByInviter, userID)
+	return err
+}
+
 const sessionsRevokeAllQuiet = `-- name: SessionsRevokeAllQuiet :exec
 UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2
 `
@@ -80,27 +105,26 @@ func (q *Queries) UserBan(ctx context.Context, arg UserBanParams) error {
 }
 
 const userByEmail = `-- name: UserByEmail :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE email = lower($1::text)::citext
 `
 
 type UserByEmailRow struct {
-	ID              string
-	Email           *string
-	PhoneNumber     *string
-	Username        *string
-	DiscordUsername *string
-	EmailVerified   bool
-	PhoneVerified   bool
-	BannedAt        *time.Time
-	BannedUntil     *time.Time
-	BanReason       *string
-	BannedBy        *string
-	DeletedAt       *time.Time
-	Biography       *string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastLogin       *time.Time
+	ID            string
+	Email         *string
+	PhoneNumber   *string
+	Username      *string
+	EmailVerified bool
+	PhoneVerified bool
+	BannedAt      *time.Time
+	BannedUntil   *time.Time
+	BanReason     *string
+	BannedBy      *string
+	DeletedAt     *time.Time
+	Biography     *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	LastLogin     *time.Time
 }
 
 func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow, error) {
@@ -111,7 +135,6 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow
 		&i.Email,
 		&i.PhoneNumber,
 		&i.Username,
-		&i.DiscordUsername,
 		&i.EmailVerified,
 		&i.PhoneVerified,
 		&i.BannedAt,
@@ -128,27 +151,26 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow
 }
 
 const userByID = `-- name: UserByID :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE id = $1
 `
 
 type UserByIDRow struct {
-	ID              string
-	Email           *string
-	PhoneNumber     *string
-	Username        *string
-	DiscordUsername *string
-	EmailVerified   bool
-	PhoneVerified   bool
-	BannedAt        *time.Time
-	BannedUntil     *time.Time
-	BanReason       *string
-	BannedBy        *string
-	DeletedAt       *time.Time
-	Biography       *string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastLogin       *time.Time
+	ID            string
+	Email         *string
+	PhoneNumber   *string
+	Username      *string
+	EmailVerified bool
+	PhoneVerified bool
+	BannedAt      *time.Time
+	BannedUntil   *time.Time
+	BanReason     *string
+	BannedBy      *string
+	DeletedAt     *time.Time
+	Biography     *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	LastLogin     *time.Time
 }
 
 func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) {
@@ -159,7 +181,6 @@ func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) 
 		&i.Email,
 		&i.PhoneNumber,
 		&i.Username,
-		&i.DiscordUsername,
 		&i.EmailVerified,
 		&i.PhoneVerified,
 		&i.BannedAt,
@@ -176,27 +197,26 @@ func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) 
 }
 
 const userByPhone = `-- name: UserByPhone :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE phone_number = $1
 `
 
 type UserByPhoneRow struct {
-	ID              string
-	Email           *string
-	PhoneNumber     *string
-	Username        *string
-	DiscordUsername *string
-	EmailVerified   bool
-	PhoneVerified   bool
-	BannedAt        *time.Time
-	BannedUntil     *time.Time
-	BanReason       *string
-	BannedBy        *string
-	DeletedAt       *time.Time
-	Biography       *string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastLogin       *time.Time
+	ID            string
+	Email         *string
+	PhoneNumber   *string
+	Username      *string
+	EmailVerified bool
+	PhoneVerified bool
+	BannedAt      *time.Time
+	BannedUntil   *time.Time
+	BanReason     *string
+	BannedBy      *string
+	DeletedAt     *time.Time
+	Biography     *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	LastLogin     *time.Time
 }
 
 func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByPhoneRow, error) {
@@ -207,7 +227,6 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByP
 		&i.Email,
 		&i.PhoneNumber,
 		&i.Username,
-		&i.DiscordUsername,
 		&i.EmailVerified,
 		&i.PhoneVerified,
 		&i.BannedAt,
@@ -224,27 +243,26 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByP
 }
 
 const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE username = $1
 `
 
 type UserByUsernameRow struct {
-	ID              string
-	Email           *string
-	PhoneNumber     *string
-	Username        *string
-	DiscordUsername *string
-	EmailVerified   bool
-	PhoneVerified   bool
-	BannedAt        *time.Time
-	BannedUntil     *time.Time
-	BanReason       *string
-	BannedBy        *string
-	DeletedAt       *time.Time
-	Biography       *string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastLogin       *time.Time
+	ID            string
+	Email         *string
+	PhoneNumber   *string
+	Username      *string
+	EmailVerified bool
+	PhoneVerified bool
+	BannedAt      *time.Time
+	BannedUntil   *time.Time
+	BanReason     *string
+	BannedBy      *string
+	DeletedAt     *time.Time
+	Biography     *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	LastLogin     *time.Time
 }
 
 func (q *Queries) UserByUsername(ctx context.Context, username *string) (UserByUsernameRow, error) {
@@ -255,7 +273,6 @@ func (q *Queries) UserByUsername(ctx context.Context, username *string) (UserByU
 		&i.Email,
 		&i.PhoneNumber,
 		&i.Username,
-		&i.DiscordUsername,
 		&i.EmailVerified,
 		&i.PhoneVerified,
 		&i.BannedAt,
@@ -287,17 +304,6 @@ DELETE FROM profiles.users WHERE id = $1
 func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, userDeleteHard, id)
 	return err
-}
-
-const userDiscordUsername = `-- name: UserDiscordUsername :one
-SELECT discord_username FROM profiles.users WHERE id = $1
-`
-
-func (q *Queries) UserDiscordUsername(ctx context.Context, id string) (*string, error) {
-	row := q.db.QueryRow(ctx, userDiscordUsername, id)
-	var discord_username *string
-	err := row.Scan(&discord_username)
-	return discord_username, err
 }
 
 const userEmailByID = `-- name: UserEmailByID :one
@@ -372,7 +378,7 @@ type UserImportInsertParams struct {
 	PhoneNumber   *string
 	Username      *string
 	EmailVerified bool
-	PhoneVerified *bool
+	PhoneVerified bool
 	BannedAt      *time.Time
 	BannedUntil   *time.Time
 	BanReason     *string
@@ -424,7 +430,7 @@ type UserImportUpdateParams struct {
 	PhoneNumber   *string
 	Username      *string
 	EmailVerified bool
-	PhoneVerified *bool
+	PhoneVerified bool
 	BannedAt      *time.Time
 	BannedUntil   *time.Time
 	BanReason     *string
@@ -720,7 +726,7 @@ WHERE id = $1
 type UserSetPhoneAndVerifiedParams struct {
 	ID            string
 	PhoneNumber   *string
-	PhoneVerified *bool
+	PhoneVerified bool
 }
 
 func (q *Queries) UserSetPhoneAndVerified(ctx context.Context, arg UserSetPhoneAndVerifiedParams) error {
@@ -734,7 +740,7 @@ UPDATE profiles.users SET phone_verified = $2, updated_at = NOW() WHERE id = $1
 
 type UserSetPhoneVerifiedByIDParams struct {
 	ID            string
-	PhoneVerified *bool
+	PhoneVerified bool
 }
 
 func (q *Queries) UserSetPhoneVerifiedByID(ctx context.Context, arg UserSetPhoneVerifiedByIDParams) error {

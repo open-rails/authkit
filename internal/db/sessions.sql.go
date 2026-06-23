@@ -11,7 +11,8 @@ import (
 )
 
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, family_id::text
+SELECT id::text, user_id, family_id::text,
+       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
 FROM profiles.refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
@@ -23,15 +24,21 @@ type SessionByCurrentTokenHashParams struct {
 }
 
 type SessionByCurrentTokenHashRow struct {
-	ID       string
-	UserID   string
-	FamilyID string
+	ID          string
+	UserID      string
+	FamilyID    string
+	AuthMethods []string
 }
 
 func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCurrentTokenHashParams) (SessionByCurrentTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, sessionByCurrentTokenHash, arg.CurrentTokenHash, arg.Issuer)
 	var i SessionByCurrentTokenHashRow
-	err := row.Scan(&i.ID, &i.UserID, &i.FamilyID)
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FamilyID,
+		&i.AuthMethods,
+	)
 	return i, err
 }
 

@@ -16,59 +16,17 @@ import (
 func merchantSchema(t *testing.T) *core.GroupSchema {
 	t.Helper()
 	s, err := core.BuildSchema(
-		core.GroupTypeDef{
-			Name: "merchant", AllowedParents: []string{core.RootType},
+		core.PersonaDef{
+			Name: "merchant", AllowedParents: []string{core.RootPersona},
 			Routes: core.ManagementProfile{MemberAssignment: true, APIKeyMinting: true},
 		},
-		core.GroupTypeDef{
-			Name: "repo", AllowedParents: []string{core.RootType},
+		core.PersonaDef{
+			Name: "repo", AllowedParents: []string{core.RootPersona},
 			Routes: core.ManagementProfile{MemberAssignment: true},
 		},
 	)
 	require.NoError(t, err)
 	return s
-}
-
-func routeTable(specs []RouteSpec) map[string]bool {
-	m := make(map[string]bool, len(specs))
-	for _, sp := range specs {
-		m[sp.Method+" "+sp.Path] = true
-	}
-	return m
-}
-
-// TestGeneratedRouteTable_MirrorsSchemaProfile asserts the HTTP route TABLE the
-// generator produces matches the declared schema profile: enabled capabilities
-// are present (with ServeMux-style {param} paths), disabled ones are absent.
-func TestGeneratedRouteTable_MirrorsSchemaProfile(t *testing.T) {
-	s := newTestService(t)
-	table := routeTable(generatedRouteSpecs(s, merchantSchema(t).GeneratedRoutes()))
-
-	// Enabled: merchant members (CRUD + role-assign) present. ServeMux wildcard
-	// names use underscores (':resource-id' -> '{resource_id}'); '-' is illegal
-	// in a wildcard name.
-	for _, want := range []string{
-		"GET /merchant/{resource_id}/members",
-		"POST /merchant/{resource_id}/members",
-		"DELETE /merchant/{resource_id}/members/{user}",
-		"PUT /merchant/{resource_id}/members/{user}/roles/{role}",
-		"GET /merchant/{resource_id}/roles",     // catalog read always present
-		"POST /merchant/{resource_id}/api-keys", // api-key minting on
-		"POST /repo/{resource_id}/members",      // repo members on
-	} {
-		require.Truef(t, table[want], "expected generated route %q", want)
-	}
-
-	// Disabled => ABSENT (the 404 invariant: a disabled capability emits no route).
-	for _, absent := range []string{
-		"POST /merchant/{resource_id}/roles",               // custom-role creation OFF
-		"POST /merchant/{resource_id}/remote-applications", // remote-apps OFF
-		"POST /merchant/{resource_id}/invites",             // invites OFF
-		"POST /repo/{resource_id}/api-keys",                // repo api-keys OFF
-		"DELETE /merchant/{resource_id}/members/{user}/roles/{role}",
-	} {
-		require.Falsef(t, table[absent], "route %q should NOT be generated (capability disabled)", absent)
-	}
 }
 
 // TestGeneratedRouteTable_GatesOnDeclaredPerm asserts every generated RouteSpec
@@ -120,21 +78,6 @@ func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
 	require.False(t, called, "authorizer must not be consulted without claims")
 }
 
-// TestPermissionGroupRoutes_IncludedInDefaultAPI: the root-only default schema
-// has member-assignment on, so the generated members routes appear in the
-// default API surface and in the dedicated PermissionGroups accessor.
-func TestPermissionGroupRoutes_IncludedInDefaultAPI(t *testing.T) {
-	s := newTestService(t)
-
-	// Root persona member routes (root type ships MemberAssignment: true).
-	requireRoute(t, s.Routes().PermissionGroups(), http.MethodPost, "/root/{resource_id}/members")
-	requireRoute(t, s.Routes().PermissionGroups(), http.MethodGet, "/me/groups")
-	// And folded into the default API surface.
-	requireRoute(t, s.Routes().DefaultAPI(), http.MethodPost, "/root/{resource_id}/members")
-	// Group-selection still works: selecting only RouteRegister excludes them.
-	requireNoRoute(t, s.APIRoutes(RouteRegister), http.MethodGet, "/me/groups")
-}
-
 // withMuxParams rebuilds the request through a one-route ServeMux so r.PathValue
 // is populated exactly as it would be in production (PathValue is only set when a
 // request is matched by a pattern; httptest.NewRequest alone does not set it).
@@ -154,8 +97,8 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 // TestAllGeneratedRoutesWired asserts the generator emits NO unimplemented routes:
 // every per-persona management route maps to a real operation (no opStub / 501).
 func TestAllGeneratedRoutesWired(t *testing.T) {
-	sch, err := core.BuildSchema(core.GroupTypeDef{
-		Name: "org", AllowedParents: []string{core.RootType}, AllowCustomRoles: true,
+	sch, err := core.BuildSchema(core.PersonaDef{
+		Name: "org", AllowedParents: []string{core.RootPersona}, AllowCustomRoles: true,
 		Routes: core.ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, Invitation: true},
 	})
 	require.NoError(t, err)

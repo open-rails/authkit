@@ -7,77 +7,53 @@ package db
 
 import (
 	"context"
-	"time"
 )
 
-const twoFactorClearDefaultFactors = `-- name: TwoFactorClearDefaultFactors :exec
-UPDATE profiles.two_factor_factors
+const mFAClearDefaultFactors = `-- name: MFAClearDefaultFactors :exec
+UPDATE profiles.mfa_factors
 SET is_default = false, updated_at = NOW()
-WHERE user_id = $1 AND enabled = true
+WHERE user_id = $1
 `
 
-func (q *Queries) TwoFactorClearDefaultFactors(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, twoFactorClearDefaultFactors, userID)
+func (q *Queries) MFAClearDefaultFactors(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, mFAClearDefaultFactors, userID)
 	return err
 }
 
-const twoFactorConsumeFactorTOTPStep = `-- name: TwoFactorConsumeFactorTOTPStep :execrows
-UPDATE profiles.two_factor_factors
+const mFAConsumeFactorTOTPStep = `-- name: MFAConsumeFactorTOTPStep :execrows
+UPDATE profiles.mfa_factors
 SET last_totp_step = $1, updated_at = NOW()
 WHERE id = $2
   AND user_id = $3
-  AND enabled = true
   AND method = 'totp'
   AND (last_totp_step IS NULL OR last_totp_step < $1)
 `
 
-type TwoFactorConsumeFactorTOTPStepParams struct {
+type MFAConsumeFactorTOTPStepParams struct {
 	Step   *int64
 	ID     string
 	UserID string
 }
 
-func (q *Queries) TwoFactorConsumeFactorTOTPStep(ctx context.Context, arg TwoFactorConsumeFactorTOTPStepParams) (int64, error) {
-	result, err := q.db.Exec(ctx, twoFactorConsumeFactorTOTPStep, arg.Step, arg.ID, arg.UserID)
+func (q *Queries) MFAConsumeFactorTOTPStep(ctx context.Context, arg MFAConsumeFactorTOTPStepParams) (int64, error) {
+	result, err := q.db.Exec(ctx, mFAConsumeFactorTOTPStep, arg.Step, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const twoFactorConsumeTOTPStep = `-- name: TwoFactorConsumeTOTPStep :execrows
-UPDATE profiles.two_factor_settings
-SET last_totp_step = $1, updated_at = NOW()
-WHERE user_id = $2
-  AND enabled = true
-  AND method = 'totp'
-  AND (last_totp_step IS NULL OR last_totp_step < $1)
-`
-
-type TwoFactorConsumeTOTPStepParams struct {
-	Step   *int64
-	UserID string
-}
-
-func (q *Queries) TwoFactorConsumeTOTPStep(ctx context.Context, arg TwoFactorConsumeTOTPStepParams) (int64, error) {
-	result, err := q.db.Exec(ctx, twoFactorConsumeTOTPStep, arg.Step, arg.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const twoFactorDefaultFactorByUser = `-- name: TwoFactorDefaultFactorByUser :one
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, enabled, created_at, updated_at
-FROM profiles.two_factor_factors
-WHERE user_id = $1 AND enabled = true
+const mFADefaultFactorByUser = `-- name: MFADefaultFactorByUser :one
+SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
+FROM profiles.mfa_factors
+WHERE user_id = $1
 ORDER BY is_default DESC, created_at ASC, id ASC
 LIMIT 1
 `
 
-func (q *Queries) TwoFactorDefaultFactorByUser(ctx context.Context, userID string) (ProfilesTwoFactorFactor, error) {
-	row := q.db.QueryRow(ctx, twoFactorDefaultFactorByUser, userID)
-	var i ProfilesTwoFactorFactor
+func (q *Queries) MFADefaultFactorByUser(ctx context.Context, userID string) (ProfilesMfaFactor, error) {
+	row := q.db.QueryRow(ctx, mFADefaultFactorByUser, userID)
+	var i ProfilesMfaFactor
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -86,112 +62,81 @@ func (q *Queries) TwoFactorDefaultFactorByUser(ctx context.Context, userID strin
 		&i.TotpSecret,
 		&i.LastTotpStep,
 		&i.IsDefault,
-		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const twoFactorDelete = `-- name: TwoFactorDelete :exec
-DELETE FROM profiles.two_factor_settings
+const mFADelete = `-- name: MFADelete :exec
+DELETE FROM profiles.mfa_settings
 WHERE user_id = $1
 `
 
-func (q *Queries) TwoFactorDelete(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, twoFactorDelete, userID)
+func (q *Queries) MFADelete(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, mFADelete, userID)
 	return err
 }
 
-const twoFactorDisable = `-- name: TwoFactorDisable :exec
-UPDATE profiles.two_factor_settings
-SET enabled = false, updated_at = NOW()
+const mFADeleteAllFactors = `-- name: MFADeleteAllFactors :exec
+DELETE FROM profiles.mfa_factors
 WHERE user_id = $1
 `
 
-func (q *Queries) TwoFactorDisable(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, twoFactorDisable, userID)
+func (q *Queries) MFADeleteAllFactors(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, mFADeleteAllFactors, userID)
 	return err
 }
 
-const twoFactorDisableAllFactors = `-- name: TwoFactorDisableAllFactors :exec
-UPDATE profiles.two_factor_factors
-SET enabled = false, is_default = false, updated_at = NOW()
-WHERE user_id = $1 AND enabled = true
+const mFADeleteFactor = `-- name: MFADeleteFactor :execrows
+DELETE FROM profiles.mfa_factors
+WHERE user_id = $1 AND id = $2
 `
 
-func (q *Queries) TwoFactorDisableAllFactors(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, twoFactorDisableAllFactors, userID)
-	return err
-}
-
-const twoFactorDisableFactor = `-- name: TwoFactorDisableFactor :execrows
-UPDATE profiles.two_factor_factors
-SET enabled = false, is_default = false, updated_at = NOW()
-WHERE user_id = $1 AND id = $2 AND enabled = true
-`
-
-type TwoFactorDisableFactorParams struct {
+type MFADeleteFactorParams struct {
 	UserID string
 	ID     string
 }
 
-func (q *Queries) TwoFactorDisableFactor(ctx context.Context, arg TwoFactorDisableFactorParams) (int64, error) {
-	result, err := q.db.Exec(ctx, twoFactorDisableFactor, arg.UserID, arg.ID)
+func (q *Queries) MFADeleteFactor(ctx context.Context, arg MFADeleteFactorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, mFADeleteFactor, arg.UserID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const twoFactorEnable = `-- name: TwoFactorEnable :exec
+const mFADisable = `-- name: MFADisable :exec
 
-INSERT INTO profiles.two_factor_settings (user_id, enabled, method, phone_number, backup_codes, totp_secret, last_totp_step, updated_at)
-VALUES ($1, true, $2, $3, $4, $5, NULL, NOW())
-ON CONFLICT (user_id) DO UPDATE SET
-  enabled = true,
-  method = EXCLUDED.method,
-  phone_number = EXCLUDED.phone_number,
-  backup_codes = EXCLUDED.backup_codes,
-  totp_secret = EXCLUDED.totp_secret,
-  last_totp_step = NULL,
-  updated_at = NOW()
+UPDATE profiles.mfa_settings
+SET enabled = false, updated_at = NOW()
+WHERE user_id = $1
 `
 
-type TwoFactorEnableParams struct {
-	UserID      string
-	Method      string
-	PhoneNumber *string
-	BackupCodes []string
-	TotpSecret  []byte
-}
-
-// Two-factor settings queries (core/service.go).
-func (q *Queries) TwoFactorEnable(ctx context.Context, arg TwoFactorEnableParams) error {
-	_, err := q.db.Exec(ctx, twoFactorEnable,
-		arg.UserID,
-		arg.Method,
-		arg.PhoneNumber,
-		arg.BackupCodes,
-		arg.TotpSecret,
-	)
+// Two-factor queries (core/service.go).
+//
+// #125: factors are hard-deleted (no per-factor `enabled` flag). mfa_settings
+// holds only the account-level gate (`enabled`) + `backup_codes`; per-factor data
+// (method/phone/totp_secret/last_totp_step) lives ONLY on mfa_factors.
+func (q *Queries) MFADisable(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, mFADisable, userID)
 	return err
 }
 
-const twoFactorFactorByUserMethod = `-- name: TwoFactorFactorByUserMethod :one
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, enabled, created_at, updated_at
-FROM profiles.two_factor_factors
-WHERE user_id = $1 AND method = $2 AND enabled = true
+const mFAFactorByUserMethod = `-- name: MFAFactorByUserMethod :one
+SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
+FROM profiles.mfa_factors
+WHERE user_id = $1 AND method = $2
 `
 
-type TwoFactorFactorByUserMethodParams struct {
+type MFAFactorByUserMethodParams struct {
 	UserID string
 	Method string
 }
 
-func (q *Queries) TwoFactorFactorByUserMethod(ctx context.Context, arg TwoFactorFactorByUserMethodParams) (ProfilesTwoFactorFactor, error) {
-	row := q.db.QueryRow(ctx, twoFactorFactorByUserMethod, arg.UserID, arg.Method)
-	var i ProfilesTwoFactorFactor
+func (q *Queries) MFAFactorByUserMethod(ctx context.Context, arg MFAFactorByUserMethodParams) (ProfilesMfaFactor, error) {
+	row := q.db.QueryRow(ctx, mFAFactorByUserMethod, arg.UserID, arg.Method)
+	var i ProfilesMfaFactor
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -200,29 +145,28 @@ func (q *Queries) TwoFactorFactorByUserMethod(ctx context.Context, arg TwoFactor
 		&i.TotpSecret,
 		&i.LastTotpStep,
 		&i.IsDefault,
-		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const twoFactorListFactorsByUser = `-- name: TwoFactorListFactorsByUser :many
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, enabled, created_at, updated_at
-FROM profiles.two_factor_factors
-WHERE user_id = $1 AND enabled = true
+const mFAListFactorsByUser = `-- name: MFAListFactorsByUser :many
+SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
+FROM profiles.mfa_factors
+WHERE user_id = $1
 ORDER BY is_default DESC, created_at ASC, id ASC
 `
 
-func (q *Queries) TwoFactorListFactorsByUser(ctx context.Context, userID string) ([]ProfilesTwoFactorFactor, error) {
-	rows, err := q.db.Query(ctx, twoFactorListFactorsByUser, userID)
+func (q *Queries) MFAListFactorsByUser(ctx context.Context, userID string) ([]ProfilesMfaFactor, error) {
+	rows, err := q.db.Query(ctx, mFAListFactorsByUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ProfilesTwoFactorFactor
+	var items []ProfilesMfaFactor
 	for rows.Next() {
-		var i ProfilesTwoFactorFactor
+		var i ProfilesMfaFactor
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -231,7 +175,6 @@ func (q *Queries) TwoFactorListFactorsByUser(ctx context.Context, userID string)
 			&i.TotpSecret,
 			&i.LastTotpStep,
 			&i.IsDefault,
-			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -245,90 +188,73 @@ func (q *Queries) TwoFactorListFactorsByUser(ctx context.Context, userID string)
 	return items, nil
 }
 
-const twoFactorSetBackupCodes = `-- name: TwoFactorSetBackupCodes :exec
-UPDATE profiles.two_factor_settings
+const mFASetBackupCodes = `-- name: MFASetBackupCodes :exec
+UPDATE profiles.mfa_settings
 SET backup_codes = $1, updated_at = NOW()
 WHERE user_id = $2
 `
 
-type TwoFactorSetBackupCodesParams struct {
+type MFASetBackupCodesParams struct {
 	BackupCodes []string
 	UserID      string
 }
 
-func (q *Queries) TwoFactorSetBackupCodes(ctx context.Context, arg TwoFactorSetBackupCodesParams) error {
-	_, err := q.db.Exec(ctx, twoFactorSetBackupCodes, arg.BackupCodes, arg.UserID)
+func (q *Queries) MFASetBackupCodes(ctx context.Context, arg MFASetBackupCodesParams) error {
+	_, err := q.db.Exec(ctx, mFASetBackupCodes, arg.BackupCodes, arg.UserID)
 	return err
 }
 
-const twoFactorSetDefaultFactor = `-- name: TwoFactorSetDefaultFactor :execrows
-UPDATE profiles.two_factor_factors
+const mFASetDefaultFactor = `-- name: MFASetDefaultFactor :execrows
+UPDATE profiles.mfa_factors
 SET is_default = true, updated_at = NOW()
-WHERE user_id = $1 AND id = $2 AND enabled = true
+WHERE user_id = $1 AND id = $2
 `
 
-type TwoFactorSetDefaultFactorParams struct {
+type MFASetDefaultFactorParams struct {
 	UserID string
 	ID     string
 }
 
-func (q *Queries) TwoFactorSetDefaultFactor(ctx context.Context, arg TwoFactorSetDefaultFactorParams) (int64, error) {
-	result, err := q.db.Exec(ctx, twoFactorSetDefaultFactor, arg.UserID, arg.ID)
+func (q *Queries) MFASetDefaultFactor(ctx context.Context, arg MFASetDefaultFactorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, mFASetDefaultFactor, arg.UserID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const twoFactorSettingsByUser = `-- name: TwoFactorSettingsByUser :one
-SELECT user_id, enabled, method, phone_number, backup_codes, totp_secret, last_totp_step, created_at, updated_at
-FROM profiles.two_factor_settings
+const mFASettingsByUser = `-- name: MFASettingsByUser :one
+SELECT user_id, enabled, backup_codes, created_at, updated_at
+FROM profiles.mfa_settings
 WHERE user_id = $1
 `
 
-type TwoFactorSettingsByUserRow struct {
-	UserID       string
-	Enabled      bool
-	Method       string
-	PhoneNumber  *string
-	BackupCodes  []string
-	TotpSecret   []byte
-	LastTotpStep *int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-}
-
-func (q *Queries) TwoFactorSettingsByUser(ctx context.Context, userID string) (TwoFactorSettingsByUserRow, error) {
-	row := q.db.QueryRow(ctx, twoFactorSettingsByUser, userID)
-	var i TwoFactorSettingsByUserRow
+func (q *Queries) MFASettingsByUser(ctx context.Context, userID string) (ProfilesMfaSetting, error) {
+	row := q.db.QueryRow(ctx, mFASettingsByUser, userID)
+	var i ProfilesMfaSetting
 	err := row.Scan(
 		&i.UserID,
 		&i.Enabled,
-		&i.Method,
-		&i.PhoneNumber,
 		&i.BackupCodes,
-		&i.TotpSecret,
-		&i.LastTotpStep,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const twoFactorUpsertFactor = `-- name: TwoFactorUpsertFactor :one
-INSERT INTO profiles.two_factor_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, enabled, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
-ON CONFLICT (user_id, method) WHERE enabled = true DO UPDATE SET
+const mFAUpsertFactor = `-- name: MFAUpsertFactor :one
+INSERT INTO profiles.mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
+ON CONFLICT (user_id, method) DO UPDATE SET
   phone_number = EXCLUDED.phone_number,
   totp_secret = EXCLUDED.totp_secret,
   last_totp_step = EXCLUDED.last_totp_step,
-  is_default = profiles.two_factor_factors.is_default OR EXCLUDED.is_default,
-  enabled = true,
+  is_default = profiles.mfa_factors.is_default OR EXCLUDED.is_default,
   updated_at = NOW()
-RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, enabled, created_at, updated_at
+RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
 `
 
-type TwoFactorUpsertFactorParams struct {
+type MFAUpsertFactorParams struct {
 	UserID       string
 	Method       string
 	PhoneNumber  *string
@@ -337,8 +263,8 @@ type TwoFactorUpsertFactorParams struct {
 	IsDefault    bool
 }
 
-func (q *Queries) TwoFactorUpsertFactor(ctx context.Context, arg TwoFactorUpsertFactorParams) (ProfilesTwoFactorFactor, error) {
-	row := q.db.QueryRow(ctx, twoFactorUpsertFactor,
+func (q *Queries) MFAUpsertFactor(ctx context.Context, arg MFAUpsertFactorParams) (ProfilesMfaFactor, error) {
+	row := q.db.QueryRow(ctx, mFAUpsertFactor,
 		arg.UserID,
 		arg.Method,
 		arg.PhoneNumber,
@@ -346,7 +272,7 @@ func (q *Queries) TwoFactorUpsertFactor(ctx context.Context, arg TwoFactorUpsert
 		arg.LastTotpStep,
 		arg.IsDefault,
 	)
-	var i ProfilesTwoFactorFactor
+	var i ProfilesMfaFactor
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -355,43 +281,27 @@ func (q *Queries) TwoFactorUpsertFactor(ctx context.Context, arg TwoFactorUpsert
 		&i.TotpSecret,
 		&i.LastTotpStep,
 		&i.IsDefault,
-		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const twoFactorUpsertSettings = `-- name: TwoFactorUpsertSettings :exec
-INSERT INTO profiles.two_factor_settings (user_id, enabled, method, phone_number, backup_codes, totp_secret, last_totp_step, updated_at)
-VALUES ($1, true, $2, $3, $4, $5, $6, NOW())
+const mFAUpsertSettings = `-- name: MFAUpsertSettings :exec
+INSERT INTO profiles.mfa_settings (user_id, enabled, backup_codes, updated_at)
+VALUES ($1, true, $2, NOW())
 ON CONFLICT (user_id) DO UPDATE SET
   enabled = true,
-  method = EXCLUDED.method,
-  phone_number = EXCLUDED.phone_number,
   backup_codes = EXCLUDED.backup_codes,
-  totp_secret = EXCLUDED.totp_secret,
-  last_totp_step = EXCLUDED.last_totp_step,
   updated_at = NOW()
 `
 
-type TwoFactorUpsertSettingsParams struct {
-	UserID       string
-	Method       string
-	PhoneNumber  *string
-	BackupCodes  []string
-	TotpSecret   []byte
-	LastTotpStep *int64
+type MFAUpsertSettingsParams struct {
+	UserID      string
+	BackupCodes []string
 }
 
-func (q *Queries) TwoFactorUpsertSettings(ctx context.Context, arg TwoFactorUpsertSettingsParams) error {
-	_, err := q.db.Exec(ctx, twoFactorUpsertSettings,
-		arg.UserID,
-		arg.Method,
-		arg.PhoneNumber,
-		arg.BackupCodes,
-		arg.TotpSecret,
-		arg.LastTotpStep,
-	)
+func (q *Queries) MFAUpsertSettings(ctx context.Context, arg MFAUpsertSettingsParams) error {
+	_, err := q.db.Exec(ctx, mFAUpsertSettings, arg.UserID, arg.BackupCodes)
 	return err
 }

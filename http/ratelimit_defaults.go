@@ -30,6 +30,8 @@ func DefaultRateLimits() map[string]Limit {
 		RLAuthRegisterResendPhone:  {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLAuthRegisterAbandon:      {Limit: 10, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordLogin:            {Limit: 20, Window: time.Hour},
+		RLPasskeyRegister:          {Limit: 12, Window: time.Hour},
+		RLPasskeyLogin:             {Limit: 20, Window: time.Hour},
 
 		// Logout + sessions
 		RLAuthLogout:          {Limit: 60, Window: 10 * time.Minute},

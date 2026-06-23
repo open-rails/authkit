@@ -20,7 +20,7 @@ func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string
 	v := NewVerifier(WithSkew(time.Second))
 	require.NoError(t, v.AddIssuer(issuer, audiences, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
-		OrgSlug: "hentai0",
+		RemoteApplicationSlug: "hentai0",
 	}))
 	return v
 }
@@ -43,7 +43,7 @@ func TestVerifyServiceJWTValidToken(t *testing.T) {
 	claims, principal, err := v.VerifyServiceJWT(context.Background(), token)
 	require.NoError(t, err)
 	require.Equal(t, "service:hentai0-runtime", claims.Subject)
-	require.Equal(t, "hentai0", principal.Org)
+	require.Equal(t, "hentai0", principal.RemoteApplicationSlug)
 	require.Equal(t, []string{"openrails:entitlements:read"}, principal.Permissions)
 	require.Equal(t, []core.APIKeyResource{{Kind: "openrails.merchant", ID: "hentai0"}}, principal.Resources)
 }

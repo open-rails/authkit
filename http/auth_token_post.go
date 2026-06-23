@@ -17,9 +17,8 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		GrantType    string `json:"grant_type"`
 		RefreshToken string `json:"refresh_token"`
-		Org          string `json:"org"`
 	}
-	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") || strings.TrimSpace(body.RefreshToken) == "" || strings.TrimSpace(body.Org) != "" {
+	if err := decodeJSON(r, &body); err != nil || !strings.EqualFold(body.GrantType, "refresh_token") || strings.TrimSpace(body.RefreshToken) == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -28,10 +27,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)
 	if err != nil {
 		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) {
-			sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, map[string]any{
-				"requires_2fa_enrollment": true,
-				"allowed_methods":         []string{"email", "sms", "totp"},
-			})
+			send2FAEnrollmentRequiredError(w)
 			return
 		}
 		if errors.Is(err, core.ErrUserBanned) {
@@ -46,5 +42,28 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		"access_token":  accessToken,
 		"expires_in":    int(time.Until(exp).Seconds()),
 		"refresh_token": newRT,
+	})
+}
+
+func send2FAEnrollmentRequiredError(w http.ResponseWriter) {
+	sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, map[string]any{
+		"requires_2fa_enrollment": true,
+		"allowed_methods":         []string{"email", "sms", "totp"},
+	})
+}
+
+func (s *Service) write2FAEnrollmentRequired(w http.ResponseWriter, r *http.Request, userID string) {
+	token, exp, err := s.svc.Issue2FAEnrollmentToken(r.Context(), userID)
+	if err != nil {
+		serverErr(w, ErrTokenIssueFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"error":                   ErrTwoFAEnrollmentRequired,
+		"requires_2fa_enrollment": true,
+		"allowed_methods":         []string{"email", "sms", "totp"},
+		"access_token":            token,
+		"token_type":              "Bearer",
+		"expires_in":              int64(time.Until(exp).Seconds()),
 	})
 }

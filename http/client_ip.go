@@ -57,27 +57,38 @@ func ClientIPFromForwardedHeaders(trustedProxies []netip.Prefix) ClientIPFunc {
 		if err != nil {
 			return ""
 		}
-		trusted := false
-		for _, p := range trustedProxies {
-			if p.Contains(peerAddr) {
-				trusted = true
-				break
-			}
-		}
-		if trusted {
+		if inPrefixes(peerAddr, trustedProxies) {
+			// CF-Connecting-IP is a single value set by Cloudflare itself (not a
+			// client-appendable list), so it is safe to trust when the peer is one
+			// of our proxies.
 			if v := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); v != "" {
 				if a, err := netip.ParseAddr(v); err == nil && isPublicAddr(a) {
 					return a.String()
 				}
 			}
+			// X-Forwarded-For is a comma-separated chain "client, proxy1, ..., lastProxy".
+			// The LEFT-most entry is supplied by the client and is therefore
+			// spoofable — trusting it lets an attacker rotate their per-IP
+			// rate-limit key at will. Walk RIGHT-to-LEFT instead (entries closest
+			// to us are appended by infrastructure we control and are the most
+			// trustworthy) and return the first hop that is NOT one of our own
+			// trusted proxies (AK security audit F6).
 			if v := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); v != "" {
-				// XFF is a comma-separated list; left-most is the original client.
-				if i := strings.IndexByte(v, ','); i >= 0 {
-					v = v[:i]
-				}
-				v = strings.TrimSpace(v)
-				if a, err := netip.ParseAddr(v); err == nil && isPublicAddr(a) {
-					return a.String()
+				parts := strings.Split(v, ",")
+				for i := len(parts) - 1; i >= 0; i-- {
+					a, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
+					if err != nil {
+						continue
+					}
+					if inPrefixes(a, trustedProxies) {
+						continue // our own proxy hop; keep walking left
+					}
+					if isPublicAddr(a) {
+						return a.String()
+					}
+					// First non-trusted hop is private/reserved: stop rather than
+					// falling through to even-more-spoofable left entries.
+					break
 				}
 			}
 		}
@@ -85,6 +96,16 @@ func ClientIPFromForwardedHeaders(trustedProxies []netip.Prefix) ClientIPFunc {
 		// if the peer is private and no trusted forwarded header is present.
 		return peerAddr.String()
 	}
+}
+
+// inPrefixes reports whether a is contained in any of the given CIDR prefixes.
+func inPrefixes(a netip.Addr, prefixes []netip.Prefix) bool {
+	for _, p := range prefixes {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 func remoteIP(r *http.Request) string {

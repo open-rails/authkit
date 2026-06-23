@@ -94,9 +94,8 @@ SELECT EXISTS(
 
 // Owner-namespace queries (core/service_owner_namespace*.go, core/owner_namespace_lookup.go).
 //
-// #111 hard cut: the org plane is gone, so the org-namespace probes (orgs /
-// org_renames) were dropped. Only the user/owner-reserved-name namespace queries
-// remain.
+// Permission groups own group-scoped routing now. Only the user/owner-reserved
+// name namespace queries remain here.
 func (q *Queries) OwnerReservedNameExists(ctx context.Context, slug string) (bool, error) {
 	row := q.db.QueryRow(ctx, ownerReservedNameExists, slug)
 	var exists bool

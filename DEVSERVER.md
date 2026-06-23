@@ -11,12 +11,14 @@ This repo includes a **dummy/standalone devserver** that runs AuthKit against Po
 ## Run with docker-compose
 
 ```bash
-docker compose -f docker-compose.devserver.yaml up --build
+docker compose up --build
 ```
 
 This starts:
-- Postgres on `localhost:5432`
-- AuthKit devserver on `localhost:8080`
+- Postgres on `localhost:35432`
+- AuthKit devserver on `localhost:38080`
+
+The devserver applies AuthKit's Postgres migrations before it starts serving.
 
 Generated dev signing keys are persisted via a docker volume mounted at `/.runtime/authkit`.
 
@@ -79,8 +81,17 @@ Then mint tokens from the issuer and call billing endpoints with:
 
 ## Run AuthKit E2E tests (docker-compose)
 
-These tests spin up `docker-compose.devserver.yaml` and hit the devserver over HTTP:
+These tests spin up `docker-compose.yaml` and hit the devserver over HTTP:
 
 ```bash
 go test -tags=e2e ./testing -run DevserverE2E
+```
+
+## Run the DB-backed Go suite
+
+Start the compose issuer so migrations run, then use the Taskfile test target:
+
+```bash
+docker compose up -d --build issuer
+task test
 ```

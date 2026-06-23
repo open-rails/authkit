@@ -90,8 +90,11 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	redirectURI := buildRedirectURI(r, cfg.Name)
+	redirectURI := s.buildRedirectURI(r, cfg.Name)
 	state := randB64(32)
+	// AK F3: bind state to this browser so a third party can't drive a victim
+	// through the callback with an attacker-issued state+code (login CSRF).
+	s.setStateCookie(w, r, state)
 	verifier := ""
 	challenge := ""
 	if cfg.PKCE {
@@ -171,6 +174,16 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	// AK F3: the browser completing the callback must present the state cookie set
+	// at flow start. This blocks login CSRF, where an attacker supplies a valid
+	// state+code captured from their own login.
+	cookieOK := stateCookieMatches(r, state)
+	clearStateCookie(w)
+	if !cookieOK {
+		badRequest(w, ErrInvalidState)
+		return
+	}
+
 	oidcCfg := s.oidcCfg()
 	sd, ok, err := oidcCfg.StateCache.Get(r.Context(), state)
 	_ = oidcCfg.StateCache.Del(r.Context(), state)
@@ -224,6 +237,10 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	extra := map[string]any{"provider": cfg.Name}
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
+		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) {
+			s.write2FAEnrollmentRequired(w, r, userID)
+			return
+		}
 		if errors.Is(err, core.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return

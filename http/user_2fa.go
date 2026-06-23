@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"time"
 
 	core "github.com/open-rails/authkit/core"
 )
@@ -229,18 +230,36 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	if factorID == "" {
 		factorID = strings.TrimSpace(body.FactorID)
 	}
+	var removed []core.RemovedMFARoleAssignment
 	var err error
 	if factorID == "" {
-		err = s.svc.Disable2FA(r.Context(), claims.UserID)
+		removed, err = s.svc.Disable2FAWithRemovedRoles(r.Context(), claims.UserID)
 	} else {
-		err = s.svc.Disable2FAFactor(r.Context(), claims.UserID, factorID)
+		removed, err = s.svc.Disable2FAFactorWithRemovedRoles(r.Context(), claims.UserID, factorID)
 	}
 	if err != nil {
 		serverErr(w, ErrDisableTwoFAFailed)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":       true,
+		"removed_roles": removedMFARolesResponse(removed),
+	})
+}
+
+func removedMFARolesResponse(removed []core.RemovedMFARoleAssignment) []map[string]any {
+	out := make([]map[string]any, 0, len(removed))
+	for _, r := range removed {
+		out = append(out, map[string]any{
+			"group_id":      r.GroupID,
+			"persona":       r.Persona,
+			"resource_slug": r.ResourceSlug,
+			"role":          r.Role,
+			"removed_at":    r.RemovedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out
 }
 
 func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {

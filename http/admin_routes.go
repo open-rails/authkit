@@ -52,7 +52,7 @@ func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 // There is deliberately NO special "admin" authorization tier: admin authority
 // over the user directory is simply the `root:users:*` permissions on the root
 // group, gated here the same way every other permission is. Callers that gate an
-// inherently root-scoped intrinsic route pass (core.RootType, "", perm).
+// inherently root-scoped intrinsic route pass (core.RootPersona, "", perm).
 func (s *Service) requirePermission(groupType, resourceRef, perm string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := ClaimsFromContext(r.Context())

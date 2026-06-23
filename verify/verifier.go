@@ -18,9 +18,9 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// maxDelegatedRoles bounds how many role UUIDs we lift from attributes.roles on
+// MaxDelegatedRoles bounds how many role UUIDs we lift from attributes.roles on
 // a delegated token, so a hostile issuer can't inflate a principal unboundedly.
-const maxDelegatedRoles = 64
+const MaxDelegatedRoles = 64
 
 // errPermissionNotGranted rejects a token whose `permissions` claim names a
 // permission outside the issuer remote application's stored grant.
@@ -89,7 +89,7 @@ type issuerEntry struct {
 	jwksURL   string
 	cacheTTL  time.Duration
 	maxStale  time.Duration
-	orgSlug   string
+	remoteApplicationSlug   string
 	// isLocal marks the first-party (host application's own) token signer, as
 	// opposed to a remote_application/federated issuer. It guards the signing-key
 	// registry: a non-local registration must never overwrite the local issuer's
@@ -381,11 +381,10 @@ type IssuerOptions struct {
 	// a failed JWKS refresh. Default: 1 hour.
 	MaxStale time.Duration
 
-	// OrgSlug is the receiver-internal org slug this issuer is registered
-	// to — issuer-registry data, the single source of org identity for
-	// tokens signed by this issuer (tokens carry no org claims). It resolves
-	// the principal's org; it is never compared against token claims.
-	OrgSlug string
+	// RemoteApplicationSlug is the receiver-internal remote-application slug
+	// registered for this issuer. Tokens do not self-assert this value; it comes
+	// only from the trusted issuer registry.
+	RemoteApplicationSlug string
 
 	// IsLocal marks this issuer as the host application's own (first-party) token
 	// signer, as opposed to a remote_application/federated issuer. It guards the
@@ -409,7 +408,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 		jwksURL:   strings.TrimSpace(opts.JWKSURI),
 		cacheTTL:  opts.CacheTTL,
 		maxStale:  opts.MaxStale,
-		orgSlug:   strings.TrimSpace(opts.OrgSlug),
+		remoteApplicationSlug:   strings.TrimSpace(opts.RemoteApplicationSlug),
 		isLocal:   opts.IsLocal,
 	}
 
@@ -539,7 +538,7 @@ func (v *Verifier) WithService(svc Enricher) *Verifier {
 // trust mode (#74): jwks mode fetches+refreshes from the URI; static mode seeds
 // the human-managed PEM list (no URL fetching ever for static principals).
 func remoteAppOptions(ra authbase.RemoteApplication) IssuerOptions {
-	opts := IssuerOptions{OrgSlug: ra.Slug}
+	opts := IssuerOptions{RemoteApplicationSlug: ra.Slug}
 	if ra.Mode == authbase.RemoteAppModeStatic {
 		for _, k := range ra.PublicKeys {
 			opts.Keys = append(opts.Keys, IssuerKey{KID: k.KID, PublicKeyPEM: k.PublicKeyPEM})
@@ -997,7 +996,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 		// Validate + cap; malformed entries are dropped rather than failing the
 		// token. The top-level `roles` claim is forbidden on delegated tokens
 		// (rejected earlier), so this is the only role surface they carry.
-		cl.DelegatedRoles = rawUUIDStringsAttribute(cl.Attributes, "roles", maxDelegatedRoles)
+		cl.DelegatedRoles = rawUUIDStringsAttribute(cl.Attributes, "roles", MaxDelegatedRoles)
 	} else {
 		cl.UserTier = strClaim(mc, "user_tier")
 		if cl.UserTier == "" {

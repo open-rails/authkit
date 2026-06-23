@@ -11,18 +11,19 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	core "github.com/open-rails/authkit/core"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
 )
 
 // credTestConfig enables the credential/invite management capabilities under
 // test: a "merchant" type with api-key minting, remote-app registration, and
 // invitations, plus a role catalog the keys/invites can reference. Passed via
-// RBAC.Groups so core.NewFromConfig builds + installs the schema.
+// RBAC.Groups so authcore.NewFromConfig builds + installs the schema.
 func credTestConfig() core.Config {
 	return core.Config{
 		Token: core.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
-		RBAC: core.RBACConfig{Groups: []core.GroupTypeDef{{
-			Name: "merchant", AllowedParents: []string{core.RootType},
+		RBAC: core.RBACConfig{Groups: []core.PersonaDef{{
+			Name: "merchant", AllowedParents: []string{core.RootPersona},
 			Routes: core.ManagementProfile{MemberAssignment: true, APIKeyMinting: true, RemoteAppRegistration: true, Invitation: true},
 			Roles:  []core.RoleDef{{Name: "member", Permissions: []string{"merchant:catalog:read"}}},
 		}}},
@@ -44,7 +45,7 @@ func newCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	t.Cleanup(pool.Close)
 	ctx := context.Background()
 
-	coreSvc, err := core.NewFromConfig(credTestConfig(), pool)
+	coreSvc, err := authcore.NewFromConfig(credTestConfig(), pool)
 	require.NoError(t, err)
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.EnsureRootGroup(ctx)
@@ -92,10 +93,10 @@ func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {
 	s, pool, caller := newCredTestService(t)
 	ctx := context.Background()
 
-	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Type: "merchant", ResourceRef: "m-keys", OwnerSubjectID: caller})
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", ResourceSlug: "m-keys", OwnerSubjectID: caller})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE type='merchant' AND resource_ref='m-keys'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND resource_slug='m-keys'`)
 	})
 
 	mintGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource-id/api-keys", Perm: "merchant:api-keys:manage"}
@@ -136,11 +137,11 @@ func TestGroupRemoteAppLifecycle_HTTP(t *testing.T) {
 	s, pool, caller := newCredTestService(t)
 	ctx := context.Background()
 
-	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Type: "merchant", ResourceRef: "m-apps", OwnerSubjectID: caller})
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", ResourceSlug: "m-apps", OwnerSubjectID: caller})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug LIKE 'ci-ra%'`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE type='merchant' AND resource_ref='m-apps'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND resource_slug='m-apps'`)
 	})
 
 	regGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:resource-id/remote-applications", Perm: "merchant:remote-apps:manage"}
@@ -181,14 +182,14 @@ func TestGroupInviteLifecycle_HTTP(t *testing.T) {
 	s, pool, caller := newCredTestService(t)
 	ctx := context.Background()
 
-	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Type: "merchant", ResourceRef: "m-inv", OwnerSubjectID: caller})
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", ResourceSlug: "m-inv", OwnerSubjectID: caller})
 	require.NoError(t, err)
 	var invitee, invitee2 string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&invitee))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&invitee2))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invites`)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE type='merchant' AND resource_ref='m-inv'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND resource_slug='m-inv'`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = ANY($1::uuid[])`, []string{invitee, invitee2})
 	})
 

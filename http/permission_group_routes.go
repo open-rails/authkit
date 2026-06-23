@@ -11,7 +11,7 @@ package authhttp
 // This file translates that data surface into RouteSpec handlers and mounts them
 // via the same APIRoutes/route-table mechanism the rest of authhttp uses. Group
 // ids stay internal: every handler resolves (persona, :resource-id) -> group by
-// resource_ref inside the Service, then authorizes via svc.Can before acting.
+// resource_slug inside the Service, then authorizes via svc.Can before acting.
 
 import (
 	"net/http"

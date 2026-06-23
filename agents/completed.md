@@ -8,6 +8,60 @@
 
 ---
 
+# #45: Passkey (WebAuthn/FIDO2) authentication — register, login, manage
+
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). Passkeys are implemented as a first-class AuthKit login method with WebAuthn registration/login ceremonies, discoverable credentials, management routes, RP config, storage in the consolidated Postgres baseline migration, MFA assurance claims, and focused integration coverage.
+
+## What changed
+
+- Added passkey RP config on `core.Config.Passkeys` with BaseURL-derived defaults and origin/RPID validation.
+- Added passkey storage in `profiles.user_passkey_handles` and `profiles.user_passkeys` inside the consolidated `migrations/postgres/001_auth_schema.up.sql` baseline.
+- Added `RoutePasskeys` routes: `POST /passkeys/register/begin`, `POST /passkeys/register/finish`, `POST /passkeys/login/begin`, `POST /passkeys/login/finish`, `GET /passkeys`, `PATCH /passkeys/{id}`, and `DELETE /passkeys/{id}`.
+- Registration requires a recent authenticated session, uses resident/discoverable credentials, returns duplicate credential exclusions, and stores verified credentials.
+- Login supports username-scoped and discoverable/usernameless ceremonies, requires user verification, rejects meaningful sign-count clone warnings, updates last-used/sign-count metadata, and mints normal AuthKit access/refresh sessions with `amr=["swk","mfa"]` and MFA `acr`.
+- README, endpoint docs, and SEMVER public-contract notes describe the host RP config, route group, browser WebAuthn ceremony, and covered public symbols/routes.
+
+## Validation
+
+- `docker compose up -d --build issuer`
+- `AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable' go test ./http ./internal/authcore -run 'TestPasskey|TestMandatory2FARootRolePolicyHTTPIntegration' -count=1 -v`
+- `task test`
+
+## Notes
+
+- No tag was cut from this dirty shared worktree. This is a minor public addition for the next AuthKit release/tag.
+- The repo is intentionally using the compacted single baseline migration; no `013_user_passkeys.up.sql` was restored.
+
+---
+
+# #121: Close real auth bypass and destructive-action gaps
+
+**Completed:** yes
+**Status:** IMPLEMENTED 2026-06-23 (Codex). Closed the concrete bypass paths from the security audit with shared guards rather than per-route one-offs.
+
+## What changed
+
+- Removed the legacy OIDC browser `?link=1` bearer-token parsing path; browser linking must use authenticated `POST /oidc/{provider}/link/start`.
+- `IssueRefreshSessionWithAuthMethods` now enforces mandatory-2FA satisfaction before minting any refresh session, closing OIDC/OAuth and sibling session-issuance bypasses.
+- API-key minting now calls `AuthorizeAPIKeyResources` before storing resource scopes; non-empty resources fail when no host `ResourceScopeAuthorizer` is configured.
+- `DELETE /user` and `DELETE /user/providers/{provider}` now require fresh auth or an inline current password, matching other sensitive account operations.
+
+## Validation
+
+- `AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable' go test ./core -run 'TestResourceScopeAuthorizer|TestMintAPIKeyWithOptionsDeniesUnauthorizedResourcesBeforeInsert' -count=1 -v`
+- `AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable' go test ./http -run 'TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken|TestMandatory2FARootRolePolicyHTTPIntegration|TestDestructiveUserRoutesRequireFreshAuthOrPassword|TestProviderUnlinkRequiresFreshAuthOrPassword' -count=1 -v`
+- `go test ./... -count=1`
+
+## Acceptance
+
+- Legacy browser OIDC linking cannot bypass authenticated link-start middleware or 2FA-enrollment token restrictions.
+- OIDC/OAuth session issuance fails closed for mandatory-2FA users until enrollment is complete.
+- API-key resource scopes are host-authorized before persistence.
+- Account deletion and provider unlink require a recent session or current password.
+
+---
+
 # #120: simplify host-selective AuthKit route groups
 
 **Completed:** yes

@@ -79,12 +79,9 @@ type APIKeyResource struct {
 type ResolvedAPIKey struct {
 	APIKeyID string
 	KeyID    string
-	// OrgID is the immutable org uuid — the canonical identifier for
-	// persistence and cross-service references. OrgSlug is the mutable
-	// human-readable name, for presentation/logging only.
-	OrgID       string
-	OrgSlug     string
-	Role        string
-	Permissions []string
-	Resources   []APIKeyResource
+	// PermissionGroupID is the controlling permission-group id.
+	PermissionGroupID string
+	Role              string
+	Permissions       []string
+	Resources         []APIKeyResource
 }

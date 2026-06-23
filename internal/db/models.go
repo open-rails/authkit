@@ -8,6 +8,28 @@ import (
 	"time"
 )
 
+type ProfilesApiKey struct {
+	ID                string
+	PermissionGroupID string
+	KeyID             string
+	SecretHash        []byte
+	Name              string
+	CreatedBy         *string
+	CreatedAt         time.Time
+	LastUsedAt        *time.Time
+	ExpiresAt         *time.Time
+	RevokedAt         *time.Time
+	// The single catalog/custom role this API key holds within its permission-group. Resource-scope is a separate binding.
+	Role string
+}
+
+type ProfilesApiKeyResource struct {
+	ApiKeyID   string
+	Kind       string
+	ResourceID string
+	CreatedAt  time.Time
+}
+
 type ProfilesGroupCustomRole struct {
 	GroupID     string
 	Role        string
@@ -30,6 +52,13 @@ type ProfilesGroupInvite struct {
 	DeletedAt *time.Time
 }
 
+// Declared containment schema: which parent persona each permission-group persona allows. root is absent.
+type ProfilesGroupPersonaParent struct {
+	Persona              string
+	AllowedParentPersona string
+	CreatedAt            time.Time
+}
+
 type ProfilesGroupRoleAssignment struct {
 	GroupID     string
 	SubjectID   string
@@ -40,11 +69,28 @@ type ProfilesGroupRoleAssignment struct {
 	DeletedAt   *time.Time
 }
 
-// The declared containment schema (#111): which parent TYPE(s) each group type allows. The app seeds it from core.Config at bootstrap; the permission_group containment trigger enforces it. root is absent (parentless singleton).
-type ProfilesGroupTypeParent struct {
-	Type              string
-	AllowedParentType string
-	CreatedAt         time.Time
+// Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings
+type ProfilesMfaFactor struct {
+	ID           string
+	UserID       string
+	Method       string
+	PhoneNumber  *string
+	TotpSecret   []byte
+	LastTotpStep *int64
+	// Default factor AuthKit challenges first when 2FA is required
+	IsDefault bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Account-level 2FA gate + backup codes per user. enabled=true ⇒ 2FA required at login. Per-factor data lives in mfa_factors.
+type ProfilesMfaSetting struct {
+	UserID  string
+	Enabled bool
+	// Hashed backup codes for account recovery
+	BackupCodes []string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type ProfilesOwnerReservedName struct {
@@ -54,16 +100,16 @@ type ProfilesOwnerReservedName struct {
 }
 
 type ProfilesPermissionGroup struct {
-	ID         string
-	Type       string
-	ParentID   *string
-	ParentType *string
-	// Links the group to its app resource AND is the API addressing key: a route (persona, resource-id) resolves to the group via (type, resource_ref). The group id is INTERNAL-only.
-	ResourceRef *string
-	Metadata    []byte
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
+	ID            string
+	Persona       string
+	ParentID      *string
+	ParentPersona *string
+	// Lowercase URL-safe slug for the app resource and API addressing key; the group id is internal only.
+	ResourceSlug *string
+	Metadata     []byte
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    *time.Time
 }
 
 type ProfilesRefreshSession struct {
@@ -83,7 +129,7 @@ type ProfilesRefreshSession struct {
 	AuthMethods         []string
 }
 
-// Federation principals: external systems that authenticate by signing JWTs verified against their JWKS/public keys. Members of orgs with roles via polymorphic org_memberships.
+// Federation principals: external systems that authenticate by signing JWTs verified against configured keys.
 type ProfilesRemoteApplication struct {
 	ID         string
 	Slug       string
@@ -97,12 +143,12 @@ type ProfilesRemoteApplication struct {
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time
-	// REQUIRED controlling permission-group (#111): remote-apps are group-nested. Authority comes from group_role_assignments (subject_kind=remote_application) + the parent walk.
+	// Required controlling permission-group. Authority comes from group_role_assignments and the parent walk.
 	PermissionGroupID string
 	AllowedOrigins    []string
 }
 
-// REFERENCE-mode attribute definitions: (remote_application_id, key, version) -> opaque definition jsonb. AuthKit transports + serves, never interprets (#75).
+// Reference-mode attribute definitions: opaque JSON by remote application, key, and version.
 type ProfilesRemoteApplicationAttributeDef struct {
 	RemoteApplicationID string
 	Key                 string
@@ -112,70 +158,15 @@ type ProfilesRemoteApplicationAttributeDef struct {
 	UpdatedAt           time.Time
 }
 
-type ProfilesServiceToken struct {
-	ID                string
-	PermissionGroupID string
-	KeyID             string
-	SecretHash        []byte
-	Name              string
-	CreatedBy         *string
-	CreatedAt         time.Time
-	LastUsedAt        *time.Time
-	ExpiresAt         *time.Time
-	RevokedAt         *time.Time
-	// The single catalog/custom role this API key holds within its permission-group. Effective permissions resolve from the group TYPE catalog (core.Config) or a group_custom_role at use time (#111). Resource-scope is a separate binding (service_token_resources).
-	Role string
-}
-
-type ProfilesServiceTokenResource struct {
-	TokenID    string
-	Kind       string
-	ResourceID string
-	CreatedAt  time.Time
-}
-
-// Primary enrolled 2FA factors per user; backup codes remain user-scoped on two_factor_settings
-type ProfilesTwoFactorFactor struct {
-	ID           string
-	UserID       string
-	Method       string
-	PhoneNumber  *string
-	TotpSecret   []byte
-	LastTotpStep *int64
-	// Default factor AuthKit challenges first when 2FA is required
-	IsDefault bool
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-// Two-factor authentication settings per user (admin accounts)
-type ProfilesTwoFactorSetting struct {
-	UserID  string
-	Enabled bool
-	// Preferred 2FA method: email, sms, or totp
-	Method      string
-	PhoneNumber *string
-	// Hashed backup codes for account recovery (10 codes)
-	BackupCodes []string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	// Encrypted TOTP shared secret for authenticator-app 2FA
-	TotpSecret []byte
-	// Last accepted TOTP time step, used to reject replay
-	LastTotpStep *int64
-}
-
 type ProfilesUser struct {
-	ID              string
-	Email           *string
-	Username        *string
-	DiscordUsername *string
-	EmailVerified   bool
-	// E.164 format phone number (e.g., +14155551234)
+	ID            string
+	Email         *string
+	Username      *string
+	EmailVerified bool
+	// E.164 format phone number (e.g. +14155551234)
 	PhoneNumber *string
 	// Whether the phone number has been verified via SMS code
-	PhoneVerified *bool
+	PhoneVerified bool
 	// When the user was banned
 	BannedAt *time.Time
 	// When a temporary ban expires (NULL for permanent)
@@ -193,6 +184,37 @@ type ProfilesUser struct {
 	LastLogin *time.Time
 	// User communication/auth language, e.g. en, es, de, ko, zh
 	PreferredLanguage *string
+}
+
+type ProfilesUserPasskey struct {
+	ID                      string
+	UserID                  string
+	Rpid                    string
+	CredentialID            []byte
+	PublicKey               []byte
+	SignCount               int64
+	CloneWarning            bool
+	Aaguid                  []byte
+	Transports              []string
+	AuthenticatorAttachment string
+	BackupEligible          bool
+	BackupState             bool
+	UserPresent             bool
+	UserVerified            bool
+	Flags                   []byte
+	AttestationType         string
+	AttestationFmt          string
+	Label                   *string
+	CreatedAt               time.Time
+	LastUsedAt              *time.Time
+	DeletedAt               *time.Time
+}
+
+type ProfilesUserPasskeyHandle struct {
+	UserID     string
+	Rpid       string
+	UserHandle []byte
+	CreatedAt  time.Time
 }
 
 type ProfilesUserPassword struct {

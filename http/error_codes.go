@@ -36,9 +36,6 @@ const (
 	// ErrAccountAlreadyClaimed is the account_already_claimed AuthKit HTTP wire error code.
 	ErrAccountAlreadyClaimed ErrorCode = "account_already_claimed"
 
-	// ErrAccountClaimOrgFailed is the account_claim_org_failed AuthKit HTTP wire error code.
-	ErrAccountClaimOrgFailed ErrorCode = "account_claim_org_failed"
-
 	// ErrAccountClaimUserFailed is the account_claim_user_failed AuthKit HTTP wire error code.
 	ErrAccountClaimUserFailed ErrorCode = "account_claim_user_failed"
 
@@ -95,9 +92,6 @@ const (
 
 	// ErrCannotRemoveLastOwner is the cannot_remove_last_owner AuthKit HTTP wire error code.
 	ErrCannotRemoveLastOwner ErrorCode = "cannot_remove_last_owner"
-
-	// ErrCannotRemovePersonalOrgOwner is the cannot_remove_personal_org_owner AuthKit HTTP wire error code.
-	ErrCannotRemovePersonalOrgOwner ErrorCode = "cannot_remove_personal_org_owner"
 
 	// ErrCannotUnlinkLastLoginMethod is the cannot_unlink_last_login_method AuthKit HTTP wire error code.
 	ErrCannotUnlinkLastLoginMethod ErrorCode = "cannot_unlink_last_login_method"
@@ -288,12 +282,6 @@ const (
 	// ErrInvalidOrExpiredToken is the invalid_or_expired_token AuthKit HTTP wire error code.
 	ErrInvalidOrExpiredToken ErrorCode = "invalid_or_expired_token"
 
-	// ErrInvalidOrgOwner is the invalid_org_owner AuthKit HTTP wire error code.
-	ErrInvalidOrgOwner ErrorCode = "invalid_org_owner"
-
-	// ErrInvalidOrgSlug is the invalid_org_slug AuthKit HTTP wire error code.
-	ErrInvalidOrgSlug ErrorCode = "invalid_org_slug"
-
 	// ErrInvalidOwnerNamespaceTransition is the invalid_owner_namespace_transition AuthKit HTTP wire error code.
 	ErrInvalidOwnerNamespaceTransition ErrorCode = "invalid_owner_namespace_transition"
 
@@ -351,9 +339,6 @@ const (
 	// ErrInviteNotFound is the invite_not_found AuthKit HTTP wire error code.
 	ErrInviteNotFound ErrorCode = "invite_not_found"
 
-	// ErrIssuerOwnedByOtherOrg is the issuer_owned_by_other_org AuthKit HTTP wire error code.
-	ErrIssuerOwnedByOtherOrg ErrorCode = "issuer_owned_by_other_org"
-
 	// ErrIssuerReserved is the issuer_reserved AuthKit HTTP wire error code.
 	ErrIssuerReserved ErrorCode = "issuer_reserved"
 
@@ -396,83 +381,11 @@ const (
 	// ErrNotFound is the not_found AuthKit HTTP wire error code.
 	ErrNotFound ErrorCode = "not_found"
 
-	// ErrNotOrgMember is the not_org_member AuthKit HTTP wire error code.
-	ErrNotOrgMember ErrorCode = "not_org_member"
-
 	// ErrOIDCBeginFailed is the oidc_begin_failed AuthKit HTTP wire error code.
 	ErrOIDCBeginFailed ErrorCode = "oidc_begin_failed"
 
 	// ErrOIDCExchangeFailed is the oidc_exchange_failed AuthKit HTTP wire error code.
 	ErrOIDCExchangeFailed ErrorCode = "oidc_exchange_failed"
-
-	// ErrOrgAlreadyClaimed is the org_already_claimed AuthKit HTTP wire error code.
-	ErrOrgAlreadyClaimed ErrorCode = "org_already_claimed"
-
-	// ErrOrgCreateFailed is the org_create_failed AuthKit HTTP wire error code.
-	ErrOrgCreateFailed ErrorCode = "org_create_failed"
-
-	// ErrOrgDetailFailed is the org_detail_failed AuthKit HTTP wire error code.
-	ErrOrgDetailFailed ErrorCode = "org_detail_failed"
-
-	// ErrOrgInviteAcceptFailed is the org_invite_accept_failed AuthKit HTTP wire error code.
-	ErrOrgInviteAcceptFailed ErrorCode = "org_invite_accept_failed"
-
-	// ErrOrgInviteCreateFailed is the org_invite_create_failed AuthKit HTTP wire error code.
-	ErrOrgInviteCreateFailed ErrorCode = "org_invite_create_failed"
-
-	// ErrOrgInviteDeclineFailed is the org_invite_decline_failed AuthKit HTTP wire error code.
-	ErrOrgInviteDeclineFailed ErrorCode = "org_invite_decline_failed"
-
-	// ErrOrgInviteRevokeFailed is the org_invite_revoke_failed AuthKit HTTP wire error code.
-	ErrOrgInviteRevokeFailed ErrorCode = "org_invite_revoke_failed"
-
-	// ErrOrgInviteExpired is the org_invite_expired AuthKit HTTP wire error code.
-	ErrOrgInviteExpired ErrorCode = "org_invite_expired"
-
-	// ErrOrgInviteNotPending is the org_invite_not_pending AuthKit HTTP wire error code.
-	ErrOrgInviteNotPending ErrorCode = "org_invite_not_pending"
-
-	// ErrOrgInvitesLookupFailed is the org_invites_lookup_failed AuthKit HTTP wire error code.
-	ErrOrgInvitesLookupFailed ErrorCode = "org_invites_lookup_failed"
-
-	// ErrOrgLimitExceeded is the org_limit_exceeded AuthKit HTTP wire error code.
-	ErrOrgLimitExceeded ErrorCode = "org_limit_exceeded"
-
-	// ErrOrgLookupFailed is the org_lookup_failed AuthKit HTTP wire error code.
-	ErrOrgLookupFailed ErrorCode = "org_lookup_failed"
-
-	// ErrOrgMembershipLookupFailed is the org_membership_lookup_failed AuthKit HTTP wire error code.
-	ErrOrgMembershipLookupFailed ErrorCode = "org_membership_lookup_failed"
-
-	// ErrOrgMembershipsLookupFailed is the org_memberships_lookup_failed AuthKit HTTP wire error code.
-	ErrOrgMembershipsLookupFailed ErrorCode = "org_memberships_lookup_failed"
-
-	// ErrOrgManagementDisabled is the org_management_disabled AuthKit HTTP wire error code.
-	ErrOrgManagementDisabled ErrorCode = "org_management_disabled"
-
-	// ErrOrgNotFound is the org_not_found AuthKit HTTP wire error code.
-	ErrOrgNotFound ErrorCode = "org_not_found"
-
-	// ErrOrgRenameFailed is the org_rename_failed AuthKit HTTP wire error code.
-	ErrOrgRenameFailed ErrorCode = "org_rename_failed"
-
-	// ErrOrgRestoreFailed is the org_restore_failed AuthKit HTTP wire error code.
-	ErrOrgRestoreFailed ErrorCode = "org_restore_failed"
-
-	// ErrOrgRolesLookupFailed is the org_roles_lookup_failed AuthKit HTTP wire error code.
-	ErrOrgRolesLookupFailed ErrorCode = "org_roles_lookup_failed"
-
-	// ErrOrgSoftDeleteFailed is the org_soft_delete_failed AuthKit HTTP wire error code.
-	ErrOrgSoftDeleteFailed ErrorCode = "org_soft_delete_failed"
-
-	// ErrOrgTransferOwnerFailed is the org_transfer_owner_failed AuthKit HTTP wire error code.
-	ErrOrgTransferOwnerFailed ErrorCode = "org_transfer_owner_failed"
-
-	// ErrOrgsListFailed is the orgs_list_failed AuthKit HTTP wire error code.
-	ErrOrgsListFailed ErrorCode = "orgs_list_failed"
-
-	// ErrOrgsLookupFailed is the orgs_lookup_failed AuthKit HTTP wire error code.
-	ErrOrgsLookupFailed ErrorCode = "orgs_lookup_failed"
 
 	// ErrOwnerMembershipRequired is the owner_membership_required AuthKit HTTP wire error code.
 	ErrOwnerMembershipRequired ErrorCode = "owner_membership_required"
@@ -495,6 +408,9 @@ const (
 	// ErrPasswordResetRequired is the password_reset_required AuthKit HTTP wire error code.
 	ErrPasswordResetRequired ErrorCode = "password_reset_required"
 
+	// ErrPasskeyFailed is the passkey_failed AuthKit HTTP wire error code.
+	ErrPasskeyFailed ErrorCode = "passkey_failed"
+
 	// ErrPasswordTooShort is the password_too_short AuthKit HTTP wire error code.
 	ErrPasswordTooShort ErrorCode = core.ErrCodePasswordTooShort
 
@@ -512,12 +428,6 @@ const (
 
 	// ErrPermissionsLookupFailed is the permissions_lookup_failed AuthKit HTTP wire error code.
 	ErrPermissionsLookupFailed ErrorCode = "permissions_lookup_failed"
-
-	// ErrPersonalOrgLocked is the personal_org_locked AuthKit HTTP wire error code.
-	ErrPersonalOrgLocked ErrorCode = "personal_org_locked"
-
-	// ErrPersonalOrgLookupFailed is the personal_org_lookup_failed AuthKit HTTP wire error code.
-	ErrPersonalOrgLookupFailed ErrorCode = "personal_org_lookup_failed"
 
 	// ErrPhoneTwoFAUnavailable is the phone_2fa_unavailable AuthKit HTTP wire error code.
 	ErrPhoneTwoFAUnavailable ErrorCode = "phone_2fa_unavailable"

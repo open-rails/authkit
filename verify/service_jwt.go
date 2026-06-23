@@ -18,7 +18,7 @@ import (
 type ServiceJWTPrincipal struct {
 	Issuer      string
 	Subject     string
-	Org         string
+	RemoteApplicationSlug         string
 	Audiences   []string
 	Permissions []string
 	Resources   []authbase.APIKeyResource
@@ -169,7 +169,7 @@ func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Du
 		Scope: scopeSlice(mc["scope"]),
 	}
 	principal := ServiceJWTPrincipal{
-		Issuer: issuer, Subject: subject, Org: match.orgSlug,
+		Issuer: issuer, Subject: subject, RemoteApplicationSlug: match.remoteApplicationSlug,
 		Audiences: audiences, Permissions: permissions, Resources: resources,
 		JTI: jti, ExpiresAt: exp,
 	}

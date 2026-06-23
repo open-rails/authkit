@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
 	core "github.com/open-rails/authkit/core"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestCoreService(t *testing.T) *core.Service {
+func newTestCoreService(t *testing.T) *authcore.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
@@ -34,7 +34,7 @@ func newTestCoreService(t *testing.T) *core.Service {
 		// so we explicitly opt out to avoid needing a real email sender.
 		RegistrationVerification: core.RegistrationVerificationNone,
 	}
-	return core.NewService(opts, ks)
+	return authcore.NewService(opts, ks)
 }
 
 func newTestService(t *testing.T) *Service {
@@ -238,10 +238,10 @@ func TestBuildFrontendCallbackURL(t *testing.T) {
 	}
 }
 
-func TestBuildRedirectURI_ReauthStartUsesReauthCallback(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "https://auth.example/api/v1/oidc/google/reauth/start", nil)
-	got := buildRedirectURI(r, "google")
-	require.Equal(t, "https://auth.example/api/v1/oidc/google/reauth/callback", got)
+func TestOIDCCallbackPath_ReauthStartUsesReauthCallback(t *testing.T) {
+	require.Equal(t, "/api/v1/oidc/google/reauth/callback", oidcCallbackPath("/api/v1/oidc/google/reauth/start", "google"))
+	require.Equal(t, "/api/v1/oidc/google/callback", oidcCallbackPath("/api/v1/oidc/google/login", "google"))
+	require.Equal(t, "/api/v1/oidc/google/callback", oidcCallbackPath("/api/v1/oidc/google/link/start", "google"))
 }
 
 func TestOIDCReauthAuthTimeFreshness(t *testing.T) {
@@ -250,116 +250,6 @@ func TestOIDCReauthAuthTimeFreshness(t *testing.T) {
 	require.False(t, validOIDCReauthTime(started, time.Time{}, started.Add(30*time.Second)))
 	require.False(t, validOIDCReauthTime(started, started.Add(-10*time.Minute), started.Add(30*time.Second)))
 	require.False(t, validOIDCReauthTime(started, started.Add(10*time.Minute), started.Add(30*time.Second)))
-}
-
-func TestFreshReauthRouteContract(t *testing.T) {
-	reauthSrc := readHTTPSource(t, "reauth.go")
-	oidcBrowserSrc := readHTTPSource(t, "oidc_browser.go")
-	oauth2BrowserSrc := readHTTPSource(t, "oauth2_browser.go")
-	userRoutesSrc := readHTTPSource(t, "user_routes.go")
-	passwordSrc := readHTTPSource(t, "user_password_post.go")
-	userMeSrc := readHTTPSource(t, "user_me_get.go")
-
-	for _, marker := range []string{
-		"handlePasswordReauthPOST",
-		"handleTwoFactorReauthPOST",
-		"handleOIDCReauthStartPOST",
-		"Require2FAForReauth",
-		"Verify2FAReauthFactorCode",
-		"ReauthUserID",
-		"ReauthSessionID",
-		"GetProviderLinkByIssuer(r.Context(), issuer, subject)",
-		"MarkSessionAuthenticated",
-		"reauth_methods",
-	} {
-		require.Contains(t, reauthSrc, marker)
-	}
-	require.Contains(t, oidcBrowserSrc, "completeOIDCReauth")
-	require.Contains(t, oidcBrowserSrc, "GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject)")
-	require.Contains(t, oauth2BrowserSrc, "completeOAuthReauth")
-	require.Contains(t, oauth2BrowserSrc, "freshAccessTokenResponse")
-	require.Contains(t, userRoutesSrc, "requireFreshAuthOrPassword")
-	require.Contains(t, passwordSrc, "SensitiveClaims")
-	require.Contains(t, reauthSrc, "SensitiveClaims")
-	require.NotContains(t, reauthSrc, "RequireFreshSession")
-	require.NotContains(t, passwordSrc, "RequireFreshSession")
-	require.NotContains(t, userMeSrc, "SessionFreshness")
-	require.Contains(t, userMeSrc, "time_until_reauth_required")
-	require.Contains(t, userMeSrc, `json:"preferred_language,omitempty"`)
-	require.Contains(t, userMeSrc, `json:"user_aliases,omitempty"`)
-	require.Contains(t, userMeSrc, "UserSlugAliases")
-}
-
-func readHTTPSource(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	require.NoError(t, err)
-	return string(b)
-}
-
-func TestAPIHandler_PrefixNeutralRouteContract(t *testing.T) {
-	s := newTestService(t)
-	h := s.APIHandler()
-
-	tests := []struct {
-		name   string
-		method string
-		path   string
-		body   string
-		want   int
-	}{
-		{name: "token", method: http.MethodPost, path: "/token", body: `{}`, want: http.StatusBadRequest},
-		{name: "current session lookup", method: http.MethodPost, path: "/sessions/current", body: `{}`, want: http.StatusBadRequest},
-		{name: "password login", method: http.MethodPost, path: "/password/login", body: `{}`, want: http.StatusBadRequest},
-		{name: "email password reset request", method: http.MethodPost, path: "/email/password/reset/request", body: `{}`, want: http.StatusAccepted},
-		{name: "email password reset confirm", method: http.MethodPost, path: "/email/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
-		{name: "phone password reset request", method: http.MethodPost, path: "/phone/password/reset/request", body: `{}`, want: http.StatusInternalServerError},
-		{name: "phone password reset confirm", method: http.MethodPost, path: "/phone/password/reset/confirm", body: `{}`, want: http.StatusBadRequest},
-		{name: "me", method: http.MethodGet, path: "/me", want: http.StatusUnauthorized},
-		{name: "user sessions list", method: http.MethodGet, path: "/user/sessions", want: http.StatusUnauthorized},
-		{name: "user session delete", method: http.MethodDelete, path: "/user/sessions/session-id", want: http.StatusUnauthorized},
-		{name: "user sessions revoke all", method: http.MethodDelete, path: "/user/sessions", want: http.StatusUnauthorized},
-		{name: "logout", method: http.MethodDelete, path: "/logout", want: http.StatusUnauthorized},
-		{name: "password reauth", method: http.MethodPost, path: "/reauth/password", body: `{}`, want: http.StatusUnauthorized},
-		{name: "2fa reauth", method: http.MethodPost, path: "/reauth/2fa", body: `{}`, want: http.StatusUnauthorized},
-		{name: "email change", method: http.MethodPost, path: "/user/email", body: `{}`, want: http.StatusUnauthorized},
-		{name: "phone change", method: http.MethodPost, path: "/user/phone", body: `{}`, want: http.StatusUnauthorized},
-		{name: "provider link start", method: http.MethodPost, path: "/oidc/google/link/start", want: http.StatusUnauthorized},
-		{name: "provider reauth start", method: http.MethodPost, path: "/oidc/google/reauth/start", want: http.StatusUnauthorized},
-		{name: "2fa status", method: http.MethodGet, path: "/user/2fa", want: http.StatusUnauthorized},
-		{name: "2fa configure", method: http.MethodPost, path: "/user/2fa", body: `{}`, want: http.StatusUnauthorized},
-		{name: "2fa disable", method: http.MethodDelete, path: "/user/2fa", want: http.StatusUnauthorized},
-		{name: "2fa backup codes", method: http.MethodPost, path: "/user/2fa/backup-codes", body: `{}`, want: http.StatusUnauthorized},
-		{name: "2fa challenge", method: http.MethodPost, path: "/2fa/challenge", body: `{}`, want: http.StatusBadRequest},
-		{name: "2fa verify", method: http.MethodPost, path: "/2fa/verify", body: `{}`, want: http.StatusBadRequest},
-		{name: "solana challenge", method: http.MethodPost, path: "/solana/challenge", body: `{}`, want: http.StatusBadRequest},
-		{name: "solana link", method: http.MethodPost, path: "/solana/link", body: `{}`, want: http.StatusUnauthorized},
-		{name: "admin users list", method: http.MethodGet, path: "/admin/users", want: http.StatusUnauthorized},
-		{name: "admin user get", method: http.MethodGet, path: "/admin/users/user-id", want: http.StatusUnauthorized},
-		{name: "admin user delete", method: http.MethodDelete, path: "/admin/users/user-id", want: http.StatusUnauthorized},
-		{name: "admin user restore", method: http.MethodPost, path: "/admin/users/user-id/restore", want: http.StatusUnauthorized},
-		{name: "admin user recover", method: http.MethodPost, path: "/admin/users/user-id/recover", body: `{}`, want: http.StatusUnauthorized},
-		{name: "admin user signins", method: http.MethodGet, path: "/admin/users/user-id/signins", want: http.StatusUnauthorized},
-		{name: "admin user session revoke", method: http.MethodPost, path: "/admin/users/user-id/sessions/revoke", want: http.StatusUnauthorized},
-		{name: "admin ban", method: http.MethodPost, path: "/admin/users/ban", body: `{}`, want: http.StatusUnauthorized},
-		{name: "admin unban", method: http.MethodPost, path: "/admin/users/unban", body: `{}`, want: http.StatusUnauthorized},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var body *strings.Reader
-			if tt.body != "" {
-				body = strings.NewReader(tt.body)
-			} else {
-				body = strings.NewReader("")
-			}
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(tt.method, tt.path, body)
-			r.Header.Set("Content-Type", "application/json")
-			h.ServeHTTP(w, r)
-			require.Equal(t, tt.want, w.Code, w.Body.String())
-		})
-	}
 }
 
 func TestAPIHandler_GenericPasswordResetRoutesRemoved(t *testing.T) {

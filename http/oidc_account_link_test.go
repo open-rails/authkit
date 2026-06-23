@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	core "github.com/open-rails/authkit/core"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
@@ -27,6 +28,20 @@ func TestAccountExistsLinkRequiredOutcome(t *testing.T) {
 	accountExistsLinkRequired(w)
 	require.Equal(t, http.StatusConflict, w.Code)
 	require.Contains(t, w.Body.String(), "account_exists_link_required")
+}
+
+func TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken(t *testing.T) {
+	s := newTestService(t)
+	token, _, err := s.svc.Issue2FAEnrollmentToken(context.Background(), "user-1")
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/oidc/google/login?link=1", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	s.handleOIDCLoginGET(w, r)
+
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Body.String(), "auth_required_for_link")
 }
 
 func newAccountLinkPG(t *testing.T) *pgxpool.Pool {
@@ -47,7 +62,7 @@ func newAccountLinkPG(t *testing.T) *pgxpool.Pool {
 func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	pool := newAccountLinkPG(t)
 	ctx := context.Background()
-	coreSvc := core.NewService(
+	coreSvc := authcore.NewService(
 		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
 		core.Keyset{},
 		core.WithPostgres(pool),
@@ -80,7 +95,7 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	pool := newAccountLinkPG(t)
 	ctx := context.Background()
-	coreSvc := core.NewService(
+	coreSvc := authcore.NewService(
 		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
 		core.Keyset{},
 		core.WithPostgres(pool),
@@ -116,7 +131,7 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	pool := newAccountLinkPG(t)
 	ctx := context.Background()
-	coreSvc := core.NewService(
+	coreSvc := authcore.NewService(
 		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
 		core.Keyset{},
 		core.WithPostgres(pool),

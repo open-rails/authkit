@@ -10,30 +10,32 @@ import (
 )
 
 type userMeResponse struct {
-	ID                                string                    `json:"id"`
-	Email                             *string                   `json:"email"`
-	PhoneNumber                       *string                   `json:"phone_number"`
-	Username                          string                    `json:"username"`
-	DiscordUsername                   *string                   `json:"discord_username,omitempty"`
-	SolanaAddress                     *string                   `json:"solana_address,omitempty"`
-	SolanaLinkedAccount               *core.SolanaLinkedAccount `json:"solana_linked_account,omitempty"`
-	LinkedProviders                   []string                  `json:"linked_providers,omitempty"`
-	EnabledProviders                  []string                  `json:"enabled_providers,omitempty"`
-	EmailVerified                     bool                      `json:"email_verified"`
-	PhoneVerified                     bool                      `json:"phone_verified"`
-	HasPassword                       bool                      `json:"has_password"`
-	Roles                             *[]string                 `json:"roles,omitempty"`
-	Entitlements                      []string                  `json:"entitlements"`
-	Biography                         *string                   `json:"biography,omitempty"`
-	UserAliases                       []string                  `json:"user_aliases,omitempty"`
-	PreferredLanguage                 *string                   `json:"preferred_language,omitempty"`
-	CreatedAt                         *string                   `json:"created_at,omitempty"`
-	LastAuthenticatedAt               *string                   `json:"last_authenticated_at,omitempty"`
-	TimeUntilReauthRequired           *int64                    `json:"time_until_reauth_required,omitempty"`
-	ReauthRequiredForSensitiveActions *bool                     `json:"reauth_required_for_sensitive_actions,omitempty"`
-	Mandatory2FARequired              bool                      `json:"mandatory_2fa_required"`
-	Mandatory2FASatisfied             bool                      `json:"mandatory_2fa_satisfied"`
-	Mandatory2FAAllowedMethods        []string                  `json:"mandatory_2fa_allowed_methods,omitempty"`
+	ID                                string                          `json:"id"`
+	Email                             *string                         `json:"email"`
+	PhoneNumber                       *string                         `json:"phone_number"`
+	Username                          string                          `json:"username"`
+	DiscordUsername                   *string                         `json:"discord_username,omitempty"`
+	SolanaAddress                     *string                         `json:"solana_address,omitempty"`
+	SolanaLinkedAccount               *core.SolanaLinkedAccount       `json:"solana_linked_account,omitempty"`
+	LinkedProviders                   []string                        `json:"linked_providers,omitempty"`
+	EnabledProviders                  []string                        `json:"enabled_providers,omitempty"`
+	EmailVerified                     bool                            `json:"email_verified"`
+	PhoneVerified                     bool                            `json:"phone_verified"`
+	HasPassword                       bool                            `json:"has_password"`
+	Roles                             *[]string                       `json:"roles,omitempty"`
+	Entitlements                      []string                        `json:"entitlements"`
+	Biography                         *string                         `json:"biography,omitempty"`
+	UserAliases                       []string                        `json:"user_aliases,omitempty"`
+	PreferredLanguage                 *string                         `json:"preferred_language,omitempty"`
+	CreatedAt                         *string                         `json:"created_at,omitempty"`
+	LastAuthenticatedAt               *string                         `json:"last_authenticated_at,omitempty"`
+	TimeUntilReauthRequired           *int64                          `json:"time_until_reauth_required,omitempty"`
+	ReauthRequiredForSensitiveActions *bool                           `json:"reauth_required_for_sensitive_actions,omitempty"`
+	ReauthMethods                     []string                        `json:"reauth_methods,omitempty"`
+	Reauth2FA                         *reauthTwoFactorOptionsResponse `json:"reauth_2fa,omitempty"`
+	MFAEnabled                        bool                            `json:"mfa_enabled"`
+	MFASatisfied                      bool                            `json:"mfa_satisfied"`
+	MFAAllowedMethods                 []string                        `json:"mfa_allowed_methods,omitempty"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +140,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 	required := !SensitiveClaims(claims)
 	reauthRequiredForSensitiveActions = &required
-	mandatory2FA, err := s.svc.Mandatory2FAStatus(r.Context(), claims.UserID)
+	mfa, err := s.svc.MFAStatus(r.Context(), claims.UserID)
 	if err != nil {
 		serverErr(w, ErrDatabaseError)
 		return
@@ -166,9 +168,11 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		LastAuthenticatedAt:               lastAuthenticatedAt,
 		TimeUntilReauthRequired:           timeUntilReauthRequired,
 		ReauthRequiredForSensitiveActions: reauthRequiredForSensitiveActions,
-		Mandatory2FARequired:              mandatory2FA.Required,
-		Mandatory2FASatisfied:             mandatory2FA.Satisfied,
-		Mandatory2FAAllowedMethods:        mandatory2FA.AllowedMethods,
+		ReauthMethods:                     s.reauthMethods(r, claims.UserID),
+		Reauth2FA:                         s.reauthTwoFactorOptions(r, claims.UserID),
+		MFAEnabled:                        mfa.Enabled,
+		MFASatisfied:                      mfa.Satisfied,
+		MFAAllowedMethods:                 mfa.AllowedMethods,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	core "github.com/open-rails/authkit/core"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/open-rails/authkit/ratelimit"
 	memorystore "github.com/open-rails/authkit/storage/memory"
@@ -16,9 +17,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Service wraps core.Service with net/http mounting helpers.
+// Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
-	svc                 *core.Service
+	svc                 *authcore.Service
 	verifier            *Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter
@@ -182,7 +183,7 @@ func (s *Service) SMSHealthReason() string { return s.svc.SMSHealthReason() }
 // configured and, if checked, found able to deliver).
 func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 
-func (s *Service) Core() *core.Service { return s.svc }
+func (s *Service) Core() *core.Service { return core.Wrap(s.svc) }
 func (s *Service) Verifier() *Verifier { return s.verifier }
 
 // SetEntitlementsProvider installs the entitlements provider on the underlying

@@ -68,7 +68,7 @@ func TestSensitiveDefaults(t *testing.T) {
 	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Minute), AMR: []string{"pwd"}}); w.Code != http.StatusOK {
 		t.Fatalf("recent password status = %d", w.Code)
 	}
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), AMR: []string{"pwd", "mfa"}}); w.Code != http.StatusOK {
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), AMR: []string{"pwd", "mfa"}}); w.Code != http.StatusForbidden {
 		t.Fatalf("old mfa status = %d", w.Code)
 	}
 	w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), AMR: []string{"pwd"}})
@@ -97,6 +97,9 @@ func TestSensitiveRequireMFA(t *testing.T) {
 	}
 	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), AMR: []string{"pwd"}}); w.Code != http.StatusForbidden {
 		t.Fatalf("pwd-only status = %d", w.Code)
+	}
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), AMR: []string{"pwd", "otp"}}); w.Code != http.StatusForbidden {
+		t.Fatalf("stale mfa status = %d", w.Code)
 	}
 }
 

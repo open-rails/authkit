@@ -296,6 +296,16 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := decodeOptionalJSON(r, &body); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, body.Password); !ok {
+		return
+	}
 	_ = s.svc.SoftDeleteUser(r.Context(), claims.UserID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -307,6 +317,16 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := decodeOptionalJSON(r, &body); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, body.Password); !ok {
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))

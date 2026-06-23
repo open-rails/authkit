@@ -9,7 +9,8 @@ routes. Host apps should mount `svc.Routes().DefaultAPI()` or explicit
 `svc.Routes().Groups(...)` selections through the built-in Gin/Chi adapters or
 their own router registration loop, not maintain duplicated route allowlists.
 Host-facing JSON route groups are `RoutePublic`, `RouteRegister`,
-`RouteSession`, `RouteUser`, `RouteAdmin`, and `RoutePermissionGroups`.
+`RouteSession`, `RouteUser`, `RoutePasskeys`, `RouteAdmin`, and
+`RoutePermissionGroups`.
 Browser OIDC login/callback routes are `RouteBrowserOIDC` and usually mount
 outside the JSON API prefix. Account provider linking is self-service user API:
 `POST /oidc/:provider/link/start` under the host-selected API prefix.
@@ -85,6 +86,8 @@ Notes:
 |--------|------|------|-------------|
 | GET | `/identity-providers` | PUBLIC | List enabled external identity providers |
 | POST | `/password/login` | PUBLIC | Password login |
+| POST | `/passkeys/login/begin` | PUBLIC | Begin passkey login; optional `{ "login": "email-or-username-or-phone" }` for username-scoped options, omitted for discoverable/usernameless login |
+| POST | `/passkeys/login/finish` | PUBLIC | Finish passkey login by POSTing the `PublicKeyCredential` JSON returned by `navigator.credentials.get()` |
 | POST | `/register` | PUBLIC | Unified registration (email or phone); success returns `next_action`: `none`, `verify_email`, or `verify_phone`; `none` includes access/refresh tokens |
 | POST | `/register/resend-email` | PUBLIC | Resend email verification |
 | POST | `/register/resend-phone` | PUBLIC | Resend phone verification |
@@ -108,6 +111,23 @@ Token taxonomy:
 - API key: opaque bearer secret; it holds ONE org role (#95) and its permissions resolve FROM that role at verify time; resources are a separate per-key binding.
 
 Reauth updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
+
+Passkeys:
+- Configure `core.Config.Passkeys` with `RPID`, `RPDisplayName`, and `Origins`;
+  empty values derive from `Frontend.BaseURL`/`Token.Issuer`.
+- Registration is authenticated and freshness-gated:
+  `POST /passkeys/register/begin`, then POST the `PublicKeyCredential` JSON from
+  `navigator.credentials.create()` to `/passkeys/register/finish`.
+- Management routes are authenticated: `GET /passkeys`, `PATCH /passkeys/:id`
+  with `{ "label": "..." }`, and `DELETE /passkeys/:id`.
+- Login sessions require WebAuthn user verification and mint normal
+  access/refresh tokens with MFA assurance claims. Passkeys do not replace
+  mandatory AuthKit 2FA enrollment policy unless that policy is explicitly
+  extended later.
+- Frontends should use `navigator.credentials.create({ publicKey })` and
+  `navigator.credentials.get({ publicKey })`; for conditional UI, render the
+  username input with `autocomplete="username webauthn"` and call
+  `navigator.credentials.get({ publicKey, mediation: "conditional" })`.
 
 Reserved slug policy:
 - Reserved owner slugs are seeded in DB migrations as reserved user + personal-org placeholders.
@@ -293,9 +313,9 @@ TTL that caps the effective expiry. Revoke at any time; expiry + revocation are
 checked on every request.
 
 **Storage.** `profiles.api_keys` (`key_id` unique, `secret_hash` bytea,
-`permissions text[]`, `created_by` audit-only & `ON DELETE SET NULL` so a token
+single `role`, `created_by` audit-only & `ON DELETE SET NULL` so a token
 outlives its minter, nullable `expires_at`/`revoked_at`, `last_used_at` touched
-best-effort/async) plus `profiles.service_token_resources` for opaque
+best-effort/async) plus `profiles.api_key_resources` for opaque
 Kind/ID scope rows.
 
 **Configuration.** `core.Config.APIKeyPrefix` (lowercase alnum, ≤16 chars; empty

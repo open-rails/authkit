@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	core "github.com/open-rails/authkit/core"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	redisstore "github.com/open-rails/authkit/storage/redis"
@@ -55,7 +56,7 @@ func NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, erro
 	// WithRedis/WithEphemeralStore option (collected in s.coreOpts) overrides
 	// since later options win.
 	coreOpts := append([]core.Option{core.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)}, s.coreOpts...)
-	coreSvc, err := core.NewFromConfig(cfg, pg, coreOpts...)
+	coreSvc, err := authcore.NewFromConfig(cfg, pg, coreOpts...)
 	if err != nil {
 		return nil, err
 	}

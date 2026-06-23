@@ -31,16 +31,16 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	email := uniqueEmail("totp-http")
 	username := "totphttp" + uniqueSuffix()
 	const pass = "Correct-password-12345"
-	user, err := srv.Core().CreateUser(ctx, email, username)
+	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.Core().UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
 
-	sid, _, _, err := srv.Core().IssueRefreshSession(ctx, user.ID, "test", nil)
+	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.Core().IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
@@ -99,16 +99,16 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	email := uniqueEmail("multi-2fa")
 	username := "multi2fa" + uniqueSuffix()
 	const pass = "Correct-password-12345"
-	user, err := srv.Core().CreateUser(ctx, email, username)
+	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 	hash, err := password.HashArgon2id(pass)
 	require.NoError(t, err)
-	require.NoError(t, srv.Core().UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
 
-	sid, _, _, err := srv.Core().IssueRefreshSession(ctx, user.ID, "test", nil)
+	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.Core().IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"email"}`, setupToken)
@@ -160,16 +160,20 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	}
 	require.NotEmpty(t, totpFactorID)
 
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"factor_id":"`+totpFactorID+`"}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"method":"totp"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"method":"totp"`)
+	require.NotContains(t, w.Body.String(), "factor")
 	reauthCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"factor_id":"`+totpFactorID+`","code":"`+reauthCode+`"}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"method":"totp","code":"`+reauthCode+`"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "access_token")
+
+	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"factor_id":"`+totpFactorID+`"}`, setupToken)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	// Keep the selected-login assertion below independent from the selected
 	// reauth assertion above; core replay tests cover reuse rejection.
-	_, err = pool.Exec(ctx, `UPDATE profiles.two_factor_factors SET last_totp_step=NULL WHERE id=$1::uuid`, totpFactorID)
+	_, err = pool.Exec(ctx, `UPDATE profiles.mfa_factors SET last_totp_step=NULL WHERE id=$1::uuid`, totpFactorID)
 	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/password/login", `{"login":"`+email+`","password":"`+pass+`"}`)

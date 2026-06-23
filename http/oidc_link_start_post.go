@@ -47,7 +47,9 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	redirectURI := buildRedirectURI(r, provider)
+	redirectURI := s.buildRedirectURI(r, provider)
+	// AK F3: bind state to this browser (login/link CSRF defense).
+	s.setStateCookie(w, r, state)
 	url, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
 		badRequest(w, ErrOIDCBeginFailed)

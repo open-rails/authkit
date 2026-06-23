@@ -1,0 +1,338 @@
+// Curated embedder-facing methods of the public core.Service facade. Each one
+// delegates to the internal engine (s.impl, *authcore.Service). Driven by real
+// consumer usage (audited against doujins), kept minimal (see SEMVER.md, #126).
+package core
+
+import (
+	"context"
+	"crypto"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	jwtkit "github.com/open-rails/authkit/jwt"
+	"net"
+	"time"
+)
+
+func (s *Service) AdminCountUsers(ctx context.Context, opts AdminUserListOptions) (int64, error) {
+	return s.impl.AdminCountUsers(ctx, opts)
+}
+
+func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, error) {
+	return s.impl.AdminGetUser(ctx, id)
+}
+
+func (s *Service) AdminListUserSessions(ctx context.Context, userID string) ([]Session, error) {
+	return s.impl.AdminListUserSessions(ctx, userID)
+}
+
+func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error) {
+	return s.impl.AdminListUsers(ctx, opts)
+}
+
+func (s *Service) AdminRevokeUserSessions(ctx context.Context, userID string) error {
+	return s.impl.AdminRevokeUserSessions(ctx, userID)
+}
+
+func (s *Service) AdminSetPassword(ctx context.Context, userID, new string) error {
+	return s.impl.AdminSetPassword(ctx, userID, new)
+}
+
+func (s *Service) AssignRoleBySlug(ctx context.Context, userID, slug string) error {
+	return s.impl.AssignRoleBySlug(ctx, userID, slug)
+}
+
+func (s *Service) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
+	return s.impl.BanUser(ctx, userID, reason, until, bannedBy)
+}
+
+func (s *Service) Can(ctx context.Context, subjectID, subjectKind, persona, resourceSlug, perm string) (bool, error) {
+	return s.impl.Can(ctx, subjectID, subjectKind, persona, resourceSlug, perm)
+}
+
+func (s *Service) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
+	return s.impl.ChangePassword(ctx, userID, current, new, keepSessionID)
+}
+
+func (s *Service) CheckSMSHealth(ctx context.Context) error {
+	return s.impl.CheckSMSHealth(ctx)
+}
+
+func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
+	return s.impl.CleanupExpiredAuthState(ctx)
+}
+
+func (s *Service) ConfirmEmailVerification(ctx context.Context, email, code string) (string, error) {
+	return s.impl.ConfirmEmailVerification(ctx, email, code)
+}
+
+func (s *Service) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, token string) (string, error) {
+	return s.impl.ConfirmPendingPhoneRegistrationByToken(ctx, token)
+}
+
+func (s *Service) ConfirmPendingRegistration(ctx context.Context, email, code string) (string, error) {
+	return s.impl.ConfirmPendingRegistration(ctx, email, code)
+}
+
+func (s *Service) ConfirmPhoneVerificationByToken(ctx context.Context, token string) error {
+	return s.impl.ConfirmPhoneVerificationByToken(ctx, token)
+}
+
+func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error) {
+	return s.impl.CreatePermissionGroup(ctx, req)
+}
+
+func (s *Service) CreateUser(ctx context.Context, email, username string) (*User, error) {
+	return s.impl.CreateUser(ctx, email, username)
+}
+
+func (s *Service) DeleteRemoteApplication(ctx context.Context, issuer string) error {
+	return s.impl.DeleteRemoteApplication(ctx, issuer)
+}
+
+func (s *Service) EnsureRootGroup(ctx context.Context) (string, error) {
+	return s.impl.EnsureRootGroup(ctx)
+}
+
+func (s *Service) EntitlementsProvider() EntitlementsProvider {
+	return s.impl.EntitlementsProvider()
+}
+
+func (s *Service) EphemeralMode() EphemeralMode {
+	return s.impl.EphemeralMode()
+}
+
+func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (string, time.Time, string, error) {
+	return s.impl.ExchangeRefreshToken(ctx, refreshToken, ua, ip)
+}
+
+func (s *Service) GetEmailByUserID(ctx context.Context, id string) (string, error) {
+	return s.impl.GetEmailByUserID(ctx, id)
+}
+
+func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone string) (*PendingRegistration, error) {
+	return s.impl.GetPendingPhoneRegistrationByPhone(ctx, phone)
+}
+
+func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email string) (*PendingRegistration, error) {
+	return s.impl.GetPendingRegistrationByEmail(ctx, email)
+}
+
+func (s *Service) GetProviderUsername(ctx context.Context, userID, provider string) (string, error) {
+	return s.impl.GetProviderUsername(ctx, userID, provider)
+}
+
+func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error) {
+	return s.impl.GetRemoteApplication(ctx, issuer)
+}
+
+func (s *Service) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	return s.impl.GetUserByEmail(ctx, email)
+}
+
+func (s *Service) GetUserByPhone(ctx context.Context, phone string) (*User, error) {
+	return s.impl.GetUserByPhone(ctx, phone)
+}
+
+func (s *Service) GetUserBySolanaAddress(ctx context.Context, address string) (*User, error) {
+	return s.impl.GetUserBySolanaAddress(ctx, address)
+}
+
+func (s *Service) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	return s.impl.GetUserByUsername(ctx, username)
+}
+
+func (s *Service) HardDeleteUser(ctx context.Context, userID string) error {
+	return s.impl.HardDeleteUser(ctx, userID)
+}
+
+func (s *Service) HasEmailSender() bool {
+	return s.impl.HasEmailSender()
+}
+
+func (s *Service) HasSMSSender() bool {
+	return s.impl.HasSMSSender()
+}
+
+func (s *Service) ImportUser(ctx context.Context, input ImportUserInput) (*User, error) {
+	return s.impl.ImportUser(ctx, input)
+}
+
+func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
+	return s.impl.IsUserAllowed(ctx, userID)
+}
+
+func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (string, time.Time, error) {
+	return s.impl.IssueAccessToken(ctx, userID, email, extra)
+}
+
+func (s *Service) JWKS() jwtkit.JWKS {
+	return s.impl.JWKS()
+}
+
+func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
+	return s.impl.Keyfunc()
+}
+
+func (s *Service) LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error {
+	return s.impl.LinkProvider(ctx, userID, provider, subject, email)
+}
+
+func (s *Service) ListAPIKeys(ctx context.Context, persona, resourceSlug string) ([]APIKey, error) {
+	return s.impl.ListAPIKeys(ctx, persona, resourceSlug)
+}
+
+func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
+	return s.impl.ListEntitlements(ctx, userID)
+}
+
+func (s *Service) ListGroupMembers(ctx context.Context, persona, resourceSlug string) ([]GroupMember, error) {
+	return s.impl.ListGroupMembers(ctx, persona, resourceSlug)
+}
+
+func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) ([]RemoteApplication, error) {
+	return s.impl.ListRemoteApplications(ctx, activeOnly)
+}
+
+func (s *Service) ListRoleSlugsByUser(ctx context.Context, userID string) []string {
+	return s.impl.ListRoleSlugsByUser(ctx, userID)
+}
+
+func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Session, error) {
+	return s.impl.ListUserSessions(ctx, userID)
+}
+
+func (s *Service) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
+	return s.impl.ListUsersDeletedBefore(ctx, cutoff, limit)
+}
+
+func (s *Service) MintAPIKey(ctx context.Context, persona, resourceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
+	return s.impl.MintAPIKey(ctx, persona, resourceSlug, name, role, createdBy, expiresAt)
+}
+
+func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error) {
+	return s.impl.MintCustomJWT(ctx, opts)
+}
+
+func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error) {
+	return s.impl.MintDelegatedAccessToken(ctx, p)
+}
+
+func (s *Service) MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error) {
+	return s.impl.MintRemoteApplicationAccessToken(ctx, p)
+}
+
+func (s *Service) MintServiceJWT(ctx context.Context, opts ServiceJWTMintOptions) (string, ServiceJWTClaims, error) {
+	return s.impl.MintServiceJWT(ctx, opts)
+}
+
+func (s *Service) Options() Options {
+	return s.impl.Options()
+}
+
+func (s *Service) Postgres() *pgxpool.Pool {
+	return s.impl.Postgres()
+}
+
+func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
+	return s.impl.PublicKeysByKID()
+}
+
+func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+	return s.impl.ReconcileBootstrapManifest(ctx, manifest, opts)
+}
+
+func (s *Service) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {
+	return s.impl.RemoveRoleBySlug(ctx, userID, slug)
+}
+
+func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (string, []string, error) {
+	return s.impl.ResolveAPIKey(ctx, keyID, secret)
+}
+
+func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
+	return s.impl.ResolveAPIKeyWithResources(ctx, keyID, secret)
+}
+
+func (s *Service) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error) {
+	return s.impl.ResolveRemoteAppAttributeDef(ctx, appID, key, version)
+}
+
+func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error) {
+	return s.impl.ResolveRemoteApplicationAuthority(ctx, appID)
+}
+
+func (s *Service) RestoreUser(ctx context.Context, id string) error {
+	return s.impl.RestoreUser(ctx, id)
+}
+
+func (s *Service) RevokeAPIKey(ctx context.Context, persona, resourceSlug, tokenID string) (bool, error) {
+	return s.impl.RevokeAPIKey(ctx, persona, resourceSlug, tokenID)
+}
+
+func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {
+	return s.impl.RevokeAllSessions(ctx, userID, keepSessionID)
+}
+
+func (s *Service) SMSAvailable() bool {
+	return s.impl.SMSAvailable()
+}
+
+func (s *Service) Schema() string {
+	return s.impl.Schema()
+}
+
+func (s *Service) SetEmailVerified(ctx context.Context, id string, v bool) error {
+	return s.impl.SetEmailVerified(ctx, id, v)
+}
+
+func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) {
+	s.impl.SetEntitlementsProvider(p)
+}
+
+func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
+	return s.impl.SoftDeleteUser(ctx, id)
+}
+
+func (s *Service) UnbanUser(ctx context.Context, userID string) error {
+	return s.impl.UnbanUser(ctx, userID)
+}
+
+func (s *Service) UnlinkProvider(ctx context.Context, userID, provider string) error {
+	return s.impl.UnlinkProvider(ctx, userID, provider)
+}
+
+func (s *Service) UpdateBiography(ctx context.Context, id string, bio *string) error {
+	return s.impl.UpdateBiography(ctx, id, bio)
+}
+
+func (s *Service) UpdateEmail(ctx context.Context, id, email string) error {
+	return s.impl.UpdateEmail(ctx, id, email)
+}
+
+func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error) {
+	return s.impl.UpdateImportedUser(ctx, userID, input)
+}
+
+func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {
+	return s.impl.UpdateUsername(ctx, id, username)
+}
+
+func (s *Service) UpsertPasswordHash(ctx context.Context, userID, hash, algo string, params []byte) error {
+	return s.impl.UpsertPasswordHash(ctx, userID, hash, algo, params)
+}
+
+func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error) {
+	return s.impl.UpsertRemoteApplication(ctx, in)
+}
+
+func (s *Service) UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
+	return s.impl.UpsertRoleBySlug(ctx, name, slug, description)
+}
+
+func (s *Service) ValidateVerificationConfiguration() error {
+	return s.impl.ValidateVerificationConfiguration()
+}
+
+func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) bool {
+	return s.impl.VerifyUserPassword(ctx, userID, pass)
+}

@@ -56,9 +56,12 @@ var builtIns = map[string]Provider{
 		Scopes:         []string{"read:user", "user:email"},
 		PKCE:           true,
 		UserMapping: UserMapping{
-			Subject:           FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
-			Email:             FieldMapping{Path: "email", Transforms: []string{"trim"}},
-			EmailVerified:     FieldMapping{Value: true},
+			Subject: FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
+			Email:   FieldMapping{Path: "email", Transforms: []string{"trim"}},
+			// GitHub's /user.email is the public profile address and carries NO
+			// verification guarantee, so we must NOT assert email_verified here. A
+			// verified address is sourced only from the /user/emails fallback below,
+			// which selects primary+verified entries (AK security audit F4).
 			PreferredUsername: FieldMapping{Path: "login", Transforms: []string{"trim"}},
 			DisplayName:       FieldMapping{Path: "name", Transforms: []string{"trim"}},
 		},
@@ -71,7 +74,7 @@ var builtIns = map[string]Provider{
 				"verified": true,
 			},
 			Email:         FieldMapping{Path: "email", Transforms: []string{"trim"}},
-			EmailVerified: FieldMapping{Value: true},
+			EmailVerified: FieldMapping{Path: "verified"},
 		},
 	},
 }

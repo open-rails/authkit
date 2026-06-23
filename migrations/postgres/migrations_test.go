@@ -87,7 +87,7 @@ func TestFSForSchemaRendersDDL(t *testing.T) {
 	for _, want := range []string{
 		"CREATE SCHEMA IF NOT EXISTS openrails_auth;",
 		"openrails_auth.users",
-		"openrails_auth.uuid_v5(",
+		"openrails_auth.trg_permission_group_containment(",
 	} {
 		if !strings.Contains(first, want) {
 			t.Errorf("rendered 001_auth_schema.up.sql missing %q", want)

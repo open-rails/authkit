@@ -47,11 +47,11 @@ type RemoteAppAttributeDef struct {
 // authkit trusts to mint delegated/remote-application tokens. It is a plain data
 // view; persistence and lifecycle live in core.
 type RemoteApplication struct {
-	ID      string
-	Slug    string
-	OrgID   string // optional controlling org; empty means bootstrap/operator-managed
-	Issuer  string // OIDC iss
-	JWKSURI string // OIDC jwks_uri (jwks mode only)
+	ID                string
+	Slug              string
+	PermissionGroupID string // controlling permission-group id
+	Issuer            string // OIDC iss
+	JWKSURI           string // OIDC jwks_uri (jwks mode only)
 	// Mode is the trust source: RemoteAppModeJWKS (fetch from JWKSURI) XOR
 	// RemoteAppModeStatic (human-managed PublicKeys list). Never both.
 	Mode string

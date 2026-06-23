@@ -127,7 +127,7 @@ func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
 	suffix := uniqueSuffix()
 	email := "reset-email-" + suffix + "@example.com"
 	username := "resetemail" + suffix
-	user, err := srv.Core().CreateUser(ctx, email, username)
+	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 
@@ -139,7 +139,7 @@ func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"ok":true`)
 
-	_, _, err = srv.Core().PasswordLogin(ctx, email, "New-password-12345", nil)
+	_, _, err = srv.svc.PasswordLogin(ctx, email, "New-password-12345", nil)
 	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/email/password/reset/confirm", `{"token":"`+token+`","new_password":"Another-password-12345"}`)
@@ -151,7 +151,7 @@ func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 
 	phone := uniquePhone()
-	phoneUser, err := srv.Core().CreateUser(ctx, "reset-phone-"+suffix+"@example.com", "resetphone"+suffix)
+	phoneUser, err := srv.svc.CreateUser(ctx, "reset-phone-"+suffix+"@example.com", "resetphone"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, phoneUser.ID) })
 	_, err = pool.Exec(ctx, `UPDATE profiles.users SET phone_number=$1, phone_verified=false WHERE id=$2::uuid`, phone, phoneUser.ID)
@@ -183,17 +183,17 @@ func TestVerificationConfirmAcceptsCodeOrToken(t *testing.T) {
 	require.NoError(t, err)
 
 	emailCode := uniqueEmail("verify-code")
-	emailCodeUser, err := srv.Core().CreateUser(ctx, emailCode, "verifycodeuser")
+	emailCodeUser, err := srv.svc.CreateUser(ctx, emailCode, "verifycodeuser")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, emailCodeUser.ID) })
 	w := serveJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+emailCode+`"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+emailSender.verificationCode(t)+`"}`)
+	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"code":"`+emailSender.verificationCode(t)+`","email":"`+emailCode+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireTokenResponse(t, w)
 
 	emailToken := uniqueEmail("verify-token")
-	emailTokenUser, err := srv.Core().CreateUser(ctx, emailToken, "verifytokenuser")
+	emailTokenUser, err := srv.svc.CreateUser(ctx, emailToken, "verifytokenuser")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, emailTokenUser.ID) })
 	w = serveJSON(srv, http.MethodPost, "/email/verify/request", `{"email":"`+emailToken+`"}`)
@@ -261,7 +261,7 @@ func uniqueSuffix() string {
 func createPhoneUser(t *testing.T, pool *pgxpool.Pool, srv *Service, phone, username string) string {
 	t.Helper()
 	ctx := context.Background()
-	user, err := srv.Core().CreateUser(ctx, uniqueEmail(username), username+uniqueSuffix())
+	user, err := srv.svc.CreateUser(ctx, uniqueEmail(username), username+uniqueSuffix())
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 	_, err = pool.Exec(ctx, `UPDATE profiles.users SET phone_number=$1, phone_verified=false WHERE id=$2::uuid`, phone, user.ID)

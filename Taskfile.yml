@@ -8,8 +8,8 @@ vars:
   SQLC_VERSION: '{{.SQLC_VERSION | default "v1.31.1"}}'
   SQLC: 'go run github.com/sqlc-dev/sqlc/cmd/sqlc@{{.SQLC_VERSION}}'
   # sqlc vet's db-prepare rule PREPAREs every query against a real database.
-  # Defaults to the devserver Postgres (docker compose -f
-  # docker-compose.devserver.yaml up -d postgres) with migrations applied.
+  # Defaults to the compose Postgres. Start `docker compose up -d --build issuer`
+  # first when you need migrations applied for DB-backed tests.
   SQLC_DATABASE_URL: '{{.SQLC_DATABASE_URL | default "postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable"}}'
 
 # Exported to every task's commands (Makefile: `export SQLC_DATABASE_URL`).

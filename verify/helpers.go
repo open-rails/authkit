@@ -85,10 +85,6 @@ func applyRequestContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-// MaxDelegatedRoles is the cap on how many role UUIDs are lifted from a
-// delegated token's attributes.roles claim.
-const MaxDelegatedRoles = maxDelegatedRoles
-
 // HTTPClient returns the outbound HTTP client the Verifier uses for JWKS
 // fetches (the WithHTTPClient override, or the default timeout-bounded client).
 func (v *Verifier) HTTPClient() *http.Client { return v.httpClient }

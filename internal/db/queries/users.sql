@@ -4,19 +4,19 @@
 SELECT email FROM profiles.users WHERE id = $1;
 
 -- name: UserByID :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE id = $1;
 
 -- name: UserByEmail :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::citext;
 
 -- name: UserByUsername :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE username = $1;
 
 -- name: UserByPhone :one
-SELECT id, email, phone_number, username, discord_username, email_verified, COALESCE(phone_verified, false)::boolean AS phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE phone_number = $1;
 
 -- name: UserSetPhoneVerifiedByID :exec
@@ -152,8 +152,18 @@ DELETE FROM profiles.users WHERE id = $1;
 -- name: SessionsRevokeAllQuiet :exec
 UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2;
 
--- name: UserDiscordUsername :one
-SELECT discord_username FROM profiles.users WHERE id = $1;
+-- #125 D7: pre-delete cleanup for the hard-delete/purge path. group_role_assignments
+-- uses a polymorphic trigger-FK (no cascade) so user assignments would orphan;
+-- group_invites.invited_by is ON DELETE RESTRICT so sent invites must be cleared
+-- before the user row is removed.
+
+-- name: GroupAssignmentsDeleteByUser :exec
+DELETE FROM profiles.group_role_assignments
+WHERE subject_id = sqlc.arg(user_id)::uuid AND subject_kind = 'user';
+
+-- name: GroupInvitesDeleteByInviter :exec
+DELETE FROM profiles.group_invites
+WHERE invited_by = sqlc.arg(user_id)::uuid;
 
 -- name: UserEmailOrUsernameExists :one
 SELECT EXISTS(

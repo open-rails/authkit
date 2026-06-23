@@ -64,6 +64,7 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 
 	var body struct {
 		Code       string `json:"code"`
+		Method     string `json:"method"`
 		FactorID   string `json:"factor_id"`
 		BackupCode bool   `json:"backup_code"`
 	}
@@ -71,10 +72,23 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
+	if strings.TrimSpace(body.FactorID) != "" {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	method := strings.ToLower(strings.TrimSpace(body.Method))
+	if method != "" && !validTwoFactorReauthMethod(method) {
+		badRequest(w, ErrInvalidMethod)
+		return
+	}
 
 	if strings.TrimSpace(body.Code) == "" {
-		destination, method, factor, err := s.svc.Require2FAForReauthFactor(r.Context(), claims.UserID, claims.SessionID, strings.TrimSpace(body.FactorID))
+		destination, method, _, err := s.svc.Require2FAForReauthMethod(r.Context(), claims.UserID, claims.SessionID, method)
 		if err != nil {
+			if method != "" {
+				badRequest(w, ErrInvalidMethod)
+				return
+			}
 			if s.handleDeliveryError(w, r, "reauth_2fa", "send_2fa_code", err) {
 				return
 			}
@@ -85,12 +99,6 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 			"requires_2fa":    true,
 			"method":          method,
 			"verification_id": obfuscateVerificationID(destination),
-			"factor": twoFactorFactorResponse{
-				ID:          factor.ID,
-				Method:      factor.Method,
-				IsDefault:   factor.IsDefault,
-				PhoneNumber: factor.PhoneNumber,
-			},
 		})
 		return
 	}
@@ -100,7 +108,7 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 	if body.BackupCode {
 		valid, err = s.svc.VerifyBackupCode(r.Context(), claims.UserID, strings.TrimSpace(body.Code))
 	} else {
-		valid, err = s.svc.Verify2FAReauthFactorCode(r.Context(), claims.UserID, claims.SessionID, strings.TrimSpace(body.FactorID), strings.TrimSpace(body.Code))
+		valid, err = s.svc.Verify2FAReauthMethodCode(r.Context(), claims.UserID, claims.SessionID, method, strings.TrimSpace(body.Code))
 	}
 	if err != nil || !valid {
 		unauthorized(w, ErrInvalidCode)
@@ -167,7 +175,9 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	redirectURI := buildRedirectURI(r, provider)
+	redirectURI := s.buildRedirectURI(r, provider)
+	// AK F3: bind state to this browser (CSRF defense).
+	s.setStateCookie(w, r, state)
 	startedAt := time.Now().UTC()
 	authURL, err := manager.BeginWithAuthParams(r.Context(), provider, state, nonce, challenge, redirectURI, map[string]string{"max_age": "0"})
 	if err != nil {
@@ -273,10 +283,14 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Service) reauthRequired(w http.ResponseWriter, r *http.Request, claims Claims) {
-	sendErrData(w, http.StatusForbidden, ErrReauthRequired, map[string]any{
+	metadata := map[string]any{
 		"reauth_methods":  s.reauthMethods(r, claims.UserID),
 		"max_age_seconds": int64(core.SensitiveActionFreshAuthWindow.Seconds()),
-	})
+	}
+	if twoFA := s.reauthTwoFactorOptions(r, claims.UserID); twoFA != nil {
+		metadata["reauth_2fa"] = twoFA
+	}
+	sendErrData(w, http.StatusForbidden, ErrReauthRequired, metadata)
 }
 
 func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness core.SessionFreshness) (map[string]any, error) {
@@ -315,6 +329,95 @@ func (s *Service) reauthMethods(r *http.Request, userID string) []string {
 		}
 	}
 	return methods
+}
+
+type reauthTwoFactorOptionsResponse struct {
+	Methods       []string                        `json:"methods,omitempty"`
+	DefaultMethod string                          `json:"default_method,omitempty"`
+	Options       []reauthTwoFactorOptionResponse `json:"options,omitempty"`
+}
+
+type reauthTwoFactorOptionResponse struct {
+	Method         string `json:"method"`
+	IsDefault      bool   `json:"is_default,omitempty"`
+	VerificationID string `json:"verification_id,omitempty"`
+}
+
+func (s *Service) reauthTwoFactorOptions(r *http.Request, userID string) *reauthTwoFactorOptionsResponse {
+	settings, err := s.svc.Get2FASettings(r.Context(), userID)
+	if err != nil || settings == nil || !settings.Enabled {
+		return nil
+	}
+	factors := settings.Factors
+	if len(factors) == 0 && strings.TrimSpace(settings.Method) != "" {
+		factors = []core.TwoFactorFactor{{
+			Method:      strings.TrimSpace(settings.Method),
+			PhoneNumber: settings.PhoneNumber,
+			IsDefault:   true,
+			Enabled:     true,
+		}}
+	}
+	if len(factors) == 0 {
+		return nil
+	}
+
+	emailDestination := ""
+	var needsEmail bool
+	for _, factor := range factors {
+		if factor.Enabled && strings.EqualFold(factor.Method, "email") {
+			needsEmail = true
+			break
+		}
+	}
+	if needsEmail {
+		if user, err := s.svc.AdminGetUser(r.Context(), userID); err == nil && user != nil && user.Email != nil {
+			emailDestination = *user.Email
+		}
+	}
+
+	out := &reauthTwoFactorOptionsResponse{}
+	for _, factor := range factors {
+		method := strings.ToLower(strings.TrimSpace(factor.Method))
+		if !factor.Enabled || !validTwoFactorReauthMethod(method) {
+			continue
+		}
+		option := reauthTwoFactorOptionResponse{
+			Method:    method,
+			IsDefault: factor.IsDefault,
+		}
+		switch method {
+		case "email":
+			if emailDestination != "" {
+				option.VerificationID = obfuscateVerificationID(emailDestination)
+			}
+		case "sms":
+			if factor.PhoneNumber != nil {
+				option.VerificationID = obfuscateVerificationID(*factor.PhoneNumber)
+			}
+		}
+		out.Methods = append(out.Methods, method)
+		out.Options = append(out.Options, option)
+		if factor.IsDefault {
+			out.DefaultMethod = method
+		}
+	}
+	if len(out.Methods) == 0 {
+		return nil
+	}
+	if out.DefaultMethod == "" {
+		out.DefaultMethod = out.Methods[0]
+		out.Options[0].IsDefault = true
+	}
+	return out
+}
+
+func validTwoFactorReauthMethod(method string) bool {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "email", "sms", "totp":
+		return true
+	default:
+		return false
+	}
 }
 
 func sessionFreshnessResponse(f core.SessionFreshness) map[string]any {

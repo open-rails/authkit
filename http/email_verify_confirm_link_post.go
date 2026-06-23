@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Service) confirmEmailVerificationToken(w http.ResponseWriter, r *http.Request, token, identifier, email string) {
-	if userID, err := s.svc.ConfirmPendingRegistration(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
+	if userID, err := s.svc.ConfirmPendingRegistrationByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)
@@ -21,7 +21,7 @@ func (s *Service) confirmEmailVerificationToken(w http.ResponseWriter, r *http.R
 		}
 		return
 	}
-	if userID, err := s.svc.ConfirmEmailVerification(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
+	if userID, err := s.svc.ConfirmEmailVerificationByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)

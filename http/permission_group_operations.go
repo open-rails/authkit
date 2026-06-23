@@ -154,7 +154,7 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	}
 	data := make([]map[string]any, 0, len(groups))
 	for _, g := range groups {
-		data = append(data, map[string]any{"persona": g.Persona, "resource-id": g.ResourceRef, "role": g.Role})
+		data = append(data, map[string]any{"persona": g.Persona, "resource-id": g.ResourceSlug, "role": g.Role})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
@@ -288,29 +288,29 @@ type remoteAppRegisterRequest struct {
 }
 
 // groupRemoteAppRegister registers (upserts) a remote_application owned by the
-// addressed group. The group's INTERNAL id must be resolved to fill OrgID (which
-// carries the controlling permission_group_id).
+// addressed group. The group's internal id becomes the controlling
+// permission_group_id.
 func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request, persona, resourceID string) {
 	var body remoteAppRegisterRequest
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	gid, err := s.svc.ResolveGroupIDForRef(r.Context(), persona, resourceID)
+	gid, err := s.svc.ResolveGroupIDForSlug(r.Context(), persona, resourceID)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
 	ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
-		Slug:           strings.TrimSpace(body.Slug),
-		OrgID:          gid, // carries the controlling permission_group_id
-		Issuer:         strings.TrimSpace(body.Issuer),
-		JWKSURI:        strings.TrimSpace(body.JWKSURI),
-		Mode:           strings.TrimSpace(body.Mode),
-		PublicKeys:     body.PublicKeys,
-		Audiences:      body.Audiences,
-		AllowedOrigins: body.AllowedOrigins,
-		Enabled:        body.Enabled,
+		Slug:              strings.TrimSpace(body.Slug),
+		PermissionGroupID: gid,
+		Issuer:            strings.TrimSpace(body.Issuer),
+		JWKSURI:           strings.TrimSpace(body.JWKSURI),
+		Mode:              strings.TrimSpace(body.Mode),
+		PublicKeys:        body.PublicKeys,
+		Audiences:         body.Audiences,
+		AllowedOrigins:    body.AllowedOrigins,
+		Enabled:           body.Enabled,
 	})
 	if err != nil {
 		s.writeGroupOpError(w, err)
@@ -347,7 +347,7 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, p
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	gid, err := s.svc.ResolveGroupIDForRef(r.Context(), persona, resourceID)
+	gid, err := s.svc.ResolveGroupIDForSlug(r.Context(), persona, resourceID)
 	if err != nil {
 		s.writeGroupOpError(w, err)
 		return
@@ -358,7 +358,7 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	// Scope check: the issuer must belong to the addressed group.
-	if ra.OrgID != gid {
+	if ra.PermissionGroupID != gid {
 		notFound(w, ErrNotFound)
 		return
 	}
@@ -385,7 +385,7 @@ func remoteAppJSON(ra *core.RemoteApplication) map[string]any {
 // --- invites ----------------------------------------------------------------
 
 // inviteCreateRequest is the body for POST /<persona>/<resource-id>/invites. Role
-// is required and validated against the type catalog.
+// is required and validated against the persona catalog.
 type inviteCreateRequest struct {
 	UserID string `json:"user_id"`
 	Role   string `json:"role"`

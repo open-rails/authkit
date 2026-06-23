@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,13 +22,15 @@ func TestMandatory2FARootRolePolicyHTTPIntegration(t *testing.T) {
 	cfg := mandatory2FATestConfig()
 	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
-	require.NoError(t, srv.Core().SeedPermissionGroupContainment(ctx))
-	_, err = srv.Core().EnsureRootGroup(ctx)
+	require.NoError(t, srv.svc.SeedPermissionGroupContainment(ctx))
+	_, err = srv.svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	require.NoError(t, srv.Core().AssignGroupRole(ctx, core.RootType, "", mustPasswordUser(t, srv, "mandatory-admin"), core.SubjectKindUser, "admin"))
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", mustPasswordUser(t, srv, "mandatory-admin"), core.SubjectKindUser, "admin"))
 
 	adminID := mustPasswordUser(t, srv, "mandatory-admin-login")
-	require.NoError(t, srv.Core().AssignGroupRole(ctx, core.RootType, "", adminID, core.SubjectKindUser, "admin"))
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", adminID, core.SubjectKindUser, "admin"))
+	_, _, _, err = srv.svc.IssueRefreshSessionWithAuthMethods(ctx, adminID, "oidc-test", nil, []string{"oauth"})
+	require.True(t, errors.Is(err, core.ErrTwoFAEnrollmentRequired), "OIDC/OAuth session mint must fail closed for mandatory 2FA users, got %v", err)
 
 	w := login(t, srv, "mandatory-admin-login", adminID)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -90,7 +93,7 @@ func TestMandatory2FARootRolePolicyHTTPIntegration(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.AccessToken)
 	require.NotEmpty(t, tokens.RefreshToken)
-	require.NoError(t, srv.Core().AssignGroupRole(ctx, core.RootType, "", ordinaryID, core.SubjectKindUser, "admin"))
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", ordinaryID, core.SubjectKindUser, "admin"))
 
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
@@ -101,11 +104,11 @@ func mandatory2FATestConfig() core.Config {
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
 	cfg.TwoFactor.Mandatory = []core.Mandatory2FAPolicy{{
-		GroupType: core.RootType,
-		Roles:     []string{"admin"},
+		Persona: core.RootPersona,
+		Roles:   []string{"admin"},
 	}}
-	cfg.RBAC.Groups = []core.GroupTypeDef{{
-		Name: core.RootType,
+	cfg.RBAC.Groups = []core.PersonaDef{{
+		Name: core.RootPersona,
 		Roles: []core.RoleDef{{
 			Name:        "admin",
 			Permissions: []string{"root:*"},
@@ -119,21 +122,21 @@ func mustPasswordUser(t *testing.T, srv *Service, prefix string) string {
 	t.Helper()
 	email := uniqueEmail(prefix)
 	username := strings.ReplaceAll(prefix, "-", "") + uniqueSuffix()
-	user, err := srv.Core().CreateUser(context.Background(), email, username)
+	user, err := srv.svc.CreateUser(context.Background(), email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = srv.Core().Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID)
+		_, _ = srv.svc.Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID)
 	})
 	hash, err := password.HashArgon2id("Correct-password-12345")
 	require.NoError(t, err)
-	require.NoError(t, srv.Core().UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id", nil))
+	require.NoError(t, srv.svc.UpsertPasswordHash(context.Background(), user.ID, hash, "argon2id", nil))
 	return user.ID
 }
 
 func login(t *testing.T, srv *Service, prefix, userID string) *httptest.ResponseRecorder {
 	t.Helper()
 	email := uniqueEmail(prefix)
-	if u, err := srv.Core().AdminGetUser(context.Background(), userID); err == nil && u != nil && u.Email != nil {
+	if u, err := srv.svc.AdminGetUser(context.Background(), userID); err == nil && u != nil && u.Email != nil {
 		email = *u.Email
 	}
 	return serveJSON(srv, http.MethodPost, "/password/login", `{"login":"`+email+`","password":"Correct-password-12345"}`)

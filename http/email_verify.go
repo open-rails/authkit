@@ -76,15 +76,35 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Typed 6-digit code path: the code is short, so it MUST be scoped to a
+	// specific email and attempt-capped to be brute-force resistant. The code is
+	// looked up globally by hash; without binding it to the supplied address a
+	// guessed code would match (and take over) whichever account happens to hold
+	// it, and a per-IP-only limit is trivially defeated by IP rotation (AK F1).
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
-	if code == "" {
+	email := strings.TrimSpace(req.Email)
+	if email == "" {
+		email = strings.TrimSpace(req.Identifier)
+	}
+	if code == "" || email == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
+	if err := core.ValidateEmail(email); err != nil {
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+		return
+	}
+	email = core.NormalizeEmail(email)
 
-	// Try pending registration first (new flow)
-	userID, err := s.svc.ConfirmPendingRegistration(r.Context(), code)
-	if err == nil && userID != "" {
+	// Per-identifier cap: a failed code is not consumed, so bound guesses against
+	// one address even from many IPs.
+	if s.rateLimitedByIdentifier(w, r, RLEmailVerifyConfirm, email) {
+		return
+	}
+
+	// Try pending registration first (new flow), then existing-user verification.
+	if userID, err := s.svc.ConfirmPendingRegistration(r.Context(), email, code); err == nil && userID != "" {
+		s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
 			if errors.Is(err, core.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)
@@ -96,19 +116,22 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	userID, err = s.svc.ConfirmEmailVerification(r.Context(), code)
-	if err != nil {
-		badRequest(w, ErrInvalidOrExpiredCode)
-		return
-	}
-	if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
-		if errors.Is(err, core.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
+	if userID, err := s.svc.ConfirmEmailVerification(r.Context(), email, code); err == nil && userID != "" {
+		s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
+		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
+			if errors.Is(err, core.ErrUserBanned) {
+				unauthorized(w, ErrUserBanned)
+				return
+			}
+			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
-		serverErr(w, ErrTokenIssueFailed)
 		return
 	}
+
+	// Both failed: count the bad guess and (after the cap) invalidate the code.
+	s.svc.RecordFailedEmailVerifyCode(r.Context(), email)
+	badRequest(w, ErrInvalidOrExpiredCode)
 }
 
 func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, userID string, method string) error {

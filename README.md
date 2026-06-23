@@ -39,6 +39,7 @@ Scope (minimal)
 - Asymmetric JWT issuing (RS256) + JWKS endpoint (no persistence yet).
 - Password login and email-based password reset tokens.
 - OIDC RP (OAuth2/OIDC) with PKCE (Redis/Garnet or in-memory for ephemeral state; no DB table).
+- Passkey login/registration (WebAuthn/FIDO2) using host-configured RP ID and origins.
 - Solana wallet authentication (SIWS - Sign In With Solana).
 - Storage with Postgres + Redis/Garnet for ephemeral auth state.
 
@@ -77,9 +78,41 @@ Configurable schema (issue 69)
 
 Database queries (sqlc)
 - All static Postgres queries are written as raw SQL in `internal/db/queries/*.sql` (one file per domain) and compiled to type-safe Go by [sqlc](https://docs.sqlc.dev) into the `internal/db` package (committed, never hand-edited).
-- To add or change a query: edit the `.sql` file, run `task sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose -f docker-compose.devserver.yaml up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`. (Tasks are defined in `Taskfile.yml`; `task --list` shows them. Install: https://taskfile.dev/installation.)
+- To add or change a query: edit the `.sql` file, run `task sqlc` (runs `sqlc generate` + `sqlc vet` as a pair; vet's `db-prepare` rule PREPAREs every query against a real Postgres — start one with `docker compose up -d postgres` and apply `migrations/postgres/*.up.sql`), then use the generated method on `db.Queries`. (Tasks are defined in `Taskfile.yml`; `task --list` shows them. Install: https://taskfile.dev/installation.)
 - The schema source of truth for sqlc is `migrations/postgres/` — generated code is always type-checked against the real migrations. CI fails if `internal/db` drifts from the query files (`task sqlc-check`).
 - Escape hatch: queries whose SQL is assembled at runtime stay on raw pgx with a comment explaining why (currently `core.AdminListUsers` and the advisory-lock path in `core.ReconcileOrgManifest`). ClickHouse queries are out of sqlc's scope.
+
+Passkeys
+- Configure `core.Config.Passkeys` when enabling passkey routes:
+
+  ```go
+  Passkeys: core.PasskeyConfig{
+    RPID:           "myapp.com",
+    RPDisplayName: "My App",
+    Origins:       []string{"https://myapp.com"},
+  }
+  ```
+
+  Empty passkey config derives `RPID`/origin from `Frontend.BaseURL`.
+- Mount the default API or `RoutePasskeys` to expose
+  `/passkeys/register/begin`, `/passkeys/register/finish`,
+  `/passkeys/login/begin`, `/passkeys/login/finish`, `GET /passkeys`,
+  `PATCH /passkeys/{id}`, and `DELETE /passkeys/{id}`.
+- The browser should pass AuthKit's `publicKey` response into
+  `navigator.credentials.create()` or `navigator.credentials.get()`, then POST
+  the returned `PublicKeyCredential` JSON to the matching `finish` route.
+- AuthKit requires WebAuthn user verification before minting a session and
+  records MFA assurance claims on the access token. Passkeys do not replace
+  mandatory AuthKit 2FA enrollment policy yet.
+
+Full DB-backed tests
+- `go test ./...` is a fast DB-free smoke when `AUTHKIT_TEST_DATABASE_URL` is unset; DB-backed integration tests skip in that mode.
+- To run the full suite locally, start the compose issuer so the devserver applies migrations, then run the Taskfile test target:
+
+  ```bash
+  docker compose up -d --build issuer
+  task test
+  ```
 
 ---
 
@@ -110,8 +143,6 @@ func main() {
     // Registration: core.RegistrationConfig{
     //   Verification:   core.RegistrationVerificationRequired, // none|optional|required
     //   NativeUserMode: core.RegistrationModeOpen,             // open|invite_only|admin_only|admin_bootstrap_only|...
-    //   OrgMode:        core.RegistrationModeOpen,
-    //   AutoCreatePersonalOrgs: true,                          // opt in to a personal org per native user
     // },
     // Keys.Source nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
@@ -177,10 +208,7 @@ separate registration modes on `core.Config`:
 
 - `NativeUserRegistrationMode`: `open`, `invite_only`, `admin_only`,
   `admin_bootstrap_only`, or `closed`.
-- `OrgRegistrationMode`: `open`, `invite_only`, `admin_only`,
-  `admin_bootstrap_only`, `manifest_only`, or `closed`.
-
-Both default to `open`. Any non-open native-user mode turns off public user
+It defaults to `open`. Any non-open native-user mode turns off public user
 self-registration and auto-registration paths: `POST /register`,
 `/register/availability`, `/register/resend-email`, `/register/resend-phone`,
 OIDC/social/Solana auto-create, and pending-registration confirmation all return
@@ -190,27 +218,15 @@ login, refresh, logout, password reset/recovery, token verification, and
 sessions all keep working. Embedded bootstrap/admin creation through exported
 core APIs (`CreateUser`, `ImportUser`) still works.
 
-Any non-open org *registration* mode denies the public org-facing mutation routes
-(org creation/rename, invites, member changes, role changes, API key
-management routes) with a stable `org_management_disabled` error. Read-only
-org routes stay available for existing members. Embedded core/bootstrap code can still ensure
-initial orgs, roles, admins, trusted issuers, and generated opaque service
-tokens through the privileged provisioning API (`ProvisionOrg`) or the org
-manifest reconciler. Public org creation uses `CreateOrgForUser`; lower
-level `CreateOrg` is for bootstrap/admin callers that intentionally create an
-ownerless org.
-
 Locked-down (e.g. self-hosted OpenRails) pattern: mount only the chosen route
-groups, set both modes to `admin_bootstrap_only` or `manifest_only`, and
-bootstrap through embedded core APIs or a deployment-owned org manifest.
-Bootstrap authority is an operator/deploy action, not a fake AuthKit org.
+groups, set native registration to `admin_bootstrap_only`, and bootstrap through
+embedded core APIs. Bootstrap authority is an operator/deploy action.
 
 ```go
 cfg := core.Config{
   // ...Token (issuer/audiences) + Keys...
   Registration: core.RegistrationConfig{
     NativeUserMode: core.RegistrationModeAdminBootstrapOnly,
-    OrgMode:        core.RegistrationModeManifestOnly,
   },
 }
 svc, _ := authhttp.NewServer(cfg, pg)
@@ -222,27 +238,16 @@ authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
   authhttp.RouteUser,    // self-service for existing accounts
 )))
 
-// Bootstrap declared orgs, roles, admins, and API keys internally via
-// AuthKit core APIs (unaffected by the public registration modes):
+// Bootstrap declared users/admins internally via AuthKit core APIs
+// (unaffected by public registration modes):
 core := svc.Core()
-admin, _ := core.CreateUser(ctx, "ops@example.com", "operator")
-bootstrap, _ := core.ProvisionOrg(ctx, core.OrgProvisionRequest{
-  Slug: "operator",
-  Memberships: []core.OrgProvisionMembership{{UserID: admin.ID, Role: "owner"}},
-  APIKeys: []core.OrgProvisionAPIKey{{
-    Name: "ci",
-    Permissions: []string{"org:read"},
-  }},
-}, nil)
-_ = bootstrap.MintedTokens[0].Plaintext // write once to a secret store
+_, _ = core.CreateUser(ctx, "ops@example.com", "operator")
 ```
 
 For a closed-registration deployment, the bootstrap manifest is the standard
 machine/bootstrap path. It declares AuthKit-owned authority state: users,
-global roles, orgs, trusted delegated-token issuers, org roles, memberships,
-and optional generated opaque API keys. The broader bootstrap reconciler
-wraps the org manifest reconciler rather than forking it, so org/provider token
-behavior stays on one path.
+root roles, permission-group personas, memberships, trusted issuers, and
+optional generated opaque API keys.
 
 ```yaml
 users:
@@ -258,8 +263,9 @@ global_roles:
   - slug: admin
     name: Admin
 
-orgs:
-  - slug: cozy-art
+permission_groups:
+  - persona: merchant
+    resource_slug: cozy-art
     issuers:
       - issuer: https://cozy.example
         jwks_uri: https://cozy.example/.well-known/jwks.json
@@ -267,7 +273,7 @@ orgs:
         enabled: true
     roles:
       - name: operator
-        permissions: ["org:read", "openrails:billing:read"]
+        permissions: ["merchant:self:read", "openrails:billing:read"]
     memberships:
       - user_ref: operator
         role: operator
@@ -541,7 +547,7 @@ re-issue the token when a grant changes.
 
 Concepts (concise)
 
-- Service (issuer + storage): built by `authhttp.NewServer(cfg, pg, opts...)` (Postgres required; optional deps are functional options); backs the built-in handlers (sessions, login, OIDC, etc). Core service facets (`svc.Users()`, `svc.Orgs()`, `svc.Roles()`, `svc.APIKeys()`, `svc.Tokens()`, `svc.TwoFactor()`, `svc.Sessions()`, `svc.Identity()`, `svc.Bootstrap()`) provide a domain-shaped API surface.
+- Service (issuer + storage): built by `authhttp.NewServer(cfg, pg, opts...)` (Postgres required; optional deps are functional options); backs the built-in handlers (sessions, login, OIDC, etc). The full implementation lives in `internal/authcore` (driven by the HTTP transport and not part of the public contract); embedders reach a small curated facade via `svc.Core()` (`*core.Service`) for provisioning, minting, and management — e.g. `svc.Core().CreateUser(...)`, `svc.Core().MintServiceJWT(...)`, `svc.Core().ReconcileBootstrapManifest(...)`.
 - Middleware: `github.com/open-rails/authkit/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
 - Verify-only: use `authhttp.NewVerifier()` + `verifier.AddIssuer(...)` to accept tokens from other issuers without issuing tokens yourself.
   - **Lean import for pure verification:** the verification layer (`Verifier`, `NewVerifier`, `Claims`, the `Required`/`Optional` middleware, `RequiredServiceJWT`, etc.) lives in the dependency-light `github.com/open-rails/authkit/verify` package, which imports **no Postgres/Redis/storage** — only `authkit/jwt` + `authkit/authbase`. A service that *only* validates tokens (a typical resource server) should import `authkit/verify` directly to keep `pgx`/`redis` out of its build graph. `authkit/http` re-exports the same names (`authhttp.Verifier`, `authhttp.NewVerifier`, `authhttp.Claims`, …) for apps that also issue tokens, so existing embedders need no changes. Attach DB-backed enrichment (live-user/ban gate, role/email hydration, opaque API-key resolution) only when you want it, via `verifier.WithService(coreSvc)` — `*core.Service` satisfies the `verify.Enricher` interface.
@@ -772,14 +778,22 @@ Permission groups
     from `/me`, route resource state, and stored memberships.
 
 API Keys (opaque machine credentials)
-- Long-lived, revocable shared-secret bearer credentials **owned by an org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). Robots should not replay the human password-login path. These are symmetric secrets with assigned permissions/resources; they are not JWKS URLs, public keys, or issuer registrations.
-- An API key acts **as the org**: middleware sets `Claims.Org` + `Claims.Permissions` (the key's app-defined permission strings) and a service marker (`Claims.IsService()`), leaving `UserID` empty — so the live-user ban/enrichment gate is skipped. Permissions are opaque to authkit; the embedding app owns the vocabulary and enforces meaning. (Users carry `OrgRoles`; the resource server expands role→permission at request time.)
+- Long-lived, revocable shared-secret bearer credentials owned by a permission
+  group, for machine/automation callers (CI, operator CLIs, service-to-service).
+  Robots should not replay the human password-login path. These are symmetric
+  secrets with assigned permissions/resources; they are not JWKS URLs, public
+  keys, or issuer registrations.
+- An API key acts as a service principal for its permission group: middleware
+  sets `Claims.Permissions`, `Claims.Resources`, and a service marker
+  (`Claims.IsService()`), leaving `UserID` empty so the live-user ban/enrichment
+  gate is skipped. Permissions are opaque to authkit; the embedding app owns the
+  vocabulary and enforces meaning.
 - Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeyPrefix` brand. `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
-- Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/org-deleted rejected; non-API-key credentials fall through to JWT). The API-key path is separate from the password-login handler, so API keys **bypass the interactive password-login rate limiter** by design.
-- **An API key holds exactly ONE org ROLE (#95):** its effective permissions are resolved FROM that role (`org_role_permissions`) at use time, so editing the role updates every key that holds it — adding/removing a permission later is a ONE-PLACE change, not a sweep across every key. The bespoke-permission use case is served by creating a custom org role. Resource-scope (`resources: [{kind,id}]`) stays a SEPARATE binding, orthogonal to the role.
-- **Mint authorization is native + role-based:** minting requires `org:api_keys:create`; the body field is `role` (a single org role slug). AuthKit validates the role EXISTS in the org and enforces no-escalation — the minter must hold every permission the role confers (`403 permission_grant_denied`/`400 unknown_permission`/`400 unknown_role`). A role that confers a wildcard or a reserved write/mint `org:` management permission is barred from an API key (`403 role_not_grantable_to_api_key`); a role conferring only read-only reserved perms (e.g. `org:*:read`) is API-key-grantable. Permissions are NEVER frozen — they re-resolve from the role at verify time. An API key can never mint/list/revoke API keys (no user). See "Org RBAC" below for the role→permission model.
-- **Resource scopes:** API keys may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.service_token_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
-- Manage via `POST/GET/DELETE /orgs/:org/api-keys[/:token_id]`. POST accepts `{name, role, resources?:[{kind,id}], expires_at?}` — `role` is a single org role slug (the mint response also surfaces the role's resolved `permissions` for convenience). Optional `expires_at` (null = non-expiring), capped by `Config.APIKeyMaxTTL` when set. Stored in `profiles.service_tokens` (a `role` column FK'd to the owning org's `org_roles`; no per-key permission table).
+- Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/group-deleted rejected; non-API-key credentials fall through to JWT). The API-key path is separate from the password-login handler, so API keys **bypass the interactive password-login rate limiter** by design.
+- **An API key holds exactly ONE permission-group role:** its effective permissions are resolved FROM that role at use time, so editing the role updates every key that holds it. The bespoke-permission use case is served by creating a custom group role. Resource-scope (`resources: [{kind,id}]`) stays a SEPARATE binding, orthogonal to the role.
+- **Mint authorization is native + role-based:** minting requires the generated `<persona>:api-keys:manage` permission; the body field is `role` (a single role slug). AuthKit validates the role exists in the group and enforces no-escalation. Permissions are NEVER frozen; they re-resolve from the role at verify time. An API key can never mint/list/revoke API keys because it has no user principal.
+- **Resource scopes:** API keys may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.api_key_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
+- Manage via `POST/GET/DELETE /:persona/:resource_slug/api-keys[/:token_id]`. POST accepts `{name, role, resources?:[{kind,id}], expires_at?}`; the mint response also surfaces the role's resolved `permissions` for convenience. Optional `expires_at` (null = non-expiring), capped by `Config.APIKeyMaxTTL` when set. Stored in `profiles.api_keys` with `permission_group_id` plus a role; no per-key permission table.
 - **Leak response:** revoke the key (`DELETE …/api-keys/:id`) — the application prefix is registrable with secret-scanning/push-protection partners so leaked keys can be auto-detected.
 
 Service JWTs (OIDC/JWKS machine credentials)

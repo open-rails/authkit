@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	core "github.com/open-rails/authkit/core"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
@@ -17,6 +16,10 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	if cfg, ok := s.oauth2Provider(provider); ok {
 		s.handleOAuthLoginGET(w, r, cfg.Name)
+		return
+	}
+	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
+		unauthorized(w, ErrAuthRequiredForLink)
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCStart) {
@@ -36,32 +39,13 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	redirectURI := buildRedirectURI(r, provider)
+	redirectURI := s.buildRedirectURI(r, provider)
+	// AK F3: bind state to this browser (login CSRF defense).
+	s.setStateCookie(w, r, state)
 	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
 		badRequest(w, ErrOIDCBeginFailed)
 		return
-	}
-
-	linkUserID := ""
-	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
-		tokenStr := bearerToken(r.Header.Get("Authorization"))
-		if tokenStr == "" {
-			unauthorized(w, ErrAuthRequiredForLink)
-			return
-		}
-		claims := jwt.MapClaims{}
-		tok, err := jwt.ParseWithClaims(tokenStr, claims, s.svc.Keyfunc())
-		if err != nil || tok == nil || !tok.Valid {
-			unauthorized(w, ErrInvalidToken)
-			return
-		}
-		if sub, _ := claims["sub"].(string); sub != "" {
-			linkUserID = sub
-		} else {
-			unauthorized(w, ErrInvalidToken)
-			return
-		}
 	}
 
 	ui := r.URL.Query().Get("ui")
@@ -76,7 +60,6 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		Verifier:    verifier,
 		Nonce:       nonce,
 		RedirectURI: redirectURI,
-		LinkUserID:  linkUserID,
 		UI:          ui,
 		PopupNonce:  popupNonce,
 	}); err != nil {
@@ -106,6 +89,14 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
 		badRequest(w, ErrInvalidRequest)
+		return
+	}
+
+	// AK F3: require the state cookie set at flow start (login CSRF defense).
+	cookieOK := stateCookieMatches(r, state)
+	clearStateCookie(w)
+	if !cookieOK {
+		badRequest(w, ErrInvalidState)
 		return
 	}
 
@@ -216,6 +207,10 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	extra := map[string]any{"provider": provider}
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
+		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) {
+			s.write2FAEnrollmentRequired(w, r, userID)
+			return
+		}
 		if errors.Is(err, core.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return

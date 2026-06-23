@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	core "github.com/open-rails/authkit/core"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 // TestPasswordLogin_LegacyResetRequired drives the full HTTP handler against a
@@ -42,7 +43,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	svc, err := NewServer(cfg, pool)
 	require.NoError(t, err)
 
-	coreSvc := core.NewService(core.Options{Issuer: "https://example.com"}, core.Keyset{}, core.WithPostgres(pool))
+	coreSvc := authcore.NewService(core.Options{Issuer: "https://example.com"}, core.Keyset{}, core.WithPostgres(pool))
 	const email = "legacy-reset-required-http@example.com"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
 	u, err := coreSvc.CreateUser(ctx, email, "legacyresetrequiredhttp")

@@ -18,6 +18,7 @@ const (
 	RouteUser        RouteGroup = "user"
 	RouteAdmin       RouteGroup = "admin"
 	RouteBrowserOIDC RouteGroup = "browser_oidc"
+	RoutePasskeys    RouteGroup = "passkeys"
 )
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
@@ -90,7 +91,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// the verified ceiling for machine principals — see requirePermission).
 	// There is no bespoke "admin" auth tier; these are plain root-group perms.
 	rootPermission := func(perm string, h http.HandlerFunc) http.Handler {
-		return required(s.requirePermission(core.RootType, "", perm, h))
+		return required(s.requirePermission(core.RootPersona, "", perm, h))
 	}
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
@@ -100,6 +101,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteSession, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteSession, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		{Method: http.MethodPost, Path: "/password/login", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
+		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
+		{Method: http.MethodPost, Path: "/passkeys/login/finish", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginFinishPOST)},
 		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
 		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
 		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
@@ -129,6 +132,11 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
 		{Method: http.MethodDelete, Path: "/user", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
 		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},
+		{Method: http.MethodPost, Path: "/passkeys/register/begin", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyRegisterBeginPOST))},
+		{Method: http.MethodPost, Path: "/passkeys/register/finish", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyRegisterFinishPOST))},
+		{Method: http.MethodGet, Path: "/passkeys", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeysGET))},
+		{Method: http.MethodPatch, Path: "/passkeys/{id}", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyPATCH))},
+		{Method: http.MethodDelete, Path: "/passkeys/{id}", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyDELETE))},
 
 		{Method: http.MethodPost, Path: "/reauth/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
 		{Method: http.MethodPost, Path: "/reauth/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleTwoFactorReauthPOST))},

@@ -9,12 +9,11 @@ import (
 const DefaultSensitiveMaxAge = 15 * time.Minute
 
 type SensitiveOptions struct {
-	MaxAge                  time.Duration
-	RequireMFA              bool
-	RequireFreshEvenWithMFA bool
-	AMR                     []string
-	ACR                     string
-	ReauthMethods           []string
+	MaxAge        time.Duration
+	RequireMFA    bool
+	AMR           []string
+	ACR           string
+	ReauthMethods []string
 }
 
 func Sensitive(options ...SensitiveOptions) func(http.Handler) http.Handler {
@@ -48,11 +47,7 @@ func SensitiveClaims(cl Claims, options ...SensitiveOptions) bool {
 	if opts.RequireMFA && !hasMFA {
 		return false
 	}
-	fresh := cl.AuthenticatedWithin(opts.MaxAge)
-	if opts.RequireFreshEvenWithMFA {
-		return fresh
-	}
-	return fresh || hasMFA
+	return cl.AuthenticatedWithin(opts.MaxAge)
 }
 
 func normalizeSensitiveOptions(options ...SensitiveOptions) SensitiveOptions {
@@ -77,9 +72,6 @@ func sensitiveMetadata(opts SensitiveOptions) map[string]any {
 	}
 	if opts.RequireMFA {
 		out["mfa_required"] = true
-	}
-	if opts.RequireFreshEvenWithMFA {
-		out["fresh_auth_required"] = true
 	}
 	if len(opts.AMR) > 0 {
 		out["required_amr"] = opts.AMR
