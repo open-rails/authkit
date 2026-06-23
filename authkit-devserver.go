@@ -35,11 +35,11 @@ type config struct {
 	// Org/RBAC knobs. Default to authkit's zero values (single-org, no
 	// catalog) so existing deployments are unaffected; the e2e suite sets
 	// these to exercise the multi-org API-key/RBAC surface against a real server.
-	APIKeyPrefix                string
-	PermissionCatalog           []string
-	StaticEntitlements          []string
-	BootstrapManifestPath       string
-	ReconcileBootstrapOnStart   bool
+	APIKeyPrefix              string
+	PermissionCatalog         []string
+	StaticEntitlements        []string
+	BootstrapManifestPath     string
+	ReconcileBootstrapOnStart bool
 }
 
 func main() {
@@ -79,21 +79,21 @@ func loadConfig() (*config, error) {
 	expectedAudiences := parseCSVEnv("DEVSERVER_EXPECTED_AUDIENCES", issuedAudiences)
 
 	c := &config{
-		ListenAddr:                  envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
-		Issuer:                      strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
-		DBURL:                       firstEnv("DB_URL", "DATABASE_URL"),
-		DevMode:                     envBool("DEVSERVER_DEV_MODE", false),
-		DevMintSecret:               envOr("DEVSERVER_DEV_MINT_SECRET", ""),
-		MigrateOnStart:              envBool("DEVSERVER_MIGRATE_ON_START", true),
-		IssuedAudiences:             issuedAudiences,
-		ExpectedAudiences:           expectedAudiences,
-		Environment:                 envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification:    core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
-		APIKeyPrefix:                strings.TrimSpace(firstEnv("DEVSERVER_API_KEY_PREFIX", "DEVSERVER_TOKEN_PREFIX")),
-		PermissionCatalog:           parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
-		StaticEntitlements:          parseCSVEnv("DEVSERVER_STATIC_ENTITLEMENTS", nil),
-		BootstrapManifestPath:       strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", core.DefaultBootstrapManifestPath)),
-		ReconcileBootstrapOnStart:   envBool("AUTHKIT_BOOTSTRAP_ON_START", false),
+		ListenAddr:                envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
+		Issuer:                    strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
+		DBURL:                     firstEnv("DB_URL", "DATABASE_URL"),
+		DevMode:                   envBool("DEVSERVER_DEV_MODE", false),
+		DevMintSecret:             envOr("DEVSERVER_DEV_MINT_SECRET", ""),
+		MigrateOnStart:            envBool("DEVSERVER_MIGRATE_ON_START", true),
+		IssuedAudiences:           issuedAudiences,
+		ExpectedAudiences:         expectedAudiences,
+		Environment:               envOr("DEVSERVER_ENVIRONMENT", "dev"),
+		RegistrationVerification:  core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
+		APIKeyPrefix:              strings.TrimSpace(firstEnv("DEVSERVER_API_KEY_PREFIX", "DEVSERVER_TOKEN_PREFIX")),
+		PermissionCatalog:         parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
+		StaticEntitlements:        parseCSVEnv("DEVSERVER_STATIC_ENTITLEMENTS", nil),
+		BootstrapManifestPath:     strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", core.DefaultBootstrapManifestPath)),
+		ReconcileBootstrapOnStart: envBool("AUTHKIT_BOOTSTRAP_ON_START", false),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")

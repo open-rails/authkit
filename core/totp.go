@@ -15,7 +15,6 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 const (
@@ -61,24 +60,25 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 
 // EnableTOTP2FA verifies the pending secret before enabling authenticator-app 2FA.
 func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string) ([]string, error) {
+	return s.EnableTOTP2FADefault(ctx, userID, code, false)
+}
+
+func (s *Service) EnableTOTP2FADefault(ctx context.Context, userID, code string, makeDefault bool) ([]string, error) {
 	var pending totpEnrollmentData
 	ok, err := s.ephemGetJSON(ctx, keyTOTPEnrollment+userID, &pending)
 	if err != nil || !ok || strings.TrimSpace(pending.Secret) == "" {
 		return nil, jwt.ErrTokenUnverifiable
 	}
-	step, ok, err := matchingTOTPStep(pending.Secret, code, time.Now())
-	if err != nil || !ok {
+	step, validStep, err := matchingTOTPStep(pending.Secret, code, time.Now())
+	if err != nil || !validStep {
 		return nil, jwt.ErrTokenUnverifiable
 	}
 	encrypted, err := s.encryptTOTPSecret(pending.Secret)
 	if err != nil {
 		return nil, err
 	}
-	codes, err := s.enable2FA(ctx, userID, "totp", nil, encrypted)
+	codes, err := s.enable2FA(ctx, userID, "totp", nil, encrypted, &step, makeDefault)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := s.q.TwoFactorConsumeTOTPStep(ctx, db.TwoFactorConsumeTOTPStepParams{UserID: userID, Step: &step}); err != nil {
 		return nil, err
 	}
 	_ = s.ephemDel(ctx, keyTOTPEnrollment+userID)

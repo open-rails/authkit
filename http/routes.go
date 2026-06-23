@@ -12,23 +12,12 @@ import (
 type RouteGroup string
 
 const (
-	RouteCore               RouteGroup = "core"
-	RoutePassword           RouteGroup = "password"
-	RouteRegister           RouteGroup = "register"
-	RouteOwners             RouteGroup = "owners"
-	RouteEmailVerification  RouteGroup = "email_verification"
-	RoutePhoneVerification  RouteGroup = "phone_verification"
-	RouteOrgs               RouteGroup = "orgs"
-	RouteUser               RouteGroup = "user"
-	RouteAccountOIDCLinking RouteGroup = "account_oidc_linking"
-	RouteTwoFactor          RouteGroup = "two_factor"
-	RouteSolana             RouteGroup = "solana"
-	RouteAdmin              RouteGroup = "admin"
-	RouteOIDCBrowser        RouteGroup = "oidc_browser"
-	// RouteOrgIssuers exposes the inbound accept-side org-issuer registry
-	// routes (the home for what tensorhub previously exposed as
-	// `/api/v1/platform/issuers`).
-	RouteOrgIssuers RouteGroup = "federation"
+	RoutePublic      RouteGroup = "public"
+	RouteRegister    RouteGroup = "register"
+	RouteSession     RouteGroup = "session"
+	RouteUser        RouteGroup = "user"
+	RouteAdmin       RouteGroup = "admin"
+	RouteBrowserOIDC RouteGroup = "browser_oidc"
 )
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
@@ -104,28 +93,17 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		return required(s.requirePermission(core.RootType, "", perm, h))
 	}
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
-	// notFoundHandler explicitly 404s a removed path that an adjacent wildcard
-	// route would otherwise capture (e.g. POST /admin/users/toggle-active would
-	// match GET /admin/users/{user_id} → 405). These are 404 sentinels.
-	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		notFound(w, ErrNotFound)
-	})
-
 	routes := []RouteSpec{
-		{Method: http.MethodPost, Path: "/token", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
-		{Method: http.MethodGet, Path: "/identity-providers", Group: RouteCore, Handler: http.HandlerFunc(s.handleProvidersGET)},
-		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteCore, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
-		{Method: http.MethodDelete, Path: "/logout", Group: RouteCore, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
-		// "What are my permissions" introspection (#76 amendment): the caller's
-		// GRANTED ceiling + identity, for any programmatic principal.
-		{Method: http.MethodPost, Path: "/reauth/password", Group: RoutePassword, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
-		{Method: http.MethodPost, Path: "/reauth/2fa", Group: RouteTwoFactor, Handler: required(http.HandlerFunc(s.handleTwoFactorReauthPOST))},
+		{Method: http.MethodGet, Path: "/identity-providers", Group: RoutePublic, Handler: http.HandlerFunc(s.handleProvidersGET)},
 
-		{Method: http.MethodPost, Path: "/password/login", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
-		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RoutePassword, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
-		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RoutePassword, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
-		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
-		{Method: http.MethodPost, Path: "/phone/password/reset/confirm", Group: RoutePassword, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST)},
+		{Method: http.MethodPost, Path: "/token", Group: RouteSession, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
+		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteSession, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
+		{Method: http.MethodDelete, Path: "/logout", Group: RouteSession, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
+		{Method: http.MethodPost, Path: "/password/login", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
+		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
+		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
+		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
+		{Method: http.MethodPost, Path: "/phone/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST)},
 
 		{Method: http.MethodPost, Path: "/register", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
 		{Method: http.MethodGet, Path: "/register/availability", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
@@ -133,38 +111,41 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
 		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
-		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyRequestPOST)},
-		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteEmailVerification, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmPOST)},
+		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyRequestPOST)},
+		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmPOST)},
 
-		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RoutePhoneVerification, Handler: http.HandlerFunc(s.handlePhoneVerifyRequestPOST)},
-		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RoutePhoneVerification, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmPOST)},
+		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyRequestPOST)},
+		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmPOST)},
 
 		{Method: http.MethodPost, Path: "/user/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPasswordPOST))},
 		{Method: http.MethodGet, Path: "/user/sessions", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionsGET))},
 		{Method: http.MethodDelete, Path: "/user/sessions/{id}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionDELETE))},
 		{Method: http.MethodDelete, Path: "/user/sessions", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionsDELETE))},
-		{Method: http.MethodGet, Path: "/user/me", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
-		{Method: http.MethodGet, Path: "/me/bootstrap", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBootstrapGET))},
+		{Method: http.MethodGet, Path: "/me", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
-		{Method: http.MethodPatch, Path: "/user/preferred-locale", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPreferredLocalePATCH))},
-		{Method: http.MethodPost, Path: "/user/email/change", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangePOST))},
-		{Method: http.MethodPost, Path: "/user/phone/change", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangePOST))},
+		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
+		{Method: http.MethodPost, Path: "/user/email", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserEmailChangePOST))},
+		{Method: http.MethodPost, Path: "/user/phone", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPhoneChangePOST))},
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
 		{Method: http.MethodDelete, Path: "/user", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
 		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},
 
-		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: RouteAccountOIDCLinking, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},
-		{Method: http.MethodPost, Path: "/oidc/{provider}/reauth/start", Group: RouteAccountOIDCLinking, Handler: required(http.HandlerFunc(s.handleOIDCReauthStartPOST))},
+		{Method: http.MethodPost, Path: "/reauth/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
+		{Method: http.MethodPost, Path: "/reauth/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleTwoFactorReauthPOST))},
 
-		{Method: http.MethodGet, Path: "/user/2fa", Group: RouteTwoFactor, Handler: required(http.HandlerFunc(s.handleUser2FAStatusGET))},
-		{Method: http.MethodPost, Path: "/user/2fa", Group: RouteTwoFactor, Handler: required(http.HandlerFunc(s.handleUser2FAPOST))},
-		{Method: http.MethodDelete, Path: "/user/2fa", Group: RouteTwoFactor, Handler: required(http.HandlerFunc(s.handleUser2FADELETE))},
-		{Method: http.MethodPost, Path: "/user/2fa/backup-codes", Group: RouteTwoFactor, Handler: required(http.HandlerFunc(s.handleUser2FABackupCodesPOST))},
-		{Method: http.MethodPost, Path: "/2fa/verify", Group: RouteTwoFactor, Handler: http.HandlerFunc(s.handleUser2FAVerifyPOST)},
+		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},
+		{Method: http.MethodPost, Path: "/oidc/{provider}/reauth/start", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleOIDCReauthStartPOST))},
 
-		{Method: http.MethodPost, Path: "/solana/challenge", Group: RouteSolana, Handler: http.HandlerFunc(s.handleSolanaChallengePOST)},
-		{Method: http.MethodPost, Path: "/solana/login", Group: RouteSolana, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
-		{Method: http.MethodPost, Path: "/solana/link", Group: RouteSolana, Handler: required(http.HandlerFunc(s.handleSolanaLinkPOST))},
+		{Method: http.MethodGet, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FAStatusGET))},
+		{Method: http.MethodPost, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FAPOST))},
+		{Method: http.MethodDelete, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FADELETE))},
+		{Method: http.MethodPost, Path: "/user/2fa/backup-codes", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FABackupCodesPOST))},
+		{Method: http.MethodPost, Path: "/2fa/challenge", Group: RouteSession, Handler: http.HandlerFunc(s.handleUser2FAChallengePOST)},
+		{Method: http.MethodPost, Path: "/2fa/verify", Group: RouteSession, Handler: http.HandlerFunc(s.handleUser2FAVerifyPOST)},
+
+		{Method: http.MethodPost, Path: "/solana/challenge", Group: RouteSession, Handler: http.HandlerFunc(s.handleSolanaChallengePOST)},
+		{Method: http.MethodPost, Path: "/solana/login", Group: RouteSession, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
+		{Method: http.MethodPost, Path: "/solana/link", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleSolanaLinkPOST))},
 
 		// Intrinsic user-admin directory. Auth is permission-based: human users
 		// authorize through the root permission-group, programmatic principals via
@@ -174,15 +155,10 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUserSigninsGET)},
 		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersBanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/set-email", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUsersSetEmailPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/set-username", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUsersSetUsernamePOST)},
-		{Method: http.MethodPost, Path: "/admin/users/set-password", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUsersSetPasswordPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/recover", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUserRecoverPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: rootPermission(core.PermRootSessionsRevoke, s.handleAdminUserSessionsRevokePOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUserPasswordResetPOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
-		// 404 sentinel for a removed path that an adjacent wildcard would capture.
-		{Method: http.MethodPost, Path: "/admin/users/toggle-active", Group: RouteAdmin, Handler: notFoundHandler},
 	}
 
 	// #111: the org/platform RBAC HTTP surface (members, roles, invites, org
@@ -220,9 +196,9 @@ func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 	selected := routeGroupSet(groups)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
-		{Method: http.MethodGet, Path: "/{provider}/login", Group: RouteOIDCBrowser, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
-		{Method: http.MethodGet, Path: "/{provider}/callback", Group: RouteOIDCBrowser, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
-		{Method: http.MethodGet, Path: "/{provider}/reauth/callback", Group: RouteOIDCBrowser, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
+		{Method: http.MethodGet, Path: "/{provider}/login", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
+		{Method: http.MethodGet, Path: "/{provider}/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
+		{Method: http.MethodGet, Path: "/{provider}/reauth/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 	}
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {

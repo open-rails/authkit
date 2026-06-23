@@ -52,7 +52,6 @@ func TestGeneratedRouteTable_MirrorsSchemaProfile(t *testing.T) {
 		"POST /merchant/{resource_id}/members",
 		"DELETE /merchant/{resource_id}/members/{user}",
 		"PUT /merchant/{resource_id}/members/{user}/roles/{role}",
-		"DELETE /merchant/{resource_id}/members/{user}/roles/{role}",
 		"GET /merchant/{resource_id}/roles",     // catalog read always present
 		"POST /merchant/{resource_id}/api-keys", // api-key minting on
 		"POST /repo/{resource_id}/members",      // repo members on
@@ -66,6 +65,7 @@ func TestGeneratedRouteTable_MirrorsSchemaProfile(t *testing.T) {
 		"POST /merchant/{resource_id}/remote-applications", // remote-apps OFF
 		"POST /merchant/{resource_id}/invites",             // invites OFF
 		"POST /repo/{resource_id}/api-keys",                // repo api-keys OFF
+		"DELETE /merchant/{resource_id}/members/{user}/roles/{role}",
 	} {
 		require.Falsef(t, table[absent], "route %q should NOT be generated (capability disabled)", absent)
 	}

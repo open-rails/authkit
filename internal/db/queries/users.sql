@@ -37,18 +37,14 @@ SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
   EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text::citext)::boolean AS username_taken;
 
--- name: UserSetPreferredLocale :exec
+-- name: UserSetPreferredLanguage :exec
 UPDATE profiles.users
-SET preferred_locale = $2,
-    preferred_locale_source = $3,
-    preferred_locale_updated_at = now(),
+SET preferred_language = $2,
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
 
--- name: UserPreferredLocale :one
-SELECT COALESCE(preferred_locale, '')::text AS locale,
-       COALESCE(preferred_locale_source, '')::text AS source,
-       preferred_locale_updated_at
+-- name: UserPreferredLanguage :one
+SELECT COALESCE(preferred_language, '')::text AS language
 FROM profiles.users
 WHERE id = sqlc.arg(id)::uuid;
 
@@ -132,6 +128,9 @@ VALUES (sqlc.arg(user_id)::uuid, $2);
 
 -- name: UserSetEmailAndUnverify :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
+
+-- name: UserSetEmailAndVerified :exec
+UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = true, updated_at = NOW() WHERE id = $1;
 
 -- name: UserSetBiography :exec
 UPDATE profiles.users SET biography = $2, updated_at = NOW() WHERE id = $1;

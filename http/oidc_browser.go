@@ -134,7 +134,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		unauthorized(w, ErrOIDCExchangeFailed)
 		return
 	}
-	if s.completeOIDCReauth(w, r, sd, provider, issuer, claims.Subject) {
+	if s.completeOIDCReauth(w, r, sd, provider, issuer, claims.Subject, claims.AuthTime) {
 		return
 	}
 

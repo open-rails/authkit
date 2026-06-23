@@ -48,8 +48,8 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time_until_rename_available": int64(0)})
 }
 
-func (s *Service) handleUserPreferredLocalePATCH(w http.ResponseWriter, r *http.Request) {
-	if s.rateLimited(w, r, RLUserPreferredLocale) {
+func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RLUserPreferredLanguage) {
 		return
 	}
 	claims, ok := ClaimsFromContext(r.Context())
@@ -58,40 +58,53 @@ func (s *Service) handleUserPreferredLocalePATCH(w http.ResponseWriter, r *http.
 		return
 	}
 	var body struct {
-		PreferredLocale string `json:"preferred_locale"`
-		Locale          string `json:"locale"`
+		PreferredLanguage string `json:"preferred_language"`
+		Language          string `json:"language"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	locale := strings.TrimSpace(body.PreferredLocale)
-	if locale == "" {
-		locale = strings.TrimSpace(body.Locale)
+	language := strings.TrimSpace(body.PreferredLanguage)
+	if language == "" {
+		language = strings.TrimSpace(body.Language)
 	}
-	if locale == "" {
+	if language == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := s.svc.SetPreferredLocale(r.Context(), claims.UserID, locale, "explicit"); err != nil {
-		if strings.Contains(err.Error(), "invalid_preferred_locale") {
-			badRequest(w, ErrInvalidPreferredLocale)
-			return
-		}
-		badRequest(w, ErrFailedToUpdatePreferredLocale)
+	normalized, err := core.NormalizePreferredLanguage(language)
+	if err != nil || !s.supportsLanguage(normalized) {
+		badRequest(w, ErrInvalidPreferredLanguage)
 		return
 	}
-	preferred, err := s.svc.GetPreferredLocale(r.Context(), claims.UserID)
+	if err := s.svc.SetPreferredLanguage(r.Context(), claims.UserID, normalized); err != nil {
+		if strings.Contains(err.Error(), "invalid_preferred_language") {
+			badRequest(w, ErrInvalidPreferredLanguage)
+			return
+		}
+		badRequest(w, ErrFailedToUpdatePreferredLanguage)
+		return
+	}
+	preferred, err := s.svc.GetPreferredLanguage(r.Context(), claims.UserID)
 	if err != nil {
-		serverErr(w, ErrPreferredLocaleLookupFailed)
+		serverErr(w, ErrPreferredLanguageLookupFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                          true,
-		"preferred_locale":            preferred.Locale,
-		"preferred_locale_source":     preferred.Source,
-		"preferred_locale_updated_at": formatOptionalTime(preferred.UpdatedAt),
+		"ok":                 true,
+		"preferred_language": preferred.Language,
 	})
+}
+
+func (s *Service) supportsLanguage(language string) bool {
+	cfg := s.langCfg.defaulted()
+	supported := supportedSet(cfg.Supported)
+	if supported == nil {
+		return language == normalizeLangCode(cfg.Default)
+	}
+	_, ok := supported[language]
+	return ok
 }
 
 func formatOptionalTime(t *time.Time) *string {
@@ -146,7 +159,8 @@ func (s *Service) handleUserEmailChangePOST(w http.ResponseWriter, r *http.Reque
 		serverErr(w, ErrEmailVerificationUnavailable)
 		return
 	}
-	if s.rateLimited(w, r, RLUserEmailChangeRequest) || !s.requireFreshAuthOrPassword(w, r, claims, body.Password) {
+	ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, body.Password)
+	if s.rateLimited(w, r, RLUserEmailChangeRequest) || !ok {
 		return
 	}
 	if err := s.svc.RequestEmailChange(r.Context(), claims.UserID, newEmail); err != nil {
@@ -168,7 +182,11 @@ func (s *Service) handleUserEmailChangePOST(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "Verification code sent to new email address"})
+	resp := map[string]any{"ok": true, "message": "Verification code sent to new email address"}
+	for k, v := range authMeta {
+		resp[k] = v
+	}
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (s *Service) handleUserPhoneChangePOST(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +225,8 @@ func (s *Service) handleUserPhoneChangePOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if s.rateLimited(w, r, RLUserPhoneChangeRequest) || !s.requireFreshAuthOrPassword(w, r, claims, body.Password) {
+	ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, body.Password)
+	if s.rateLimited(w, r, RLUserPhoneChangeRequest) || !ok {
 		return
 	}
 	if !s.svc.SMSAvailable() {
@@ -233,7 +252,11 @@ func (s *Service) handleUserPhoneChangePOST(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "Verification code sent to new phone"})
+	resp := map[string]any{"ok": true, "message": "Verification code sent to new phone"}
+	for k, v := range authMeta {
+		resp[k] = v
+	}
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Request) {

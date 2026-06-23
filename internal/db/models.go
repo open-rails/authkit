@@ -134,6 +134,21 @@ type ProfilesServiceTokenResource struct {
 	CreatedAt  time.Time
 }
 
+// Primary enrolled 2FA factors per user; backup codes remain user-scoped on two_factor_settings
+type ProfilesTwoFactorFactor struct {
+	ID           string
+	UserID       string
+	Method       string
+	PhoneNumber  *string
+	TotpSecret   []byte
+	LastTotpStep *int64
+	// Default factor AuthKit challenges first when 2FA is required
+	IsDefault bool
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // Two-factor authentication settings per user (admin accounts)
 type ProfilesTwoFactorSetting struct {
 	UserID  string
@@ -176,12 +191,8 @@ type ProfilesUser struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	LastLogin *time.Time
-	// User communication/auth locale, e.g. en, es, de, ko, zh-CN
-	PreferredLocale *string
-	// Source of preferred_locale, e.g. registration or explicit
-	PreferredLocaleSource *string
-	// When preferred_locale was last set
-	PreferredLocaleUpdatedAt *time.Time
+	// User communication/auth language, e.g. en, es, de, ko, zh
+	PreferredLanguage *string
 }
 
 type ProfilesUserPassword struct {

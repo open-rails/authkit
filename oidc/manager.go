@@ -61,6 +61,10 @@ func (m *Manager) Provider(name string) (RPClient, bool) {
 // Begin returns an authorization URL for the given provider using PKCE and state/nonce you supply.
 // The caller should persist state+verifier (e.g., Redis) and redirect the user to the returned URL.
 func (m *Manager) Begin(ctx context.Context, provider, state, nonce, codeChallenge, redirectURI string) (string, error) {
+	return m.BeginWithAuthParams(ctx, provider, state, nonce, codeChallenge, redirectURI, nil)
+}
+
+func (m *Manager) BeginWithAuthParams(ctx context.Context, provider, state, nonce, codeChallenge, redirectURI string, params map[string]string) (string, error) {
 	pc, ok := m.providers[provider]
 	if !ok {
 		return "", errors.New("unknown provider")
@@ -82,6 +86,9 @@ func (m *Manager) Begin(ctx context.Context, provider, state, nonce, codeChallen
 		for k, v := range pc.ExtraAuthParams {
 			opts = append(opts, rp.AuthURLOpt(rp.WithURLParam(k, v)))
 		}
+	}
+	for k, v := range params {
+		opts = append(opts, rp.AuthURLOpt(rp.WithURLParam(k, v)))
 	}
 	return rp.AuthURL(state, rpClient, opts...), nil
 }
@@ -186,6 +193,7 @@ type StateData struct {
 	ReauthUserID    string
 	ReauthSessionID string
 	ReauthReturnTo  string
+	ReauthStartedAt time.Time
 	UI              string // "popup" to trigger popup HTML callback; else redirect
 	PopupNonce      string // echoed in popup postMessage for opener validation
 }

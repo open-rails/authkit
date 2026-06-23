@@ -135,21 +135,33 @@ func main() {
 
 AuthKit route specs are prefix-neutral. The host app chooses the mount point:
 registering `RegisterAPI(router.Group("/api/v1"), svc)` exposes `/api/v1/token`,
-`/api/v1/user/me`, and `/api/v1/admin/users`, while AuthKit's internal route
-paths remain `/token`, `/user/me`, and `/admin/users`.
+`/api/v1/me`, and `/api/v1/admin/users`, while AuthKit's internal route
+paths remain `/token`, `/me`, and `/admin/users`.
 
 Hosts can mount only selected route groups or wrap individual handlers:
 
 ```go
 authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
-  authhttp.RouteCore,
-  authhttp.RoutePassword,
+  authhttp.RoutePublic,
+  authhttp.RouteSession,
   authhttp.RouteRegister,
-  authhttp.RouteEmailVerification,
   authhttp.RouteUser,
-  authhttp.RouteAccountOIDCLinking,
+  authhttp.RouteAdmin,
 )))
 ```
+
+Host-facing JSON API groups are:
+
+- `RoutePublic`: public JSON discovery, such as `/identity-providers`.
+- `RouteRegister`: public registration and verification support.
+- `RouteSession`: login, refresh, logout, password reset, login-time 2FA, wallet login.
+- `RouteUser`: authenticated self-service account routes, reauth, provider linking, wallet linking.
+- `RouteAdmin`: intrinsic `/admin/*` root-permission routes.
+- `RoutePermissionGroups`: generated per-persona group-management routes.
+
+Browser OIDC routes use `RouteBrowserOIDC` through `svc.Routes().OIDCBrowser()`
+and usually mount at `/oidc/*`. JWKS stays as the separate public
+`svc.JWKSHandler()` mount at `/.well-known/jwks.json`.
 
 For custom routers, iterate `svc.Routes().DefaultAPI()` or
 `svc.Routes().Groups(...)` and register each `RouteSpec.Method`,
@@ -205,9 +217,9 @@ svc, _ := authhttp.NewServer(cfg, pg)
 
 // Mount only the route groups this deployment intentionally exposes:
 authkitgin.RegisterAPI(v1, svc, authkitgin.WithRoutes(svc.Routes().Groups(
-  authhttp.RouteCore,     // /token, /sessions/current, /logout
-  authhttp.RoutePassword, // login + password reset for existing users
-  authhttp.RouteUser,     // self-service for existing accounts
+  authhttp.RoutePublic,  // discovery endpoints
+  authhttp.RouteSession, // login, refresh, logout, password reset
+  authhttp.RouteUser,    // self-service for existing accounts
 )))
 
 // Bootstrap declared orgs, roles, admins, and API keys internally via
@@ -296,9 +308,8 @@ do not need long-lived secret-write credentials. The older
 `org-manifest apply` command remains as a compatibility alias for org-only
 deployments.
 
-Hosted SaaS deployments can later set both registration modes to `open` and
-mount the `RouteRegister` / `RouteOrgs` groups to enable public signup and
-org onboarding without code changes.
+Hosted SaaS deployments can later set native registration to `open` and mount
+the `RouteRegister` group to enable public signup without code changes.
 
 OpenRails' bootstrap flow should pass its `auth:` section through to AuthKit
 bootstrap for users, orgs, roles, API keys, and trusted issuers, then
@@ -346,12 +357,12 @@ Optional Twilio providers
 - The email provider requires a SendGrid/Twilio Email API key and a verified from address. Hosts can provide link builders or full message builders for branded/localized copy.
 - A 2xx response from AuthKit means the message was accepted by the configured sender/provider submission call. It does not prove the recipient mailbox or carrier ultimately delivered, accepted, opened, or displayed the message.
 
-Preferred locale
-- AuthKit stores an optional `preferred_locale` on the user profile. Registration seeds it from the request language, so a user signing up from `/es` or `?lang=es` starts with Spanish as their communication/default locale.
-- Host apps should pass the current site language through AuthKit's language middleware during registration, and should use `PATCH /user/preferred-locale` when the user explicitly changes their account preference.
-- Ordinary login, token refresh, and browsing a different route language must not rewrite `preferred_locale`.
-- AuthKit uses the stored locale for account, security, verification, password reset, login-code, and welcome messages. Built-in Twilio email/SMS defaults fall back to English when a locale is unsupported; host-provided builders can read `lang.LanguageFromContext(ctx)` for custom localized copy.
-- Site/content language remains host-app owned. `preferred_locale` is the communication language and a default only when the host has no stronger route/session/browser choice.
+Preferred language
+- AuthKit stores an optional preferred language on the user profile as a simple two-letter code such as `en`, `es`, or `zh`. Registration seeds it from the request language.
+- Host apps should pass the current site language through AuthKit's language middleware during registration, and should use `PATCH /user/preferred-language` when the user explicitly changes their account preference.
+- Ordinary login, token refresh, and browsing a different route language must not rewrite the stored preferred language.
+- AuthKit uses the stored language for account, security, verification, password reset, login-code, and welcome messages. Built-in Twilio email/SMS defaults fall back to English when a language is unsupported; host-provided builders can read `lang.LanguageFromContext(ctx)` for custom localized copy.
+- Site/content language remains host-app owned. Preferred language is the communication language and a default only when the host has no stronger route/session/browser choice.
 
 ```go
 emailSender, err := emailtwilio.New(emailtwilio.Config{
@@ -692,7 +703,7 @@ Token taxonomy
 
 | Credential | Wire signal | Authority source |
 | --- | --- | --- |
-| User access token | JWT `typ=access+jwt` | Local user identity, session id, and authoritative short-lived entitlements in the token; profile/org/role data comes from `/user/me`, `/me/bootstrap`, and live DB lookups. |
+| User access token | JWT `typ=access+jwt` | Local user identity, session id, and authoritative short-lived entitlements in the token; profile data comes from `/me`; org/role data comes from live DB lookups and org routes. |
 | Delegated access token | JWT `typ=delegated-access+jwt` + `delegated_sub` | Concrete `permissions` claim, validated against the issuer remote application's stored authority. |
 | Remote application access token | JWT `typ=remote-application-access+jwt`, no `sub` or `delegated_sub` | Stored authority for the registered remote_application resolved from validated `iss`. |
 | Service JWT | JWT `typ=service+jwt` + `token_use=service` | Receiver intersects requested permissions/resources with server-side grants for the issuer/subject. |
@@ -724,32 +735,41 @@ Roles (global storage)
 - AuthKit does not define app role taxonomy (what roles exist). The embedding application/platform should seed its role catalog.
 - Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
 
-Orgs
-- AuthKit **always** supports orgs + org-scoped RBAC — there is no global `OrgMode` switch (issue #60). Orgs are a first-class primitive at the core layer; what a host *exposes* is decided by which route groups it mounts and by the two registration modes (`NativeUserRegistrationMode`, `OrgRegistrationMode`), not by a mode flag. Native users may exist with zero orgs; orgs may exist (via manifest/admin/bootstrap) with zero native users.
-  - Shared owner namespace: user slugs and org slugs should be treated as one namespace (no collisions).
-  - Native users do not create org rows by default. Hosts that want personal
-    workspaces must opt in with `AutoCreatePersonalOrgs: true`; those
-    personal orgs are non-transferable and keyed by `owner_user_id`.
-  - Users can belong to 0, 1, or many orgs simultaneously.
-  - Org slug renames create aliases; handlers accept either current slug or alias on `:org`.
-  - Username renames preserve old owner paths via user slug aliases; personal org slug aliases are also retained.
-  - User access tokens do **not** embed org membership or org roles; apps check membership/roles server-side.
-  - `GET /user/me` returns `orgs` (membership list) plus org-scoped roles for the user.
-  - `GET /me/bootstrap` returns canonical personal org + org memberships in one call.
-  - `GET /me/orgs` lists the current user's org memberships with a single `role` per org.
-  - `GET /orgs/:org` returns org metadata plus the caller's `{role, permissions}` for that org.
-  - Invitation workflow:
-    - Org owners create/list/revoke invites with `/orgs/:org/invites`.
-    - Users list their invites via `GET /me/org-invites` (cross-org).
-    - Users accept/decline via `/me/org-invites/:invite_id/accept|decline`.
-  - Org management is **permission-based RBAC** (a role = a set of permissions). authkit is the generic engine: it ships **base permissions** in the reserved `org:` namespace (`org:roles:manage`, `org:members:manage`, `org:api_keys:manage`, `org:read`) that gate all org-management endpoints, stores per-org role→permission assignments, computes `EffectivePermissions`, and enforces no-escalation + permission validation. The embedding app declares its own permission set (`Config.Permissions`) — in its OWN namespaces beyond `org:` (e.g. OpenRails `merchant:*`, TensorHub `endpoint:*` / `repo:*` / `dataset:*`); these are opaque strings AuthKit stores, validates (no-escalation), and expands (namespace-anchored globs) like any other (#100). Two namespaces are reserved: an app-declared `platform:` perm is DROPPED from the org catalog (it belongs to the disjoint Layer-2 `platform:` catalog, never an org role), and an app perm that collides with a base `org:` name is dropped too (base wins — no escalation; a hard rejection of app `org:` perms is deferred to OpenRails #554, which still declares them). Effective permission set = base ∪ app. The `owner` role is hardcoded and seeded with `org:*` (every permission in the `org:` namespace for that one org — #95, tightened from a bare `*`), protected, and cannot be removed as the last owner. Set `Config.OwnerOwnsAppResources` to ALSO seed the owner one `<ns>:*` glob per app namespace it declares, so the org owner owns every app resource scoped to the org (default off; `EnsureOwnerGrants` backfills existing orgs; #100). The separate `platform:` layer is never owned by an org role. Permissions are opaque to authkit — the app owns their meaning and enforces them at its own endpoints via `core.EffectivePermissions`. Caller org membership is returned by `GET /orgs/:org` as `{role, permissions}`. Roles are RESTful resources: `GET /orgs/:org/roles/:role` (detail), `PUT /orgs/:org/roles/:role` (idempotent create-or-replace, body `{permissions[]}`), `DELETE /orgs/:org/roles/:role`; members likewise (`DELETE /orgs/:org/members/:user_id`). Invitee self-routes live at top-level `/me/org-invites` (cross-org — the invitee isn't a member yet).
+Permission groups
+- The old static org route plane was removed. AuthKit now exposes
+  resource-scoped membership, roles, and credentials through generated
+  permission-group routes derived from the host's configured schema.
+- Terminology: a configured permission-group `type` is the public route and
+  permission `persona`. For example, a `merchant` group type generates
+  `/merchant/:resource_id/...` routes and `merchant:<area>:<action>`
+  permissions.
+- Generated permission-group routes:
+  - GET /me/groups
+  - GET /:persona/:resource_id/members
+  - POST /:persona/:resource_id/members
+  - DELETE /:persona/:resource_id/members/:user
+  - PUT /:persona/:resource_id/members/:user/roles/:role
+  - GET /:persona/:resource_id/roles
+  - POST /:persona/:resource_id/roles
+  - DELETE /:persona/:resource_id/roles/:role
+  - GET /:persona/:resource_id/api-keys
+  - POST /:persona/:resource_id/api-keys
+  - DELETE /:persona/:resource_id/api-keys/:key
+  - GET /:persona/:resource_id/remote-applications
+  - POST /:persona/:resource_id/remote-applications
+  - DELETE /:persona/:resource_id/remote-applications/:app
+  - GET /:persona/:resource_id/invites
+  - POST /:persona/:resource_id/invites
+  - DELETE /:persona/:resource_id/invites/:invite
+  - Each persona emits only the route families enabled by its management
+    profile. Built-in `root` emits member-management plus role-list routes.
 - Token claim shape (uniform; no mode):
   - A user access token includes registered JWT claims, `sub`, `sid`, and
     authoritative short-lived `entitlements`.
   - User access tokens do not include `global_roles`, `roles`, `org_roles`,
     `email`, `email_verified`, `username`, or `discord_username`.
-  - Org membership, role, permission, and profile data are resolved server-side
-    from `/user/me`, `/me/bootstrap`, route org state, and stored memberships.
+  - Membership, role, permission, and profile data are resolved server-side
+    from `/me`, route resource state, and stored memberships.
 
 API Keys (opaque machine credentials)
 - Long-lived, revocable shared-secret bearer credentials **owned by an org** (not a person), for machine/automation callers (CI, operator CLIs, service-to-service). Robots should not replay the human password-login path. These are symmetric secrets with assigned permissions/resources; they are not JWKS URLs, public keys, or issuer registrations.
@@ -818,7 +838,7 @@ Identity validation policy
   ASCII letter, allow only ASCII letters/digits/underscore, no `@`, and no
   leading `+`. AuthKit normalizes the owner slug by lowercasing and converting
   underscore/dash runs to single dashes.
-- Username namespace checks reject collisions with users/orgs, renamed or
+- Username namespace checks reject collisions with users, renamed or
   recently held slugs, soft-deleted owners, parked namespaces, and restricted
   names. Parked/restricted names return `username_not_allowed`; held/taken
   names return `owner_slug_taken`.
@@ -870,21 +890,28 @@ Password hash policy (verification whitelist):
 
 Two-Factor Authentication (2FA):
 - Optional security feature for admin accounts to prevent account takeover if password is leaked.
-- Users can enable 2FA via email, SMS, or TOTP authenticator-app methods.
+- Users can enable multiple primary 2FA factors via email, SMS, or TOTP authenticator-app methods.
 - When enabled, login requires both password AND a 6-digit second-factor code.
-- Each user gets **10 backup codes** (8-character alphanumeric) for account recovery in case they lose access to their 2FA method.
+- AuthKit challenges the default factor first and returns `available_factors` so the frontend can let the user choose another enrolled factor.
+- Each user gets **10 backup codes** (8-character alphanumeric) for account recovery in case they lose access to their 2FA method. Backup codes are recovery codes, not primary factors.
 - **Login flow with 2FA**:
   1. POST `/password/login` with email/password
-  2. If 2FA enabled: response has `{"requires_2fa": true, "user_id": "...", "method": "email|sms|totp", "verification_id": "..."}`
-  3. User receives a 6-digit email/SMS code or enters their authenticator-app code
-  4. POST `/2fa/verify` with `{"user_id": "...", "code": "123456"}` (or `{"user_id": "...", "code": "ABC123XY", "backup_code": true}` for backup codes)
+  2. If 2FA enabled: response has `{"requires_2fa": true, "user_id": "...", "method": "email|sms|totp", "challenge": "...", "default_factor": {...}, "available_factors": [...]}`
+  3. User receives the default factor's code, or the frontend posts `/2fa/challenge` with `{user_id, challenge, factor_id}` to start a different factor.
+  4. POST `/2fa/verify` with `{"user_id": "...", "challenge": "...", "factor_id": "...", "code": "123456"}` (or `{"user_id": "...", "challenge": "...", "code": "ABC123XY", "backup_code": true}` for backup codes)
   5. Response contains access_token and refresh_token as usual
 - **Setup flow**:
-  1. GET `/user/2fa` to check current enabled
-  2. POST `/user/2fa` with `{"method": "email"}` to enable email 2FA, `{"method": "sms", "phone_number": "+1..."}` then `{"method": "sms", "phone_number": "+1...", "code": "123456"}` for SMS, or `{"method": "totp"}` then `{"method": "totp", "code": "123456"}` for TOTP.
-  3. Enable responses include `backup_codes` array - **show these to user ONCE and tell them to save them**
+  1. GET `/user/2fa` to check enabled factors, default factor, allowed methods, and backup-code count.
+  2. POST `/user/2fa` with `{"method": "email"}` to enable email 2FA, `{"method": "sms", "phone_number": "+1..."}` then `{"method": "sms", "phone_number": "+1...", "code": "123456"}` for SMS, or `{"method": "totp"}` then `{"method": "totp", "code": "123456"}` for TOTP. Adding a factor does not delete other enrolled factors. Add `"default": true` while enrolling/confirming to make that factor the default, or later post `{"factor_id":"...","default":true}`.
+  3. First enable responses include `backup_codes` array - **show these to user ONCE and tell them to save them**
   4. User can regenerate codes with POST `/user/2fa/backup-codes` (invalidates old codes)
-  5. User can disable with DELETE `/user/2fa`
+  5. User can delete one factor with `DELETE /user/2fa?factor_id=...` or disable all 2FA with `DELETE /user/2fa`
+- Hosts can require 2FA for selected permission-group roles:
+  `TwoFactor.Mandatory: []core.Mandatory2FAPolicy{{GroupType: "root", Roles: []string{"admin"}}}`.
+  Matching uses live permission-group assignments. A covered user without 2FA gets
+  `2fa_enrollment_required` from password login with an enrollment-only bearer token
+  that can call `GET/POST /user/2fa`; refresh-token exchange also fails closed with
+  `2fa_enrollment_required` until enrollment is complete.
 - Backup codes are single-use and removed after verification.
 - Server-sent 2FA codes expire in **10 minutes**.
 
@@ -916,12 +943,12 @@ Integration requirements (API server)
 
 ---
 
-AuthKit API route specs, and the `APIHandler()` net/http compatibility handler built from those same specs, are shown relative to the host-selected API mount prefix. With the recommended `/api/v1` mount, `GET /user/me` is served at `GET /api/v1/user/me`. Browser OIDC routes are served separately and are usually mounted outside API versioning at `/oidc/*`.
+AuthKit API route specs, and the `APIHandler()` net/http compatibility handler built from those same specs, are shown relative to the host-selected API mount prefix. With the recommended `/api/v1` mount, `GET /me` is served at `GET /api/v1/me`. Browser OIDC routes are served separately and are usually mounted outside API versioning at `/oidc/*`.
 - GET /.well-known/jwks.json
 - OIDC:
   - GET /oidc/:provider/login
   - GET /oidc/:provider/callback
-  - POST /oidc/:provider/link/start (RouteAccountOIDCLinking API group, requires auth) -> {auth_url}
+  - POST /oidc/:provider/link/start (RouteUser API group, requires auth) -> {auth_url}
 - Password:
   - POST /password/login (accepts email, phone, or username in identifier field)
   - POST /email/password/reset/request
@@ -967,7 +994,7 @@ the bool at their config boundary.)
 **Graceful degrade under `optional` with no sender.** If the policy is `optional` and no
 email/SMS sender is configured, AuthKit does not error and does not leave the user dangling:
 it creates the user **already verified** and sends nothing (the core decision is
-`verified := s.email == nil` in `CreatePendingRegistrationWithLocale`). So a host can flip
+`verified := s.email == nil` in `CreatePendingRegistrationWithLanguage`). So a host can flip
 `AUTH_REQUIRE_VERIFIED_REGISTRATIONS=false` before wiring up a mail provider and registration
 keeps working end-to-end. (`required` with no sender is rejected at startup by
 `ValidateVerificationConfiguration`.)
@@ -989,20 +1016,25 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - DELETE /user/sessions (requires auth)
   - DELETE /logout (requires auth; revokes the current session via sid claim)
 - User profile:
-  - GET /user/me (requires auth)
+  - GET /me (requires auth)
   - PATCH /user/username (requires auth)
-  - POST /user/email/change (requires auth)
-  - POST /user/phone/change (requires auth)
+  - POST /user/email (requires auth)
+  - POST /user/phone (requires auth)
   - PATCH /user/biography (requires auth)
   - POST /user/password (requires auth)
   - DELETE /user (requires auth)
   - DELETE /user/providers/:provider (requires auth)
 - Two-Factor Authentication (2FA):
-  - GET /user/2fa (requires auth) → {enabled, method, phone_number}
-  - POST /user/2fa (requires auth) → starts or confirms email/SMS/TOTP enrollment
-  - DELETE /user/2fa (requires auth)
+  - GET /user/2fa (requires auth) → {enabled, method, default_factor, available_factors, backup_codes_remaining}
+  - POST /user/2fa (requires auth) → starts or confirms email/SMS/TOTP enrollment; optional `default: true`; `{factor_id, default:true}` changes the default
+  - DELETE /user/2fa (requires auth) → disables all 2FA, or deletes one factor with `factor_id`
   - POST /user/2fa/backup-codes (requires auth) → {backup_codes}
+  - POST /2fa/challenge (during login) → starts a selected non-default factor from an existing password challenge
   - POST /2fa/verify (during login) → {access_token, refresh_token}
+- Reauth:
+  - POST /reauth/password with `{password}` (requires auth) → {access_token, token_type, expires_in, fresh_auth}
+  - POST /reauth/2fa with `{factor_id?}` starts selected/default 2FA reauth; final `{code, factor_id?, backup_code?}` returns {access_token, token_type, expires_in, fresh_auth}
+  - Reauth does not rotate refresh tokens; clients retry sensitive actions with the returned access token. Refresh-token rotation remains `POST /token`.
 - Admin roles (admin only):
   - POST /admin/roles/grant
   - POST /admin/roles/revoke
@@ -1011,27 +1043,12 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - GET /admin/users/:user_id (`root:users:read`)
   - POST /admin/users/ban (`root:users:ban`)
   - POST /admin/users/unban (`root:users:ban`)
-  - POST /admin/users/set-email (`root:users:update`)
-  - POST /admin/users/set-username (`root:users:update`)
-  - POST /admin/users/set-password (`root:users:update`)
+  - POST /admin/users/:user_id/recover (`root:users:update`; body has exactly one of `{email}` or `{phone_number}`; revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request)
   - DELETE /admin/users/:user_id (`root:users:delete`)
   - POST /admin/users/:user_id/restore (`root:users:delete`)
   - GET /admin/users/:user_id/signins (`root:users:read`)
   - POST /admin/users/:user_id/sessions/revoke (`root:sessions:revoke`)
-- Org-admin surface (platform RBAC, entity-level):
-  - GET /admin/orgs (directory; `search`/`include_deleted`) → platform:orgs:read
-  - GET /admin/orgs/deleted (list soft-deleted orgs) → platform:orgs:read
-  - GET /admin/orgs/:id (org entity detail) → platform:orgs:read
-  - POST /admin/orgs/:id/rename (`{new_slug}`; no 72h cooldown) → platform:orgs:update
-  - POST /admin/orgs/:id/transfer-owner (`{new_owner_user_id}`; surgical, keeps the team) → platform:orgs:update
-  - DELETE /admin/orgs/:id (soft-delete) / POST /admin/orgs/:id/restore → platform:orgs:delete
-  - POST /admin/orgs/:id/recover (`{new_owner_user_id}`; anti-takeover reset) → platform:orgs:recover
-  - (no platform org-create route — org creation is self-service: POST /orgs)
-- Admin owner-namespace slug lifecycle (under /admin/orgs/\*; platform:orgs:reserved-names):
-  - POST /admin/orgs/restrict (batch add slugs to restricted-name list)
-  - POST /admin/orgs/unrestrict (batch remove slugs from restricted-name list)
-  - POST /admin/orgs/park (`{kind:"org"|"user",slug}`)
-  - POST /admin/orgs/claim (`{kind:"org"|"user",slug,...}`; for `kind:"org"`, `owner_user_id` is required)
+- There is no admin org recovery flow; org routes were removed with the old org plane.
 - Public owner-namespace lookup:
   - GET /namespaces/:slug → typed public namespace metadata + per-kind `claimable`
 - Solana wallet authentication (SIWS):
@@ -1068,7 +1085,7 @@ Run these from your scheduler (cron, pg_cron, or your job system).
 ---
 
 Frontend (React) quick guide
-- Paths below are relative to the AuthKit API mount. In doujins/hentai0-style hosts mounted at `/api/v1`, call `/api/v1/token`, `/api/v1/user/me`, `/api/v1/admin/users`, etc.
+- Paths below are relative to the AuthKit API mount. In doujins/hentai0-style hosts mounted at `/api/v1`, call `/api/v1/token`, `/api/v1/me`, `/api/v1/admin/users`, etc.
 - Tokens
   - Store access_token in memory and refresh_token in IndexedDB/secure storage.
   - Add Authorization: Bearer <access_token> to protected API calls. On 401, call POST /token with refresh_token, then retry.
@@ -1096,18 +1113,20 @@ Frontend (React) quick guide
   - DELETE /logout (current), DELETE /user/sessions (all), DELETE /user/sessions/:id (single), GET /user/sessions (list).
   - POST /sessions/current with `{refresh_token}` → {session_id}.
 - Current user
-  - GET /user/me → {id, email, pending_email?, phone_number?, username, discord_username?, email_verified, phone_verified, has_password, roles, entitlements, biography}.
+  - GET /me → {id, email, pending_email?, phone_number?, username, user_aliases?, discord_username?, email_verified, phone_verified, has_password, roles, entitlements, biography, preferred_language?}.
   - Email change
-    - POST /user/email/change with `{new_email,password?}` (Authorization) → sends verification code
-    - POST /user/email/change with `{code}` (Authorization) → confirms email change
+    - POST /user/email with `{new_email,password?}` (Authorization) → sends verification code
+    - POST /user/email with `{code}` (Authorization) → confirms email change
   - Phone number change
-    - POST /user/phone/change with `{phone_number,password?}` (Authorization) → sends verification code
-    - POST /user/phone/change with `{phone_number,code}` (Authorization) → confirms phone number change
+    - POST /user/phone with `{phone_number,password?}` (Authorization) → sends verification code
+    - POST /user/phone with `{phone_number,code}` (Authorization) → confirms phone number change
 - User profile updates
   - PATCH /user/username with `{username}` (Authorization)
+  - PATCH /user/preferred-language with `{preferred_language}` (Authorization)
   - PATCH /user/biography with `{biography}` (Authorization)
   - POST /user/password with `{old_password, new_password}` (Authorization)
   - DELETE /user (Authorization) → deletes account
+  - Sensitive-action `reauth_required` errors mean call `/reauth/password` or `/reauth/2fa`, replace the in-memory access token with the returned `access_token`, then retry. Do not call `/token` just to finish reauth.
 - Solana Wallet (SIWS)
   - Login/Register: POST /solana/challenge → wallet.signIn(input) → POST /solana/login
   - Link wallet: POST /solana/challenge → wallet.signIn(input) → POST /solana/link (with Authorization)
@@ -1405,8 +1424,8 @@ remote-application origins because it has no JWT; mount
 `authhttp.RequireDelegatedOrigin` after `authhttp.Required` to enforce the real
 request's `Origin` against the verified token issuer.
 
-**Inbound (resource-server side, e.g. tensorhub)** — mount the `RouteOrgIssuers`
-group. `POST /remote-applications` accepts + stores a registration, authorized
+**Inbound (resource-server side, e.g. tensorhub)** — use the remote-application
+management routes. `POST /remote-applications` accepts + stores a registration, authorized
 by the **org owner/admin** of the registering org (global admins may register
 for any org); `DELETE /remote-applications` removes one; `GET
 /remote-applications` (global-admin) lists them. This is the AuthKit-owned home

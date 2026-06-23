@@ -39,6 +39,10 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				unauthorized(w, err.Error())
 				return
 			}
+			if cl.TwoFAEnrollment && !allowed2FAEnrollmentPath(r.Method, r.URL.Path) {
+				forbidden(w, "forbidden")
+				return
+			}
 			if v.enrich != nil && cl.IsDelegated() {
 				// Fail-closed issuer gate (#78): resolve the remote_application by
 				// the VALIDATED issuer and reject unknown/disabled ones. READ-ONLY
@@ -89,6 +93,12 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func allowed2FAEnrollmentPath(method, path string) bool {
+	path = strings.TrimRight(path, "/")
+	return (method == http.MethodGet || method == http.MethodPost) &&
+		(strings.HasSuffix(path, "/user/2fa") || path == "/user/2fa")
 }
 
 // Optional validates when Authorization is present; otherwise passes through.

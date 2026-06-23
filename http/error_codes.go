@@ -15,6 +15,9 @@ const (
 	// ErrTwoFASendFailed is the 2fa_send_failed AuthKit HTTP wire error code.
 	ErrTwoFASendFailed ErrorCode = "2fa_send_failed"
 
+	// ErrTwoFAEnrollmentRequired is the 2fa_enrollment_required AuthKit HTTP wire error code.
+	ErrTwoFAEnrollmentRequired ErrorCode = "2fa_enrollment_required"
+
 	// ErrAbandonFailed is the abandon_failed AuthKit HTTP wire error code.
 	ErrAbandonFailed ErrorCode = "abandon_failed"
 
@@ -219,8 +222,8 @@ const (
 	// ErrFailedToUpdateEmail is the failed_to_update_email AuthKit HTTP wire error code.
 	ErrFailedToUpdateEmail ErrorCode = "failed_to_update_email"
 
-	// ErrFailedToUpdatePreferredLocale is the failed_to_update_preferred_locale AuthKit HTTP wire error code.
-	ErrFailedToUpdatePreferredLocale ErrorCode = "failed_to_update_preferred_locale"
+	// ErrFailedToUpdatePreferredLanguage is the failed_to_update_preferred_language AuthKit HTTP wire error code.
+	ErrFailedToUpdatePreferredLanguage ErrorCode = "failed_to_update_preferred_language"
 
 	// ErrFailedToUpdateUsername is the failed_to_update_username AuthKit HTTP wire error code.
 	ErrFailedToUpdateUsername ErrorCode = "failed_to_update_username"
@@ -300,8 +303,8 @@ const (
 	// ErrInvalidPhoneNumber is the invalid_phone_number AuthKit HTTP wire error code.
 	ErrInvalidPhoneNumber ErrorCode = core.ErrCodeInvalidPhoneNumber
 
-	// ErrInvalidPreferredLocale is the invalid_preferred_locale AuthKit HTTP wire error code.
-	ErrInvalidPreferredLocale ErrorCode = "invalid_preferred_locale"
+	// ErrInvalidPreferredLanguage is the invalid_preferred_language AuthKit HTTP wire error code.
+	ErrInvalidPreferredLanguage ErrorCode = "invalid_preferred_language"
 
 	// ErrInvalidProvider is the invalid_provider AuthKit HTTP wire error code.
 	ErrInvalidProvider ErrorCode = "invalid_provider"
@@ -450,9 +453,6 @@ const (
 	// ErrOrgNotFound is the org_not_found AuthKit HTTP wire error code.
 	ErrOrgNotFound ErrorCode = "org_not_found"
 
-	// ErrOrgRecoverFailed is the org_recover_failed AuthKit HTTP wire error code.
-	ErrOrgRecoverFailed ErrorCode = "org_recover_failed"
-
 	// ErrOrgRenameFailed is the org_rename_failed AuthKit HTTP wire error code.
 	ErrOrgRenameFailed ErrorCode = "org_rename_failed"
 
@@ -558,8 +558,8 @@ const (
 	// ErrPKCEGenerationFailed is the pkce_generation_failed AuthKit HTTP wire error code.
 	ErrPKCEGenerationFailed ErrorCode = "pkce_generation_failed"
 
-	// ErrPreferredLocaleLookupFailed is the preferred_locale_lookup_failed AuthKit HTTP wire error code.
-	ErrPreferredLocaleLookupFailed ErrorCode = "preferred_locale_lookup_failed"
+	// ErrPreferredLanguageLookupFailed is the preferred_language_lookup_failed AuthKit HTTP wire error code.
+	ErrPreferredLanguageLookupFailed ErrorCode = "preferred_language_lookup_failed"
 
 	// ErrProtectedRole is the protected_role AuthKit HTTP wire error code.
 	ErrProtectedRole ErrorCode = "protected_role"
@@ -692,6 +692,9 @@ const (
 
 	// ErrUserNotFound is the user_not_found AuthKit HTTP wire error code.
 	ErrUserNotFound ErrorCode = "user_not_found"
+
+	// ErrUserRecoverFailed is the user_recover_failed AuthKit HTTP wire error code.
+	ErrUserRecoverFailed ErrorCode = "user_recover_failed"
 
 	// ErrUserinfoFailed is the userinfo_failed AuthKit HTTP wire error code.
 	ErrUserinfoFailed ErrorCode = "userinfo_failed"

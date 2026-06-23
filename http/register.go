@@ -49,15 +49,15 @@ func newRegistrationResponse(username string, email, phone *string, nextAction r
 	return resp
 }
 
-func preferredLocaleFromRequest(r *http.Request) string {
+func preferredLanguageFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	locale, ok := authlang.LanguageFromContext(r.Context())
+	language, ok := authlang.LanguageFromContext(r.Context())
 	if !ok {
 		return ""
 	}
-	return locale
+	return language
 }
 
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +127,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 
 	policy := s.svc.Options().RegistrationVerificationPolicy()
 	requiresVerification := policy == core.RegistrationVerificationRequired
-	preferredLocale := preferredLocaleFromRequest(r)
+	preferredLanguage := preferredLanguageFromRequest(r)
 
 	if isPhone {
 		identifier = core.NormalizePhone(identifier)
@@ -149,7 +149,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			badRequest(w, ErrUsernameInUse)
 			return
 		}
-		_, err = s.svc.CreatePendingPhoneRegistrationWithLocale(r.Context(), identifier, username, phc, preferredLocale)
+		_, err = s.svc.CreatePendingPhoneRegistrationWithLanguage(r.Context(), identifier, username, phc, preferredLanguage)
 		if err != nil {
 			if s.handleDeliveryError(w, r, "register", "send_phone_verification", err) {
 				return
@@ -207,7 +207,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, ErrUsernameInUse)
 		return
 	}
-	_, err = s.svc.CreatePendingRegistrationWithLocale(r.Context(), identifier, username, phc, 0, preferredLocale)
+	_, err = s.svc.CreatePendingRegistrationWithLanguage(r.Context(), identifier, username, phc, 0, preferredLanguage)
 	if err != nil {
 		if s.handleDeliveryError(w, r, "register", "send_email_verification", err) {
 			return
@@ -283,7 +283,7 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 		notFound(w, ErrPendingRegistrationNotFound)
 		return
 	}
-	if _, err := s.svc.CreatePendingRegistrationWithLocale(r.Context(), email, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLocale); err != nil {
+	if _, err := s.svc.CreatePendingRegistrationWithLanguage(r.Context(), email, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLanguage); err != nil {
 		if s.handleDeliveryError(w, r, "register_resend_email", "send_email_verification", err) {
 			return
 		}
@@ -395,7 +395,7 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		notFound(w, ErrPendingRegistrationNotFound)
 		return
 	}
-	if _, err := s.svc.CreatePendingPhoneRegistrationWithLocale(r.Context(), phone, pending.Username, pending.PasswordHash, pending.PreferredLocale); err != nil {
+	if _, err := s.svc.CreatePendingPhoneRegistrationWithLanguage(r.Context(), phone, pending.Username, pending.PasswordHash, pending.PreferredLanguage); err != nil {
 		if s.handleDeliveryError(w, r, "register_resend_phone", "send_phone_verification", err) {
 			return
 		}

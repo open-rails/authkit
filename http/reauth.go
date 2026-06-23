@@ -12,6 +12,8 @@ import (
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
+const oidcReauthClockSkew = 2 * time.Minute
+
 func ptr(s string) *string { return &s }
 
 func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Request) {
@@ -42,10 +44,12 @@ func (s *Service) handlePasswordReauthPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":         true,
-		"fresh_auth": sessionFreshnessResponse(freshness),
-	})
+	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+	if err != nil {
+		serverErr(w, ErrTokenIssueFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +63,9 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Code string `json:"code"`
+		Code       string `json:"code"`
+		FactorID   string `json:"factor_id"`
+		BackupCode bool   `json:"backup_code"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, ErrInvalidRequest)
@@ -67,7 +73,7 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	if strings.TrimSpace(body.Code) == "" {
-		destination, method, err := s.svc.Require2FAForReauth(r.Context(), claims.UserID, claims.SessionID)
+		destination, method, factor, err := s.svc.Require2FAForReauthFactor(r.Context(), claims.UserID, claims.SessionID, strings.TrimSpace(body.FactorID))
 		if err != nil {
 			if s.handleDeliveryError(w, r, "reauth_2fa", "send_2fa_code", err) {
 				return
@@ -79,11 +85,23 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 			"requires_2fa":    true,
 			"method":          method,
 			"verification_id": obfuscateVerificationID(destination),
+			"factor": twoFactorFactorResponse{
+				ID:          factor.ID,
+				Method:      factor.Method,
+				IsDefault:   factor.IsDefault,
+				PhoneNumber: factor.PhoneNumber,
+			},
 		})
 		return
 	}
 
-	valid, err := s.svc.Verify2FAReauthCode(r.Context(), claims.UserID, claims.SessionID, strings.TrimSpace(body.Code))
+	var valid bool
+	var err error
+	if body.BackupCode {
+		valid, err = s.svc.VerifyBackupCode(r.Context(), claims.UserID, strings.TrimSpace(body.Code))
+	} else {
+		valid, err = s.svc.Verify2FAReauthFactorCode(r.Context(), claims.UserID, claims.SessionID, strings.TrimSpace(body.FactorID), strings.TrimSpace(body.Code))
+	}
 	if err != nil || !valid {
 		unauthorized(w, ErrInvalidCode)
 		return
@@ -98,10 +116,12 @@ func (s *Service) handleTwoFactorReauthPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":         true,
-		"fresh_auth": sessionFreshnessResponse(freshness),
-	})
+	resp, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+	if err != nil {
+		serverErr(w, ErrTokenIssueFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +168,8 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	redirectURI := buildRedirectURI(r, provider)
-	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
+	startedAt := time.Now().UTC()
+	authURL, err := manager.BeginWithAuthParams(r.Context(), provider, state, nonce, challenge, redirectURI, map[string]string{"max_age": "0"})
 	if err != nil {
 		badRequest(w, ErrOIDCBeginFailed)
 		return
@@ -161,6 +182,7 @@ func (s *Service) handleOIDCReauthStartPOST(w http.ResponseWriter, r *http.Reque
 		ReauthUserID:    claims.UserID,
 		ReauthSessionID: claims.SessionID,
 		ReauthReturnTo:  sanitizeReauthReturnTo(body.ReturnTo),
+		ReauthStartedAt: startedAt,
 	}); err != nil {
 		serverErr(w, ErrStateStoreFailed)
 		return
@@ -181,12 +203,16 @@ func (s *Service) userHasLinkedIssuerProvider(r *http.Request, userID, issuer, p
 	return err == nil && exists
 }
 
-func (s *Service) completeOIDCReauth(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, provider, issuer, subject string) bool {
+func (s *Service) completeOIDCReauth(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, provider, issuer, subject string, authTime time.Time) bool {
 	if strings.TrimSpace(sd.ReauthUserID) == "" {
 		return false
 	}
 	userID, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, subject)
 	if err != nil || userID != sd.ReauthUserID {
+		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+		return true
+	}
+	if !validOIDCReauthTime(sd.ReauthStartedAt, authTime, time.Now().UTC()) {
 		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
 		return true
 	}
@@ -196,45 +222,75 @@ func (s *Service) completeOIDCReauth(w http.ResponseWriter, r *http.Request, sd 
 	}
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
 		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.ReauthUserID, sd.ReauthSessionID, time.Now())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "fresh_auth": sessionFreshnessResponse(freshness), "provider": provider})
+		body, err := s.freshAccessTokenResponse(r, sd.ReauthUserID, sd.ReauthSessionID, freshness)
+		if err != nil {
+			redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+			return true
+		}
+		body["provider"] = provider
+		writeJSON(w, http.StatusOK, body)
 		return true
 	}
 	redirectReauthResult(w, r, sd.ReauthReturnTo, "success")
 	return true
 }
 
-func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims Claims, password string) bool {
-	if _, err := s.svc.RequireFreshSession(r.Context(), claims.UserID, claims.SessionID, time.Now()); err == nil {
-		return true
-	} else if !errors.Is(err, core.ErrReauthenticationRequired) {
-		unauthorized(w, ErrNotAuthenticated)
+func validOIDCReauthTime(startedAt, authTime, now time.Time) bool {
+	if startedAt.IsZero() || authTime.IsZero() || authTime.After(now.Add(oidcReauthClockSkew)) {
 		return false
+	}
+	return !authTime.Before(startedAt.Add(-oidcReauthClockSkew))
+}
+
+func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims Claims, password string) (bool, map[string]any) {
+	if SensitiveClaims(claims) {
+		return true, nil
 	}
 	if password != "" {
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
 			if errors.Is(verr, core.ErrPasswordResetRequired) {
 				unauthorized(w, ErrPasswordResetRequired)
-				return false
+				return false, nil
 			}
 			unauthorized(w, ErrInvalidPassword)
-			return false
+			return false, nil
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
 			serverErr(w, ErrReauthFailed)
-			return false
+			return false, nil
 		}
-		return true
+		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+		body, err := s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+		if err != nil {
+			serverErr(w, ErrTokenIssueFailed)
+			return false, nil
+		}
+		delete(body, "ok")
+		return true, body
 	}
 	s.reauthRequired(w, r, claims)
-	return false
+	return false, nil
 }
 
 func (s *Service) reauthRequired(w http.ResponseWriter, r *http.Request, claims Claims) {
-	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	sendErrData(w, http.StatusForbidden, ErrReauthRequired, map[string]any{
-		"reauth_methods": s.reauthMethods(r, claims.UserID),
-		"fresh_auth":     sessionFreshnessResponse(freshness),
+		"reauth_methods":  s.reauthMethods(r, claims.UserID),
+		"max_age_seconds": int64(core.SensitiveActionFreshAuthWindow.Seconds()),
 	})
+}
+
+func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness core.SessionFreshness) (map[string]any, error) {
+	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, "", map[string]any{"sid": sessionID})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"ok":           true,
+		"access_token": token,
+		"token_type":   "Bearer",
+		"expires_in":   int64(time.Until(exp).Seconds()),
+		"fresh_auth":   sessionFreshnessResponse(freshness),
+	}, nil
 }
 
 func (s *Service) reauthMethods(r *http.Request, userID string) []string {

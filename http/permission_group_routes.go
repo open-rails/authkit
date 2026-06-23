@@ -3,10 +3,10 @@ package authhttp
 // Auto-generated per-persona group-management HTTP surface (#111, task #15).
 //
 // The route surface IS the capability spec: core.GroupSchema.GeneratedRoutes()
-// emits one GeneratedRoute per enabled management capability per type, addressed
-// by the RESOURCE id (:resource-id) and gated by a concrete <persona>:<area>:<action>
-// perm. A disabled capability emits NO route here, so calling it 404s — strictly
-// stronger than a runtime 403.
+// emits one GeneratedRoute per enabled management capability per persona,
+// addressed by the RESOURCE id (:resource-id) and gated by a concrete
+// <persona>:<area>:<action> perm. A disabled capability emits NO route here, so
+// calling it 404s — strictly stronger than a runtime 403.
 //
 // This file translates that data surface into RouteSpec handlers and mounts them
 // via the same APIRoutes/route-table mechanism the rest of authhttp uses. Group
@@ -154,9 +154,7 @@ func (s *Service) generatedGroupHandler(gr core.GeneratedRoute) http.HandlerFunc
 		case opMemberRemove:
 			s.groupMemberRemove(w, r, gr.Persona, resourceID, pathParam(r, "user"))
 		case opMemberRoleAssign:
-			s.groupMemberRole(w, r, gr.Persona, resourceID, pathParam(r, "user"), pathParam(r, "role"), true)
-		case opMemberRoleUnassign:
-			s.groupMemberRole(w, r, gr.Persona, resourceID, pathParam(r, "user"), pathParam(r, "role"), false)
+			s.groupMemberRole(w, r, gr.Persona, resourceID, pathParam(r, "user"), pathParam(r, "role"))
 		case opRolesList:
 			s.groupRolesList(w, gr.Persona)
 		case opRoleDefine:
@@ -198,7 +196,6 @@ const (
 	opMemberAdd
 	opMemberRemove
 	opMemberRoleAssign
-	opMemberRoleUnassign
 	opRolesList
 	opRoleDefine
 	opRoleDelete
@@ -215,8 +212,7 @@ const (
 
 // classifyGeneratedRoute maps a generator route (its method + colon-param path)
 // to a wired operation. The trailing path shape is stable across personas; the
-// method disambiguates the collapse points (GET vs POST /members, PUT vs DELETE
-// on /members/:user/roles/:role). Everything else (custom-role define, api-keys,
+// method disambiguates GET vs POST /members. Everything else (custom-role define, api-keys,
 // remote-applications, invites) is opStub (=> 501).
 func classifyGeneratedRoute(method, path string) generatedOp {
 	switch {
@@ -224,7 +220,7 @@ func classifyGeneratedRoute(method, path string) generatedOp {
 		if method == http.MethodPut {
 			return opMemberRoleAssign
 		}
-		return opMemberRoleUnassign // DELETE
+		return opStub
 	case strings.HasSuffix(path, "/members/:user"):
 		return opMemberRemove // DELETE
 	case strings.HasSuffix(path, "/members"):

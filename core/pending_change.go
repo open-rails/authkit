@@ -35,16 +35,16 @@ const (
 
 // pendingChange is the unified record backing all four flows. Register kinds
 // leave UserID empty (the user does not exist yet) and carry the signup payload
-// (Username/PasswordHash/PreferredLocale); change kinds set UserID and leave the
+// (Username/PasswordHash/PreferredLanguage); change kinds set UserID and leave the
 // signup payload empty. Target is the email or phone being registered/changed-to.
 type pendingChange struct {
-	Kind            PendingChangeKind `json:"kind"`
-	Target          string            `json:"target"`
-	UserID          string            `json:"user_id,omitempty"`
-	Username        string            `json:"username,omitempty"`
-	PasswordHash    string            `json:"password_hash,omitempty"`
-	PreferredLocale string            `json:"preferred_locale,omitempty"`
-	TokenHashes     []string          `json:"token_hashes,omitempty"`
+	Kind              PendingChangeKind `json:"kind"`
+	Target            string            `json:"target"`
+	UserID            string            `json:"user_id,omitempty"`
+	Username          string            `json:"username,omitempty"`
+	PasswordHash      string            `json:"password_hash,omitempty"`
+	PreferredLanguage string            `json:"preferred_language,omitempty"`
+	TokenHashes       []string          `json:"token_hashes,omitempty"`
 }
 
 func (k PendingChangeKind) isRegister() bool {

@@ -1,6 +1,6 @@
 # AuthKit API Endpoints Reference
 
-AuthKit HTTP handlers are prefix-neutral. The paths below are handler paths; when a host mounts AuthKit API routes at `/api/v1`, `GET /user/me` becomes public route `GET /api/v1/user/me`.
+AuthKit HTTP handlers are prefix-neutral. The paths below are handler paths; when a host mounts AuthKit API routes at `/api/v1`, `GET /me` becomes public route `GET /api/v1/me`.
 
 Downstream applications that embed AuthKit should mount the AuthKit API at `/api/v1` and should not add an extra `/auth` segment. Browser OIDC routes should usually be mounted outside API versioning at `/oidc/*`.
 
@@ -8,8 +8,10 @@ AuthKit's exported route specs are the canonical source of truth for JSON API
 routes. Host apps should mount `svc.Routes().DefaultAPI()` or explicit
 `svc.Routes().Groups(...)` selections through the built-in Gin/Chi adapters or
 their own router registration loop, not maintain duplicated route allowlists.
-Browser OIDC login/callback routes are a separate browser group. Account
-provider linking is an API group, `RouteAccountOIDCLinking`, and is exposed as
+Host-facing JSON route groups are `RoutePublic`, `RouteRegister`,
+`RouteSession`, `RouteUser`, `RouteAdmin`, and `RoutePermissionGroups`.
+Browser OIDC login/callback routes are `RouteBrowserOIDC` and usually mount
+outside the JSON API prefix. Account provider linking is self-service user API:
 `POST /oidc/:provider/link/start` under the host-selected API prefix.
 
 AuthKit is opinionated about identity validation. Host apps should not
@@ -88,6 +90,8 @@ Notes:
 | POST | `/register/resend-phone` | PUBLIC | Resend phone verification |
 | POST | `/token` | PUBLIC | Refresh user access token |
 | POST | `/sessions/current` | PUBLIC | Get current session info |
+| POST | `/reauth/password` | AUTH | Reauthenticate with password; returns fresh `access_token`, `token_type`, `expires_in`, and `fresh_auth` |
+| POST | `/reauth/2fa` | AUTH | Start or complete selected/default 2FA reauth; final `{code, factor_id?, backup_code?}` call returns fresh `access_token`, `token_type`, `expires_in`, and `fresh_auth` |
 
 Token taxonomy:
 - User access token: JWT `typ=access+jwt`; carries `sub`, `sid`, and
@@ -102,6 +106,8 @@ Token taxonomy:
 - Service JWT: JWT `typ=service+jwt` plus `token_use=service`; receiver
   intersects requested permissions/resources with server-side grants.
 - API key: opaque bearer secret; it holds ONE org role (#95) and its permissions resolve FROM that role at verify time; resources are a separate per-key binding.
+
+Reauth updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
 
 Reserved slug policy:
 - Reserved owner slugs are seeded in DB migrations as reserved user + personal-org placeholders.
@@ -141,63 +147,56 @@ For verification, registration resend, and 2FA send operations, a 2xx response m
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/user/me` | AUTH | Get current user — includes global roles plus a `orgs` membership list with per-org roles (empty for org-free users) |
-| GET | `/me/bootstrap` | AUTH | Get canonical personal org + org memberships/roles for bootstrap |
+| GET | `/me` | AUTH | Get current user — includes global roles, entitlements, linked provider metadata, username aliases, and preferred language |
 | PATCH | `/user/username` | AUTH | Change username |
+| PATCH | `/user/preferred-language` | AUTH | Change preferred language |
 | PATCH | `/user/biography` | AUTH | Update biography |
 | POST | `/user/password` | AUTH | Change password |
-| POST | `/user/email/change` | AUTH | Start/restart or confirm email change |
-| POST | `/user/phone/change` | AUTH | Start/restart or confirm phone number change |
+| POST | `/user/email` | AUTH | Start/restart or confirm email change |
+| POST | `/user/phone` | AUTH | Start/restart or confirm phone number change |
 | DELETE | `/user` | AUTH | Delete own account |
 | DELETE | `/user/providers/:provider` | AUTH | Unlink OAuth provider |
 
 ---
 
-## Orgs (always registered; mount the orgs route group to expose)
+## Permission Groups
+
+The old static `/orgs/*` route group was removed. Hosts expose resource-scoped
+management through generated permission-group routes instead.
+
+Terminology: a configured permission-group `type` is the public route and
+permission `persona`. For example, a `merchant` group type generates
+`/merchant/:resource_id/...` routes and `merchant:<area>:<action>` permissions.
+
+Always:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/me/orgs` | AUTH | List orgs for current user (includes each org's single `role`) |
-| POST | `/orgs` | AUTH | Public org registration. Requires an authenticated user and creates the org, seeds baseline roles, adds the caller as the initial `owner`, and never creates ownerless public orgs. Disabled by non-open org registration policy. Ownerless orgs are privileged bootstrap/admin only. |
-| GET | `/orgs/:org` | AUTH | Get org metadata plus caller membership `{role, permissions}` (`:org` accepts slug or alias) |
-| POST | `/orgs/:org/rename` | AUTH | Rename org slug (keeps old slug as alias) |
-| GET | `/orgs/:org/members` | AUTH | List members (`org:read`) |
-| POST | `/orgs/:org/members` | AUTH | Add member (`org:members:manage`) |
-| DELETE | `/orgs/:org/members/:user_id` | AUTH | Remove member (`org:members:manage`) |
-| GET | `/orgs/:org/invites` | AUTH | List org invites (`org:read`) |
-| POST | `/orgs/:org/invites` | AUTH | Create invite (`org:members:manage`) |
-| POST | `/orgs/:org/invites/:invite_id/revoke` | AUTH | Revoke pending invite (`org:members:manage`) |
-| GET | `/me/org-invites` | AUTH | List org invites for current user (cross-org — invitee isn't a member yet) |
-| POST | `/me/org-invites/:invite_id/accept` | AUTH | Accept org invite as current user |
-| POST | `/me/org-invites/:invite_id/decline` | AUTH | Decline org invite as current user |
-| GET | `/orgs/:org/roles` | AUTH | List defined roles (`org:read`) |
-| GET | `/orgs/:org/roles/:role` | AUTH | A role's detail: name + permissions (`org:read`); 404 if undefined |
-| PUT | `/orgs/:org/roles/:role` | AUTH | Create-or-replace a role: body `{permissions[]}` (`org:roles:manage`; permission-validated + no-escalation). Idempotent — defines the role name and sets its perms in one call |
-| DELETE | `/orgs/:org/roles/:role` | AUTH | Delete a role (`org:roles:manage`; `owner` protected) |
-| GET | `/orgs/:org/members/:user_id/roles` | AUTH | Read member roles (`org:read`) |
-| POST | `/orgs/:org/members/:user_id/roles` | AUTH | Assign role to member (`org:members:manage`; no-escalation: the role's permissions must be ⊆ the assigner's, so granting `owner` requires owner) |
-| DELETE | `/orgs/:org/members/:user_id/roles` | AUTH | Unassign role (`org:members:manage`; cannot remove last owner) |
-| GET | `/permissions` | AUTH | The permission set: authkit base permissions ∪ the app-declared permissions |
-| GET | `/orgs/:org/members/:user_id/permissions` | AUTH | A member's effective permissions (`org:read`) |
-| POST | `/orgs/:org/api-keys` | AUTH | Mint an API key (`org:api_keys:create`). Body `{name, role, resources?:[{kind,id}], expires_at?}` — `role` is a single org role slug (#95); the key's perms resolve FROM the role at use time. AuthKit validates the role exists + no-escalation (the minter holds everything the role confers), and bars a role conferring wildcards / reserved write-management `org:*` perms (read-only reserved like `org:*:read` allowed). Resource scopes are shape-validated only and optionally host-authorized. Full key shown ONCE; response also surfaces the resolved `permissions`. |
-| GET | `/orgs/:org/api-keys` | AUTH | List the org's API keys (`org:api_keys:manage`; metadata only, includes `resources[]`, never secrets) |
-| DELETE | `/orgs/:org/api-keys/:token_id` | AUTH | Revoke an API key (`org:api_keys:manage`) |
+| GET | `/me/groups` | AUTH | List the caller's direct `{persona, resource-id, role}` memberships |
 
-> **Org RBAC (permission-based).** A role is a set of permissions. Org-management
-> endpoints are gated by authkit's **base permissions** (reserved `org:`
-> namespace): `org:roles:manage`, `org:members:manage`, `org:api_keys:manage`,
-> `org:read`. The embedding app declares its own permission set
-> (`core.Config.Permissions`) + optional default roles
-> (`core.Config.DefaultRoles`); the effective permission set = base ∪ app. The `owner`
-> role is hardcoded and seeded with `org:*` (the namespace-anchored apex grant for the
-> org layer — NEVER a bare `*`); other roles are app/org-defined. Permission tokens in a
-> role: a concrete permission or a namespace-anchored glob (`org:*`, `org:<resource>:*`).
-> NO bare `*` and NO negation (`!perm`) — both removed in #93/#95; positive grants only.
-> All assignment/grant is **no-escalation** (you can only confer permissions you hold) and
-> **catalog-validated** (unknown permissions rejected). A platform super-admin (`platform:*`,
-> a separate layer) does not bypass — it simply holds the directory perms. Permissions are opaque to
-> authkit — the app owns their meaning and enforces them at its own endpoints
-> via `core.EffectivePermissions(ctx, org, userID)`.
+For each configured persona, AuthKit emits only the route families enabled by
+that persona's management profile:
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/:persona/:resource_id/members` | PERM | List members |
+| POST | `/:persona/:resource_id/members` | PERM | Add member role |
+| DELETE | `/:persona/:resource_id/members/:user` | PERM | Remove member from group |
+| PUT | `/:persona/:resource_id/members/:user/roles/:role` | PERM | Assign or replace the member's role |
+| GET | `/:persona/:resource_id/roles` | PERM | List role catalog |
+| POST | `/:persona/:resource_id/roles` | PERM | Define custom role |
+| DELETE | `/:persona/:resource_id/roles/:role` | PERM | Delete custom role |
+| GET | `/:persona/:resource_id/api-keys` | PERM | List API keys |
+| POST | `/:persona/:resource_id/api-keys` | PERM | Mint API key |
+| DELETE | `/:persona/:resource_id/api-keys/:key` | PERM | Revoke API key |
+| GET | `/:persona/:resource_id/remote-applications` | PERM | List remote applications |
+| POST | `/:persona/:resource_id/remote-applications` | PERM | Register remote application |
+| DELETE | `/:persona/:resource_id/remote-applications/:app` | PERM | Delete remote application |
+| GET | `/:persona/:resource_id/invites` | PERM | List invites |
+| POST | `/:persona/:resource_id/invites` | PERM | Create invite |
+| DELETE | `/:persona/:resource_id/invites/:invite` | PERM | Revoke invite |
+
+Built-in `root` emits member-management plus role-list routes by default.
 
 ---
 
@@ -320,11 +319,18 @@ Kind/ID scope rows.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/user/2fa` | AUTH | Get 2FA status |
-| POST | `/user/2fa` | AUTH | Start or confirm email/SMS/TOTP 2FA enrollment |
-| DELETE | `/user/2fa` | AUTH | Disable 2FA |
+| GET | `/user/2fa` | AUTH | Get 2FA status, default factor, available factors, allowed methods, and backup-code count |
+| POST | `/user/2fa` | AUTH | Start or confirm email/SMS/TOTP 2FA enrollment; optional `default: true` makes the factor default; `{factor_id, default:true}` changes the default |
+| DELETE | `/user/2fa` | AUTH | Disable all 2FA, or delete one factor with `factor_id` |
 | POST | `/user/2fa/backup-codes` | AUTH | Regenerate backup codes |
-| POST | `/2fa/verify` | PUBLIC | Verify 2FA code during login |
+| POST | `/2fa/challenge` | PUBLIC | Start a selected non-default factor from an existing password-login 2FA challenge |
+| POST | `/2fa/verify` | PUBLIC | Verify 2FA code during login; accepts `factor_id` for selected factors or `backup_code: true` for recovery codes |
+
+Hosts may configure mandatory 2FA for permission-group roles, e.g.
+`TwoFactor.Mandatory: []core.Mandatory2FAPolicy{{GroupType: "root", Roles: []string{"admin"}}}`.
+Covered users without 2FA receive `2fa_enrollment_required` on password login
+with an enrollment-only bearer token for `GET/POST /user/2fa`; `/token` refresh
+returns `2fa_enrollment_required` rather than minting a fresh access token.
 
 ---
 
@@ -356,32 +362,18 @@ Kind/ID scope rows.
 | GET | `/admin/users/:user_id` | `root:users:read` | Get user details |
 | POST | `/admin/users/ban` | `root:users:ban` | Ban user |
 | POST | `/admin/users/unban` | `root:users:ban` | Unban user |
-| POST | `/admin/users/set-email` | `root:users:update` | Set user email |
-| POST | `/admin/users/set-username` | `root:users:update` | Set user username |
-| POST | `/admin/users/set-password` | `root:users:update` | Set user password |
+| POST | `/admin/users/:user_id/recover` | `root:users:update` | Recover a compromised account. Body has exactly one of `{email}` or `{phone_number}`; AuthKit revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request. |
 | DELETE | `/admin/users/:user_id` | `root:users:delete` | Delete user |
 | POST | `/admin/users/:user_id/restore` | `root:users:delete` | Restore (undelete) user |
 | GET | `/admin/users/:user_id/signins` | `root:users:read` | List recent signin events for a user |
 | POST | `/admin/users/:user_id/sessions/revoke` | `root:sessions:revoke` | Revoke all refresh sessions for a target user |
-| GET | `/admin/orgs` | `platform:orgs:read` | Org directory (paginated, `search`/`include_deleted`) |
-| GET | `/admin/orgs/deleted` | `platform:orgs:read` | List soft-deleted orgs |
-| GET | `/admin/orgs/:id` | `platform:orgs:read` | Org entity detail (slug/is_personal/member-count) |
-| POST | `/admin/orgs/:id/rename` | `platform:orgs:update` | Rename an org as platform admin (no 72h cooldown; `{new_slug}`) |
-| POST | `/admin/orgs/:id/transfer-owner` | `platform:orgs:update` | Surgical owner reassignment, keeps the team (`{new_owner_user_id}`) |
-| DELETE | `/admin/orgs/:id` | `platform:orgs:delete` | Soft-delete an org |
-| POST | `/admin/orgs/:id/restore` | `platform:orgs:delete` | Restore a soft-deleted org |
-| POST | `/admin/orgs/:id/recover` | `platform:orgs:recover` | Anti-takeover reset (`{new_owner_user_id}`; max-audited) |
-| POST | `/admin/orgs/restrict` | `platform:orgs:reserved-names` | Restrict owner namespace slugs (`{slugs:[...]}`) |
-| POST | `/admin/orgs/unrestrict` | `platform:orgs:reserved-names` | Remove owner namespace restrictions (`{slugs:[...]}`) |
-| POST | `/admin/orgs/park` | `platform:orgs:reserved-names` | Park a namespace (`{kind:"org"|"user",slug}`) |
-| POST | `/admin/orgs/claim` | `platform:orgs:reserved-names` | Claim a namespace (`{kind:"org"|"user",slug,...}`; `owner_user_id` required when `kind="org"`) |
 | GET | `/namespaces/:slug` | PUBLIC | Fetch public namespace metadata: `requested_slug`, `slug`, `renamed`, optional `hold_until`, typed `user`/`org`, and `claimable.user`/`claimable.org` |
 
-The org slug lifecycle (`restrict`/`unrestrict`/`park`/`claim`) and the org-admin surface live under `/admin/orgs/*`; the old `/admin/account(s)/*` paths are removed. There is intentionally NO platform org-create route — org creation is self-service (`POST /orgs`).
+There is no admin org recovery flow; org routes were removed with the old org plane.
 
 Namespace lookup returns typed resources instead of one owner winner; a same-slug user and org can both appear in the response.
 
-## Org Issuers (RouteOrgIssuers, resource-server side)
+## Org Issuers (resource-server side)
 
 The inbound accept-side of the platform-delegation handshake. The resource
 server stores trusted org issuers; delegated tokens minted by those

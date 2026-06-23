@@ -30,6 +30,11 @@ type Session struct {
 
 const SensitiveActionFreshAuthWindow = 15 * time.Minute
 
+const (
+	AssuranceLevelPassword = "urn:authkit:loa:1"
+	AssuranceLevelMFA      = "urn:authkit:loa:2"
+)
+
 var ErrReauthenticationRequired = errors.New("reauth_required")
 
 type SessionFreshness struct {
@@ -37,6 +42,18 @@ type SessionFreshness struct {
 	TimeUntilReauthRequired       time.Duration
 	ReauthRequiredForSensitiveOps bool
 	AuthMethods                   []string
+}
+
+func (f SessionFreshness) AssuranceClaims() (authTime int64, amr []string, acr string) {
+	amr = normalizeAuthMethods(f.AuthMethods)
+	acr = AssuranceLevelPassword
+	for _, method := range amr {
+		if method == "otp" || method == "mfa" {
+			acr = AssuranceLevelMFA
+			break
+		}
+	}
+	return f.LastAuthenticatedAt.Unix(), amr, acr
 }
 
 // IssueRefreshSession creates a session row and returns a new refresh token string.
@@ -120,6 +137,11 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	sid, uid := cur.ID, cur.UserID
 	if err := s.ensureUserAccessByID(ctx, uid); err != nil {
 		return "", time.Time{}, "", err
+	}
+	if ok, err := s.UserSatisfiesMandatory2FA(ctx, uid); err != nil {
+		return "", time.Time{}, "", err
+	} else if !ok {
+		return "", time.Time{}, "", ErrTwoFAEnrollmentRequired
 	}
 
 	// Load email for ID token payload (best-effort)

@@ -187,9 +187,9 @@ func (f UsersFacet) CreatePendingPhoneRegistration(ctx context.Context, phone, u
 	return f.svc.CreatePendingPhoneRegistration(ctx, phone, username, passwordHash)
 }
 
-// CreatePendingPhoneRegistrationWithLocale calls Service.CreatePendingPhoneRegistrationWithLocale.
-func (f UsersFacet) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, phone, username, passwordHash, preferredLocale string) (string, error) {
-	return f.svc.CreatePendingPhoneRegistrationWithLocale(ctx, phone, username, passwordHash, preferredLocale)
+// CreatePendingPhoneRegistrationWithLanguage calls Service.CreatePendingPhoneRegistrationWithLanguage.
+func (f UsersFacet) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
+	return f.svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, username, passwordHash, preferredLanguage)
 }
 
 // CreatePendingRegistration calls Service.CreatePendingRegistration.
@@ -197,9 +197,9 @@ func (f UsersFacet) CreatePendingRegistration(ctx context.Context, email, userna
 	return f.svc.CreatePendingRegistration(ctx, email, username, passwordHash, ttl)
 }
 
-// CreatePendingRegistrationWithLocale calls Service.CreatePendingRegistrationWithLocale.
-func (f UsersFacet) CreatePendingRegistrationWithLocale(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLocale string) (string, error) {
-	return f.svc.CreatePendingRegistrationWithLocale(ctx, email, username, passwordHash, ttl, preferredLocale)
+// CreatePendingRegistrationWithLanguage calls Service.CreatePendingRegistrationWithLanguage.
+func (f UsersFacet) CreatePendingRegistrationWithLanguage(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
+	return f.svc.CreatePendingRegistrationWithLanguage(ctx, email, username, passwordHash, ttl, preferredLanguage)
 }
 
 // CreateUser calls Service.CreateUser.
@@ -252,9 +252,9 @@ func (f UsersFacet) GetPendingRegistrationByEmail(ctx context.Context, email str
 	return f.svc.GetPendingRegistrationByEmail(ctx, email)
 }
 
-// GetPreferredLocale calls Service.GetPreferredLocale.
-func (f UsersFacet) GetPreferredLocale(ctx context.Context, userID string) (PreferredLocale, error) {
-	return f.svc.GetPreferredLocale(ctx, userID)
+// GetPreferredLanguage calls Service.GetPreferredLanguage.
+func (f UsersFacet) GetPreferredLanguage(ctx context.Context, userID string) (PreferredLanguage, error) {
+	return f.svc.GetPreferredLanguage(ctx, userID)
 }
 
 // GetUserByPhone calls Service.GetUserByPhone.
@@ -377,9 +377,9 @@ func (f UsersFacet) SetPasswordAfterFreshAuth(ctx context.Context, userID, new s
 	return f.svc.SetPasswordAfterFreshAuth(ctx, userID, new, keepSessionID)
 }
 
-// SetPreferredLocale calls Service.SetPreferredLocale.
-func (f UsersFacet) SetPreferredLocale(ctx context.Context, userID, locale, source string) error {
-	return f.svc.SetPreferredLocale(ctx, userID, locale, source)
+// SetPreferredLanguage calls Service.SetPreferredLanguage.
+func (f UsersFacet) SetPreferredLanguage(ctx context.Context, userID, language string) error {
+	return f.svc.SetPreferredLanguage(ctx, userID, language)
 }
 
 // SoftDeleteUser calls Service.SoftDeleteUser.

@@ -185,11 +185,11 @@ volumes:
 		t.Fatalf("bootstrap user login returned empty access_token")
 	}
 
-	meResp, meBody := httpJSON(t, http.MethodGet, api+"/user/me", map[string]string{
+	meResp, meBody := httpJSON(t, http.MethodGet, api+"/me", map[string]string{
 		"Authorization": "Bearer " + loginOut.AccessToken,
 	}, nil)
 	if meResp.StatusCode != http.StatusOK {
-		t.Fatalf("bootstrap user /user/me: expected 200, got %d: %s", meResp.StatusCode, string(meBody))
+		t.Fatalf("bootstrap user /me: expected 200, got %d: %s", meResp.StatusCode, string(meBody))
 	}
 
 	adminResp, adminBody := httpJSON(t, http.MethodGet, api+"/admin/users", map[string]string{

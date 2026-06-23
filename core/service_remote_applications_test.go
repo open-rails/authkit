@@ -26,6 +26,18 @@ func testPG(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	conn, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("acquire test db lock connection: %v", err)
+	}
+	if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_lock(638476116)`); err != nil {
+		conn.Release()
+		t.Fatalf("acquire test db lock: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(638476116)`)
+		conn.Release()
+	})
 	return pool
 }
 

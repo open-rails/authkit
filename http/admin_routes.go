@@ -172,79 +172,6 @@ func (s *Service) handleAdminUsersUnbanPOST(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Service) handleAdminUsersSetEmailPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID string `json:"user_id"`
-		Email  string `json:"email"`
-	}
-	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Email == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimited(w, r, RLAdminRolesGrant) {
-		return
-	}
-	if err := s.svc.UpdateEmail(r.Context(), req.UserID, req.Email); err != nil {
-		badRequest(w, ErrFailedToUpdateEmail)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (s *Service) handleAdminUsersSetUsernamePOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID   string `json:"user_id"`
-		Username string `json:"username"`
-	}
-	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Username == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimited(w, r, RLAdminRolesGrant) {
-		return
-	}
-	if err := s.svc.UpdateUsername(r.Context(), req.UserID, req.Username); err != nil {
-		if err == core.ErrOwnerSlugTaken {
-			badRequest(w, ErrOwnerSlugTaken)
-			return
-		}
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
-			badRequest(w, code)
-			return
-		}
-		badRequest(w, ErrFailedToUpdateUsername)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (s *Service) handleAdminUsersSetPasswordPOST(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID   string `json:"user_id"`
-		Password string `json:"password"`
-	}
-	if err := decodeJSON(r, &req); err != nil || req.UserID == "" || req.Password == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if err := core.ValidatePassword(req.Password); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
-		return
-	}
-	if s.rateLimited(w, r, RLAdminRolesGrant) {
-		return
-	}
-	if err := s.svc.AdminSetPassword(r.Context(), req.UserID, req.Password); err != nil {
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
-			badRequest(w, code)
-			return
-		}
-		badRequest(w, ErrFailedToSetPassword)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("user_id")
 	if id == "" {
@@ -281,34 +208,41 @@ func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
 }
 
-func (s *Service) handleAdminUserPasswordResetPOST(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleAdminUserRecoverPOST(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.PathValue("user_id"))
-	if userID == "" {
+	var req struct {
+		Email       string `json:"email"`
+		PhoneNumber string `json:"phone_number"`
+	}
+	if err := decodeJSON(r, &req); err != nil || userID == "" || (strings.TrimSpace(req.Email) == "") == (strings.TrimSpace(req.PhoneNumber) == "") {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimited(w, r, RLAdminPasswordReset) {
 		return
 	}
-	if !s.svc.HasEmailSender() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": ErrEmailSenderUnavailable})
-		return
-	}
-	u, err := s.svc.AdminGetUser(r.Context(), userID)
-	if err != nil || u == nil {
+	err := s.svc.AdminRecoverUser(r.Context(), userID, core.AdminRecoverUserInput{Email: req.Email, PhoneNumber: req.PhoneNumber})
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
+	case errors.Is(err, core.ErrUserNotFound):
 		notFound(w, ErrNotFound)
-		return
+	case errors.Is(err, core.ErrEmailSenderUnavailable):
+		sendErr(w, http.StatusServiceUnavailable, ErrEmailSenderUnavailable)
+	case errors.Is(err, core.ErrSMSSenderUnavailable):
+		sendErr(w, http.StatusServiceUnavailable, ErrSMSUnavailable)
+	case errors.Is(err, core.ErrEmailInUse):
+		badRequest(w, ErrEmailInUse)
+	case errors.Is(err, core.ErrPhoneInUse):
+		badRequest(w, ErrPhoneInUse)
+	case core.ValidationErrorCode(err) != "":
+		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	case deliveryErrCode(err) != "":
+		deliveryErr(w, deliveryErrCode(err))
+	default:
+		s.logInternalError(r, "admin_user_recover", "recover_user", "user_recover_failed", err)
+		serverErr(w, ErrUserRecoverFailed)
 	}
-	if u.Email == nil || strings.TrimSpace(*u.Email) == "" {
-		sendErr(w, http.StatusUnprocessableEntity, ErrNoEmail)
-		return
-	}
-	if err := s.svc.RequestPasswordReset(r.Context(), *u.Email, 0, nil, nil); err != nil {
-		s.logInternalError(r, "admin_password_reset", "request_password_reset", "password_reset_request_failed", err)
-		serverErr(w, ErrPasswordResetRequestFailed)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {

@@ -27,6 +27,13 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	ip := parseIP(clientIP(r))
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)
 	if err != nil {
+		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) {
+			sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, map[string]any{
+				"requires_2fa_enrollment": true,
+				"allowed_methods":         []string{"email", "sms", "totp"},
+			})
+			return
+		}
 		if errors.Is(err, core.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return

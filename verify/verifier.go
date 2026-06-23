@@ -975,6 +975,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.JTI = strClaim(mc, "jti")
 	cl.AMR = strSliceClaim(mc, "amr")
 	cl.ACR = strClaim(mc, "acr")
+	cl.TwoFAEnrollment, _ = mc["2fa_enrollment"].(bool)
 	if authTime, ok := toUnix(mc["auth_time"]); ok {
 		cl.AuthTime = time.Unix(authTime, 0)
 	}

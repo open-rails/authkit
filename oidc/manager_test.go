@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -80,6 +81,28 @@ func TestManager_DynamicSecretBypassesRPCache(t *testing.T) {
 	}
 }
 
+func TestManager_BeginWithAuthParamsAddsMaxAge(t *testing.T) {
+	var discoveryHits atomic.Int32
+	srv := newTestOIDCServer(t, &discoveryHits)
+	defer srv.Close()
+
+	m := NewManager(map[string]RPClient{
+		"example": {
+			Issuer:       srv.URL,
+			ClientID:     "client",
+			ClientSecret: "secret",
+			Scopes:       []string{"openid"},
+		},
+	})
+	authURL, err := m.BeginWithAuthParams(context.Background(), "example", "state", "nonce", "", "https://app.example/callback", map[string]string{"max_age": "0"})
+	if err != nil {
+		t.Fatalf("BeginWithAuthParams: %v", err)
+	}
+	if got := mustQuery(t, authURL).Get("max_age"); got != "0" {
+		t.Fatalf("max_age = %q, want 0 in %s", got, authURL)
+	}
+}
+
 func TestOutboundHTTPClientHasTimeout(t *testing.T) {
 	c := OutboundHTTPClient()
 	if c.Timeout != DefaultOutboundTimeout {
@@ -114,4 +137,13 @@ func newTestOIDCServer(t *testing.T, discoveryHits *atomic.Int32) *httptest.Serv
 			http.NotFound(w, r)
 		}
 	}))
+}
+
+func mustQuery(t *testing.T, raw string) url.Values {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse URL: %v", err)
+	}
+	return u.Query()
 }

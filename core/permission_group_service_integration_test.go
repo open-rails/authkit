@@ -83,6 +83,12 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
 		t.Errorf("a repo collaborator must NOT gain org-scoped authority")
 	}
+	if err := svc.AssignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, MemberRoleName); err != nil {
+		t.Fatalf("replace writer with member: %v", err)
+	}
+	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "repo", "r1", "repo:repo:write"); ok {
+		t.Errorf("replacing a member's role should remove the previous writer grant")
+	}
 
 	// Read surface: list a group's members + a subject's groups.
 	members, err := svc.ListGroupMembers(ctx, "org", "acme")
@@ -104,6 +110,9 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	}
 	if len(sgroups) == 0 || sgroups[0].Persona != "repo" || sgroups[0].ResourceRef != "r1" {
 		t.Errorf("ListSubjectGroups(dev) should show the repo:r1 membership; got %+v", sgroups)
+	}
+	if len(sgroups) != 1 || sgroups[0].Role != MemberRoleName {
+		t.Errorf("ListSubjectGroups(dev) should show one current role after replacement; got %+v", sgroups)
 	}
 
 	// Role validation: repo disallows custom roles, so an unknown role is rejected.
@@ -162,6 +171,15 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	}
 	if ok, err := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); err != nil || !ok {
 		t.Errorf("custom auditor role should grant org:billing:read; got %v,%v", ok, err)
+	}
+	if err := svc.RemoveGroupSubject(ctx, "org", "acme", uid, SubjectKindUser); err != nil {
+		t.Fatalf("RemoveGroupSubject: %v", err)
+	}
+	if ok, _ := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); ok {
+		t.Errorf("removing a member should revoke custom-role grants too")
+	}
+	if err := svc.AssignGroupRole(ctx, "org", "acme", uid, SubjectKindUser, "auditor"); err != nil {
+		t.Fatalf("reassign auditor: %v", err)
 	}
 	// cross-persona custom perm is rejected (namespace purity).
 	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "bad", []string{"repo:repo:read"}); err == nil {

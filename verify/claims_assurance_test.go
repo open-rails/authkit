@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -57,6 +58,44 @@ func TestRequireMFA(t *testing.T) {
 		t.Fatalf("otp status = %d", w.Code)
 	}
 	if w := serveVerifyClaims(h, Claims{UserID: "u1", AMR: []string{"pwd"}}); w.Code != http.StatusForbidden {
+		t.Fatalf("pwd-only status = %d", w.Code)
+	}
+}
+
+func TestSensitiveDefaults(t *testing.T) {
+	h := assuranceProtected(Sensitive())
+
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Minute), AMR: []string{"pwd"}}); w.Code != http.StatusOK {
+		t.Fatalf("recent password status = %d", w.Code)
+	}
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), AMR: []string{"pwd", "mfa"}}); w.Code != http.StatusOK {
+		t.Fatalf("old mfa status = %d", w.Code)
+	}
+	w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), AMR: []string{"pwd"}})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("old password status = %d", w.Code)
+	}
+	var body struct {
+		Error struct {
+			Code     string         `json:"code"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode reauth_required body: %v", err)
+	}
+	if body.Error.Code != "reauth_required" || body.Error.Metadata["max_age_seconds"] == nil {
+		t.Fatalf("reauth envelope = %+v", body)
+	}
+}
+
+func TestSensitiveRequireMFA(t *testing.T) {
+	h := assuranceProtected(Sensitive(SensitiveOptions{RequireMFA: true}))
+
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), AMR: []string{"pwd", "otp"}}); w.Code != http.StatusOK {
+		t.Fatalf("mfa status = %d", w.Code)
+	}
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), AMR: []string{"pwd"}}); w.Code != http.StatusForbidden {
 		t.Fatalf("pwd-only status = %d", w.Code)
 	}
 }

@@ -157,6 +157,9 @@ type TwoFactorConfig struct {
 	// TOTPSecretKey encrypts persisted authenticator-app shared secrets. It must
 	// be 16, 24, or 32 bytes. Without it, TOTP enrollment fails closed.
 	TOTPSecretKey []byte
+	// Mandatory declares host-owned role policies that require 2FA before a user
+	// may receive normal login/refresh sessions.
+	Mandatory []Mandatory2FAPolicy
 }
 
 // RBACConfig declares the app permission catalog, default roles, and owner policy.

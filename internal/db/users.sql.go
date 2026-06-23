@@ -604,25 +604,17 @@ func (q *Queries) UserPhoneOrUsernameTaken(ctx context.Context, arg UserPhoneOrU
 	return i, err
 }
 
-const userPreferredLocale = `-- name: UserPreferredLocale :one
-SELECT COALESCE(preferred_locale, '')::text AS locale,
-       COALESCE(preferred_locale_source, '')::text AS source,
-       preferred_locale_updated_at
+const userPreferredLanguage = `-- name: UserPreferredLanguage :one
+SELECT COALESCE(preferred_language, '')::text AS language
 FROM profiles.users
 WHERE id = $1::uuid
 `
 
-type UserPreferredLocaleRow struct {
-	Locale                   string
-	Source                   string
-	PreferredLocaleUpdatedAt *time.Time
-}
-
-func (q *Queries) UserPreferredLocale(ctx context.Context, id string) (UserPreferredLocaleRow, error) {
-	row := q.db.QueryRow(ctx, userPreferredLocale, id)
-	var i UserPreferredLocaleRow
-	err := row.Scan(&i.Locale, &i.Source, &i.PreferredLocaleUpdatedAt)
-	return i, err
+func (q *Queries) UserPreferredLanguage(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, userPreferredLanguage, id)
+	var language string
+	err := row.Scan(&language)
+	return language, err
 }
 
 const userRenameInsert = `-- name: UserRenameInsert :exec
@@ -674,6 +666,20 @@ type UserSetEmailAndUnverifyParams struct {
 
 func (q *Queries) UserSetEmailAndUnverify(ctx context.Context, arg UserSetEmailAndUnverifyParams) error {
 	_, err := q.db.Exec(ctx, userSetEmailAndUnverify, arg.ID, arg.Email)
+	return err
+}
+
+const userSetEmailAndVerified = `-- name: UserSetEmailAndVerified :exec
+UPDATE profiles.users SET email = lower($2::text), email_verified = true, updated_at = NOW() WHERE id = $1
+`
+
+type UserSetEmailAndVerifiedParams struct {
+	ID    string
+	Email string
+}
+
+func (q *Queries) UserSetEmailAndVerified(ctx context.Context, arg UserSetEmailAndVerifiedParams) error {
+	_, err := q.db.Exec(ctx, userSetEmailAndVerified, arg.ID, arg.Email)
 	return err
 }
 
@@ -752,23 +758,20 @@ func (q *Queries) UserSetPhoneVerifiedByIDAndPhone(ctx context.Context, arg User
 	return err
 }
 
-const userSetPreferredLocale = `-- name: UserSetPreferredLocale :exec
+const userSetPreferredLanguage = `-- name: UserSetPreferredLanguage :exec
 UPDATE profiles.users
-SET preferred_locale = $2,
-    preferred_locale_source = $3,
-    preferred_locale_updated_at = now(),
+SET preferred_language = $2,
     updated_at = now()
 WHERE id = $1::uuid
 `
 
-type UserSetPreferredLocaleParams struct {
-	ID                    string
-	PreferredLocale       *string
-	PreferredLocaleSource *string
+type UserSetPreferredLanguageParams struct {
+	ID                string
+	PreferredLanguage *string
 }
 
-func (q *Queries) UserSetPreferredLocale(ctx context.Context, arg UserSetPreferredLocaleParams) error {
-	_, err := q.db.Exec(ctx, userSetPreferredLocale, arg.ID, arg.PreferredLocale, arg.PreferredLocaleSource)
+func (q *Queries) UserSetPreferredLanguage(ctx context.Context, arg UserSetPreferredLanguageParams) error {
+	_, err := q.db.Exec(ctx, userSetPreferredLanguage, arg.ID, arg.PreferredLanguage)
 	return err
 }
 

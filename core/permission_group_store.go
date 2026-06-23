@@ -167,12 +167,18 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 	return out, nil
 }
 
-// AssignRole grants subject a role in a group (idempotent; un-soft-deletes a
-// prior assignment). The role NAME is validated against the type catalog /
-// custom roles by the caller (engine) before assignment.
+// AssignRole grants subject a role in a group, replacing any previous role in
+// that same group. The role NAME is validated against the type catalog / custom
+// roles by the caller before assignment.
 func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID, subjectID, subjectKind, role string) error {
 	_, err := st.q.Exec(ctx,
-		`INSERT INTO profiles.group_role_assignments (group_id, subject_id, subject_kind, role)
+		`WITH replaced AS (
+		   UPDATE profiles.group_role_assignments
+		      SET deleted_at = now(), updated_at = now()
+		    WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3
+		      AND role <> $4 AND deleted_at IS NULL
+		 )
+		 INSERT INTO profiles.group_role_assignments (group_id, subject_id, subject_kind, role)
 		 VALUES ($1::uuid, $2::uuid, $3, $4)
 		 ON CONFLICT (group_id, subject_id, subject_kind, role) WHERE deleted_at IS NULL
 		 DO UPDATE SET updated_at = now()`,
@@ -187,6 +193,16 @@ func (st *PermissionGroupStore) UnassignRole(ctx context.Context, groupID, subje
 		 WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3
 		   AND role = $4 AND deleted_at IS NULL`,
 		groupID, subjectID, subjectKind, role)
+	return err
+}
+
+// UnassignSubject soft-deletes every active role assignment a subject holds in a group.
+func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID, subjectID, subjectKind string) error {
+	_, err := st.q.Exec(ctx,
+		`UPDATE profiles.group_role_assignments SET deleted_at = now(), updated_at = now()
+		 WHERE group_id = $1::uuid AND subject_id = $2::uuid AND subject_kind = $3
+		   AND deleted_at IS NULL`,
+		groupID, subjectID, subjectKind)
 	return err
 }
 

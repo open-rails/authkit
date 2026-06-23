@@ -31,31 +31,32 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	freshness, err := s.svc.RequireFreshSession(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	if err != nil {
-		if errors.Is(err, core.ErrReauthenticationRequired) && body.CurrentPassword != "" {
-			if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
-				if errors.Is(verr, core.ErrPasswordResetRequired) {
-					unauthorized(w, ErrPasswordResetRequired)
-					return
-				}
-				unauthorized(w, ErrInvalidPassword)
-				return
-			}
-			if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-				serverErr(w, ErrReauthFailed)
-				return
-			}
-		} else if errors.Is(err, core.ErrReauthenticationRequired) {
+	var authMeta map[string]any
+	if !SensitiveClaims(claims) {
+		if body.CurrentPassword == "" {
 			s.reauthRequired(w, r, claims)
 			return
-		} else {
-			unauthorized(w, ErrNotAuthenticated)
+		}
+		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
+			if errors.Is(verr, core.ErrPasswordResetRequired) {
+				unauthorized(w, ErrPasswordResetRequired)
+				return
+			}
+			unauthorized(w, ErrInvalidPassword)
 			return
 		}
-	} else if freshness.ReauthRequiredForSensitiveOps {
-		s.reauthRequired(w, r, claims)
-		return
+		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
+			serverErr(w, ErrReauthFailed)
+			return
+		}
+		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
+		var err error
+		authMeta, err = s.freshAccessTokenResponse(r, claims.UserID, claims.SessionID, freshness)
+		if err != nil {
+			serverErr(w, ErrTokenIssueFailed)
+			return
+		}
+		delete(authMeta, "ok")
 	}
 
 	var keep *string
@@ -84,5 +85,9 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	resp := map[string]any{"ok": true}
+	for k, v := range authMeta {
+		resp[k] = v
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

@@ -18,6 +18,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		UserID     string `json:"user_id"`
 		Code       string `json:"code"`
 		Challenge  string `json:"challenge"`
+		FactorID   string `json:"factor_id"`
 		BackupCode bool   `json:"backup_code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -55,6 +56,8 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	var valid bool
 	if req.BackupCode {
 		valid, err = s.svc.VerifyBackupCode(r.Context(), userID, code)
+	} else if strings.TrimSpace(req.FactorID) != "" {
+		valid, err = s.svc.Verify2FAFactorCode(r.Context(), userID, strings.TrimSpace(req.FactorID), code)
 	} else {
 		valid, err = s.svc.Verify2FACode(r.Context(), userID, code)
 	}
@@ -102,5 +105,58 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		"token_type":    "Bearer",
 		"expires_in":    int64(time.Until(exp).Seconds()),
 		"refresh_token": rt,
+	})
+}
+
+func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RL2FAVerify) {
+		return
+	}
+	var req struct {
+		UserID    string `json:"user_id"`
+		Challenge string `json:"challenge"`
+		FactorID  string `json:"factor_id"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	userID := strings.TrimSpace(req.UserID)
+	challenge := strings.TrimSpace(req.Challenge)
+	factorID := strings.TrimSpace(req.FactorID)
+	if userID == "" || challenge == "" || factorID == "" {
+		badRequest(w, ErrMissingFields)
+		return
+	}
+	if s.rateLimitedByIdentifier(w, r, RL2FAVerify, userID) {
+		return
+	}
+	validChallenge, err := s.svc.Verify2FAChallenge(r.Context(), userID, challenge)
+	if err != nil {
+		serverErr(w, ErrChallengeVerifyFailed)
+		return
+	}
+	if !validChallenge {
+		unauthorized(w, ErrInvalidChallenge)
+		return
+	}
+	destination, method, factor, err := s.svc.Require2FAForLoginFactor(r.Context(), userID, factorID)
+	if err != nil {
+		if s.handleDeliveryError(w, r, "2fa_challenge", "send_2fa_code", err) {
+			return
+		}
+		serverErr(w, ErrTwoFASendFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"requires_2fa":    true,
+		"method":          method,
+		"verification_id": obfuscateVerificationID(destination),
+		"factor": twoFactorFactorResponse{
+			ID:          factor.ID,
+			Method:      factor.Method,
+			IsDefault:   factor.IsDefault,
+			PhoneNumber: factor.PhoneNumber,
+		},
 	})
 }

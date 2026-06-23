@@ -80,6 +80,9 @@ type Options struct {
 	APIKeyMaxTTL time.Duration
 	// TOTPSecretKey encrypts persisted authenticator-app shared secrets.
 	TOTPSecretKey []byte
+	// Mandatory2FA requires users with matching permission-group roles to enroll
+	// in 2FA before normal login/refresh sessions are minted.
+	Mandatory2FA []Mandatory2FAPolicy
 	// ResourceScopeAuthorizer optionally authorizes host-defined API-key resource
 	// scopes during HTTP minting. Nil means AuthKit stores valid scopes
 	// opaquely for callers who may manage API keys for the org.
@@ -164,7 +167,11 @@ var (
 	// ErrOrgManagementDisabled indicates a public org onboarding/management path
 	// was attempted while org registration is bootstrap-only. Embedded
 	// bootstrap/admin core APIs remain available.
-	ErrOrgManagementDisabled = errors.New("org_management_disabled")
+	ErrOrgManagementDisabled  = errors.New("org_management_disabled")
+	ErrEmailInUse             = errors.New("email_in_use")
+	ErrPhoneInUse             = errors.New("phone_in_use")
+	ErrEmailSenderUnavailable = errors.New("email_sender_unavailable")
+	ErrSMSSenderUnavailable   = errors.New("sms_unavailable")
 )
 
 const defaultFrontendCallbackPath = "/login/callback"
@@ -337,6 +344,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		APIKeyPrefix:               tokenPrefix,
 		APIKeyMaxTTL:               maxTTL,
 		TOTPSecretKey:              append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),
+		Mandatory2FA:               append([]Mandatory2FAPolicy(nil), cfg.TwoFactor.Mandatory...),
 		Permissions:                cfg.RBAC.Permissions,
 		DefaultRoles:               cfg.RBAC.DefaultRoles,
 		OwnerOwnsAppResources:      cfg.RBAC.OwnerOwnsAppResources,
@@ -352,6 +360,9 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	gs, gerr := BuildSchema(cfg.RBAC.Groups...)
 	if gerr != nil {
 		return nil, fmt.Errorf("permission-group schema: %w", gerr)
+	}
+	if err := validateMandatory2FAPolicies(gs, opts.Mandatory2FA); err != nil {
+		return nil, err
 	}
 	svc.groupSchema = gs
 	return svc, nil
@@ -532,8 +543,16 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 // Extra claims in `extra` are merged into the token body (e.g., sid).
 // Deprecated: use s.Tokens().IssueAccessToken.
 func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (token string, expiresAt time.Time, err error) {
+	return s.issueAccessToken(ctx, userID, email, extra, s.opts.AccessTokenDuration)
+}
+
+func (s *Service) Issue2FAEnrollmentToken(ctx context.Context, userID string) (token string, expiresAt time.Time, err error) {
+	return s.issueAccessToken(ctx, userID, "", map[string]any{"2fa_enrollment": true}, 10*time.Minute)
+}
+
+func (s *Service) issueAccessToken(ctx context.Context, userID, email string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
-	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
+	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
 	// Group/role authority is no longer carried as a token claim: the legacy
 	// `global_roles`/`roles` plane was hard-cut in favor of the permission-group
@@ -578,8 +597,10 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	}
 	if sid, ok := extra["sid"].(string); ok && strings.TrimSpace(sid) != "" && s.pg != nil {
 		if freshness, freshErr := s.SessionFreshness(ctx, userID, sid, time.Now()); freshErr == nil {
-			claims["auth_time"] = freshness.LastAuthenticatedAt.Unix()
-			claims["amr"] = freshness.AuthMethods
+			authTime, amr, acr := freshness.AssuranceClaims()
+			claims["auth_time"] = authTime
+			claims["amr"] = amr
+			claims["acr"] = acr
 		}
 	}
 	for k, v := range extra {
@@ -728,7 +749,7 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 
 	// Send verification message to new phone
 	if s.sms != nil {
-		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, trimmed, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
@@ -809,7 +830,7 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.sms != nil {
-		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, pendingPhone, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
@@ -868,7 +889,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 
 	if s.sms != nil {
 		msg := VerificationMessage{Code: code}
-		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }))
 	}
 	// In production, require SMS to be configured
@@ -1337,7 +1358,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 		return nil
 	}
 
-	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
 	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 		return s.email.SendPasswordResetLink(sendCtx, *u.Email, username, token)
 	}); err != nil {
@@ -1434,7 +1455,7 @@ func (s *Service) RequestEmailVerification(ctx context.Context, email string, tt
 	}
 
 	if pending, err := s.GetPendingRegistrationByEmail(ctx, email); err == nil && pending != nil {
-		_, err := s.CreatePendingRegistrationWithLocale(ctx, email, pending.Username, pending.PasswordHash, ttl, pending.PreferredLocale)
+		_, err := s.CreatePendingRegistrationWithLanguage(ctx, email, pending.Username, pending.PasswordHash, ttl, pending.PreferredLanguage)
 		return err
 	}
 	if s.pg == nil {
@@ -1475,7 +1496,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		return nil
 	}
 	if s.email != nil {
-		sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, *u.Email, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
@@ -1519,27 +1540,27 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, token string) (u
 // Returns token for verification. Allows duplicate pending registrations (last one wins).
 // Deprecated: use s.Users().CreatePendingRegistration.
 func (s *Service) CreatePendingRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration) (string, error) {
-	return s.CreatePendingRegistrationWithLocale(ctx, email, username, passwordHash, ttl, "")
+	return s.CreatePendingRegistrationWithLanguage(ctx, email, username, passwordHash, ttl, "")
 }
 
-// Deprecated: use s.Users().CreatePendingRegistrationWithLocale.
-func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLocale string) (string, error) {
+// Deprecated: use s.Users().CreatePendingRegistrationWithLanguage.
+func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
-	locale, err := NormalizePreferredLocale(preferredLocale)
+	language, err := NormalizePreferredLanguage(preferredLanguage)
 	if err != nil {
 		return "", err
 	}
-	sendCtx := contextWithPreferredLocale(ctx, locale)
+	sendCtx := contextWithPreferredLanguage(ctx, language)
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
 		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
 		if err != nil {
 			return "", err
 		}
-		if locale != "" {
-			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+		if language != "" {
+			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
 				return "", err
 			}
 		}
@@ -1550,8 +1571,8 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 		if err != nil {
 			return "", err
 		}
-		if locale != "" {
-			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+		if language != "" {
+			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
 				return "", err
 			}
 		}
@@ -1592,11 +1613,11 @@ func (s *Service) CreatePendingRegistrationWithLocale(ctx context.Context, email
 
 		if s.useEphemeralStore() {
 			if err := s.storePendingChange(ctx, pendingChange{
-				Kind:            KindRegisterEmail,
-				Target:          email,
-				Username:        username,
-				PasswordHash:    passwordHash,
-				PreferredLocale: locale,
+				Kind:              KindRegisterEmail,
+				Target:            email,
+				Username:          username,
+				PasswordHash:      passwordHash,
+				PreferredLanguage: language,
 			}, map[string]time.Duration{
 				codeHash: ttl,
 				linkHash: defaultEmailVerificationTTL,
@@ -1633,7 +1654,7 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, token string) 
 		return "", jwt.ErrTokenUnverifiable
 	}
 	// The register_email finalizer enforces "first to verify wins", creates the
-	// verified user, and applies locale + personal org; consume deletes the
+	// verified user, and applies language + personal org; consume deletes the
 	// pending record on success.
 	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindRegisterEmail)
 }
@@ -1674,27 +1695,27 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // Returns 6-digit code for verification. Code expires in 10 minutes (shorter than email).
 // Deprecated: use s.Users().CreatePendingPhoneRegistration.
 func (s *Service) CreatePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash string) (string, error) {
-	return s.CreatePendingPhoneRegistrationWithLocale(ctx, phone, username, passwordHash, "")
+	return s.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, username, passwordHash, "")
 }
 
-// Deprecated: use s.Users().CreatePendingPhoneRegistrationWithLocale.
-func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, phone, username, passwordHash, preferredLocale string) (string, error) {
+// Deprecated: use s.Users().CreatePendingPhoneRegistrationWithLanguage.
+func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
 	if !s.opts.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
-	locale, err := NormalizePreferredLocale(preferredLocale)
+	language, err := NormalizePreferredLanguage(preferredLanguage)
 	if err != nil {
 		return "", err
 	}
-	sendCtx := contextWithPreferredLocale(ctx, locale)
+	sendCtx := contextWithPreferredLanguage(ctx, language)
 	switch s.opts.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
 		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
 		if err != nil {
 			return "", err
 		}
-		if locale != "" {
-			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+		if language != "" {
+			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
 				return "", err
 			}
 		}
@@ -1705,8 +1726,8 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 		if err != nil {
 			return "", err
 		}
-		if locale != "" {
-			if err := s.SetPreferredLocale(ctx, userID, locale, "registration"); err != nil {
+		if language != "" {
+			if err := s.SetPreferredLanguage(ctx, userID, language); err != nil {
 				return "", err
 			}
 		}
@@ -1737,11 +1758,11 @@ func (s *Service) CreatePendingPhoneRegistrationWithLocale(ctx context.Context, 
 		linkHash := sha256Hex(linkToken)
 		if s.useEphemeralStore() {
 			if err := s.storePendingChange(ctx, pendingChange{
-				Kind:            KindRegisterPhone,
-				Target:          phone,
-				Username:        username,
-				PasswordHash:    passwordHash,
-				PreferredLocale: locale,
+				Kind:              KindRegisterPhone,
+				Target:            phone,
+				Username:          username,
+				PasswordHash:      passwordHash,
+				PreferredLanguage: language,
 			}, map[string]time.Duration{
 				codeHash: defaultPhoneVerificationTTL,
 				linkHash: defaultPhoneVerificationTTL,
@@ -1794,7 +1815,7 @@ func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, co
 	}
 
 	// The register_phone finalizer enforces "first to verify wins", creates the
-	// verified user, and applies locale; consume deletes on success.
+	// verified user, and applies language; consume deletes on success.
 	return s.consumePendingChangeByToken(ctx, hash, KindRegisterPhone)
 }
 
@@ -1881,7 +1902,7 @@ func (s *Service) RequestPhoneVerification(ctx context.Context, phone string, tt
 	}
 
 	if pending, err := s.GetPendingPhoneRegistrationByPhone(ctx, phone); err == nil && pending != nil {
-		_, err := s.CreatePendingPhoneRegistrationWithLocale(ctx, phone, pending.Username, pending.PasswordHash, pending.PreferredLocale)
+		_, err := s.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, pending.Username, pending.PasswordHash, pending.PreferredLanguage)
 		return err
 	}
 	if s.pg == nil {
@@ -1922,7 +1943,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 
 	// Send SMS
 	if s.sms != nil {
-		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }); err != nil {
 			return smsDeliveryError(err)
 		}
@@ -2017,7 +2038,7 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 		return nil
 	}
 
-	sendCtx := s.contextWithUserPreferredLocale(ctx, u.ID)
+	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
 	if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendPasswordResetLink(sendCtx, phone, token) }); err != nil {
 		return smsDeliveryError(err)
 	}
@@ -2097,85 +2118,65 @@ func userFromByPhoneRow(r db.UserByPhoneRow) *User {
 	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, DiscordUsername: r.DiscordUsername, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
 }
 
-var preferredLocaleRe = regexp.MustCompile(`^[A-Za-z]{2,3}(-([A-Za-z]{2}|[0-9]{3}))?$`)
+var preferredLanguageRe = regexp.MustCompile(`^[A-Za-z]{2}$`)
 
-func NormalizePreferredLocale(locale string) (string, error) {
-	locale = strings.TrimSpace(strings.ReplaceAll(locale, "_", "-"))
-	if locale == "" {
+func NormalizePreferredLanguage(language string) (string, error) {
+	language = strings.TrimSpace(strings.ToLower(language))
+	if language == "" {
 		return "", nil
 	}
-	if !preferredLocaleRe.MatchString(locale) {
-		return "", fmt.Errorf("invalid_preferred_locale")
+	if !preferredLanguageRe.MatchString(language) {
+		return "", fmt.Errorf("invalid_preferred_language")
 	}
-	parts := strings.Split(locale, "-")
-	parts[0] = strings.ToLower(parts[0])
-	if len(parts) == 2 {
-		if len(parts[1]) == 2 {
-			parts[1] = strings.ToUpper(parts[1])
-		}
-	}
-	return strings.Join(parts, "-"), nil
+	return language, nil
 }
 
-func normalizePreferredLocaleSource(source string) string {
-	source = strings.TrimSpace(strings.ToLower(source))
-	switch source {
-	case "registration", "explicit", "migration", "import":
-		return source
-	default:
-		return "explicit"
-	}
+type PreferredLanguage struct {
+	Language string
 }
 
-type PreferredLocale struct {
-	Locale    string
-	Source    string
-	UpdatedAt *time.Time
-}
-
-// Deprecated: use s.Users().SetPreferredLocale.
-func (s *Service) SetPreferredLocale(ctx context.Context, userID, locale, source string) error {
+// Deprecated: use s.Users().SetPreferredLanguage.
+func (s *Service) SetPreferredLanguage(ctx context.Context, userID, language string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
 	userID = strings.TrimSpace(userID)
-	normalized, err := NormalizePreferredLocale(locale)
+	normalized, err := NormalizePreferredLanguage(language)
 	if err != nil {
 		return err
 	}
 	if userID == "" || normalized == "" {
 		return fmt.Errorf("invalid_request")
 	}
-	src := normalizePreferredLocaleSource(source)
-	return s.q.UserSetPreferredLocale(ctx, db.UserSetPreferredLocaleParams{ID: userID, PreferredLocale: &normalized, PreferredLocaleSource: &src})
+	return s.q.UserSetPreferredLanguage(ctx, db.UserSetPreferredLanguageParams{ID: userID, PreferredLanguage: &normalized})
 }
 
-// Deprecated: use s.Users().GetPreferredLocale.
-func (s *Service) GetPreferredLocale(ctx context.Context, userID string) (PreferredLocale, error) {
+// Deprecated: use s.Users().GetPreferredLanguage.
+func (s *Service) GetPreferredLanguage(ctx context.Context, userID string) (PreferredLanguage, error) {
 	if s.pg == nil {
-		return PreferredLocale{}, nil
+		return PreferredLanguage{}, nil
 	}
-	row, err := s.q.UserPreferredLocale(ctx, strings.TrimSpace(userID))
-	return PreferredLocale{Locale: row.Locale, Source: row.Source, UpdatedAt: row.PreferredLocaleUpdatedAt}, err
+	row, err := s.q.UserPreferredLanguage(ctx, strings.TrimSpace(userID))
+	return PreferredLanguage{Language: row}, err
 }
 
-func contextWithPreferredLocale(ctx context.Context, locale string) context.Context {
-	if strings.TrimSpace(locale) == "" {
+func contextWithPreferredLanguage(ctx context.Context, language string) context.Context {
+	if strings.TrimSpace(language) == "" {
 		return ctx
 	}
-	return authlang.WithLanguage(ctx, locale)
+	return authlang.WithLanguage(ctx, language)
 }
 
-func (s *Service) contextWithUserPreferredLocale(ctx context.Context, userID string) context.Context {
+func (s *Service) contextWithUserPreferredLanguage(ctx context.Context, userID string) context.Context {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return ctx
 	}
-	preferred, err := s.GetPreferredLocale(ctx, userID)
-	if err != nil || strings.TrimSpace(preferred.Locale) == "" {
+	preferred, err := s.GetPreferredLanguage(ctx, userID)
+	if err != nil || strings.TrimSpace(preferred.Language) == "" {
 		return ctx
 	}
-	return contextWithPreferredLocale(ctx, preferred.Locale)
+	return contextWithPreferredLanguage(ctx, preferred.Language)
 }
 
 // verificationSendTimeout is the per-send deadline for in-line email/SMS
@@ -2741,7 +2742,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	// Send verification message to NEW email
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	if s.email != nil {
-		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, trimmed, username, msg) }); err != nil {
 			return emailDeliveryError(err)
 		}
@@ -2825,7 +2826,7 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 	msg := VerificationMessage{Code: code, LinkToken: linkToken}
 	// Send new credentials.
 	if s.email != nil {
-		sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 			return s.email.SendVerification(sendCtx, pendingEmail, username, msg)
 		}); err != nil {
@@ -3365,6 +3366,105 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 	return a, nil
 }
 
+type AdminRecoverUserInput struct {
+	Email       string
+	PhoneNumber string
+}
+
+// AdminRecoverUser locks down a compromised account and replaces its primary
+// recovery identifier before sending a password-reset link/code to that new
+// identifier.
+func (s *Service) AdminRecoverUser(ctx context.Context, userID string, input AdminRecoverUserInput) error {
+	if s.pg == nil {
+		return nil
+	}
+	userID = strings.TrimSpace(userID)
+	email := NormalizeEmail(input.Email)
+	phone := NormalizePhone(input.PhoneNumber)
+	if userID == "" || (email == "") == (phone == "") {
+		return fmt.Errorf("invalid_request")
+	}
+	if email != "" {
+		if err := ValidateEmail(email); err != nil {
+			return err
+		}
+		if !s.HasEmailSender() {
+			return ErrEmailSenderUnavailable
+		}
+		existing, err := s.getUserByEmail(ctx, email)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if existing != nil && strings.TrimSpace(existing.ID) != userID {
+			return ErrEmailInUse
+		}
+	} else {
+		if err := ValidatePhone(phone); err != nil {
+			return err
+		}
+		if !s.HasSMSSender() {
+			return ErrSMSSenderUnavailable
+		}
+		existing, err := s.GetUserByPhone(ctx, phone)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if existing != nil && strings.TrimSpace(existing.ID) != userID {
+			return ErrPhoneInUse
+		}
+	}
+
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+	if _, err := qtx.UserByID(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrUserNotFound
+	} else if err != nil {
+		return err
+	}
+
+	sessionIDs, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.opts.Issuer})
+	if err != nil {
+		return err
+	}
+	if err := qtx.UserPasswordDelete(ctx, userID); err != nil {
+		return err
+	}
+	if err := qtx.UserProvidersDeleteByUser(ctx, userID); err != nil {
+		return err
+	}
+	if err := qtx.TwoFactorDelete(ctx, userID); err != nil {
+		return err
+	}
+	if err := qtx.UserClearLoginIdentifiers(ctx, userID); err != nil {
+		return err
+	}
+	if email != "" {
+		if err := qtx.UserSetEmailAndVerified(ctx, db.UserSetEmailAndVerifiedParams{ID: userID, Email: email}); err != nil {
+			return err
+		}
+	} else {
+		verified := true
+		if err := qtx.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: userID, PhoneNumber: &phone, PhoneVerified: &verified}); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	reason := string(SessionRevokeReasonAdminRevokeAll)
+	for _, sessionID := range sessionIDs {
+		s.logSessionRevoked(ctx, userID, sessionID, &reason)
+	}
+	if email != "" {
+		return s.RequestPasswordReset(ctx, email, 0, nil, nil)
+	}
+	return s.RequestPhonePasswordReset(ctx, phone, 0, nil, nil)
+}
+
 // Deprecated: use s.Users().AdminDeleteUser.
 func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 	if s.pg == nil {
@@ -3551,7 +3651,7 @@ func (s *Service) SendWelcome(ctx context.Context, userID string) {
 	if u.Username != nil {
 		username = *u.Username
 	}
-	sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+	sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 	_ = s.email.SendWelcome(sendCtx, *u.Email, username)
 }
 
@@ -3753,10 +3853,10 @@ func (s *Service) getDiscordUsername(ctx context.Context, userID string) (string
 
 // PendingRegistration represents an unverified registration
 type PendingRegistration struct {
-	Email           string
-	Username        string
-	PasswordHash    string
-	PreferredLocale string
+	Email             string
+	Username          string
+	PasswordHash      string
+	PreferredLanguage string
 }
 
 // GetPendingRegistrationByEmail looks up a pending registration by email.
@@ -3770,10 +3870,10 @@ func (s *Service) GetPendingRegistrationByEmail(ctx context.Context, email strin
 		return nil, nil
 	}
 	return &PendingRegistration{
-		Email:           rec.Target,
-		Username:        rec.Username,
-		PasswordHash:    rec.PasswordHash,
-		PreferredLocale: rec.PreferredLocale,
+		Email:             rec.Target,
+		Username:          rec.Username,
+		PasswordHash:      rec.PasswordHash,
+		PreferredLanguage: rec.PreferredLanguage,
 	}, nil
 }
 
@@ -3789,10 +3889,10 @@ func (s *Service) GetPendingPhoneRegistrationByPhone(ctx context.Context, phone 
 		return nil, nil
 	}
 	return &PendingRegistration{
-		Email:           rec.Target,
-		Username:        rec.Username,
-		PasswordHash:    rec.PasswordHash,
-		PreferredLocale: rec.PreferredLocale,
+		Email:             rec.Target,
+		Username:          rec.Username,
+		PasswordHash:      rec.PasswordHash,
+		PreferredLanguage: rec.PreferredLanguage,
 	}, nil
 }
 
@@ -3833,6 +3933,20 @@ type TwoFactorSettings struct {
 	TOTPSecret   []byte
 	LastTOTPStep *int64
 	BackupCodes  []string // Hashed backup codes
+	Factors      []TwoFactorFactor
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type TwoFactorFactor struct {
+	ID           string
+	UserID       string
+	Method       string
+	PhoneNumber  *string
+	TOTPSecret   []byte
+	LastTOTPStep *int64
+	IsDefault    bool
+	Enabled      bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -3841,10 +3955,14 @@ type TwoFactorSettings struct {
 // Returns the plaintext backup codes (caller must show these to user ONCE).
 // Deprecated: use s.TwoFactor().Enable2FA.
 func (s *Service) Enable2FA(ctx context.Context, userID, method string, phoneNumber *string) ([]string, error) {
-	return s.enable2FA(ctx, userID, method, phoneNumber, nil)
+	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, false)
 }
 
-func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte) ([]string, error) {
+func (s *Service) Enable2FADefault(ctx context.Context, userID, method string, phoneNumber *string) ([]string, error) {
+	return s.enable2FA(ctx, userID, method, phoneNumber, nil, nil, true)
+}
+
+func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNumber *string, totpSecret []byte, lastTOTPStep *int64, makeDefault bool) ([]string, error) {
 	if s.pg == nil {
 		return nil, fmt.Errorf("postgres not configured")
 	}
@@ -3860,20 +3978,66 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 		return nil, fmt.Errorf("totp secret required for TOTP 2FA")
 	}
 
-	// Generate 10 backup codes (8-character alphanumeric)
-	plaintextCodes := make([]string, 10)
-	hashedCodes := make([]string, 10)
-	for i := 0; i < 10; i++ {
-		code := randAlphanumericUppercase(8) // Generate 8-char code
-		plaintextCodes[i] = code
-		hashedCodes[i] = sha256Hex(code)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+
+	var currentBackupCodes []string
+	if settings, err := qtx.TwoFactorSettingsByUser(ctx, userID); err == nil && settings.Enabled {
+		currentBackupCodes = settings.BackupCodes
 	}
 
-	// Insert or update 2FA settings
-	if err := s.q.TwoFactorEnable(ctx, db.TwoFactorEnableParams{UserID: userID, Method: method, PhoneNumber: phoneNumber, BackupCodes: hashedCodes, TotpSecret: totpSecret}); err != nil {
+	factors, err := qtx.TwoFactorListFactorsByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	firstFactor := len(factors) == 0
+	makeDefault = makeDefault || firstFactor
+
+	plaintextCodes := []string(nil)
+	if len(currentBackupCodes) == 0 {
+		plaintextCodes, currentBackupCodes = generateBackupCodes()
+	}
+
+	if makeDefault {
+		if err := qtx.TwoFactorClearDefaultFactors(ctx, userID); err != nil {
+			return nil, err
+		}
+	}
+	factor, err := qtx.TwoFactorUpsertFactor(ctx, db.TwoFactorUpsertFactorParams{
+		UserID:       userID,
+		Method:       method,
+		PhoneNumber:  phoneNumber,
+		TotpSecret:   totpSecret,
+		LastTotpStep: lastTOTPStep,
+		IsDefault:    makeDefault,
+	})
+	if err != nil {
 		return nil, err
 	}
 
+	defaultFactor := twoFactorFactorFromFields(factor.ID, factor.UserID, factor.Method, factor.PhoneNumber, factor.TotpSecret, factor.LastTotpStep, factor.IsDefault, factor.Enabled, factor.CreatedAt, factor.UpdatedAt)
+	if !makeDefault {
+		if row, err := qtx.TwoFactorDefaultFactorByUser(ctx, userID); err == nil {
+			defaultFactor = twoFactorFactorFromFields(row.ID, row.UserID, row.Method, row.PhoneNumber, row.TotpSecret, row.LastTotpStep, row.IsDefault, row.Enabled, row.CreatedAt, row.UpdatedAt)
+		}
+	}
+	if err := qtx.TwoFactorUpsertSettings(ctx, db.TwoFactorUpsertSettingsParams{
+		UserID:       userID,
+		Method:       defaultFactor.Method,
+		PhoneNumber:  defaultFactor.PhoneNumber,
+		BackupCodes:  currentBackupCodes,
+		TotpSecret:   defaultFactor.TOTPSecret,
+		LastTotpStep: defaultFactor.LastTOTPStep,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
 	return plaintextCodes, nil
 }
 
@@ -3884,7 +4048,122 @@ func (s *Service) Disable2FA(ctx context.Context, userID string) error {
 		return fmt.Errorf("postgres not configured")
 	}
 
-	return s.q.TwoFactorDisable(ctx, userID)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+	if err := qtx.TwoFactorDisableAllFactors(ctx, userID); err != nil {
+		return err
+	}
+	if err := qtx.TwoFactorDisable(ctx, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) Disable2FAFactor(ctx context.Context, userID, factorID string) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	if strings.TrimSpace(factorID) == "" {
+		return fmt.Errorf("factor id required")
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+	rows, err := qtx.TwoFactorDisableFactor(ctx, db.TwoFactorDisableFactorParams{UserID: userID, ID: factorID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return pgx.ErrNoRows
+	}
+	factors, err := qtx.TwoFactorListFactorsByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if len(factors) == 0 {
+		if err := qtx.TwoFactorDisable(ctx, userID); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	defaultFactor := factors[0]
+	hasDefault := false
+	for _, f := range factors {
+		if f.IsDefault {
+			defaultFactor = f
+			hasDefault = true
+			break
+		}
+	}
+	if !hasDefault {
+		if _, err := qtx.TwoFactorSetDefaultFactor(ctx, db.TwoFactorSetDefaultFactorParams{UserID: userID, ID: defaultFactor.ID}); err != nil {
+			return err
+		}
+	}
+	if err := qtx.TwoFactorUpsertSettings(ctx, db.TwoFactorUpsertSettingsParams{
+		UserID:       userID,
+		Method:       defaultFactor.Method,
+		PhoneNumber:  defaultFactor.PhoneNumber,
+		BackupCodes:  mustBackupCodes(ctx, qtx, userID),
+		TotpSecret:   defaultFactor.TotpSecret,
+		LastTotpStep: defaultFactor.LastTotpStep,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) SetDefault2FAFactor(ctx context.Context, userID, factorID string) error {
+	if s.pg == nil {
+		return fmt.Errorf("postgres not configured")
+	}
+	if strings.TrimSpace(factorID) == "" {
+		return fmt.Errorf("factor id required")
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+	factors, err := qtx.TwoFactorListFactorsByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	var selected *db.ProfilesTwoFactorFactor
+	for i := range factors {
+		if factors[i].ID == factorID {
+			selected = &factors[i]
+			break
+		}
+	}
+	if selected == nil {
+		return pgx.ErrNoRows
+	}
+	if err := qtx.TwoFactorClearDefaultFactors(ctx, userID); err != nil {
+		return err
+	}
+	if _, err := qtx.TwoFactorSetDefaultFactor(ctx, db.TwoFactorSetDefaultFactorParams{UserID: userID, ID: factorID}); err != nil {
+		return err
+	}
+	if err := qtx.TwoFactorUpsertSettings(ctx, db.TwoFactorUpsertSettingsParams{
+		UserID:       userID,
+		Method:       selected.Method,
+		PhoneNumber:  selected.PhoneNumber,
+		BackupCodes:  mustBackupCodes(ctx, qtx, userID),
+		TotpSecret:   selected.TotpSecret,
+		LastTotpStep: selected.LastTotpStep,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Get2FASettings retrieves a user's 2FA settings
@@ -3898,7 +4177,7 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 	if err != nil {
 		return nil, err
 	}
-	return &TwoFactorSettings{
+	settings := &TwoFactorSettings{
 		UserID:       row.UserID,
 		Enabled:      row.Enabled,
 		Method:       row.Method,
@@ -3908,7 +4187,49 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 		BackupCodes:  row.BackupCodes,
 		CreatedAt:    row.CreatedAt,
 		UpdatedAt:    row.UpdatedAt,
-	}, nil
+	}
+	factors, err := s.List2FAFactors(ctx, userID)
+	if err == nil {
+		settings.Factors = factors
+		for _, factor := range factors {
+			if factor.IsDefault {
+				settings.Method = factor.Method
+				settings.PhoneNumber = factor.PhoneNumber
+				settings.TOTPSecret = factor.TOTPSecret
+				settings.LastTOTPStep = factor.LastTOTPStep
+				break
+			}
+		}
+	}
+	if len(settings.Factors) == 0 && settings.Enabled {
+		settings.Factors = []TwoFactorFactor{{
+			UserID:       settings.UserID,
+			Method:       settings.Method,
+			PhoneNumber:  settings.PhoneNumber,
+			TOTPSecret:   settings.TOTPSecret,
+			LastTOTPStep: settings.LastTOTPStep,
+			IsDefault:    true,
+			Enabled:      true,
+			CreatedAt:    settings.CreatedAt,
+			UpdatedAt:    settings.UpdatedAt,
+		}}
+	}
+	return settings, nil
+}
+
+func (s *Service) List2FAFactors(ctx context.Context, userID string) ([]TwoFactorFactor, error) {
+	if s.pg == nil {
+		return nil, fmt.Errorf("postgres not configured")
+	}
+	rows, err := s.q.TwoFactorListFactorsByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TwoFactorFactor, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, twoFactorFactorFromFields(row.ID, row.UserID, row.Method, row.PhoneNumber, row.TotpSecret, row.LastTotpStep, row.IsDefault, row.Enabled, row.CreatedAt, row.UpdatedAt))
+	}
+	return out, nil
 }
 
 // Require2FAForLogin sends a 2FA code to the user's configured method.
@@ -3916,60 +4237,66 @@ func (s *Service) Get2FASettings(ctx context.Context, userID string) (*TwoFactor
 // This should be called after successful password verification.
 // Deprecated: use s.TwoFactor().Require2FAForLogin.
 func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string, error) {
-	// Get user's 2FA settings
-	settings, err := s.Get2FASettings(ctx, userID)
+	destination, _, _, err := s.Require2FAForLoginFactor(ctx, userID, "")
+	return destination, err
+}
+
+func (s *Service) Require2FAForLoginFactor(ctx context.Context, userID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
+	factor, err = s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
+		return "", "", TwoFactorFactor{}, err
+	}
+	destination, err = s.send2FACodeForFactor(ctx, userID, "", factor)
+	return destination, factor.Method, factor, err
+}
+
+func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID string, factor TwoFactorFactor) (string, error) {
+	if !factor.Enabled {
 		return "", fmt.Errorf("2FA not enabled")
 	}
-	if !settings.Enabled {
-		return "", fmt.Errorf("2FA not enabled")
-	}
-	if settings.Method == "totp" {
+	if factor.Method == "totp" {
 		return "authenticator app", nil
 	}
-
-	// Get user info for email/username
 	user, err := s.AdminGetUser(ctx, userID)
 	if err != nil {
 		return "", err
 	}
 
-	// Generate 6-digit numeric code
 	code := randAlphanumeric(6)
 	hash := sha256Hex(code)
 
-	// Determine destination
 	var destination string
-	if settings.Method == "email" {
+	if factor.Method == "email" {
 		if user.Email == nil {
 			return "", fmt.Errorf("no email address configured")
 		}
 		destination = *user.Email
 	} else { // sms
-		if settings.PhoneNumber == nil {
+		if factor.PhoneNumber == nil {
 			return "", fmt.Errorf("no phone number configured for SMS 2FA")
 		}
-		destination = *settings.PhoneNumber
+		destination = *factor.PhoneNumber
 	}
 
-	exp := time.Now().Add(10 * time.Minute) // 10 minute expiration for 2FA codes
-	if s.useEphemeralStore() {
-		if err := s.storeTwoFactorCode(ctx, userID, hash, settings.Method, destination, time.Until(exp)); err != nil {
-			return "", err
-		}
-	} else {
+	if !s.useEphemeralStore() {
 		return "", fmt.Errorf("ephemeral store not configured")
 	}
+	if strings.TrimSpace(sessionID) == "" {
+		if err := s.storeTwoFactorCode(ctx, userID, hash, factor.Method, destination, 10*time.Minute); err != nil {
+			return "", err
+		}
+	} else if err := s.storeTwoFactorReauthCode(ctx, userID, sessionID, hash, factor.Method, destination, 10*time.Minute); err != nil {
+		return "", err
+	}
 
-	// Send the code
 	username := ""
 	if user.Username != nil {
 		username = *user.Username
 	}
 
-	if settings.Method == "email" {
+	if factor.Method == "email" {
 		if s.email != nil {
-			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
 				return s.email.SendLoginCode(sendCtx, destination, username, code)
 			}); err != nil {
@@ -3983,7 +4310,7 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 		}
 	} else { // sms
 		if s.sms != nil {
-			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
+			sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
 			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendLoginCode(sendCtx, destination, code) }); err != nil {
 				return "", smsDeliveryError(err)
 			}
@@ -3994,96 +4321,42 @@ func (s *Service) Require2FAForLogin(ctx context.Context, userID string) (string
 			}
 		}
 	}
-
 	return destination, nil
 }
 
 // Require2FAForReauth sends a 2FA code for authenticated step-up reauth.
 func (s *Service) Require2FAForReauth(ctx context.Context, userID, sessionID string) (destination, method string, err error) {
-	settings, err := s.Get2FASettings(ctx, userID)
-	if err != nil || !settings.Enabled {
-		return "", "", fmt.Errorf("2FA not enabled")
-	}
+	destination, method, _, err = s.Require2FAForReauthFactor(ctx, userID, sessionID, "")
+	return destination, method, err
+}
+
+func (s *Service) Require2FAForReauthFactor(ctx context.Context, userID, sessionID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
 	if strings.TrimSpace(sessionID) == "" {
-		return "", "", jwt.ErrTokenInvalidClaims
+		return "", "", TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
 	}
-	if settings.Method == "totp" {
-		return "authenticator app", "totp", nil
-	}
-
-	user, err := s.AdminGetUser(ctx, userID)
+	factor, err = s.twoFactorFactor(ctx, userID, factorID)
 	if err != nil {
-		return "", "", err
+		return "", "", TwoFactorFactor{}, err
 	}
-
-	code := randAlphanumeric(6)
-	hash := sha256Hex(code)
-
-	switch settings.Method {
-	case "email":
-		if user.Email == nil {
-			return "", "", fmt.Errorf("no email address configured")
-		}
-		destination = *user.Email
-	case "sms":
-		if settings.PhoneNumber == nil {
-			return "", "", fmt.Errorf("no phone number configured for SMS 2FA")
-		}
-		destination = *settings.PhoneNumber
-	default:
-		return "", "", fmt.Errorf("unsupported 2FA method")
-	}
-
-	if !s.useEphemeralStore() {
-		return "", "", fmt.Errorf("ephemeral store not configured")
-	}
-	if err := s.storeTwoFactorReauthCode(ctx, userID, sessionID, hash, settings.Method, destination, 10*time.Minute); err != nil {
-		return "", "", err
-	}
-
-	username := ""
-	if user.Username != nil {
-		username = *user.Username
-	}
-
-	if settings.Method == "email" {
-		if s.email != nil {
-			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-				return s.email.SendLoginCode(sendCtx, destination, username, code)
-			}); err != nil {
-				return "", "", emailDeliveryError(err)
-			}
-		} else if !s.isDevEnvironment() {
-			return "", "", fmt.Errorf("email 2FA unavailable: email sender not configured (email 2FA requires email in production)")
-		}
-	} else {
-		if s.sms != nil {
-			sendCtx := s.contextWithUserPreferredLocale(ctx, userID)
-			if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-				return s.sms.SendLoginCode(sendCtx, destination, code)
-			}); err != nil {
-				return "", "", smsDeliveryError(err)
-			}
-		} else if !s.isDevEnvironment() {
-			return "", "", fmt.Errorf("SMS 2FA unavailable: SMS sender not configured (SMS 2FA requires delivery in production)")
-		}
-	}
-
-	return destination, settings.Method, nil
+	destination, err = s.send2FACodeForFactor(ctx, userID, sessionID, factor)
+	return destination, factor.Method, factor, err
 }
 
 // Verify2FAReauthCode verifies a session-scoped 2FA reauth code.
 func (s *Service) Verify2FAReauthCode(ctx context.Context, userID, sessionID, code string) (bool, error) {
+	return s.Verify2FAReauthFactorCode(ctx, userID, sessionID, "", code)
+}
+
+func (s *Service) Verify2FAReauthFactorCode(ctx context.Context, userID, sessionID, factorID, code string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return false, jwt.ErrTokenInvalidClaims
 	}
-	settings, err := s.Get2FASettings(ctx, userID)
-	if err != nil || !settings.Enabled {
-		return false, fmt.Errorf("2FA not enabled")
+	factor, err := s.twoFactorFactor(ctx, userID, factorID)
+	if err != nil {
+		return false, err
 	}
-	if settings.Method == "totp" {
-		return s.Verify2FACode(ctx, userID, code)
+	if factor.Method == "totp" {
+		return s.verifyTOTPFactorCode(ctx, factor, code)
 	}
 	if !s.useEphemeralStore() {
 		return false, fmt.Errorf("ephemeral store not configured")
@@ -4134,18 +4407,16 @@ func (s *Service) Clear2FAChallenge(ctx context.Context, userID string) error {
 // Returns true if code is valid, false otherwise.
 // Deprecated: use s.TwoFactor().Verify2FACode.
 func (s *Service) Verify2FACode(ctx context.Context, userID, code string) (bool, error) {
-	settings, err := s.Get2FASettings(ctx, userID)
-	if err == nil && settings.Enabled && settings.Method == "totp" {
-		secret, err := s.decryptTOTPSecret(settings.TOTPSecret)
-		if err != nil {
-			return false, err
-		}
-		step, ok, err := matchingTOTPStep(secret, code, time.Now())
-		if err != nil || !ok {
-			return false, err
-		}
-		rows, err := s.q.TwoFactorConsumeTOTPStep(ctx, db.TwoFactorConsumeTOTPStepParams{UserID: userID, Step: &step})
-		return rows > 0, err
+	return s.Verify2FAFactorCode(ctx, userID, "", code)
+}
+
+func (s *Service) Verify2FAFactorCode(ctx context.Context, userID, factorID, code string) (bool, error) {
+	factor, err := s.twoFactorFactor(ctx, userID, factorID)
+	if err != nil {
+		return false, err
+	}
+	if factor.Method == "totp" {
+		return s.verifyTOTPFactorCode(ctx, factor, code)
 	}
 
 	hash := sha256Hex(code)
@@ -4154,6 +4425,23 @@ func (s *Service) Verify2FACode(ctx context.Context, userID, code string) (bool,
 		return s.consumeTwoFactorCode(ctx, userID, hash)
 	}
 	return false, fmt.Errorf("ephemeral store not configured")
+}
+
+func (s *Service) verifyTOTPFactorCode(ctx context.Context, factor TwoFactorFactor, code string) (bool, error) {
+	secret, err := s.decryptTOTPSecret(factor.TOTPSecret)
+	if err != nil {
+		return false, err
+	}
+	step, ok, err := matchingTOTPStep(secret, code, time.Now())
+	if err != nil || !ok {
+		return false, err
+	}
+	if strings.TrimSpace(factor.ID) != "" {
+		rows, err := s.q.TwoFactorConsumeFactorTOTPStep(ctx, db.TwoFactorConsumeFactorTOTPStepParams{ID: factor.ID, UserID: factor.UserID, Step: &step})
+		return rows > 0, err
+	}
+	rows, err := s.q.TwoFactorConsumeTOTPStep(ctx, db.TwoFactorConsumeTOTPStepParams{UserID: factor.UserID, Step: &step})
+	return rows > 0, err
 }
 
 // VerifyBackupCode verifies a 2FA backup code for account recovery.
@@ -4227,6 +4515,71 @@ func (s *Service) RegenerateBackupCodes(ctx context.Context, userID string) ([]s
 	}
 
 	return plaintextCodes, nil
+}
+
+func (s *Service) twoFactorFactor(ctx context.Context, userID, factorID string) (TwoFactorFactor, error) {
+	if s.pg == nil {
+		return TwoFactorFactor{}, fmt.Errorf("postgres not configured")
+	}
+	factors, err := s.List2FAFactors(ctx, userID)
+	if err != nil {
+		return TwoFactorFactor{}, err
+	}
+	if len(factors) == 0 {
+		settings, err := s.Get2FASettings(ctx, userID)
+		if err != nil || !settings.Enabled || len(settings.Factors) == 0 {
+			return TwoFactorFactor{}, fmt.Errorf("2FA not enabled")
+		}
+		factors = settings.Factors
+	}
+	if strings.TrimSpace(factorID) != "" {
+		for _, factor := range factors {
+			if factor.ID == factorID {
+				return factor, nil
+			}
+		}
+		return TwoFactorFactor{}, pgx.ErrNoRows
+	}
+	for _, factor := range factors {
+		if factor.IsDefault {
+			return factor, nil
+		}
+	}
+	return factors[0], nil
+}
+
+func twoFactorFactorFromFields(id, userID, method string, phone *string, secret []byte, step *int64, isDefault, enabled bool, createdAt, updatedAt time.Time) TwoFactorFactor {
+	return TwoFactorFactor{
+		ID:           id,
+		UserID:       userID,
+		Method:       method,
+		PhoneNumber:  phone,
+		TOTPSecret:   secret,
+		LastTOTPStep: step,
+		IsDefault:    isDefault,
+		Enabled:      enabled,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
+	}
+}
+
+func generateBackupCodes() (plaintextCodes, hashedCodes []string) {
+	plaintextCodes = make([]string, 10)
+	hashedCodes = make([]string, 10)
+	for i := 0; i < 10; i++ {
+		code := randAlphanumericUppercase(8)
+		plaintextCodes[i] = code
+		hashedCodes[i] = sha256Hex(code)
+	}
+	return plaintextCodes, hashedCodes
+}
+
+func mustBackupCodes(ctx context.Context, q *db.Queries, userID string) []string {
+	row, err := q.TwoFactorSettingsByUser(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	return row.BackupCodes
 }
 
 // randAlphanumericUppercase generates a random uppercase alphanumeric string (A-Z, 0-9)

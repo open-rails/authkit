@@ -32,6 +32,17 @@ func newServerTestPool(t *testing.T) *pgxpool.Pool {
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	conn, err := pool.Acquire(context.Background())
+	require.NoError(t, err)
+	_, err = conn.Exec(context.Background(), `SELECT pg_advisory_lock(638476116)`)
+	if err != nil {
+		conn.Release()
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(638476116)`)
+		conn.Release()
+	})
 	return pool
 }
 

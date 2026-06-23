@@ -47,21 +47,15 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 	})
 }
 
-// groupMemberRemove revokes ALL of a user's roles in the group. Because the
-// public Service API revokes per-role, "remove a member" decomposes into
-// unassigning each catalog role the schema defines for the type; the membership
-// is gone once none remain. Idempotent (unassigning an absent role is a no-op).
+// groupMemberRemove revokes the user's role in the group.
 func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, persona, resourceID, userID string) {
 	if userID == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	roles, _ := s.svc.PermissionGroupSchema().Roles(persona)
-	for _, rd := range roles {
-		if err := s.svc.UnassignGroupRole(r.Context(), persona, resourceID, userID, core.SubjectKindUser, rd.Name); err != nil {
-			s.writeGroupOpError(w, err)
-			return
-		}
+	if err := s.svc.RemoveGroupSubject(r.Context(), persona, resourceID, userID, core.SubjectKindUser); err != nil {
+		s.writeGroupOpError(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":          true,
@@ -71,20 +65,13 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, pers
 	})
 }
 
-// groupMemberRole assigns (PUT) or unassigns (DELETE) a single role for a user in
-// the group. assign==true => AssignGroupRole, false => UnassignGroupRole.
-func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, persona, resourceID, userID, role string, assign bool) {
+// groupMemberRole assigns or replaces the user's single role in the group.
+func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, persona, resourceID, userID, role string) {
 	if userID == "" || role == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	var err error
-	if assign {
-		err = s.svc.AssignGroupRole(r.Context(), persona, resourceID, userID, core.SubjectKindUser, role)
-	} else {
-		err = s.svc.UnassignGroupRole(r.Context(), persona, resourceID, userID, core.SubjectKindUser, role)
-	}
-	if err != nil {
+	if err := s.svc.AssignGroupRole(r.Context(), persona, resourceID, userID, core.SubjectKindUser, role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}

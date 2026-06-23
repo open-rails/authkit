@@ -174,6 +174,16 @@ func (s *Service) UnassignGroupRole(ctx context.Context, groupType, resourceRef,
 	return st.UnassignRole(ctx, gid, subjectID, subjectKind, role)
 }
 
+// RemoveGroupSubject revokes every role a subject holds in a group.
+func (s *Service) RemoveGroupSubject(ctx context.Context, groupType, resourceRef, subjectID, subjectKind string) error {
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, groupType, resourceRef)
+	if err != nil {
+		return err
+	}
+	return st.UnassignSubject(ctx, gid, subjectID, subjectKind)
+}
+
 // Can is the Service-level authorization check: resolve the group addressed by
 // (groupType, resourceRef), then test perm coverage via the additive walk-up.
 // The caller constructs perm per the two-persona rule (LT:RT:action).

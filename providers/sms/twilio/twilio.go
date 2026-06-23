@@ -156,18 +156,18 @@ func (s *Sender) appLabel() string {
 }
 
 func contextLanguage(ctx context.Context) string {
-	locale, ok := authlang.LanguageFromContext(ctx)
+	language, ok := authlang.LanguageFromContext(ctx)
 	if !ok {
 		return "en"
 	}
-	locale = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(locale, "_", "-")))
-	if locale == "" {
+	language = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(language, "_", "-")))
+	if language == "" {
 		return "en"
 	}
-	if i := strings.Index(locale, "-"); i > 0 {
-		locale = locale[:i]
+	if i := strings.Index(language, "-"); i > 0 {
+		language = language[:i]
 	}
-	switch locale {
+	switch language {
 	case "es":
 		return "es"
 	default:

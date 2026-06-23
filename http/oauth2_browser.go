@@ -341,7 +341,13 @@ func (s *Service) completeOAuthReauth(w http.ResponseWriter, r *http.Request, sd
 	}
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
 		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.ReauthUserID, sd.ReauthSessionID, time.Now())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "fresh_auth": sessionFreshnessResponse(freshness), "provider": cfg.Name})
+		body, err := s.freshAccessTokenResponse(r, sd.ReauthUserID, sd.ReauthSessionID, freshness)
+		if err != nil {
+			redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+			return true
+		}
+		body["provider"] = cfg.Name
+		writeJSON(w, http.StatusOK, body)
 		return true
 	}
 	redirectReauthResult(w, r, sd.ReauthReturnTo, "success")

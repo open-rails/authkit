@@ -45,6 +45,12 @@ func writeErr(w http.ResponseWriter, status int, code string) {
 	_ = json.NewEncoder(w).Encode(authbase.NewErrorEnvelope(status, code, nil, nil))
 }
 
+func writeErrData(w http.ResponseWriter, status int, code string, data map[string]any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(authbase.NewErrorEnvelope(status, code, nil, data))
+}
+
 func unauthorized(w http.ResponseWriter, code string) { writeErr(w, http.StatusUnauthorized, code) }
 func forbidden(w http.ResponseWriter, code string)    { writeErr(w, http.StatusForbidden, code) }
 

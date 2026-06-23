@@ -64,7 +64,7 @@ func DefaultExchanger(ctx context.Context, rpClient rp.RelyingParty, provider, c
 	if idt.PreferredUsername != "" {
 		pu = &idt.PreferredUsername
 	}
-	return Claims{Subject: sub, Email: strptr(email), EmailVerified: boolptr(ev), Name: strptr(name), PreferredUsername: pu, RawIDToken: rawIDToken}, nil
+	return Claims{Subject: sub, Email: strptr(email), EmailVerified: boolptr(ev), Name: strptr(name), PreferredUsername: pu, AuthTime: idt.GetAuthTime(), RawIDToken: rawIDToken}, nil
 }
 
 func strptr(s string) *string {

@@ -225,7 +225,7 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 	require.JSONEq(t, `{"ok":true}`, w.Body.String())
 }
 
-func TestAPIHandler_RegisterSeedsPreferredLocaleAndResendPreservesIt(t *testing.T) {
+func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testing.T) {
 	sender := &recordingEmailSender{}
 	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(sender))
 	// WithLanguageConfig is an HTTP-level field (#108 removed the chainable

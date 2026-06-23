@@ -60,9 +60,7 @@ CREATE TABLE IF NOT EXISTS profiles.users (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   last_login timestamptz,
-  preferred_locale text,
-  preferred_locale_source text,
-  preferred_locale_updated_at timestamptz
+  preferred_language text
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_uidx ON profiles.users (email) WHERE email IS NOT NULL;
 COMMENT ON COLUMN profiles.users.phone_number IS 'E.164 format phone number (e.g., +14155551234)';
@@ -72,9 +70,7 @@ COMMENT ON COLUMN profiles.users.banned_until IS 'When a temporary ban expires (
 COMMENT ON COLUMN profiles.users.ban_reason IS 'Reason for ban';
 COMMENT ON COLUMN profiles.users.banned_by IS 'User ID of admin who imposed ban';
 COMMENT ON COLUMN profiles.users.metadata IS 'Arbitrary user metadata (internal/admin flags such as reserved)';
-COMMENT ON COLUMN profiles.users.preferred_locale IS 'User communication/auth locale, e.g. en, es, de, ko, zh-CN';
-COMMENT ON COLUMN profiles.users.preferred_locale_source IS 'Source of preferred_locale, e.g. registration or explicit';
-COMMENT ON COLUMN profiles.users.preferred_locale_updated_at IS 'When preferred_locale was last set';
+COMMENT ON COLUMN profiles.users.preferred_language IS 'User communication/auth language, e.g. en, es, de, ko, zh';
 
 CREATE TABLE IF NOT EXISTS profiles.user_passwords (
   user_id uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,

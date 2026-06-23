@@ -23,21 +23,17 @@ type userMeResponse struct {
 	PhoneVerified                     bool                      `json:"phone_verified"`
 	HasPassword                       bool                      `json:"has_password"`
 	Roles                             *[]string                 `json:"roles,omitempty"`
-	Orgs                              *[]orgMembership          `json:"orgs,omitempty"`
 	Entitlements                      []string                  `json:"entitlements"`
 	Biography                         *string                   `json:"biography,omitempty"`
-	PreferredLocale                   *string                   `json:"preferred_locale,omitempty"`
-	PreferredLocaleSource             *string                   `json:"preferred_locale_source,omitempty"`
-	PreferredLocaleUpdatedAt          *string                   `json:"preferred_locale_updated_at,omitempty"`
+	UserAliases                       []string                  `json:"user_aliases,omitempty"`
+	PreferredLanguage                 *string                   `json:"preferred_language,omitempty"`
 	CreatedAt                         *string                   `json:"created_at,omitempty"`
 	LastAuthenticatedAt               *string                   `json:"last_authenticated_at,omitempty"`
 	TimeUntilReauthRequired           *int64                    `json:"time_until_reauth_required,omitempty"`
 	ReauthRequiredForSensitiveActions *bool                     `json:"reauth_required_for_sensitive_actions,omitempty"`
-}
-
-type orgMembership struct {
-	Org   string   `json:"org"`
-	Roles []string `json:"roles"`
+	Mandatory2FARequired              bool                      `json:"mandatory_2fa_required"`
+	Mandatory2FASatisfied             bool                      `json:"mandatory_2fa_satisfied"`
+	Mandatory2FAAllowedMethods        []string                  `json:"mandatory_2fa_allowed_methods,omitempty"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -67,19 +63,12 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, ErrUsernameMissing)
 		return
 	}
-	var preferredLocale *string
-	var preferredLocaleSource *string
-	var preferredLocaleUpdatedAt *string
-	if preferred, err := s.svc.GetPreferredLocale(r.Context(), adminUser.ID); err == nil {
-		if strings.TrimSpace(preferred.Locale) != "" {
-			locale := preferred.Locale
-			preferredLocale = &locale
+	var preferredLanguage *string
+	if preferred, err := s.svc.GetPreferredLanguage(r.Context(), adminUser.ID); err == nil {
+		if strings.TrimSpace(preferred.Language) != "" {
+			language := preferred.Language
+			preferredLanguage = &language
 		}
-		if strings.TrimSpace(preferred.Source) != "" {
-			source := preferred.Source
-			preferredLocaleSource = &source
-		}
-		preferredLocaleUpdatedAt = formatOptionalTime(preferred.UpdatedAt)
 	}
 
 	hasPassword := s.svc.HasPassword(r.Context(), adminUser.ID)
@@ -96,12 +85,22 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 	// TODO - Move to service layer. This is currently the only place we need to know about linked providers, but if we add more endpoints that surface this info, it may make sense to return it from the service directly instead of doing a separate DB query here.
 	linkedProviders := []string{}
+	userAliases := []string{}
 	if pg := s.svc.Postgres(); pg != nil {
-		if providers, err := db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderSlugs(r.Context(), adminUser.ID); err == nil {
+		queries := db.New(db.ForSchema(pg, s.svc.Schema()))
+		if providers, err := queries.UserProviderSlugs(r.Context(), adminUser.ID); err == nil {
 			for _, provider := range providers {
 				provider = strings.TrimSpace(provider)
 				if provider != "" {
 					linkedProviders = append(linkedProviders, provider)
+				}
+			}
+		}
+		if aliases, err := queries.UserSlugAliases(r.Context(), adminUser.ID); err == nil {
+			for _, alias := range aliases {
+				alias = strings.TrimSpace(alias)
+				if alias != "" {
+					userAliases = append(userAliases, alias)
 				}
 			}
 		}
@@ -127,15 +126,22 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	var lastAuthenticatedAt *string
 	var timeUntilReauthRequired *int64
 	var reauthRequiredForSensitiveActions *bool
-	if strings.TrimSpace(claims.SessionID) != "" {
-		if freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now()); err == nil {
-			formatted := freshness.LastAuthenticatedAt.UTC().Format(time.RFC3339)
-			lastAuthenticatedAt = &formatted
-			seconds := int64((freshness.TimeUntilReauthRequired + time.Second - time.Nanosecond) / time.Second)
-			timeUntilReauthRequired = &seconds
-			required := freshness.ReauthRequiredForSensitiveOps
-			reauthRequiredForSensitiveActions = &required
+	if !claims.AuthTime.IsZero() {
+		formatted := claims.AuthTime.UTC().Format(time.RFC3339)
+		lastAuthenticatedAt = &formatted
+		remaining := core.SensitiveActionFreshAuthWindow - time.Since(claims.AuthTime)
+		if remaining < 0 {
+			remaining = 0
 		}
+		seconds := int64((remaining + time.Second - time.Nanosecond) / time.Second)
+		timeUntilReauthRequired = &seconds
+	}
+	required := !SensitiveClaims(claims)
+	reauthRequiredForSensitiveActions = &required
+	mandatory2FA, err := s.svc.Mandatory2FAStatus(r.Context(), claims.UserID)
+	if err != nil {
+		serverErr(w, ErrDatabaseError)
+		return
 	}
 
 	resp := userMeResponse{
@@ -154,13 +160,15 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		Roles:                             rolesPtr,
 		Entitlements:                      adminUser.Entitlements,
 		Biography:                         adminUser.Biography,
-		PreferredLocale:                   preferredLocale,
-		PreferredLocaleSource:             preferredLocaleSource,
-		PreferredLocaleUpdatedAt:          preferredLocaleUpdatedAt,
+		UserAliases:                       userAliases,
+		PreferredLanguage:                 preferredLanguage,
 		CreatedAt:                         createdAt,
 		LastAuthenticatedAt:               lastAuthenticatedAt,
 		TimeUntilReauthRequired:           timeUntilReauthRequired,
 		ReauthRequiredForSensitiveActions: reauthRequiredForSensitiveActions,
+		Mandatory2FARequired:              mandatory2FA.Required,
+		Mandatory2FASatisfied:             mandatory2FA.Satisfied,
+		Mandatory2FAAllowedMethods:        mandatory2FA.AllowedMethods,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

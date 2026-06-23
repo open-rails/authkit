@@ -1,15 +1,15 @@
 package core
 
-// Route-surface generation (#111): the auto-generated per-persona management
-// routes are DERIVED from each type's management profile — "the route surface IS
-// the capability spec" (a disabled capability emits NO route, so calling it 404s,
-// which is stronger than a runtime 403). This file computes that surface as data;
-// the HTTP layer mounts a handler per spec (resolving (persona, resource-id) ->
-// group via resource_ref, then gating on Perm). Group ids never appear in a path.
+// Route-surface generation (#111): the auto-generated management routes are
+// DERIVED from each configured group type's management profile. Public routes
+// and permission strings call that type name the persona: a `merchant` type
+// emits `/merchant/:resource-id/...` routes gated by `merchant:<area>:<action>`.
+// A disabled capability emits NO route, so calling it 404s, which is stronger
+// than a runtime 403. Group ids never appear in a path.
 
-// Built-in per-type group-management permissions (authkit-provisioned in every
-// type's catalog). All are 3-segment <persona>:<area>:<action>. The owner role
-// (=<type>:*) covers them all; an app may grant them to other roles.
+// Built-in per-persona group-management permissions (authkit-provisioned in
+// every type's catalog). All are 3-segment <persona>:<area>:<action>. The owner
+// role (=<persona>:*) covers them all; an app may grant them to other roles.
 func PermMembersManage(t string) string    { return t + ":members:manage" }
 func PermMembersRead(t string) string      { return t + ":members:read" }
 func PermRolesManage(t string) string      { return t + ":roles:manage" }
@@ -26,14 +26,14 @@ func PermInvitesRead(t string) string      { return t + ":invites:read" }
 type GeneratedRoute struct {
 	Persona string
 	Method  string
-	Path    string // e.g. /:persona/:resource-id/members  (with :persona bound to Persona)
+	Path    string // e.g. /merchant/:resource-id/members
 	Perm    string
 }
 
 // GeneratedRoutes returns the full management surface implied by the schema's
-// per-type management profiles. The HTTP layer mounts exactly these; anything a
-// profile disables is simply absent (→ 404). Reads gate on <area>:read; mutations
-// on the matching <area>:manage built-in.
+// per-persona management profiles. The HTTP layer mounts exactly these; anything
+// a profile disables is simply absent (→ 404). Reads gate on <area>:read;
+// mutations on the matching <area>:manage built-in.
 func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 	var out []GeneratedRoute
 	for _, typeName := range s.Types() {
@@ -48,7 +48,6 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 				GeneratedRoute{typeName, "POST", base + "/members", mg},
 				GeneratedRoute{typeName, "DELETE", base + "/members/:user", mg},
 				GeneratedRoute{typeName, "PUT", base + "/members/:user/roles/:role", mg},
-				GeneratedRoute{typeName, "DELETE", base + "/members/:user/roles/:role", mg},
 			)
 		}
 		// Listing the catalog is always available; defining custom roles only when on.

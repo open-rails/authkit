@@ -23,6 +23,7 @@ type (
 	AttributesValidator     = verify.AttributesValidator
 	AttributeDefResolver    = verify.AttributeDefResolver
 	RemoteApplicationSource = verify.RemoteApplicationSource
+	SensitiveOptions        = verify.SensitiveOptions
 
 	ServiceJWTPrincipal     = verify.ServiceJWTPrincipal
 	ServiceJWTReplayChecker = verify.ServiceJWTReplayChecker
@@ -44,6 +45,8 @@ var (
 	RequireAMR             = verify.RequireAMR
 	RequireMFA             = verify.RequireMFA
 	RequireACR             = verify.RequireACR
+	Sensitive              = verify.Sensitive
+	SensitiveClaims        = verify.SensitiveClaims
 	ClaimsFromContext      = verify.ClaimsFromContext
 	WithSkew               = verify.WithSkew
 	WithAlgorithms         = verify.WithAlgorithms

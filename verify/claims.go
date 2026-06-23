@@ -23,6 +23,7 @@ type Claims struct {
 	AMR             []string
 	ACR             string
 	AuthTime        time.Time
+	TwoFAEnrollment bool
 	Issuer          string
 	UserTier        string
 	JTI             string

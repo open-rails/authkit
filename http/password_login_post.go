@@ -79,12 +79,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			passwordMatches := false
 			var pendingUsername string
 			var pendingPasswordHash string
-			var pendingPreferredLocale string
+			var pendingPreferredLanguage string
 			if pending, perr := s.svc.GetPendingPhoneRegistrationByPhone(r.Context(), identifier); perr == nil && pending != nil {
 				hasPending = true
 				pendingUsername = pending.Username
 				pendingPasswordHash = pending.PasswordHash
-				pendingPreferredLocale = pending.PreferredLocale
+				pendingPreferredLanguage = pending.PreferredLanguage
 				if ok, verr := pwhash.VerifyArgon2id(pending.PasswordHash, req.Password); verr == nil && ok {
 					passwordMatches = true
 				}
@@ -94,7 +94,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				passwordMatches,
 				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
-					_, createErr := s.svc.CreatePendingPhoneRegistrationWithLocale(r.Context(), identifier, pendingUsername, pendingPasswordHash, pendingPreferredLocale)
+					_, createErr := s.svc.CreatePendingPhoneRegistrationWithLanguage(r.Context(), identifier, pendingUsername, pendingPasswordHash, pendingPreferredLanguage)
 					return createErr
 				},
 				func() (string, error) {
@@ -266,7 +266,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				pendingPasswordMatches,
 				s.svc.Options().RegistrationVerificationRequired(),
 				func() error {
-					_, createErr := s.svc.CreatePendingRegistrationWithLocale(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLocale)
+					_, createErr := s.svc.CreatePendingRegistrationWithLanguage(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLanguage)
 					return createErr
 				},
 				func() (string, time.Time, error) {
@@ -307,7 +307,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	if finalUserID != "" {
 		twoFASettings, twoFAErr := s.svc.Get2FASettings(r.Context(), finalUserID)
 		if twoFAErr == nil && twoFASettings != nil && twoFASettings.Enabled {
-			verificationID, err := s.svc.Require2FAForLogin(r.Context(), finalUserID)
+			verificationID, method, factor, err := s.svc.Require2FAForLoginFactor(r.Context(), finalUserID, "")
 			if err != nil {
 				if s.handleDeliveryError(w, r, "password_login", "send_2fa_code", err) {
 					return
@@ -324,12 +324,39 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			if len(verificationID) > 5 {
 				obfuscatedID = strings.Repeat("*", len(verificationID)-5) + verificationID[len(verificationID)-5:]
 			}
+			factors := twoFactorFactorResponses(twoFASettings.Factors)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"requires_2fa":    true,
 				"user_id":         finalUserID,
-				"method":          twoFASettings.Method,
+				"method":          method,
 				"verification_id": obfuscatedID,
 				"challenge":       challenge,
+				"default_factor": twoFactorFactorResponse{
+					ID:          factor.ID,
+					Method:      factor.Method,
+					IsDefault:   factor.IsDefault,
+					PhoneNumber: factor.PhoneNumber,
+				},
+				"available_factors": factors,
+			})
+			return
+		}
+		if ok, err := s.svc.UserSatisfiesMandatory2FA(r.Context(), finalUserID); err != nil {
+			serverErr(w, ErrDatabaseError)
+			return
+		} else if !ok {
+			token, exp, err := s.svc.Issue2FAEnrollmentToken(r.Context(), finalUserID)
+			if err != nil {
+				serverErr(w, ErrTokenIssueFailed)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"error":                   ErrTwoFAEnrollmentRequired,
+				"requires_2fa_enrollment": true,
+				"allowed_methods":         []string{"email", "sms", "totp"},
+				"access_token":            token,
+				"token_type":              "Bearer",
+				"expires_in":              int64(time.Until(exp).Seconds()),
 			})
 			return
 		}
