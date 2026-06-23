@@ -300,10 +300,14 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 	}
 
 	// The remote application's STORED permission ceiling (its assigned authority)
-	// is resolved by the core layer. The org-membership-backed resolver that used
-	// to supply it was removed with the org RBAC hard cut (#111); its
-	// permission-group replacement is wired in at the core/enricher seam.
-	var authorityPerms []string
+	// is resolved by the core layer through the permission-group assignment path.
+	if v.enrich == nil {
+		return Claims{}, errors.New("invalid_token")
+	}
+	authorityPerms, err := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	if err != nil {
+		return Claims{}, errors.New("invalid_token")
+	}
 
 	// Down-scoping (#76 amendment): a present `permissions` claim narrows the
 	// stored ceiling to the claimed subset; absent (nil) keeps the full ceiling.
@@ -506,6 +510,7 @@ type Enricher interface {
 	ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (authbase.ResolvedAPIKey, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*authbase.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authbase.RemoteApplication, error)
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error)
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authbase.RemoteAppAttributeDef, error)
 	GetProviderUsername(ctx context.Context, userID, provider string) (string, error)
 	ListRoleSlugsByUser(ctx context.Context, userID string) []string
@@ -968,6 +973,11 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.DiscordUsername = strClaim(mc, "discord_username")
 	cl.SessionID = strClaim(mc, "sid")
 	cl.JTI = strClaim(mc, "jti")
+	cl.AMR = strSliceClaim(mc, "amr")
+	cl.ACR = strClaim(mc, "acr")
+	if authTime, ok := toUnix(mc["auth_time"]); ok {
+		cl.AuthTime = time.Unix(authTime, 0)
+	}
 
 	// Permissions are the resource-defined authority source for delegated access
 	// tokens (NOT OAuth space-delimited scope).

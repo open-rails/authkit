@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
@@ -132,6 +133,64 @@ func RequireAnyEntitlement(ents ...string) func(http.Handler) http.Handler {
 			forbidden(w, "forbidden")
 		})
 	}
+}
+
+func RequireFreshAuth(maxAge time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl, err := GetClaims(r.Context())
+			if err != nil || !isUserClaims(cl) || !cl.AuthenticatedWithin(maxAge) {
+				forbidden(w, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func RequireAMR(method string) func(http.Handler) http.Handler {
+	method = strings.TrimSpace(method)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl, err := GetClaims(r.Context())
+			if err != nil || !isUserClaims(cl) || method == "" || !cl.HasAMR(method) {
+				forbidden(w, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func RequireMFA() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl, err := GetClaims(r.Context())
+			if err != nil || !isUserClaims(cl) || (!cl.HasAMR("mfa") && !cl.HasAMR("otp")) {
+				forbidden(w, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func RequireACR(level string) func(http.Handler) http.Handler {
+	level = strings.TrimSpace(level)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl, err := GetClaims(r.Context())
+			if err != nil || !isUserClaims(cl) || level == "" || !strings.EqualFold(strings.TrimSpace(cl.ACR), level) {
+				forbidden(w, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func isUserClaims(cl Claims) bool {
+	return strings.TrimSpace(cl.UserID) != "" && !cl.IsService() && !cl.IsRemoteApplication() && !cl.IsDelegated()
 }
 
 func toUnix(v any) (int64, bool) {

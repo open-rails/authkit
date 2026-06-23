@@ -8,12 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/open-rails/authkit/authbase"
 	core "github.com/open-rails/authkit/core"
 )
-
-type errResp struct {
-	Error ErrorCode `json:"error"`
-}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -21,20 +18,50 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// sendErr writes the canonical Stripe-style error envelope
+// ({"error":{type,code,message}}); type is derived from the status and message
+// from the code catalog (authbase). The shape is shared with the verify package.
 func sendErr(w http.ResponseWriter, status int, code ErrorCode) {
-	writeJSON(w, status, errResp{Error: code})
+	writeJSON(w, status, authbase.NewErrorEnvelope(status, string(code), nil, nil))
 }
 
+// sendErrData attaches machine-readable context under error.metadata (e.g.
+// rate-limit/availability fields), keeping a single nested envelope shape.
 func sendErrData(w http.ResponseWriter, status int, code ErrorCode, data map[string]any) {
-	if data == nil {
-		sendErr(w, status, code)
+	writeJSON(w, status, authbase.NewErrorEnvelope(status, string(code), nil, data))
+}
+
+// badRequestParam emits a 400 naming the offending request field in error.param.
+func badRequestParam(w http.ResponseWriter, code ErrorCode, param string) {
+	writeJSON(w, http.StatusBadRequest, authbase.NewErrorEnvelope(http.StatusBadRequest, string(code), &param, nil))
+}
+
+// validationParam maps a known identity-validation wire code to the request
+// field it concerns, so a 400 for one of these codes carries error.param (#115).
+// Any code not listed simply omits param.
+var validationParam = map[ErrorCode]string{
+	ErrorCode(core.ErrCodeUsernameTooShort):            "username",
+	ErrorCode(core.ErrCodeUsernameTooLong):             "username",
+	ErrorCode(core.ErrCodeUsernameMustStartWithLetter): "username",
+	ErrorCode(core.ErrCodeUsernameCannotContainAt):     "username",
+	ErrorCode(core.ErrCodeUsernameCannotStartWithPlus): "username",
+	ErrorCode(core.ErrCodeUsernameInvalidCharacters):   "username",
+	ErrorCode(core.ErrCodeUsernameNotAllowed):          "username",
+	ErrorCode(core.ErrCodeOwnerSlugTaken):              "username",
+	ErrorCode(core.ErrCodeInvalidEmail):                "email",
+	ErrorCode(core.ErrCodeInvalidPhoneNumber):          "phone_number",
+	ErrorCode(core.ErrCodePasswordTooShort):            "password",
+}
+
+// badRequest emits a 400. When the code is a known identity-validation code it
+// also names the offending field in error.param (#115).
+func badRequest(w http.ResponseWriter, code ErrorCode) {
+	if p := validationParam[code]; p != "" {
+		badRequestParam(w, code, p)
 		return
 	}
-	data["error"] = code
-	writeJSON(w, status, data)
+	sendErr(w, http.StatusBadRequest, code)
 }
-
-func badRequest(w http.ResponseWriter, code ErrorCode)   { sendErr(w, http.StatusBadRequest, code) }
 func unauthorized(w http.ResponseWriter, code ErrorCode) { sendErr(w, http.StatusUnauthorized, code) }
 func forbidden(w http.ResponseWriter, code ErrorCode)    { sendErr(w, http.StatusForbidden, code) }
 
@@ -65,8 +92,6 @@ func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability,
 	if legacyError == "" {
 		legacyError = ErrRateLimited
 	}
-	data := availability.toMap()
-	data["error"] = legacyError
 	if availability.RetryAfterSeconds > 0 {
 		seconds := int(availability.RetryAfterSeconds)
 		w.Header().Set("Retry-After", strconv.Itoa(seconds))
@@ -78,7 +103,7 @@ func tooManyAvailability(w http.ResponseWriter, availability ActionAvailability,
 	if availability.Remaining != nil {
 		w.Header().Set("RateLimit-Remaining", strconv.Itoa(*availability.Remaining))
 	}
-	writeJSON(w, http.StatusTooManyRequests, data)
+	sendErrData(w, http.StatusTooManyRequests, legacyError, availability.toMap())
 }
 
 func (a ActionAvailability) toMap() map[string]any {

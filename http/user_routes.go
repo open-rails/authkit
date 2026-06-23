@@ -35,8 +35,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 			availability := cooldownAvailability(ActionUpdateUsername, seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
 			data["time_until_rename_available"] = seconds
-			data["error"] = ErrRenameRateLimited
-			writeJSON(w, http.StatusTooManyRequests, data)
+			sendErrData(w, http.StatusTooManyRequests, ErrRenameRateLimited, data)
 			return
 		}
 		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {

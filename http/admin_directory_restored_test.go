@@ -3,7 +3,9 @@ package authhttp
 import (
 	"context"
 	"crypto"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -64,6 +66,28 @@ func adminListUsers(t *testing.T, s *Service, token, rawQuery string) adminUsers
 	return resp
 }
 
+func adminUsersStatus(t *testing.T, s *Service, token, rawQuery string) int {
+	t.Helper()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/admin/users?"+rawQuery, nil)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	s.APIHandler().ServeHTTP(w, r)
+	return w.Code
+}
+
+func adminUserPathStatus(t *testing.T, s *Service, token, path string) int {
+	t.Helper()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, path, nil)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	s.APIHandler().ServeHTTP(w, r)
+	return w.Code
+}
+
 func adminIDsOf(users []core.AdminUser) []string {
 	out := make([]string, len(users))
 	for i := range users {
@@ -115,7 +139,7 @@ func TestRestoredAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	})
 
 	t.Run("role filter resolves via root group", func(t *testing.T) {
-		resp := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&role="+roleSlug)
+		resp := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&root_role="+roleSlug)
 		require.EqualValues(t, 2, resp.Total)
 		got := map[string]bool{}
 		for _, u := range resp.Data {
@@ -147,13 +171,21 @@ func TestRestoredAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 		require.Equal(t, []string{idC, idD}, adminIDsOf(page2.Data))
 		require.True(t, page2.HasMore == false)
 	})
+
+	t.Run("deleted users use status filter", func(t *testing.T) {
+		require.NoError(t, s.svc.SoftDeleteUser(ctx, idC))
+		resp := adminListUsers(t, s, token, "search="+prefix+"&page_size=100&status=deleted")
+		require.EqualValues(t, 1, resp.Total)
+		require.Equal(t, idC, resp.Data[0].ID)
+		require.Equal(t, http.StatusNotFound, adminUserPathStatus(t, s, token, "/admin/users/deleted"))
+	})
 }
 
 // TestRestoredAdminUsersListOptionsFromQuery covers the surviving generic query
 // parser (no OrgSlug field — that was removed with the org plane). Pure parse,
 // no DB.
 func TestRestoredAdminUsersListOptionsFromQuery(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/admin/users?page=2&page_size=25&search=alice&role=moderator&status=banned&sort=email&order=asc&entitlement=premium", nil)
+	r := httptest.NewRequest(http.MethodGet, "/admin/users?page=2&page_size=25&search=alice&root_role=moderator&status=banned&sort=email&order=asc&entitlement=premium", nil)
 	got := adminUserListOptionsFromQuery(r)
 
 	require.Equal(t, 2, got.Page)
@@ -164,4 +196,138 @@ func TestRestoredAdminUsersListOptionsFromQuery(t *testing.T) {
 	require.Equal(t, core.AdminUserSortEmail, got.Sort)
 	require.False(t, got.Desc) // order=asc
 	require.Equal(t, "premium", got.Entitlement)
+}
+
+func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
+	pool := newServerTestPool(t)
+	ctx := context.Background()
+	s := newAdminDirectoryService(t, pool)
+
+	suffix := time.Now().UnixNano()
+	prefix := fmt.Sprintf("hauth%d", suffix)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username LIKE $1`, prefix+"%")
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.service_tokens WHERE name LIKE $1`, prefix+"%")
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug LIKE $1`, prefix+"%")
+	})
+
+	adminID := createAdminTestUser(t, s, ctx, prefix+"admin", true)
+	plainID := createAdminTestUser(t, s, ctx, prefix+"plain", false)
+	adminJWT, _, err := s.svc.IssueAccessToken(ctx, adminID, "", nil)
+	require.NoError(t, err)
+	plainJWT, _, err := s.svc.IssueAccessToken(ctx, plainID, "", nil)
+	require.NoError(t, err)
+
+	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", core.SuperAdminRoleName, adminID)
+	apiKeyDeny := mintAdminTestAPIKey(t, s, ctx, prefix+"api-deny", core.MemberRoleName, adminID)
+	delegatedAllow := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-allow", []string{core.PermRootUsersRead})
+	delegatedDeny := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-deny", nil)
+	remoteAllow := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-allow", core.OwnerRoleName)
+	remoteDeny := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-deny", core.MemberRoleName)
+
+	for name, token := range map[string]string{
+		"user jwt":        adminJWT,
+		"api key":         apiKeyAllow,
+		"delegated token": delegatedAllow,
+		"remote app":      remoteAllow,
+	} {
+		t.Run("allows "+name, func(t *testing.T) {
+			require.Equal(t, http.StatusOK, adminUsersStatus(t, s, token, "search="+prefix))
+		})
+	}
+
+	for name, token := range map[string]string{
+		"user jwt":        plainJWT,
+		"api key":         apiKeyDeny,
+		"delegated token": delegatedDeny,
+		"remote app":      remoteDeny,
+	} {
+		t.Run("denies "+name, func(t *testing.T) {
+			require.Equal(t, http.StatusForbidden, adminUsersStatus(t, s, token, "search="+prefix))
+		})
+	}
+}
+
+func createAdminTestUser(t *testing.T, s *Service, ctx context.Context, username string, admin bool) string {
+	t.Helper()
+	u, err := s.svc.CreateUser(ctx, username+"@test.example", username)
+	require.NoError(t, err)
+	if admin {
+		require.NoError(t, s.svc.AssignRoleBySlug(ctx, u.ID, "admin"))
+	}
+	return u.ID
+}
+
+func mintAdminTestAPIKey(t *testing.T, s *Service, ctx context.Context, name, role, createdBy string) string {
+	t.Helper()
+	_, token, err := s.svc.MintAPIKey(ctx, core.RootType, "", name, role, createdBy, nil)
+	require.NoError(t, err)
+	return token
+}
+
+func mintAdminTestDelegatedToken(t *testing.T, s *Service, ctx context.Context, slug string, perms []string) string {
+	t.Helper()
+	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
+	require.NoError(t, err)
+	issuer := "https://" + slug + ".example"
+	registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, "")
+	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, IssuerOptions{
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+	}))
+	token, err := core.MintDelegatedAccessToken(ctx, signer, core.DelegatedAccessParams{
+		Issuer:           issuer,
+		Audiences:        []string{"test-app"},
+		DelegatedSubject: slug + "-subject",
+		Permissions:      perms,
+		TTL:              time.Minute,
+	})
+	require.NoError(t, err)
+	return token
+}
+
+func mintAdminTestRemoteAppToken(t *testing.T, s *Service, ctx context.Context, slug, role string) string {
+	t.Helper()
+	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
+	require.NoError(t, err)
+	issuer := "https://" + slug + ".example"
+	ra := registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, role)
+	require.NotEmpty(t, ra.ID)
+	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, IssuerOptions{
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+	}))
+	token, err := core.MintRemoteApplicationAccessToken(ctx, signer, core.RemoteApplicationAccessParams{
+		Issuer:    issuer,
+		Audiences: []string{"test-app"},
+		TTL:       time.Minute,
+	})
+	require.NoError(t, err)
+	return token
+}
+
+func registerAdminTestRemoteApplication(t *testing.T, s *Service, ctx context.Context, slug, issuer string, signer *jwtkit.RSASigner, role string) *core.RemoteApplication {
+	t.Helper()
+	gid, err := s.svc.EnsureRootGroup(ctx)
+	require.NoError(t, err)
+	ra, err := s.svc.UpsertRemoteApplication(ctx, core.RemoteApplication{
+		Slug:    slug,
+		OrgID:   gid,
+		Issuer:  issuer,
+		Enabled: true,
+		PublicKeys: []core.RemoteAppKey{{
+			KID:          signer.KID(),
+			PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey()),
+		}},
+	})
+	require.NoError(t, err)
+	if role != "" {
+		require.NoError(t, s.svc.AddRemoteApplicationMember(ctx, ra.ID, role))
+	}
+	return ra
+}
+
+func adminTestPublicKeyPEM(t *testing.T, pub crypto.PublicKey) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	require.NoError(t, err)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 }

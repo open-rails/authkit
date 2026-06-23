@@ -222,7 +222,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	}
 	email := info.Email
 	extra := map[string]any{"provider": cfg.Name}
-	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, r.UserAgent(), nil)
+	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
@@ -335,7 +335,7 @@ func (s *Service) completeOAuthReauth(w http.ResponseWriter, r *http.Request, sd
 		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
 		return true
 	}
-	if err := s.svc.MarkSessionAuthenticated(r.Context(), sd.ReauthUserID, sd.ReauthSessionID); err != nil {
+	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), sd.ReauthUserID, sd.ReauthSessionID, []string{"oauth"}); err != nil {
 		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
 		return true
 	}

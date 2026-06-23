@@ -124,7 +124,7 @@ func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, use
 func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authTokensResponse, error) {
 	ua := r.UserAgent()
 	ip := net.ParseIP(clientIP(r))
-	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, ua, ip)
+	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, ua, ip, authMethodsForSessionMethod(method))
 	if err != nil {
 		return authTokensResponse{}, err
 	}
@@ -144,4 +144,15 @@ func (s *Service) createTokensForUser(r *http.Request, userID string, method str
 		ExpiresIn:    int64(time.Until(exp).Seconds()),
 		RefreshToken: rt,
 	}, nil
+}
+
+func authMethodsForSessionMethod(method string) []string {
+	switch method {
+	case "email_verification":
+		return []string{"email"}
+	case "phone_verification":
+		return []string{"sms"}
+	default:
+		return []string{"pwd"}
+	}
 }

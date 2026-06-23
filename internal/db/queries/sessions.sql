@@ -1,8 +1,8 @@
 -- Refresh-session queries (core/service_sessions.go).
 
 -- name: SessionInsert :one
-INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 RETURNING id::text, family_id::text;
 
 -- name: SessionByCurrentTokenHash :one
@@ -28,7 +28,8 @@ FROM profiles.refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL);
 
 -- name: SessionFreshSince :one
-SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since
+SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
+       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
 FROM profiles.refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid
@@ -38,7 +39,7 @@ WHERE id = sqlc.arg(session_id)::uuid
 
 -- name: SessionMarkAuthenticated :execrows
 UPDATE profiles.refresh_sessions
-SET last_authenticated_at = now()
+SET last_authenticated_at = now(), auth_methods = $4
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid
   AND issuer = $3

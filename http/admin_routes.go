@@ -19,9 +19,8 @@ type adminUsersListResponse struct {
 	HasMore bool             `json:"has_more"`
 }
 
-// adminUserListOptionsFromQuery parses the generic directory query params (#91):
-// page, page_size, search, role, org, status, sort, order. `filter` is GONE —
-// the directory is generic now (role/org/status), no host product slugs.
+// adminUserListOptionsFromQuery parses the admin dashboard query params:
+// page, page_size, search, root_role, status, sort, order, entitlement.
 func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
@@ -33,12 +32,53 @@ func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 		Page:        page,
 		PageSize:    size,
 		Search:      strings.TrimSpace(q.Get("search")),
-		Role:        strings.TrimSpace(q.Get("role")),
+		Role:        strings.TrimSpace(q.Get("root_role")),
 		Status:      core.AdminUserStatus(strings.TrimSpace(q.Get("status"))),
 		Sort:        sort,
 		Desc:        desc,
 		Entitlement: strings.TrimSpace(q.Get("entitlement")),
 	}
+}
+
+// requirePermission is the granular permission gate for AuthKit's intrinsic
+// routes. It authorizes the calling principal against permission `perm` on the
+// (groupType, resourceRef) permission-group, for EVERY supported principal
+// shape:
+//   - user JWT: resolved through the permission-group (svc.Can, walking the
+//     parent chain to root and unioning assignments);
+//   - api-key / service, delegated, and remote-application principals: resolved
+//     through their verified permission ceiling (claims.HasPermission).
+//
+// There is deliberately NO special "admin" authorization tier: admin authority
+// over the user directory is simply the `root:users:*` permissions on the root
+// group, gated here the same way every other permission is. Callers that gate an
+// inherently root-scoped intrinsic route pass (core.RootType, "", perm).
+func (s *Service) requirePermission(groupType, resourceRef, perm string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := ClaimsFromContext(r.Context())
+		if !ok {
+			unauthorized(w, ErrNotAuthenticated)
+			return
+		}
+		switch {
+		case claims.IsService() || claims.IsDelegated() || claims.IsRemoteApplication():
+			if claims.HasPermission(perm) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		case strings.TrimSpace(claims.UserID) != "":
+			allowed, err := s.svc.Can(r.Context(), claims.UserID, core.SubjectKindUser, groupType, resourceRef, perm)
+			if err != nil {
+				serverErr(w, ErrDatabaseError)
+				return
+			}
+			if allowed {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		forbidden(w, ErrForbidden)
+	})
 }
 
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
@@ -239,30 +279,6 @@ func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
-}
-
-func (s *Service) handleAdminDeletedUsersListGET(w http.ResponseWriter, r *http.Request) {
-	opts := adminUserListOptionsFromQuery(r)
-	opts.Status = core.AdminUserStatusDeleted // this route is the soft-deleted view
-
-	result, err := s.svc.AdminListUsers(r.Context(), opts)
-	if err != nil {
-		if errors.Is(err, core.ErrEntitlementFilterUnavailable) {
-			badRequest(w, ErrEntitlementFilterUnavailable)
-			return
-		}
-		serverErr(w, ErrFailedToListDeletedUsers)
-		return
-	}
-	hasMore := int64(result.Offset+result.Limit) < result.Total
-	writeJSON(w, http.StatusOK, adminUsersListResponse{
-		Object:  "list",
-		Data:    result.Users,
-		Total:   result.Total,
-		Limit:   result.Limit,
-		Offset:  result.Offset,
-		HasMore: hasMore,
-	})
 }
 
 func (s *Service) handleAdminUserPasswordResetPOST(w http.ResponseWriter, r *http.Request) {

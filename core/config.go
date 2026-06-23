@@ -153,19 +153,19 @@ type APIKeysConfig struct {
 // RBACConfig declares the app permission catalog, default roles, and owner policy.
 type RBACConfig struct {
 	// Permissions is the embedding application's set of valid permission strings
-	// (e.g. `endpoint:revise`, `repo:create`). authkit merges this with its base
-	// `org:` namespace; permissions are opaque to authkit. Names must not collide
-	// with the reserved `org:` base permissions.
+	// (e.g. `endpoint:revise`, `repo:create`); authkit stores and validates them
+	// as opaque catalog entries. The permission-group types declared in Groups
+	// (#111) are the current model for scoping permissions.
 	Permissions []PermissionDef
-	// DefaultRoles are role templates seeded into every org at creation, beyond
-	// the built-in `owner`. Tokens are concrete perms or namespace-anchored globs
-	// (`org:*`, `org:*:read`); no bare `*`, no `!perm` negation (#93/#95).
+	// DefaultRoles are legacy flat role templates (name → permission set); tokens
+	// are concrete perms or namespace-anchored globs, no bare `*`, no `!perm`
+	// negation (#93/#95). The per-type role catalogs in Groups (#111) are the
+	// current model for declaring roles.
 	DefaultRoles []DefaultRole
-	// OwnerOwnsAppResources, when true, extends the prebuilt `owner` role's apex
-	// grant to cover EVERY app-declared resource namespace (one `<ns>:*` glob per
-	// non-`platform:` namespace in Permissions), not just `org:*`. Default false
-	// keeps the #95 contract (owner = `org:*`). `platform:` is never owned by an
-	// org role. Backfill existing orgs with EnsureOwnerGrants. (#100)
+	// OwnerOwnsAppResources is a legacy flat-consumer flag (#100). Obsolete under
+	// the permission-group model (#111, decision #5) — each type's owner role now
+	// holds its own `<type>:*` grant directly — and retained only as a no-op for
+	// flat consumers.
 	OwnerOwnsAppResources bool
 
 	// Groups declares the app's permission-group types (#111): the containment
@@ -182,9 +182,9 @@ type PermissionDef struct {
 	Description string `json:"description,omitempty"`
 }
 
-// DefaultRole is a role template seeded into every org at creation: a role name
-// and its permission set (tokens are concrete perms or namespace-anchored globs
-// like `org:*`/`org:*:read`; no bare `*`, no `!perm` negation).
+// DefaultRole is a legacy flat role template: a role name and its permission set
+// (tokens are concrete perms or namespace-anchored globs; no bare `*`, no `!perm`
+// negation).
 type DefaultRole struct {
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`

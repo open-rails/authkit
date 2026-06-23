@@ -17,6 +17,7 @@ const (
 	PermRootUsersRead    = "root:users:read"    // read the account directory
 	PermRootUsersSuspend = "root:users:suspend" // suspend / unsuspend an account
 	PermRootUsersBan     = "root:users:ban"     // ban / unban an account
+	PermRootUsersUpdate  = "root:users:update"  // update account identity/password fields
 	PermRootUsersDelete  = "root:users:delete"  // soft-delete / restore an account
 
 	// Group lifecycle as ENTITIES (moderation — delete/restore a group, never run it).
@@ -40,7 +41,7 @@ const (
 // top via the root type's roles.
 func IntrinsicRootPermissions() []string {
 	return []string{
-		PermRootUsersRead, PermRootUsersSuspend, PermRootUsersBan, PermRootUsersDelete,
+		PermRootUsersRead, PermRootUsersSuspend, PermRootUsersBan, PermRootUsersUpdate, PermRootUsersDelete,
 		PermRootGroupsCreate, PermRootGroupsDelete,
 		PermRootRolesManage, PermRootRemoteAppsManage, PermRootAPIKeysRevoke, PermRootSessionsRevoke,
 	}

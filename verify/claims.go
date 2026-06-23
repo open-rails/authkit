@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/open-rails/authkit/authbase"
 )
@@ -19,6 +20,9 @@ type Claims struct {
 	SessionID       string
 	Roles           []string
 	Entitlements    []string
+	AMR             []string
+	ACR             string
+	AuthTime        time.Time
 	Issuer          string
 	UserTier        string
 	JTI             string
@@ -240,6 +244,23 @@ func (c Claims) HasEntitlement(ent string) bool {
 		}
 	}
 	return false
+}
+
+func (c Claims) HasAMR(method string) bool {
+	for _, m := range c.AMR {
+		if strings.EqualFold(strings.TrimSpace(m), strings.TrimSpace(method)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c Claims) AuthenticatedWithin(maxAge time.Duration) bool {
+	if maxAge <= 0 || c.AuthTime.IsZero() {
+		return false
+	}
+	now := time.Now()
+	return !c.AuthTime.After(now) && now.Sub(c.AuthTime) <= maxAge
 }
 
 type claimsCtxKey struct{}

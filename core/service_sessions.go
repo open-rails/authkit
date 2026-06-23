@@ -36,11 +36,19 @@ type SessionFreshness struct {
 	LastAuthenticatedAt           time.Time
 	TimeUntilReauthRequired       time.Duration
 	ReauthRequiredForSensitiveOps bool
+	AuthMethods                   []string
 }
 
 // IssueRefreshSession creates a session row and returns a new refresh token string.
 // Deprecated: use s.Sessions().IssueRefreshSession.
 func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+	return s.IssueRefreshSessionWithAuthMethods(ctx, userID, userAgent, ip, []string{"pwd"})
+}
+
+// IssueRefreshSessionWithAuthMethods creates a refresh session and records the
+// authentication methods that established it. Callers minting a session after
+// MFA should pass e.g. []string{"pwd", "otp", "mfa"}.
+func (s *Service) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
 	if s.pg == nil {
 		return "", "", nil, errors.New("postgres not configured")
 	}
@@ -80,6 +88,7 @@ func (s *Service) IssueRefreshSession(ctx context.Context, userID, userAgent str
 		ExpiresAt:        expPtr,
 		UserAgent:        nullable(userAgent),
 		IpAddr:           ipText(ip),
+		AuthMethods:      normalizeAuthMethods(authMethods),
 	})
 	if err != nil {
 		return "", "", nil, err
@@ -185,19 +194,20 @@ func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string
 		now = time.Now()
 	}
 
-	freshSince, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
+	fresh, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
 	if err != nil {
 		return SessionFreshness{}, err
 	}
 
-	remaining := SensitiveActionFreshAuthWindow - now.Sub(freshSince)
+	remaining := SensitiveActionFreshAuthWindow - now.Sub(fresh.FreshSince)
 	if remaining < 0 {
 		remaining = 0
 	}
 	return SessionFreshness{
-		LastAuthenticatedAt:           freshSince,
+		LastAuthenticatedAt:           fresh.FreshSince,
 		TimeUntilReauthRequired:       remaining,
 		ReauthRequiredForSensitiveOps: remaining <= 0,
+		AuthMethods:                   normalizeAuthMethods(fresh.AuthMethods),
 	}, nil
 }
 
@@ -215,6 +225,12 @@ func (s *Service) RequireFreshSession(ctx context.Context, userID, sessionID str
 
 // Deprecated: use s.Sessions().MarkSessionAuthenticated.
 func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
+	return s.MarkSessionAuthenticatedWithMethods(ctx, userID, sessionID, []string{"pwd"})
+}
+
+// MarkSessionAuthenticatedWithMethods refreshes the session's sensitive-action
+// auth window and records how the user re-proved identity.
+func (s *Service) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error {
 	if s.pg == nil {
 		return errors.New("postgres not configured")
 	}
@@ -223,7 +239,12 @@ func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionI
 	if userID == "" || sessionID == "" {
 		return jwt.ErrTokenInvalidClaims
 	}
-	n, err := s.q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{SessionID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
+	n, err := s.q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{
+		SessionID:   sessionID,
+		UserID:      userID,
+		Issuer:      s.opts.Issuer,
+		AuthMethods: normalizeAuthMethods(authMethods),
+	})
 	if err != nil {
 		return err
 	}
@@ -231,6 +252,26 @@ func (s *Service) MarkSessionAuthenticated(ctx context.Context, userID, sessionI
 		return jwt.ErrTokenInvalidClaims
 	}
 	return nil
+}
+
+func normalizeAuthMethods(methods []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(methods))
+	for _, method := range methods {
+		method = strings.ToLower(strings.TrimSpace(method))
+		if method == "" {
+			continue
+		}
+		if _, ok := seen[method]; ok {
+			continue
+		}
+		seen[method] = struct{}{}
+		out = append(out, method)
+	}
+	if len(out) == 0 {
+		return []string{"pwd"}
+	}
+	return out
 }
 
 // ResolveSessionByRefresh finds the session id for a presented refresh token, if valid and active.

@@ -214,7 +214,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	}
 
 	extra := map[string]any{"provider": provider}
-	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, r.UserAgent(), nil)
+	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)

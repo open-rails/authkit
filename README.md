@@ -988,19 +988,18 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
 - Admin roles (admin only):
   - POST /admin/roles/grant
   - POST /admin/roles/revoke
-- Admin users (admin only):
-  - GET /admin/users
-  - GET /admin/users/:user_id
-  - POST /admin/users/ban
-  - POST /admin/users/unban
-  - POST /admin/users/set-email
-  - POST /admin/users/set-username
-  - POST /admin/users/set-password
-  - DELETE /admin/users/:user_id
-  - POST /admin/users/:user_id/restore
-  - GET /admin/users/deleted
-  - GET /admin/users/:user_id/signins
-  - POST /admin/users/:user_id/sessions/revoke
+- Admin users (root permission required):
+  - GET /admin/users (`root:users:read`; query supports `root_role` and `status=deleted`)
+  - GET /admin/users/:user_id (`root:users:read`)
+  - POST /admin/users/ban (`root:users:ban`)
+  - POST /admin/users/unban (`root:users:ban`)
+  - POST /admin/users/set-email (`root:users:update`)
+  - POST /admin/users/set-username (`root:users:update`)
+  - POST /admin/users/set-password (`root:users:update`)
+  - DELETE /admin/users/:user_id (`root:users:delete`)
+  - POST /admin/users/:user_id/restore (`root:users:delete`)
+  - GET /admin/users/:user_id/signins (`root:users:read`)
+  - POST /admin/users/:user_id/sessions/revoke (`root:sessions:revoke`)
 - Org-admin surface (platform RBAC, entity-level):
   - GET /admin/orgs (directory; `search`/`include_deleted`) → platform:orgs:read
   - GET /admin/orgs/deleted (list soft-deleted orgs) → platform:orgs:read

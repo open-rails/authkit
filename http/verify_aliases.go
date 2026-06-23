@@ -40,6 +40,10 @@ var (
 	Optional               = verify.Optional
 	RequireEntitlement     = verify.RequireEntitlement
 	RequireAnyEntitlement  = verify.RequireAnyEntitlement
+	RequireFreshAuth       = verify.RequireFreshAuth
+	RequireAMR             = verify.RequireAMR
+	RequireMFA             = verify.RequireMFA
+	RequireACR             = verify.RequireACR
 	ClaimsFromContext      = verify.ClaimsFromContext
 	WithSkew               = verify.WithSkew
 	WithAlgorithms         = verify.WithAlgorithms

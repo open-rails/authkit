@@ -168,7 +168,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 	extra["provider"] = SolanaProviderSlug
 	extra["solana_address"] = output.Account.Address
 
-	sid, refreshToken, _, err := s.IssueRefreshSession(ctx, userID, "", nil)
+	sid, refreshToken, _, err := s.IssueRefreshSessionWithAuthMethods(ctx, userID, "", nil, []string{"swk"})
 	if err != nil {
 		return "", time.Time{}, "", "", false, fmt.Errorf("failed to create session: %w", err)
 	}

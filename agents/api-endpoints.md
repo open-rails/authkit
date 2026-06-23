@@ -340,18 +340,17 @@ Kind/ID scope rows.
 |--------|------|------|-------------|
 | POST | `/admin/roles/grant` | ADMIN | Grant role to user |
 | POST | `/admin/roles/revoke` | ADMIN | Revoke role from user |
-| GET | `/admin/users` | ADMIN | List users |
-| GET | `/admin/users/:user_id` | ADMIN | Get user details |
-| POST | `/admin/users/ban` | ADMIN | Ban user |
-| POST | `/admin/users/unban` | ADMIN | Unban user |
-| POST | `/admin/users/set-email` | ADMIN | Set user email |
-| POST | `/admin/users/set-username` | ADMIN | Set user username |
-| POST | `/admin/users/set-password` | ADMIN | Set user password |
-| DELETE | `/admin/users/:user_id` | ADMIN | Delete user |
-| POST | `/admin/users/:user_id/restore` | ADMIN | Restore (undelete) user |
-| GET | `/admin/users/deleted` | ADMIN | List deleted users |
-| GET | `/admin/users/:user_id/signins` | ADMIN | List recent signin events for a user |
-| POST | `/admin/users/:user_id/sessions/revoke` | ADMIN | Revoke all refresh sessions for a target user |
+| GET | `/admin/users` | `root:users:read` | Dashboard user list. Query: `page`, `page_size`, `search`, `root_role`, `status=active\|banned\|deleted\|any`, `sort=created_at\|last_login\|username\|email`, `order=asc\|desc`, `entitlement` |
+| GET | `/admin/users/:user_id` | `root:users:read` | Get user details |
+| POST | `/admin/users/ban` | `root:users:ban` | Ban user |
+| POST | `/admin/users/unban` | `root:users:ban` | Unban user |
+| POST | `/admin/users/set-email` | `root:users:update` | Set user email |
+| POST | `/admin/users/set-username` | `root:users:update` | Set user username |
+| POST | `/admin/users/set-password` | `root:users:update` | Set user password |
+| DELETE | `/admin/users/:user_id` | `root:users:delete` | Delete user |
+| POST | `/admin/users/:user_id/restore` | `root:users:delete` | Restore (undelete) user |
+| GET | `/admin/users/:user_id/signins` | `root:users:read` | List recent signin events for a user |
+| POST | `/admin/users/:user_id/sessions/revoke` | `root:sessions:revoke` | Revoke all refresh sessions for a target user |
 | GET | `/admin/orgs` | `platform:orgs:read` | Org directory (paginated, `search`/`include_deleted`) |
 | GET | `/admin/orgs/deleted` | `platform:orgs:read` | List soft-deleted orgs |
 | GET | `/admin/orgs/:id` | `platform:orgs:read` | Org entity detail (slug/is_personal/member-count) |

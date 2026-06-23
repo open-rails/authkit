@@ -9,7 +9,7 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 115
+next_id: 116
 
 ---
 
@@ -213,14 +213,15 @@ NON-GOALS: enterprise/attestation-conveyance policy (accept 'none'); MDS metadat
 
 # #113: bind intrinsic admin user routes to root permissions + collapse deleted-user listing into `/admin/users`
 
-**Completed:** no
-**Status:** PLANNED 2026-06-23 (Paul + Codex). The `/admin/users...` routes currently require only a valid bearer token (`Required`) and then call admin DB operations directly. That is wrong after #111: an AuthKit admin is a principal with authority from the root permission-group (`root:*` or the specific `root:users:*` / `root:sessions:*` permission), not merely any authenticated user. Fix the route gate once, then build the admin dashboard on the existing paginated `/admin/users` list surface.
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). Intrinsic `/admin/users...` routes now use one shared root-permission gate: user JWTs authorize through `svc.Can(user_id, "user", "root", "", perm)`, while API-key, delegated, and remote-application principals authorize through `claims.HasPermission(perm)`. Remote application self tokens now load stored permission-group authority via `ResolveRemoteApplicationAuthority`. `root:users:update` is in the intrinsic root catalog. `GET /admin/users/deleted` is removed; deleted users are listed through `GET /admin/users?status=deleted`. The user-list role filter is hard-cut to `root_role`. Validation: `go test ./...` passed.
+**FOLLOW-UP 2026-06-23 (Claude) — finished the cleanup the Codex pass left behind.** The Codex pass bound `/admin` to root perms but kept a BESPOKE admin-auth path (`adminRequired` closure in `http/routes.go` + `(*Service).requireAdminPermission` in `http/admin_routes.go`), which violates the design rule "there is no separate admin tier — admin authority is just `root:*` perms gated through the granular permission system." Audit + fix: (1) **removed `adminRequired`/`requireAdminPermission` entirely**; renamed the method to a GENERIC, group-parameterized gate `(*Service).requirePermission(groupType, resourceRef, perm, next)` (user JWTs → `svc.Can(...)`, machine principals → `claims.HasPermission`), and the `/admin/users...` routes now call it via a `rootPermission(perm, h)` closure = `required(s.requirePermission(core.RootType, "", perm, h))`. Same behavior + same passing tests, but no admin-specific auth construct. (2) **Deleted 10 ORPHANED `Err*Platform*` HTTP error-code constants** in `http/error_codes.go` (`ErrAssignPlatformRoleFailed`, `ErrPlatformRole{Define,Delete,Lookup,Members,SetPerms}Failed`, `ErrPlatformRolesListFailed`, `ErrPlatformPermission{,s}LookupFailed`, `ErrRevokePlatformRoleFailed`) — leftovers from the removed platform-role/permission management routes (zero live refs, not referenced by `error_codes_test.go`). (3) Verified the #111/#112 engines are genuinely present (not stubs): `Can()` parent-walk + additive union, migration 008 containment trigger, 3-segment + namespace-purity validation, route generator (zero live 501 stubs), `SetEntitlementsProvider` mint-wiring + its passing test. Validation: `go build/vet ./...` clean; DB-free http + core permission tests + the #112 setter test green. (Full PG suite needs `AUTHKIT_TEST_DATABASE_URL`, unset here.) REMAINING (cosmetic, not done — see Tasks): a few stale comments still describe the old org/platform model.
 
 ## Current surface
 `GET /admin/users` is already the dashboard list route. It is paginated and queryable:
 - `page` / `page_size` (defaults page=1, page_size=50, max=200)
 - `search` (username/email/phone ILIKE)
-- `root_role` (root permission-group role slug; `admin` maps to `super-admin`). The current code accepts `role`, but that name is ambiguous now that users can belong to many permission groups; hard-cut the dashboard contract to `root_role`.
+- `root_role` (root permission-group role slug; `admin` maps to `super-admin`). The old `role` query name was ambiguous once users could belong to many permission groups, so the dashboard contract is hard-cut to `root_role`.
 - `status` (`active`, `banned`, `deleted`, `any`; empty = non-deleted)
 - `sort` (`created_at`, `last_login`, `username`, `email`; empty = `created_at`)
 - `order` (`desc` by default; `asc` flips it)
@@ -233,7 +234,7 @@ The same admin route must authorize all supported principal shapes:
 - Regular user JWT: authorize through the root permission-group, `svc.Can(user_id, "user", "root", "", perm)`.
 - API key: authorize through `claims.Permissions` / `claims.HasPermission(perm)`.
 - Delegated user token: authorize through `claims.Permissions` / `claims.HasPermission(perm)`.
-- Remote application self token: authorize through stored remote-application authority surfaced in `claims.Permissions`; first fix verifier wiring so remote app self tokens resolve `ResolveRemoteApplicationAuthority` instead of getting an empty permission ceiling.
+- Remote application self token: authorize through stored remote-application authority surfaced in `claims.Permissions`; verifier wiring resolves `ResolveRemoteApplicationAuthority` instead of an empty permission ceiling.
 
 ## Permission map
 - `GET /admin/users` -> `root:users:read`
@@ -250,17 +251,24 @@ The same admin route must authorize all supported principal shapes:
 - `POST /admin/users/{user_id}/restore` -> `root:users:delete`
 
 ## Tasks
-- [ ] Add `root:users:update` to AuthKit's intrinsic root permission catalog; keep existing `root:users:read|suspend|ban|delete` stable.
-- [ ] Add one shared HTTP permission gate for route specs, not per-handler ad hoc checks. It must accept user JWTs via root-group `Can`, and API-key/delegated/remote-app principals via `claims.HasPermission`.
-- [ ] Extend the verifier/core enricher seam so remote application self tokens load stored permission-group authority (`ResolveRemoteApplicationAuthority`) into `claims.Permissions`.
-- [ ] Apply the shared gate to every intrinsic `/admin/users...` route according to the map above.
-- [ ] Remove `GET /admin/users/deleted`; make `GET /admin/users?status=deleted` the only deleted-user listing route.
-- [ ] Rename the admin user-list role filter from ambiguous `role` to `root_role` and document it as filtering only membership in the singleton root permission group.
-- [ ] Keep `GET /admin/users` pagination/filter/sort behavior and document it as the admin dashboard list contract.
-- [ ] Add tests for all four principal shapes: root-admin user JWT, API key with `root:users:read`, delegated token with `root:users:read`, and remote application self token with `root:users:read`.
-- [ ] Add denial tests: authenticated user without root permission, API key without root permission, delegated token without root permission, remote application without stored root permission.
-- [ ] Add route/table tests proving `/admin/users?status=deleted` works and `/admin/users/deleted` is gone.
-- [ ] Run `go test ./...` and update this issue with the exact validation result.
+- [x] Add `root:users:update` to AuthKit's intrinsic root permission catalog; keep existing `root:users:read|suspend|ban|delete` stable.
+- [x] Add one shared HTTP permission gate for route specs, not per-handler ad hoc checks. It must accept user JWTs via root-group `Can`, and API-key/delegated/remote-app principals via `claims.HasPermission`.
+- [x] Extend the verifier/core enricher seam so remote application self tokens load stored permission-group authority (`ResolveRemoteApplicationAuthority`) into `claims.Permissions`.
+- [x] Apply the shared gate to every intrinsic `/admin/users...` route according to the map above.
+- [x] Remove `GET /admin/users/deleted`; make `GET /admin/users?status=deleted` the only deleted-user listing route.
+- [x] Rename the admin user-list role filter from ambiguous `role` to `root_role` and document it as filtering only membership in the singleton root permission group.
+- [x] Keep `GET /admin/users` pagination/filter/sort behavior and document it as the admin dashboard list contract.
+- [x] Add tests for all four principal shapes: root-admin user JWT, API key with `root:users:read`, delegated token with `root:users:read`, and remote application self token with `root:users:read`.
+- [x] Add denial tests: authenticated user without root permission, API key without root permission, delegated token without root permission, remote application without stored root permission.
+- [x] Add route/table tests proving `/admin/users?status=deleted` works and `/admin/users/deleted` is gone.
+- [x] Run `go test ./...` and update this issue with the exact validation result. Result: passed 2026-06-23.
+
+### Follow-up cleanup (Claude 2026-06-23) — eliminate the bespoke admin tier + dead remnants
+- [x] Remove the `adminRequired` closure (`http/routes.go`) and the `(*Service).requireAdminPermission` method (`http/admin_routes.go`) — there must be NO admin-specific auth construct.
+- [x] Replace them with a GENERIC granular gate `(*Service).requirePermission(groupType, resourceRef, perm, next)` (users → `svc.Can`; machine principals → `claims.HasPermission`); intrinsic root-scoped routes call it via a `rootPermission(perm, h)` closure bound to `core.RootType`.
+- [x] Delete the 10 orphaned `Err*Platform*` HTTP error-code constants in `http/error_codes.go` (dead remnants of the removed platform-role/permission routes; zero live refs).
+- [x] Re-verify #111/#112 are genuinely wired (Can parent-walk, migration 008 containment trigger, 3-seg validation, route generator zero-stub, entitlements mint setter + test). Confirmed.
+- [x] Cosmetic: deleted/fixed stale comments describing the old org/platform model — removed the dead `http/routes.go` remote-app org-nested comment block; rewrote the `core/service.go` token-claims note (was "profiles.platform_roles + platform:* perms" → permission-group engine #111); rewrote the `RBACConfig`/`DefaultRole` `org:`/`platform:` docstrings in `core/config.go` (Permissions/DefaultRoles/OwnerOwnsAppResources now described accurately; OwnerOwnsAppResources flagged as the legacy #100 no-op superseded by #111). build + vet green.
 
 ## Acceptance
 - No intrinsic admin-user route is reachable by a merely authenticated user.
@@ -328,3 +336,267 @@ Verification:
 - Email and phone verification have exactly two public routes per channel: `request` and `confirm`.
 - There is no public `*/confirm-link` route in the canonical API surface.
 - Existing one-time token semantics remain enforced by the ephemeral store.
+
+---
+
+# #101: TOTP (authenticator-app) 2FA method — offline second factor alongside email/SMS
+
+**Completed:** no
+**Status:** PLANNED 2026-06-23 (Paul + Codex). Move into active work because it feeds #103: AuthKit needs a strong offline MFA method before token assurance can distinguish merely password-fresh sessions from MFA-fresh sessions.
+
+## Linkage
+
+- #103 projects authentication assurance into access tokens via `amr`, `acr`, and `auth_time`.
+- This issue adds the `totp` factor that should map to `["pwd","otp","mfa"]` when used after password auth.
+- The reauth path in #103 must be able to use TOTP to upgrade the current session, not just use 2FA during login.
+
+## Goal
+
+Add **TOTP** (RFC 6238 — Google Authenticator / Authy / 1Password / Microsoft Authenticator) as a third 2FA `method`, alongside the existing `email` and `sms` code delivery.
+
+Today `profiles.two_factor_settings.method IN ('email','sms')` and every second factor is a server-sent 6-digit code (`Require2FAForLogin` -> email/SMS). Both require deliverability and are weaker factors. TOTP is offline: the authenticator app and server independently derive the same time-based code.
+
+This reuses the existing single-method-per-user model, backup codes, the `Create/Verify/Clear2FAChallenge` gate, and the generic `POST /2fa/verify` endpoint. A user picks **email OR sms OR totp**. Multi-method fallback stays out of scope.
+
+## Design
+
+1. No send step. `Require2FAForLogin` branches on method: for `totp`, it skips code generation, ephemeral code storage, and email/SMS delivery. The password-login 2FA branch returns `{requires_2fa:true,user_id,method:"totp",challenge}`.
+
+2. Two-step enrollment:
+- `POST /user/2fa` with `{method:"totp"}` generates a random 160-bit base32 secret, stores it as pending/unconfirmed, and returns `{secret,otpauth_uri}`. AuthKit returns the provisioning URI, not a QR image.
+- `POST /user/2fa` with `{method:"totp",code:"123456"}` verifies the code against the pending secret, enables TOTP, persists the encrypted secret, and returns backup codes.
+
+3. Verify computes instead of compares. `Verify2FACode` branches for `totp` and computes expected codes over the current 30s step with a +/-1 window. `VerifyBackupCode` stays unchanged.
+
+4. Replay protection. Track the last consumed TOTP time-step per user and reject reuse. Prefer a `last_totp_step bigint` column unless implementation shows an ephemeral key is cleaner.
+
+5. Secret at rest. TOTP is the first persistent 2FA shared secret, so store it encrypted. Prefer a host-provided AES-GCM key in core config and gate TOTP enrollment unless it is configured.
+
+## Schema and deps
+
+- Add a migration: `totp_secret`, `method` CHECK includes `'totp'`, and `last_totp_step`.
+- Regenerate sqlc.
+- Implement RFC 6238 with the Go stdlib unless a real edge case makes `github.com/pquerna/otp` worth owning.
+
+## Integration points
+
+- **core**: `TwoFactorSettings`, `Enable2FA`, `Get2FASettings`, `Require2FAForLogin`, `Verify2FACode`, new `StartTOTPEnrollment`, secret encrypt/decrypt helpers.
+- **http**: unified `POST /user/2fa`, `DELETE /user/2fa`, `POST /user/2fa/backup-codes`, `GET /user/2fa`, password-login 2FA branch.
+- **routes/buckets**: keep per-method/per-action buckets internally even though setup/enable shares `POST /user/2fa`.
+- **docs**: README 2FA section and `agents/api-endpoints.md`.
+
+## Route cleanup
+
+Keep `GET /user/2fa` as the status route.
+
+Collapse enrollment into one authenticated route:
+- `POST /user/2fa` with `{method:"email"}` enables email 2FA and returns backup codes.
+- `POST /user/2fa` with `{method:"sms",phone_number:"..."}` starts/restarts SMS setup and sends a code.
+- `POST /user/2fa` with `{method:"sms",phone_number:"...",code:"..."}` verifies the pending SMS setup and enables SMS 2FA.
+- `POST /user/2fa` with `{method:"totp"}` starts/restarts TOTP setup and returns `{secret,otpauth_uri}`.
+- `POST /user/2fa` with `{method:"totp",code:"..."}` verifies the pending TOTP setup and enables TOTP 2FA.
+
+Use resource-shaped routes for sensitive mutations:
+- `DELETE /user/2fa` disables 2FA.
+- `POST /user/2fa/backup-codes` regenerates backup codes and returns them once.
+
+Keep public login verification separate:
+- `POST /2fa/verify` remains the password-login second-factor completion route and mints a new session.
+- Authenticated step-up reauth belongs to #103, not this login route.
+
+Remove old ceremony routes from the canonical API surface:
+- `POST /user/2fa/start-phone`
+- `POST /user/2fa/enable`
+- `POST /user/2fa/disable`
+- `POST /user/2fa/regenerate-codes`
+
+## Tasks
+
+- [ ] Add host-provided AES-GCM TOTP secret encryption config; fail closed for TOTP enrollment when missing.
+- [ ] Add migration for `totp_secret`, `last_totp_step`, and `method IN ('email','sms','totp')`; regenerate sqlc.
+- [ ] Add stdlib TOTP secret generation, otpauth URI builder, and code verification with +/-1 step skew.
+- [ ] Add pending TOTP enrollment storage with short TTL.
+- [ ] Extend `Enable2FA` to verify pending TOTP before enabling and persisting the encrypted secret.
+- [ ] Branch `Require2FAForLogin` and `Verify2FACode` for `totp`.
+- [ ] Add replay protection for consumed TOTP time steps.
+- [ ] Replace setup/enable routes with unified `POST /user/2fa`; keep per-method rate limits internally as needed.
+- [ ] Replace `POST /user/2fa/disable` with `DELETE /user/2fa`.
+- [ ] Replace `POST /user/2fa/regenerate-codes` with `POST /user/2fa/backup-codes`.
+- [ ] Update 2FA status to report `method:"totp"`.
+- [ ] Wire TOTP into #103 reauth so a TOTP code can upgrade the current session and record MFA `amr`.
+- [ ] Remove old 2FA ceremony routes from `http/routes.go`.
+- [ ] Add tests: enroll -> confirm -> login, wrong/expired code, +/-1 skew, replay rejected, backup-code path still works, secret is not stored plaintext.
+- [ ] Update README and `agents/api-endpoints.md`.
+- [ ] Run `go test ./...` and record the result here.
+
+## Acceptance
+
+- TOTP can be enrolled only after prove-possession of the generated secret.
+- TOTP login works through the existing 2FA challenge flow without sending email/SMS.
+- TOTP secrets are encrypted at rest.
+- TOTP codes cannot be replayed in the same accepted time step.
+- #103 can treat TOTP-backed reauth as MFA-fresh.
+- The canonical authenticated 2FA management surface is `GET/POST/DELETE /user/2fa` plus `POST /user/2fa/backup-codes`.
+
+---
+
+# #103: Emit OIDC `amr`/`acr`/`auth_time` assurance claims and collapse sensitive contact-change routes
+
+**Completed:** no
+**Status:** IN PROGRESS 2026-06-23 (Paul + Codex). Token assurance primitives are implemented; `/reauth/2fa` and contact-change route collapse remain. Promote the existing issuer-local fresh-auth machinery into token-visible assurance claims, and use the same "stale session -> reauth required -> retry" pattern to simplify the account email/phone change API.
+
+## Naming
+
+Use "sudo mode" as a docs-friendly nickname only. Public API names should stay boring and standard: fresh auth, step-up auth, `auth_time`, `amr`, `acr`, `reauth_required`.
+
+## Current problem
+
+AuthKit already tracks session freshness server-side:
+- `RequireFreshSession(ctx, userID, sessionID, now)` returns `ErrReauthenticationRequired` when the current session is too old for a sensitive operation.
+- `MarkSessionAuthenticated(ctx, userID, sessionID)` upgrades the current session after reauth.
+- `/reauth/password` and linked-provider reauth already call `MarkSessionAuthenticated`.
+- `/user/me` already exposes freshness state to frontends.
+
+But this is issuer-local. Downstream resource servers only see JWTs, so they cannot tell whether the user recently re-proved identity or used MFA. Tokens say who the user is, not how or when they authenticated.
+
+The account contact-change routes also expose too much HTTP ceremony for the same pattern. Email and phone change currently have separate `request`, `confirm`, `resend`, and `cancel` routes. The real flow is simpler: an authenticated user asks to change the value; AuthKit either accepts, rejects, or returns `reauth_required`; after reauth the frontend retries; confirmation proves control of the new destination.
+
+## Target contact-change surface
+
+Email:
+- `POST /user/email/change` with `{new_email,password?}` starts or restarts the pending change. If the session is stale and no valid inline password is supplied, return `403 reauth_required` with `reauth_methods` and `fresh_auth`.
+- `POST /user/email/change` with `{code}` confirms the pending change and applies the new email.
+
+Phone:
+- `POST /user/phone/change` with `{phone_number,password?}` starts or restarts the pending change. If the session is stale and no valid inline password is supplied, return `403 reauth_required` with `reauth_methods` and `fresh_auth`.
+- `POST /user/phone/change` with `{phone_number,code}` confirms the pending change and applies the new phone.
+
+Rules:
+- Request/start requires fresh auth or a valid inline password, exactly like today.
+- Confirm requires the destination proof code, not fresh auth; the pending change was already gated at creation.
+- Resend does not need a route. Posting the same target again supersedes the pending record and sends a new code.
+- Cancel does not need a route. Pending changes expire, and a new request supersedes the old pending record.
+- Payloads that mix start and confirm fields ambiguously should return `invalid_request`.
+- Remove the old `request`, `confirm`, `resend`, and `cancel` contact-change routes from the canonical API surface.
+
+## Token assurance design
+
+Record method and assurance at authentication time. Extend the session freshness record to store the methods used and the authentication timestamp. The freshness timestamp already written by `MarkSessionAuthenticated` is the source of truth for `auth_time`.
+
+Minimum useful access-token claims:
+- `auth_time`: when this session last proved identity.
+- `amr`: how identity was proved (`pwd`, `otp`, `mfa`, etc.).
+- `acr`: optional assurance class; add now only if AuthKit chooses a concrete class mapping. Do not invent meaningless levels.
+
+Extend `MarkSessionAuthenticated` and initial login/2FA paths to accept the authentication methods used. Tentative AuthKit method mapping:
+- password login or password reauth -> `["pwd"]`
+- email/SMS 2FA -> `["pwd","otp","mfa"]`
+- TOTP (#101) -> `["pwd","otp","mfa"]`
+- Solana SIWS -> `["swk"]`
+- OIDC login -> pass through upstream `amr` when present, otherwise decide whether to flatten to `["pwd"]`
+- passkey (future) -> `["swk","mfa"]` or `["hwk","mfa"]`, depending on credential metadata
+
+Emit `amr`, `acr`, and `auth_time` through the existing `extra map[string]any` passed to `IssueAccessToken` by password login, 2FA login, OIDC/OAuth login, Solana login, refresh, and any reauth-triggered refresh path.
+
+Verify side:
+- Add `AMR []string`, `ACR string`, and `AuthTime time.Time` to verified claims.
+- Add helpers `Claims.HasAMR(m)` and `Claims.AuthenticatedWithin(d)`.
+- Add middleware: `RequireFreshAuth(maxAge)`, `RequireMFA()` / `RequireAMR("otp")`, and `RequireACR(level)`.
+- These must fail closed for missing claims and deny machine credentials.
+
+Authenticated step-up route:
+- Keep `POST /2fa/verify` for login only; it verifies the password-login 2FA challenge and mints a new session.
+- Add `POST /reauth/2fa` for authenticated step-up. With no `code`, email/SMS methods send a reauth code and TOTP returns the method/challenge metadata. With `code`, it verifies the current user's configured factor, calls `MarkSessionAuthenticated` with MFA `amr`, returns `fresh_auth`, and lets the frontend refresh the access token before retrying.
+- Store any email/SMS reauth code against the current user + current session, not just the user, so a code from one browser session cannot upgrade another session.
+- Backup codes may be accepted for login recovery, but should not count as MFA-fresh step-up unless explicitly decided; default to not using backup codes for sudo-mode reauth.
+
+## Subtleties
+
+- Snapshot semantics: `amr`/`acr`/`auth_time` are snapshotted into the access token. After step-up, the client refreshes the access token, then retries the sensitive downstream call.
+- Single clock: `auth_time` must come from the same freshness timestamp used by `RequireFreshSession`.
+- Method matters: password-fresh and MFA-fresh are not the same. Do not store only a timestamp.
+- Back-compat: existing tokens without these claims still work on routes that do not require them.
+- Per-endpoint sudo policy is host/resource-server policy. AuthKit ships the primitives and uses them for its own sensitive account routes.
+
+## Tasks
+
+- [x] Add method/assurance storage to the session freshness record.
+- [x] Extend `MarkSessionAuthenticated` and initial login/2FA paths to record `amr`.
+- [ ] Decide whether AuthKit should set concrete `acr` levels. Current implementation parses/gates `acr` but does not mint it.
+- [x] Emit `amr`/`auth_time` from every access-token issuance path by deriving them from the `sid` session. `acr` remains unset until a real assurance-class mapping exists.
+- [x] Parse `amr`/`acr`/`auth_time` into verified claims; add `HasAMR` and `AuthenticatedWithin`.
+- [x] Add `RequireFreshAuth(maxAge)`, `RequireMFA()` / `RequireAMR(...)`, and `RequireACR(level)` middleware; fail closed and deny machine credentials.
+- [ ] Add `POST /reauth/2fa` for authenticated MFA step-up; do not reuse login-only `POST /2fa/verify`.
+- [ ] Gate `DELETE /user/2fa` and `POST /user/2fa/backup-codes` on fresh auth / MFA step-up.
+- [ ] Collapse email change to `POST /user/email/change` for both start/restart and confirm.
+- [ ] Collapse phone change to `POST /user/phone/change` for both start/restart and confirm.
+- [ ] Remove the old contact-change `request`, `confirm`, `resend`, and `cancel` routes from `http/routes.go`.
+- [ ] Update `agents/api-endpoints.md`, README examples, and route-table tests.
+- [ ] Add focused tests for stale session -> `reauth_required` -> reauth -> retry, inline password fallback, code confirmation, same-target resend-by-repost, ambiguous payload rejection, removed old routes, token claim emission, and downstream middleware gates. Middleware/parser coverage exists in `verify/claims_assurance_test.go`; remaining tests are for the reauth/contact-change flows.
+- [ ] Run `go test ./...` and record the result here.
+
+## Acceptance
+
+- Resource servers can require recent auth and/or MFA using token claims only.
+- AuthKit's issuer-local fresh-auth gate and token `auth_time` use one source of truth.
+- Password-fresh and MFA-fresh are distinguishable.
+- Login 2FA and authenticated step-up 2FA are separate flows: `/2fa/verify` mints login sessions; `/reauth/2fa` upgrades the current session.
+- Email change has one canonical public route: `POST /user/email/change`.
+- Phone change has one canonical public route: `POST /user/phone/change`.
+- The frontend can treat contact changes as: submit change, handle success/error/`reauth_required`, reauth, retry.
+- No public contact-change `request`, `confirm`, `resend`, or `cancel` routes remain in the canonical API surface.
+
+---
+
+# #115: Stripe-style error envelope — nest `{type, code, message, param}` to match openrails
+
+**Completed:** mostly
+**Status:** IMPLEMENTED 2026-06-23 (Claude) — envelope + helpers done; docs + version bump remain. Added the shared core-free envelope `authbase/httperror.go` (`ErrorObject{Type,Code,Message,Param,Metadata}`, `ErrorEnvelope`, `ErrorTypeForStatus`, `ErrorMessage` curated+humanized catalog) used by BOTH `http/errors.go` and `verify/helpers.go`, so authhttp + verify emit the identical nested `{"error":{type,code,message,param?,metadata?}}` shape. Type is derived from HTTP status (openrails taxonomy strings); `code` values unchanged (#104); rate-limit/availability context moved into `error.metadata` (`tooMany`/`tooManyAvailability`/`reauthRequired`/username-rename all fold into `sendErrData`). `param` auto-attached for known identity-validation codes via `validationParam` map + `badRequestParam`. Tests: `authbase` envelope unit tests + updated `TestHTTPErrorCodeConstantServedByAPIHandler` (asserts nested code/type/message) green; `go build/vet ./...` green; DB-free `http`/`verify` error tests green. REMAINING (`[ ]` below): README "Error contract" + `agents/api-endpoints.md` docs, and the BREAKING version bump (v0.51.0) + consumer-migration note. NOTE: landed on a shared working tree alongside concurrent #103/#114 work.
+**Status (original):** PLANNED 2026-06-23 (Claude). authkit emits a FLAT, code-only error envelope `{"error":"<code>"}` while openrails emits the full Stripe-style NESTED envelope `{"error":{"type","code","message","param?","metadata?"}}` (openrails `pkg/api/error.go`). Same ecosystem, two different error shapes — a client hitting both APIs gets inconsistent errors. This brings authkit's envelope to the SAME Stripe shape openrails uses, keeping the 240 existing `ErrorCode` values stable as the `code` field. Done CENTRALLY at the error helpers (`http/errors.go` + `verify/helpers.go`) so the ~all call sites are untouched. BREAKING wire change.
+
+## Problem
+- authkit today (`http/errors.go`): `type errResp struct { Error ErrorCode json:"error" }` → `{"error":"invalid_request"}`. Rate-limit/availability data rides as TOP-LEVEL siblings (`retry_after_seconds`, ...). No `type`, no human `message`, no `param`.
+- openrails (`pkg/api/error.go`): `{"error":{"type":"invalid_request_error","code":"...","message":"...","param":"...","metadata":{...}}}` + a Stripe type taxonomy + importable `ErrorType*`/`Code*` consts.
+- Both ALREADY use importable constants (authkit: 240 `authhttp.ErrorCode`, guard-tested; openrails: `pkg/api`). This issue is ONLY about envelope SHAPE + adding `type`/`message`/`param`, NOT de-stringifying (already done, #104).
+
+## Target envelope (mirror openrails/Stripe)
+```json
+{ "error": { "type": "authentication_error", "code": "invalid_credentials",
+             "message": "The email or password is incorrect.",
+             "param": null, "metadata": { "retry_after_seconds": 30 } } }
+```
+- `code` — UNCHANGED: the existing `authhttp.ErrorCode` value (stable contract; 240 constants kept).
+- `type` — NEW: small taxonomy aligned EXACTLY with openrails' strings — `invalid_request_error` (400/404/409), `authentication_error` (401), `authorization_error` (403), `rate_limit_error` (429), `api_error` (>=500). Derived from HTTP status, same as openrails `inferErrorTypeAndCode`.
+- `message` — NEW: human-readable, localized via the existing `LanguageMiddleware`/request-locale. English default from a `code -> message` catalog; humanized-code fallback (`password_too_short` -> "Password too short.") so it is NEVER empty.
+- `param` — NEW (optional): the offending field for validation errors (`email`, `password`, ...); omitted otherwise.
+- `metadata` — NEW (optional): machine-readable context; the rate-limit/availability fields (`retry_after_seconds`, `limit`, `remaining`, action-availability) MOVE off the top level INTO `error.metadata`.
+
+## Design
+- **Central, call-site-free.** Change only the helpers: `sendErr`/`sendErrData`/`tooMany`/`tooManyAvailability` build the nested envelope; the ~all `badRequest(w, code)`/`unauthorized(w, code)`/... call sites stay as-is.
+- **Shared, core-free envelope.** Put envelope types + builder (`Error{Type,Code,Message,Param,Metadata}`, `ErrorEnvelope{Error}`, `typeForStatus`, `Message(code, locale)`) in a stdlib-only package BOTH `authhttp` and the core-free `verify` package import (extend `authbase`, or a new `autherr`) — so `verify/helpers.go` (which #110 made emit the byte-identical flat envelope) stays in lockstep. NO import of openrails (authkit is the lower layer — see Open decision 3).
+- **Type from status** (openrails parity): 400/404/409->`invalid_request_error`, 401->`authentication_error`, 403->`authorization_error`, 429->`rate_limit_error`, >=500->`api_error`.
+- **Message catalog**: `code -> English message` map + humanized fallback; locale hook reads the request locale.
+- **Param**: add `badRequestParam(w, code, param)` (+ envelope support); wire on validation paths that know the field; omitted elsewhere (full coverage incremental).
+
+## Tasks
+- [ ] Define the shared core-free envelope types + builder (`Error{Type,Code,Message,Param,Metadata}` + `ErrorEnvelope`) and `typeForStatus(status)` mirroring openrails' taxonomy strings; stdlib-only, importable by `authhttp` AND `verify`.
+- [ ] `code -> message` catalog (English) + humanized-code fallback (never empty) + `Message(code, locale)` hook reading the request locale (LanguageMiddleware).
+- [ ] Rewrite `http/errors.go` helpers (`sendErr`, `sendErrData`, `tooMany`, `tooManyAvailability`, `registrationDisabled`, ...) to emit the nested envelope; move rate-limit/availability sibling fields into `error.metadata`.
+- [ ] Mirror the change in `verify/helpers.go` (`unauthorized`/`forbidden`) so the verify-only surface emits the identical envelope.
+- [ ] Add `param` support + `badRequestParam` helper; wire on the obvious validation paths (email/password/username/phone), omit elsewhere.
+- [ ] Update guard tests: keep the no-bare-string guard; ASSERT every emitted error carries non-empty `type` + `code` + `message` nested under `error`; update existing tests that decode the OLD flat `{"error":"code"}` (centralize on a test helper reading `error.code`).
+- [ ] Docs: README "Error contract" + `agents/api-endpoints.md` — document the nested shape + type taxonomy; note it matches openrails/Stripe.
+- [ ] Version bump (BREAKING -> v0.51.0). Record the consumer-migration follow-up (frontends + openrails/doujins/hentai0/tensorhub/cozy-art read `.error` as a string today -> must read `error.code`).
+
+## Acceptance
+- Every authkit HTTP error is `{"error":{type,code,message,...}}`; `code` values unchanged from #104; `type` in the openrails taxonomy; `message` always non-empty.
+- `authhttp` and `verify` emit byte-identical envelope shapes.
+- Rate-limit/availability context lives under `error.metadata`, not as top-level siblings.
+- Guard test rejects bare-string codes AND empty `type`/`message`.
+- authkit's envelope is structurally identical to openrails' `pkg/api.ErrorResponse`.
+
+## Open decisions (pin while building)
+1. Localize messages now or English-only v1? Lean ENGLISH-ONLY v1 (Stripe returns English), locale hook in place; localized catalogs follow.
+2. `param` coverage — envelope supports it; wire only the obvious validation fields in v1, expand incrementally.
+3. Share types with openrails? authkit is the LOWER layer (openrails imports authkit), so authkit defines the canonical envelope; a FOLLOW-UP could have openrails `pkg/api` re-export authkit's types to unify on ONE definition. Out of scope here.
+4. Back-compat — clean break (no dual-emit), matching the #111 precedent; coordinate consumer migration via the version bump.

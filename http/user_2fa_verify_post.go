@@ -65,7 +65,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	}
 	_ = s.svc.Clear2FAChallenge(r.Context(), userID)
 
-	sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), userID, r.UserAgent(), nil)
+	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"pwd", "otp", "mfa"})
 	if err != nil {
 		if errors.Is(err, core.ErrUserBanned) {
 			logLoginFailed(s, r, userID, "user_banned")

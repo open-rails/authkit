@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-rails/authkit/authbase"
 	core "github.com/open-rails/authkit/core"
 )
 
@@ -80,11 +81,18 @@ func TestHTTPErrorCodeConstantServedByAPIHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
-	var body errResp
+	var body authbase.ErrorEnvelope
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Error != ErrInvalidRequest {
-		t.Fatalf("error = %q, want %q", body.Error, ErrInvalidRequest)
+	if body.Error.Code != string(ErrInvalidRequest) {
+		t.Fatalf("error.code = %q, want %q", body.Error.Code, ErrInvalidRequest)
+	}
+	// Stripe-style envelope (#115): type + message are always populated.
+	if body.Error.Type != authbase.ErrorTypeInvalidRequest {
+		t.Fatalf("error.type = %q, want %q", body.Error.Type, authbase.ErrorTypeInvalidRequest)
+	}
+	if body.Error.Message == "" {
+		t.Fatalf("error.message is empty; envelope = %+v", body.Error)
 	}
 }

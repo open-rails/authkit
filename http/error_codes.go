@@ -60,9 +60,6 @@ const (
 	// ErrAddressRequired is the address_required AuthKit HTTP wire error code.
 	ErrAddressRequired ErrorCode = "address_required"
 
-	// ErrAssignPlatformRoleFailed is the assign_platform_role_failed AuthKit HTTP wire error code.
-	ErrAssignPlatformRoleFailed ErrorCode = "assign_platform_role_failed"
-
 	// ErrAssignRoleFailed is the assign_role_failed AuthKit HTTP wire error code.
 	ErrAssignRoleFailed ErrorCode = "assign_role_failed"
 
@@ -561,30 +558,6 @@ const (
 	// ErrPKCEGenerationFailed is the pkce_generation_failed AuthKit HTTP wire error code.
 	ErrPKCEGenerationFailed ErrorCode = "pkce_generation_failed"
 
-	// ErrPlatformPermissionLookupFailed is the platform_permission_lookup_failed AuthKit HTTP wire error code.
-	ErrPlatformPermissionLookupFailed ErrorCode = "platform_permission_lookup_failed"
-
-	// ErrPlatformPermissionsLookupFailed is the platform_permissions_lookup_failed AuthKit HTTP wire error code.
-	ErrPlatformPermissionsLookupFailed ErrorCode = "platform_permissions_lookup_failed"
-
-	// ErrPlatformRoleDefineFailed is the platform_role_define_failed AuthKit HTTP wire error code.
-	ErrPlatformRoleDefineFailed ErrorCode = "platform_role_define_failed"
-
-	// ErrPlatformRoleDeleteFailed is the platform_role_delete_failed AuthKit HTTP wire error code.
-	ErrPlatformRoleDeleteFailed ErrorCode = "platform_role_delete_failed"
-
-	// ErrPlatformRoleLookupFailed is the platform_role_lookup_failed AuthKit HTTP wire error code.
-	ErrPlatformRoleLookupFailed ErrorCode = "platform_role_lookup_failed"
-
-	// ErrPlatformRoleMembersFailed is the platform_role_members_failed AuthKit HTTP wire error code.
-	ErrPlatformRoleMembersFailed ErrorCode = "platform_role_members_failed"
-
-	// ErrPlatformRoleSetPermsFailed is the platform_role_set_perms_failed AuthKit HTTP wire error code.
-	ErrPlatformRoleSetPermsFailed ErrorCode = "platform_role_set_perms_failed"
-
-	// ErrPlatformRolesListFailed is the platform_roles_list_failed AuthKit HTTP wire error code.
-	ErrPlatformRolesListFailed ErrorCode = "platform_roles_list_failed"
-
 	// ErrPreferredLocaleLookupFailed is the preferred_locale_lookup_failed AuthKit HTTP wire error code.
 	ErrPreferredLocaleLookupFailed ErrorCode = "preferred_locale_lookup_failed"
 
@@ -650,9 +623,6 @@ const (
 
 	// ErrResourceScopeDenied is the resource_scope_denied AuthKit HTTP wire error code.
 	ErrResourceScopeDenied ErrorCode = "resource_scope_denied"
-
-	// ErrRevokePlatformRoleFailed is the revoke_platform_role_failed AuthKit HTTP wire error code.
-	ErrRevokePlatformRoleFailed ErrorCode = "revoke_platform_role_failed"
 
 	// ErrRoleExceedsGrantor is the role_exceeds_grantor AuthKit HTTP wire error code.
 	ErrRoleExceedsGrantor ErrorCode = "role_exceeds_grantor"

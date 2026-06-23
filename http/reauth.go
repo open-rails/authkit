@@ -175,8 +175,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 
 func (s *Service) reauthRequired(w http.ResponseWriter, r *http.Request, claims Claims) {
 	freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
-	writeJSON(w, http.StatusForbidden, map[string]any{
-		"error":          ErrReauthRequired,
+	sendErrData(w, http.StatusForbidden, ErrReauthRequired, map[string]any{
 		"reauth_methods": s.reauthMethods(r, claims.UserID),
 		"fresh_auth":     sessionFreshnessResponse(freshness),
 	})

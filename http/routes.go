@@ -2,6 +2,8 @@ package authhttp
 
 import (
 	"net/http"
+
+	core "github.com/open-rails/authkit/core"
 )
 
 // RouteGroup identifies a prefix-neutral AuthKit route capability. Host
@@ -94,6 +96,13 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	}
 	selected := routeGroupSet(groups)
 	required := Required(s.verifier)
+	// rootPermission gates an intrinsic, root-scoped route on a `root:*`
+	// permission through the granular permission system (svc.Can for users,
+	// the verified ceiling for machine principals — see requirePermission).
+	// There is no bespoke "admin" auth tier; these are plain root-group perms.
+	rootPermission := func(perm string, h http.HandlerFunc) http.Handler {
+		return required(s.requirePermission(core.RootType, "", perm, h))
+	}
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	// notFoundHandler explicitly 404s a removed path that an adjacent wildcard
 	// route would otherwise capture (e.g. POST /admin/users/toggle-active would
@@ -163,39 +172,23 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/solana/login", Group: RouteSolana, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
 		{Method: http.MethodPost, Path: "/solana/link", Group: RouteSolana, Handler: required(http.HandlerFunc(s.handleSolanaLinkPOST))},
 
-		// Intrinsic user-admin directory (#111: org/platform RBAC removed). These
-		// operate on the USER identity surface and are kept as part of authkit's
-		// intrinsic /admin/* surface. They are authenticated (required); the former
-		// `platform:` permission gating was removed with the platform RBAC plane.
-		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersListGET))},
-		{Method: http.MethodGet, Path: "/admin/users/deleted", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminDeletedUsersListGET))},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserGET))},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserSigninsGET))},
-		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersBanPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersUnbanPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-email", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersSetEmailPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-username", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersSetUsernamePOST))},
-		{Method: http.MethodPost, Path: "/admin/users/set-password", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUsersSetPasswordPOST))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserSessionsRevokePOST))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserPasswordResetPOST))},
-		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserDeleteDELETE))},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: required(http.HandlerFunc(s.handleAdminUserRestorePOST))},
+		// Intrinsic user-admin directory. Auth is permission-based: human users
+		// authorize through the root permission-group, programmatic principals via
+		// their verified permission ceiling.
+		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUsersListGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUserGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUserSigninsGET)},
+		{Method: http.MethodPost, Path: "/admin/users/ban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersBanPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/unban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/set-email", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUsersSetEmailPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/set-username", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUsersSetUsernamePOST)},
+		{Method: http.MethodPost, Path: "/admin/users/set-password", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUsersSetPasswordPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: rootPermission(core.PermRootSessionsRevoke, s.handleAdminUserSessionsRevokePOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/password-reset", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUserPasswordResetPOST)},
+		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
 		// 404 sentinel for a removed path that an adjacent wildcard would capture.
 		{Method: http.MethodPost, Path: "/admin/users/toggle-active", Group: RouteAdmin, Handler: notFoundHandler},
-
-		// Remote-application registry (#74, INBOUND accept side). A
-		// remote_application is the federation PRINCIPAL (JWKS-credentialed) and a
-		// pure ORG-NESTED sub-resource, exactly like api-keys (#95): the owning
-		// org is in the PATH and management gates in-handler on
-		// org:remote_applications:{create,update,delete}. Every issuer is org-owned
-		// (org_id NOT NULL); there is no flat/global route and no global-admin.
-		// A remote_application's org memberships (assigned via the SAME role
-		// machinery as users); {org} is the issuer's owning org.
-		// Attribute definition registry (#75) — the federation token-CONTRACT
-		// layer, NOT org management: the write is self-authored by the
-		// remote_application and the read resolves a token reference for ANY
-		// authenticated platform (no org context). Addressed by issuer {slug}
-		// globally, so these stay flat (not org-nested).
 	}
 
 	// #111: the org/platform RBAC HTTP surface (members, roles, invites, org

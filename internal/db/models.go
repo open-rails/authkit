@@ -80,6 +80,7 @@ type ProfilesRefreshSession struct {
 	RevokedAt           *time.Time
 	UserAgent           *string
 	IpAddr              *string
+	AuthMethods         []string
 }
 
 // Federation principals: external systems that authenticate by signing JWTs verified against their JWKS/public keys. Members of orgs with roles via polymorphic org_memberships.

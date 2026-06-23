@@ -60,7 +60,8 @@ func (q *Queries) SessionByPreviousTokenHash(ctx context.Context, arg SessionByP
 }
 
 const sessionFreshSince = `-- name: SessionFreshSince :one
-SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since
+SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
+       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
 FROM profiles.refresh_sessions
 WHERE id = $1::uuid
   AND user_id = $2::uuid
@@ -75,11 +76,16 @@ type SessionFreshSinceParams struct {
 	Issuer    string
 }
 
-func (q *Queries) SessionFreshSince(ctx context.Context, arg SessionFreshSinceParams) (time.Time, error) {
+type SessionFreshSinceRow struct {
+	FreshSince  time.Time
+	AuthMethods []string
+}
+
+func (q *Queries) SessionFreshSince(ctx context.Context, arg SessionFreshSinceParams) (SessionFreshSinceRow, error) {
 	row := q.db.QueryRow(ctx, sessionFreshSince, arg.SessionID, arg.UserID, arg.Issuer)
-	var fresh_since time.Time
-	err := row.Scan(&fresh_since)
-	return fresh_since, err
+	var i SessionFreshSinceRow
+	err := row.Scan(&i.FreshSince, &i.AuthMethods)
+	return i, err
 }
 
 const sessionIDByCurrentTokenHash = `-- name: SessionIDByCurrentTokenHash :one
@@ -103,8 +109,8 @@ func (q *Queries) SessionIDByCurrentTokenHash(ctx context.Context, arg SessionID
 
 const sessionInsert = `-- name: SessionInsert :one
 
-INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+INSERT INTO profiles.refresh_sessions (id, family_id, user_id, issuer, current_token_hash, expires_at, user_agent, ip_addr, last_authenticated_at, auth_methods)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 RETURNING id::text, family_id::text
 `
 
@@ -117,6 +123,7 @@ type SessionInsertParams struct {
 	ExpiresAt        *time.Time
 	UserAgent        *string
 	IpAddr           *string
+	AuthMethods      []string
 }
 
 type SessionInsertRow struct {
@@ -135,6 +142,7 @@ func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (S
 		arg.ExpiresAt,
 		arg.UserAgent,
 		arg.IpAddr,
+		arg.AuthMethods,
 	)
 	var i SessionInsertRow
 	err := row.Scan(&i.ID, &i.FamilyID)
@@ -143,7 +151,7 @@ func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (S
 
 const sessionMarkAuthenticated = `-- name: SessionMarkAuthenticated :execrows
 UPDATE profiles.refresh_sessions
-SET last_authenticated_at = now()
+SET last_authenticated_at = now(), auth_methods = $4
 WHERE id = $1::uuid
   AND user_id = $2::uuid
   AND issuer = $3
@@ -152,13 +160,19 @@ WHERE id = $1::uuid
 `
 
 type SessionMarkAuthenticatedParams struct {
-	SessionID string
-	UserID    string
-	Issuer    string
+	SessionID   string
+	UserID      string
+	Issuer      string
+	AuthMethods []string
 }
 
 func (q *Queries) SessionMarkAuthenticated(ctx context.Context, arg SessionMarkAuthenticatedParams) (int64, error) {
-	result, err := q.db.Exec(ctx, sessionMarkAuthenticated, arg.SessionID, arg.UserID, arg.Issuer)
+	result, err := q.db.Exec(ctx, sessionMarkAuthenticated,
+		arg.SessionID,
+		arg.UserID,
+		arg.Issuer,
+		arg.AuthMethods,
+	)
 	if err != nil {
 		return 0, err
 	}

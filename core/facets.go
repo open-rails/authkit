@@ -617,6 +617,11 @@ func (f SessionsFacet) IssueRefreshSession(ctx context.Context, userID, userAgen
 	return f.svc.IssueRefreshSession(ctx, userID, userAgent, ip)
 }
 
+// IssueRefreshSessionWithAuthMethods calls Service.IssueRefreshSessionWithAuthMethods.
+func (f SessionsFacet) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+	return f.svc.IssueRefreshSessionWithAuthMethods(ctx, userID, userAgent, ip, authMethods)
+}
+
 // ListUserSessions calls Service.ListUserSessions.
 func (f SessionsFacet) ListUserSessions(ctx context.Context, userID string) ([]Session, error) {
 	return f.svc.ListUserSessions(ctx, userID)
@@ -645,6 +650,11 @@ func (f SessionsFacet) LogSessionFailed(ctx context.Context, userID string, sess
 // MarkSessionAuthenticated calls Service.MarkSessionAuthenticated.
 func (f SessionsFacet) MarkSessionAuthenticated(ctx context.Context, userID, sessionID string) error {
 	return f.svc.MarkSessionAuthenticated(ctx, userID, sessionID)
+}
+
+// MarkSessionAuthenticatedWithMethods calls Service.MarkSessionAuthenticatedWithMethods.
+func (f SessionsFacet) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID, sessionID string, authMethods []string) error {
+	return f.svc.MarkSessionAuthenticatedWithMethods(ctx, userID, sessionID, authMethods)
 }
 
 // RequireFreshSession calls Service.RequireFreshSession.

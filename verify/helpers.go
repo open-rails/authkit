@@ -35,18 +35,14 @@ const (
 	RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 )
 
-// errResp is the JSON error envelope written by the auth middleware. It mirrors
-// authhttp's errResp byte-for-byte ({"error":"<code>"}) so responses are
-// identical whether a route is mounted via authhttp or the verify package
-// directly.
-type errResp struct {
-	Error string `json:"error"`
-}
-
+// writeErr writes the canonical Stripe-style error envelope
+// ({"error":{type,code,message}}) via the shared authbase builder, so responses
+// are byte-identical whether a route is mounted through authhttp or the verify
+// package directly.
 func writeErr(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(errResp{Error: code})
+	_ = json.NewEncoder(w).Encode(authbase.NewErrorEnvelope(status, code, nil, nil))
 }
 
 func unauthorized(w http.ResponseWriter, code string) { writeErr(w, http.StatusUnauthorized, code) }

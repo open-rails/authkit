@@ -532,10 +532,11 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, s.opts.AccessTokenDuration)
 	expiresAt = base.ExpiresAt.Time
-	// Platform/org authority is no longer carried as a token claim: the legacy
-	// `global_roles`/`roles` plane was hard-cut in favor of Layer-2 platform RBAC
-	// (profiles.platform_roles + platform:* perms), which is resolved at request
-	// time from the DB, not snapshotted into the access token.
+	// Group/role authority is no longer carried as a token claim: the legacy
+	// `global_roles`/`roles` plane was hard-cut in favor of the permission-group
+	// RBAC engine (#111) — group role assignments + `<persona>:<resource>:<action>`
+	// perms resolved at request time from the DB (svc.Can), not snapshotted into
+	// the access token.
 	var ents []string
 	if s.entitlements != nil {
 		var entErr error
@@ -571,6 +572,12 @@ func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, ex
 		"iat":          base.IssuedAt.Time.Unix(),
 		"exp":          base.ExpiresAt.Time.Unix(),
 		"entitlements": ents,
+	}
+	if sid, ok := extra["sid"].(string); ok && strings.TrimSpace(sid) != "" && s.pg != nil {
+		if freshness, freshErr := s.SessionFreshness(ctx, userID, sid, time.Now()); freshErr == nil {
+			claims["auth_time"] = freshness.LastAuthenticatedAt.Unix()
+			claims["amr"] = freshness.AuthMethods
+		}
 	}
 	for k, v := range extra {
 		claims[k] = v
@@ -3131,15 +3138,15 @@ const (
 	AdminUserSortEmail     AdminUserSort = "email"
 )
 
-// AdminUserListOptions is the GENERIC admin user-directory query (issue #91). It
-// carries no host product knowledge: Role is any root permission-group role slug,
-// Status/Sort are closed enums. Entitlement filtering delegates to the billing
-// provider (EntitlementFilterProvider), never a cross-schema join.
+// AdminUserListOptions is the admin dashboard user-directory query. It carries
+// no host product knowledge: Role is the root_role query param, a singleton-root
+// permission-group role slug. Status/Sort are closed enums. Entitlement
+// filtering delegates to the billing provider, never a cross-schema join.
 type AdminUserListOptions struct {
 	Page        int
 	PageSize    int
 	Search      string          // ILIKE over username/email/phone_number
-	Role        string          // root-group role slug (e.g. "admin"); empty = no role filter
+	Role        string          // root_role slug (e.g. "admin"); empty = no role filter
 	Status      AdminUserStatus // empty = non-deleted (historical default)
 	Sort        AdminUserSort   // empty = created_at
 	Desc        bool            // true = descending
@@ -3184,8 +3191,8 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 	}
 
 	if slug := strings.TrimSpace(o.Role); slug != "" {
-		// "role" now filters on a user's role in the ROOT permission-group (the
-		// former platform plane, #111). admin == the seeded super-admin role.
+		// root_role filters on a user's role in the singleton root group.
+		// admin == the seeded super-admin role.
 		slug = normalizeRootRoleSlug(slug)
 		from += " JOIN profiles.group_role_assignments gra ON gra.subject_id = u.id AND gra.subject_kind = 'user' AND gra.deleted_at IS NULL AND gra.role = $" + fmt.Sprint(argIdx) +
 			" JOIN profiles.permission_groups pg ON pg.id = gra.group_id AND pg.type = 'root' AND pg.deleted_at IS NULL"
