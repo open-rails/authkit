@@ -443,7 +443,7 @@ Remove old ceremony routes from the canonical API surface:
 # #103: Emit OIDC `amr`/`acr`/`auth_time` assurance claims and collapse sensitive contact-change routes
 
 **Completed:** no
-**Status:** IN PROGRESS 2026-06-23 (Paul + Codex). Token assurance primitives and `/reauth/2fa` email/SMS step-up are implemented; contact-change route collapse remains. Promote the existing issuer-local fresh-auth machinery into token-visible assurance claims, and use the same "stale session -> reauth required -> retry" pattern to simplify the account email/phone change API.
+**Status:** IN PROGRESS 2026-06-23 (Paul + Codex). Token assurance primitives, `/reauth/2fa` email/SMS step-up, and contact-change route collapse are implemented; fresh-auth gates for 2FA management remain. Promote the existing issuer-local fresh-auth machinery into token-visible assurance claims, and use the same "stale session -> reauth required -> retry" pattern to simplify the account email/phone change API.
 
 ## Naming
 
@@ -528,10 +528,10 @@ Authenticated step-up route:
 - [x] Add `RequireFreshAuth(maxAge)`, `RequireMFA()` / `RequireAMR(...)`, and `RequireACR(level)` middleware; fail closed and deny machine credentials.
 - [x] Add `POST /reauth/2fa` for authenticated MFA step-up; do not reuse login-only `POST /2fa/verify`. Current implementation supports the existing email/SMS 2FA methods with user+session-scoped codes; TOTP plugs in under #101.
 - [ ] Gate `DELETE /user/2fa` and `POST /user/2fa/backup-codes` on fresh auth / MFA step-up.
-- [ ] Collapse email change to `POST /user/email/change` for both start/restart and confirm.
-- [ ] Collapse phone change to `POST /user/phone/change` for both start/restart and confirm.
-- [ ] Remove the old contact-change `request`, `confirm`, `resend`, and `cancel` routes from `http/routes.go`.
-- [ ] Update `agents/api-endpoints.md`, README examples, and route-table tests.
+- [x] Collapse email change to `POST /user/email/change` for both start/restart and confirm.
+- [x] Collapse phone change to `POST /user/phone/change` for both start/restart and confirm.
+- [x] Remove the old contact-change `request`, `confirm`, `resend`, and `cancel` routes from `http/routes.go`.
+- [x] Update `agents/api-endpoints.md`, README examples, and route-table tests.
 - [ ] Add focused tests for stale session -> `reauth_required` -> reauth -> retry, inline password fallback, code confirmation, same-target resend-by-repost, ambiguous payload rejection, removed old routes, token claim emission, and downstream middleware gates. Middleware/parser coverage exists in `verify/claims_assurance_test.go`; remaining tests are for the reauth/contact-change flows.
 - [ ] Run `go test ./...` and record the result here.
 
@@ -579,12 +579,12 @@ Authenticated step-up route:
 - **Param**: add `badRequestParam(w, code, param)` (+ envelope support); wire on validation paths that know the field; omitted elsewhere (full coverage incremental).
 
 ## Tasks
-- [ ] Define the shared core-free envelope types + builder (`Error{Type,Code,Message,Param,Metadata}` + `ErrorEnvelope`) and `typeForStatus(status)` mirroring openrails' taxonomy strings; stdlib-only, importable by `authhttp` AND `verify`.
-- [ ] `code -> message` catalog (English) + humanized-code fallback (never empty) + `Message(code, locale)` hook reading the request locale (LanguageMiddleware).
-- [ ] Rewrite `http/errors.go` helpers (`sendErr`, `sendErrData`, `tooMany`, `tooManyAvailability`, `registrationDisabled`, ...) to emit the nested envelope; move rate-limit/availability sibling fields into `error.metadata`.
-- [ ] Mirror the change in `verify/helpers.go` (`unauthorized`/`forbidden`) so the verify-only surface emits the identical envelope.
-- [ ] Add `param` support + `badRequestParam` helper; wire on the obvious validation paths (email/password/username/phone), omit elsewhere.
-- [ ] Update guard tests: keep the no-bare-string guard; ASSERT every emitted error carries non-empty `type` + `code` + `message` nested under `error`; update existing tests that decode the OLD flat `{"error":"code"}` (centralize on a test helper reading `error.code`).
+- [x] Define the shared core-free envelope types + builder (`Error{Type,Code,Message,Param,Metadata}` + `ErrorEnvelope`) and `typeForStatus(status)` mirroring openrails' taxonomy strings; stdlib-only, importable by `authhttp` AND `verify`.
+- [x] `code -> message` catalog (English) + humanized-code fallback (never empty) + `Message(code, locale)` hook reading the request locale (LanguageMiddleware).
+- [x] Rewrite `http/errors.go` helpers (`sendErr`, `sendErrData`, `tooMany`, `tooManyAvailability`, `registrationDisabled`, ...) to emit the nested envelope; move rate-limit/availability sibling fields into `error.metadata`.
+- [x] Mirror the change in `verify/helpers.go` (`unauthorized`/`forbidden`) so the verify-only surface emits the identical envelope.
+- [x] Add `param` support + `badRequestParam` helper; wire on the obvious validation paths (email/password/username/phone), omit elsewhere.
+- [x] Update guard tests: keep the no-bare-string guard; ASSERT every emitted error carries non-empty `type` + `code` + `message` nested under `error`; update existing tests that decode the OLD flat `{"error":"code"}` (centralize on a test helper reading `error.code`).
 - [ ] Docs: README "Error contract" + `agents/api-endpoints.md` — document the nested shape + type taxonomy; note it matches openrails/Stripe.
 - [ ] Version bump (BREAKING -> v0.51.0). Record the consumer-migration follow-up (frontends + openrails/doujins/hentai0/tensorhub/cozy-art read `.error` as a string today -> must read `error.code`).
 
