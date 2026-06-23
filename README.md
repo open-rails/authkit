@@ -11,9 +11,29 @@ HttpOnly token-cookie callbacks, or CSRF/session middleware for that model.
 
 Note: This repo ships the HTTP transport as the top-level `http` package (`github.com/open-rails/authkit/http`). First-party router adapters live in `github.com/open-rails/authkit/adapters/gin` and `github.com/open-rails/authkit/adapters/chi`.
 
-HTTP error responses use stable wire codes. Embedders should compare against
-`authhttp.ErrorCode` constants such as `authhttp.ErrInvalidRequest` and
-`authhttp.ErrPasswordResetRequired`, not copied string literals.
+HTTP error responses use a **Stripe-style nested envelope** (same shape as
+OpenRails), so a client hitting either service sees one error contract:
+
+```json
+{ "error": { "type": "invalid_request_error", "code": "password_too_short",
+             "message": "Password too short.", "param": "password" } }
+```
+
+- `code` — the stable machine code; compare against `authhttp.ErrorCode`
+  constants (e.g. `authhttp.ErrInvalidRequest`, `authhttp.ErrPasswordResetRequired`),
+  never copied string literals. These values are unchanged from prior releases.
+- `type` — error category, derived from the HTTP status:
+  `invalid_request_error` (400/404/409), `authentication_error` (401),
+  `authorization_error` (403), `rate_limit_error` (429), `api_error` (5xx).
+- `message` — human-readable (English); for display/logging, not matching.
+- `param` *(optional)* — the offending request field on validation errors.
+- `metadata` *(optional)* — machine-readable context (e.g. rate-limit
+  `retry_after_seconds`/`limit`/`remaining`, action-availability fields).
+
+The envelope type lives in the core-free `authbase` package
+(`authbase.ErrorEnvelope`), so the verify-only middleware emits the identical
+shape. **Breaking** as of v0.52.0 (was the flat `{"error":"<code>"}`); migrate
+clients from `body.error` (string) to `body.error.code`.
 
 Scope (minimal)
 - Asymmetric JWT issuing (RS256) + JWKS endpoint (no persistence yet).
@@ -882,7 +902,7 @@ Integration requirements (API server)
   - Default client IP strategy uses the immediate `RemoteAddr` peer, including private Docker bridge, loopback, and reverse-proxy peers. This keeps anonymous sensitive endpoints protected in local Compose and embedded deployments instead of silently failing open.
   - Request-code and resend buckets default to a 60-second per-client cooldown and 6 requests per hour for registration, registration resend, email/phone verification, password-reset request, and user email/phone change request/resend.
   - `429` responses include one shared action-availability shape for frontend timers:
-    `{"error":"rate_limited","action":"request_email_verification","allowed":false,"reason":"cooldown","retry_after_seconds":N,"next_allowed_at":"...","limit":6,"remaining":5,"window_seconds":3600,"cooldown_seconds":60}`.
+    `{"error":{"type":"rate_limit_error","code":"rate_limited","message":"Too many requests. Please try again later.","metadata":{"action":"request_email_verification","allowed":false,"reason":"cooldown","retry_after_seconds":N,"next_allowed_at":"...","limit":6,"remaining":5,"window_seconds":3600,"cooldown_seconds":60}}}` — the action-availability fields ride in `error.metadata`.
   - `429` responses also include `Retry-After: N` plus `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` when the limiter can compute them.
   - **Behind reverse proxies, you must explicitly configure trusted proxies** to safely use `X-Forwarded-For` / `CF-Connecting-IP`. AuthKit will not trust forwarded headers by default (clients can spoof them).
   - For multi-instance production, prefer a Redis/Garnet-backed limiter and a trusted-proxy client IP function, e.g.:

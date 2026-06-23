@@ -19,7 +19,24 @@ typed `ErrorCode` constants, such as `username_too_short`,
 `username_must_start_with_letter`, `username_invalid_characters`,
 `owner_slug_taken`, `username_not_allowed`, `rename_rate_limited`,
 `invalid_email`, `invalid_phone_number`, and `password_too_short`.
-Username rename cooldown responses include `time_until_rename_available`.
+
+**Error envelope (Stripe-style, nested — same shape as OpenRails; breaking as of
+v0.52.0).** Every error response is:
+
+```json
+{ "error": { "type": "invalid_request_error", "code": "password_too_short",
+             "message": "Password too short.", "param": "password",
+             "metadata": { "...": "optional machine-readable context" } } }
+```
+
+- `code` is the stable machine code (the `authhttp.ErrorCode` value — unchanged);
+  match on `error.code`, not `error` (which was a bare string before v0.52.0).
+- `type` is derived from the HTTP status: `invalid_request_error` (400/404/409),
+  `authentication_error` (401), `authorization_error` (403),
+  `rate_limit_error` (429), `api_error` (5xx).
+- `message` is human-readable (English); `param` names the offending field on
+  validation errors; `metadata` carries rate-limit/availability context
+  (e.g. `retry_after_seconds`, and username rename's `time_until_rename_available`).
 
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:

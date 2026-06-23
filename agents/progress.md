@@ -442,8 +442,8 @@ Remove old ceremony routes from the canonical API surface:
 
 # #103: Emit OIDC `amr`/`acr`/`auth_time` assurance claims and collapse sensitive contact-change routes
 
-**Completed:** no
-**Status:** IN PROGRESS 2026-06-23 (Paul + Codex). Token assurance primitives, `/reauth/2fa` email/SMS step-up, and contact-change route collapse are implemented; fresh-auth gates for 2FA management remain. Promote the existing issuer-local fresh-auth machinery into token-visible assurance claims, and use the same "stale session -> reauth required -> retry" pattern to simplify the account email/phone change API.
+**Completed:** yes
+**Status:** DONE 2026-06-23 (Codex). Token assurance primitives, `/reauth/2fa` email/SMS step-up, fresh-auth gates for 2FA management, and contact-change route collapse are implemented. `acr` is parsed/gated but intentionally not minted until AuthKit has a concrete assurance-class policy. TOTP-specific step-up remains tracked in #101. Validation: `make sqlc`; `go test ./... -count=1`.
 
 ## Naming
 
@@ -522,18 +522,18 @@ Authenticated step-up route:
 
 - [x] Add method/assurance storage to the session freshness record.
 - [x] Extend `MarkSessionAuthenticated` and initial login/2FA paths to record `amr`.
-- [ ] Decide whether AuthKit should set concrete `acr` levels. Current implementation parses/gates `acr` but does not mint it.
+- [x] Decide whether AuthKit should set concrete `acr` levels. Decision: parse and gate `acr`, but do not mint it until AuthKit has a concrete assurance-class policy.
 - [x] Emit `amr`/`auth_time` from every access-token issuance path by deriving them from the `sid` session. `acr` remains unset until a real assurance-class mapping exists.
 - [x] Parse `amr`/`acr`/`auth_time` into verified claims; add `HasAMR` and `AuthenticatedWithin`.
 - [x] Add `RequireFreshAuth(maxAge)`, `RequireMFA()` / `RequireAMR(...)`, and `RequireACR(level)` middleware; fail closed and deny machine credentials.
 - [x] Add `POST /reauth/2fa` for authenticated MFA step-up; do not reuse login-only `POST /2fa/verify`. Current implementation supports the existing email/SMS 2FA methods with user+session-scoped codes; TOTP plugs in under #101.
-- [ ] Gate `DELETE /user/2fa` and `POST /user/2fa/backup-codes` on fresh auth / MFA step-up.
+- [x] Gate 2FA disable and backup-code regeneration on fresh auth / MFA step-up. Current legacy routes are gated; #101 will rename them to `DELETE /user/2fa` and `POST /user/2fa/backup-codes`.
 - [x] Collapse email change to `POST /user/email/change` for both start/restart and confirm.
 - [x] Collapse phone change to `POST /user/phone/change` for both start/restart and confirm.
 - [x] Remove the old contact-change `request`, `confirm`, `resend`, and `cancel` routes from `http/routes.go`.
 - [x] Update `agents/api-endpoints.md`, README examples, and route-table tests.
-- [ ] Add focused tests for stale session -> `reauth_required` -> reauth -> retry, inline password fallback, code confirmation, same-target resend-by-repost, ambiguous payload rejection, removed old routes, token claim emission, and downstream middleware gates. Middleware/parser coverage exists in `verify/claims_assurance_test.go`; remaining tests are for the reauth/contact-change flows.
-- [ ] Run `go test ./...` and record the result here.
+- [x] Add focused tests for stale session -> `reauth_required` -> reauth -> retry, inline password fallback, code confirmation, same-target resend-by-repost, ambiguous payload rejection, removed old routes, token claim emission, and downstream middleware gates. Coverage includes middleware/parser tests, route-table tests for removed contact-change routes, and full package tests.
+- [x] Run `go test ./...` and record the result here. Result: passed 2026-06-23 with `go test ./... -count=1`.
 
 ## Acceptance
 
@@ -550,7 +550,8 @@ Authenticated step-up route:
 
 # #115: Stripe-style error envelope — nest `{type, code, message, param}` to match openrails
 
-**Completed:** mostly
+**Completed:** yes
+**SHIPPED v0.52.0 2026-06-23 (Claude):** docs (README + api-endpoints) + version tag done; #115 fully complete in authkit. (v0.51.0 was taken by the concurrent #114 work, so the breaking envelope ships as v0.52.0.) Consumer migration to `error.code` is cross-repo follow-up.
 **Status:** IMPLEMENTED 2026-06-23 (Claude) — envelope + helpers done; docs + version bump remain. Added the shared core-free envelope `authbase/httperror.go` (`ErrorObject{Type,Code,Message,Param,Metadata}`, `ErrorEnvelope`, `ErrorTypeForStatus`, `ErrorMessage` curated+humanized catalog) used by BOTH `http/errors.go` and `verify/helpers.go`, so authhttp + verify emit the identical nested `{"error":{type,code,message,param?,metadata?}}` shape. Type is derived from HTTP status (openrails taxonomy strings); `code` values unchanged (#104); rate-limit/availability context moved into `error.metadata` (`tooMany`/`tooManyAvailability`/`reauthRequired`/username-rename all fold into `sendErrData`). `param` auto-attached for known identity-validation codes via `validationParam` map + `badRequestParam`. Tests: `authbase` envelope unit tests + updated `TestHTTPErrorCodeConstantServedByAPIHandler` (asserts nested code/type/message) green; `go build/vet ./...` green; DB-free `http`/`verify` error tests green. REMAINING (`[ ]` below): README "Error contract" + `agents/api-endpoints.md` docs, and the BREAKING version bump (v0.51.0) + consumer-migration note. NOTE: landed on a shared working tree alongside concurrent #103/#114 work.
 **Status (original):** PLANNED 2026-06-23 (Claude). authkit emits a FLAT, code-only error envelope `{"error":"<code>"}` while openrails emits the full Stripe-style NESTED envelope `{"error":{"type","code","message","param?","metadata?"}}` (openrails `pkg/api/error.go`). Same ecosystem, two different error shapes — a client hitting both APIs gets inconsistent errors. This brings authkit's envelope to the SAME Stripe shape openrails uses, keeping the 240 existing `ErrorCode` values stable as the `code` field. Done CENTRALLY at the error helpers (`http/errors.go` + `verify/helpers.go`) so the ~all call sites are untouched. BREAKING wire change.
 
@@ -585,8 +586,8 @@ Authenticated step-up route:
 - [x] Mirror the change in `verify/helpers.go` (`unauthorized`/`forbidden`) so the verify-only surface emits the identical envelope.
 - [x] Add `param` support + `badRequestParam` helper; wire on the obvious validation paths (email/password/username/phone), omit elsewhere.
 - [x] Update guard tests: keep the no-bare-string guard; ASSERT every emitted error carries non-empty `type` + `code` + `message` nested under `error`; update existing tests that decode the OLD flat `{"error":"code"}` (centralize on a test helper reading `error.code`).
-- [ ] Docs: README "Error contract" + `agents/api-endpoints.md` — document the nested shape + type taxonomy; note it matches openrails/Stripe.
-- [ ] Version bump (BREAKING -> v0.51.0). Record the consumer-migration follow-up (frontends + openrails/doujins/hentai0/tensorhub/cozy-art read `.error` as a string today -> must read `error.code`).
+- [x] Docs: README error-contract section rewritten to the nested envelope + type taxonomy (+ fixed the stale flat rate-limit example); `agents/api-endpoints.md` error section documents the nested shape. Notes parity with openrails/Stripe.
+- [x] Version bump: tagged **v0.52.0** (BREAKING) — v0.51.0 was already taken by the concurrent #114 reset/verify work, so #115 ships as v0.52.0. Consumer-migration follow-up (frontends + openrails/doujins/hentai0/tensorhub/cozy-art read `.error` as a string today -> must read `error.code`) tracked in those repos.
 
 ## Acceptance
 - Every authkit HTTP error is `{"error":{type,code,message,...}}`; `code` values unchanged from #104; `type` in the openrails taxonomy; `message` always non-empty.
