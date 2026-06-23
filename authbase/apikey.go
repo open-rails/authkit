@@ -66,11 +66,12 @@ func ParseAPIKey(prefix, token string) (keyID, secret string, ok bool) {
 }
 
 // APIKeyResource is one opaque, host-defined resource scope carried by an API
-// key. AuthKit stores and returns the exact Kind/ID pair but does not interpret
-// it. Hosts own resource semantics, including any wildcard-looking IDs such as "*".
+// key: a {Persona, ID} reference to a permission-group instance. AuthKit stores
+// and returns the exact pair but does not interpret it — hosts own resource
+// semantics, including any wildcard-looking IDs such as "*".
 type APIKeyResource struct {
-	Kind string `json:"kind"`
-	ID   string `json:"id"`
+	Persona string `json:"persona"`
+	ID      string `json:"id"`
 }
 
 // ResolvedAPIKey is the resource-aware API-key resolution result. Permissions is

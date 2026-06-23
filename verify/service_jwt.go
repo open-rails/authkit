@@ -271,7 +271,7 @@ func serviceJWTResources(v any) ([]authbase.APIKeyResource, error) {
 		return nil, err
 	}
 	for _, r := range resources {
-		if strings.TrimSpace(r.Kind) == "" || strings.TrimSpace(r.ID) == "" {
+		if strings.TrimSpace(r.Persona) == "" || strings.TrimSpace(r.ID) == "" {
 			return nil, errors.New("invalid_resource")
 		}
 	}

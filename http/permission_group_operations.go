@@ -265,7 +265,7 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, pers
 func apiKeyResourcesJSON(rs []core.APIKeyResource) []map[string]any {
 	out := make([]map[string]any, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, map[string]any{"kind": r.Kind, "id": r.ID})
+		out = append(out, map[string]any{"persona": r.Persona, "id": r.ID})
 	}
 	return out
 }

@@ -114,7 +114,7 @@ func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 	seen := make(map[string]bool, len(in))
 	out := make([]APIKeyResource, 0, len(in))
 	for _, r := range in {
-		kind := strings.TrimSpace(r.Kind)
+		kind := strings.TrimSpace(r.Persona)
 		id := strings.TrimSpace(r.ID)
 		if kind == "" || id == "" || len(kind) > apiKeyResourceMaxLen || len(id) > apiKeyResourceMaxLen {
 			return nil, errors.New("invalid_resource")
@@ -124,7 +124,7 @@ func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 			return nil, errors.New("duplicate_resource")
 		}
 		seen[key] = true
-		out = append(out, APIKeyResource{Kind: kind, ID: id})
+		out = append(out, APIKeyResource{Persona: kind, ID: id})
 	}
 	return out, nil
 }
@@ -262,7 +262,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, resourceSl
 		for _, r := range resources {
 			if _, err := q.Exec(ctx,
 				`INSERT INTO profiles.api_key_resources (api_key_id, kind, resource_id)
-				 VALUES ($1::uuid, $2, $3)`, id, r.Kind, r.ID); err != nil {
+				 VALUES ($1::uuid, $2, $3)`, id, r.Persona, r.ID); err != nil {
 				_ = tx.Rollback(ctx)
 				return APIKey{}, "", err
 			}
@@ -504,7 +504,7 @@ func (s *Service) loadAPIKeyResources(ctx context.Context, tokens []APIKey) erro
 			return err
 		}
 		if i, ok := byID[tokenID]; ok {
-			tokens[i].Resources = append(tokens[i].Resources, APIKeyResource{Kind: kind, ID: resourceID})
+			tokens[i].Resources = append(tokens[i].Resources, APIKeyResource{Persona: kind, ID: resourceID})
 		}
 	}
 	return rows.Err()
@@ -525,7 +525,7 @@ func (s *Service) listAPIKeyResources(ctx context.Context, tokenID string) ([]AP
 		if err := rows.Scan(&kind, &resourceID); err != nil {
 			return nil, err
 		}
-		out = append(out, APIKeyResource{Kind: kind, ID: resourceID})
+		out = append(out, APIKeyResource{Persona: kind, ID: resourceID})
 	}
 	return out, rows.Err()
 }

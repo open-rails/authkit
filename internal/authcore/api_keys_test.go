@@ -111,8 +111,8 @@ func TestAPIKeyPrefixAndTTLConfigured(t *testing.T) {
 
 func TestAPIKeyResourceContract(t *testing.T) {
 	resources, err := normalizeAPIKeyResources([]APIKeyResource{
-		{Kind: " openrails.merchant ", ID: " tensorhub "},
-		{Kind: "openrails.customer", ID: "*"},
+		{Persona: " openrails.merchant ", ID: " tensorhub "},
+		{Persona: "openrails.customer", ID: "*"},
 	})
 	if err != nil {
 		t.Fatalf("normalize resources: %v", err)
@@ -120,20 +120,20 @@ func TestAPIKeyResourceContract(t *testing.T) {
 	if len(resources) != 2 {
 		t.Fatalf("resources len=%d, want 2", len(resources))
 	}
-	if resources[0] != (APIKeyResource{Kind: "openrails.merchant", ID: "tensorhub"}) {
+	if resources[0] != (APIKeyResource{Persona: "openrails.merchant", ID: "tensorhub"}) {
 		t.Fatalf("trimmed resource = %+v", resources[0])
 	}
 	if resources[1].ID != "*" {
 		t.Fatalf("wildcard-looking ID should be stored opaquely, got %+v", resources[1])
 	}
 
-	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "merchant", ID: "x"}, {Kind: "merchant", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Persona: "merchant", ID: "x"}, {Persona: "merchant", ID: "x"}}); err == nil || err.Error() != "duplicate_resource" {
 		t.Fatalf("duplicate err=%v, want duplicate_resource", err)
 	}
-	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "", ID: "x"}}); err == nil || err.Error() != "invalid_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Persona: "", ID: "x"}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("empty kind err=%v, want invalid_resource", err)
 	}
-	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Kind: "merchant", ID: strings.Repeat("x", apiKeyResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
+	if _, err := normalizeAPIKeyResources([]APIKeyResource{{Persona: "merchant", ID: strings.Repeat("x", apiKeyResourceMaxLen+1)}}); err == nil || err.Error() != "invalid_resource" {
 		t.Fatalf("long id err=%v, want invalid_resource", err)
 	}
 }
