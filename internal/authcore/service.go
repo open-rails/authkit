@@ -194,7 +194,6 @@ type Service struct {
 	ephemeralStore EphemeralStore
 	ephemeralMode  EphemeralMode
 	verifyWarnOnce sync.Once
-	apiKeyTouch    *lastUsedThrottle // coalesces api-key last_used_at writes
 
 	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
 	// run, SMS is considered available whenever a sender is configured (legacy
@@ -233,7 +232,7 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 		panic(fmt.Sprintf("authkit: invalid Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", opts.Schema))
 	}
 	opts.Schema = schema
-	s := &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory, apiKeyTouch: newLastUsedThrottle(apiKeyTouchWindow)}
+	s := &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory}
 	for _, o := range coreOpts {
 		if o != nil {
 			o(s)
