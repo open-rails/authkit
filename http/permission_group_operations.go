@@ -59,7 +59,14 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, pers
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := s.svc.RemoveGroupSubject(r.Context(), persona, instanceSlug, userID, core.SubjectKindUser); err != nil {
+	actor, ok := ClaimsFromContext(r.Context())
+	if !ok || actor.UserID == "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	// #136: actor-aware removal enforces no-escalation across every role the
+	// target holds — a non-owner cannot strip an owner's roles.
+	if err := s.svc.RemoveGroupSubjectAs(r.Context(), actor.UserID, persona, instanceSlug, userID, core.SubjectKindUser); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
