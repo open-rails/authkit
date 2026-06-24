@@ -186,8 +186,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	}
 
 	oidcCfg := s.oidcCfg()
-	sd, ok, err := oidcCfg.StateCache.Get(r.Context(), state)
-	_ = oidcCfg.StateCache.Del(r.Context(), state)
+	sd, ok, err := consumeState(r.Context(), oidcCfg.StateCache, state)
 	if err != nil || !ok || sd.Provider != cfg.Name {
 		badRequest(w, ErrInvalidState)
 		return

@@ -53,3 +53,20 @@ func (s *StateCache) Get(ctx context.Context, state string) (oidckit.StateData, 
 func (s *StateCache) Del(ctx context.Context, state string) error {
 	return s.rdb.Del(ctx, s.key(state)).Err()
 }
+
+// Consume atomically returns and deletes the state via Redis GETDEL, closing the
+// replay/TOCTOU window a separate Get+Del leaves open. ok=false if absent/consumed.
+func (s *StateCache) Consume(ctx context.Context, state string) (oidckit.StateData, bool, error) {
+	val, err := s.rdb.GetDel(ctx, s.key(state)).Bytes()
+	if err == redis.Nil {
+		return oidckit.StateData{}, false, nil
+	}
+	if err != nil {
+		return oidckit.StateData{}, false, err
+	}
+	var d oidckit.StateData
+	if err := json.Unmarshal(val, &d); err != nil {
+		return oidckit.StateData{}, false, err
+	}
+	return d, true, nil
+}

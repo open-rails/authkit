@@ -103,8 +103,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	}
 
 	cfg := s.oidcCfg()
-	sd, ok, err := cfg.StateCache.Get(r.Context(), state)
-	_ = cfg.StateCache.Del(r.Context(), state)
+	sd, ok, err := consumeState(r.Context(), cfg.StateCache, state)
 	if err != nil || !ok || sd.Provider != provider {
 		badRequest(w, ErrInvalidState)
 		return
