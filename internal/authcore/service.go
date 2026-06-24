@@ -3439,11 +3439,27 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 		if err := rows.Scan(&a.ID, &a.Email, &a.PhoneNumber, &a.Username, &a.EmailVerified, &a.PhoneVerified, &a.BannedAt, &a.BannedUntil, &a.BanReason, &a.BannedBy, &a.DeletedAt, &a.Biography, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
 			return nil, err
 		}
-		a.Roles = s.listRoleSlugsByUser(ctx, a.ID)
 		out = append(out, a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	// Enrich root-group roles for the whole page in ONE query instead of two per
+	// row. Resolution failures degrade to empty roles (matching the prior
+	// per-row swallow), so the listing still renders.
+	if len(out) > 0 {
+		st := s.groupStore()
+		if gid, gErr := st.RootGroupID(ctx); gErr == nil {
+			ids := make([]string, len(out))
+			for i := range out {
+				ids[i] = out[i].ID
+			}
+			if rolesByUser, rErr := st.RootRolesForUsers(ctx, gid, ids); rErr == nil {
+				for i := range out {
+					out[i].Roles = rolesByUser[out[i].ID]
+				}
+			}
+		}
 	}
 	s.enrichEntitlements(ctx, out)
 	return &AdminListUsersResult{Users: out, Total: total, Limit: opts.PageSize, Offset: offset}, nil

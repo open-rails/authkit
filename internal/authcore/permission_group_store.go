@@ -181,6 +181,33 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 	return out, nil
 }
 
+// RootRolesForUsers returns, for each user id, the role slugs directly assigned on
+// the root group (rootGID). Root roles are direct assignments on the parentless
+// root group, so no parent walk is needed — this batches a whole page's lookups
+// into one query (the admin-directory enrichment path; avoids a per-row N+1).
+func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID string, userIDs []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	rows, err := st.q.Query(ctx,
+		`SELECT user_id::text, role FROM profiles.group_user_roles
+		 WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[]) AND deleted_at IS NULL`,
+		rootGID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uid, role string
+		if err := rows.Scan(&uid, &role); err != nil {
+			return nil, err
+		}
+		out[uid] = append(out[uid], role)
+	}
+	return out, rows.Err()
+}
+
 // AssignRole grants subject a role in a group, replacing any previous role in
 // that same group. The role NAME is validated against the persona catalog / custom
 // roles by the caller before assignment.
