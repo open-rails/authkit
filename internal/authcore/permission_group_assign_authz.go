@@ -3,8 +3,12 @@ package authcore
 // No-privilege-escalation enforcement for RUNTIME role assignment (#136).
 //
 // A runtime actor may grant or revoke a role in a group only if BOTH hold:
-//  1. Capability — the actor holds the persona's role-management permission
-//     (`<persona>:roles:manage`) in that group.
+//  1. Capability — the actor holds the persona's member-management permission
+//     (`<persona>:members:manage`) in that group. This matches the capability
+//     authkit's generated /members routes already gate on; `roles:manage` is a
+//     distinct perm (define/inspect role DEFINITIONS), not assignment. The owner
+//     (`<persona>:*`) holds members:manage via the wildcard; a bounded admin that
+//     lacks it cannot promote anyone.
 //  2. No step-up — the actor already holds every permission the target role
 //     would confer: perms(targetRole) ⊆ perms(actor). So nobody can hand out
 //     (or strip) authority above their own.
@@ -36,12 +40,6 @@ var (
 	// escalation.
 	ErrRoleAssignmentEscalation = errors.New("role_assignment_escalation")
 )
-
-// roleManagePerm is the role-management capability for a persona,
-// e.g. "root:roles:manage".
-func roleManagePerm(persona string) string {
-	return persona + ":roles:manage"
-}
 
 // grantsCoverAll reports whether actorGrants cover EVERY permission in
 // targetGrants under authkit's namespace-anchored glob semantics — i.e. the
@@ -79,8 +77,10 @@ func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupSt
 	}
 	actorGrants := sch.ResolveGrants(asg, resolver)
 
-	// (1) capability: the actor must be able to manage roles in this persona.
-	if !anyGrantCovers(actorGrants, roleManagePerm(persona)) {
+	// (1) capability: the actor must be able to manage members in this persona —
+	// the same perm authkit's /members routes gate on. owner (<persona>:*) holds
+	// it via the wildcard; a bounded admin without it cannot promote anyone.
+	if !anyGrantCovers(actorGrants, PermMembersManage(persona)) {
 		return ErrInsufficientRoleAuthority
 	}
 	// (2) no step-up: the actor must already hold every perm the target confers.
