@@ -141,7 +141,7 @@ type ManagementProfile struct {
 	CustomRoleCreation    bool // api-routes.custom-role-creation (requires AllowCustomRoles)
 	APIKeyMinting         bool // api-routes.api-key-minting
 	RemoteAppRegistration bool // api-routes.remote-app-registration
-	Invitation            bool // api-routes.invitation
+	InviteLinks           bool // api-routes.invite-links
 }
 
 // PersonaDef declares one permission-group persona, which is also the first

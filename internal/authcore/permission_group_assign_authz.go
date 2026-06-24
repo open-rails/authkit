@@ -4,11 +4,8 @@ package authcore
 //
 // A runtime actor may grant or revoke a role in a group only if BOTH hold:
 //  1. Capability — the actor holds the persona's member-management permission
-//     (`<persona>:members:manage`) in that group. This matches the capability
-//     authkit's generated /members routes already gate on; `roles:manage` is a
-//     distinct perm (define/inspect role DEFINITIONS), not assignment. The owner
-//     (`<persona>:*`) holds members:manage via the wildcard; a bounded admin that
-//     lacks it cannot promote anyone.
+//     (`<persona>:roles:manage`) in that group. The owner (`<persona>:*`) holds
+//     it via the wildcard; a bounded admin that lacks it cannot promote anyone.
 //  2. No step-up — the actor already holds every permission the target role
 //     would confer: perms(targetRole) ⊆ perms(actor). So nobody can hand out
 //     (or strip) authority above their own.
@@ -77,10 +74,10 @@ func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupSt
 	}
 	actorGrants := sch.ResolveGrants(asg, resolver)
 
-	// (1) capability: the actor must be able to manage members in this persona —
-	// the same perm authkit's /members routes gate on. owner (<persona>:*) holds
-	// it via the wildcard; a bounded admin without it cannot promote anyone.
-	if !anyGrantCovers(actorGrants, PermMembersManage(persona)) {
+	// (1) capability: the actor must be able to manage role assignments in this
+	// persona. owner (<persona>:*) holds it via the wildcard; a bounded admin
+	// without it cannot promote anyone.
+	if !anyGrantCovers(actorGrants, PermRolesManage(persona)) {
 		return ErrInsufficientRoleAuthority
 	}
 	// (2) no step-up: the actor must already hold every perm the target confers.

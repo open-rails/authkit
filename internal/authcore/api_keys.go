@@ -95,6 +95,36 @@ type APIKeyResource = authbase.APIKeyResource
 // ResolvedAPIKey is defined in authbase (core-free) and re-exported here.
 type ResolvedAPIKey = authbase.ResolvedAPIKey
 
+// ErrResourceScopeDenied means the configured API-key resource authorizer did
+// not allow the requested resource scope. A missing authorizer denies non-empty
+// resource scopes by default.
+var ErrResourceScopeDenied = errors.New("resource_scope_denied")
+
+// APIKeyResourceAuthorizationRequest is passed to the host-owned authorizer
+// before AuthKit persists resource scopes on a newly minted API key.
+type APIKeyResourceAuthorizationRequest struct {
+	ActorUserID       string
+	Persona           string
+	InstanceSlug      string
+	PermissionGroupID string
+	Role              string
+	Resources         []APIKeyResource
+}
+
+// APIKeyResourceAuthorizer decides whether the actor may bind the requested
+// host-defined resource scopes to a new API key. AuthKit stores resource scopes
+// opaquely, so the host must provide the resource-domain no-escalation rule.
+type APIKeyResourceAuthorizer interface {
+	AuthorizeAPIKeyResources(context.Context, APIKeyResourceAuthorizationRequest) error
+}
+
+// APIKeyResourceAuthorizerFunc adapts a function to APIKeyResourceAuthorizer.
+type APIKeyResourceAuthorizerFunc func(context.Context, APIKeyResourceAuthorizationRequest) error
+
+func (f APIKeyResourceAuthorizerFunc) AuthorizeAPIKeyResources(ctx context.Context, req APIKeyResourceAuthorizationRequest) error {
+	return f(ctx, req)
+}
+
 // APIKeyMintOptions is the resource-aware API-key mint request. The key
 // references exactly ONE role (Role) that must be valid for the owning group's
 // persona catalog (or a group custom role); its permissions are resolved from that
@@ -127,6 +157,23 @@ func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 		out = append(out, APIKeyResource{Persona: kind, ID: id})
 	}
 	return out, nil
+}
+
+func (s *Service) authorizeAPIKeyResources(ctx context.Context, req APIKeyResourceAuthorizationRequest) error {
+	if len(req.Resources) == 0 {
+		return nil
+	}
+	if s.apiKeyResource == nil {
+		return ErrResourceScopeDenied
+	}
+	if err := s.apiKeyResource.AuthorizeAPIKeyResources(ctx, req); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona, gid, actorUserID, role string) error {
+	return s.authorizeRoleChange(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, role)
 }
 
 // effectiveGroupRolePermissions resolves a role NAME to its effective permission
@@ -166,14 +213,17 @@ func (s *Service) MintAPIKey(ctx context.Context, persona, instanceSlug, name, r
 
 // MintAPIKeyWithOptions inserts a new API key using the resource-aware mint
 // contract. The key references exactly ONE role (opts.Role) valid for the owning
-// group's TYPE; its effective permissions are resolved from the role at use
-// time. No-escalation is the caller's responsibility. Resources are a separate
-// binding.
+// group's persona; its effective permissions are resolved from the role at use
+// time. Non-empty resource scopes must be allowed by the configured
+// APIKeyResourceAuthorizer.
 func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return APIKey{}, "", err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
+	persona = strings.TrimSpace(persona)
+	instanceSlug = strings.TrimSpace(instanceSlug)
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
 	if err != nil {
 		return APIKey{}, "", err
 	}
@@ -204,6 +254,19 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 	}
 	resources, err := normalizeAPIKeyResources(opts.Resources)
 	if err != nil {
+		return APIKey{}, "", err
+	}
+	if err := s.authorizeAPIKeyRoleGrant(ctx, st, persona, gid, strings.TrimSpace(opts.CreatedBy), role); err != nil {
+		return APIKey{}, "", err
+	}
+	if err := s.authorizeAPIKeyResources(ctx, APIKeyResourceAuthorizationRequest{
+		ActorUserID:       strings.TrimSpace(opts.CreatedBy),
+		Persona:           persona,
+		InstanceSlug:      instanceSlug,
+		PermissionGroupID: gid,
+		Role:              role,
+		Resources:         resources,
+	}); err != nil {
 		return APIKey{}, "", err
 	}
 

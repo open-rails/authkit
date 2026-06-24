@@ -145,7 +145,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Enrolling proved a live TOTP code — count it as the session's MFA proof so
-		// the user clears a RequireMFA gate without a redundant /step-up/2fa.
+		// the user clears an MFA-required step-up gate without a redundant /step-up/2fa.
 		if claims.SessionID != "" {
 			_ = s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"})
 		}

@@ -22,7 +22,7 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 	gs, err := BuildSchema(
 		PersonaDef{
 			Name: "org", AllowedParents: []string{RootPersona},
-			Routes: ManagementProfile{MemberAssignment: true, Invitation: true},
+			Routes: ManagementProfile{MemberAssignment: true, InviteLinks: true},
 			Roles:  []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
 		},
 	)

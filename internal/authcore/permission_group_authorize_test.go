@@ -56,7 +56,7 @@ func TestCan_WalkUpAndNamespacePurity(t *testing.T) {
 
 func TestCan_RootIsModerationOnly(t *testing.T) {
 	s := tensorhubSchema(t)
-	// root owner = root:* (super-admin reach) — covers root: perms only.
+	// root owner = root:* — covers root: perms only.
 	rootOwner := []GroupAssignment{{Persona: "root", GroupID: "g_root", Roles: []string{"owner"}}}
 	if !s.Can(rootOwner, nil, "root:users:ban") || !s.Can(rootOwner, nil, "root:orgs:delete") {
 		t.Errorf("root owner (root:*) should cover root: perms")

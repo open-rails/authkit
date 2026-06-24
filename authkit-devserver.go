@@ -177,7 +177,7 @@ func runServe(cfg *config) error {
 			devMintHandler(cfg.Issuer, keySource.ActiveSigner(), cfg.DevMintSecret).ServeHTTP(w, r)
 			return
 		}
-		// Dev-only: reflect the authenticated principal (user OR API-key service principal)
+		// Dev-only: reflect the authenticated principal (user OR API-key principal)
 		// so E2E tests can assert how a token resolved through the real verifier.
 		if cfg.DevMode && r.Method == http.MethodGet && r.URL.Path == apiPrefix+"/dev/whoami" {
 			devWhoamiHandler(svc).ServeHTTP(w, r)
@@ -341,7 +341,7 @@ func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"permissions": cl.Permissions,
-			"is_service":  cl.IsService(),
+			"is_api_key":  cl.IsAPIKey(),
 			"user_id":     cl.UserID,
 		})
 	})

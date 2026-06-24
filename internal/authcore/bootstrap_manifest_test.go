@@ -33,7 +33,7 @@ func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 		Username:      username,
 		EmailVerified: true,
 		Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		RootRoles:   []string{"owner"},
+		RootRoles:     []string{"owner"},
 	}}}
 
 	result, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{DryRun: true})
@@ -68,7 +68,7 @@ func TestReconcileBootstrapManifestSeedsRootOwner(t *testing.T) {
 			Username:      username,
 			EmailVerified: true,
 			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-			RootRoles:   []string{"owner"},
+			RootRoles:     []string{"owner"},
 			Metadata:      map[string]any{"source": "bootstrap-test"},
 		}},
 	}
@@ -98,6 +98,61 @@ func TestReconcileBootstrapManifestSeedsRootOwner(t *testing.T) {
 	}
 	if second.UsersCreated != 0 || second.UsersUpdated != 1 || second.PasswordsSet != 0 || second.PasswordsKept != 1 {
 		t.Fatalf("second result=%+v", second)
+	}
+}
+
+func TestReconcileBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+
+	suffix := time.Now().UnixNano()
+	existingUsername := fmt.Sprintf("bootstrap-existing-owner-%d", suffix)
+	recoveryUsername := fmt.Sprintf("bootstrap-recovery-owner-%d", suffix)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username IN ($1, $2)`, existingUsername, recoveryUsername)
+	})
+
+	existing, err := svc.CreateUser(ctx, existingUsername+"@example.com", existingUsername)
+	if err != nil {
+		t.Fatalf("create existing owner: %v", err)
+	}
+	if err := svc.AssignGroupRole(ctx, RootPersona, "", existing.ID, SubjectKindUser, OwnerRoleName); err != nil {
+		t.Fatalf("seed existing owner: %v", err)
+	}
+
+	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
+		Ref:           "recovery",
+		Email:         recoveryUsername + "@example.com",
+		Username:      recoveryUsername,
+		EmailVerified: true,
+		Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
+		RootRoles:     []string{OwnerRoleName},
+	}}}
+
+	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
+		t.Fatalf("reconcile with existing owner: %v", err)
+	}
+	recovery, err := svc.getUserByUsername(ctx, recoveryUsername)
+	if err != nil {
+		t.Fatalf("lookup recovery user: %v", err)
+	}
+	if roles, err := svc.ListRoleSlugsByUserErr(ctx, recovery.ID); err != nil {
+		t.Fatalf("list recovery roles: %v", err)
+	} else if containsString(roles, OwnerRoleName) {
+		t.Fatalf("bootstrap should not assign owner while another owner exists; roles=%v", roles)
+	}
+
+	if err := svc.UnassignGroupRole(ctx, RootPersona, "", existing.ID, SubjectKindUser, OwnerRoleName); err != nil {
+		t.Fatalf("remove existing owner: %v", err)
+	}
+	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
+		t.Fatalf("reconcile after zero-owner state: %v", err)
+	}
+	if roles, err := svc.ListRoleSlugsByUserErr(ctx, recovery.ID); err != nil {
+		t.Fatalf("list recovery roles after reseed: %v", err)
+	} else if !containsString(roles, OwnerRoleName) {
+		t.Fatalf("bootstrap should recover zero-owner state; roles=%v", roles)
 	}
 }
 

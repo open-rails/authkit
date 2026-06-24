@@ -19,10 +19,10 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 
 			// API-key branch, BEFORE JWT verification.
 			// If the bearer token carries the configured API-key marker it is
-			// resolved against the DB as a service principal; a shaped-but-invalid
+			// resolved against the DB as an API-key principal; a shaped-but-invalid
 			// API key is rejected here rather than mistakenly re-tried as a JWT. The
 			// password-login rate limiter lives on a different code path, so API keys
-			// bypass it by design. Service principals carry no UserID, so the
+			// bypass it by design. API-key principals carry no UserID, so the
 			// live-user enrichment/ban gate below is skipped for them.
 			if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
 				if serr != nil {
@@ -117,7 +117,7 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 
 // RequireEntitlement gates a handler on the presence of a single entitlement in
 // the verified claims (case-insensitive, see Claims.HasEntitlement). It must run
-// after Required so claims are present. Service principals (OATs) and delegated
+// after Required so claims are present. API-key principals and delegated
 // tokens carry no entitlements and are therefore denied.
 func RequireEntitlement(ent string) func(http.Handler) http.Handler {
 	return RequireAnyEntitlement(ent)
@@ -172,19 +172,6 @@ func RequireAMR(method string) func(http.Handler) http.Handler {
 	}
 }
 
-func RequireMFA() func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl, err := GetClaims(r.Context())
-			if err != nil || !isUserClaims(cl) || (!cl.HasAMR("mfa") && !cl.HasAMR("otp")) {
-				forbidden(w, "forbidden")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 func RequireACR(level string) func(http.Handler) http.Handler {
 	level = strings.TrimSpace(level)
 	return func(next http.Handler) http.Handler {
@@ -200,7 +187,7 @@ func RequireACR(level string) func(http.Handler) http.Handler {
 }
 
 func isUserClaims(cl Claims) bool {
-	return strings.TrimSpace(cl.UserID) != "" && !cl.IsService() && !cl.IsRemoteApplication() && !cl.IsDelegated()
+	return strings.TrimSpace(cl.UserID) != "" && !cl.IsAPIKey() && !cl.IsRemoteApplication() && !cl.IsDelegated()
 }
 
 func toUnix(v any) (int64, bool) {

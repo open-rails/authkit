@@ -46,21 +46,11 @@ func TestRequireFreshAuth(t *testing.T) {
 	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(time.Minute)}); w.Code != http.StatusForbidden {
 		t.Fatalf("future auth_time status = %d", w.Code)
 	}
-	if w := serveVerifyClaims(h, Claims{TokenType: ServicePrincipalType, AuthTime: time.Now()}); w.Code != http.StatusForbidden {
-		t.Fatalf("service principal status = %d", w.Code)
+	if w := serveVerifyClaims(h, Claims{TokenType: APIKeyPrincipalType, AuthTime: time.Now()}); w.Code != http.StatusForbidden {
+		t.Fatalf("api-key principal status = %d", w.Code)
 	}
 }
 
-func TestRequireMFA(t *testing.T) {
-	h := assuranceProtected(RequireMFA())
-
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AMR: []string{"pwd", "otp"}}); w.Code != http.StatusOK {
-		t.Fatalf("otp status = %d", w.Code)
-	}
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AMR: []string{"pwd"}}); w.Code != http.StatusForbidden {
-		t.Fatalf("pwd-only status = %d", w.Code)
-	}
-}
 
 func TestSensitiveDefaults(t *testing.T) {
 	h := assuranceProtected(Sensitive())
@@ -89,17 +79,26 @@ func TestSensitiveDefaults(t *testing.T) {
 	}
 }
 
-func TestSensitiveRequireMFA(t *testing.T) {
-	h := assuranceProtected(Sensitive(SensitiveOptions{RequireMFA: true}))
+// MFA-if-enrolled is the default behavior of Sensitive(): a user who has 2FA
+// enrolled (cl.MFAEnrolled) must step up with 2FA; a user without 2FA may use any
+// method. There is no RequireMFA flag — the gate never locks out a non-2FA user.
+func TestSensitiveMFAIfEnrolled(t *testing.T) {
+	h := assuranceProtected(Sensitive())
 
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), AMR: []string{"pwd", "otp"}}); w.Code != http.StatusOK {
-		t.Fatalf("mfa status = %d", w.Code)
+	// Enrolled user: 2FA satisfies, password alone does not.
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), MFAEnrolled: true, AMR: []string{"pwd", "otp"}}); w.Code != http.StatusOK {
+		t.Fatalf("enrolled+mfa status = %d", w.Code)
 	}
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), AMR: []string{"pwd"}}); w.Code != http.StatusForbidden {
-		t.Fatalf("pwd-only status = %d", w.Code)
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), MFAEnrolled: true, AMR: []string{"pwd"}}); w.Code != http.StatusForbidden {
+		t.Fatalf("enrolled+pwd-only status = %d, want forbidden", w.Code)
 	}
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), AMR: []string{"pwd", "otp"}}); w.Code != http.StatusForbidden {
-		t.Fatalf("stale mfa status = %d", w.Code)
+	// Not enrolled: password is sufficient (never locked out).
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now(), MFAEnrolled: false, AMR: []string{"pwd"}}); w.Code != http.StatusOK {
+		t.Fatalf("not-enrolled+pwd status = %d, want ok", w.Code)
+	}
+	// Recency still applies regardless of enrollment.
+	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour), MFAEnrolled: true, AMR: []string{"pwd", "otp"}}); w.Code != http.StatusForbidden {
+		t.Fatalf("enrolled+stale status = %d, want forbidden", w.Code)
 	}
 }
 

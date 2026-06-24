@@ -24,9 +24,14 @@ type Claims struct {
 	ACR             string
 	AuthTime        time.Time
 	TwoFAEnrollment bool
-	Issuer          string
-	UserTier        string
-	JTI             string
+	// MFAEnrolled reports whether the user has a usable second factor enrolled
+	// (claim `mfa_enrolled`, stamped at issue from MFAStatus.Satisfied). The
+	// Sensitive() gate uses it to require 2FA from users who have it, while never
+	// blocking users who don't.
+	MFAEnrolled bool
+	Issuer      string
+	UserTier    string
+	JTI         string
 
 	// A delegated access token carries the external delegated subject in
 	// DelegatedSubject (claim `delegated_sub`). It never carries `sub` (UserID
@@ -68,18 +73,18 @@ type Claims struct {
 	TokenTyp string
 
 	// TokenType marks the credential class. Empty for ordinary user JWTs;
-	// "service" for an API-key service principal. A service principal carries
+	// "api-key" for an API-key principal. An API-key principal carries
 	// Permissions but no UserID, so the live-user ban/enrichment gate is skipped
 	// (there is no user to look up).
 	TokenType string
 
-	// Permissions are the app-defined permission strings a service principal
+	// Permissions are the app-defined permission strings an API-key principal
 	// carries directly — the PBAC grant. Empty for user principals. authkit
 	// treats permission strings as opaque.
 	Permissions []string
 
 	// Resources are opaque host-defined resource scopes carried by an
-	// API key. Empty means the service principal has no AuthKit-stored
+	// API key. Empty means the API-key principal has no AuthKit-stored
 	// resource constraints; resource-aware hosts decide whether to require them.
 	Resources []authbase.APIKeyResource
 
@@ -92,20 +97,20 @@ type Claims struct {
 	RemoteApplicationSlug string
 }
 
-// ServicePrincipalType is the TokenType value carried by an opaque API key: a
+// APIKeyPrincipalType is the TokenType value carried by an opaque API key: a
 // machine credential, not a user.
-const ServicePrincipalType = "service"
+const APIKeyPrincipalType = "api-key"
 
 // RemoteApplicationTokenType is the TokenType value carried by a remote
-// application access token: a remote_application acting AS ITSELF. Like a
-// service principal it carries Permissions (its STORED authority) but no UserID;
+// application access token: a remote_application acting AS ITSELF. Like an
+// API-key principal it carries Permissions (its STORED authority) but no UserID;
 // the live-user enrichment/ban gate is skipped (there is no user).
 const RemoteApplicationTokenType = "remote_application"
 
-// IsService reports whether these claims represent a service principal, as
+// IsAPIKey reports whether these claims represent an API-key principal, as
 // opposed to a human user or delegated subject.
-func (c Claims) IsService() bool {
-	return strings.EqualFold(strings.TrimSpace(c.TokenType), ServicePrincipalType)
+func (c Claims) IsAPIKey() bool {
+	return strings.EqualFold(strings.TrimSpace(c.TokenType), APIKeyPrincipalType)
 }
 
 // IsRemoteApplication reports whether these claims represent a remote

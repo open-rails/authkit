@@ -59,6 +59,15 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 		Group:   RoutePermissionGroups,
 		Handler: http.HandlerFunc(s.handleMeGroupsGET),
 	})
+	// Permission-introspection (#421): the caller's effective grants in one group
+	// instance (?persona=, ?instance=; defaults to the singleton root group), so a
+	// client gates UI on permission strings instead of expanding role slugs.
+	specs = append(specs, RouteSpec{
+		Method:  http.MethodGet,
+		Path:    "/me/permissions",
+		Group:   RoutePermissionGroups,
+		Handler: http.HandlerFunc(s.handleMePermissionsGET),
+	})
 	// Invite-link redemption (#134): persona-agnostic, any authenticated user.
 	// Gets the same auth + language middleware wrapping as the rest below.
 	specs = append(specs, RouteSpec{

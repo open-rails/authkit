@@ -24,8 +24,11 @@ func credTestConfig() core.Config {
 		Token: core.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
 		RBAC: core.RBACConfig{Groups: []core.PersonaDef{{
 			Name: "merchant", AllowedParents: []string{core.RootPersona},
-			Routes: core.ManagementProfile{MemberAssignment: true, APIKeyMinting: true, RemoteAppRegistration: true, Invitation: true},
-			Roles:  []core.RoleDef{{Name: "member", Permissions: []string{"merchant:catalog:read"}}},
+			Routes: core.ManagementProfile{MemberAssignment: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
+			Roles: []core.RoleDef{
+				{Name: "member", Permissions: []string{"merchant:catalog:read"}},
+				{Name: "key-role-manager", Permissions: []string{"merchant:roles:manage", "merchant:api-keys:manage"}},
+			},
 		}}},
 	}
 }
@@ -35,6 +38,10 @@ func credTestConfig() core.Config {
 // gate is covered by the no-DB route tests; here we exercise the DB-backed ops).
 // Returns the service, the pool, and a freshly-created user id to act as caller.
 func newCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
+	return newCredTestServiceWithOptions(t)
+}
+
+func newCredTestServiceWithOptions(t *testing.T, opts ...authcore.Option) (*Service, *pgxpool.Pool, string) {
 	t.Helper()
 	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -45,7 +52,7 @@ func newCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 	t.Cleanup(pool.Close)
 	ctx := context.Background()
 
-	coreSvc, err := authcore.NewFromConfig(credTestConfig(), pool)
+	coreSvc, err := authcore.NewFromConfig(credTestConfig(), pool, opts...)
 	require.NoError(t, err)
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
 	_, err = coreSvc.EnsureRootGroup(ctx)
@@ -129,6 +136,121 @@ func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {
 
 	// Second revoke => 404 (already revoked).
 	require.Equal(t, http.StatusNotFound, s.driveSub(t, revGR, repl, caller).Code)
+}
+
+func TestGroupAPIKeyResourceScopesFailClosedWithoutAuthorizer_HTTP(t *testing.T) {
+	s, pool, caller := newCredTestService(t)
+	ctx := context.Background()
+
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-resource-denied", OwnerSubjectID: caller})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-resource-denied'`)
+	})
+
+	mintGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:api-keys:manage"}
+	w := s.drive(t, mintGR, "m-resource-denied", caller, `{"name":"scoped","role":"member","resources":[{"persona":"merchant","id":"m-resource-denied"}]}`)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), string(ErrResourceScopeDenied))
+
+	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:api-keys:read"}
+	w = s.drive(t, listGR, "m-resource-denied", caller, "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var listed struct {
+		Data []map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
+	require.Len(t, listed.Data, 0, "denied resource scope must not leave a minted key behind")
+}
+
+func TestGroupAPIKeyResourceScopeAuthorizerBlocksEscalation_HTTP(t *testing.T) {
+	var s *Service
+	var pool *pgxpool.Pool
+	var caller string
+	var authorized []core.APIKeyResourceAuthorizationRequest
+	s, pool, caller = newCredTestServiceWithOptions(t, authcore.WithAPIKeyResourceAuthorizer(authcore.APIKeyResourceAuthorizerFunc(
+		func(_ context.Context, req authcore.APIKeyResourceAuthorizationRequest) error {
+			authorized = append(authorized, core.APIKeyResourceAuthorizationRequest(req))
+			if req.ActorUserID == "" || req.PermissionGroupID == "" || req.Persona != "merchant" || req.Role != "member" {
+				return authcore.ErrResourceScopeDenied
+			}
+			for _, r := range req.Resources {
+				if r.Persona != req.Persona || r.ID != req.InstanceSlug {
+					return authcore.ErrResourceScopeDenied
+				}
+			}
+			return nil
+		},
+	)))
+	ctx := context.Background()
+
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-resource-ok", OwnerSubjectID: caller})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-resource-ok'`)
+	})
+
+	mintGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:api-keys:manage"}
+	w := s.drive(t, mintGR, "m-resource-ok", caller, `{"name":"scoped","role":"member","resources":[{"persona":"merchant","id":"m-resource-ok"}]}`)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	var minted map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &minted))
+	require.Equal(t, "member", minted["role"])
+	require.NotEmpty(t, minted["secret"])
+	require.Len(t, authorized, 1)
+	require.Equal(t, caller, authorized[0].ActorUserID)
+	require.Equal(t, "m-resource-ok", authorized[0].InstanceSlug)
+
+	keyID, keySecret, ok := core.ParseAPIKey("", minted["secret"].(string))
+	require.True(t, ok)
+	resolved, err := s.svc.ResolveAPIKeyWithResources(ctx, keyID, keySecret)
+	require.NoError(t, err)
+	require.Equal(t, []core.APIKeyResource{{Persona: "merchant", ID: "m-resource-ok"}}, resolved.Resources)
+	require.Equal(t, []string{"merchant:catalog:read"}, resolved.Permissions)
+
+	w = s.drive(t, mintGR, "m-resource-ok", caller, `{"name":"escalate","role":"member","resources":[{"persona":"merchant","id":"other-merchant"}]}`)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), string(ErrResourceScopeDenied))
+	require.Len(t, authorized, 2)
+
+	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:api-keys:read"}
+	w = s.drive(t, listGR, "m-resource-ok", caller, "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var listed struct {
+		Data []map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
+	require.Len(t, listed.Data, 1, "denied escalation must not mint an extra key")
+	require.Equal(t, []any{map[string]any{"id": "m-resource-ok", "persona": "merchant"}}, listed.Data[0]["resources"])
+}
+
+func TestGroupAPIKeyMintRejectsRoleEscalation_HTTP(t *testing.T) {
+	s, pool, caller := newCredTestService(t)
+	ctx := context.Background()
+
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-role-denied", OwnerSubjectID: caller})
+	require.NoError(t, err)
+	var weakActor string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&weakActor))
+	require.NoError(t, s.svc.AssignGroupRole(ctx, "merchant", "m-role-denied", weakActor, core.SubjectKindUser, "key-role-manager"))
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, weakActor)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-role-denied'`)
+	})
+
+	mintGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:api-keys:manage"}
+	w := s.drive(t, mintGR, "m-role-denied", weakActor, `{"name":"escalate-role","role":"member"}`)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), string(ErrForbidden))
+
+	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:api-keys:read"}
+	w = s.drive(t, listGR, "m-role-denied", caller, "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var listed struct {
+		Data []map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
+	require.Len(t, listed.Data, 0, "denied API-key role escalation must not mint a key")
 }
 
 // TestGroupRemoteAppLifecycle_HTTP: register -> list-for-group -> delete, over

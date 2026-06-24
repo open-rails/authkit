@@ -87,6 +87,10 @@ type Options struct {
 	APIKeyMaxTTL time.Duration
 	// TOTPSecretKey encrypts persisted authenticator-app shared secrets.
 	TOTPSecretKey []byte
+	// RequireMFAEnrollment forces every user to enroll a second factor: without
+	// usable 2FA, a user cannot establish or refresh a session (returns
+	// ErrTwoFAEnrollmentRequired). Mapped from TwoFactorConfig.RequireEnrollment.
+	RequireMFAEnrollment bool
 	// Permissions is the app's permission vocabulary (merged with authkit's
 	// base permission-group permissions).
 	Permissions []PermissionDef
@@ -185,6 +189,7 @@ type Service struct {
 	schema         string       // validated Postgres schema name; db.DefaultSchema when unset
 	groupSchema    *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
 	entitlements   EntitlementsProvider
+	apiKeyResource APIKeyResourceAuthorizer
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
 	ephemeralMode  EphemeralMode
@@ -373,6 +378,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		APIKeyPrefix:               tokenPrefix,
 		APIKeyMaxTTL:               maxTTL,
 		TOTPSecretKey:              append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),
+		RequireMFAEnrollment:       cfg.TwoFactor.RequireEnrollment,
 		Permissions:                cfg.RBAC.Permissions,
 	}
 	// pg is positional but MAY be nil at the core layer (verify-only construction
@@ -626,6 +632,15 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 			claims["auth_time"] = authTime
 			claims["amr"] = amr
 			claims["acr"] = acr
+		}
+	}
+	// mfa_enrolled lets the stateless Sensitive() gate require 2FA from users who
+	// have a usable second factor, without a DB call at gate time. Emitted only
+	// when true (absent ⇒ false). Reflects state at mint, so it's at most one
+	// token-TTL stale after enroll/disable.
+	if s.pg != nil {
+		if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil && status.Satisfied {
+			claims["mfa_enrolled"] = true
 		}
 	}
 	for k, v := range extra {
@@ -3048,21 +3063,14 @@ func (s *Service) createResetToken(ctx context.Context, userID, tokenHash string
 	return fmt.Errorf("ephemeral store not configured")
 }
 
-// normalizeRootRoleSlug maps an admin/manifest role slug onto a role of the
-// root permission-group's catalog. "admin" is the familiar slug for the seeded
-// root super-admin (root:*); every other name is taken as-is (it must be a
-// catalog role of the root persona, declared in core.Config).
-// normalizeRootRoleSlug canonicalises a root role slug. Since #136 there is no
-// super-admin alias: "admin" is no longer special (apps declare their own bounded
-// `admin` catalog role; the apex is `owner`). This is now just trim+lowercase,
-// retained as the single normalization point for root role slugs.
+// normalizeRootRoleSlug canonicalises a root role slug. "admin" is not special:
+// apps declare their own bounded `admin` catalog role when they need one.
 func normalizeRootRoleSlug(slug string) string {
 	return strings.ToLower(strings.TrimSpace(slug))
 }
 
 // listRoleSlugsByUser returns a user's root permission-group roles. Operator
-// authority is a root-group assignment; "admin" is reported as the seeded
-// super-admin slug.
+// authority is a root-group assignment.
 func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
 	if s.pg == nil {
 		return nil
@@ -3083,22 +3091,17 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 	return out
 }
 
-var ErrReservedRoleSlug = errors.New("reserved_role_slug")
 var ErrUserRoleNotFound = errors.New("user_role_not_found")
 
 // ErrCannotRemoveLastAdminRole is retained for the admin HTTP adapter's error
-// mapping. The root layer has no "last admin" lock (super-admin is seeded
-// out-of-band via the bootstrap manifest), so core no longer returns it, but
-// the exported symbol stays so dependents keep compiling.
+// mapping. The root layer has no "last admin" lock, so core no longer returns
+// it, but the exported symbol stays so dependents keep compiling.
 var ErrCannotRemoveLastAdminRole = errors.New("cannot_remove_last_admin_role")
 
 // assignRoleBySlug grants a user a role in the root permission-group (#111).
-// "admin" maps onto the root super-admin (root:*); every other name must be a
-// catalog role of the root persona. The "owner" slug is reserved.
+// The unchecked path is for genesis/bootstrap/migration; runtime callers use the
+// actor-aware AssignRoleBySlugAs path.
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
-	if strings.EqualFold(strings.TrimSpace(slug), "owner") {
-		return ErrReservedRoleSlug
-	}
 	if s.pg == nil {
 		return nil
 	}
@@ -3111,9 +3114,8 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 
 // upsertRoleBySlug is a no-op under the permission-group model: catalog roles
 // live in core.Config (the GroupSchema), not the DB, so there is nothing to
-// "define" at runtime. It validates the slug is a known root catalog role (or
-// "admin"), ensures the root group exists, and returns. Kept so manifest/admin
-// callers compile unchanged.
+// "define" at runtime. It validates the slug is a known root catalog role,
+// ensures the root group exists, and returns.
 func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, description *string) error {
 	if s.pg == nil {
 		return nil
@@ -3123,9 +3125,6 @@ func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, descr
 	role := strings.ToLower(strings.TrimSpace(slug))
 	if role == "" {
 		return fmt.Errorf("invalid_role")
-	}
-	if role == "owner" {
-		return ErrReservedRoleSlug
 	}
 	if _, err := s.EnsureRootGroup(ctx); err != nil {
 		return err
@@ -3137,8 +3136,7 @@ func (s *Service) upsertRoleBySlug(ctx context.Context, name, slug string, descr
 	return nil
 }
 
-// removeRoleBySlug revokes a user's role in the root permission-group. "admin"
-// maps onto the super-admin role.
+// removeRoleBySlug revokes a user's role in the root permission-group.
 func (s *Service) removeRoleBySlug(ctx context.Context, userID, slug string) error {
 	if s.pg == nil {
 		return nil
@@ -3313,7 +3311,6 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 
 	if slug := strings.TrimSpace(o.Role); slug != "" {
 		// root_role filters on a user's role in the singleton root group.
-		// admin == the seeded super-admin role.
 		slug = normalizeRootRoleSlug(slug)
 		from += " JOIN profiles.group_user_roles gur ON gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $" + fmt.Sprint(argIdx) +
 			" JOIN profiles.permission_groups pg ON pg.id = gur.group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"

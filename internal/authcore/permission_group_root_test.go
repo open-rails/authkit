@@ -28,7 +28,7 @@ func TestBuildSchema_InjectsRootAndValidates(t *testing.T) {
 	if _, ok := s.Persona(RootPersona); !ok {
 		t.Fatalf("root persona not present after BuildSchema")
 	}
-	// root owner = root:* (the apex; #136 folded super-admin into owner).
+	// root owner = root:* (the apex).
 	owner, _ := s.Role(RootPersona, OwnerRoleName)
 	if len(owner.Permissions) != 1 || owner.Permissions[0] != "root:*" {
 		t.Errorf("root owner = %v, want [root:*]", owner.Permissions)

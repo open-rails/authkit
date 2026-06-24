@@ -7,8 +7,8 @@ package authcore
 // own moderation perms (doujins `root:content:takedown`, openrails
 // `root:merchants:delete`) — declared as ordinary roles on the root persona.
 //
-// reach != capability: the root `owner` holds `root:*` (super-admin) — the
-// widest REACH (ancestor of every group) but, being namespace-anchored, still
+// reach != capability: the root `owner` holds `root:*` — the widest REACH
+// (ancestor of every group) but, being namespace-anchored, still
 // moderation-only over the rest of the tree (it can never name a
 // `merchant:`/`org:`/`repo:` perm).
 
@@ -44,8 +44,7 @@ func IntrinsicRootPermissions() []string {
 
 // IntrinsicRootPersona returns the base `root` PersonaDef authkit ships: the
 // parentless singleton persona. Its apex is the `owner` role (= root:*),
-// auto-injected by normalizePersona along with `member`; there is no separate
-// super-admin (#136 — the owner/admin redesign folded super-admin into owner).
+// auto-injected by normalizePersona along with `member`.
 // An app passes this to BuildSchema along with EXTRA root roles (bounded operator
 // bundles like doujins's `admin`, which must NOT hold root:roles:manage if they
 // shouldn't be able to promote) and its other personas; the extra root roles may

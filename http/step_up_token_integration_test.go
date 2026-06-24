@@ -54,7 +54,7 @@ func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 
 // A password-only re-auth on a session that was established with MFA must NOT
 // strip its otp/mfa AMR: re-proving identity unions methods, it never downgrades
-// assurance, so a later RequireMFA step-up gate still passes.
+// assurance, so a later MFA-required step-up gate still passes.
 func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
 	ctx := context.Background()
 	pool := newServerTestPool(t)
@@ -266,4 +266,31 @@ func requireStepUp2FAOptions(t *testing.T, got stepUpOptionsTestShape, methods [
 	for _, method := range methods {
 		require.True(t, seen[method], "missing 2FA option %q", method)
 	}
+}
+
+// The access token carries mfa_enrolled once the user has a usable second factor,
+// so the stateless Sensitive() gate can require 2FA from enrolled users without a DB call.
+func TestAccessTokenCarriesMFAEnrolledClaim(t *testing.T) {
+	ctx := context.Background()
+	pool := newServerTestPool(t)
+	srv, err := NewServer(newServerTestConfig(), pool, WithoutRateLimiter())
+	require.NoError(t, err)
+
+	user, err := srv.svc.CreateUser(ctx, uniqueEmail("mfa-enrolled"), "mfaenrolled"+uniqueSuffix())
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+
+	// No 2FA yet → claim absent.
+	tok, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", nil)
+	require.NoError(t, err)
+	_, present := unverifiedAccessClaims(t, tok)["mfa_enrolled"]
+	require.False(t, present, "mfa_enrolled must be absent before enrollment")
+
+	// Enroll a usable second factor → claim true on the next token.
+	phone := "+15555550177"
+	_, err = srv.svc.Enable2FA(ctx, user.ID, "sms", &phone)
+	require.NoError(t, err)
+	tok2, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, true, unverifiedAccessClaims(t, tok2)["mfa_enrolled"], "mfa_enrolled must be true after enrollment")
 }

@@ -97,7 +97,7 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 
 	suffix := time.Now().UnixNano()
 	prefix := fmt.Sprintf("hadir%d", suffix)
-	const roleSlug = "admin" // catalog role; maps onto the super-admin root role.
+	const roleSlug = core.OwnerRoleName // intrinsic root role.
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username LIKE $1`, prefix+"%")
@@ -113,10 +113,9 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	idC := mk("ccc")
 	idD := mk("ddd")
 
-	// Root catalog role assignment for A + B.
-	require.NoError(t, s.svc.UpsertRoleBySlug(ctx, "Admin", roleSlug, nil))
-	require.NoError(t, s.svc.AssignRoleBySlug(ctx, idA, roleSlug))
-	require.NoError(t, s.svc.AssignRoleBySlug(ctx, idB, roleSlug))
+	// Root owner assignment for A + B.
+	require.NoError(t, s.svc.AssignGroupRole(ctx, core.RootPersona, "", idA, core.SubjectKindUser, roleSlug))
+	require.NoError(t, s.svc.AssignGroupRole(ctx, core.RootPersona, "", idB, core.SubjectKindUser, roleSlug))
 
 	// Ban D (so status filters can distinguish it).
 	require.NoError(t, s.svc.BanUser(ctx, idD, nil, nil, idA))
@@ -299,7 +298,7 @@ func createAdminTestUser(t *testing.T, s *Service, ctx context.Context, username
 	u, err := s.svc.CreateUser(ctx, username+"@test.example", username)
 	require.NoError(t, err)
 	if admin {
-		require.NoError(t, s.svc.AssignRoleBySlug(ctx, u.ID, "admin"))
+		require.NoError(t, s.svc.AssignGroupRole(ctx, core.RootPersona, "", u.ID, core.SubjectKindUser, core.OwnerRoleName))
 	}
 	return u.ID
 }

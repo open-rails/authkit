@@ -137,6 +137,12 @@ func WithEntitlements(p core.EntitlementsProvider) Option {
 	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithEntitlements(p)) }
 }
 
+// WithAPIKeyResourceAuthorizer supplies the host policy that authorizes
+// non-empty resource scopes on API-key minting.
+func WithAPIKeyResourceAuthorizer(a core.APIKeyResourceAuthorizer) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithAPIKeyResourceAuthorizer(a)) }
+}
+
 // WithAuthLogger supplies the session-event audit sink.
 func WithAuthLogger(l core.AuthEventLogger) Option {
 	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithAuthLogger(l)) }

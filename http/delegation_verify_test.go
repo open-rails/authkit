@@ -430,6 +430,108 @@ func TestRemoteApplicationCORSUsesEnabledOriginUnion(t *testing.T) {
 	}
 }
 
+// ceilingEnricher is a minimal Enricher that resolves a single remote
+// application by issuer and returns a fixed stored-authority permission set, so
+// the delegated permission-ceiling (#76 target model) can be exercised without a
+// DB. Only GetRemoteApplication + ResolveRemoteApplicationAuthority are
+// meaningful; the rest satisfy the interface.
+type ceilingEnricher struct {
+	issuer    string
+	appID     string
+	authority []string
+}
+
+func (e *ceilingEnricher) GetRemoteApplication(_ context.Context, issuer string) (*authbase.RemoteApplication, error) {
+	if issuer == e.issuer {
+		return &authbase.RemoteApplication{ID: e.appID, Issuer: e.issuer, Enabled: true}, nil
+	}
+	return nil, errors.New("not_found")
+}
+
+func (e *ceilingEnricher) ResolveRemoteApplicationAuthority(_ context.Context, appID string) ([]string, error) {
+	if appID == e.appID {
+		return e.authority, nil
+	}
+	return []string{}, nil
+}
+
+func (e *ceilingEnricher) ResolveAPIKeyWithResources(context.Context, string, string) (authbase.ResolvedAPIKey, error) {
+	return authbase.ResolvedAPIKey{}, errors.New("unused")
+}
+func (e *ceilingEnricher) ListRemoteApplications(context.Context, bool) ([]authbase.RemoteApplication, error) {
+	return []authbase.RemoteApplication{{ID: e.appID, Issuer: e.issuer, Enabled: true}}, nil
+}
+func (e *ceilingEnricher) ResolveRemoteAppAttributeDef(context.Context, string, string, int32) (*authbase.RemoteAppAttributeDef, error) {
+	return nil, errors.New("unused")
+}
+func (e *ceilingEnricher) GetProviderUsername(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func (e *ceilingEnricher) ListRoleSlugsByUser(context.Context, string) []string { return nil }
+func (e *ceilingEnricher) GetEmailByUserID(context.Context, string) (string, error) {
+	return "", nil
+}
+func (e *ceilingEnricher) IsUserAllowed(context.Context, string) (bool, error) { return true, nil }
+
+// TestDelegatedPermissionCeilingEnforced proves the #76 target model: when the
+// verifier can resolve the signing issuer to a stored remote_application, a
+// delegated token's `permissions` are bounded by that app's stored authority.
+// Within-ceiling claims pass (and narrow); an out-of-ceiling claim rejects the
+// whole token — a remote app cannot mint a delegated token beyond its authority.
+func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
+	signer, err := jwtkit.NewRSASigner(2048, "host-kid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	iss := "https://doujins.example"
+	aud := []string{"openrails"}
+	enr := &ceilingEnricher{
+		issuer:    iss,
+		appID:     "remote-app-1",
+		authority: []string{"openrails:self:billing:read", "openrails:self:billing:write"},
+	}
+
+	mkVerifier := func() *Verifier {
+		v := newDelegatedVerifier(t, signer, iss, aud)
+		v.SetRemoteApplicationSource(enr)
+		v.WithService(enr)
+		return v
+	}
+
+	t.Run("within ceiling passes", func(t *testing.T) {
+		tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+			Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
+			Permissions: []string{"openrails:self:billing:read"},
+			TTL:         time.Minute,
+		})
+		if err != nil {
+			t.Fatalf("mint: %v", err)
+		}
+		cl, _, err := mkVerifier().VerifyDelegatedAccess(tok)
+		if err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+		if len(cl.Permissions) != 1 || cl.Permissions[0] != "openrails:self:billing:read" {
+			t.Fatalf("permissions = %v", cl.Permissions)
+		}
+	})
+
+	t.Run("out of ceiling rejected", func(t *testing.T) {
+		tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+			Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
+			// Not within the app's stored authority -> privilege escalation attempt.
+			Permissions: []string{"openrails:platform:orgs:recover"},
+			TTL:         time.Minute,
+		})
+		if err != nil {
+			t.Fatalf("mint: %v", err)
+		}
+		if _, _, err := mkVerifier().VerifyDelegatedAccess(tok); err == nil {
+			t.Fatal("expected out-of-ceiling delegated permission to be rejected")
+		}
+	})
+}
+
 // jwksTestServer serves a single signer's JWKS, returning its base URL.
 func jwksTestServer(t *testing.T, signer *jwtkit.RSASigner) *httptest.Server {
 	t.Helper()

@@ -63,10 +63,10 @@ func TestGeneratedRoutes_SurfaceMirrorsProfile(t *testing.T) {
 func TestGeneratedRoutes_GatesAreCorrect(t *testing.T) {
 	s, _ := BuildSchema(PersonaDef{
 		Name: "org", AllowedParents: []string{RootPersona}, AllowCustomRoles: true,
-		Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, Invitation: true},
+		Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
 	})
 	want := map[string]string{ // "METHOD path" -> gate perm
-		"POST /org/:instance_slug/members":             "org:members:manage",
+		"POST /org/:instance_slug/members":             "org:roles:manage",
 		"GET /org/:instance_slug/members":              "org:members:read",
 		"POST /org/:instance_slug/roles":               "org:roles:manage",
 		"GET /org/:instance_slug/roles":                "org:roles:read",

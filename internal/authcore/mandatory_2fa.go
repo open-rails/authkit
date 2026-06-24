@@ -48,6 +48,11 @@ func (s *Service) requireSessionMFAState(ctx context.Context, userID string, aut
 		return err
 	}
 	if !status.Enabled {
+		// Global policy: when 2FA enrollment is mandatory, a user without usable
+		// 2FA cannot establish or refresh a session — they must enroll first.
+		if s.opts.RequireMFAEnrollment {
+			return ErrTwoFAEnrollmentRequired
+		}
 		return nil
 	}
 	if !status.Satisfied || !hasAuthMethod(authMethods, "mfa") {

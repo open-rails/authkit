@@ -300,6 +300,37 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 	return schema.Can(asg, resolver, perm), nil
 }
 
+// GrantsOnGroup returns the de-duplicated UNION of grant PATTERNS the subject
+// holds in the group addressed by groupID (its assignments across the parent
+// chain), resolved against the schema's catalog + per-group custom roles. Unlike
+// CanOnGroup (which tests ONE perm), this returns the whole effective grant set
+// as PATTERNS — globs like `root:*` are returned verbatim, NOT expanded into every
+// concrete perm (the caller glob-matches with authbase.PermMatches). Powers the
+// permission-introspection endpoint (authkit/doujins #421). An empty assignment
+// set returns an empty (non-nil) slice.
+func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *GroupSchema, subjectID, subjectKind, groupID string) ([]string, error) {
+	asg, err := st.WalkAssignments(ctx, groupID, subjectID, subjectKind)
+	if err != nil {
+		return nil, err
+	}
+	if len(asg) == 0 {
+		return []string{}, nil
+	}
+	ids := make([]string, 0, len(asg))
+	for _, a := range asg {
+		ids = append(ids, a.GroupID)
+	}
+	resolver, err := st.CustomRolesFor(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	grants := schema.ResolveGrants(asg, resolver)
+	if grants == nil {
+		grants = []string{}
+	}
+	return grants, nil
+}
+
 // GroupMember is one role-assignment in a group (roster listing).
 type GroupMember struct {
 	SubjectID   string

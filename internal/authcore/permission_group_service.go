@@ -222,6 +222,29 @@ func (s *Service) Can(ctx context.Context, subjectID, subjectKind, persona, inst
 	return st.CanOnGroup(ctx, sch, subjectID, subjectKind, gid, perm)
 }
 
+// ListEffectivePermissions returns the subject's effective grant PATTERNS in the
+// group addressed by (persona, instanceSlug) — the de-duplicated union of every
+// perm its roles grant, with globs (e.g. `root:*`) returned VERBATIM. This is the
+// read primitive behind a "what can I do here" introspection endpoint (#421): a
+// client fetches it once and gates UI on the strings (glob-matching with the same
+// authbase.PermMatches the server enforces with) instead of re-deriving authority
+// from role slugs. Scoped per group instance BY DESIGN — perms are persona-
+// namespaced, so a global union would be both large and meaningless. An unknown
+// group ⇒ empty (no authority), not an error; real lookup failures propagate
+// (fail-closed — never a partial set returned as if complete).
+func (s *Service) ListEffectivePermissions(ctx context.Context, subjectID, subjectKind, persona, instanceSlug string) ([]string, error) {
+	sch := s.groupSchemaOrDefault()
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	if err != nil {
+		if errors.Is(err, ErrGroupNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	return st.GrantsOnGroup(ctx, sch, subjectID, subjectKind, gid)
+}
+
 // ListGroupMembers returns the role-assignments in the group addressed by
 // (persona, instanceSlug).
 func (s *Service) ListGroupMembers(ctx context.Context, persona, instanceSlug string) ([]GroupMember, error) {

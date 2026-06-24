@@ -87,7 +87,7 @@ func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
 
 	gs, err := BuildSchema(PersonaDef{
 		Name: "org", AllowedParents: []string{RootPersona},
-		Routes: ManagementProfile{MemberAssignment: true, Invitation: true},
+		Routes: ManagementProfile{MemberAssignment: true, InviteLinks: true},
 		Roles:  []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}, RequiresMFA: true}},
 	})
 	if err != nil {
@@ -134,4 +134,35 @@ func insertBareUser(t *testing.T, pool *pgxpool.Pool) string {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.users WHERE id=$1::uuid`, id)
 	})
 	return id
+}
+
+// RequireMFAEnrollment is the global "force 2FA at signup / first session" policy:
+// a user without usable 2FA cannot establish or refresh a session until they enroll,
+// independent of any per-role RequiresMFA.
+func TestRequireMFAEnrollmentForcesEnrollment(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	user := insertBareUser(t, pool)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.refresh_sessions WHERE user_id=$1::uuid`, user) })
+
+	// Default policy: a user without 2FA can establish a session.
+	lenient := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	if _, _, _, err := lenient.IssueRefreshSession(ctx, user, "test", nil); err != nil {
+		t.Fatalf("default policy should allow a no-2FA session: %v", err)
+	}
+
+	// RequireMFAEnrollment: the same user is blocked until they enroll 2FA.
+	strict := NewService(Options{Issuer: "https://test", RequireMFAEnrollment: true}, Keyset{}, WithPostgres(pool))
+	if _, _, _, err := strict.IssueRefreshSession(ctx, user, "test", nil); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
+		t.Fatalf("RequireMFAEnrollment without 2FA = %v, want ErrTwoFAEnrollmentRequired", err)
+	}
+
+	// After enrolling a usable factor and authenticating with 2FA, sessions resume.
+	phone := "+15555550142"
+	if _, err := strict.Enable2FA(ctx, user, "sms", &phone); err != nil {
+		t.Fatalf("Enable2FA: %v", err)
+	}
+	if _, _, _, err := strict.IssueRefreshSessionWithAuthMethods(ctx, user, "test", nil, []string{"pwd", "otp", "mfa"}); err != nil {
+		t.Fatalf("enrolled user with a 2FA session should be allowed: %v", err)
+	}
 }

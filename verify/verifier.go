@@ -195,7 +195,7 @@ func WithAttributeHydration(resolver AttributeDefResolver) VerifierOption {
 // resolveAPIKey handles opaque shared-secret API keys. It returns matched=true
 // when the bearer token carries the configured API-key marker, in
 // which case the caller MUST NOT fall through to JWT verification — along with
-// service-principal Claims on success or a sanitized error on failure. When the
+// API-key principal Claims on success or a sanitized error on failure. When the
 // token is not an API key, matched is false and the caller proceeds to JWT verify.
 func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, matched bool, err error) {
 	if !authbase.HasAPIKeyPrefix(v.tokenPrefix, token) {
@@ -226,7 +226,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	return Claims{
 		Permissions: resolved.Permissions,
 		Resources:   resolved.Resources,
-		TokenType:   ServicePrincipalType,
+		TokenType:   APIKeyPrincipalType,
 	}, true, nil
 }
 
@@ -854,6 +854,34 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 
 	cl := v.extractClaims(mapClaims)
 	cl.TokenTyp = tokenTyp
+
+	// Delegated permission ceiling (#76 target model). A delegated access token's
+	// concrete `permissions` are a DOWN-SCOPING request bounded by the SIGNING
+	// remote application's STORED authority — a remote app must never mint a
+	// delegated token carrying permissions beyond its own assigned grants (no
+	// privilege escalation). When this verifier can resolve the validated `iss`
+	// to a remote_application it stores (i.e. it is the issuing-side AuthKit, the
+	// only party that knows the stored grant), it enforces the subset and rejects
+	// any out-of-ceiling claim — fail closed. A pure federated resource server
+	// that only trusts the issuer's JWKS (no remote-app store) cannot bound the
+	// claim here; it relies on its WithPermissions catalog validator instead.
+	if isDelegatedAccessTyp && len(cl.Permissions) > 0 && v.enrich != nil {
+		ctx := context.Background()
+		if ra, rerr := v.remoteApplication(ctx, cl.Issuer); rerr == nil && ra != nil {
+			authorityPerms, aerr := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+			if aerr != nil {
+				// Never swallow an authority-resolution failure into "allow": a
+				// backend outage must fail closed, not grant the claimed perms.
+				return Claims{}, errors.New("invalid_token")
+			}
+			perms, perr := permissionsWithinAuthority(cl.Permissions, authorityPerms)
+			if perr != nil {
+				return Claims{}, perr
+			}
+			cl.Permissions = perms
+		}
+	}
+
 	return cl, nil
 }
 
@@ -975,6 +1003,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.AMR = strSliceClaim(mc, "amr")
 	cl.ACR = strClaim(mc, "acr")
 	cl.TwoFAEnrollment, _ = mc["2fa_enrollment"].(bool)
+	cl.MFAEnrolled, _ = mc["mfa_enrolled"].(bool)
 	if authTime, ok := toUnix(mc["auth_time"]); ok {
 		cl.AuthTime = time.Unix(authTime, 0)
 	}

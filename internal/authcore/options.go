@@ -37,6 +37,12 @@ func WithEphemeralStore(store EphemeralStore, mode EphemeralMode) Option {
 // WithEntitlements sets the entitlements provider.
 func WithEntitlements(p EntitlementsProvider) Option { return func(s *Service) { s.entitlements = p } }
 
+// WithAPIKeyResourceAuthorizer authorizes non-empty resource scopes on API-key
+// minting. Without this hook, resource-scoped API-key minting fails closed.
+func WithAPIKeyResourceAuthorizer(a APIKeyResourceAuthorizer) Option {
+	return func(s *Service) { s.apiKeyResource = a }
+}
+
 // WithAuthLogger sets the session-event audit sink.
 func WithAuthLogger(l AuthEventLogger) Option { return func(s *Service) { s.authlog = l } }
 

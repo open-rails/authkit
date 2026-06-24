@@ -110,6 +110,14 @@ func (s *Service) Can(ctx context.Context, subjectID, subjectKind, persona, inst
 	return s.impl.Can(ctx, subjectID, subjectKind, persona, instanceSlug, perm)
 }
 
+// ListEffectivePermissions returns the subject's effective grant PATTERNS in the
+// group addressed by (persona, instanceSlug) — the introspection primitive behind
+// a "what can I do here" endpoint (#421). Globs (e.g. `root:*`) are returned
+// verbatim; an unknown group yields an empty set (fail-closed on real errors).
+func (s *Service) ListEffectivePermissions(ctx context.Context, subjectID, subjectKind, persona, instanceSlug string) ([]string, error) {
+	return s.impl.ListEffectivePermissions(ctx, subjectID, subjectKind, persona, instanceSlug)
+}
+
 func (s *Service) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
 	return s.impl.ChangePassword(ctx, userID, current, new, keepSessionID)
 }

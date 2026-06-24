@@ -527,8 +527,8 @@ degrade to no entitlements rather than failing the request.
 
 **Gating requests.** Use `Claims.HasEntitlement(name)` for ad-hoc checks, or the
 `RequireEntitlement("premium")` / `RequireAnyEntitlement("pro", "premium")`
-middleware (mount after `Required`) to gate routes; both deny service-principal
-(OAT) and delegated tokens, which carry no entitlements.
+middleware (mount after `Required`) to gate routes; both deny API-key principal
+and delegated tokens, which carry no entitlements.
 
 **Snapshot semantics & revocation lag.** Entitlements are snapshotted into the
 JWT at issuance time. Unlike account bans (re-checked live on every request),
@@ -798,17 +798,17 @@ API Keys (opaque machine credentials)
   Robots should not replay the human password-login path. These are symmetric
   secrets with assigned permissions/resources; they are not JWKS URLs, public
   keys, or issuer registrations.
-- An API key acts as a service principal for its permission group: middleware
-  sets `Claims.Permissions`, `Claims.Resources`, and a service marker
-  (`Claims.IsService()`), leaving `UserID` empty so the live-user ban/enrichment
+- An API key acts as an API-key principal for its permission group: middleware
+  sets `Claims.Permissions`, `Claims.Resources`, and an API-key marker
+  (`Claims.IsAPIKey()`), leaving `UserID` empty so the live-user ban/enrichment
   gate is skipped. Permissions are opaque to authkit; the embedding app owns the
   vocabulary and enforces meaning.
 - Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeyPrefix` brand. `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
 - Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/group-deleted rejected; non-API-key credentials fall through to JWT). The API-key path is separate from the password-login handler, so API keys **bypass the interactive password-login rate limiter** by design.
-- **An API key holds exactly ONE permission-group role:** its effective permissions are resolved FROM that role at use time, so editing the role updates every key that holds it. The bespoke-permission use case is served by creating a custom group role. Resource-scope (`resources: [{kind,id}]`) stays a SEPARATE binding, orthogonal to the role.
-- **Mint authorization is native + role-based:** minting requires the generated `<persona>:api-keys:manage` permission; the body field is `role` (a single role slug). AuthKit validates the role exists in the group and enforces no-escalation. Permissions are NEVER frozen; they re-resolve from the role at verify time. An API key can never mint/list/revoke API keys because it has no user principal.
-- **Resource scopes:** API keys may carry opaque host-defined resource rows, `resources: [{kind,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.api_key_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource kinds or wildcard-looking IDs; the embedding host owns semantics. Hosts that need resource no-escalation can set `Config.ResourceScopeAuthorizer`. Rule: permissions say what; resources say where.
-- Manage via `POST/GET/DELETE /:persona/:resource_slug/api-keys[/:token_id]`. POST accepts `{name, role, resources?:[{kind,id}], expires_at?}`; the mint response also surfaces the role's resolved `permissions` for convenience. Optional `expires_at` (null = non-expiring), capped by `Config.APIKeyMaxTTL` when set. Stored in `profiles.api_keys` with `permission_group_id` plus a role; no per-key permission table.
+- **An API key holds exactly ONE permission-group role:** its effective permissions are resolved FROM that role at use time, so editing the role updates every key that holds it. The bespoke-permission use case is served by creating a custom group role. Resource-scope (`resources: [{persona,id}]`) stays a SEPARATE binding, orthogonal to the role.
+- **Mint authorization is native + role-based:** minting requires the generated `<persona>:api-keys:manage` permission; the body field is `role` (a single role slug). AuthKit validates the role exists in the group and enforces no-step-up in core: the creator must hold `<persona>:roles:manage` and already cover every permission the API-key role would confer. Permissions are NEVER frozen; they re-resolve from the role at verify time. An API key can never mint/list/revoke API keys because it has no user principal.
+- **Resource scopes:** API keys may carry opaque host-defined resource rows, `resources: [{persona,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.api_key_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource personas or wildcard-looking IDs; the embedding host owns semantics. Non-empty resource scopes fail closed unless the host sets `WithAPIKeyResourceAuthorizer` to enforce its resource no-escalation rule. Rule: permissions say what; resources say where.
+- Manage via `POST/GET/DELETE /:persona/:instance_slug/api-keys[/:token_id]`. POST accepts `{name, role, resources?:[{persona,id}], expires_at?}`; the mint response also surfaces the role's resolved `permissions` for convenience. Optional `expires_at` (null = non-expiring), capped by `Config.APIKeys.MaxTTL` when set. Stored in `profiles.api_keys` with `permission_group_id` plus a role; no per-key permission table.
 - **Leak response:** revoke the key (`DELETE …/api-keys/:id`) — the application prefix is registrable with secret-scanning/push-protection partners so leaked keys can be auto-detected.
 
 Service JWTs (OIDC/JWKS machine credentials)
@@ -1344,7 +1344,7 @@ There are three roles, all owned by AuthKit:
 
 | Role | Side | API |
 |---|---|---|
-| **register** | both | `RemoteApplicationIssuersClient.RegisterIssuer` (outbound) -> `POST /:persona/:resource_slug/remote-applications` (inbound) |
+| **register** | both | `RemoteApplicationIssuersClient.RegisterIssuer` (outbound) -> `POST /:persona/:instance_slug/remote-applications` (inbound) |
 | **mint** | platform | `MintDelegatedAccessToken(ctx, signer, DelegatedAccessParams)` |
 | **validate** | resource server | `Verifier.LoadRemoteApplications` + `Verifier.VerifyDelegatedAccess` -> `Claims.DelegatedAccess()` |
 
@@ -1433,10 +1433,10 @@ remote-application origins because it has no JWT; mount
 request's `Origin` against the verified token issuer.
 
 **Inbound (resource-server side, e.g. tensorhub)** — use the generated
-remote-application management routes. `POST /:persona/:resource_slug/remote-applications`
+remote-application management routes. `POST /:persona/:instance_slug/remote-applications`
 accepts and stores a registration authorized by the controlling permission
-group; `DELETE /:persona/:resource_slug/remote-applications/:app` removes one;
-`GET /:persona/:resource_slug/remote-applications` lists that group's apps.
+group; `DELETE /:persona/:instance_slug/remote-applications/:app` removes one;
+`GET /:persona/:instance_slug/remote-applications` lists that group's apps.
 
 #### In-house JWKS — no external push/sync
 

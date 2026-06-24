@@ -167,6 +167,13 @@ type TwoFactorConfig struct {
 	// TOTPSecretKey encrypts persisted authenticator-app shared secrets. It must
 	// be 16, 24, or 32 bytes. Without it, TOTP enrollment fails closed.
 	TOTPSecretKey []byte
+
+	// RequireEnrollment, when true, forces EVERY user to enroll a second factor:
+	// a user without usable 2FA cannot establish or refresh an authenticated
+	// session and is told `2fa_enrollment_required` until they enroll (the
+	// "force 2FA at signup / first session" policy). Off by default; per-role
+	// RoleDef.RequiresMFA remains available for narrower enforcement.
+	RequireEnrollment bool
 }
 
 // PasskeyConfig configures WebAuthn relying-party identity and UV policy.

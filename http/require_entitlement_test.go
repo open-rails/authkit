@@ -61,8 +61,8 @@ func TestRequireAnyEntitlement_FailsClosedWithNoneListed(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code)
 }
 
-func TestRequireEntitlement_DeniesServicePrincipal(t *testing.T) {
+func TestRequireEntitlement_DeniesAPIKeyPrincipal(t *testing.T) {
 	h := entitlementProtected(RequireEntitlement("premium"))
-	w := serveWithClaims(h, &Claims{TokenType: ServicePrincipalType})
+	w := serveWithClaims(h, &Claims{TokenType: APIKeyPrincipalType})
 	require.Equal(t, http.StatusForbidden, w.Code)
 }

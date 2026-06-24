@@ -174,6 +174,41 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleMePermissionsGET is the permission-introspection endpoint (#421): it
+// returns the authenticated subject's effective grant PATTERNS within ONE group
+// instance, so a client can gate UI on permission strings (glob-matching with
+// authbase.PermMatches, the same matcher the server enforces with) instead of
+// re-deriving authority from role slugs. Scoped by ?persona= (default "root") and
+// ?instance= (default "" — the singleton root group); a per-instance scope is
+// required because perms are persona-namespaced. Globs like `root:*` (held by an
+// owner) are returned VERBATIM.
+func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == "" {
+		unauthorized(w, ErrNotAuthenticated)
+		return
+	}
+	persona := strings.TrimSpace(r.URL.Query().Get("persona"))
+	if persona == "" {
+		persona = core.RootPersona
+	}
+	instance := strings.TrimSpace(r.URL.Query().Get("instance"))
+	perms, err := s.svc.ListEffectivePermissions(r.Context(), claims.UserID, core.SubjectKindUser, persona, instance)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	if perms == nil {
+		perms = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"object":        "permission_set",
+		"persona":       persona,
+		"instance_slug": instance,
+		"permissions":   perms,
+	})
+}
+
 // --- api-keys ---------------------------------------------------------------
 
 // apiKeyMintRequest is the body for POST /<persona>/<instance_slug>/api-keys. Role
@@ -535,8 +570,13 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, core.ErrInviteEmailMismatch),
 		errors.Is(err, core.ErrExternalInvitesDisabled),
+		errors.Is(err, core.ErrResourceScopeDenied),
 		errors.Is(err, core.ErrInsufficientRoleAuthority),
 		errors.Is(err, core.ErrRoleAssignmentEscalation):
+		if errors.Is(err, core.ErrResourceScopeDenied) {
+			forbidden(w, ErrResourceScopeDenied)
+			return
+		}
 		forbidden(w, ErrForbidden)
 		return
 	case errors.Is(err, core.ErrInvalidRemoteApplication),

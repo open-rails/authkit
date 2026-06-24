@@ -306,7 +306,7 @@ Permission-group routes are config-derived and exposed through:
 - `Routes.PermissionGroups()`
 - `Service.PermissionGroupRoutes()`
 
-### Permission-group HTTP routes use persona/resource slugs
+### Permission-group HTTP routes use persona/instance slugs
 
 Generated group-management routes are derived from configured `PersonaDef`
 management profiles. Disabled capabilities emit no route.
@@ -315,22 +315,22 @@ Route shape:
 
 ```http
 GET    /me/groups
-GET    /{persona}/{resource_slug}/members
-POST   /{persona}/{resource_slug}/members
-DELETE /{persona}/{resource_slug}/members/{user}
-PUT    /{persona}/{resource_slug}/members/{user}/roles/{role}
-GET    /{persona}/{resource_slug}/roles
-POST   /{persona}/{resource_slug}/roles
-DELETE /{persona}/{resource_slug}/roles/{role}
-GET    /{persona}/{resource_slug}/api-keys
-POST   /{persona}/{resource_slug}/api-keys
-DELETE /{persona}/{resource_slug}/api-keys/{key}
-GET    /{persona}/{resource_slug}/remote-applications
-POST   /{persona}/{resource_slug}/remote-applications
-DELETE /{persona}/{resource_slug}/remote-applications/{app}
-GET    /{persona}/{resource_slug}/invites
-POST   /{persona}/{resource_slug}/invites
-DELETE /{persona}/{resource_slug}/invites/{invite}
+GET    /{persona}/{instance_slug}/members
+POST   /{persona}/{instance_slug}/members
+DELETE /{persona}/{instance_slug}/members/{user}
+PUT    /{persona}/{instance_slug}/members/{user}/roles/{role}
+GET    /{persona}/{instance_slug}/roles
+POST   /{persona}/{instance_slug}/roles
+DELETE /{persona}/{instance_slug}/roles/{role}
+GET    /{persona}/{instance_slug}/api-keys
+POST   /{persona}/{instance_slug}/api-keys
+DELETE /{persona}/{instance_slug}/api-keys/{key}
+GET    /{persona}/{instance_slug}/remote-applications
+POST   /{persona}/{instance_slug}/remote-applications
+DELETE /{persona}/{instance_slug}/remote-applications/{app}
+GET    /{persona}/{instance_slug}/invites/links
+POST   /{persona}/{instance_slug}/invites/links
+DELETE /{persona}/{instance_slug}/invites/links/{link}
 ```
 
 ### Admin routes are root-persona permission gated

@@ -31,7 +31,7 @@ type (
 )
 
 const (
-	ServicePrincipalType       = verify.ServicePrincipalType
+	APIKeyPrincipalType        = verify.APIKeyPrincipalType
 	RemoteApplicationTokenType = verify.RemoteApplicationTokenType
 )
 
@@ -43,7 +43,6 @@ var (
 	RequireAnyEntitlement  = verify.RequireAnyEntitlement
 	RequireFreshAuth       = verify.RequireFreshAuth
 	RequireAMR             = verify.RequireAMR
-	RequireMFA             = verify.RequireMFA
 	RequireACR             = verify.RequireACR
 	Sensitive              = verify.Sensitive
 	SensitiveClaims        = verify.SensitiveClaims

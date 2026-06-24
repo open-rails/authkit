@@ -189,35 +189,35 @@ Hosts expose resource-scoped management through generated permission-group route
 
 Terminology: a configured permission-group persona is the public route and
 permission namespace. For example, a `merchant` persona generates
-`/merchant/:resource_slug/...` routes and `merchant:<area>:<action>` permissions.
+`/merchant/:instance_slug/...` routes and `merchant:<area>:<action>` permissions.
 
 Always:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/me/groups` | AUTH | List the caller's direct `{persona, resource_slug, role}` memberships |
+| GET | `/me/groups` | AUTH | List the caller's direct `{persona, instance_slug, role}` memberships |
 
 For each configured persona, AuthKit emits only the route families enabled by
 that persona's management profile:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/:persona/:resource_slug/members` | PERM | List members |
-| POST | `/:persona/:resource_slug/members` | PERM | Add member role |
-| DELETE | `/:persona/:resource_slug/members/:user` | PERM | Remove member from group |
-| PUT | `/:persona/:resource_slug/members/:user/roles/:role` | PERM | Assign or replace the member's role |
-| GET | `/:persona/:resource_slug/roles` | PERM | List role catalog |
-| POST | `/:persona/:resource_slug/roles` | PERM | Define custom role |
-| DELETE | `/:persona/:resource_slug/roles/:role` | PERM | Delete custom role |
-| GET | `/:persona/:resource_slug/api-keys` | PERM | List API keys |
-| POST | `/:persona/:resource_slug/api-keys` | PERM | Mint API key |
-| DELETE | `/:persona/:resource_slug/api-keys/:key` | PERM | Revoke API key |
-| GET | `/:persona/:resource_slug/remote-applications` | PERM | List remote applications |
-| POST | `/:persona/:resource_slug/remote-applications` | PERM | Register remote application |
-| DELETE | `/:persona/:resource_slug/remote-applications/:app` | PERM | Delete remote application |
-| GET | `/:persona/:resource_slug/invites` | PERM | List invites |
-| POST | `/:persona/:resource_slug/invites` | PERM | Create invite |
-| DELETE | `/:persona/:resource_slug/invites/:invite` | PERM | Revoke invite |
+| GET | `/:persona/:instance_slug/members` | PERM | List members |
+| POST | `/:persona/:instance_slug/members` | PERM | Add member role |
+| DELETE | `/:persona/:instance_slug/members/:user` | PERM | Remove member from group |
+| PUT | `/:persona/:instance_slug/members/:user/roles/:role` | PERM | Assign or replace the member's role |
+| GET | `/:persona/:instance_slug/roles` | PERM | List role catalog |
+| POST | `/:persona/:instance_slug/roles` | PERM | Define custom role |
+| DELETE | `/:persona/:instance_slug/roles/:role` | PERM | Delete custom role |
+| GET | `/:persona/:instance_slug/api-keys` | PERM | List API keys |
+| POST | `/:persona/:instance_slug/api-keys` | PERM | Mint API key |
+| DELETE | `/:persona/:instance_slug/api-keys/:key` | PERM | Revoke API key |
+| GET | `/:persona/:instance_slug/remote-applications` | PERM | List remote applications |
+| POST | `/:persona/:instance_slug/remote-applications` | PERM | Register remote application |
+| DELETE | `/:persona/:instance_slug/remote-applications/:app` | PERM | Delete remote application |
+| GET | `/:persona/:instance_slug/invites/links` | PERM | List invite links |
+| POST | `/:persona/:instance_slug/invites/links` | PERM | Create invite link |
+| DELETE | `/:persona/:instance_slug/invites/links/:link` | PERM | Revoke invite link |
 
 Built-in `root` emits member-management plus role-list routes by default.
 
@@ -227,9 +227,9 @@ Built-in `root` emits member-management plus role-list routes by default.
 
 Long-lived, revocable bearer credentials owned by a permission group, for
 machine/automation callers (CI, operator CLIs, service-to-service). An API key
-acts as a service principal for that permission group: middleware sets
-`Claims.Permissions`, `Claims.Resources`, and a service marker
-(`Claims.IsService()`), with no `UserID`. Permissions are opaque to AuthKit; the
+acts as an API-key principal for that permission group: middleware sets
+`Claims.Permissions`, `Claims.Resources`, and an API-key marker
+(`Claims.IsAPIKey()`), with no `UserID`. Permissions are opaque to AuthKit; the
 embedding app owns the vocabulary and enforces meaning.
 
 **Presentation.** `Authorization: Bearer <prefix>_st_<key_id>_<secret>`. `<prefix>` is
@@ -412,6 +412,6 @@ browser call OpenRails directly; the host does not need to proxy billing routes.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/:persona/:resource_slug/remote-applications` | PERM | Register/upsert a remote application issuer |
-| DELETE | `/:persona/:resource_slug/remote-applications/:app` | PERM | Remove a remote application issuer registration |
-| GET | `/:persona/:resource_slug/remote-applications` | PERM | List registered remote applications for a permission group |
+| POST | `/:persona/:instance_slug/remote-applications` | PERM | Register/upsert a remote application issuer |
+| DELETE | `/:persona/:instance_slug/remote-applications/:app` | PERM | Remove a remote application issuer registration |
+| GET | `/:persona/:instance_slug/remote-applications` | PERM | List registered remote applications for a permission group |

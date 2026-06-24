@@ -42,7 +42,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 		p := td.Routes
 
 		if p.MemberAssignment {
-			rd, mg := PermMembersRead(persona), PermMembersManage(persona)
+			rd, mg := PermMembersRead(persona), PermRolesManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/members", rd},
 				GeneratedRoute{persona, "POST", base + "/members", mg},
@@ -78,7 +78,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 		// Invite-LINK routes (#134): mint / list / revoke a high-entropy invite
 		// link. Redemption is NOT here — it is the persona-agnostic POST
 		// /invites/redeem (any authenticated user), mounted as a fixed route.
-		if p.Invitation {
+		if p.InviteLinks {
 			rd, mg := PermInvitesRead(persona), PermInvitesManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "POST", base + "/invites/links", mg},

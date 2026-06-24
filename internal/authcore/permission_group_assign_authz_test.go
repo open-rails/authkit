@@ -64,12 +64,12 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 
-	// Custom root schema: bounded `admin` (operational, NO members:manage) and a
-	// `role-manager` (members:manage + users:ban, but NOT root:*). owner (root:*) +
+	// Custom root schema: bounded `admin` (operational, NO roles:manage) and a
+	// `role-manager` (roles:manage + users:ban, but NOT root:*). owner (root:*) +
 	// member are auto-injected.
 	gs, err := BuildSchema(IntrinsicRootPersona(
 		RoleDef{Name: "admin", Permissions: []string{PermRootUsersBan}},
-		RoleDef{Name: "role-manager", Permissions: []string{PermMembersManage(RootPersona), PermRootUsersBan}},
+		RoleDef{Name: "role-manager", Permissions: []string{PermRolesManage(RootPersona), PermRootUsersBan}},
 	))
 	if err != nil {
 		t.Fatalf("schema: %v", err)
@@ -110,12 +110,12 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	}
 	_ = svc.UnassignGroupRoleAs(ctx, owner, RootPersona, "", target, SubjectKindUser, "owner")
 
-	// admin lacks root:members:manage → cannot grant anything.
+	// admin lacks root:roles:manage → cannot grant anything.
 	if err := svc.AssignRoleBySlugAs(ctx, adminU, target, "admin"); !errors.Is(err, ErrInsufficientRoleAuthority) {
 		t.Fatalf("admin->admin want ErrInsufficientRoleAuthority, got %v", err)
 	}
 
-	// role-manager HAS members:manage and covers admin's perms → may grant admin.
+	// role-manager HAS roles:manage and covers admin's perms → may grant admin.
 	if err := svc.AssignRoleBySlugAs(ctx, roleMgr, target, "admin"); err != nil {
 		t.Fatalf("role-manager->admin should succeed: %v", err)
 	}

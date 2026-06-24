@@ -137,7 +137,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service
 type Option func(*Service)
   WithAuthLogger, WithDBTXWrapper, WithEmailSender, WithEntitlements,
-  WithEphemeralStore, WithPostgres, WithResourceScopeAuthorizer, WithSMSSender,
+  WithEphemeralStore, WithPostgres, WithAPIKeyResourceAuthorizer, WithSMSSender,
   WithSolanaSNSResolver
 ```
 
@@ -199,7 +199,7 @@ REPLACE the removed `GroupInvite`/`GroupInviteStatus*` user_id-invite API),
 consumers implement): `EmailSender`, `SMSSender`, `SMSHealthChecker`,
 `EntitlementsProvider`, `BatchEntitlementsProvider`, `EntitlementFilterProvider`,
 `EphemeralStore`, `AuthEventLogger`, `AuthEventLogReader`, `SolanaSNSResolver`,
-`ResourceScopeAuthorizer`, `CustomRoleResolver`.
+`APIKeyResourceAuthorizer`, `CustomRoleResolver`.
 `GroupInviteEmailSender` (#134) is an OPTIONAL capability, NOT part of the required
 `EmailSender` contract: an `EmailSender` MAY also implement
 `SendGroupInvite(ctx, email, GroupInviteMessage)` to receive AuthKit-built invite-link
@@ -227,7 +227,7 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `ErrGroupNotFound`, `ErrNotGroupMember`, `ErrInviteLinkNotFound`, `ErrInviteLinkExpired`,
 `ErrInviteLinkExhausted`, `ErrInviteLinkRevoked`, `ErrInviteEmailMismatch`,
 `ErrExternalInvitesDisabled` (#134), `ErrUserRoleNotFound`,
-`ErrReservedRoleSlug`, `ErrCannotRemoveLastAdminRole`, `ErrEntitlementFilterUnavailable`,
+`ErrCannotRemoveLastAdminRole`, `ErrEntitlementFilterUnavailable`,
 `ErrInvalidBootstrapManifest`, `ErrEmptyCustomClaims`, `ErrRemoteApplicationNotFound`,
 `ErrAttributeDefNotFound`, and the `ErrInvalid*` re-exports from `authbase`.
 `HashAlgoLegacyResetRequired = "legacy-reset-required"` is a covered stored value.
@@ -318,7 +318,7 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
 type Server = Service; NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error)
 Option: WithRedis, WithEmailSender, WithSMSSender, WithEntitlements, WithEphemeralStore,
   WithRateLimiter, WithoutRateLimiter, WithClientIPFunc, WithLanguageConfig,
-  WithAuthLogger, WithAuthLogReader, WithErrorLogger, WithResourceScopeAuthorizer,
+  WithAuthLogger, WithAuthLogReader, WithErrorLogger, WithAPIKeyResourceAuthorizer,
   WithSolanaDomain, WithSolanaSNSResolver
 Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups), svc.Core()

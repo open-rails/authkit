@@ -285,6 +285,9 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims C
 	}
 	if twoFA := s.stepUpTwoFactorOptions(r, claims.UserID); twoFA != nil {
 		metadata["step_up_2fa"] = twoFA
+		// User has usable 2FA → MFA-if-enrolled means a password step-up won't
+		// clear the gate; tell the client to route to 2FA.
+		metadata["mfa_required"] = true
 	}
 	sendErrData(w, http.StatusForbidden, ErrStepUpRequired, metadata)
 }
