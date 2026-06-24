@@ -570,10 +570,13 @@ from that role at verify time. The format and resolution semantics are covered.
 
 ### 6.6 Bootstrap manifest YAML
 
-The bootstrap manifest schema (`users`/`global_roles`, and the three password modes:
+The bootstrap manifest schema (`users`/`root_roles`, and the three password modes:
 `plaintext`, `hash`+`hash_algo`,
 `reset_required`) is a covered wire contract parsed by `LoadBootstrapManifestFile` /
-`ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR.
+`ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR. (#136 renamed
+`global_roles` → `root_roles`; per-user `root_roles: ["owner"]` seeds the apex
+owner SEED-IF-ABSENT — owner is the built-in apex of every group, never defined
+here, only assigned. There is no `super-admin`.)
 
 ### 6.7 Password hash policy (covered)
 
