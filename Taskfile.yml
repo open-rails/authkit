@@ -35,3 +35,10 @@ tasks:
       AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
     cmds:
       - go test ./...
+
+  test-fast:
+    desc: Fast DB-free smoke (race detector, no Postgres). DB-backed tests skip.
+    env:
+      AUTHKIT_TEST_DATABASE_URL: ''
+    cmds:
+      - go test -race ./...
