@@ -34,7 +34,13 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 	if role == "" {
 		role = core.MemberRoleName
 	}
-	if err := s.svc.AssignGroupRole(r.Context(), persona, instanceSlug, strings.TrimSpace(body.UserID), core.SubjectKindUser, role); err != nil {
+	actor, ok := ClaimsFromContext(r.Context())
+	if !ok || actor.UserID == "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	// #136: actor-aware assignment enforces capability + no-escalation in core.
+	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, persona, instanceSlug, strings.TrimSpace(body.UserID), core.SubjectKindUser, role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -71,7 +77,13 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, person
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := s.svc.AssignGroupRole(r.Context(), persona, instanceSlug, userID, core.SubjectKindUser, role); err != nil {
+	actor, ok := ClaimsFromContext(r.Context())
+	if !ok || actor.UserID == "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	// #136: actor-aware assignment enforces capability + no-escalation in core.
+	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, persona, instanceSlug, userID, core.SubjectKindUser, role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -522,7 +534,9 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		notFound(w, ErrNotFound)
 		return
 	case errors.Is(err, core.ErrInviteEmailMismatch),
-		errors.Is(err, core.ErrExternalInvitesDisabled):
+		errors.Is(err, core.ErrExternalInvitesDisabled),
+		errors.Is(err, core.ErrInsufficientRoleAuthority),
+		errors.Is(err, core.ErrRoleAssignmentEscalation):
 		forbidden(w, ErrForbidden)
 		return
 	case errors.Is(err, core.ErrInvalidRemoteApplication),
