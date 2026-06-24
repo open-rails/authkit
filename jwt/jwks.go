@@ -2,6 +2,7 @@ package jwtkit
 
 import (
 	"crypto"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -98,7 +99,11 @@ func JWKToPublicKey(j JWK) (crypto.PublicKey, error) {
 		if !eInt.IsInt64() {
 			return nil, errors.New("bad_rsa_exponent")
 		}
-		return &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(eInt.Int64())}, nil
+		pub := &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(eInt.Int64())}
+		if err := validateRSAPublicKey(pub); err != nil {
+			return nil, err
+		}
+		return pub, nil
 	case "EC":
 		curve, err := curveForCRV(j.Crv)
 		if err != nil {
@@ -112,11 +117,15 @@ func JWKToPublicKey(j JWK) (crypto.PublicKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ecdsa.PublicKey{
+		pub := &ecdsa.PublicKey{
 			Curve: curve,
 			X:     new(big.Int).SetBytes(xBytes),
 			Y:     new(big.Int).SetBytes(yBytes),
-		}, nil
+		}
+		if err := validateECPublicKeyOnCurve(pub); err != nil {
+			return nil, err
+		}
+		return pub, nil
 	case "OKP":
 		if strings.ToUpper(strings.TrimSpace(j.Crv)) != "ED25519" {
 			return nil, fmt.Errorf("%w: %s", ErrUnsupportedJWK, j.Crv)
@@ -162,6 +171,77 @@ func JWKSToPublicKeys(ks JWKS) (map[string]crypto.PublicKey, error) {
 		return nil, errors.New("empty_jwks")
 	}
 	return out, nil
+}
+
+const (
+	// minRSABits is the smallest RSA modulus accepted from a JWKS. 2048 bits is
+	// the NIST / RFC 7518 floor; anything smaller is treated as weak.
+	minRSABits = 2048
+	// maxRSABits bounds the modulus so a hostile JWKS cannot force pathologically
+	// expensive modular exponentiation (DoS) during signature verification.
+	maxRSABits = 8192
+)
+
+// validateRSAPublicKey rejects weak or degenerate RSA keys parsed from a JWKS.
+// Without a modulus-size floor, an issuer (or anyone able to influence the
+// published JWKS) could present a trivially factorable small key and forge
+// tokens the verifier would otherwise accept.
+func validateRSAPublicKey(pub *rsa.PublicKey) error {
+	if pub == nil || pub.N == nil || pub.N.Sign() <= 0 {
+		return errors.New("invalid_rsa_modulus")
+	}
+	bits := pub.N.BitLen()
+	if bits < minRSABits {
+		return fmt.Errorf("rsa_key_too_small: %d bits (min %d)", bits, minRSABits)
+	}
+	if bits > maxRSABits {
+		return fmt.Errorf("rsa_key_too_large: %d bits (max %d)", bits, maxRSABits)
+	}
+	// The public exponent must be odd and >= 3 (e=1 is the identity map; an even
+	// exponent is never valid for RSA).
+	if pub.E < 3 || pub.E%2 == 0 {
+		return fmt.Errorf("invalid_rsa_exponent: %d", pub.E)
+	}
+	return nil
+}
+
+// validateECPublicKeyOnCurve confirms the (X, Y) point actually lies on the
+// named curve. An off-curve or identity point in a JWKS is an invalid-curve
+// attack vector; rejecting it at parse time keeps such keys out of the verifier.
+func validateECPublicKeyOnCurve(pub *ecdsa.PublicKey) error {
+	if pub == nil || pub.X == nil || pub.Y == nil {
+		return errors.New("invalid_ec_point")
+	}
+	ecdhCurve, size, err := ecdhForCurve(pub.Curve)
+	if err != nil {
+		return err
+	}
+	// Guard against oversized coordinates before FillBytes (which panics if the
+	// value does not fit in the fixed-length buffer).
+	if pub.X.BitLen() > size*8 || pub.Y.BitLen() > size*8 {
+		return errors.New("ec_coordinate_out_of_range")
+	}
+	point := make([]byte, 1+2*size)
+	point[0] = 0x04
+	pub.X.FillBytes(point[1 : 1+size])
+	pub.Y.FillBytes(point[1+size:])
+	if _, err := ecdhCurve.NewPublicKey(point); err != nil {
+		return fmt.Errorf("ec_point_not_on_curve: %w", err)
+	}
+	return nil
+}
+
+func ecdhForCurve(c elliptic.Curve) (ecdh.Curve, int, error) {
+	switch c {
+	case elliptic.P256():
+		return ecdh.P256(), 32, nil
+	case elliptic.P384():
+		return ecdh.P384(), 48, nil
+	case elliptic.P521():
+		return ecdh.P521(), 66, nil
+	default:
+		return nil, 0, fmt.Errorf("%w: unsupported curve", ErrUnsupportedJWK)
+	}
 }
 
 func curveForCRV(crv string) (elliptic.Curve, error) {
