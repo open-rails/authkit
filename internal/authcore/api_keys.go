@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -505,9 +506,44 @@ func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret 
 	}, nil
 }
 
+// apiKeyTouchWindow is the minimum interval between last_used_at writes for a
+// single API key. last_used_at is explicitly non-critical, so coarsening its
+// freshness to this window turns per-request writes (and their transient
+// goroutines) into at-most-one-per-window-per-key under high automation traffic.
+const apiKeyTouchWindow = 60 * time.Second
+
+// lastUsedThrottle coalesces api-key last_used_at writes: it records the last time
+// each key was touched in-memory and lets a write through only once per window.
+type lastUsedThrottle struct {
+	mu     sync.Mutex
+	window time.Duration
+	seen   map[string]time.Time
+}
+
+func newLastUsedThrottle(window time.Duration) *lastUsedThrottle {
+	return &lastUsedThrottle{window: window, seen: make(map[string]time.Time)}
+}
+
+// allow reports whether a touch for id should hit the DB now — true at most once
+// per window per id. now is injected so the gate is testable without sleeping.
+func (t *lastUsedThrottle) allow(id string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if last, ok := t.seen[id]; ok && now.Sub(last) < t.window {
+		return false
+	}
+	t.seen[id] = now
+	return true
+}
+
 // touchAccessTokenAsync updates last_used_at without blocking the request. A
-// failure here is non-critical (auth already succeeded).
+// failure here is non-critical (auth already succeeded). Writes are coalesced per
+// key via apiKeyTouch, so a hot key writes at most once per apiKeyTouchWindow
+// instead of once per request — bounding write amplification and goroutine churn.
 func (s *Service) touchAccessTokenAsync(id string) {
+	if s.apiKeyTouch != nil && !s.apiKeyTouch.allow(id, time.Now()) {
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
