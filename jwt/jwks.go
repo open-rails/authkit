@@ -178,20 +178,47 @@ func curveForCRV(crv string) (elliptic.Curve, error) {
 }
 
 // ServeJWKS writes JWKS JSON to the ResponseWriter.
+//
+// It emits an ETag and a public Cache-Control directive and honours a matching
+// If-None-Match with 304 Not Modified. Per RFC 7232 the validator and freshness
+// headers are also sent on the 304 path, so an intermediary cache keeps a usable
+// entry. X-Content-Type-Options: nosniff is set so a browser cannot be coaxed
+// into treating the document as anything other than JSON.
 func ServeJWKS(w http.ResponseWriter, r *http.Request, ks JWKS) {
 	b, _ := json.Marshal(ks)
 	sum := sha256.Sum256(b)
 	etag := "\"" + hex.EncodeToString(sum[:]) + "\""
 
-	if inm := r.Header.Get("If-None-Match"); inm != "" && inm == etag {
+	h := w.Header()
+	h.Set("Cache-Control", "public, max-age=300, must-revalidate")
+	h.Set("ETag", etag)
+	h.Set("X-Content-Type-Options", "nosniff")
+
+	if inm := r.Header.Get("If-None-Match"); inm != "" && etagMatches(inm, etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate")
-	w.Header().Set("ETag", etag)
+	h.Set("Content-Type", "application/json")
 	_, _ = w.Write(b)
+}
+
+// etagMatches reports whether an If-None-Match header value matches the current
+// strong ETag. It accepts "*", a comma-separated list of candidates, and the
+// weak ("W/") prefix (weak comparison is the correct semantics for If-None-Match).
+func etagMatches(ifNoneMatch, etag string) bool {
+	ifNoneMatch = strings.TrimSpace(ifNoneMatch)
+	if ifNoneMatch == "*" {
+		return true
+	}
+	for _, candidate := range strings.Split(ifNoneMatch, ",") {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimPrefix(candidate, "W/")
+		if candidate == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func base64URLEncode(i *big.Int) string {
