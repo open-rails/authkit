@@ -1,6 +1,12 @@
 package authcore
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+)
 
 // grantsCoverAll is the heart of #136 no-escalation: an actor may grant a role
 // only if it already holds every permission that role confers. These cases are
@@ -49,5 +55,72 @@ func TestGrantsCoverAll_ResourceGlob(t *testing.T) {
 	}
 	if grantsCoverAll(holder, []string{"root:*"}) {
 		t.Fatalf("root:users:* must NOT cover the owner grant root:*")
+	}
+}
+
+// TestAssignRoleBySlugAs_NoEscalation_DB exercises the #136 enforcement against a
+// real DB: capability (root:roles:manage) + no step-up (perms(role) ⊆ perms(actor)).
+func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+
+	// Custom root schema: bounded `admin` (operational, NO roles:manage) and a
+	// `role-manager` (roles:manage + users:ban, but NOT root:*). owner (root:*) +
+	// member are auto-injected.
+	gs, err := BuildSchema(IntrinsicRootPersona(
+		RoleDef{Name: "admin", Permissions: []string{PermRootUsersBan}},
+		RoleDef{Name: "role-manager", Permissions: []string{PermRootRolesManage, PermRootUsersBan}},
+	))
+	if err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc.groupSchema = gs
+	if _, err := svc.EnsureRootGroup(ctx); err != nil {
+		t.Fatalf("ensure root group: %v", err)
+	}
+
+	suffix := time.Now().UnixNano()
+	mk := func(tag string) string {
+		uname := fmt.Sprintf("noesc-%s-%d", tag, suffix)
+		var id string
+		if err := pool.QueryRow(ctx, `INSERT INTO profiles.users (username) VALUES ($1) RETURNING id::text`, uname).Scan(&id); err != nil {
+			t.Fatalf("create user %s: %v", tag, err)
+		}
+		t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, id) })
+		return id
+	}
+	owner, adminU, roleMgr, target := mk("owner"), mk("admin"), mk("rolemgr"), mk("target")
+
+	// Genesis: seed the owner via the unchecked path.
+	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner, SubjectKindUser, OwnerRoleName); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+
+	// owner (root:*) may grant admin and role-manager (both ⊆ root:*).
+	if err := svc.AssignRoleBySlugAs(ctx, owner, adminU, "admin"); err != nil {
+		t.Fatalf("owner->admin should succeed: %v", err)
+	}
+	if err := svc.AssignRoleBySlugAs(ctx, owner, roleMgr, "role-manager"); err != nil {
+		t.Fatalf("owner->role-manager should succeed: %v", err)
+	}
+	// owner may even mint another owner (owner covers owner).
+	if err := svc.AssignRoleBySlugAs(ctx, owner, target, "owner"); err != nil {
+		t.Fatalf("owner->owner should succeed: %v", err)
+	}
+	_ = svc.UnassignGroupRoleAs(ctx, owner, RootPersona, "", target, SubjectKindUser, "owner")
+
+	// admin lacks root:roles:manage → cannot grant anything.
+	if err := svc.AssignRoleBySlugAs(ctx, adminU, target, "admin"); !errors.Is(err, ErrInsufficientRoleAuthority) {
+		t.Fatalf("admin->admin want ErrInsufficientRoleAuthority, got %v", err)
+	}
+
+	// role-manager HAS roles:manage and covers admin's perms → may grant admin.
+	if err := svc.AssignRoleBySlugAs(ctx, roleMgr, target, "admin"); err != nil {
+		t.Fatalf("role-manager->admin should succeed: %v", err)
+	}
+	// but role-manager does NOT hold root:* → cannot grant owner (no step-up).
+	if err := svc.AssignRoleBySlugAs(ctx, roleMgr, target, "owner"); !errors.Is(err, ErrRoleAssignmentEscalation) {
+		t.Fatalf("role-manager->owner want ErrRoleAssignmentEscalation, got %v", err)
 	}
 }
