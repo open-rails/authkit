@@ -361,7 +361,7 @@ COMMENT ON TABLE profiles.remote_application_attribute_defs IS
   'Reference-mode attribute definitions: opaque JSON by remote application, key, and version.';
 
 CREATE TABLE IF NOT EXISTS profiles.group_user_roles (
-  group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   role text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -370,17 +370,17 @@ CREATE TABLE IF NOT EXISTS profiles.group_user_roles (
   CONSTRAINT gur_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 CREATE UNIQUE INDEX IF NOT EXISTS gur_group_user_role_uidx
-  ON profiles.group_user_roles (group_id, user_id, role)
+  ON profiles.group_user_roles (permission_group_id, user_id, role)
   WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS gur_user_idx
   ON profiles.group_user_roles (user_id)
   WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS gur_group_idx
-  ON profiles.group_user_roles (group_id)
+  ON profiles.group_user_roles (permission_group_id)
   WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS profiles.group_remote_application_roles (
-  group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   remote_application_id uuid NOT NULL REFERENCES profiles.remote_applications(id) ON DELETE CASCADE,
   role text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -389,22 +389,22 @@ CREATE TABLE IF NOT EXISTS profiles.group_remote_application_roles (
   CONSTRAINT grar_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 CREATE UNIQUE INDEX IF NOT EXISTS grar_group_remote_application_role_uidx
-  ON profiles.group_remote_application_roles (group_id, remote_application_id, role)
+  ON profiles.group_remote_application_roles (permission_group_id, remote_application_id, role)
   WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS grar_remote_application_idx
   ON profiles.group_remote_application_roles (remote_application_id)
   WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS grar_group_idx
-  ON profiles.group_remote_application_roles (group_id)
+  ON profiles.group_remote_application_roles (permission_group_id)
   WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS profiles.group_custom_roles (
-  group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   role text NOT NULL,
   permissions text[] NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (group_id, role),
+  PRIMARY KEY (permission_group_id, role),
   CONSTRAINT gcr_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 
@@ -416,7 +416,7 @@ CREATE TABLE IF NOT EXISTS profiles.group_custom_roles (
 -- stored. invited_by CASCADEs so a user hard-delete clears the links they minted.
 CREATE TABLE IF NOT EXISTS profiles.group_invite_links (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
-  group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   role text NOT NULL,
   invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   code_hash text NOT NULL UNIQUE,
@@ -431,7 +431,7 @@ CREATE TABLE IF NOT EXISTS profiles.group_invite_links (
   CONSTRAINT gil_max_uses_chk CHECK (max_uses IS NULL OR max_uses >= 1)
 );
 CREATE INDEX IF NOT EXISTS group_invite_links_group_idx
-  ON profiles.group_invite_links (group_id)
+  ON profiles.group_invite_links (permission_group_id)
   WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS profiles.api_keys (
