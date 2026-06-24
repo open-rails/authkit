@@ -581,8 +581,23 @@ func (s *Service) Issue2FAEnrollmentToken(ctx context.Context, userID string) (t
 	return s.issueAccessToken(ctx, userID, "", map[string]any{"2fa_enrollment": true}, 10*time.Minute)
 }
 
+// reservedAccessTokenClaims are the claims issueAccessToken owns; a caller's
+// `extra` map may not override them. Allowing it would let a host mint a token
+// impersonating another `sub`, with a forged `exp`/`iss`/`aud`, or with forged
+// assurance signals (`auth_time`/`amr`/`acr`/`mfa_enrolled`).
+var reservedAccessTokenClaims = map[string]struct{}{
+	"iss": {}, "sub": {}, "aud": {}, "iat": {}, "exp": {},
+	"entitlements": {}, "auth_time": {}, "amr": {}, "acr": {}, "mfa_enrolled": {},
+}
+
 func (s *Service) issueAccessToken(ctx context.Context, userID, email string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
+	// Fail closed if a caller's extra claims would override an AuthKit-owned claim.
+	for k := range extra {
+		if _, reserved := reservedAccessTokenClaims[k]; reserved {
+			return "", time.Time{}, ErrCustomClaimsReserved
+		}
+	}
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
 	// Group/role authority is no longer carried as a token claim: the legacy
