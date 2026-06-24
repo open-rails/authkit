@@ -64,6 +64,24 @@ func (s *StateCache) Del(ctx context.Context, state string) error {
 	return nil
 }
 
+// Consume atomically returns and deletes the state in one locked step, closing
+// the replay/TOCTOU window a separate Get+Del leaves open. ok=false if the state
+// is absent, expired, or already consumed.
+func (s *StateCache) Consume(ctx context.Context, state string) (oidckit.StateData, bool, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	it, ok := s.data[state]
+	if !ok {
+		return oidckit.StateData{}, false, nil
+	}
+	delete(s.data, state)
+	if time.Now().After(it.exp) {
+		return oidckit.StateData{}, false, nil
+	}
+	return it.v, true, nil
+}
+
 // cleanupLoop runs in the background and removes expired entries every minute.
 func (s *StateCache) cleanupLoop() {
 	ticker := time.NewTicker(time.Minute)

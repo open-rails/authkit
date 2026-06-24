@@ -106,32 +106,93 @@ func TestForSchemaDefaultIsPassthrough(t *testing.T) {
 	}
 }
 
+// bareProfilesRe matches a `profiles` token NOT immediately followed by a dot —
+// i.e. a schema reference that would escape RewriteSQL's `profiles.` substitution.
+var bareProfilesRe = regexp.MustCompile(`\bprofiles\b([^.]|$)`)
+
+// lineEscapesRewrite reports whether a source line contains a bare/quoted
+// `profiles` schema reference that RewriteSQL would miss. Pure comment lines are
+// skipped: the word "profiles" legitimately appears in prose (Go `//`, SQL `--`,
+// block-comment `*` continuations) and is not executed SQL.
+func lineEscapesRewrite(line string) bool {
+	t := strings.TrimSpace(line)
+	if strings.HasPrefix(t, "//") || strings.HasPrefix(t, "--") || strings.HasPrefix(t, "*") {
+		return false
+	}
+	return bareProfilesRe.MatchString(line)
+}
+
+// scanSchemaRefs reports any non-comment line under dir (files matching suffixes,
+// excluding _test.go) that references the schema without a dot qualifier.
+func scanSchemaRefs(t *testing.T, dir string, suffixes ...string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", dir, err)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		match := false
+		for _, s := range suffixes {
+			if strings.HasSuffix(name, s) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			if lineEscapesRewrite(line) {
+				t.Errorf("%s/%s:%d: schema referenced without dot qualifier (escapes RewriteSQL): %s", dir, name, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}
+
 // TestAllSQLSchemaReferencesAreDotQualified guards the rewrite contract:
 // RewriteSQL only replaces the "profiles." prefix, so every reference to the
-// schema in this package's SQL (sqlc sources and generated constants) must be
-// written exactly as `profiles.<object>`. A bare or quoted reference (e.g.
-// table_schema = 'profiles') would silently escape the rewrite.
+// schema must be written exactly as `profiles.<object>`. A bare or quoted
+// reference (e.g. table_schema = 'profiles') would silently escape the rewrite.
+// Covers BOTH this package's sqlc sources/generated constants AND the hand-written
+// raw SQL in internal/authcore (permission-group store, api-keys, invite-links,
+// the AdminListUsers assembly), which is where most schema-qualified SQL now lives
+// and which sqlc vet does not validate.
 func TestAllSQLSchemaReferencesAreDotQualified(t *testing.T) {
-	bare := regexp.MustCompile(`\bprofiles\b([^.]|$)`)
-	for _, dir := range []string{".", "queries"} {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			t.Fatalf("ReadDir(%s): %v", dir, err)
+	scanSchemaRefs(t, ".", ".sql.go", ".sql")
+	scanSchemaRefs(t, "queries", ".sql.go", ".sql")
+	scanSchemaRefs(t, filepath.Join("..", "authcore"), ".go")
+}
+
+// TestSchemaQualifierGuardCatchesBareRef is a negative self-test: it proves the
+// guard actually fails on a planted bare/quoted `profiles` reference (so the scan
+// above is not a silent no-op), while passing a properly dot-qualified line and
+// ignoring the word in comments.
+func TestSchemaQualifierGuardCatchesBareRef(t *testing.T) {
+	mustFlag := []string{
+		`WHERE table_schema = 'profiles'`,
+		"st.q.Query(ctx, `SELECT 1 FROM profiles`)",
+	}
+	for _, l := range mustFlag {
+		if !lineEscapesRewrite(l) {
+			t.Errorf("guard should flag bare schema ref: %q", l)
 		}
-		for _, e := range entries {
-			name := e.Name()
-			if e.IsDir() || !(strings.HasSuffix(name, ".sql.go") || strings.HasSuffix(name, ".sql")) {
-				continue
-			}
-			b, err := os.ReadFile(filepath.Join(dir, name))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for i, line := range strings.Split(string(b), "\n") {
-				if bare.MatchString(line) {
-					t.Errorf("%s/%s:%d: schema referenced without dot qualifier (escapes RewriteSQL): %s", dir, name, i+1, strings.TrimSpace(line))
-				}
-			}
+	}
+	mustPass := []string{
+		"SELECT id FROM profiles.users",
+		`// the profiles schema is the historical default`,
+		`-- profiles is rewritten at execution time`,
+	}
+	for _, l := range mustPass {
+		if lineEscapesRewrite(l) {
+			t.Errorf("guard should NOT flag: %q", l)
 		}
 	}
 }

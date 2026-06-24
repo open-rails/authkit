@@ -66,7 +66,7 @@ func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupSt
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {
@@ -142,6 +142,42 @@ func (s *Service) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona,
 		return err
 	}
 	return st.UnassignRole(ctx, gid, subjectID, subjectKind, role)
+}
+
+// RemoveGroupSubjectAs is the actor-aware RemoveGroupSubject. It enforces the
+// #136 capability + no-escalation rules for EVERY role the subject currently holds
+// in the group before stripping them, so a bounded admin cannot remove a member
+// whose authority it does not itself hold (e.g. a non-owner cannot remove an
+// owner). Runtime callers (HTTP member-mutation) use this; the unchecked
+// RemoveGroupSubject stays for genesis/migration paths.
+func (s *Service) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error {
+	sch := s.groupSchemaOrDefault()
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	if err != nil {
+		return err
+	}
+	// Roles the subject holds DIRECTLY in this group (the gid entry of the walk;
+	// ancestor grants are not being removed here, so they are not authorized).
+	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(subjectID), subjectKind)
+	if err != nil {
+		return err
+	}
+	var roles []string
+	for _, a := range asg {
+		if a.PermissionGroupID == gid {
+			roles = a.Roles
+			break
+		}
+	}
+	// No step-up on revoke: the actor must already hold every perm each role
+	// confers (which also enforces the capability gate via authorizeRoleChange).
+	for _, role := range roles {
+		if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, actorUserID, role); err != nil {
+			return err
+		}
+	}
+	return st.UnassignSubject(ctx, gid, strings.TrimSpace(subjectID), subjectKind)
 }
 
 // AssignRoleBySlugAs is the actor-aware root-group convenience (the runtime

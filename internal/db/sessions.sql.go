@@ -230,27 +230,36 @@ func (q *Queries) SessionRevokeByIDForUser(ctx context.Context, arg SessionRevok
 	return id, err
 }
 
-const sessionRotate = `-- name: SessionRotate :exec
+const sessionRotate = `-- name: SessionRotate :execrows
 UPDATE profiles.refresh_sessions
 SET previous_token_hash = current_token_hash, current_token_hash = $1, last_used_at = now(), user_agent = $2, ip_addr = $3
-WHERE id = $4 AND revoked_at IS NULL
+WHERE id = $4 AND current_token_hash = $5 AND revoked_at IS NULL
 `
 
 type SessionRotateParams struct {
-	CurrentTokenHash []byte
-	UserAgent        *string
-	IpAddr           *string
-	ID               string
+	NewTokenHash             []byte
+	UserAgent                *string
+	IpAddr                   *string
+	ID                       string
+	ExpectedCurrentTokenHash []byte
 }
 
-func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) error {
-	_, err := q.db.Exec(ctx, sessionRotate,
-		arg.CurrentTokenHash,
+// Conditional compare-and-swap: rotate only if the current hash still matches the
+// one the caller read. 0 rows affected means another concurrent refresh already
+// rotated this session (or it was revoked) — the caller must treat that as a lost
+// race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
+func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) (int64, error) {
+	result, err := q.db.Exec(ctx, sessionRotate,
+		arg.NewTokenHash,
 		arg.UserAgent,
 		arg.IpAddr,
 		arg.ID,
+		arg.ExpectedCurrentTokenHash,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const sessionsCountActive = `-- name: SessionsCountActive :one

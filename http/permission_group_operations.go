@@ -59,7 +59,14 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, pers
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := s.svc.RemoveGroupSubject(r.Context(), persona, instanceSlug, userID, core.SubjectKindUser); err != nil {
+	actor, ok := ClaimsFromContext(r.Context())
+	if !ok || actor.UserID == "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	// #136: actor-aware removal enforces no-escalation across every role the
+	// target holds — a non-owner cannot strip an owner's roles.
+	if err := s.svc.RemoveGroupSubjectAs(r.Context(), actor.UserID, persona, instanceSlug, userID, core.SubjectKindUser); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -96,13 +103,7 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, person
 	})
 }
 
-// groupMembersList lists the members of a group.
-//
-// The public core Service API does not expose a "list members of a group"
-// method (the store's WalkAssignments is per-subject, and surfacing a roster
-// would require a new core method). Per the task's constraint to NOT touch core,
-// this returns an empty roster with a TODO marker rather than reaching past the
-// documented Service API. Wire fully once core grows a group-roster method.
+// groupMembersList lists the role assignments in a group.
 func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
 	members, err := s.svc.ListGroupMembers(r.Context(), persona, instanceSlug)
 	if err != nil {
@@ -111,7 +112,7 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, perso
 	}
 	data := make([]map[string]any, 0, len(members))
 	for _, m := range members {
-		data = append(data, map[string]any{"subject-id": m.SubjectID, "subject-kind": m.SubjectKind, "role": m.Role})
+		data = append(data, map[string]any{"subject_id": m.SubjectID, "subject_kind": m.SubjectKind, "role": m.Role})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object":        "list",
@@ -147,12 +148,6 @@ func (s *Service) groupRolesList(w http.ResponseWriter, persona string) {
 
 // handleMeGroupsGET is the cross-persona discovery endpoint: the caller's group
 // memberships as {persona, instance_slug, role}.
-//
-// Listing a subject's memberships across ALL groups requires a core method that
-// does not exist on the public Service API (WalkAssignments resolves a SINGLE
-// target group's chain, not a global membership scan). Per the task's constraint
-// to NOT touch core, this returns an empty list with a TODO rather than adding a
-// core store walk. Wire fully once core exposes a per-subject membership listing.
 func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {

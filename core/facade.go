@@ -17,8 +17,15 @@ import (
 )
 
 // The facade satisfies verify.Enricher so a verify-only embedder that also holds
-// a *core.Service can attach DB-backed enrichment via verifier.WithService.
-var _ verify.Enricher = (*Service)(nil)
+// a *core.Service can attach DB-backed enrichment via verifier.WithService. It is
+// also wired in as the verify.RemoteApplicationSource (verifier.fedSource) for
+// lazy-load-on-miss, so pin that conformance at compile time too: both are held
+// together by the core.RemoteApplication = authbase.RemoteApplication alias chain,
+// which nothing else guarantees.
+var (
+	_ verify.Enricher                = (*Service)(nil)
+	_ verify.RemoteApplicationSource = (*Service)(nil)
+)
 
 // Service is the public AuthKit service facade. It wraps the internal engine
 // and exposes the curated embedder API (facade_methods.go). Construct it with

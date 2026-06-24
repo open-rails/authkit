@@ -14,11 +14,11 @@ import (
 var ErrTwoFAEnrollmentRequired = errors.New("2fa_enrollment_required")
 
 type RemovedMFARoleAssignment struct {
-	GroupID      string
-	Persona      string
-	InstanceSlug string
-	Role         string
-	RemovedAt    time.Time
+	PermissionGroupID string
+	Persona           string
+	InstanceSlug      string
+	Role              string
+	RemovedAt         time.Time
 }
 
 type MFAStatus struct {
@@ -102,9 +102,9 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 
 func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]RemovedMFARoleAssignment, error) {
 	rows, err := q.Query(ctx,
-		`SELECT a.group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
+		`SELECT a.permission_group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
 		   FROM profiles.group_user_roles a
-		   JOIN profiles.permission_groups g ON g.id = a.group_id
+		   JOIN profiles.permission_groups g ON g.id = a.permission_group_id
 		  WHERE a.user_id = $1::uuid
 		    AND a.deleted_at IS NULL
 		    AND g.deleted_at IS NULL`,
@@ -117,7 +117,7 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 	var removals []RemovedMFARoleAssignment
 	for rows.Next() {
 		var r RemovedMFARoleAssignment
-		if err := rows.Scan(&r.GroupID, &r.Persona, &r.InstanceSlug, &r.Role); err != nil {
+		if err := rows.Scan(&r.PermissionGroupID, &r.Persona, &r.InstanceSlug, &r.Role); err != nil {
 			return nil, err
 		}
 		if s.roleRequiresMFA(r.Persona, r.Role) {
@@ -132,11 +132,11 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 		if _, err := q.Exec(ctx,
 			`UPDATE profiles.group_user_roles
 			    SET deleted_at = now(), updated_at = now()
-			  WHERE group_id = $1::uuid
+			  WHERE permission_group_id = $1::uuid
 			    AND user_id = $2::uuid
 			    AND role = $3
 			    AND deleted_at IS NULL`,
-			r.GroupID, userID, r.Role); err != nil {
+			r.PermissionGroupID, userID, r.Role); err != nil {
 			return nil, err
 		}
 	}

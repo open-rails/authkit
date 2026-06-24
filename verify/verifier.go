@@ -41,8 +41,8 @@ type Verifier struct {
 
 	httpClient *http.Client
 
-	mu      sync.Mutex
-	issuers []issuerEntry
+	mu      sync.RWMutex
+	issuers map[string]issuerEntry // keyed by issuer string for O(1) match
 	byIss   map[string]*issuerKeys
 
 	enrich Enricher
@@ -334,6 +334,7 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		skew:             60 * time.Second,
 		algorithms:       []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"},
 		httpClient:       defaultOutboundHTTPClient,
+		issuers:          map[string]issuerEntry{},
 		byIss:            map[string]*issuerKeys{},
 		fedKnown:         map[string]bool{},
 		negCache:         map[string]time.Time{},
@@ -415,26 +416,18 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	// Upsert in the issuers list.
-	found := false
-	for i := range v.issuers {
-		if v.issuers[i].issuer == issuerID {
-			// AK-AUTH-01: never let a non-local (federated/remote_application)
-			// registration overwrite the trusted local issuer entry. Doing so
-			// would swap the first-party signing keys and break verification of
-			// all first-party tokens. The core layer already rejects this at
-			// registration; this is defense-in-depth for any other AddIssuer caller.
-			if v.issuers[i].isLocal && !ie.isLocal {
-				return errors.New("refusing to overwrite local issuer with non-local registration")
-			}
-			v.issuers[i] = ie
-			found = true
-			break
+	// Upsert in the issuers map.
+	if existing, ok := v.issuers[issuerID]; ok {
+		// AK-AUTH-01: never let a non-local (federated/remote_application)
+		// registration overwrite the trusted local issuer entry. Doing so
+		// would swap the first-party signing keys and break verification of
+		// all first-party tokens. The core layer already rejects this at
+		// registration; this is defense-in-depth for any other AddIssuer caller.
+		if existing.isLocal && !ie.isLocal {
+			return errors.New("refusing to overwrite local issuer with non-local registration")
 		}
 	}
-	if !found {
-		v.issuers = append(v.issuers, ie)
-	}
+	v.issuers[issuerID] = ie
 
 	// Seed the key cache from pre-provided keys.
 	pubByKID := v.collectKeys(opts)
@@ -485,12 +478,7 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	for i := range v.issuers {
-		if v.issuers[i].issuer == issuerID {
-			v.issuers = append(v.issuers[:i], v.issuers[i+1:]...)
-			break
-		}
-	}
+	delete(v.issuers, issuerID)
 	delete(v.byIss, issuerID)
 }
 
@@ -1176,13 +1164,11 @@ func (v *Verifier) matchIssuer(issuer string) *issuerEntry {
 	if issuer == "" {
 		return nil
 	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	for i := range v.issuers {
-		if v.issuers[i].issuer == issuer {
-			ie := v.issuers[i] // copy
-			return &ie
-		}
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if ie, ok := v.issuers[issuer]; ok {
+		ie := ie // copy
+		return &ie
 	}
 	return nil
 }

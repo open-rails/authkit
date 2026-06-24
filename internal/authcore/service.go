@@ -643,7 +643,15 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 			claims["mfa_enrolled"] = true
 		}
 	}
+	// Caller-supplied claims fill gaps but never override an AuthKit-owned claim
+	// (sub/iss/aud/iat/exp/entitlements always; auth_time/amr/acr/mfa_enrolled when
+	// set). This prevents a host from forging identity, expiry, or assurance via
+	// extra, while still allowing custom claims and assurance claims AuthKit did
+	// not set itself.
 	for k, v := range extra {
+		if _, owned := claims[k]; owned {
+			continue
+		}
 		claims[k] = v
 	}
 	if s.keys.Active == nil {
@@ -3313,7 +3321,7 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 		// root_role filters on a user's role in the singleton root group.
 		slug = normalizeRootRoleSlug(slug)
 		from += " JOIN profiles.group_user_roles gur ON gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $" + fmt.Sprint(argIdx) +
-			" JOIN profiles.permission_groups pg ON pg.id = gur.group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"
+			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"
 		args = append(args, slug)
 		argIdx++
 	}
@@ -3424,11 +3432,27 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 		if err := rows.Scan(&a.ID, &a.Email, &a.PhoneNumber, &a.Username, &a.EmailVerified, &a.PhoneVerified, &a.BannedAt, &a.BannedUntil, &a.BanReason, &a.BannedBy, &a.DeletedAt, &a.Biography, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
 			return nil, err
 		}
-		a.Roles = s.listRoleSlugsByUser(ctx, a.ID)
 		out = append(out, a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	// Enrich root-group roles for the whole page in ONE query instead of two per
+	// row. Resolution failures degrade to empty roles (matching the prior
+	// per-row swallow), so the listing still renders.
+	if len(out) > 0 {
+		st := s.groupStore()
+		if gid, gErr := st.RootGroupID(ctx); gErr == nil {
+			ids := make([]string, len(out))
+			for i := range out {
+				ids[i] = out[i].ID
+			}
+			if rolesByUser, rErr := st.RootRolesForUsers(ctx, gid, ids); rErr == nil {
+				for i := range out {
+					out[i].Roles = rolesByUser[out[i].ID]
+				}
+			}
+		}
 	}
 	s.enrichEntitlements(ctx, out)
 	return &AdminListUsersResult{Users: out, Total: total, Limit: opts.PageSize, Offset: offset}, nil
@@ -4532,39 +4556,18 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 		return false, fmt.Errorf("postgres not configured")
 	}
 
-	settings, err := s.Get2FASettings(ctx, userID)
-	if err != nil || !settings.Enabled {
-		return false, fmt.Errorf("2FA not enabled")
-	}
-
+	// Atomic single-use consume in one statement: the DB removes the hashed code
+	// and reports whether THIS call was the one that removed it. This replaces the
+	// former read-filter-rewrite, which let two concurrent submissions of the same
+	// code both succeed. The query's `enabled = true` predicate also subsumes the
+	// old "2FA not enabled" check (callers treat (false, nil) and that error
+	// identically — both reject the code).
 	hash := sha256Hex(backupCode)
-
-	// Check if backup code exists
-	found := false
-	for _, hashedCode := range settings.BackupCodes {
-		if hashedCode == hash {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return false, nil
-	}
-
-	// Remove the used backup code
-	newCodes := make([]string, 0, len(settings.BackupCodes)-1)
-	for _, hashedCode := range settings.BackupCodes {
-		if hashedCode != hash {
-			newCodes = append(newCodes, hashedCode)
-		}
-	}
-
-	if err := s.q.MFASetBackupCodes(ctx, db.MFASetBackupCodesParams{BackupCodes: newCodes, UserID: userID}); err != nil {
+	rows, err := s.q.MFAConsumeBackupCode(ctx, db.MFAConsumeBackupCodeParams{CodeHash: hash, UserID: userID})
+	if err != nil {
 		return false, err
 	}
-
-	return true, nil
+	return rows == 1, nil
 }
 
 // RegenerateBackupCodes generates new backup codes for a user (invalidating old ones).

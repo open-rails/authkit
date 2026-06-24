@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -98,6 +99,14 @@ func TestNewManagerFromProvidersAcceptsCustomOAuth2Descriptor(t *testing.T) {
 		if scope == "openid" {
 			t.Fatalf("custom OAuth2 provider must not force openid: %v", rp.Scopes)
 		}
+	}
+}
+
+func TestMergeScopesPreservesBaseOrder(t *testing.T) {
+	got := mergeScopes([]string{"openid", "email", "profile"}, []string{"email", "offline_access"})
+	want := []string{"openid", "email", "profile", "offline_access"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mergeScopes() = %v, want %v", got, want)
 	}
 }
 

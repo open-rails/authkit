@@ -70,7 +70,7 @@ func (s *Service) RemoveRemoteApplicationMember(ctx context.Context, appID, role
 		q := db.ForSchema(s.pg, s.dbSchema())
 		_, err := q.Exec(ctx,
 			`UPDATE profiles.group_remote_application_roles SET deleted_at = now(), updated_at = now()
-			 WHERE group_id = $1::uuid AND remote_application_id = $2::uuid AND deleted_at IS NULL`,
+			 WHERE permission_group_id = $1::uuid AND remote_application_id = $2::uuid AND deleted_at IS NULL`,
 			gid, strings.TrimSpace(appID))
 		return err
 	}
@@ -123,7 +123,7 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {

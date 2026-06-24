@@ -66,6 +66,13 @@ func (s *Service) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona,
 	return s.impl.UnassignGroupRoleAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind, role)
 }
 
+// RemoveGroupSubjectAs is the actor-aware whole-subject revoke (#136): it enforces
+// no-escalation across every role the subject holds before stripping them. HTTP
+// member-removal MUST use this; the unchecked RemoveGroupSubject is genesis-only.
+func (s *Service) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error {
+	return s.impl.RemoveGroupSubjectAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind)
+}
+
 // ListRoleSlugsByUserErr is the error-propagating ListRoleSlugsByUser (#136):
 // role-resolution failures are returned (not swallowed into an empty slice) so
 // authz callers can fail closed.

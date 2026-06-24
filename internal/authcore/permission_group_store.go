@@ -137,7 +137,7 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 		SELECT c.id::text, c.persona, a.role
 		FROM chain c
 		LEFT JOIN %s a
-		  ON a.group_id = c.id AND a.%s = $2::uuid AND a.deleted_at IS NULL
+		  ON a.permission_group_id = c.id AND a.%s = $2::uuid AND a.deleted_at IS NULL
 		ORDER BY c.id`, table, subjectColumn),
 		groupID, subjectID)
 	if err != nil {
@@ -176,9 +176,36 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 		if len(a.roles) == 0 {
 			continue // an ancestor where the subject holds nothing contributes no grants
 		}
-		out = append(out, GroupAssignment{Persona: a.typ, GroupID: gid, Roles: a.roles})
+		out = append(out, GroupAssignment{Persona: a.typ, PermissionGroupID: gid, Roles: a.roles})
 	}
 	return out, nil
+}
+
+// RootRolesForUsers returns, for each user id, the role slugs directly assigned on
+// the root group (rootGID). Root roles are direct assignments on the parentless
+// root group, so no parent walk is needed — this batches a whole page's lookups
+// into one query (the admin-directory enrichment path; avoids a per-row N+1).
+func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID string, userIDs []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	rows, err := st.q.Query(ctx,
+		`SELECT user_id::text, role FROM profiles.group_user_roles
+		 WHERE permission_group_id = $1::uuid AND user_id = ANY($2::uuid[]) AND deleted_at IS NULL`,
+		rootGID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uid, role string
+		if err := rows.Scan(&uid, &role); err != nil {
+			return nil, err
+		}
+		out[uid] = append(out[uid], role)
+	}
+	return out, rows.Err()
 }
 
 // AssignRole grants subject a role in a group, replacing any previous role in
@@ -193,11 +220,11 @@ func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID, subject
 		fmt.Sprintf(`WITH replaced AS (
 		   UPDATE %s
 		      SET deleted_at = now(), updated_at = now()
-		    WHERE group_id = $1::uuid AND %s = $2::uuid AND role <> $3 AND deleted_at IS NULL
+		    WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND role <> $3 AND deleted_at IS NULL
 		 )
-		 INSERT INTO %s (group_id, %s, role)
+		 INSERT INTO %s (permission_group_id, %s, role)
 		 VALUES ($1::uuid, $2::uuid, $3)
-		 ON CONFLICT (group_id, %s, role) WHERE deleted_at IS NULL
+		 ON CONFLICT (permission_group_id, %s, role) WHERE deleted_at IS NULL
 		 DO UPDATE SET updated_at = now()`, table, subjectColumn, table, subjectColumn, subjectColumn),
 		groupID, subjectID, role)
 	return err
@@ -211,7 +238,7 @@ func (st *PermissionGroupStore) UnassignRole(ctx context.Context, groupID, subje
 	}
 	_, err = st.q.Exec(ctx,
 		fmt.Sprintf(`UPDATE %s SET deleted_at = now(), updated_at = now()
-		 WHERE group_id = $1::uuid AND %s = $2::uuid AND role = $3 AND deleted_at IS NULL`,
+		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND role = $3 AND deleted_at IS NULL`,
 			table, subjectColumn),
 		groupID, subjectID, role)
 	return err
@@ -225,7 +252,7 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID, su
 	}
 	_, err = st.q.Exec(ctx,
 		fmt.Sprintf(`UPDATE %s SET deleted_at = now(), updated_at = now()
-		 WHERE group_id = $1::uuid AND %s = $2::uuid AND deleted_at IS NULL`, table, subjectColumn),
+		 WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND deleted_at IS NULL`, table, subjectColumn),
 		groupID, subjectID)
 	return err
 }
@@ -235,9 +262,9 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID, su
 // enforces that + validates each grant pattern against the group's persona.
 func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID, role string, permissions []string) error {
 	_, err := st.q.Exec(ctx,
-		`INSERT INTO profiles.group_custom_roles (group_id, role, permissions)
+		`INSERT INTO profiles.group_custom_roles (permission_group_id, role, permissions)
 		 VALUES ($1::uuid, $2, $3)
-		 ON CONFLICT (group_id, role) DO UPDATE SET permissions = EXCLUDED.permissions, updated_at = now()`,
+		 ON CONFLICT (permission_group_id, role) DO UPDATE SET permissions = EXCLUDED.permissions, updated_at = now()`,
 		groupID, role, permissions)
 	return err
 }
@@ -250,8 +277,8 @@ func (st *PermissionGroupStore) CustomRolesFor(ctx context.Context, groupIDs []s
 		return func(string, string) ([]string, bool) { return nil, false }, nil
 	}
 	rows, err := st.q.Query(ctx,
-		`SELECT group_id::text, role, permissions FROM profiles.group_custom_roles
-		 WHERE group_id = ANY($1::uuid[])`,
+		`SELECT permission_group_id::text, role, permissions FROM profiles.group_custom_roles
+		 WHERE permission_group_id = ANY($1::uuid[])`,
 		groupIDs)
 	if err != nil {
 		return nil, err
@@ -291,7 +318,7 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {
@@ -318,7 +345,7 @@ func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *Group
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {
@@ -342,11 +369,11 @@ type GroupMember struct {
 func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
 	rows, err := st.q.Query(ctx,
 		`SELECT user_id::text, 'user' AS subject_kind, role FROM profiles.group_user_roles
-		 WHERE group_id = $1::uuid AND deleted_at IS NULL
+		 WHERE permission_group_id = $1::uuid AND deleted_at IS NULL
 		 UNION ALL
 		 SELECT remote_application_id::text, 'remote_application' AS subject_kind, role
 		   FROM profiles.group_remote_application_roles
-		  WHERE group_id = $1::uuid AND deleted_at IS NULL
+		  WHERE permission_group_id = $1::uuid AND deleted_at IS NULL
 		 ORDER BY 1, 3`, groupID)
 	if err != nil {
 		return nil, err
@@ -380,7 +407,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 	rows, err := st.q.Query(ctx,
 		fmt.Sprintf(`SELECT g.persona, COALESCE(g.instance_slug, ''), a.role
 		 FROM %s a
-		 JOIN profiles.permission_groups g ON g.id = a.group_id AND g.deleted_at IS NULL
+		 JOIN profiles.permission_groups g ON g.id = a.permission_group_id AND g.deleted_at IS NULL
 		 WHERE a.%s = $1::uuid AND a.deleted_at IS NULL
 		 ORDER BY g.persona, g.instance_slug, a.role`, table, subjectColumn), subjectID)
 	if err != nil {
@@ -401,7 +428,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 // DeleteCustomRole removes a per-group custom role (and its permissions).
 func (st *PermissionGroupStore) DeleteCustomRole(ctx context.Context, groupID, role string) error {
 	_, err := st.q.Exec(ctx,
-		`DELETE FROM profiles.group_custom_roles WHERE group_id = $1::uuid AND role = $2`,
+		`DELETE FROM profiles.group_custom_roles WHERE permission_group_id = $1::uuid AND role = $2`,
 		groupID, role)
 	return err
 }
