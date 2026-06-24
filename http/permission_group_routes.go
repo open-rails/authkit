@@ -35,7 +35,7 @@ func (s *Service) groupCan(r *http.Request, subjectID, persona, instanceSlug, pe
 }
 
 // notImplemented is the wire code for a generated route whose operation is not
-// wired yet (the api-keys / remote-applications / invites families are stubbed).
+// wired yet.
 const notImplemented ErrorCode = "not_implemented"
 
 // PermissionGroupRoutes returns the auto-generated management routes implied by
@@ -137,7 +137,7 @@ func pathParam(r *http.Request, name string) string {
 //     (403 on deny);
 //  4. performs the operation. members, roles (catalog read), api-keys,
 //     remote-applications, and invites are fully wired; only custom-role
-//     DEFINE (POST/DELETE /roles) remains a 501 stub.
+//     define/delete routes depend on custom-role support being enabled.
 func (s *Service) generatedGroupHandler(gr core.GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -229,8 +229,7 @@ const (
 
 // classifyGeneratedRoute maps a generator route (its method + colon-param path)
 // to a wired operation. The trailing path shape is stable across personas; the
-// method disambiguates GET vs POST /members. Everything else (custom-role define, api-keys,
-// remote-applications, invites) is opStub (=> 501).
+// method disambiguates GET vs POST /members. Unknown shapes are opStub (=> 501).
 func classifyGeneratedRoute(method, path string) generatedOp {
 	switch {
 	case strings.HasSuffix(path, "/members/:user/roles/:role"):

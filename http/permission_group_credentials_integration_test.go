@@ -94,6 +94,31 @@ func (s *Service) driveSub(t *testing.T, gr core.GeneratedRoute, repl *strings.R
 	return w
 }
 
+func TestGroupMembersListUsesSnakeCaseJSON_HTTP(t *testing.T) {
+	s, pool, caller := newCredTestService(t)
+	ctx := context.Background()
+
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-members", OwnerSubjectID: caller})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-members'`)
+	})
+
+	listGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:instance_slug/members", Perm: "merchant:roles:read"}
+	w := s.drive(t, listGR, "m-members", caller, "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var listed struct {
+		Data []map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
+	require.NotEmpty(t, listed.Data)
+	require.Equal(t, caller, listed.Data[0]["subject_id"])
+	require.Equal(t, "user", listed.Data[0]["subject_kind"])
+	require.NotContains(t, listed.Data[0], "subject-id")
+	require.NotContains(t, listed.Data[0], "subject-kind")
+}
+
 // TestGroupAPIKeyLifecycle_HTTP: mint -> list (no secret) -> revoke, over the
 // real DB through the generated HTTP handlers.
 func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {

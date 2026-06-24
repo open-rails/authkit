@@ -139,15 +139,20 @@ func ensureOpenID(scopes []string) []string {
 }
 
 func mergeScopes(base, extra []string) []string {
-	set := map[string]struct{}{}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(base)+len(extra))
 	for _, s := range base {
-		set[s] = struct{}{}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
 	}
 	for _, s := range extra {
-		set[s] = struct{}{}
-	}
-	out := make([]string, 0, len(set))
-	for s := range set {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
 		out = append(out, s)
 	}
 	return out
