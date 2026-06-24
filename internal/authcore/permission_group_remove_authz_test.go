@@ -9,7 +9,7 @@ import (
 )
 
 // TestRemoveGroupSubjectAs_NoEscalation_DB verifies #136 enforcement on the REVOKE
-// path: a holder of root:roles:manage that does NOT hold root:* cannot strip an
+// path: a holder of root:members:manage that does NOT hold root:* cannot strip an
 // owner's roles, while an owner can. Mirrors the assign-path no-escalation test.
 func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
 	pool := testPG(t)
@@ -17,6 +17,7 @@ func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
 
 	gs, err := BuildSchema(IntrinsicRootPersona(
 		RoleDef{Name: "admin", Permissions: []string{PermRootUsersBan}},
+		RoleDef{Name: "member-manager", Permissions: []string{PermMembersManage(RootPersona), PermRootUsersBan}},
 		RoleDef{Name: "role-manager", Permissions: []string{PermRolesManage(RootPersona), PermRootUsersBan}},
 	))
 	if err != nil {
@@ -38,11 +39,14 @@ func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
 		t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, id) })
 		return id
 	}
-	owner, roleMgr, ownerTarget, weakTarget := mk("owner"), mk("rolemgr"), mk("ownertgt"), mk("weaktgt")
+	owner, memberMgr, roleMgr, ownerTarget, weakTarget := mk("owner"), mk("membermgr"), mk("rolemgr"), mk("ownertgt"), mk("weaktgt")
 
 	// Genesis seeding via the unchecked path.
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner, SubjectKindUser, OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
+	}
+	if err := svc.AssignGroupRole(ctx, RootPersona, "", memberMgr, SubjectKindUser, "member-manager"); err != nil {
+		t.Fatalf("seed member-manager: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", roleMgr, SubjectKindUser, "role-manager"); err != nil {
 		t.Fatalf("seed role-manager: %v", err)
@@ -54,13 +58,17 @@ func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
 		t.Fatalf("seed weak target: %v", err)
 	}
 
-	// role-manager (roles:manage, but NOT root:*) cannot remove an owner.
-	if err := svc.RemoveGroupSubjectAs(ctx, roleMgr, RootPersona, "", ownerTarget, SubjectKindUser); !errors.Is(err, ErrRoleAssignmentEscalation) {
-		t.Fatalf("role-manager removing owner: want ErrRoleAssignmentEscalation, got %v", err)
+	// role-manager has only roles:manage, not members:manage → cannot remove members.
+	if err := svc.RemoveGroupSubjectAs(ctx, roleMgr, RootPersona, "", weakTarget, SubjectKindUser); !errors.Is(err, ErrInsufficientRoleAuthority) {
+		t.Fatalf("role-manager removing admin: want ErrInsufficientRoleAuthority, got %v", err)
 	}
-	// role-manager CAN remove a member whose roles it covers (admin ⊆ role-manager).
-	if err := svc.RemoveGroupSubjectAs(ctx, roleMgr, RootPersona, "", weakTarget, SubjectKindUser); err != nil {
-		t.Fatalf("role-manager removing admin (covered) should succeed: %v", err)
+	// member-manager (members:manage, but NOT root:*) cannot remove an owner.
+	if err := svc.RemoveGroupSubjectAs(ctx, memberMgr, RootPersona, "", ownerTarget, SubjectKindUser); !errors.Is(err, ErrRoleAssignmentEscalation) {
+		t.Fatalf("member-manager removing owner: want ErrRoleAssignmentEscalation, got %v", err)
+	}
+	// member-manager CAN remove a member whose roles it covers (admin ⊆ member-manager).
+	if err := svc.RemoveGroupSubjectAs(ctx, memberMgr, RootPersona, "", weakTarget, SubjectKindUser); err != nil {
+		t.Fatalf("member-manager removing admin (covered) should succeed: %v", err)
 	}
 	// owner (root:*) CAN remove another owner.
 	if err := svc.RemoveGroupSubjectAs(ctx, owner, RootPersona, "", ownerTarget, SubjectKindUser); err != nil {

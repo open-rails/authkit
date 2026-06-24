@@ -13,22 +13,17 @@ package authcore
 // `merchant:`/`org:`/`repo:` perm).
 
 const (
+	// Operator dashboard visibility.
+	PermRootResourcesRead = "root:resources:read" // read root/admin resources
+
 	// Identity / account directory.
-	PermRootUsersRead    = "root:users:read"    // read the account directory
-	PermRootUsersSuspend = "root:users:suspend" // suspend / unsuspend an account
 	PermRootUsersBan     = "root:users:ban"     // ban / unban an account
-	PermRootUsersUpdate  = "root:users:update"  // update account identity/password fields
+	PermRootUsersRecover = "root:users:recover" // recover a compromised account
 	PermRootUsersDelete  = "root:users:delete"  // soft-delete / restore an account
 
-	// Group lifecycle as ENTITIES (moderation — delete/restore a group, never run it).
-	PermRootGroupsCreate = "root:groups:create" // create a top-level group as an operator
-	PermRootGroupsDelete = "root:groups:delete" // soft-delete / restore any group
-
-	// Operator management of roles/credentials/sessions.
-	PermRootRolesManage      = "root:roles:manage"       // define/inspect platform-operator roles
-	PermRootRemoteAppsManage = "root:remote-apps:manage" // manage federation issuers as an operator
-	PermRootAPIKeysRevoke    = "root:api-keys:revoke"    // revoke any api-key
-	PermRootSessionsRevoke   = "root:sessions:revoke"    // revoke any user session
+	// Operator management of roles/credentials.
+	PermRootRolesManage       = "root:roles:manage"       // define/inspect platform-operator roles
+	PermRootCredentialsManage = "root:credentials:manage" // manage/revoke machine credentials as an operator
 )
 
 // IntrinsicRootPermissions returns the authkit-built-in root: permission set
@@ -36,15 +31,15 @@ const (
 // top via the root persona's roles.
 func IntrinsicRootPermissions() []string {
 	return []string{
-		PermRootUsersRead, PermRootUsersSuspend, PermRootUsersBan, PermRootUsersUpdate, PermRootUsersDelete,
-		PermRootGroupsCreate, PermRootGroupsDelete,
-		PermRootRolesManage, PermRootRemoteAppsManage, PermRootAPIKeysRevoke, PermRootSessionsRevoke,
+		PermRootResourcesRead,
+		PermRootUsersBan, PermRootUsersRecover, PermRootUsersDelete,
+		PermRootRolesManage, PermRootCredentialsManage,
 	}
 }
 
 // IntrinsicRootPersona returns the base `root` PersonaDef authkit ships: the
 // parentless singleton persona. Its apex is the `owner` role (= root:*),
-// auto-injected by normalizePersona along with `member`.
+// auto-injected by normalizePersona.
 // An app passes this to BuildSchema along with EXTRA root roles (bounded operator
 // bundles like doujins's `admin`, which must NOT hold root:roles:manage if they
 // shouldn't be able to promote) and its other personas; the extra root roles may
@@ -53,7 +48,7 @@ func IntrinsicRootPermissions() []string {
 func IntrinsicRootPersona(extraRootRoles ...RoleDef) PersonaDef {
 	return PersonaDef{
 		Name:  RootPersona,
-		Roles: extraRootRoles, // owner (root:*) + member are auto-injected by normalizePersona
+		Roles: extraRootRoles, // owner (root:*) is auto-injected by normalizePersona
 		// AllowedParents empty ⇒ parentless singleton (the only such persona).
 		Routes: ManagementProfile{MemberAssignment: true}, // operators are assigned root roles via API
 	}

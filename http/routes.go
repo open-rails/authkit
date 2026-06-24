@@ -161,13 +161,13 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// Intrinsic user-admin directory. Auth is permission-based: human users
 		// authorize through the root permission-group, programmatic principals via
 		// their verified permission ceiling.
-		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUsersListGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUserGET)},
-		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRead, s.handleAdminUserSigninsGET)},
+		{Method: http.MethodGet, Path: "/admin/users", Group: RouteAdmin, Handler: rootPermission(core.PermRootResourcesRead, s.handleAdminUsersListGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootResourcesRead, s.handleAdminUserGET)},
+		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: rootPermission(core.PermRootResourcesRead, s.handleAdminUserSigninsGET)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersBanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/recover", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersUpdate, s.handleAdminUserRecoverPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: rootPermission(core.PermRootSessionsRevoke, s.handleAdminUserSessionsRevokePOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/recover", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRecover, s.handleAdminUserRecoverPOST)},
+		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
 	}

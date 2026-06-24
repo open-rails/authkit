@@ -44,10 +44,10 @@ v0.52.0).** Every error response is:
 Closed/private deployments should seed AuthKit-owned authority through the
 library/CLI bootstrap path, not a public HTTP admin route:
 `core.LoadBootstrapManifestFile`, `core.ParseBootstrapManifestYAML`, and
-`(*Service).ReconcileBootstrapManifest(ctx, manifest, store, opts)`, or
+`(*Service).ApplyBootstrapManifestFile(ctx, path, opts)`, or
 `authkit bootstrap apply --file ./bootstrap.yaml`. Host applications layer their
-own domain bootstrap after AuthKit has reconciled users, root roles, trusted
-issuers, and API keys.
+own domain bootstrap after AuthKit has applied users, root role assignments,
+remote applications, and group role assignments.
 
 ## Authentication Levels
 
@@ -246,7 +246,7 @@ interactive password-login rate limiter by design** (a robot must not use the
 human login path).
 
 **Mint authorization (native, role-based).** Minting requires the generated
-`<persona>:api-keys:manage` permission. The request body supplies one `role`;
+`<persona>:credentials:manage` permission. The request body supplies one `role`;
 AuthKit validates that the role exists in the target group and enforces
 no-escalation. Permissions resolve from that role at verify time rather than
 being frozen into the key. An API key carries no user, so it can never
@@ -370,15 +370,15 @@ least one factor. Disabling MFA removes those MFA-required user role assignments
 |--------|------|------|-------------|
 | POST | `/admin/roles/grant` | ADMIN | Grant role to user |
 | POST | `/admin/roles/revoke` | ADMIN | Revoke role from user |
-| GET | `/admin/users` | `root:users:read` | Dashboard user list. Query: `page`, `page_size`, `search`, `root_role`, `status=active\|banned\|deleted\|any`, `sort=created_at\|last_login\|username\|email`, `order=asc\|desc`, `entitlement` |
-| GET | `/admin/users/:user_id` | `root:users:read` | Get user details |
-| POST | `/admin/users/:user_id/ban` | `root:users:ban` | Ban user. Body may include `reason` and RFC3339 `until`; omit `until` for an indefinite ban. |
+| GET | `/admin/users` | `root:resources:read` | Dashboard user list. Query: `page`, `page_size`, `search`, `root_role`, `status=active\|banned\|deleted\|any`, `sort=created_at\|last_login\|username\|email`, `order=asc\|desc`, `entitlement` |
+| GET | `/admin/users/:user_id` | `root:resources:read` | Get user details |
+| POST | `/admin/users/:user_id/ban` | `root:users:ban` | Ban user. Body requires `until` as RFC3339 or `"infinite"` and may include `reason`. |
 | POST | `/admin/users/:user_id/unban` | `root:users:ban` | Unban user |
-| POST | `/admin/users/:user_id/recover` | `root:users:update` | Recover a compromised account. Body has exactly one of `{email}` or `{phone_number}`; AuthKit revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request. |
+| POST | `/admin/users/:user_id/recover` | `root:users:recover` | Recover a compromised account. Body has exactly one of `{email}` or `{phone_number}`; AuthKit revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request. |
 | DELETE | `/admin/users/:user_id` | `root:users:delete` | Delete user |
 | POST | `/admin/users/:user_id/restore` | `root:users:delete` | Restore (undelete) user |
-| GET | `/admin/users/:user_id/signins` | `root:users:read` | List recent signin events for a user |
-| POST | `/admin/users/:user_id/sessions/revoke` | `root:sessions:revoke` | Revoke all refresh sessions for a target user |
+| GET | `/admin/users/:user_id/signins` | `root:resources:read` | List recent signin events for a user |
+| POST | `/admin/users/:user_id/sessions/revoke` | `root:users:recover` | Revoke all refresh sessions for a target user |
 | GET | `/namespaces/:slug` | PUBLIC | Fetch public user-namespace metadata: `requested_slug`, `slug`, `renamed`, optional `hold_until`, optional `user`, and `claimable` |
 
 Namespace lookup returns the user namespace plus rename/claimability metadata.

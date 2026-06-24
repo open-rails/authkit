@@ -43,7 +43,7 @@ func TestBuildSchema_AppExtendsRootCatalog(t *testing.T) {
 	// doujins-style: extra root moderation roles (root:content:moderate).
 	s, err := BuildSchema(
 		IntrinsicRootPersona(
-			RoleDef{Name: "moderator", Permissions: []string{"root:content:moderate", "root:users:suspend"}},
+			RoleDef{Name: "moderator", Permissions: []string{"root:content:moderate", "root:users:review"}},
 		),
 	)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestBuildSchema_AppExtendsRootCatalog(t *testing.T) {
 		t.Errorf("moderator should hold root:content:moderate")
 	}
 	if s.Can([]GroupAssignment{{Persona: RootPersona, Roles: []string{"moderator"}}}, nil, "root:users:ban") {
-		t.Errorf("moderator (suspend only) must NOT hold root:users:ban")
+		t.Errorf("moderator (review only) must NOT hold root:users:ban")
 	}
 	_ = mod
 	// A cross-persona perm in a root role must be rejected at declaration.

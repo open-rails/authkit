@@ -4,7 +4,7 @@ package authcore
 //
 // A runtime actor may grant or revoke a role in a group only if BOTH hold:
 //  1. Capability — the actor holds the persona's member-management permission
-//     (`<persona>:roles:manage`) in that group. The owner (`<persona>:*`) holds
+//     (`<persona>:members:manage`) in that group. The owner (`<persona>:*`) holds
 //     it via the wildcard; a bounded admin that lacks it cannot promote anyone.
 //  2. No step-up — the actor already holds every permission the target role
 //     would confer: perms(targetRole) ⊆ perms(actor). So nobody can hand out
@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	// ErrInsufficientRoleAuthority: the actor lacks `<persona>:roles:manage` in
+	// ErrInsufficientRoleAuthority: the actor lacks `<persona>:members:manage` in
 	// the group, so it may not change role assignments there at all.
 	ErrInsufficientRoleAuthority = errors.New("insufficient_role_authority")
 	// ErrRoleAssignmentEscalation: the target role confers a permission the actor
@@ -54,6 +54,10 @@ func grantsCoverAll(actorGrants, targetGrants []string) bool {
 // authorizeRoleChange enforces the #136 capability + no-escalation rules for
 // actorUserID changing (assign or unassign) targetRole in group gid of persona.
 func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona, gid, actorUserID, targetRole string) error {
+	return s.authorizeRoleGrant(ctx, st, sch, persona, gid, actorUserID, PermMembersManage(persona), targetRole)
+}
+
+func (s *Service) authorizeRoleGrant(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona, gid, actorUserID, capabilityPerm, targetRole string) error {
 	actorUserID = strings.TrimSpace(actorUserID)
 	if actorUserID == "" {
 		return ErrInsufficientRoleAuthority
@@ -74,10 +78,10 @@ func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupSt
 	}
 	actorGrants := sch.ResolveGrants(asg, resolver)
 
-	// (1) capability: the actor must be able to manage role assignments in this
-	// persona. owner (<persona>:*) holds it via the wildcard; a bounded admin
-	// without it cannot promote anyone.
-	if !anyGrantCovers(actorGrants, PermRolesManage(persona)) {
+	// (1) capability: the actor must hold the operation's management permission.
+	// owner (<persona>:*) holds it via the wildcard; a bounded admin without it
+	// cannot grant authority through that operation.
+	if !anyGrantCovers(actorGrants, capabilityPerm) {
 		return ErrInsufficientRoleAuthority
 	}
 	// (2) no step-up: the actor must already hold every perm the target confers.

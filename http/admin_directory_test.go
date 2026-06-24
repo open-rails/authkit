@@ -27,7 +27,6 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "admin-dir-kid")
 	require.NoError(t, err)
-	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"admin-dir-kid": signer.PublicKey()}}
 	opts := core.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},
@@ -35,7 +34,23 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 		AccessTokenDuration:      time.Hour,
 		RegistrationVerification: core.RegistrationVerificationNone,
 	}
-	coreSvc := authcore.NewService(opts, ks, core.WithPostgres(pool))
+	coreSvc, err := authcore.NewFromConfig(authcore.Config{
+		Token: authcore.TokenConfig{
+			Issuer:              opts.Issuer,
+			IssuedAudiences:     opts.IssuedAudiences,
+			ExpectedAudiences:   opts.ExpectedAudiences,
+			AccessTokenDuration: opts.AccessTokenDuration,
+		},
+		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
+		Keys: authcore.KeysConfig{Source: jwtkit.StaticKeySource{
+			Active: signer,
+			Pubs:   map[string]crypto.PublicKey{"admin-dir-kid": signer.PublicKey()},
+		}},
+		RBAC: authcore.RBACConfig{Groups: []authcore.PersonaDef{
+			authcore.IntrinsicRootPersona(authcore.RoleDef{Name: "no-access"}),
+		}},
+	}, pool)
+	require.NoError(t, err)
 	ver := NewVerifier(WithSkew(5 * time.Second))
 	require.NoError(t, ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
@@ -118,7 +133,8 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	require.NoError(t, s.svc.AssignGroupRole(ctx, core.RootPersona, "", idB, core.SubjectKindUser, roleSlug))
 
 	// Ban D (so status filters can distinguish it).
-	require.NoError(t, s.svc.BanUser(ctx, idD, nil, nil, idA))
+	banUntil := time.Now().UTC().Add(time.Hour)
+	require.NoError(t, s.svc.BanUser(ctx, idD, nil, &banUntil, idA))
 
 	// The admin caller is A (it carries the catalog admin role and is not banned).
 	token, _, err := s.svc.IssueAccessToken(ctx, idA, "", nil)
@@ -223,6 +239,9 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 	w := post("/admin/users/"+targetID+"/ban", `{"reason":"test ban","until":"`+until+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
+	w = post("/admin/users/"+targetID+"/ban", `{"reason":"missing until"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+
 	u, err := s.svc.AdminGetUser(ctx, targetID)
 	require.NoError(t, err)
 	require.NotNil(t, u.BannedAt)
@@ -238,6 +257,13 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 	require.Nil(t, u.BannedAt)
 	require.Nil(t, u.BannedUntil)
 	require.Nil(t, u.BanReason)
+
+	w = post("/admin/users/"+targetID+"/ban", `{"reason":"infinite ban","until":"infinite"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	u, err = s.svc.AdminGetUser(ctx, targetID)
+	require.NoError(t, err)
+	require.NotNil(t, u.BannedAt)
+	require.Nil(t, u.BannedUntil)
 
 	w = post("/admin/users/ban", `{"user_id":"`+targetID+`"}`)
 	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
@@ -264,11 +290,11 @@ func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
 	require.NoError(t, err)
 
 	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", core.OwnerRoleName, adminID)
-	apiKeyDeny := mintAdminTestAPIKey(t, s, ctx, prefix+"api-deny", core.MemberRoleName, adminID)
-	delegatedAllow := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-allow", []string{core.PermRootUsersRead})
+	apiKeyDeny := mintAdminTestAPIKey(t, s, ctx, prefix+"api-deny", "no-access", adminID)
+	delegatedAllow := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-allow", []string{core.PermRootResourcesRead})
 	delegatedDeny := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-deny", nil)
 	remoteAllow := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-allow", core.OwnerRoleName)
-	remoteDeny := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-deny", core.MemberRoleName)
+	remoteDeny := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-deny", "no-access")
 
 	for name, token := range map[string]string{
 		"user jwt":        adminJWT,

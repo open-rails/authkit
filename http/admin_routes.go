@@ -135,19 +135,33 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var untilPtr *time.Time
-	if req.Until != nil {
-		untilStr := strings.TrimSpace(*req.Until)
-		if untilStr != "" {
-			parsed, err := time.Parse(time.RFC3339, untilStr)
-			if err != nil {
-				badRequest(w, ErrInvalidUntil)
-				return
-			}
-			parsed = parsed.UTC()
-			untilPtr = &parsed
+	if req.Until == nil {
+		badRequest(w, ErrInvalidUntil)
+		return
+	}
+	untilStr := strings.TrimSpace(*req.Until)
+	if untilStr == "" {
+		badRequest(w, ErrInvalidUntil)
+		return
+	}
+	if !strings.EqualFold(untilStr, "infinite") {
+		parsed, err := time.Parse(time.RFC3339, untilStr)
+		if err != nil {
+			badRequest(w, ErrInvalidUntil)
+			return
 		}
+		parsed = parsed.UTC()
+		if !parsed.After(time.Now().UTC()) {
+			badRequest(w, ErrInvalidUntil)
+			return
+		}
+		untilPtr = &parsed
 	}
 	if err := s.svc.BanUser(r.Context(), userID, req.Reason, untilPtr, claims.UserID); err != nil {
+		if errors.Is(err, core.ErrInvalidUntil) {
+			badRequest(w, ErrInvalidUntil)
+			return
+		}
 		serverErr(w, ErrFailedToBan)
 		return
 	}

@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -38,7 +39,7 @@ func (s *Service) remoteApplicationGroupID(ctx context.Context, appID string) (s
 }
 
 // AddRemoteApplicationMember grants a remote_application a role in its own
-// controlling permission-group. role defaults to the base member role.
+// controlling permission-group.
 func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -49,7 +50,15 @@ func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role st
 	}
 	role = strings.ToLower(strings.TrimSpace(role))
 	if role == "" {
-		role = MemberRoleName
+		return fmt.Errorf("role is required")
+	}
+	var persona string
+	q := db.ForSchema(s.pg, s.dbSchema())
+	if err := q.QueryRow(ctx, `SELECT persona FROM profiles.permission_groups WHERE id = $1::uuid AND deleted_at IS NULL`, gid).Scan(&persona); err != nil {
+		return err
+	}
+	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
+		return fmt.Errorf("role %q is not assignable in a %q group", role, persona)
 	}
 	return s.groupStore().AssignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
 }

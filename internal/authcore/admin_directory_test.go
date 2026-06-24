@@ -37,7 +37,7 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 	ctx := context.Background()
 	// #111/#136: roles are catalog-defined (core.Config), not runtime slugs. Declare
 	// a bounded `admin` root role for the directory filter to resolve.
-	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "admin", Permissions: []string{PermRootUsersRead}}))
+	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "admin", Permissions: []string{PermRootResourcesRead}}))
 	require.NoError(t, err)
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
@@ -69,7 +69,8 @@ func TestAdminListUsers_GenericDirectory(t *testing.T) {
 	require.NoError(t, svc.AssignRoleBySlug(ctx, idB, roleSlug))
 
 	// Ban D.
-	require.NoError(t, svc.BanUser(ctx, idD, nil, nil, idA))
+	banUntil := time.Now().UTC().Add(time.Hour)
+	require.NoError(t, svc.BanUser(ctx, idD, nil, &banUntil, idA))
 
 	// all four, isolated to this run via search=prefix.
 	base := AdminUserListOptions{Search: prefix, PageSize: 100}

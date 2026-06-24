@@ -146,7 +146,6 @@ type ProfilesRemoteApplication struct {
 	JwksUri    string
 	Mode       string
 	PublicKeys []byte
-	Audiences  []string
 	Enabled    bool
 	Metadata   []byte
 	CreatedAt  time.Time

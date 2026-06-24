@@ -25,7 +25,7 @@ func TestValidateBootstrapUserPasswordEnforce(t *testing.T) {
 // #89 (DB): a manifest password is SEED-ONCE by default — a password rotated out
 // of band after the initial seed survives a later reconcile — but enforce:true
 // re-asserts the manifest value. Skips without AUTHKIT_TEST_DATABASE_URL.
-func TestReconcileBootstrapManifestPasswordSeedOnce(t *testing.T) {
+func TestApplyBootstrapManifestPasswordSeedOnce(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
@@ -42,7 +42,7 @@ func TestReconcileBootstrapManifestPasswordSeedOnce(t *testing.T) {
 	}}}
 
 	// First reconcile creates the user and seeds the password.
-	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
+	if _, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
 	user, err := svc.getUserByUsername(ctx, username)
@@ -57,7 +57,7 @@ func TestReconcileBootstrapManifestPasswordSeedOnce(t *testing.T) {
 	}
 
 	// Re-applying the SAME manifest (default, seed-once) must NOT revert it.
-	if _, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
+	if _, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
 		t.Fatalf("second reconcile (seed-once): %v", err)
 	}
 	if err := svc.CheckUserPassword(ctx, user.ID, rotated); err != nil {
@@ -75,7 +75,7 @@ func TestReconcileBootstrapManifestPasswordSeedOnce(t *testing.T) {
 		EmailVerified: true,
 		Password:      &BootstrapUserPassword{Plaintext: seeded, Enforce: true},
 	}}
-	if _, err := svc.ReconcileBootstrapManifest(ctx, enforce, BootstrapReconcileOptions{}); err != nil {
+	if _, err := svc.ApplyBootstrapManifest(ctx, enforce, BootstrapReconcileOptions{}); err != nil {
 		t.Fatalf("enforce reconcile: %v", err)
 	}
 	if err := svc.CheckUserPassword(ctx, user.ID, seeded); err != nil {

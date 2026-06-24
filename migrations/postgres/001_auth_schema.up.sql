@@ -11,6 +11,11 @@ CREATE SCHEMA IF NOT EXISTS profiles;
 
 -- #125: profiles.uuid_v5() removed (dead — its only caller profiles.role_id was cut).
 
+CREATE TABLE IF NOT EXISTS profiles.bootstrap_applies (
+  name text PRIMARY KEY,
+  applied_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS profiles.users (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   email public.citext,
@@ -310,7 +315,6 @@ CREATE TABLE IF NOT EXISTS profiles.remote_applications (
   jwks_uri text NOT NULL DEFAULT '',
   mode text NOT NULL DEFAULT 'jwks',
   public_keys jsonb,
-  audiences text[] NOT NULL DEFAULT '{}',
   enabled boolean NOT NULL DEFAULT true,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),

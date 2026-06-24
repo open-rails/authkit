@@ -188,7 +188,7 @@ func (q *Queries) RemoteAppAttributeDefsList(ctx context.Context, remoteApplicat
 }
 
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE issuer = $1 AND deleted_at IS NULL
 `
@@ -201,7 +201,6 @@ type RemoteApplicationByIssuerRow struct {
 	JwksUri           string
 	Mode              string
 	PublicKeys        []byte
-	Audiences         []string
 	AllowedOrigins    []string
 	Enabled           bool
 	CreatedAt         time.Time
@@ -219,7 +218,6 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 		&i.JwksUri,
 		&i.Mode,
 		&i.PublicKeys,
-		&i.Audiences,
 		&i.AllowedOrigins,
 		&i.Enabled,
 		&i.CreatedAt,
@@ -229,7 +227,7 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 }
 
 const remoteApplicationBySlug = `-- name: RemoteApplicationBySlug :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE slug = $1 AND deleted_at IS NULL
 `
@@ -242,7 +240,6 @@ type RemoteApplicationBySlugRow struct {
 	JwksUri           string
 	Mode              string
 	PublicKeys        []byte
-	Audiences         []string
 	AllowedOrigins    []string
 	Enabled           bool
 	CreatedAt         time.Time
@@ -260,7 +257,6 @@ func (q *Queries) RemoteApplicationBySlug(ctx context.Context, slug string) (Rem
 		&i.JwksUri,
 		&i.Mode,
 		&i.PublicKeys,
-		&i.Audiences,
 		&i.AllowedOrigins,
 		&i.Enabled,
 		&i.CreatedAt,
@@ -283,19 +279,18 @@ func (q *Queries) RemoteApplicationDelete(ctx context.Context, issuer string) (i
 
 const remoteApplicationUpsert = `-- name: RemoteApplicationUpsert :one
 
-INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled)
-VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled)
+VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (issuer) DO UPDATE
   SET slug          = EXCLUDED.slug,
       permission_group_id = EXCLUDED.permission_group_id,
       jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
-      audiences     = EXCLUDED.audiences,
       allowed_origins = EXCLUDED.allowed_origins,
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
+RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
 `
 
 type RemoteApplicationUpsertParams struct {
@@ -305,7 +300,6 @@ type RemoteApplicationUpsertParams struct {
 	JwksUri           string
 	Mode              string
 	PublicKeys        []byte
-	Audiences         []string
 	AllowedOrigins    []string
 	Enabled           bool
 }
@@ -318,7 +312,6 @@ type RemoteApplicationUpsertRow struct {
 	JwksUri           string
 	Mode              string
 	PublicKeys        []byte
-	Audiences         []string
 	AllowedOrigins    []string
 	Enabled           bool
 	CreatedAt         time.Time
@@ -338,7 +331,6 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		arg.JwksUri,
 		arg.Mode,
 		arg.PublicKeys,
-		arg.Audiences,
 		arg.AllowedOrigins,
 		arg.Enabled,
 	)
@@ -351,7 +343,6 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		&i.JwksUri,
 		&i.Mode,
 		&i.PublicKeys,
-		&i.Audiences,
 		&i.AllowedOrigins,
 		&i.Enabled,
 		&i.CreatedAt,
@@ -361,7 +352,7 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 }
 
 const remoteApplicationsAll = `-- name: RemoteApplicationsAll :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE deleted_at IS NULL
 ORDER BY slug ASC
@@ -375,7 +366,6 @@ type RemoteApplicationsAllRow struct {
 	JwksUri           string
 	Mode              string
 	PublicKeys        []byte
-	Audiences         []string
 	AllowedOrigins    []string
 	Enabled           bool
 	CreatedAt         time.Time
@@ -399,7 +389,6 @@ func (q *Queries) RemoteApplicationsAll(ctx context.Context) ([]RemoteApplicatio
 			&i.JwksUri,
 			&i.Mode,
 			&i.PublicKeys,
-			&i.Audiences,
 			&i.AllowedOrigins,
 			&i.Enabled,
 			&i.CreatedAt,
@@ -416,7 +405,7 @@ func (q *Queries) RemoteApplicationsAll(ctx context.Context) ([]RemoteApplicatio
 }
 
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE enabled = true AND deleted_at IS NULL
 ORDER BY slug ASC
@@ -430,7 +419,6 @@ type RemoteApplicationsEnabledRow struct {
 	JwksUri           string
 	Mode              string
 	PublicKeys        []byte
-	Audiences         []string
 	AllowedOrigins    []string
 	Enabled           bool
 	CreatedAt         time.Time
@@ -454,7 +442,6 @@ func (q *Queries) RemoteApplicationsEnabled(ctx context.Context) ([]RemoteApplic
 			&i.JwksUri,
 			&i.Mode,
 			&i.PublicKeys,
-			&i.Audiences,
 			&i.AllowedOrigins,
 			&i.Enabled,
 			&i.CreatedAt,

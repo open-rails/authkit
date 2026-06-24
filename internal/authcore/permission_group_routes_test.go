@@ -66,13 +66,19 @@ func TestGeneratedRoutes_GatesAreCorrect(t *testing.T) {
 		Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
 	})
 	want := map[string]string{ // "METHOD path" -> gate perm
-		"POST /org/:instance_slug/members":             "org:roles:manage",
-		"GET /org/:instance_slug/members":              "org:members:read",
-		"POST /org/:instance_slug/roles":               "org:roles:manage",
-		"GET /org/:instance_slug/roles":                "org:roles:read",
-		"POST /org/:instance_slug/api-keys":            "org:api-keys:manage",
-		"POST /org/:instance_slug/remote-applications": "org:remote-apps:manage",
-		"POST /org/:instance_slug/invites/links":       "org:invites:manage",
+		"POST /org/:instance_slug/members":                    "org:members:manage",
+		"GET /org/:instance_slug/members":                     "org:members:read",
+		"POST /org/:instance_slug/roles":                      "org:roles:manage",
+		"GET /org/:instance_slug/roles":                       "org:roles:read",
+		"GET /org/:instance_slug/api-keys":                    "org:credentials:read",
+		"POST /org/:instance_slug/api-keys":                   "org:credentials:manage",
+		"DELETE /org/:instance_slug/api-keys/:key":            "org:credentials:manage",
+		"GET /org/:instance_slug/remote-applications":         "org:credentials:read",
+		"POST /org/:instance_slug/remote-applications":        "org:credentials:manage",
+		"DELETE /org/:instance_slug/remote-applications/:app": "org:credentials:manage",
+		"POST /org/:instance_slug/invites/links":              "org:members:manage",
+		"GET /org/:instance_slug/invites/links":               "org:members:read",
+		"DELETE /org/:instance_slug/invites/links/:link":      "org:members:manage",
 	}
 	got := map[string]string{}
 	for _, r := range s.GeneratedRoutes() {

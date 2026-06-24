@@ -21,7 +21,7 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	t.Cleanup(clean)
 
 	gs, err := BuildSchema(
-		IntrinsicRootPersona(RoleDef{Name: "admin", Permissions: []string{"root:users:read"}, RequiresMFA: true}),
+		IntrinsicRootPersona(RoleDef{Name: "admin", Permissions: []string{PermRootResourcesRead}, RequiresMFA: true}),
 		PersonaDef{
 			Name: "org", AllowedParents: []string{RootPersona},
 			Routes: ManagementProfile{MemberAssignment: true},
@@ -64,7 +64,7 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	if len(removed) != 1 || removed[0].Role != "admin" {
 		t.Fatalf("removed = %+v, want only admin", removed)
 	}
-	if ok, _ := svc.Can(ctx, userID, SubjectKindUser, RootPersona, "", "root:users:read"); ok {
+	if ok, _ := svc.Can(ctx, userID, SubjectKindUser, RootPersona, "", PermRootResourcesRead); ok {
 		t.Fatalf("admin role should be removed after disabling MFA")
 	}
 	if ok, _ := svc.Can(ctx, userID, SubjectKindUser, "org", "acme", "org:repo:read"); !ok {

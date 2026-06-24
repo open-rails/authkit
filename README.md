@@ -247,47 +247,91 @@ _, _ = core.CreateUser(ctx, "ops@example.com", "operator")
 ```
 
 For a closed-registration deployment, the bootstrap manifest is the standard
-machine/bootstrap path. It declares AuthKit-owned authority state: users,
-root roles, permission-group personas, memberships, trusted issuers, and
-optional generated opaque API keys.
+machine/bootstrap path. It seeds AuthKit-owned user state and root role
+assignments, plus trusted remote applications. Root role definitions live in
+`Config.RBAC.Groups`, not in the manifest: the only built-in root role is
+`owner` (`root:*`), and applications declare any bounded root roles they need.
+The manifest does not define personas, permission catalogs, or API keys.
+
+Root startup flow:
+1. Declare root catalog roles in config, for example `admin` and `moderator`.
+2. Bootstrap one or more users with `root_role: owner`.
+3. The owner can then assign configured root roles to other users from an admin
+   dashboard using the generated root member-management routes.
+
+```go
+cfg := core.Config{
+  // ...Token (issuer/audiences) + Keys...
+  RBAC: core.RBACConfig{
+    Groups: []core.PersonaDef{
+      core.IntrinsicRootPersona(
+        core.RoleDef{Name: "admin", Permissions: []string{
+          "root:resources:read",
+          "root:users:ban",
+          "root:users:recover",
+          "root:users:delete",
+          "root:members:read",
+          "root:members:manage",
+        }},
+        core.RoleDef{Name: "moderator", Permissions: []string{
+          "root:resources:read",
+          "root:users:ban",
+        }},
+      ),
+    },
+  },
+}
+```
+
+`root:members:manage` lets an operator assign/remove root roles. `root:roles:manage`
+is the standard role-definition permission for the root persona; root custom-role
+HTTP routes remain off unless the host explicitly declares the root persona with
+`AllowCustomRoles: true` and `Routes.CustomRoleCreation: true`.
 
 ```yaml
 users:
-  - ref: operator
-    email: ops@example.com
+  - email: ops@example.com
     username: operator
     email_verified: true
     password:
       plaintext: "change-this-in-your-secret-renderer"
-    global_roles: ["admin"]
+    root_role: owner
 
-global_roles:
-  - slug: admin
-    name: Admin
+remote_applications:
+  - slug: tensorhub-runtime
+    issuer: https://tensorhub.example
+    jwks_uri: https://tensorhub.example/.well-known/jwks.json
+    allowed_origins: ["https://tensorhub.example"]
+    enabled: true
 
-permission_groups:
-  - persona: merchant
-    instance_slug: cozy-art
-    issuers:
-      - issuer: https://cozy.example
-        jwks_uri: https://cozy.example/.well-known/jwks.json
-        audiences: ["openrails"]
-        enabled: true
-    roles:
-      - name: operator
-        permissions: ["merchant:self:read", "openrails:billing:read"]
-    memberships:
-      - user_ref: operator
-        role: operator
-    api_keys:
-      - name: openrails-runtime
-        role: operator            # the single permission-group role this key holds
-        resources:
-          - kind: openrails.merchant
-            id: cozy-art
-        output:
-          file: /run/secrets/openrails-runtime.key
+group_roles:
+  - username: operator
+    persona: org
+    instance_slug: tensorhub
+    role: admin
+  - remote_application_slug: tensorhub-runtime
+    persona: org
+    instance_slug: tensorhub
+    role: deployer
 ```
+
+See `config/bootstrap.example.yaml` for a minimal file matching the current
+AuthKit manifest shape.
+
+Bootstrap remote applications are root-controlled. Trust is inferred from the
+source: set `jwks_uri` for a JWKS URL, or `public_keys` for static PEM keys.
+`enabled` is required so trusting an issuer is explicit. `root_role` is optional;
+when set, the remote application is assigned that root role after registration.
+JWT audiences are host-application verifier config, not remote-application
+config: the receiving app passes its expected audience once to
+`Verifier.LoadRemoteApplications`, and every remote issuer must mint tokens for
+that audience.
+`group_roles` assigns users or remote applications to already-existing
+permission groups by stable `persona` + `instance_slug`; use exactly one of
+`username` or `remote_application_slug`. It does not create host-owned groups or
+role catalogs.
+Bootstrap intentionally does not create API keys: those are generated secrets, so
+hosts should mint and deliver them through their own secret handling.
 
 Bootstrap passwords support three explicit modes: `plaintext` initial password
 (hashed by AuthKit), imported `hash` plus `hash_algo`, or `reset_required: true`
@@ -297,7 +341,7 @@ hosts that need Vault/Kubernetes reads should render the manifest or call the
 library API with their own secret handling.
 
 The standalone AuthKit devserver exposes this as both an opt-in startup hook and
-a one-shot deploy-job command:
+an operator apply command. The CLI command applies/reconciles by default:
 
 ```bash
 DEVSERVER_ISSUER=https://auth.example \
@@ -308,19 +352,32 @@ AUTHKIT_BOOTSTRAP_PATH=/manifests/bootstrap.yaml \
 /authkit-devserver bootstrap apply --file /manifests/bootstrap.yaml
 ```
 
+This updates declared users, trusted remote applications, and role assignments,
+but it is not a destructive full sync: omitted users, groups, roles, and remote
+applications are not deleted.
+
+Startup apply is opt-in and once-only. `AUTHKIT_BOOTSTRAP_ON_START=true`, CLI
+`--startup-only`, or
+`core.ApplyBootstrapManifestFile(ctx, path, core.BootstrapReconcileOptions{StartupOnly: true})`
+records successful startup bootstrap names in `profiles.bootstrap_applies`
+(`default` when no name is provided). If the marker already exists, the result
+returns `already_applied: true` and no state is touched. If users or remote
+applications already exist but no marker exists, startup apply fails with
+`ErrBootstrapDatabaseNotEmpty` instead of unexpectedly rewriting a live system.
+
 Use `AUTHKIT_BOOTSTRAP_ON_START=true` only for local/dev or
-simple self-hosted deployments. Production systems should usually run the
-one-shot command as a release job, or call `core.ReconcileBootstrapManifest`
-from their own job with host-owned secret handling, so API pods do not need
-long-lived secret-write credentials.
+simple self-hosted deployments. Production systems should usually run a manual
+`bootstrap apply` job, or call `core.ApplyBootstrapManifestFile` from their own
+job with host-owned secret handling, so API pods do not need long-lived write
+credentials.
 
 Hosted SaaS deployments can later set native registration to `open` and mount
 the `RouteRegister` group to enable public signup without code changes.
 
-OpenRails' bootstrap flow should pass its `auth:` section through to AuthKit
-bootstrap for users, root roles, permission groups, API keys, and trusted remote
-applications, then reconcile OpenRails-owned merchants, catalog, prices,
-entitlements, grants, billing, and provider state itself.
+OpenRails' bootstrap flow should pass its AuthKit-owned user/root-owner seed
+state through AuthKit bootstrap, then reconcile OpenRails-owned merchants,
+catalog, prices, entitlements, grants, billing, provider state, and any
+permission-group credentials itself.
 
 Quick Start (net/http)
 
@@ -541,7 +598,7 @@ re-issue the token when a grant changes.
 
 Concepts (concise)
 
-- Service (issuer + storage): built by `authhttp.NewServer(cfg, pg, opts...)` (Postgres required; optional deps are functional options); backs the built-in handlers (sessions, login, OIDC, etc). The full implementation lives in `internal/authcore` (driven by the HTTP transport and not part of the public contract); embedders reach a small curated facade via `svc.Core()` (`*core.Service`) for provisioning, minting, and management — e.g. `svc.Core().CreateUser(...)`, `svc.Core().MintServiceJWT(...)`, `svc.Core().ReconcileBootstrapManifest(...)`.
+- Service (issuer + storage): built by `authhttp.NewServer(cfg, pg, opts...)` (Postgres required; optional deps are functional options); backs the built-in handlers (sessions, login, OIDC, etc). The full implementation lives in `internal/authcore` (driven by the HTTP transport and not part of the public contract); embedders reach a small curated facade via `svc.Core()` (`*core.Service`) for provisioning, minting, and management - e.g. `svc.Core().CreateUser(...)`, `svc.Core().MintServiceJWT(...)`, `svc.Core().ApplyBootstrapManifestFile(...)`.
 - Middleware: `github.com/open-rails/authkit/http` provides `Required`/`Optional` (JWT verification) plus helpers like `RequireAdmin(pg)`.
 - Verify-only: use `authhttp.NewVerifier()` + `verifier.AddIssuer(...)` to accept tokens from other issuers without issuing tokens yourself.
   - **Lean import for pure verification:** the verification layer (`Verifier`, `NewVerifier`, `Claims`, the `Required`/`Optional` middleware, `RequiredServiceJWT`, etc.) lives in the dependency-light `github.com/open-rails/authkit/verify` package, which imports **no Postgres/Redis/storage** — only `authkit/jwt` + `authkit/authbase`. A service that *only* validates tokens (a typical resource server) should import `authkit/verify` directly to keep `pgx`/`redis` out of its build graph. `authkit/http` re-exports the same names (`authhttp.Verifier`, `authhttp.NewVerifier`, `authhttp.Claims`, …) for apps that also issue tokens, so existing embedders need no changes. Attach DB-backed enrichment (live-user/ban gate, role/email hydration, opaque API-key resolution) only when you want it, via `verifier.WithService(coreSvc)` — `*core.Service` satisfies the `verify.Enricher` interface.
@@ -806,7 +863,7 @@ API Keys (opaque machine credentials)
 - Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeyPrefix` brand. `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
 - Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/group-deleted rejected; non-API-key credentials fall through to JWT). The API-key path is separate from the password-login handler, so API keys **bypass the interactive password-login rate limiter** by design.
 - **An API key holds exactly ONE permission-group role:** its effective permissions are resolved FROM that role at use time, so editing the role updates every key that holds it. The bespoke-permission use case is served by creating a custom group role. Resource-scope (`resources: [{persona,id}]`) stays a SEPARATE binding, orthogonal to the role.
-- **Mint authorization is native + role-based:** minting requires the generated `<persona>:api-keys:manage` permission; the body field is `role` (a single role slug). AuthKit validates the role exists in the group and enforces no-step-up in core: the creator must hold `<persona>:roles:manage` and already cover every permission the API-key role would confer. Permissions are NEVER frozen; they re-resolve from the role at verify time. An API key can never mint/list/revoke API keys because it has no user principal.
+- **Mint authorization is native + role-based:** minting requires the generated `<persona>:credentials:manage` permission; the body field is `role` (a single role slug). AuthKit validates the role exists in the group and enforces no-step-up in core: the creator must hold `<persona>:credentials:manage` and already cover every permission the API-key role would confer. Permissions are NEVER frozen; they re-resolve from the role at verify time. An API key can never mint/list/revoke API keys because it has no user principal.
 - **Resource scopes:** API keys may carry opaque host-defined resource rows, `resources: [{persona,id}]`, in addition to permissions. AuthKit validates shape/length and duplicate pairs, stores them in `profiles.api_key_resources`, and returns them from list/resolve/middleware claims. AuthKit does not interpret resource personas or wildcard-looking IDs; the embedding host owns semantics. Non-empty resource scopes fail closed unless the host sets `WithAPIKeyResourceAuthorizer` to enforce its resource no-escalation rule. Rule: permissions say what; resources say where.
 - Manage via `POST/GET/DELETE /:persona/:instance_slug/api-keys[/:token_id]`. POST accepts `{name, role, resources?:[{persona,id}], expires_at?}`; the mint response also surfaces the role's resolved `permissions` for convenience. Optional `expires_at` (null = non-expiring), capped by `Config.APIKeys.MaxTTL` when set. Stored in `profiles.api_keys` with `permission_group_id` plus a role; no per-key permission table.
 - **Leak response:** revoke the key (`DELETE …/api-keys/:id`) — the application prefix is registrable with secret-scanning/push-protection partners so leaked keys can be auto-detected.
@@ -1073,15 +1130,15 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /admin/roles/grant
   - POST /admin/roles/revoke
 - Admin users (root permission required):
-  - GET /admin/users (`root:users:read`; query supports `root_role` and `status=deleted`)
-  - GET /admin/users/:user_id (`root:users:read`)
-  - POST /admin/users/:user_id/ban (`root:users:ban`; body may include `{reason, until}`; omit `until` for an indefinite ban)
+  - GET /admin/users (`root:resources:read`; query supports `root_role` and `status=deleted`)
+  - GET /admin/users/:user_id (`root:resources:read`)
+  - POST /admin/users/:user_id/ban (`root:users:ban`; body requires `{until}` as RFC3339 or `"infinite"` and may include `{reason}`)
   - POST /admin/users/:user_id/unban (`root:users:ban`)
-  - POST /admin/users/:user_id/recover (`root:users:update`; body has exactly one of `{email}` or `{phone_number}`; revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request)
+  - POST /admin/users/:user_id/recover (`root:users:recover`; body has exactly one of `{email}` or `{phone_number}`; revokes sessions, deletes password/provider/2FA factors, replaces the primary recovery identifier, and sends a password-reset request)
   - DELETE /admin/users/:user_id (`root:users:delete`)
   - POST /admin/users/:user_id/restore (`root:users:delete`)
-  - GET /admin/users/:user_id/signins (`root:users:read`)
-  - POST /admin/users/:user_id/sessions/revoke (`root:sessions:revoke`)
+  - GET /admin/users/:user_id/signins (`root:resources:read`)
+  - POST /admin/users/:user_id/sessions/revoke (`root:users:recover`)
 - Public owner-namespace lookup:
   - GET /namespaces/:slug → public user-namespace metadata + `claimable`
 - Solana wallet authentication (SIWS):
@@ -1450,6 +1507,10 @@ resource server pulls JWKS from each issuer's URL on demand and refreshes per
 // At startup (and re-run on a ticker / after a registration) to pick up store changes:
 err := verifier.LoadRemoteApplications(ctx, coreSvc, []string{"tensorhub"})
 ```
+
+The audience argument is the receiving host application's expected audience,
+applied to every loaded remote issuer. It is not stored on the remote
+application row and should not vary by JWKS issuer.
 
 `LoadRemoteApplications` registers only `enabled` issuers. A newly-accepted
 registration is also added to the Verifier immediately by the inbound handler,

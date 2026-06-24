@@ -114,7 +114,7 @@ func tensorhubSchema(t *testing.T) *GroupSchema {
 	return s
 }
 
-func TestNewGroupSchema_SeedsOwnerAndMember(t *testing.T) {
+func TestNewGroupSchema_SeedsOwnerOnly(t *testing.T) {
 	s := tensorhubSchema(t)
 
 	// owner injected = <persona>:* for every persona.
@@ -126,10 +126,6 @@ func TestNewGroupSchema_SeedsOwnerAndMember(t *testing.T) {
 		if len(r.Permissions) != 1 || r.Permissions[0] != OwnerGrant(ty) {
 			t.Errorf("persona %q owner perms = %v, want [%s]", ty, r.Permissions, OwnerGrant(ty))
 		}
-	}
-	// member present (declared on org, injected elsewhere).
-	if _, ok := s.Role("repo", MemberRoleName); !ok {
-		t.Errorf("repo missing seeded member role")
 	}
 	// app-declared roles survive.
 	if _, ok := s.Role("org", "billing"); !ok {

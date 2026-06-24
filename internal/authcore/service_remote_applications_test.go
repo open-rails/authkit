@@ -149,18 +149,18 @@ func TestRemoteApplicationOwnerUserColumnRemoved(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
-	var ownerUserColumnCount int
+	var removedColumnCount int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*)
 		FROM information_schema.columns
 		WHERE table_schema='profiles'
 		  AND table_name='remote_applications'
-		  AND column_name='owner_user_id'
-	`).Scan(&ownerUserColumnCount); err != nil {
+		  AND column_name = ANY($1)
+	`, []string{"owner_user_id", "audiences"}).Scan(&removedColumnCount); err != nil {
 		t.Fatalf("inspect remote_applications columns: %v", err)
 	}
-	if ownerUserColumnCount != 0 {
-		t.Fatalf("remote_applications.owner_user_id should not exist after migration")
+	if removedColumnCount != 0 {
+		t.Fatalf("remote_applications owner_user_id/audiences columns should not exist after migration")
 	}
 
 	// #111: permission_group_id is now REQUIRED. A group-less

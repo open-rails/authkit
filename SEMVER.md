@@ -416,13 +416,13 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | DELETE | `/user/2fa` | user | required |
 | POST | `/user/2fa/backup-codes` | user | required |
 | POST | `/solana/link` | user | required |
-| GET | `/admin/users` | admin | `root:users:read` |
-| GET | `/admin/users/{user_id}` | admin | `root:users:read` |
-| GET | `/admin/users/{user_id}/signins` | admin | `root:users:read` |
+| GET | `/admin/users` | admin | `root:resources:read` |
+| GET | `/admin/users/{user_id}` | admin | `root:resources:read` |
+| GET | `/admin/users/{user_id}/signins` | admin | `root:resources:read` |
 | POST | `/admin/users/{user_id}/ban` | admin | `root:users:ban` |
 | POST | `/admin/users/{user_id}/unban` | admin | `root:users:ban` |
-| POST | `/admin/users/{user_id}/recover` | admin | `root:users:update` |
-| POST | `/admin/users/{user_id}/sessions/revoke` | admin | `root:sessions:revoke` |
+| POST | `/admin/users/{user_id}/recover` | admin | `root:users:recover` |
+| POST | `/admin/users/{user_id}/sessions/revoke` | admin | `root:users:recover` |
 | DELETE | `/admin/users/{user_id}` | admin | `root:users:delete` |
 | POST | `/admin/users/{user_id}/restore` | admin | `root:users:delete` |
 
@@ -570,13 +570,13 @@ from that role at verify time. The format and resolution semantics are covered.
 
 ### 6.6 Bootstrap manifest YAML
 
-The bootstrap manifest schema (`users`/`root_roles`, and the three password modes:
-`plaintext`, `hash`+`hash_algo`,
-`reset_required`) is a covered wire contract parsed by `LoadBootstrapManifestFile` /
-`ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR. (#136 renamed
-`global_roles` → `root_roles`; per-user `root_roles: ["owner"]` seeds the apex
-owner SEED-IF-ABSENT — owner is the built-in apex of every group, never defined
-here, only assigned. There is no `super-admin`.)
+The bootstrap manifest schema (`users`, `remote_applications`, `group_roles`, and
+the three password modes: `plaintext`, `hash`+`hash_algo`, `reset_required`) is a
+covered wire contract parsed by `LoadBootstrapManifestFile` /
+`ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR. Per-user
+`root_role: owner` seeds the apex owner SEED-IF-ABSENT — owner is the built-in
+apex of every group, never defined here, only assigned. Group role assignments
+address existing groups by `persona` + `instance_slug`.
 
 ### 6.7 Password hash policy (covered)
 

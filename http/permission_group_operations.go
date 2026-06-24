@@ -15,15 +15,14 @@ import (
 	core "github.com/open-rails/authkit/core"
 )
 
-// memberRequest is the body for POST /<persona>/<instance_slug>/members. role is
-// optional (defaults to the seeded base-membership role).
+// memberRequest is the body for POST /<persona>/<instance_slug>/members.
 type memberRequest struct {
 	UserID string `json:"user_id"`
 	Role   string `json:"role"`
 }
 
-// groupMemberAdd assigns a subject (user) a role in the group. The role defaults
-// to the base-membership role when omitted. Idempotent at the store layer.
+// groupMemberAdd assigns a subject (user) a role in the group. Idempotent at the
+// store layer.
 func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
 	var body memberRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
@@ -32,7 +31,8 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 	}
 	role := strings.TrimSpace(body.Role)
 	if role == "" {
-		role = core.MemberRoleName
+		badRequest(w, ErrInvalidRequest)
+		return
 	}
 	actor, ok := ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
@@ -324,7 +324,6 @@ type remoteAppRegisterRequest struct {
 	JWKSURI        string              `json:"jwks_uri"`
 	Mode           string              `json:"mode"`
 	PublicKeys     []core.RemoteAppKey `json:"public_keys"`
-	Audiences      []string            `json:"audiences"`
 	AllowedOrigins []string            `json:"allowed_origins"`
 	Enabled        bool                `json:"enabled"`
 }
@@ -350,7 +349,6 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 		JWKSURI:           strings.TrimSpace(body.JWKSURI),
 		Mode:              strings.TrimSpace(body.Mode),
 		PublicKeys:        body.PublicKeys,
-		Audiences:         body.Audiences,
 		AllowedOrigins:    body.AllowedOrigins,
 		Enabled:           body.Enabled,
 	})
@@ -418,7 +416,6 @@ func remoteAppJSON(ra *core.RemoteApplication) map[string]any {
 		"issuer":          ra.Issuer,
 		"jwks_uri":        ra.JWKSURI,
 		"mode":            ra.Mode,
-		"audiences":       ra.Audiences,
 		"allowed_origins": ra.AllowedOrigins,
 		"enabled":         ra.Enabled,
 	}

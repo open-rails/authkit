@@ -47,7 +47,7 @@ func (s *Service) AssignGroupRole(ctx context.Context, persona, instanceSlug, su
 
 // AssignRoleBySlugAs / RemoveRoleBySlugAs / AssignGroupRoleAs / UnassignGroupRoleAs
 // are the actor-aware role-change methods (#136): they enforce the actor's
-// <persona>:roles:manage capability + no-escalation (perms(role) ⊆ perms(actor))
+// <persona>:members:manage capability + no-escalation (perms(role) ⊆ perms(actor))
 // in core. Runtime/admin endpoints MUST use these; the non-As methods are the
 // unchecked genesis path (bootstrap/migration).
 func (s *Service) AssignRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
@@ -309,8 +309,12 @@ func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
 	return s.impl.PublicKeysByKID()
 }
 
-func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
-	return s.impl.ReconcileBootstrapManifest(ctx, manifest, opts)
+func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+	return s.impl.ApplyBootstrapManifest(ctx, manifest, opts)
+}
+
+func (s *Service) ApplyBootstrapManifestFile(ctx context.Context, path string, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+	return s.impl.ApplyBootstrapManifestFile(ctx, path, opts)
 }
 
 func (s *Service) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {

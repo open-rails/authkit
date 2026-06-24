@@ -46,7 +46,7 @@ owner-reserved root helper was removed so the unchecked genesis path can seed
 `owner`; bootstrap owner seeding is covered as seed-if-absent and zero-owner
 recovery. `ListRoleSlugsByUserErr` already exists on the public facade. Focused
 DB-backed validation passed:
-`AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable' go test ./internal/authcore -run 'TestAssignRoleBySlugAs_NoEscalation_DB|TestAssignRoleBySlug_AllowsOwnerGenesis|TestReconcileBootstrapManifest|TestGeneratedRoutes_GatesAreCorrect' -count=1 -v`
+`AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable' go test ./internal/authcore -run 'TestAssignRoleBySlugAs_NoEscalation_DB|TestAssignRoleBySlug_AllowsOwnerGenesis|TestApplyBootstrapManifest|TestGeneratedRoutes_GatesAreCorrect' -count=1 -v`
 and full DB-backed validation passed:
 `AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable' go test ./... -count=1`.
 Release/tag remains a separate finalization step because this is still an

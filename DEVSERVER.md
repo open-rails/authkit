@@ -36,14 +36,11 @@ Registration behavior:
 - `DEVSERVER_REQUIRE_VERIFIED_REGISTRATIONS=false` — when false, `/auth/register` creates users immediately (email_verified=true / phone_verified=true when phone registration) without requiring confirmation.
 
 Bootstrap manifest:
-- `AUTHKIT_BOOTSTRAP_PATH=/path/to/bootstrap.yaml` - strict YAML manifest declaring AuthKit users, root roles, permission groups, trusted remote applications, memberships, and optional API-key outputs. Defaults to `/etc/authkit/bootstrap.yaml`.
-- `AUTHKIT_BOOTSTRAP_ON_START=true` - opt-in startup hook. When enabled, the devserver applies the manifest after migrations and before serving traffic.
+- `AUTHKIT_BOOTSTRAP_PATH=/path/to/bootstrap.yaml` - strict YAML manifest declaring AuthKit users, trusted remote applications, root roles, and group-role assignments. Defaults to `/etc/authkit/bootstrap.yaml`.
+- `AUTHKIT_BOOTSTRAP_ON_START=true` - opt-in startup hook. When enabled, the devserver applies the manifest after migrations and before serving traffic. Startup apply is once-only by default and records a marker in `profiles.bootstrap_applies`.
 - `DEVSERVER_PERMISSION_CATALOG=repo:read,endpoint:deploy` - app permission catalog used when manifest roles include host-defined permissions.
-- `DEVSERVER_TOKEN_PREFIX=cozy` - brand prefix for opaque API keys minted by the manifest reconciler.
 
-For production-style deploys, prefer the one-shot command below as a Kubernetes
-Job or release step, using a deploy identity with DB write access and secret
-output access:
+For production-style deploys, the CLI command applies/reconciles by default:
 
 ```bash
 DEVSERVER_ISSUER=https://auth.example \
@@ -52,10 +49,9 @@ AUTHKIT_BOOTSTRAP_PATH=/manifests/bootstrap.yaml \
 /authkit-devserver bootstrap apply --file /manifests/bootstrap.yaml
 ```
 
-The bundled command supports local file token outputs through AuthKit's
-`FileBootstrapTokenStore`. Hosts that write to Vault, Kubernetes Secrets, or
-another backend should call `core.ReconcileBootstrapManifest` with their own
-`BootstrapTokenStore` implementation.
+It updates declared users, trusted remote applications, and role assignments,
+but it does not delete omitted users, groups, roles, or remote applications.
+Use `--startup-only` only for first-boot guarded apply semantics.
 
 ## Mint a JWT
 

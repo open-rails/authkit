@@ -160,6 +160,10 @@ func (s *Service) ResolveGroupIDForSlug(ctx context.Context, persona, instanceSl
 // catalog role, or any role when the persona allows custom roles (custom roles are
 // validated at definition time).
 func (s *Service) validRoleForPersona(sch *GroupSchema, persona, role string) bool {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return false
+	}
 	if _, ok := sch.Role(persona, role); ok {
 		return true
 	}

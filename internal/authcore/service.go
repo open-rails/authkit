@@ -150,6 +150,8 @@ var (
 	ErrPasswordResetRequired = errors.New("password_reset_required")
 	// ErrUserNotFound indicates a user does not exist (or is not visible).
 	ErrUserNotFound = errors.New("user_not_found")
+	// ErrInvalidUntil indicates a time-limited operation has a non-future expiry.
+	ErrInvalidUntil = errors.New("invalid_until")
 	// ErrEmailAlreadyVerified indicates an email verification request targeted an already-verified email.
 	ErrEmailAlreadyVerified = errors.New("email_already_verified")
 	// ErrPhoneAlreadyVerified indicates a phone verification request targeted an already-verified phone.
@@ -2683,6 +2685,9 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 		return fmt.Errorf("invalid_user")
 	}
 	now := time.Now().UTC()
+	if until != nil && !until.UTC().After(now) {
+		return ErrInvalidUntil
+	}
 	var reasonPtr *string
 	if reason != nil {
 		trimmed := strings.TrimSpace(*reason)

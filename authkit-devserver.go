@@ -34,11 +34,11 @@ type config struct {
 	Environment              string
 	// Permission-group/RBAC knobs. Default to authkit's zero values; the e2e
 	// suite sets these to exercise API keys and RBAC against a real server.
-	APIKeyPrefix              string
-	PermissionCatalog         []string
-	StaticEntitlements        []string
-	BootstrapManifestPath     string
-	ReconcileBootstrapOnStart bool
+	APIKeyPrefix          string
+	PermissionCatalog     []string
+	StaticEntitlements    []string
+	BootstrapManifestPath string
+	ApplyBootstrapOnStart bool
 }
 
 func main() {
@@ -78,21 +78,21 @@ func loadConfig() (*config, error) {
 	expectedAudiences := parseCSVEnv("DEVSERVER_EXPECTED_AUDIENCES", issuedAudiences)
 
 	c := &config{
-		ListenAddr:                envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
-		Issuer:                    strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
-		DBURL:                     firstEnv("DB_URL", "DATABASE_URL"),
-		DevMode:                   envBool("DEVSERVER_DEV_MODE", false),
-		DevMintSecret:             envOr("DEVSERVER_DEV_MINT_SECRET", ""),
-		MigrateOnStart:            envBool("DEVSERVER_MIGRATE_ON_START", true),
-		IssuedAudiences:           issuedAudiences,
-		ExpectedAudiences:         expectedAudiences,
-		Environment:               envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification:  core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
-		APIKeyPrefix:              strings.TrimSpace(firstEnv("DEVSERVER_API_KEY_PREFIX", "DEVSERVER_TOKEN_PREFIX")),
-		PermissionCatalog:         parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
-		StaticEntitlements:        parseCSVEnv("DEVSERVER_STATIC_ENTITLEMENTS", nil),
-		BootstrapManifestPath:     strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", core.DefaultBootstrapManifestPath)),
-		ReconcileBootstrapOnStart: envBool("AUTHKIT_BOOTSTRAP_ON_START", false),
+		ListenAddr:               envOr("DEVSERVER_LISTEN_ADDR", ":8080"),
+		Issuer:                   strings.TrimRight(envOr("DEVSERVER_ISSUER", ""), "/"),
+		DBURL:                    firstEnv("DB_URL", "DATABASE_URL"),
+		DevMode:                  envBool("DEVSERVER_DEV_MODE", false),
+		DevMintSecret:            envOr("DEVSERVER_DEV_MINT_SECRET", ""),
+		MigrateOnStart:           envBool("DEVSERVER_MIGRATE_ON_START", true),
+		IssuedAudiences:          issuedAudiences,
+		ExpectedAudiences:        expectedAudiences,
+		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
+		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
+		APIKeyPrefix:             strings.TrimSpace(firstEnv("DEVSERVER_API_KEY_PREFIX", "DEVSERVER_TOKEN_PREFIX")),
+		PermissionCatalog:        parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
+		StaticEntitlements:       parseCSVEnv("DEVSERVER_STATIC_ENTITLEMENTS", nil),
+		BootstrapManifestPath:    strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", core.DefaultBootstrapManifestPath)),
+		ApplyBootstrapOnStart:    envBool("AUTHKIT_BOOTSTRAP_ON_START", false),
 	}
 	if c.Issuer == "" {
 		return nil, fmt.Errorf("DEVSERVER_ISSUER is required")
@@ -135,26 +135,15 @@ func runServe(cfg *config) error {
 	if len(cfg.StaticEntitlements) > 0 {
 		opts = append(opts, authhttp.WithEntitlements(staticDevEntitlements{names: cfg.StaticEntitlements}))
 	}
-	svc, err := authhttp.NewServer(core.Config{
-		Token: core.TokenConfig{
-			Issuer:            cfg.Issuer,
-			IssuedAudiences:   cfg.IssuedAudiences,
-			ExpectedAudiences: cfg.ExpectedAudiences,
-		},
-		Keys:         core.KeysConfig{Source: keySource},
-		Environment:  cfg.Environment,
-		Registration: core.RegistrationConfig{Verification: cfg.RegistrationVerification},
-		APIKeys:      core.APIKeysConfig{Prefix: cfg.APIKeyPrefix},
-		RBAC:         core.RBACConfig{Permissions: toPermissionDefs(cfg.PermissionCatalog)},
-	}, pg, opts...)
+	svc, err := authhttp.NewServer(devserverCoreConfig(cfg, keySource), pg, opts...)
 	if err != nil {
 		return err
 	}
 	if err := svc.Verifier().LoadRemoteApplications(ctx, svc.Core(), cfg.ExpectedAudiences); err != nil {
 		return fmt.Errorf("load remote applications: %w", err)
 	}
-	if cfg.ReconcileBootstrapOnStart {
-		if _, err := reconcileBootstrapManifest(ctx, svc.Core(), cfg.BootstrapManifestPath, false); err != nil {
+	if cfg.ApplyBootstrapOnStart {
+		if _, err := applyBootstrapManifest(ctx, svc.Core(), cfg.BootstrapManifestPath, core.BootstrapReconcileOptions{StartupOnly: true}); err != nil {
 			return err
 		}
 	}
@@ -210,36 +199,60 @@ func runBootstrapApply(cfg *config, args []string) error {
 	ctx := context.Background()
 	path := strings.TrimSpace(flagValue(args, "--file", "-f", cfg.BootstrapManifestPath))
 	dryRun := flagBool(args, "--dry-run")
+	startupOnly := flagBool(args, "--startup-only")
+	name := strings.TrimSpace(flagValue(args, "--name", "", ""))
 	pg, err := pgxpool.New(ctx, cfg.DBURL)
 	if err != nil {
 		return fmt.Errorf("connect postgres: %w", err)
 	}
 	defer pg.Close()
 
-	svc := core.NewService(core.Options{
-		Issuer:       cfg.Issuer,
-		APIKeyPrefix: cfg.APIKeyPrefix,
-		Permissions:  toPermissionDefs(cfg.PermissionCatalog),
-	}, core.Keyset{}, core.WithPostgres(pg))
-	result, err := reconcileBootstrapManifest(ctx, svc, path, dryRun)
+	manifest, err := core.LoadBootstrapManifestFile(path)
+	if err != nil {
+		return fmt.Errorf("read bootstrap manifest: %w", err)
+	}
+	svc, err := core.NewFromConfig(devserverCoreConfig(cfg, jwtkit.StaticKeySource{}), pg)
+	if err != nil {
+		return err
+	}
+	result, err := applyBootstrapManifestData(ctx, svc, manifest, core.BootstrapReconcileOptions{
+		DryRun:      dryRun,
+		StartupOnly: startupOnly,
+		Name:        name,
+	})
 	if err != nil {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(result)
 }
 
-func reconcileBootstrapManifest(ctx context.Context, svc *core.Service, path string, dryRun bool) (core.BootstrapManifestResult, error) {
+func devserverCoreConfig(cfg *config, keySource jwtkit.KeySource) core.Config {
+	return core.Config{
+		Token: core.TokenConfig{
+			Issuer:            cfg.Issuer,
+			IssuedAudiences:   cfg.IssuedAudiences,
+			ExpectedAudiences: cfg.ExpectedAudiences,
+		},
+		Keys:         core.KeysConfig{Source: keySource},
+		Environment:  cfg.Environment,
+		Registration: core.RegistrationConfig{Verification: cfg.RegistrationVerification},
+		APIKeys:      core.APIKeysConfig{Prefix: cfg.APIKeyPrefix},
+		RBAC:         core.RBACConfig{Permissions: toPermissionDefs(cfg.PermissionCatalog)},
+	}
+}
+
+func applyBootstrapManifest(ctx context.Context, svc *core.Service, path string, opts core.BootstrapReconcileOptions) (core.BootstrapManifestResult, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		path = core.DefaultBootstrapManifestPath
 	}
-	manifest, err := core.LoadBootstrapManifestFile(path)
+	return svc.ApplyBootstrapManifestFile(ctx, path, opts)
+}
+
+func applyBootstrapManifestData(ctx context.Context, svc *core.Service, manifest core.BootstrapManifest, opts core.BootstrapReconcileOptions) (core.BootstrapManifestResult, error) {
+	result, err := svc.ApplyBootstrapManifest(ctx, manifest, opts)
 	if err != nil {
-		return core.BootstrapManifestResult{}, fmt.Errorf("read bootstrap manifest: %w", err)
-	}
-	result, err := svc.ReconcileBootstrapManifest(ctx, manifest, core.BootstrapReconcileOptions{DryRun: dryRun})
-	if err != nil {
-		return core.BootstrapManifestResult{}, fmt.Errorf("reconcile bootstrap manifest: %w", err)
+		return core.BootstrapManifestResult{}, fmt.Errorf("apply bootstrap manifest: %w", err)
 	}
 	return result, nil
 }
@@ -272,6 +285,9 @@ func flagValue(args []string, long, short, def string) string {
 	for i := 0; i < len(args); i++ {
 		arg := strings.TrimSpace(args[i])
 		for _, name := range []string{long, short} {
+			if name == "" {
+				continue
+			}
 			if arg == name && i+1 < len(args) {
 				return args[i+1]
 			}

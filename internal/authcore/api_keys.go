@@ -173,7 +173,7 @@ func (s *Service) authorizeAPIKeyResources(ctx context.Context, req APIKeyResour
 }
 
 func (s *Service) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona, gid, actorUserID, role string) error {
-	return s.authorizeRoleChange(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, role)
+	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, PermCredentialsManage(persona), role)
 }
 
 // effectiveGroupRolePermissions resolves a role NAME to its effective permission

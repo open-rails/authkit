@@ -10,16 +10,12 @@ package authcore
 // Built-in per-persona group-management permissions (authkit-provisioned in
 // every persona's catalog). All are 3-segment <persona>:<area>:<action>. The owner
 // role (=<persona>:*) covers them all; an app may grant them to other roles.
-func PermMembersManage(t string) string    { return t + ":members:manage" }
-func PermMembersRead(t string) string      { return t + ":members:read" }
-func PermRolesManage(t string) string      { return t + ":roles:manage" }
-func PermRolesRead(t string) string        { return t + ":roles:read" }
-func PermAPIKeysManage(t string) string    { return t + ":api-keys:manage" }
-func PermAPIKeysRead(t string) string      { return t + ":api-keys:read" }
-func PermRemoteAppsManage(t string) string { return t + ":remote-apps:manage" }
-func PermRemoteAppsRead(t string) string   { return t + ":remote-apps:read" }
-func PermInvitesManage(t string) string    { return t + ":invites:manage" }
-func PermInvitesRead(t string) string      { return t + ":invites:read" }
+func PermMembersManage(t string) string     { return t + ":members:manage" }
+func PermMembersRead(t string) string       { return t + ":members:read" }
+func PermRolesManage(t string) string       { return t + ":roles:manage" }
+func PermRolesRead(t string) string         { return t + ":roles:read" }
+func PermCredentialsManage(t string) string { return t + ":credentials:manage" }
+func PermCredentialsRead(t string) string   { return t + ":credentials:read" }
 
 // GeneratedRoute is one auto-generated management endpoint: addressed by the
 // RESOURCE's own id (:instance_slug), gated by Perm (a concrete <persona>:<res>:<act>).
@@ -42,7 +38,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 		p := td.Routes
 
 		if p.MemberAssignment {
-			rd, mg := PermMembersRead(persona), PermRolesManage(persona)
+			rd, mg := PermMembersRead(persona), PermMembersManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/members", rd},
 				GeneratedRoute{persona, "POST", base + "/members", mg},
@@ -60,7 +56,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 			)
 		}
 		if p.APIKeyMinting {
-			rd, mg := PermAPIKeysRead(persona), PermAPIKeysManage(persona)
+			rd, mg := PermCredentialsRead(persona), PermCredentialsManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/api-keys", rd},
 				GeneratedRoute{persona, "POST", base + "/api-keys", mg},
@@ -68,7 +64,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 			)
 		}
 		if p.RemoteAppRegistration {
-			rd, mg := PermRemoteAppsRead(persona), PermRemoteAppsManage(persona)
+			rd, mg := PermCredentialsRead(persona), PermCredentialsManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/remote-applications", rd},
 				GeneratedRoute{persona, "POST", base + "/remote-applications", mg},
@@ -79,7 +75,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 		// link. Redemption is NOT here — it is the persona-agnostic POST
 		// /invites/redeem (any authenticated user), mounted as a fixed route.
 		if p.InviteLinks {
-			rd, mg := PermInvitesRead(persona), PermInvitesManage(persona)
+			rd, mg := PermMembersRead(persona), PermMembersManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "POST", base + "/invites/links", mg},
 				GeneratedRoute{persona, "GET", base + "/invites/links", rd},

@@ -34,7 +34,7 @@ Use the direct `*core.Service` facade methods instead, for example:
 - `svc.ListSubjectGroups(...)`
 - `svc.MintAPIKeyWithOptions(...)`
 - `svc.LinkProviderByIssuer(...)`
-- `svc.ReconcileBootstrapManifest(...)`
+- `svc.ApplyBootstrapManifest(...)`
 
 Many old facet helpers were intentionally not re-exposed. If code still calls a
 removed helper, replace it with the current HTTP flow or one of the direct

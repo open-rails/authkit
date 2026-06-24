@@ -83,11 +83,11 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
 		t.Errorf("a repo collaborator must NOT gain org-scoped authority")
 	}
-	if err := svc.AssignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, MemberRoleName); err != nil {
-		t.Fatalf("replace writer with member: %v", err)
+	if err := svc.UnassignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, "writer"); err != nil {
+		t.Fatalf("remove writer: %v", err)
 	}
 	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "repo", "r1", "repo:repo:write"); ok {
-		t.Errorf("replacing a member's role should remove the previous writer grant")
+		t.Errorf("removing writer should remove the previous writer grant")
 	}
 
 	// Read surface: list a group's members + a subject's groups.
@@ -111,8 +111,8 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if len(sgroups) == 0 || sgroups[0].Persona != "repo" || sgroups[0].InstanceSlug != "r1" {
 		t.Errorf("ListSubjectGroups(dev) should show the repo:r1 membership; got %+v", sgroups)
 	}
-	if len(sgroups) != 1 || sgroups[0].Role != MemberRoleName {
-		t.Errorf("ListSubjectGroups(dev) should show one current role after replacement; got %+v", sgroups)
+	if len(sgroups) != 0 {
+		t.Errorf("ListSubjectGroups(dev) should be empty after role removal; got %+v", sgroups)
 	}
 
 	// Role validation: repo disallows custom roles, so an unknown role is rejected.

@@ -29,10 +29,6 @@ const (
 	// `*`, never another persona. Widest reach within the persona, still
 	// namespace-pure.
 	OwnerRoleName = "owner"
-
-	// MemberRoleName is the base-membership role authkit seeds on every group.
-	// Minimal authority (no perms unless the app's catalog gives it some).
-	MemberRoleName = "member"
 )
 
 // segmentRe matches ONE lowercase permission segment (persona, resource, or
@@ -148,7 +144,7 @@ type ManagementProfile struct {
 // permission segment. `Name == RootPersona` is the parentless singleton.
 type PersonaDef struct {
 	Name             string
-	Roles            []RoleDef // app-declared; owner (=<persona>:*) + member are injected if absent
+	Roles            []RoleDef // app-declared; owner (=<persona>:*) is injected if absent
 	AllowedParents   []string  // declared personas; empty ⇒ root (parentless). Non-root needs >=1.
 	AllowCustomRoles bool      // may a group owner define ADDITIONAL custom roles?
 	Routes           ManagementProfile
@@ -158,7 +154,7 @@ type PersonaDef struct {
 // containment schema + catalogs + management profiles. Construct via
 // NewGroupSchema, which validates everything once.
 type GroupSchema struct {
-	types map[string]PersonaDef // effective defs (owner/member injected, roles deduped)
+	types map[string]PersonaDef // effective defs (owner injected, roles deduped)
 	order []string              // persona names, sorted
 }
 
@@ -201,15 +197,15 @@ func NewGroupSchema(types ...PersonaDef) (*GroupSchema, error) {
 	return s, nil
 }
 
-// normalizePersona validates a declared persona and injects the seeded owner/member
-// roles, returning the effective definition stored in the schema.
+// normalizePersona validates a declared persona and injects the seeded owner
+// role, returning the effective definition stored in the schema.
 func normalizePersona(t PersonaDef) (PersonaDef, error) {
 	if t.Routes.CustomRoleCreation && !t.AllowCustomRoles {
 		return t, fmt.Errorf("group persona %q: api-routes.custom-role-creation requires AllowCustomRoles", t.Name)
 	}
 
-	byName := make(map[string]RoleDef, len(t.Roles)+2)
-	order := make([]string, 0, len(t.Roles)+2)
+	byName := make(map[string]RoleDef, len(t.Roles)+1)
+	order := make([]string, 0, len(t.Roles)+1)
 	add := func(r RoleDef) {
 		if _, ok := byName[r.Name]; !ok {
 			order = append(order, r.Name)
@@ -243,10 +239,6 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 		}
 	} else {
 		add(RoleDef{Name: OwnerRoleName, Permissions: []string{want}})
-	}
-	// Seed member (base membership; minimal) if absent.
-	if _, ok := byName[MemberRoleName]; !ok {
-		add(RoleDef{Name: MemberRoleName})
 	}
 
 	eff := t
@@ -346,7 +338,7 @@ func (s *GroupSchema) Personas() []string {
 // IsRoot reports whether name is the root persona.
 func (s *GroupSchema) IsRoot(name string) bool { return name == RootPersona }
 
-// Roles returns a persona's effective roles (app-declared + seeded owner/member).
+// Roles returns a persona's effective roles (app-declared + seeded owner).
 func (s *GroupSchema) Roles(persona string) ([]RoleDef, bool) {
 	t, ok := s.types[persona]
 	if !ok {

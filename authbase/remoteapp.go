@@ -57,7 +57,6 @@ type RemoteApplication struct {
 	Mode string
 	// PublicKeys is the static-mode key list (empty in jwks mode).
 	PublicKeys     []RemoteAppKey
-	Audiences      []string
 	AllowedOrigins []string
 	Enabled        bool
 	CreatedAt      time.Time

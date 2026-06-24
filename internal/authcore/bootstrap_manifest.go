@@ -9,31 +9,36 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/db"
 	"gopkg.in/yaml.v3"
 )
 
 const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 
-var ErrInvalidBootstrapManifest = errors.New("invalid_bootstrap_manifest")
+var (
+	ErrInvalidBootstrapManifest  = errors.New("invalid_bootstrap_manifest")
+	ErrBootstrapDatabaseNotEmpty = errors.New("bootstrap_database_not_empty")
+)
 
-// BootstrapManifest is AuthKit's first-class closed-deployment authority
-// manifest. It owns AuthKit state only: users, root permission-group roles, and
-// password seeding.
+const defaultBootstrapApplyName = "default"
+
+// BootstrapManifest is AuthKit's first-class closed-deployment seed manifest.
+// It creates/updates initial users and assigns root roles after the host app has
+// already configured AuthKit's RBAC schema in code.
 //
 // Operator authority is a role assignment in the singleton root group. A user's
-// `root_roles` seed root-group role ASSIGNMENTS: "owner" (the built-in apex,
+// `root_role` seeds one root-group role ASSIGNMENT: "owner" (the built-in apex,
 // root:*, present by default on every group) is seeded SEED-IF-ABSENT via the
 // genesis path; any other name must be a catalog role of the root persona
-// (declared in core.Config — e.g. an app's bounded "admin"). The top-level
-// `root_roles` role-DEFINITION list is vestigial under the permission-group model
-// (catalog roles live in core.Config, not the manifest) and is accepted-but-ignored.
+// (declared in core.Config, e.g. an app's bounded "admin"). Group role
+// assignments address groups by stable (persona, instance_slug), never UUID.
 type BootstrapManifest struct {
-	Users       []BootstrapManifestUser       `json:"users" yaml:"users"`
-	RootRoles []BootstrapManifestRootRole `json:"root_roles" yaml:"root_roles"`
+	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
+	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
+	GroupRoles         []BootstrapManifestGroupRole         `json:"group_roles" yaml:"group_roles"`
 }
 
 type BootstrapManifestUser struct {
-	Ref           string                 `json:"ref" yaml:"ref"`
 	Email         string                 `json:"email" yaml:"email"`
 	PhoneNumber   string                 `json:"phone_number" yaml:"phone_number"`
 	Username      string                 `json:"username" yaml:"username"`
@@ -46,20 +51,28 @@ type BootstrapManifestUser struct {
 	BannedBy      *string                `json:"banned_by" yaml:"banned_by"`
 	Metadata      map[string]any         `json:"metadata" yaml:"metadata"`
 	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
-	// RootRoles assigns root permission-group roles to this user by name. "owner"
-	// (the built-in apex, root:*) is seeded SEED-IF-ABSENT; any other name is
-	// assigned as a same-named catalog role of the root persona (e.g. an app's
-	// bounded "admin").
-	RootRoles []string `json:"root_roles" yaml:"root_roles"`
+	// RootRole assigns one root permission-group role to this user by name.
+	// "owner" (the built-in apex, root:*) is seeded SEED-IF-ABSENT; any other
+	// name is assigned as a same-named catalog role of the root persona.
+	RootRole string `json:"root_role" yaml:"root_role"`
 }
 
-// BootstrapManifestRootRole is the vestigial top-level role-DEFINITION entry.
-// Under the permission-group model catalog roles live in core.Config, not the
-// manifest, so this is accepted-but-ignored; kept for manifest backward-compat.
-type BootstrapManifestRootRole struct {
-	Name        string  `json:"name" yaml:"name"`
-	Slug        string  `json:"slug" yaml:"slug"`
-	Description *string `json:"description" yaml:"description"`
+type BootstrapManifestRemoteApplication struct {
+	Slug           string         `json:"slug" yaml:"slug"`
+	Issuer         string         `json:"issuer" yaml:"issuer"`
+	JWKSURI        string         `json:"jwks_uri" yaml:"jwks_uri"`
+	PublicKeys     []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
+	AllowedOrigins []string       `json:"allowed_origins" yaml:"allowed_origins"`
+	Enabled        *bool          `json:"enabled" yaml:"enabled"`
+	RootRole       string         `json:"root_role" yaml:"root_role"`
+}
+
+type BootstrapManifestGroupRole struct {
+	Username              string `json:"username" yaml:"username"`
+	RemoteApplicationSlug string `json:"remote_application_slug" yaml:"remote_application_slug"`
+	Persona               string `json:"persona" yaml:"persona"`
+	InstanceSlug          string `json:"instance_slug" yaml:"instance_slug"`
+	Role                  string `json:"role" yaml:"role"`
 }
 
 type BootstrapUserPassword struct {
@@ -79,16 +92,24 @@ type BootstrapUserPassword struct {
 
 type BootstrapReconcileOptions struct {
 	DryRun bool
+	// StartupOnly applies the manifest at most once, using Name as the marker.
+	// Leave false for ordinary operator/CLI applies.
+	StartupOnly bool
+	// Name scopes the startup apply-once marker. Empty means "default".
+	Name string
 }
 
 type BootstrapManifestResult struct {
-	DryRun                bool `json:"dry_run"`
-	UsersCreated          int  `json:"users_created"`
-	UsersUpdated          int  `json:"users_updated"`
-	PasswordsSet          int  `json:"passwords_set"`
-	PasswordsKept         int  `json:"passwords_kept"`
-	RootRoles           int  `json:"root_roles"`
-	RootRoleAssignments int  `json:"root_role_assignments"`
+	DryRun               bool `json:"dry_run"`
+	AlreadyApplied       bool `json:"already_applied"`
+	UsersCreated         int  `json:"users_created"`
+	UsersUpdated         int  `json:"users_updated"`
+	PasswordsSet         int  `json:"passwords_set"`
+	PasswordsKept        int  `json:"passwords_kept"`
+	RootRoleAssignments  int  `json:"root_role_assignments"`
+	GroupRoleAssignments int  `json:"group_role_assignments"`
+	RemoteApplications   int  `json:"remote_applications"`
+	RemoteAppRootRoles   int  `json:"remote_application_root_roles"`
 }
 
 func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
@@ -98,7 +119,7 @@ func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	if err := dec.Decode(&manifest); err != nil {
 		return BootstrapManifest{}, err
 	}
-	if len(manifest.Users) == 0 && len(manifest.RootRoles) == 0 {
+	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 && len(manifest.GroupRoles) == 0 {
 		return BootstrapManifest{}, ErrInvalidBootstrapManifest
 	}
 	if err := validateBootstrapManifest(manifest); err != nil {
@@ -119,7 +140,15 @@ func LoadBootstrapManifestFile(path string) (BootstrapManifest, error) {
 	return ParseBootstrapManifestYAML(raw)
 }
 
-func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+func (s *Service) ApplyBootstrapManifestFile(ctx context.Context, path string, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
+	manifest, err := LoadBootstrapManifestFile(path)
+	if err != nil {
+		return BootstrapManifestResult{}, err
+	}
+	return s.ApplyBootstrapManifest(ctx, manifest, opts)
+}
+
+func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
 	if err := s.requirePG(); err != nil {
 		return BootstrapManifestResult{}, err
 	}
@@ -130,16 +159,39 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 	result := BootstrapManifestResult{DryRun: opts.DryRun}
 	if opts.DryRun {
 		result.UsersCreated = len(manifest.Users)
-		for _, role := range manifest.RootRoles {
-			if strings.TrimSpace(role.Slug) != "" {
-				result.RootRoles++
-			}
-		}
 		for _, user := range manifest.Users {
 			result.PasswordsSet += boolToInt(user.Password != nil)
-			result.RootRoleAssignments += len(user.RootRoles)
+			result.RootRoleAssignments += boolToInt(strings.TrimSpace(user.RootRole) != "")
 		}
+		result.RemoteApplications = len(manifest.RemoteApplications)
+		for _, app := range manifest.RemoteApplications {
+			result.RemoteAppRootRoles += boolToInt(strings.TrimSpace(app.RootRole) != "")
+		}
+		result.GroupRoleAssignments = len(manifest.GroupRoles)
 		return result, nil
+	}
+	claimed := false
+	if opts.StartupOnly {
+		unlock, err := s.lockBootstrapApply(ctx, opts.Name)
+		if err != nil {
+			return result, err
+		}
+		defer unlock()
+
+		var already bool
+		claimed, already, err = s.claimBootstrapApply(ctx, opts.Name)
+		if err != nil {
+			return result, err
+		}
+		if already {
+			result.AlreadyApplied = true
+			return result, nil
+		}
+		defer func() {
+			if claimed {
+				_ = s.releaseBootstrapApply(ctx, opts.Name)
+			}
+		}()
 	}
 
 	// The root permission-group is the operator authority plane (#111). Ensure it
@@ -151,15 +203,12 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		return result, err
 	}
 
-	for _, role := range manifest.RootRoles {
-		slug := strings.ToLower(strings.TrimSpace(role.Slug))
-		if slug == "" {
-			continue
-		}
-		if err := s.UpsertRoleBySlug(ctx, role.Name, slug, role.Description); err != nil {
+	for _, app := range manifest.RemoteApplications {
+		if err := s.applyBootstrapRemoteApplication(ctx, app); err != nil {
 			return result, err
 		}
-		result.RootRoles++
+		result.RemoteApplications++
+		result.RemoteAppRootRoles += boolToInt(strings.TrimSpace(app.RootRole) != "")
 	}
 
 	// #136: owner is the apex and is seeded SEED-IF-ABSENT (break-glass) — compute
@@ -200,22 +249,88 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 				result.PasswordsKept++
 			}
 		}
-		for _, role := range user.RootRoles {
-			slug := strings.ToLower(strings.TrimSpace(role))
-			if slug == "" {
-				continue
-			}
-			// #136: seed the genesis user's root role. "owner" (the apex, root:*)
-			// is seed-if-absent and uses the genesis path that bypasses the runtime
-			// owner-reserved guard; any other declared root role assigns directly.
-			if err := s.seedBootstrapRootRole(ctx, applied.ID, slug, rootHasOwner); err != nil {
-				return result, err
-			}
-			result.RootRoleAssignments++
+		slug := strings.ToLower(strings.TrimSpace(user.RootRole))
+		if slug == "" {
+			continue
 		}
+		// #136: seed the genesis user's root role. "owner" (the apex, root:*)
+		// is seed-if-absent and uses the genesis path that bypasses the runtime
+		// owner-reserved guard; any other declared root role assigns directly.
+		if err := s.seedBootstrapRootRole(ctx, applied.ID, slug, rootHasOwner); err != nil {
+			return result, err
+		}
+		result.RootRoleAssignments++
 	}
 
+	for _, role := range manifest.GroupRoles {
+		if err := s.applyBootstrapGroupRole(ctx, role); err != nil {
+			return result, err
+		}
+		result.GroupRoleAssignments++
+	}
+
+	claimed = false
 	return result, nil
+}
+
+func (s *Service) bootstrapApplyName(name string) string {
+	if name = strings.TrimSpace(name); name != "" {
+		return name
+	}
+	return defaultBootstrapApplyName
+}
+
+func (s *Service) lockBootstrapApply(ctx context.Context, name string) (func(), error) {
+	name = "authkit.bootstrap." + s.bootstrapApplyName(name)
+	conn, err := s.pg.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, name); err != nil {
+		conn.Release()
+		return nil, err
+	}
+	return func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, name)
+		conn.Release()
+	}, nil
+}
+
+func (s *Service) claimBootstrapApply(ctx context.Context, name string) (claimed, already bool, err error) {
+	q := db.ForSchema(s.pg, s.dbSchema())
+	name = s.bootstrapApplyName(name)
+	var exists bool
+	if err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.bootstrap_applies WHERE name = $1)`, name).Scan(&exists); err != nil {
+		return false, false, err
+	}
+	if exists {
+		return false, true, nil
+	}
+	var stateRows int64
+	if err := q.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM profiles.users WHERE deleted_at IS NULL)
+			+
+			(SELECT count(*) FROM profiles.remote_applications WHERE deleted_at IS NULL)
+	`).Scan(&stateRows); err != nil {
+		return false, false, err
+	}
+	if stateRows > 0 {
+		return false, false, ErrBootstrapDatabaseNotEmpty
+	}
+	tag, err := q.Exec(ctx, `INSERT INTO profiles.bootstrap_applies (name) VALUES ($1) ON CONFLICT DO NOTHING`, name)
+	if err != nil {
+		return false, false, err
+	}
+	if tag.RowsAffected() == 0 {
+		return false, true, nil
+	}
+	return true, false, nil
+}
+
+func (s *Service) releaseBootstrapApply(ctx context.Context, name string) error {
+	_, err := db.ForSchema(s.pg, s.dbSchema()).Exec(ctx, `DELETE FROM profiles.bootstrap_applies WHERE name = $1`, s.bootstrapApplyName(name))
+	return err
 }
 
 // rootGroupHasOwner reports whether the singleton root group currently has any
@@ -253,17 +368,10 @@ func (s *Service) seedBootstrapRootRole(ctx context.Context, userID, slug string
 }
 
 func validateBootstrapManifest(manifest BootstrapManifest) error {
-	seenRefs := map[string]struct{}{}
 	for _, user := range manifest.Users {
 		username := strings.TrimSpace(user.Username)
 		if username == "" {
 			return ErrInvalidBootstrapManifest
-		}
-		if ref := strings.TrimSpace(user.Ref); ref != "" {
-			if _, ok := seenRefs[ref]; ok {
-				return ErrInvalidBootstrapManifest
-			}
-			seenRefs[ref] = struct{}{}
 		}
 		if user.Password != nil {
 			if err := validateBootstrapUserPassword(*user.Password); err != nil {
@@ -271,12 +379,84 @@ func validateBootstrapManifest(manifest BootstrapManifest) error {
 			}
 		}
 	}
-	for _, role := range manifest.RootRoles {
-		if strings.TrimSpace(role.Slug) == "" {
+	for _, app := range manifest.RemoteApplications {
+		if strings.TrimSpace(app.Slug) == "" || strings.TrimSpace(app.Issuer) == "" || app.Enabled == nil {
+			return ErrInvalidBootstrapManifest
+		}
+		if _, err := NormalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys); err != nil {
+			return err
+		}
+		if _, err := NormalizeAllowedOrigins(app.AllowedOrigins); err != nil {
+			return err
+		}
+	}
+	for _, role := range manifest.GroupRoles {
+		username := strings.TrimSpace(role.Username)
+		remoteAppSlug := strings.TrimSpace(role.RemoteApplicationSlug)
+		if (username == "") == (remoteAppSlug == "") {
+			return ErrInvalidBootstrapManifest
+		}
+		if strings.TrimSpace(role.Persona) == "" || strings.TrimSpace(role.Role) == "" {
+			return ErrInvalidBootstrapManifest
+		}
+		if strings.TrimSpace(role.Persona) != RootPersona && strings.TrimSpace(role.InstanceSlug) == "" {
 			return ErrInvalidBootstrapManifest
 		}
 	}
 	return nil
+}
+
+func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app BootstrapManifestRemoteApplication) error {
+	gid, err := s.ResolveGroupIDForSlug(ctx, RootPersona, "")
+	if err != nil {
+		return err
+	}
+	ra, err := s.UpsertRemoteApplication(ctx, RemoteApplication{
+		Slug:              strings.TrimSpace(app.Slug),
+		PermissionGroupID: gid,
+		Issuer:            strings.TrimSpace(app.Issuer),
+		JWKSURI:           strings.TrimSpace(app.JWKSURI),
+		PublicKeys:        app.PublicKeys,
+		AllowedOrigins:    app.AllowedOrigins,
+		Enabled:           *app.Enabled,
+	})
+	if err != nil {
+		return err
+	}
+	role := strings.TrimSpace(app.RootRole)
+	if role == "" {
+		return nil
+	}
+	return s.AddRemoteApplicationMember(ctx, ra.ID, role)
+}
+
+func (s *Service) applyBootstrapGroupRole(ctx context.Context, role BootstrapManifestGroupRole) error {
+	subjectID, subjectKind, err := s.bootstrapGroupRoleSubject(ctx, role)
+	if err != nil {
+		return err
+	}
+	return s.AssignGroupRole(ctx, strings.TrimSpace(role.Persona), strings.TrimSpace(role.InstanceSlug), subjectID, subjectKind, strings.TrimSpace(role.Role))
+}
+
+func (s *Service) bootstrapGroupRoleSubject(ctx context.Context, role BootstrapManifestGroupRole) (string, string, error) {
+	if username := strings.TrimSpace(role.Username); username != "" {
+		user, err := s.getUserByUsername(ctx, username)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", ErrInvalidBootstrapManifest
+		}
+		if err != nil {
+			return "", "", err
+		}
+		return user.ID, SubjectKindUser, nil
+	}
+	app, err := s.GetRemoteApplicationBySlug(ctx, strings.TrimSpace(role.RemoteApplicationSlug))
+	if errors.Is(err, ErrRemoteApplicationNotFound) {
+		return "", "", ErrInvalidBootstrapManifest
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return app.ID, SubjectKindRemoteApp, nil
 }
 
 func validateBootstrapUserPassword(p BootstrapUserPassword) error {

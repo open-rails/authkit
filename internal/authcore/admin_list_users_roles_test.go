@@ -15,6 +15,11 @@ func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))
+	if err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	svc.groupSchema = gs
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("ensure root group: %v", err)
 	}
@@ -28,13 +33,13 @@ func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 		t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, id) })
 		return id
 	}
-	withOwner, withMember, noRole := mk("owner"), mk("member"), mk("norole")
+	withOwner, withViewer, noRole := mk("owner"), mk("viewer"), mk("norole")
 
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", withOwner, SubjectKindUser, OwnerRoleName); err != nil {
 		t.Fatalf("assign owner: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", withMember, SubjectKindUser, MemberRoleName); err != nil {
-		t.Fatalf("assign member: %v", err)
+	if err := svc.AssignGroupRole(ctx, RootPersona, "", withViewer, SubjectKindUser, "viewer"); err != nil {
+		t.Fatalf("assign viewer: %v", err)
 	}
 	_ = noRole // intentionally left without a root role
 

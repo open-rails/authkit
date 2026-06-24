@@ -240,7 +240,7 @@ var (
 type RemoteApplication = authbase.RemoteApplication
 
 func remoteAppFromUpsert(row db.RemoteApplicationUpsertRow) *RemoteApplication {
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
@@ -297,7 +297,6 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 		JwksUri:           jwksURI,
 		Mode:              mode,
 		PublicKeys:        keysJSON,
-		Audiences:         dedupeStrings(in.Audiences),
 		AllowedOrigins:    allowedOrigins,
 		Enabled:           in.Enabled,
 	})
@@ -323,7 +322,7 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // ResolveRemoteApplicationGroup returns the controlling permission_group_id of
@@ -353,7 +352,7 @@ func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Audiences: row.Audiences, AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // ListRemoteApplications returns registered remote_applications. When activeOnly
@@ -369,7 +368,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, PermissionGroupID: r.PermissionGroupID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, AllowedOrigins: r.AllowedOrigins, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+			out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, PermissionGroupID: r.PermissionGroupID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), AllowedOrigins: r.AllowedOrigins, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
 		}
 		return out, nil
 	}
@@ -378,7 +377,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, PermissionGroupID: r.PermissionGroupID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Audiences: r.Audiences, AllowedOrigins: r.AllowedOrigins, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+		out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, PermissionGroupID: r.PermissionGroupID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), AllowedOrigins: r.AllowedOrigins, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil
 }
@@ -399,7 +398,7 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, i
 	q := db.ForSchema(s.pg, s.dbSchema())
 	rows, err := q.Query(ctx,
 		`SELECT id::text, slug, COALESCE(permission_group_id::text, ''), issuer, COALESCE(jwks_uri,''),
-		        mode, public_keys, audiences, allowed_origins, enabled, created_at, updated_at
+		        mode, public_keys, allowed_origins, enabled, created_at, updated_at
 		 FROM profiles.remote_applications
 		 WHERE permission_group_id = $1::uuid AND deleted_at IS NULL
 		 ORDER BY created_at DESC`, gid)
@@ -414,7 +413,7 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, i
 			rawKeys []byte
 		)
 		if err := rows.Scan(&ra.ID, &ra.Slug, &ra.PermissionGroupID, &ra.Issuer, &ra.JWKSURI,
-			&ra.Mode, &rawKeys, &ra.Audiences, &ra.AllowedOrigins, &ra.Enabled,
+			&ra.Mode, &rawKeys, &ra.AllowedOrigins, &ra.Enabled,
 			&ra.CreatedAt, &ra.UpdatedAt); err != nil {
 			return nil, err
 		}

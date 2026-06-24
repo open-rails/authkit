@@ -67,7 +67,7 @@ func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
 	called := false
 	s.groupCanFn = func(_ *http.Request, _, _, _, _ string) (bool, error) { called = true; return true, nil }
 
-	gr := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/members", Perm: "merchant:roles:manage"}
+	gr := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/members", Perm: "merchant:members:manage"}
 	h := s.generatedGroupHandler(gr)
 	r := httptest.NewRequest(http.MethodPost, "/merchant/m1/members", strings.NewReader(`{"user_id":"u9"}`))
 	r = withMuxParams(r, gr.Path, map[string]string{"instance_slug": "m1"})
