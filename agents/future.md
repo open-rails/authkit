@@ -50,40 +50,6 @@ Storage still uses `profiles.service_tokens` and generated sqlc names until a se
 
 ---
 
-# #49: Magic-link login (passwordless) via email/SMS (separate from verify/reset)
-
-**Completed:** no
-
-Add optional passwordless login using one-time magic links. This is intentionally separate from verification/password reset links.
-
-Goals:
-- Allow a user to request a login link to email (and optionally SMS) and authenticate by clicking it.
-- Keep existing password + 2FA flows intact; magic login is additive and can be disabled entirely.
-
-Security notes:
-- High-entropy, single-use, short TTL tokens stored as hashes.
-- Prevent open redirects; fixed redirect or allowlist.
-- Rate limit requests and token consumption; do not leak whether a user exists.
-- Consider session fixation and device binding (optional).
-
-UX:
-- Link lands on host frontend route (e.g. `/auth/magic?token=...`) which calls AuthKit to consume token and then stores session tokens.
-
-Provider notes:
-- Email is straightforward.
-- SMS magic links require Twilio Messaging/SMS API (not Twilio Verify).
-
-**Tasks:**
-- [ ] Add request endpoint(s): POST /auth/magic-link/request (email/phone) with anti-enumeration response
-- [ ] Add consume endpoint(s): POST /auth/magic-link/confirm {token} -> mint session (access/refresh) and consume token
-- [ ] Add ephemeral store keys + TTL + single-use enforcement
-- [ ] Add rate limits for request + confirm
-- [ ] Add optional sender interfaces for magic-login links (email + SMS messaging)
-- [ ] Add tests (token lifecycle, request anti-enumeration, confirm success/expired)
-- [ ] Docs: flows, security guidance, host frontend route expectations
-
----
-
 # #50: AuthKit as a standalone service (first-class deployment target)
 
 **Completed:** no

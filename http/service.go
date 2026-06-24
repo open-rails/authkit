@@ -40,10 +40,9 @@ type Service struct {
 	coreOpts []core.Option
 
 	// groupCanFn overrides the permission-group authorization predicate used by
-	// the auto-generated group-management routes (#111). nil in production (the
-	// default delegates to core.Service.Can); set only by handler tests that need
-	// to gate without a database.
-	groupCanFn func(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error)
+	// the auto-generated group-management routes (#111). nil delegates to
+	// core.Service.Can.
+	groupCanFn PermissionGroupAuthorizer
 }
 
 func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {

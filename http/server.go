@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -141,6 +142,15 @@ func WithEntitlements(p core.EntitlementsProvider) Option {
 // non-empty resource scopes on API-key minting.
 func WithAPIKeyResourceAuthorizer(a core.APIKeyResourceAuthorizer) Option {
 	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithAPIKeyResourceAuthorizer(a)) }
+}
+
+// PermissionGroupAuthorizer authorizes one generated permission-group route.
+type PermissionGroupAuthorizer func(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error)
+
+// WithPermissionGroupAuthorizer lets a host wrap generated group-route authz,
+// for example to lazily materialize host-owned groups before checking Can.
+func WithPermissionGroupAuthorizer(fn PermissionGroupAuthorizer) Option {
+	return func(s *Server) { s.groupCanFn = fn }
 }
 
 // WithAuthLogger supplies the session-event audit sink.

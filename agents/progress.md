@@ -146,3 +146,83 @@ other admins but can't edit role defs" tier.
 
 ## Cross-repo
 Consumers adopt via doujins #420 (doujins + hentai0 share ONE root group).
+
+---
+
+# #49: Passwordless contact login and wallet account creation
+
+**Completed:** no
+
+Add an optional passwordless contact flow for AuthKit users. A host can ask for phone or email, send an OTP and/or magic link, then mint a normal AuthKit session after confirmation. This remains separate from verification/password-reset links (#10) and additive to existing password, passkey, OIDC, and 2FA flows.
+
+The OpenRails wallet use case needs one extra behavior beyond the old future plan: create-or-login. If the verified contact belongs to an existing user, confirm logs that user in. If no user exists and the host enables passwordless auto-registration, confirm creates a user with a generated username, verified email/phone, and no password. The user can add a password or passkey later, but first checkout should not require either.
+
+## Goals
+
+- Allow passwordless login by email OTP, email magic link, SMS OTP, and SMS magic link where senders support it.
+- Allow create-if-missing for products like OpenRails customer wallets that need quick account creation at checkout.
+- Keep existing `/register`, `/password/login`, passkey, OIDC, verification, password reset, and 2FA behavior intact.
+- Record session assurance accurately: `amr=email` for email-confirmed login, `amr=sms` for phone-confirmed login, and no fake `pwd`.
+- Keep the feature host-enabled; private deployments can leave it unmounted or disabled.
+
+## Non-goals
+
+- Do not replace password login or passkeys.
+- Do not make verification links double as login links. Passwordless login gets its own purpose, token kind, TTL, rate limits, and audit events.
+- Do not leak whether an identifier exists. Start always returns the same accepted response.
+- Do not require username/password before first passwordless account creation.
+- Do not make SMS magic links depend on Twilio Verify. Use the host SMS sender/Messaging API path already used for SMS links.
+
+## API shape
+
+- `POST /passwordless/start`
+  - Body: `{ "identifier": "email-or-phone", "mode": "code|link|both", "return_to": optional }`
+  - Behavior: normalize identifier, rate-limit by IP and identifier, create a pending passwordless challenge, send code/link if the host permits this channel, and always return an anti-enumeration `202`.
+- `POST /passwordless/confirm`
+  - Body for OTP: `{ "identifier": "email-or-phone", "code": "123456" }`
+  - Body for magic link: `{ "token": "high-entropy-token" }`
+  - Behavior: consume the challenge once, find or create the user as configured, mint access/refresh tokens, and return the same token response shape as existing login.
+
+Use prefix-neutral AuthKit route names; host apps may mount them under `/auth/*`.
+
+## Data model / token storage
+
+- Store passwordless challenges in the existing ephemeral store pattern, keyed by hashed code/link token.
+- Bind short OTP codes to the normalized identifier so a guessed code cannot verify another account.
+- Store high-entropy magic-link tokens as hashes and consume them globally by token.
+- Track purpose separately from verify/reset: `passwordless_login`.
+- For create-if-missing challenges, store normalized identifier, channel, generated username candidate, preferred language if known, return target if allowed, TTL, and attempt counters.
+- Do not insert a `profiles.user_passwords` row for passwordless-created users until they set a password.
+
+## User creation behavior
+
+- Existing verified contact: confirm logs in that user.
+- Existing unverified contact: confirm marks that contact verified and logs in the user only if the challenge was sent to that contact.
+- Missing contact with auto-registration disabled: consume or reject per policy but return a non-enumerating error shape.
+- Missing contact with auto-registration enabled: create a user with generated username, set the verified email or phone, no password, and issue a session.
+- Generated usernames must use the existing AuthKit username validation/reservation rules and retry on collision.
+
+## Security notes
+
+- Short OTPs need identifier binding, attempt caps, short TTL, and per-identifier rate limits.
+- Magic-link tokens need high entropy, single-use consumption, short TTL, and safe return-target handling.
+- Start and confirm endpoints need audit events for request, success, failure, account created, and rate-limit rejection.
+- Session minting should call the existing `IssueRefreshSessionWithAuthMethods` path with the right auth method.
+- Sensitive operations can still require step-up or MFA later; this flow only establishes wallet/login identity.
+
+## Tasks
+
+- [ ] Add feature/options wiring for passwordless login and passwordless auto-registration; default disabled unless a host enables it.
+- [ ] Add route specs for `POST /passwordless/start` and `POST /passwordless/confirm`.
+- [ ] Add core methods to create, store, consume, and expire passwordless challenges using the existing ephemeral-store pattern.
+- [ ] Add email and SMS delivery support for passwordless OTP/link messages, reusing the existing sender style where practical.
+- [ ] Add create-if-missing user path with generated username, verified email/phone, and no password row.
+- [ ] Add existing-user login path that verifies the contacted identifier and mints access/refresh tokens with `amr=email` or `amr=sms`.
+- [ ] Add anti-enumeration behavior and rate limits for start and confirm.
+- [ ] Add safe `return_to` handling or explicitly return tokens only to the caller and let the host own navigation.
+- [ ] Add DB-backed tests for email OTP login, email magic-link login, SMS OTP login, SMS magic-link login, create-if-missing, existing-user resume, generated username collision, no password row, disabled feature, duplicate/expired token, invalid code attempt caps, and anti-enumeration responses.
+- [ ] Update README, `agents/api-endpoints.md`, and SEMVER notes with the new flow and host integration guidance.
+
+## Cross-repo
+
+- OpenRails SaaS #19 will use this for customer wallet login/account creation at checkout while keeping merchant-app authentication separate.
