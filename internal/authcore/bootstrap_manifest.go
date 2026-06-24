@@ -20,15 +20,16 @@ var ErrInvalidBootstrapManifest = errors.New("invalid_bootstrap_manifest")
 // manifest. It owns AuthKit state only: users, root permission-group roles, and
 // password seeding.
 //
-// Operator authority is a role assignment in the singleton root group. The
-// manifest uses the `global_roles` field names for bootstrap compatibility, but
-// they seed root-group roles: a role named "admin" maps onto the root
-// super-admin (root:*), and any other name must be a catalog role of the root
-// persona (declared in core.Config). Role name/description fields no longer have a
-// target and are accepted-but-ignored.
+// Operator authority is a role assignment in the singleton root group. A user's
+// `root_roles` seed root-group role ASSIGNMENTS: "owner" (the built-in apex,
+// root:*, present by default on every group) is seeded SEED-IF-ABSENT via the
+// genesis path; any other name must be a catalog role of the root persona
+// (declared in core.Config — e.g. an app's bounded "admin"). The top-level
+// `root_roles` role-DEFINITION list is vestigial under the permission-group model
+// (catalog roles live in core.Config, not the manifest) and is accepted-but-ignored.
 type BootstrapManifest struct {
 	Users       []BootstrapManifestUser       `json:"users" yaml:"users"`
-	GlobalRoles []BootstrapManifestGlobalRole `json:"global_roles" yaml:"global_roles"`
+	RootRoles []BootstrapManifestRootRole `json:"root_roles" yaml:"root_roles"`
 }
 
 type BootstrapManifestUser struct {
@@ -45,16 +46,17 @@ type BootstrapManifestUser struct {
 	BannedBy      *string                `json:"banned_by" yaml:"banned_by"`
 	Metadata      map[string]any         `json:"metadata" yaml:"metadata"`
 	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
-	// GlobalRoles assigns root permission-group roles to this user by name (#111).
-	// "admin" mints the root super-admin (root:*); any other name is assigned as a
-	// same-named catalog role of the root persona.
-	GlobalRoles []string `json:"global_roles" yaml:"global_roles"`
+	// RootRoles assigns root permission-group roles to this user by name. "owner"
+	// (the built-in apex, root:*) is seeded SEED-IF-ABSENT; any other name is
+	// assigned as a same-named catalog role of the root persona (e.g. an app's
+	// bounded "admin").
+	RootRoles []string `json:"root_roles" yaml:"root_roles"`
 }
 
-// BootstrapManifestGlobalRole declares a root-group role to ensure exists. Only
-// Slug is meaningful (the role name); Name/Description are accepted for backward
-// compatibility but ignored. "admin" seeds the super-admin role (root:*).
-type BootstrapManifestGlobalRole struct {
+// BootstrapManifestRootRole is the vestigial top-level role-DEFINITION entry.
+// Under the permission-group model catalog roles live in core.Config, not the
+// manifest, so this is accepted-but-ignored; kept for manifest backward-compat.
+type BootstrapManifestRootRole struct {
 	Name        string  `json:"name" yaml:"name"`
 	Slug        string  `json:"slug" yaml:"slug"`
 	Description *string `json:"description" yaml:"description"`
@@ -85,8 +87,8 @@ type BootstrapManifestResult struct {
 	UsersUpdated          int  `json:"users_updated"`
 	PasswordsSet          int  `json:"passwords_set"`
 	PasswordsKept         int  `json:"passwords_kept"`
-	GlobalRoles           int  `json:"global_roles"`
-	GlobalRoleAssignments int  `json:"global_role_assignments"`
+	RootRoles           int  `json:"root_roles"`
+	RootRoleAssignments int  `json:"root_role_assignments"`
 }
 
 func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
@@ -96,7 +98,7 @@ func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	if err := dec.Decode(&manifest); err != nil {
 		return BootstrapManifest{}, err
 	}
-	if len(manifest.Users) == 0 && len(manifest.GlobalRoles) == 0 {
+	if len(manifest.Users) == 0 && len(manifest.RootRoles) == 0 {
 		return BootstrapManifest{}, ErrInvalidBootstrapManifest
 	}
 	if err := validateBootstrapManifest(manifest); err != nil {
@@ -128,14 +130,14 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 	result := BootstrapManifestResult{DryRun: opts.DryRun}
 	if opts.DryRun {
 		result.UsersCreated = len(manifest.Users)
-		for _, role := range manifest.GlobalRoles {
+		for _, role := range manifest.RootRoles {
 			if strings.TrimSpace(role.Slug) != "" {
-				result.GlobalRoles++
+				result.RootRoles++
 			}
 		}
 		for _, user := range manifest.Users {
 			result.PasswordsSet += boolToInt(user.Password != nil)
-			result.GlobalRoleAssignments += len(user.GlobalRoles)
+			result.RootRoleAssignments += len(user.RootRoles)
 		}
 		return result, nil
 	}
@@ -149,7 +151,7 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		return result, err
 	}
 
-	for _, role := range manifest.GlobalRoles {
+	for _, role := range manifest.RootRoles {
 		slug := strings.ToLower(strings.TrimSpace(role.Slug))
 		if slug == "" {
 			continue
@@ -157,7 +159,7 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		if err := s.UpsertRoleBySlug(ctx, role.Name, slug, role.Description); err != nil {
 			return result, err
 		}
-		result.GlobalRoles++
+		result.RootRoles++
 	}
 
 	// #136: owner is the apex and is seeded SEED-IF-ABSENT (break-glass) — compute
@@ -198,7 +200,7 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 				result.PasswordsKept++
 			}
 		}
-		for _, role := range user.GlobalRoles {
+		for _, role := range user.RootRoles {
 			slug := strings.ToLower(strings.TrimSpace(role))
 			if slug == "" {
 				continue
@@ -209,7 +211,7 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 			if err := s.seedBootstrapRootRole(ctx, applied.ID, slug, rootHasOwner); err != nil {
 				return result, err
 			}
-			result.GlobalRoleAssignments++
+			result.RootRoleAssignments++
 		}
 	}
 
@@ -269,7 +271,7 @@ func validateBootstrapManifest(manifest BootstrapManifest) error {
 			}
 		}
 	}
-	for _, role := range manifest.GlobalRoles {
+	for _, role := range manifest.RootRoles {
 		if strings.TrimSpace(role.Slug) == "" {
 			return ErrInvalidBootstrapManifest
 		}

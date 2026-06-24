@@ -33,14 +33,14 @@ func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 		Username:      username,
 		EmailVerified: true,
 		Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		GlobalRoles:   []string{"owner"},
+		RootRoles:   []string{"owner"},
 	}}}
 
 	result, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{DryRun: true})
 	if err != nil {
 		t.Fatalf("dry-run reconcile: %v", err)
 	}
-	if !result.DryRun || result.UsersCreated != 1 || result.PasswordsSet != 1 || result.GlobalRoleAssignments != 1 {
+	if !result.DryRun || result.UsersCreated != 1 || result.PasswordsSet != 1 || result.RootRoleAssignments != 1 {
 		t.Fatalf("dry-run result=%+v", result)
 	}
 	if _, err := svc.getUserByUsername(ctx, username); !errors.Is(err, pgx.ErrNoRows) {
@@ -68,7 +68,7 @@ func TestReconcileBootstrapManifestSeedsRootOwner(t *testing.T) {
 			Username:      username,
 			EmailVerified: true,
 			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-			GlobalRoles:   []string{"owner"},
+			RootRoles:   []string{"owner"},
 			Metadata:      map[string]any{"source": "bootstrap-test"},
 		}},
 	}
@@ -77,7 +77,7 @@ func TestReconcileBootstrapManifestSeedsRootOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if first.UsersCreated != 1 || first.UsersUpdated != 0 || first.PasswordsSet != 1 || first.PasswordsKept != 0 || first.GlobalRoleAssignments != 1 {
+	if first.UsersCreated != 1 || first.UsersUpdated != 0 || first.PasswordsSet != 1 || first.PasswordsKept != 0 || first.RootRoleAssignments != 1 {
 		t.Fatalf("first result=%+v", first)
 	}
 
