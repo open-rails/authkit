@@ -31,26 +31,26 @@ type ProfilesApiKeyResource struct {
 }
 
 type ProfilesGroupCustomRole struct {
-	GroupID     string
-	Role        string
-	Permissions []string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	PermissionGroupID string
+	Role              string
+	Permissions       []string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type ProfilesGroupInviteLink struct {
-	ID        string
-	GroupID   string
-	Role      string
-	InvitedBy string
-	CodeHash  string
-	Email     *string
-	MaxUses   *int32
-	Uses      int32
-	ExpiresAt *time.Time
-	RevokedAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                string
+	PermissionGroupID string
+	Role              string
+	InvitedBy         string
+	CodeHash          string
+	Email             *string
+	MaxUses           *int32
+	Uses              int32
+	ExpiresAt         *time.Time
+	RevokedAt         *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // Declared containment schema: which parent persona each permission-group persona allows. root is absent.
@@ -61,7 +61,7 @@ type ProfilesGroupPersonaParent struct {
 }
 
 type ProfilesGroupRemoteApplicationRole struct {
-	GroupID             string
+	PermissionGroupID   string
 	RemoteApplicationID string
 	Role                string
 	CreatedAt           time.Time
@@ -70,12 +70,12 @@ type ProfilesGroupRemoteApplicationRole struct {
 }
 
 type ProfilesGroupUserRole struct {
-	GroupID   string
-	UserID    string
-	Role      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
+	PermissionGroupID string
+	UserID            string
+	Role              string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	DeletedAt         *time.Time
 }
 
 // Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings

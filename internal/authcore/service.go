@@ -3313,7 +3313,7 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 		// root_role filters on a user's role in the singleton root group.
 		slug = normalizeRootRoleSlug(slug)
 		from += " JOIN profiles.group_user_roles gur ON gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $" + fmt.Sprint(argIdx) +
-			" JOIN profiles.permission_groups pg ON pg.id = gur.group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"
+			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"
 		args = append(args, slug)
 		argIdx++
 	}

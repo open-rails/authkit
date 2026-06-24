@@ -192,7 +192,7 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var id string
 	err = q.QueryRow(ctx,
-		`INSERT INTO profiles.group_invite_links (group_id, role, invited_by, code_hash, email, max_uses, expires_at)
+		`INSERT INTO profiles.group_invite_links (permission_group_id, role, invited_by, code_hash, email, max_uses, expires_at)
 		 VALUES ($1::uuid, $2, $3::uuid, $4, NULLIF($5,''), $6, $7)
 		 RETURNING id::text`,
 		gid, role, invitedBy, codeHash, email, maxUses, expiresAt).Scan(&id)
@@ -236,10 +236,10 @@ func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlu
 	}
 	q := db.ForSchema(s.pg, s.dbSchema())
 	rows, err := q.Query(ctx,
-		`SELECT id::text, group_id::text, role, invited_by::text, COALESCE(email,''),
+		`SELECT id::text, permission_group_id::text, role, invited_by::text, COALESCE(email,''),
 		        max_uses, uses, expires_at, revoked_at, created_at, updated_at
 		 FROM profiles.group_invite_links
-		 WHERE group_id = $1::uuid
+		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
 	if err != nil {
 		return nil, err
@@ -274,7 +274,7 @@ func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSl
 	q := db.ForSchema(s.pg, s.dbSchema())
 	tag, err := q.Exec(ctx,
 		`UPDATE profiles.group_invite_links SET revoked_at = now(), updated_at = now()
-		 WHERE id = $1::uuid AND group_id = $2::uuid AND revoked_at IS NULL`,
+		 WHERE id = $1::uuid AND permission_group_id = $2::uuid AND revoked_at IS NULL`,
 		linkID, gid)
 	if err != nil {
 		return err
@@ -322,10 +322,10 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 	var uses int
 	var expiresAt, revokedAt *time.Time
 	err = q.QueryRow(ctx,
-		`SELECT l.id::text, l.group_id::text, g.persona, COALESCE(g.instance_slug,''), l.role,
+		`SELECT l.id::text, l.permission_group_id::text, g.persona, COALESCE(g.instance_slug,''), l.role,
 		        COALESCE(l.email,''), l.max_uses, l.uses, l.expires_at, l.revoked_at
 		 FROM profiles.group_invite_links l
-		 JOIN profiles.permission_groups g ON g.id = l.group_id
+		 JOIN profiles.permission_groups g ON g.id = l.permission_group_id
 		 WHERE l.code_hash = $1 AND g.deleted_at IS NULL
 		 FOR UPDATE OF l`,
 		codeHash).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &email, &maxUses, &uses, &expiresAt, &revokedAt)
@@ -386,7 +386,7 @@ func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID, role string
 	var exists bool
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM profiles.group_user_roles
-		   WHERE group_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND deleted_at IS NULL)`,
+		   WHERE permission_group_id = $1::uuid AND user_id = $2::uuid AND role = $3 AND deleted_at IS NULL)`,
 		groupID, userID, role).Scan(&exists)
 	return exists, err
 }
