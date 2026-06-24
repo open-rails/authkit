@@ -123,7 +123,7 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {

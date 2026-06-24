@@ -14,11 +14,11 @@ import (
 var ErrTwoFAEnrollmentRequired = errors.New("2fa_enrollment_required")
 
 type RemovedMFARoleAssignment struct {
-	GroupID      string
-	Persona      string
-	InstanceSlug string
-	Role         string
-	RemovedAt    time.Time
+	PermissionGroupID string
+	Persona           string
+	InstanceSlug      string
+	Role              string
+	RemovedAt         time.Time
 }
 
 type MFAStatus struct {
@@ -117,7 +117,7 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 	var removals []RemovedMFARoleAssignment
 	for rows.Next() {
 		var r RemovedMFARoleAssignment
-		if err := rows.Scan(&r.GroupID, &r.Persona, &r.InstanceSlug, &r.Role); err != nil {
+		if err := rows.Scan(&r.PermissionGroupID, &r.Persona, &r.InstanceSlug, &r.Role); err != nil {
 			return nil, err
 		}
 		if s.roleRequiresMFA(r.Persona, r.Role) {
@@ -136,7 +136,7 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 			    AND user_id = $2::uuid
 			    AND role = $3
 			    AND deleted_at IS NULL`,
-			r.GroupID, userID, r.Role); err != nil {
+			r.PermissionGroupID, userID, r.Role); err != nil {
 			return nil, err
 		}
 	}

@@ -14,9 +14,9 @@ import "github.com/open-rails/authkit/authbase"
 // a target group's parent chain (resolving the subject's roles at each level);
 // the slice order is irrelevant — the union is additive and order-independent.
 type GroupAssignment struct {
-	Persona string   // the declared persona of the group this assignment lives in
-	GroupID string   // opaque group id; used ONLY to scope custom-role lookups
-	Roles   []string // role names the subject holds in this group
+	Persona           string   // the declared persona of the group this assignment lives in
+	PermissionGroupID string   // opaque group id; used ONLY to scope custom-role lookups
+	Roles             []string // role names the subject holds in this group
 }
 
 // CustomRoleResolver returns the grant tokens of a per-group custom role, or
@@ -52,7 +52,7 @@ func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom Custom
 				continue
 			}
 			if td.AllowCustomRoles && custom != nil {
-				if grants, ok := custom(a.GroupID, role); ok {
+				if grants, ok := custom(a.PermissionGroupID, role); ok {
 					for _, g := range grants {
 						add(g)
 					}

@@ -66,7 +66,7 @@ func (s *Service) authorizeRoleChange(ctx context.Context, st *PermissionGroupSt
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {

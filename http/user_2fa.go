@@ -263,11 +263,11 @@ func removedMFARolesResponse(removed []core.RemovedMFARoleAssignment) []map[stri
 	out := make([]map[string]any, 0, len(removed))
 	for _, r := range removed {
 		out = append(out, map[string]any{
-			"group_id":      r.GroupID,
-			"persona":       r.Persona,
-			"instance_slug": r.InstanceSlug,
-			"role":          r.Role,
-			"removed_at":    r.RemovedAt.UTC().Format(time.RFC3339),
+			"permission_group_id": r.PermissionGroupID,
+			"persona":             r.Persona,
+			"instance_slug":       r.InstanceSlug,
+			"role":                r.Role,
+			"removed_at":          r.RemovedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return out

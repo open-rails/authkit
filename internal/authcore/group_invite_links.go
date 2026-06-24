@@ -77,17 +77,17 @@ type GroupInviteEmailSender interface {
 // GroupInviteLink is the non-secret view of an invite link (never carries the
 // code or its hash).
 type GroupInviteLink struct {
-	ID        string
-	GroupID   string
-	Role      string
-	InvitedBy string
-	Email     string // "" = shareable (anyone may redeem)
-	MaxUses   *int   // nil = unlimited
-	Uses      int
-	ExpiresAt *time.Time
-	RevokedAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                string
+	PermissionGroupID string
+	Role              string
+	InvitedBy         string
+	Email             string // "" = shareable (anyone may redeem)
+	MaxUses           *int   // nil = unlimited
+	Uses              int
+	ExpiresAt         *time.Time
+	RevokedAt         *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // CreateGroupInviteLinkRequest mints an invite link for the group addressed by
@@ -248,7 +248,7 @@ func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlu
 	out := make([]GroupInviteLink, 0)
 	for rows.Next() {
 		var l GroupInviteLink
-		if err := rows.Scan(&l.ID, &l.GroupID, &l.Role, &l.InvitedBy, &l.Email,
+		if err := rows.Scan(&l.ID, &l.PermissionGroupID, &l.Role, &l.InvitedBy, &l.Email,
 			&l.MaxUses, &l.Uses, &l.ExpiresAt, &l.RevokedAt, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, err
 		}

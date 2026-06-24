@@ -176,7 +176,7 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 		if len(a.roles) == 0 {
 			continue // an ancestor where the subject holds nothing contributes no grants
 		}
-		out = append(out, GroupAssignment{Persona: a.typ, GroupID: gid, Roles: a.roles})
+		out = append(out, GroupAssignment{Persona: a.typ, PermissionGroupID: gid, Roles: a.roles})
 	}
 	return out, nil
 }
@@ -291,7 +291,7 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {
@@ -318,7 +318,7 @@ func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *Group
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
-		ids = append(ids, a.GroupID)
+		ids = append(ids, a.PermissionGroupID)
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {
