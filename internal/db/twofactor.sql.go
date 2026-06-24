@@ -20,6 +20,31 @@ func (q *Queries) MFAClearDefaultFactors(ctx context.Context, userID string) err
 	return err
 }
 
+const mFAConsumeBackupCode = `-- name: MFAConsumeBackupCode :execrows
+UPDATE profiles.mfa_settings
+SET backup_codes = array_remove(backup_codes, $1), updated_at = NOW()
+WHERE user_id = $2
+  AND enabled = true
+  AND $1 = ANY(backup_codes)
+`
+
+type MFAConsumeBackupCodeParams struct {
+	CodeHash string
+	UserID   string
+}
+
+// Atomic single-use consume: removes the hashed code and reports rows affected.
+// 1 = this caller consumed it; 0 = code absent / already used / 2FA disabled. The
+// `= ANY(...)` guard makes the test-and-remove a single statement so concurrent
+// submissions of the same code cannot both succeed.
+func (q *Queries) MFAConsumeBackupCode(ctx context.Context, arg MFAConsumeBackupCodeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, mFAConsumeBackupCode, arg.CodeHash, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const mFAConsumeFactorTOTPStep = `-- name: MFAConsumeFactorTOTPStep :execrows
 UPDATE profiles.mfa_factors
 SET last_totp_step = $1, updated_at = NOW()

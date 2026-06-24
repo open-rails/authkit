@@ -4547,39 +4547,18 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, backupCode strin
 		return false, fmt.Errorf("postgres not configured")
 	}
 
-	settings, err := s.Get2FASettings(ctx, userID)
-	if err != nil || !settings.Enabled {
-		return false, fmt.Errorf("2FA not enabled")
-	}
-
+	// Atomic single-use consume in one statement: the DB removes the hashed code
+	// and reports whether THIS call was the one that removed it. This replaces the
+	// former read-filter-rewrite, which let two concurrent submissions of the same
+	// code both succeed. The query's `enabled = true` predicate also subsumes the
+	// old "2FA not enabled" check (callers treat (false, nil) and that error
+	// identically — both reject the code).
 	hash := sha256Hex(backupCode)
-
-	// Check if backup code exists
-	found := false
-	for _, hashedCode := range settings.BackupCodes {
-		if hashedCode == hash {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return false, nil
-	}
-
-	// Remove the used backup code
-	newCodes := make([]string, 0, len(settings.BackupCodes)-1)
-	for _, hashedCode := range settings.BackupCodes {
-		if hashedCode != hash {
-			newCodes = append(newCodes, hashedCode)
-		}
-	}
-
-	if err := s.q.MFASetBackupCodes(ctx, db.MFASetBackupCodesParams{BackupCodes: newCodes, UserID: userID}); err != nil {
+	rows, err := s.q.MFAConsumeBackupCode(ctx, db.MFAConsumeBackupCodeParams{CodeHash: hash, UserID: userID})
+	if err != nil {
 		return false, err
 	}
-
-	return true, nil
+	return rows == 1, nil
 }
 
 // RegenerateBackupCodes generates new backup codes for a user (invalidating old ones).

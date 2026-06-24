@@ -23,6 +23,17 @@ UPDATE profiles.mfa_settings
 SET backup_codes = sqlc.arg(backup_codes), updated_at = NOW()
 WHERE user_id = sqlc.arg(user_id);
 
+-- name: MFAConsumeBackupCode :execrows
+-- Atomic single-use consume: removes the hashed code and reports rows affected.
+-- 1 = this caller consumed it; 0 = code absent / already used / 2FA disabled. The
+-- `= ANY(...)` guard makes the test-and-remove a single statement so concurrent
+-- submissions of the same code cannot both succeed.
+UPDATE profiles.mfa_settings
+SET backup_codes = array_remove(backup_codes, sqlc.arg(code_hash)), updated_at = NOW()
+WHERE user_id = sqlc.arg(user_id)
+  AND enabled = true
+  AND sqlc.arg(code_hash) = ANY(backup_codes);
+
 -- name: MFAUpsertSettings :exec
 INSERT INTO profiles.mfa_settings (user_id, enabled, backup_codes, updated_at)
 VALUES ($1, true, sqlc.arg(backup_codes), NOW())
