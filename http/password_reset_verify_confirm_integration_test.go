@@ -388,10 +388,10 @@ func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
 	w = serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"email":"`+newEmail+`","token":"`+emailToken+`"}`)
 	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
 
-	staleUserID, staleToken, sid := createPasswordUserAccessToken(t, pool, srv, "contact-stale", pass)
+	staleUserID, _, sid := createPasswordUserAccessToken(t, pool, srv, "contact-stale", pass)
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour', auth_methods = ARRAY['pwd']::text[] WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
-	staleToken, _, err = srv.svc.IssueAccessToken(ctx, staleUserID, "", map[string]any{"sid": sid})
+	staleToken, _, err := srv.svc.IssueAccessToken(ctx, staleUserID, "", map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+uniquePhone()+`"}`, staleToken)

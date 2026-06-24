@@ -65,10 +65,6 @@ func badRequest(w http.ResponseWriter, code ErrorCode) {
 func unauthorized(w http.ResponseWriter, code ErrorCode) { sendErr(w, http.StatusUnauthorized, code) }
 func forbidden(w http.ResponseWriter, code ErrorCode)    { sendErr(w, http.StatusForbidden, code) }
 
-const (
-	errRegistrationDisabled = string(ErrRegistrationDisabled)
-)
-
 // registrationDisabled writes the stable registration-disabled rejection used by
 // every public user-creation path when NativeUserRegistrationMode is set.
 func registrationDisabled(w http.ResponseWriter) {

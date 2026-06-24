@@ -6,19 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 )
-
-func bearerToken(authorization string) string {
-	if authorization == "" {
-		return ""
-	}
-	parts := strings.SplitN(authorization, " ", 2)
-	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-		return parts[1]
-	}
-	return ""
-}
 
 // maxRequestBodyBytes caps the size of a JSON request body we will read. Auth
 // endpoints only ever carry small JSON payloads, so a 1 MiB ceiling is generous

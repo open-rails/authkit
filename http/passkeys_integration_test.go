@@ -309,10 +309,11 @@ func clientDataJSON(t *testing.T, ceremonyType, challenge string) []byte {
 
 func cosePublicKey(t *testing.T, key *ecdsa.PrivateKey) []byte {
 	t.Helper()
-	x := key.PublicKey.X.Bytes()
-	y := key.PublicKey.Y.Bytes()
-	x = append(bytes.Repeat([]byte{0}, 32-len(x)), x...)
-	y = append(bytes.Repeat([]byte{0}, 32-len(y)), y...)
+	// Uncompressed P-256 point encoding: 0x04 || X(32) || Y(32).
+	pub, err := key.PublicKey.Bytes()
+	require.NoError(t, err)
+	x := pub[1:33]
+	y := pub[33:65]
 	out, err := cbor.Marshal(map[int]any{
 		1:  2,  // kty: EC2
 		3:  -7, // alg: ES256

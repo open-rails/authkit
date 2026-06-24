@@ -3946,16 +3946,6 @@ func deriveUsername(email string) string {
 	return out
 }
 
-// getDiscordUsername retrieves the discord username for a user from the linked
-// discord provider's profile JSON (#125: the write-never users.discord_username
-// column was dropped; the provider profile is the only source).
-func (s *Service) getDiscordUsername(ctx context.Context, userID string) (string, error) {
-	if s.pg == nil {
-		return "", nil
-	}
-	return s.getProviderUsername(ctx, userID, "discord")
-}
-
 // (legacy ChangePassword removed in favor of unified ChangePassword with session revocation)
 
 // --- Pending Registration Helpers ---
@@ -4681,14 +4671,6 @@ func generateBackupCodes() (plaintextCodes, hashedCodes []string) {
 		hashedCodes[i] = sha256Hex(code)
 	}
 	return plaintextCodes, hashedCodes
-}
-
-func mustBackupCodes(ctx context.Context, q *db.Queries, userID string) []string {
-	row, err := q.MFASettingsByUser(ctx, userID)
-	if err != nil {
-		return nil
-	}
-	return row.BackupCodes
 }
 
 // randAlphanumericUppercase generates a random uppercase alphanumeric string (A-Z, 0-9)

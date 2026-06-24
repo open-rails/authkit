@@ -64,8 +64,6 @@ var (
 	RequireDelegatedOrigin         = verify.RequireDelegatedOrigin
 	NewSSRFGuardedClient           = verify.NewSSRFGuardedClient
 
-	// lowercase alias so staying authhttp handlers keep calling remoteAppOptions.
-	remoteAppOptions = verify.RemoteAppOptions
 	// lowercase alias so the delegated-roles test keeps referencing the cap.
 	maxDelegatedRoles = verify.MaxDelegatedRoles
 

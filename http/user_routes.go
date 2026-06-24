@@ -107,14 +107,6 @@ func (s *Service) supportsLanguage(language string) bool {
 	return ok
 }
 
-func formatOptionalTime(t *time.Time) *string {
-	if t == nil || t.IsZero() {
-		return nil
-	}
-	formatted := t.UTC().Format(time.RFC3339)
-	return &formatted
-}
-
 func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
