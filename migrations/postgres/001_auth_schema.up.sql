@@ -239,26 +239,26 @@ CREATE TABLE IF NOT EXISTS profiles.permission_groups (
   persona text NOT NULL,
   parent_id uuid REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   parent_persona text,
-  resource_slug text,
+  instance_slug text,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
   CONSTRAINT pg_persona_format_chk CHECK (persona ~ '^[a-z][a-z0-9-]*$'),
-  CONSTRAINT pg_resource_slug_format_chk CHECK (
-    resource_slug IS NULL OR (
-      char_length(resource_slug) BETWEEN 1 AND 63
-      AND resource_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
+  CONSTRAINT pg_instance_slug_format_chk CHECK (
+    instance_slug IS NULL OR (
+      char_length(instance_slug) BETWEEN 1 AND 63
+      AND instance_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
     )
   ),
   CONSTRAINT pg_root_parentless_chk CHECK (
-    (persona = 'root' AND parent_id IS NULL AND parent_persona IS NULL AND resource_slug IS NULL)
-    OR (persona <> 'root' AND parent_id IS NOT NULL AND parent_persona IS NOT NULL AND resource_slug IS NOT NULL)
+    (persona = 'root' AND parent_id IS NULL AND parent_persona IS NULL AND instance_slug IS NULL)
+    OR (persona <> 'root' AND parent_id IS NOT NULL AND parent_persona IS NOT NULL AND instance_slug IS NOT NULL)
   )
 );
-CREATE UNIQUE INDEX IF NOT EXISTS permission_groups_persona_slug_uidx
-  ON profiles.permission_groups (persona, resource_slug)
-  WHERE resource_slug IS NOT NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS permission_groups_persona_instance_uidx
+  ON profiles.permission_groups (persona, instance_slug)
+  WHERE instance_slug IS NOT NULL AND deleted_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS permission_groups_singleton_root_uidx
   ON profiles.permission_groups ((persona = 'root'))
   WHERE persona = 'root' AND deleted_at IS NULL;
@@ -268,8 +268,8 @@ CREATE INDEX IF NOT EXISTS permission_groups_parent_idx
 CREATE INDEX IF NOT EXISTS permission_groups_persona_idx
   ON profiles.permission_groups (persona)
   WHERE deleted_at IS NULL;
-COMMENT ON COLUMN profiles.permission_groups.resource_slug IS
-  'Lowercase URL-safe slug for the app resource and API addressing key; the group id is internal only.';
+COMMENT ON COLUMN profiles.permission_groups.instance_slug IS
+  'Lowercase URL-safe slug identifying WHICH instance of the persona (e.g. acme-store for a merchant); the API addressing key. The group id is internal only.';
 
 CREATE OR REPLACE FUNCTION profiles.trg_permission_group_containment() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -408,30 +408,31 @@ CREATE TABLE IF NOT EXISTS profiles.group_custom_roles (
   CONSTRAINT gcr_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 
-CREATE TABLE IF NOT EXISTS profiles.group_invites (
+-- Invite LINKS (#134): a high-entropy code that, when redeemed by a logged-in
+-- user, grants `role` in the group. email-bound (only that verified address may
+-- redeem) for "email a specific person"; email NULL = shareable (anyone with the
+-- code). max_uses caps redemptions (NULL = unlimited; 1 = single-use email
+-- invite). The plaintext code is shown to the minter ONCE; only its sha256 hex is
+-- stored. invited_by CASCADEs so a user hard-delete clears the links they minted.
+CREATE TABLE IF NOT EXISTS profiles.group_invite_links (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
-  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
-  invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE RESTRICT,
   role text NOT NULL,
-  status text NOT NULL DEFAULT 'pending',
+  invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  code_hash text NOT NULL UNIQUE,
+  email text,
+  max_uses integer,
+  uses integer NOT NULL DEFAULT 0,
   expires_at timestamptz,
-  acted_at timestamptz,
+  revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz,
-  CONSTRAINT group_invites_status_chk CHECK (status IN ('pending', 'accepted', 'declined', 'revoked', 'expired')),
-  CONSTRAINT group_invites_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
+  CONSTRAINT gil_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$'),
+  CONSTRAINT gil_max_uses_chk CHECK (max_uses IS NULL OR max_uses >= 1)
 );
-CREATE INDEX IF NOT EXISTS group_invites_group_idx
-  ON profiles.group_invites (group_id)
-  WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS group_invites_user_idx
-  ON profiles.group_invites (user_id)
-  WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS group_invites_pending_uidx
-  ON profiles.group_invites (group_id, user_id)
-  WHERE status = 'pending' AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS group_invite_links_group_idx
+  ON profiles.group_invite_links (group_id)
+  WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS profiles.api_keys (
   id uuid PRIMARY KEY DEFAULT uuidv7(),

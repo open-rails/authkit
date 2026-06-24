@@ -34,7 +34,7 @@ func groupRoleTable(subjectKind string) (table, subjectColumn string, err error)
 	}
 }
 
-// ErrGroupNotFound is returned when a (persona, resource_slug) or id resolves to no
+// ErrGroupNotFound is returned when a (persona, instance_slug) or id resolves to no
 // live permission-group.
 var ErrGroupNotFound = errors.New("permission group not found")
 
@@ -74,28 +74,28 @@ func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *Gro
 // parentPersona are empty for the root group. The containment trigger + CHECK
 // enforce shape at the DB; callers SHOULD also pre-validate via
 // GroupSchema.ValidateParent for a clear error before hitting the DB.
-func (st *PermissionGroupStore) CreateGroup(ctx context.Context, persona, parentID, parentPersona, resourceSlug string) (string, error) {
+func (st *PermissionGroupStore) CreateGroup(ctx context.Context, persona, parentID, parentPersona, instanceSlug string) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
-		`INSERT INTO profiles.permission_groups (persona, parent_id, parent_persona, resource_slug)
+		`INSERT INTO profiles.permission_groups (persona, parent_id, parent_persona, instance_slug)
 		 VALUES ($1, NULLIF($2,'')::uuid, NULLIF($3,''), NULLIF($4,''))
 		 RETURNING id::text`,
-		persona, parentID, parentPersona, resourceSlug).Scan(&id)
+		persona, parentID, parentPersona, instanceSlug).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create %q group: %w", persona, err)
 	}
 	return id, nil
 }
 
-// GroupByResourceSlug resolves a group by its API addressing key (persona,
-// resource_slug) — the route layer's (persona, resource_slug). Returns the internal
+// GroupByInstanceSlug resolves a group by its API addressing key (persona,
+// instance_slug) — the route layer's (persona, instance_slug). Returns the internal
 // id, which never leaves authkit.
-func (st *PermissionGroupStore) GroupByResourceSlug(ctx context.Context, persona, resourceSlug string) (string, error) {
+func (st *PermissionGroupStore) GroupByInstanceSlug(ctx context.Context, persona, instanceSlug string) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
 		`SELECT id::text FROM profiles.permission_groups
-		 WHERE persona = $1 AND resource_slug = $2 AND deleted_at IS NULL`,
-		persona, resourceSlug).Scan(&id)
+		 WHERE persona = $1 AND instance_slug = $2 AND deleted_at IS NULL`,
+		persona, instanceSlug).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrGroupNotFound
 	}
@@ -335,7 +335,7 @@ func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string
 // SubjectGroupMembership is one (persona, resource, role) a subject holds.
 type SubjectGroupMembership struct {
 	Persona      string
-	ResourceSlug string
+	InstanceSlug string
 	Role         string
 }
 
@@ -347,11 +347,11 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 		return nil, err
 	}
 	rows, err := st.q.Query(ctx,
-		fmt.Sprintf(`SELECT g.persona, COALESCE(g.resource_slug, ''), a.role
+		fmt.Sprintf(`SELECT g.persona, COALESCE(g.instance_slug, ''), a.role
 		 FROM %s a
 		 JOIN profiles.permission_groups g ON g.id = a.group_id AND g.deleted_at IS NULL
 		 WHERE a.%s = $1::uuid AND a.deleted_at IS NULL
-		 ORDER BY g.persona, g.resource_slug, a.role`, table, subjectColumn), subjectID)
+		 ORDER BY g.persona, g.instance_slug, a.role`, table, subjectColumn), subjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +359,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 	var out []SubjectGroupMembership
 	for rows.Next() {
 		var m SubjectGroupMembership
-		if err := rows.Scan(&m.Persona, &m.ResourceSlug, &m.Role); err != nil {
+		if err := rows.Scan(&m.Persona, &m.InstanceSlug, &m.Role); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

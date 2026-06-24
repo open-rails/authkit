@@ -95,8 +95,8 @@ Notes:
 | POST | `/register/resend-phone` | PUBLIC | Resend phone verification |
 | POST | `/token` | PUBLIC | Refresh user access token |
 | POST | `/sessions/current` | PUBLIC | Get current session info |
-| POST | `/reauth/password` | AUTH | Reauthenticate with password; returns fresh `access_token`, `token_type`, `expires_in`, and `fresh_auth` |
-| POST | `/reauth/2fa` | AUTH | Start or complete selected/default 2FA reauth; final `{code, factor_id?, backup_code?}` call returns fresh `access_token`, `token_type`, `expires_in`, and `fresh_auth` |
+| POST | `/step-up/password` | AUTH | Step up with password; returns fresh `access_token`, `token_type`, `expires_in`, and `fresh_auth` |
+| POST | `/step-up/2fa` | AUTH | Start or complete selected/default 2FA step-up; final `{code, factor_id?, backup_code?}` call returns fresh `access_token`, `token_type`, `expires_in`, and `fresh_auth` |
 
 Token taxonomy:
 - User access token: JWT `typ=access+jwt`; carries `sub`, `sid`, and
@@ -112,7 +112,7 @@ Token taxonomy:
   intersects requested permissions/resources with server-side grants.
 - API key: opaque bearer secret; it holds one permission-group role and its permissions resolve from that role at verify time; resources are a separate per-key binding.
 
-Reauth updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
+Step-up updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
 
 Passkeys:
 - Configure `core.Config.Passkeys` with `RPID`, `RPDisplayName`, and `Origins`;

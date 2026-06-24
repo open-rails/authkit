@@ -29,10 +29,10 @@ type userMeResponse struct {
 	PreferredLanguage                 *string                         `json:"preferred_language,omitempty"`
 	CreatedAt                         *string                         `json:"created_at,omitempty"`
 	LastAuthenticatedAt               *string                         `json:"last_authenticated_at,omitempty"`
-	TimeUntilReauthRequired           *int64                          `json:"time_until_reauth_required,omitempty"`
-	ReauthRequiredForSensitiveActions *bool                           `json:"reauth_required_for_sensitive_actions,omitempty"`
-	ReauthMethods                     []string                        `json:"reauth_methods,omitempty"`
-	Reauth2FA                         *reauthTwoFactorOptionsResponse `json:"reauth_2fa,omitempty"`
+	TimeUntilStepUpRequired           *int64                          `json:"time_until_step_up_required,omitempty"`
+	StepUpRequiredForSensitiveActions *bool                           `json:"step_up_required_for_sensitive_actions,omitempty"`
+	StepUpMethods                     []string                        `json:"step_up_methods,omitempty"`
+	StepUp2FA                         *stepUpTwoFactorOptionsResponse `json:"step_up_2fa,omitempty"`
 	MFAEnabled                        bool                            `json:"mfa_enabled"`
 	MFASatisfied                      bool                            `json:"mfa_satisfied"`
 	MFAAllowedMethods                 []string                        `json:"mfa_allowed_methods,omitempty"`
@@ -126,8 +126,8 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		createdAt = &formatted
 	}
 	var lastAuthenticatedAt *string
-	var timeUntilReauthRequired *int64
-	var reauthRequiredForSensitiveActions *bool
+	var timeUntilStepUpRequired *int64
+	var stepUpRequiredForSensitiveActions *bool
 	if !claims.AuthTime.IsZero() {
 		formatted := claims.AuthTime.UTC().Format(time.RFC3339)
 		lastAuthenticatedAt = &formatted
@@ -136,10 +136,10 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 			remaining = 0
 		}
 		seconds := int64((remaining + time.Second - time.Nanosecond) / time.Second)
-		timeUntilReauthRequired = &seconds
+		timeUntilStepUpRequired = &seconds
 	}
 	required := !SensitiveClaims(claims)
-	reauthRequiredForSensitiveActions = &required
+	stepUpRequiredForSensitiveActions = &required
 	mfa, err := s.svc.MFAStatus(r.Context(), claims.UserID)
 	if err != nil {
 		serverErr(w, ErrDatabaseError)
@@ -166,10 +166,10 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		PreferredLanguage:                 preferredLanguage,
 		CreatedAt:                         createdAt,
 		LastAuthenticatedAt:               lastAuthenticatedAt,
-		TimeUntilReauthRequired:           timeUntilReauthRequired,
-		ReauthRequiredForSensitiveActions: reauthRequiredForSensitiveActions,
-		ReauthMethods:                     s.reauthMethods(r, claims.UserID),
-		Reauth2FA:                         s.reauthTwoFactorOptions(r, claims.UserID),
+		TimeUntilStepUpRequired:           timeUntilStepUpRequired,
+		StepUpRequiredForSensitiveActions: stepUpRequiredForSensitiveActions,
+		StepUpMethods:                     s.stepUpMethods(r, claims.UserID),
+		StepUp2FA:                         s.stepUpTwoFactorOptions(r, claims.UserID),
 		MFAEnabled:                        mfa.Enabled,
 		MFASatisfied:                      mfa.Satisfied,
 		MFAAllowedMethods:                 mfa.AllowedMethods,

@@ -141,11 +141,11 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPatch, Path: "/passkeys/{id}", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyPATCH))},
 		{Method: http.MethodDelete, Path: "/passkeys/{id}", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyDELETE))},
 
-		{Method: http.MethodPost, Path: "/reauth/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handlePasswordReauthPOST))},
-		{Method: http.MethodPost, Path: "/reauth/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleTwoFactorReauthPOST))},
+		{Method: http.MethodPost, Path: "/step-up/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handlePasswordStepUpPOST))},
+		{Method: http.MethodPost, Path: "/step-up/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleTwoFactorStepUpPOST))},
 
 		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},
-		{Method: http.MethodPost, Path: "/oidc/{provider}/reauth/start", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleOIDCReauthStartPOST))},
+		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleOIDCStepUpStartPOST))},
 
 		{Method: http.MethodGet, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FAStatusGET))},
 		{Method: http.MethodPost, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FAPOST))},
@@ -204,7 +204,7 @@ func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 	routes := []RouteSpec{
 		{Method: http.MethodGet, Path: "/{provider}/login", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
 		{Method: http.MethodGet, Path: "/{provider}/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
-		{Method: http.MethodGet, Path: "/{provider}/reauth/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
+		{Method: http.MethodGet, Path: "/{provider}/step-up/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 	}
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {

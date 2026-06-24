@@ -52,7 +52,7 @@ func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Reques
 	s.startOAuthBrowserFlow(w, r, provider, claims.UserID, "", "", "")
 }
 
-func (s *Service) handleOAuthReauthStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
+func (s *Service) handleOAuthStepUpStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
 		unauthorized(w, ErrNotAuthenticated)
@@ -72,10 +72,10 @@ func (s *Service) handleOAuthReauthStartPOST(w http.ResponseWriter, r *http.Requ
 		badRequest(w, ErrProviderNotLinked)
 		return
 	}
-	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeReauthReturnTo(body.ReturnTo), "")
+	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeStepUpReturnTo(body.ReturnTo), "")
 }
 
-func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, reauthUserID, reauthReturnTo, returnTo string) {
+func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, stepUpUserID, stepUpReturnTo, returnTo string) {
 	cfg, ok := s.oauth2Provider(provider)
 	if !ok {
 		badRequest(w, ErrUnknownProvider)
@@ -112,7 +112,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 	}
 	popupNonce := r.URL.Query().Get("popup_nonce")
 	sessionID := ""
-	if strings.TrimSpace(reauthUserID) != "" {
+	if strings.TrimSpace(stepUpUserID) != "" {
 		if claims, ok := ClaimsFromContext(r.Context()); ok {
 			sessionID = claims.SessionID
 		}
@@ -123,9 +123,9 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		RedirectURI:     redirectURI,
 		LinkUserID:      linkUserID,
 		ReturnTo:        returnTo,
-		ReauthUserID:    reauthUserID,
-		ReauthSessionID: sessionID,
-		ReauthReturnTo:  reauthReturnTo,
+		StepUpUserID:    stepUpUserID,
+		StepUpSessionID: sessionID,
+		StepUpReturnTo:  stepUpReturnTo,
 		UI:              ui,
 		PopupNonce:      popupNonce,
 	}); err != nil {
@@ -148,7 +148,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		q.Set("code_challenge_method", "S256")
 	}
 	authURL := cfg.AuthorizeURL + "?" + q.Encode()
-	if strings.TrimSpace(linkUserID) != "" || strings.TrimSpace(reauthUserID) != "" || r.Method == http.MethodPost {
+	if strings.TrimSpace(linkUserID) != "" || strings.TrimSpace(stepUpUserID) != "" || r.Method == http.MethodPost {
 		writeJSON(w, http.StatusOK, map[string]any{"auth_url": authURL, "state": state})
 		return
 	}
@@ -209,7 +209,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if s.completeOAuthReauth(w, r, sd, cfg, info.Subject) {
+	if s.completeOAuthStepUp(w, r, sd, cfg, info.Subject) {
 		return
 	}
 
@@ -344,31 +344,31 @@ func (s *Service) exchangeOAuthCode(r *http.Request, cfg authprovider.Provider, 
 	return token, nil
 }
 
-func (s *Service) completeOAuthReauth(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, cfg authprovider.Provider, subject string) bool {
-	if strings.TrimSpace(sd.ReauthUserID) == "" {
+func (s *Service) completeOAuthStepUp(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, cfg authprovider.Provider, subject string) bool {
+	if strings.TrimSpace(sd.StepUpUserID) == "" {
 		return false
 	}
 	userID, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), cfg.Issuer, subject)
-	if err != nil || userID != sd.ReauthUserID {
-		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+	if err != nil || userID != sd.StepUpUserID {
+		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 		return true
 	}
-	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), sd.ReauthUserID, sd.ReauthSessionID, []string{"oauth"}); err != nil {
-		redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, []string{"oauth"}); err != nil {
+		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 		return true
 	}
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.ReauthUserID, sd.ReauthSessionID, time.Now())
-		body, err := s.freshAccessTokenResponse(r, sd.ReauthUserID, sd.ReauthSessionID, freshness)
+		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, time.Now())
+		body, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)
 		if err != nil {
-			redirectReauthResult(w, r, sd.ReauthReturnTo, "failed")
+			redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 			return true
 		}
 		body["provider"] = cfg.Name
 		writeJSON(w, http.StatusOK, body)
 		return true
 	}
-	redirectReauthResult(w, r, sd.ReauthReturnTo, "success")
+	redirectStepUpResult(w, r, sd.StepUpReturnTo, "success")
 	return true
 }
 

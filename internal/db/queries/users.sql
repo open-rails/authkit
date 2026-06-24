@@ -160,10 +160,6 @@ UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND i
 DELETE FROM profiles.group_user_roles
 WHERE user_id = sqlc.arg(user_id)::uuid;
 
--- name: GroupInvitesDeleteByInviter :exec
-DELETE FROM profiles.group_invites
-WHERE invited_by = sqlc.arg(user_id)::uuid;
-
 -- name: UserEmailOrUsernameExists :one
 SELECT EXISTS(
   SELECT 1 FROM profiles.users

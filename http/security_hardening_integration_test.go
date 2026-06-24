@@ -23,7 +23,7 @@ func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 
 	w := serveAuthJSON(srv, http.MethodDelete, "/user", `{}`, token)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "reauth_required")
+	require.Contains(t, w.Body.String(), "step_up_required")
 
 	w = serveAuthJSON(srv, http.MethodDelete, "/user", `{"password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -45,7 +45,7 @@ func TestProviderUnlinkRequiresFreshAuthOrPassword(t *testing.T) {
 
 	w := serveAuthJSON(srv, http.MethodDelete, "/user/providers/google", `{}`, token)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "reauth_required")
+	require.Contains(t, w.Body.String(), "step_up_required")
 
 	w = serveAuthJSON(srv, http.MethodDelete, "/user/providers/google", `{"password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

@@ -43,6 +43,7 @@ type Options struct {
 	FrontendCallbackPath      string
 	FrontendVerifyPath        string
 	FrontendPasswordResetPath string
+	FrontendInvitePath        string
 	PasskeyRPID               string
 	PasskeyRPDisplayName      string
 	PasskeyOrigins            []string
@@ -140,7 +141,7 @@ var (
 	// ErrPasswordResetRequired indicates the account's stored password hash is
 	// flagged HashAlgoLegacyResetRequired: no plaintext can ever verify against
 	// it, so the user must complete a password reset before password auth (login,
-	// reauth, change-password) can succeed. HTTP layers map this to the stable
+	// step-up, change-password) can succeed. HTTP layers map this to the stable
 	// code "password_reset_required".
 	ErrPasswordResetRequired = errors.New("password_reset_required")
 	// ErrUserNotFound indicates a user does not exist (or is not visible).
@@ -168,6 +169,7 @@ const (
 	defaultFrontendCallbackPath      = "/login/callback"
 	defaultFrontendVerifyPath        = "/verify"
 	defaultFrontendPasswordResetPath = "/reset"
+	defaultFrontendInvitePath        = "/accept-invite"
 )
 
 // (storage layer collapsed into direct Postgres/Redis helpers)
@@ -208,6 +210,9 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 	}
 	if strings.TrimSpace(opts.FrontendPasswordResetPath) == "" {
 		opts.FrontendPasswordResetPath = defaultFrontendPasswordResetPath
+	}
+	if strings.TrimSpace(opts.FrontendInvitePath) == "" {
+		opts.FrontendInvitePath = defaultFrontendInvitePath
 	}
 	opts.PasskeyUserVerification = normalizePasskeyUserVerification(opts.PasskeyUserVerification)
 	opts.APIKeyPrefix = strings.TrimSpace(opts.APIKeyPrefix)
@@ -289,6 +294,10 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	if err != nil {
 		return nil, err
 	}
+	frontendInvitePath, err := normalizeFrontendPath("FrontendInvitePath", cfg.Frontend.InvitePath, defaultFrontendInvitePath)
+	if err != nil {
+		return nil, err
+	}
 	passkeyRPID, passkeyName, passkeyOrigins, passkeyUV, err := normalizePasskeyConfig(cfg.Passkeys, baseURL, issuer)
 	if err != nil {
 		return nil, err
@@ -348,6 +357,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		FrontendCallbackPath:       frontendCallbackPath,
 		FrontendVerifyPath:         frontendVerifyPath,
 		FrontendPasswordResetPath:  frontendPasswordResetPath,
+		FrontendInvitePath:         frontendInvitePath,
 		PasskeyRPID:                passkeyRPID,
 		PasskeyRPDisplayName:       passkeyName,
 		PasskeyOrigins:             passkeyOrigins,
@@ -1051,7 +1061,7 @@ func (s *Service) VerifyUserPassword(ctx context.Context, userID, pass string) b
 // success, ErrPasswordResetRequired when the stored hash is flagged
 // HashAlgoLegacyResetRequired (no plaintext can verify; the user must reset),
 // and a generic unauthorized error otherwise. Callers that need to route
-// reset-required users (reauth, change-password) should use this form.
+// reset-required users (step-up, change-password) should use this form.
 func (s *Service) CheckUserPassword(ctx context.Context, userID, pass string) error {
 	if s.pg == nil || strings.TrimSpace(userID) == "" {
 		return errOrUnauthorized(nil)
@@ -3042,12 +3052,12 @@ func (s *Service) createResetToken(ctx context.Context, userID, tokenHash string
 // root permission-group's catalog. "admin" is the familiar slug for the seeded
 // root super-admin (root:*); every other name is taken as-is (it must be a
 // catalog role of the root persona, declared in core.Config).
+// normalizeRootRoleSlug canonicalises a root role slug. Since #136 there is no
+// super-admin alias: "admin" is no longer special (apps declare their own bounded
+// `admin` catalog role; the apex is `owner`). This is now just trim+lowercase,
+// retained as the single normalization point for root role slugs.
 func normalizeRootRoleSlug(slug string) string {
-	role := strings.ToLower(strings.TrimSpace(slug))
-	if role == "admin" {
-		return SuperAdminRoleName
-	}
-	return role
+	return strings.ToLower(strings.TrimSpace(slug))
 }
 
 // listRoleSlugsByUser returns a user's root permission-group roles. Operator
@@ -3575,12 +3585,7 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 	}
 	// Revoke all sessions
 	_ = s.q.SessionsRevokeAllQuiet(ctx, db.SessionsRevokeAllQuietParams{UserID: id, Issuer: s.opts.Issuer})
-	// #125 D7: group_invites.invited_by is ON DELETE RESTRICT, so any invites
-	// the user sent must be cleared before the user row is removed.
 	if err := s.q.GroupAssignmentsDeleteByUser(ctx, id); err != nil {
-		return err
-	}
-	if err := s.q.GroupInvitesDeleteByInviter(ctx, id); err != nil {
 		return err
 	}
 	// Delete user
@@ -4340,7 +4345,7 @@ func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID st
 		if err := s.storeMFACode(ctx, userID, hash, factor.Method, destination, 10*time.Minute); err != nil {
 			return "", err
 		}
-	} else if err := s.storeMFAReauthCode(ctx, userID, sessionID, hash, factor.Method, destination, 10*time.Minute); err != nil {
+	} else if err := s.storeMFAStepUpCode(ctx, userID, sessionID, hash, factor.Method, destination, 10*time.Minute); err != nil {
 		return "", err
 	}
 
@@ -4379,13 +4384,13 @@ func (s *Service) send2FACodeForFactor(ctx context.Context, userID, sessionID st
 	return destination, nil
 }
 
-// Require2FAForReauth sends a 2FA code for authenticated step-up reauth.
-func (s *Service) Require2FAForReauth(ctx context.Context, userID, sessionID string) (destination, method string, err error) {
-	destination, method, _, err = s.Require2FAForReauthMethod(ctx, userID, sessionID, "")
+// Require2FAForStepUp sends a 2FA code for authenticated step-up.
+func (s *Service) Require2FAForStepUp(ctx context.Context, userID, sessionID string) (destination, method string, err error) {
+	destination, method, _, err = s.Require2FAForStepUpMethod(ctx, userID, sessionID, "")
 	return destination, method, err
 }
 
-func (s *Service) Require2FAForReauthFactor(ctx context.Context, userID, sessionID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
+func (s *Service) Require2FAForStepUpFactor(ctx context.Context, userID, sessionID, factorID string) (destination, method string, factor TwoFactorFactor, err error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return "", "", TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
 	}
@@ -4397,7 +4402,7 @@ func (s *Service) Require2FAForReauthFactor(ctx context.Context, userID, session
 	return destination, factor.Method, factor, err
 }
 
-func (s *Service) Require2FAForReauthMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error) {
+func (s *Service) Require2FAForStepUpMethod(ctx context.Context, userID, sessionID, method string) (destination, selectedMethod string, factor TwoFactorFactor, err error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return "", "", TwoFactorFactor{}, jwt.ErrTokenInvalidClaims
 	}
@@ -4409,12 +4414,12 @@ func (s *Service) Require2FAForReauthMethod(ctx context.Context, userID, session
 	return destination, factor.Method, factor, err
 }
 
-// Verify2FAReauthCode verifies a session-scoped 2FA reauth code.
-func (s *Service) Verify2FAReauthCode(ctx context.Context, userID, sessionID, code string) (bool, error) {
-	return s.Verify2FAReauthMethodCode(ctx, userID, sessionID, "", code)
+// Verify2FAStepUpCode verifies a session-scoped 2FA step-up code.
+func (s *Service) Verify2FAStepUpCode(ctx context.Context, userID, sessionID, code string) (bool, error) {
+	return s.Verify2FAStepUpMethodCode(ctx, userID, sessionID, "", code)
 }
 
-func (s *Service) Verify2FAReauthFactorCode(ctx context.Context, userID, sessionID, factorID, code string) (bool, error) {
+func (s *Service) Verify2FAStepUpFactorCode(ctx context.Context, userID, sessionID, factorID, code string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return false, jwt.ErrTokenInvalidClaims
 	}
@@ -4428,10 +4433,10 @@ func (s *Service) Verify2FAReauthFactorCode(ctx context.Context, userID, session
 	if !s.useEphemeralStore() {
 		return false, fmt.Errorf("ephemeral store not configured")
 	}
-	return s.consumeMFAReauthCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
+	return s.consumeMFAStepUpCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
 }
 
-func (s *Service) Verify2FAReauthMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {
+func (s *Service) Verify2FAStepUpMethodCode(ctx context.Context, userID, sessionID, method, code string) (bool, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return false, jwt.ErrTokenInvalidClaims
 	}
@@ -4445,7 +4450,7 @@ func (s *Service) Verify2FAReauthMethodCode(ctx context.Context, userID, session
 	if !s.useEphemeralStore() {
 		return false, fmt.Errorf("ephemeral store not configured")
 	}
-	return s.consumeMFAReauthCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
+	return s.consumeMFAStepUpCode(ctx, userID, sessionID, sha256Hex(code), factor.Method)
 }
 
 // Create2FAChallenge creates a short-lived challenge to prove password verification before 2FA.

@@ -42,7 +42,7 @@ func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 
 // requirePermission is the granular permission gate for AuthKit's intrinsic
 // routes. It authorizes the calling principal against permission `perm` on the
-// (persona, resourceSlug) permission group, for EVERY supported principal
+// (persona, instanceSlug) permission group, for EVERY supported principal
 // shape:
 //   - user JWT: resolved through the permission-group (svc.Can, walking the
 //     parent chain to root and unioning assignments);
@@ -53,7 +53,7 @@ func adminUserListOptionsFromQuery(r *http.Request) core.AdminUserListOptions {
 // over the user directory is simply the `root:users:*` permissions on the root
 // group, gated here the same way every other permission is. Callers that gate an
 // inherently root-scoped intrinsic route pass (core.RootPersona, "", perm).
-func (s *Service) requirePermission(persona, resourceSlug, perm string, next http.Handler) http.Handler {
+func (s *Service) requirePermission(persona, instanceSlug, perm string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := ClaimsFromContext(r.Context())
 		if !ok {
@@ -67,7 +67,7 @@ func (s *Service) requirePermission(persona, resourceSlug, perm string, next htt
 				return
 			}
 		case strings.TrimSpace(claims.UserID) != "":
-			allowed, err := s.svc.Can(r.Context(), claims.UserID, core.SubjectKindUser, persona, resourceSlug, perm)
+			allowed, err := s.svc.Can(r.Context(), claims.UserID, core.SubjectKindUser, persona, instanceSlug, perm)
 			if err != nil {
 				serverErr(w, ErrDatabaseError)
 				return

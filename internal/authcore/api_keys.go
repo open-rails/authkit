@@ -151,12 +151,12 @@ func (s *Service) effectiveGroupRolePermissions(ctx context.Context, groupID, pe
 }
 
 // MintAPIKey inserts a new API key for the permission-group addressed by
-// (persona, resourceSlug), bound to role, and returns its metadata plus the
+// (persona, instanceSlug), bound to role, and returns its metadata plus the
 // full plaintext token (shown ONCE). The role must be valid for the group's
 // persona; no-escalation is enforced by the HTTP handler / host hook. expiresAt is
 // optional (nil = no expiry) and is capped to APIKeyMaxTTL when set.
-func (s *Service) MintAPIKey(ctx context.Context, persona, resourceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
-	return s.MintAPIKeyWithOptions(ctx, persona, resourceSlug, APIKeyMintOptions{
+func (s *Service) MintAPIKey(ctx context.Context, persona, instanceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
+	return s.MintAPIKeyWithOptions(ctx, persona, instanceSlug, APIKeyMintOptions{
 		Name:      name,
 		Role:      role,
 		CreatedBy: createdBy,
@@ -169,11 +169,11 @@ func (s *Service) MintAPIKey(ctx context.Context, persona, resourceSlug, name, r
 // group's TYPE; its effective permissions are resolved from the role at use
 // time. No-escalation is the caller's responsibility. Resources are a separate
 // binding.
-func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, resourceSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
+func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return APIKey{}, "", err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(resourceSlug))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
 	if err != nil {
 		return APIKey{}, "", err
 	}
@@ -298,13 +298,13 @@ func (s *Service) lookupGroupCustomRole(ctx context.Context, groupID, role strin
 }
 
 // ListAPIKeys returns metadata for every API key of the permission-group
-// addressed by (persona, resourceSlug), including revoked/expired ones. The
+// addressed by (persona, instanceSlug), including revoked/expired ones. The
 // secret is never returned.
-func (s *Service) ListAPIKeys(ctx context.Context, persona, resourceSlug string) ([]APIKey, error) {
+func (s *Service) ListAPIKeys(ctx context.Context, persona, instanceSlug string) ([]APIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(resourceSlug))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
 	if err != nil {
 		return nil, err
 	}
@@ -343,11 +343,11 @@ func (s *Service) ListAPIKeys(ctx context.Context, persona, resourceSlug string)
 // RevokeAPIKey marks the API key revoked. It is scoped to the group so a token
 // cannot be revoked from a different group. Returns false if no matching,
 // not-already-revoked token exists.
-func (s *Service) RevokeAPIKey(ctx context.Context, persona, resourceSlug, tokenID string) (bool, error) {
+func (s *Service) RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error) {
 	if err := s.requirePG(); err != nil {
 		return false, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(resourceSlug))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
 	if err != nil {
 		return false, err
 	}

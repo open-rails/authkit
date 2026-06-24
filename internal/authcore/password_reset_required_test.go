@@ -56,7 +56,7 @@ func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
 	if _, _, err := svc.PasswordLoginByUserID(ctx, u.ID, "anything", nil); !errors.Is(err, ErrPasswordResetRequired) {
 		t.Fatalf("PasswordLoginByUserID err = %v, want ErrPasswordResetRequired", err)
 	}
-	// CheckUserPassword (reauth flows) surfaces the sentinel; the bool wrapper
+	// CheckUserPassword (step-up flows) surfaces the sentinel; the bool wrapper
 	// stays false so legacy callers fail closed.
 	if err := svc.CheckUserPassword(ctx, u.ID, "anything"); !errors.Is(err, ErrPasswordResetRequired) {
 		t.Fatalf("CheckUserPassword err = %v, want ErrPasswordResetRequired", err)

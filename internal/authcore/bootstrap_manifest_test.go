@@ -33,7 +33,7 @@ func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 		Username:      username,
 		EmailVerified: true,
 		Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		GlobalRoles:   []string{"admin"},
+		GlobalRoles:   []string{"owner"},
 	}}}
 
 	result, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{DryRun: true})
@@ -48,9 +48,9 @@ func TestReconcileBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 	}
 }
 
-// #111: the bootstrap admin is seeded as a root permission-group owner/super-admin.
-// "admin" maps onto the root super-admin role; reconcile is idempotent.
-func TestReconcileBootstrapManifestSeedsRootAdmin(t *testing.T) {
+// #136: the bootstrap apex is seeded as a root permission-group OWNER (root:*),
+// seed-if-absent; reconcile is idempotent.
+func TestReconcileBootstrapManifestSeedsRootOwner(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
@@ -68,7 +68,7 @@ func TestReconcileBootstrapManifestSeedsRootAdmin(t *testing.T) {
 			Username:      username,
 			EmailVerified: true,
 			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-			GlobalRoles:   []string{"admin"},
+			GlobalRoles:   []string{"owner"},
 			Metadata:      map[string]any{"source": "bootstrap-test"},
 		}},
 	}
@@ -88,8 +88,8 @@ func TestReconcileBootstrapManifestSeedsRootAdmin(t *testing.T) {
 	if err := svc.CheckUserPassword(ctx, user.ID, "bootstrap-password-1"); err != nil {
 		t.Fatalf("seeded password check: %v", err)
 	}
-	if roles := svc.ListRoleSlugsByUser(ctx, user.ID); !containsString(roles, SuperAdminRoleName) {
-		t.Fatalf("root roles=%v, want %q", roles, SuperAdminRoleName)
+	if roles := svc.ListRoleSlugsByUser(ctx, user.ID); !containsString(roles, OwnerRoleName) {
+		t.Fatalf("root roles=%v, want %q", roles, OwnerRoleName)
 	}
 
 	second, err := svc.ReconcileBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})

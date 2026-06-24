@@ -4,14 +4,14 @@ package authhttp
 //
 // The route surface IS the capability spec: core.GroupSchema.GeneratedRoutes()
 // emits one GeneratedRoute per enabled management capability per persona,
-// addressed by the RESOURCE slug (:resource_slug) and gated by a concrete
+// addressed by the RESOURCE slug (:instance_slug) and gated by a concrete
 // <persona>:<area>:<action> perm. A disabled capability emits NO route here, so
 // calling it 404s — strictly stronger than a runtime 403.
 //
 // This file translates that data surface into RouteSpec handlers and mounts them
 // via the same APIRoutes/route-table mechanism the rest of authhttp uses. Group
-// ids stay internal: every handler resolves (persona, :resource_slug) -> group by
-// resource_slug inside the Service, then authorizes via svc.Can before acting.
+// ids stay internal: every handler resolves (persona, :instance_slug) -> group by
+// instance_slug inside the Service, then authorizes via svc.Can before acting.
 
 import (
 	"net/http"
@@ -27,11 +27,11 @@ const RoutePermissionGroups RouteGroup = "permission_groups"
 // groupCan is the authorization predicate the generated handlers gate on. It
 // defaults to core.Service.Can; it is a field only so handler tests can stub the
 // decision without a database (production never reassigns it).
-func (s *Service) groupCan(r *http.Request, subjectID, persona, resourceSlug, perm string) (bool, error) {
+func (s *Service) groupCan(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error) {
 	if s.groupCanFn != nil {
-		return s.groupCanFn(r, subjectID, persona, resourceSlug, perm)
+		return s.groupCanFn(r, subjectID, persona, instanceSlug, perm)
 	}
-	return s.svc.Can(r.Context(), subjectID, core.SubjectKindUser, persona, resourceSlug, perm)
+	return s.svc.Can(r.Context(), subjectID, core.SubjectKindUser, persona, instanceSlug, perm)
 }
 
 // notImplemented is the wire code for a generated route whose operation is not
@@ -58,6 +58,14 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 		Path:    "/me/groups",
 		Group:   RoutePermissionGroups,
 		Handler: http.HandlerFunc(s.handleMeGroupsGET),
+	})
+	// Invite-link redemption (#134): persona-agnostic, any authenticated user.
+	// Gets the same auth + language middleware wrapping as the rest below.
+	specs = append(specs, RouteSpec{
+		Method:  http.MethodPost,
+		Path:    "/invites/redeem",
+		Group:   RoutePermissionGroups,
+		Handler: http.HandlerFunc(s.handleInviteRedeemPOST),
 	})
 
 	out := make([]RouteSpec, 0, len(specs))
@@ -93,8 +101,8 @@ func generatedRouteSpecs(s *Service, routes []core.GeneratedRoute) []RouteSpec {
 	return out
 }
 
-// muxPath rewrites the generator's colon-style params (":resource_slug", ":user",
-// ":role", ...) into net/http ServeMux wildcards ("{resource_slug}", "{user}", ...).
+// muxPath rewrites the generator's colon-style params (":instance_slug", ":user",
+// ":role", ...) into net/http ServeMux wildcards ("{instance_slug}", "{user}", ...).
 // ServeMux wildcard names may not contain '-', so hyphens become underscores;
 // pathParam() reverses this when reading r.PathValue.
 func muxPath(p string) string {
@@ -108,15 +116,15 @@ func muxPath(p string) string {
 }
 
 // pathParam reads a ServeMux path value by the generator's colon name (e.g.
-// "resource_slug"), accounting for the hyphen->underscore wildcard rewrite.
+// "instance_slug"), accounting for the hyphen->underscore wildcard rewrite.
 func pathParam(r *http.Request, name string) string {
 	return strings.TrimSpace(r.PathValue(strings.ReplaceAll(name, "-", "_")))
 }
 
 // generatedGroupHandler returns the handler for one generated route. It:
 //  1. extracts the caller's verified claims (401 if absent);
-//  2. resolves persona + :resource_slug from the route/path;
-//  3. authorizes via svc.Can(caller, "user", persona, resource_slug, route.Perm)
+//  2. resolves persona + :instance_slug from the route/path;
+//  3. authorizes via svc.Can(caller, "user", persona, instance_slug, route.Perm)
 //     (403 on deny);
 //  4. performs the operation. members, roles (catalog read), api-keys,
 //     remote-applications, and invites are fully wired; only custom-role
@@ -129,14 +137,14 @@ func (s *Service) generatedGroupHandler(gr core.GeneratedRoute) http.HandlerFunc
 			unauthorized(w, ErrNotAuthenticated)
 			return
 		}
-		resourceSlug := pathParam(r, "resource_slug")
-		if resourceSlug == "" {
+		instanceSlug := pathParam(r, "instance_slug")
+		if instanceSlug == "" {
 			badRequest(w, ErrInvalidRequest)
 			return
 		}
 
 		// Authorize: the caller (a user) must hold route.Perm on this group.
-		allowed, err := s.groupCan(r, claims.UserID, gr.Persona, resourceSlug, gr.Perm)
+		allowed, err := s.groupCan(r, claims.UserID, gr.Persona, instanceSlug, gr.Perm)
 		if err != nil {
 			serverErr(w, ErrDatabaseError)
 			return
@@ -148,37 +156,37 @@ func (s *Service) generatedGroupHandler(gr core.GeneratedRoute) http.HandlerFunc
 
 		switch op {
 		case opMembersList:
-			s.groupMembersList(w, r, gr.Persona, resourceSlug)
+			s.groupMembersList(w, r, gr.Persona, instanceSlug)
 		case opMemberAdd:
-			s.groupMemberAdd(w, r, gr.Persona, resourceSlug)
+			s.groupMemberAdd(w, r, gr.Persona, instanceSlug)
 		case opMemberRemove:
-			s.groupMemberRemove(w, r, gr.Persona, resourceSlug, pathParam(r, "user"))
+			s.groupMemberRemove(w, r, gr.Persona, instanceSlug, pathParam(r, "user"))
 		case opMemberRoleAssign:
-			s.groupMemberRole(w, r, gr.Persona, resourceSlug, pathParam(r, "user"), pathParam(r, "role"))
+			s.groupMemberRole(w, r, gr.Persona, instanceSlug, pathParam(r, "user"), pathParam(r, "role"))
 		case opRolesList:
 			s.groupRolesList(w, gr.Persona)
 		case opRoleDefine:
-			s.groupCustomRoleDefine(w, r, gr.Persona, resourceSlug)
+			s.groupCustomRoleDefine(w, r, gr.Persona, instanceSlug)
 		case opRoleDelete:
-			s.groupCustomRoleDelete(w, r, gr.Persona, resourceSlug, pathParam(r, "role"))
+			s.groupCustomRoleDelete(w, r, gr.Persona, instanceSlug, pathParam(r, "role"))
 		case opAPIKeysList:
-			s.groupAPIKeyList(w, r, gr.Persona, resourceSlug)
+			s.groupAPIKeyList(w, r, gr.Persona, instanceSlug)
 		case opAPIKeyMint:
-			s.groupAPIKeyMint(w, r, gr.Persona, resourceSlug, claims.UserID)
+			s.groupAPIKeyMint(w, r, gr.Persona, instanceSlug, claims.UserID)
 		case opAPIKeyRevoke:
-			s.groupAPIKeyRevoke(w, r, gr.Persona, resourceSlug, pathParam(r, "key"))
+			s.groupAPIKeyRevoke(w, r, gr.Persona, instanceSlug, pathParam(r, "key"))
 		case opRemoteAppsList:
-			s.groupRemoteAppList(w, r, gr.Persona, resourceSlug)
+			s.groupRemoteAppList(w, r, gr.Persona, instanceSlug)
 		case opRemoteAppRegister:
-			s.groupRemoteAppRegister(w, r, gr.Persona, resourceSlug)
+			s.groupRemoteAppRegister(w, r, gr.Persona, instanceSlug)
 		case opRemoteAppDelete:
-			s.groupRemoteAppDelete(w, r, gr.Persona, resourceSlug, pathParam(r, "app"))
-		case opInvitesList:
-			s.groupInviteList(w, r, gr.Persona, resourceSlug)
-		case opInviteCreate:
-			s.groupInviteCreate(w, r, gr.Persona, resourceSlug, claims.UserID)
-		case opInviteRevoke:
-			s.groupInviteRevoke(w, r, gr.Persona, resourceSlug, pathParam(r, "invite"))
+			s.groupRemoteAppDelete(w, r, gr.Persona, instanceSlug, pathParam(r, "app"))
+		case opInviteLinkList:
+			s.groupInviteLinkList(w, r, gr.Persona, instanceSlug)
+		case opInviteLinkMint:
+			s.groupInviteLinkMint(w, r, gr.Persona, instanceSlug, claims.UserID)
+		case opInviteLinkRevoke:
+			s.groupInviteLinkRevoke(w, r, gr.Persona, instanceSlug, pathParam(r, "link"))
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
 			sendErr(w, http.StatusNotImplemented, notImplemented)
@@ -205,9 +213,9 @@ const (
 	opRemoteAppsList
 	opRemoteAppRegister
 	opRemoteAppDelete
-	opInvitesList
-	opInviteCreate
-	opInviteRevoke
+	opInviteLinkList
+	opInviteLinkMint
+	opInviteLinkRevoke
 )
 
 // classifyGeneratedRoute maps a generator route (its method + colon-param path)
@@ -249,13 +257,13 @@ func classifyGeneratedRoute(method, path string) generatedOp {
 			return opRemoteAppRegister
 		}
 		return opRemoteAppsList // GET
-	case strings.HasSuffix(path, "/invites/:invite"):
-		return opInviteRevoke // DELETE
-	case strings.HasSuffix(path, "/invites"):
+	case strings.HasSuffix(path, "/invites/links/:link"):
+		return opInviteLinkRevoke // DELETE
+	case strings.HasSuffix(path, "/invites/links"):
 		if method == http.MethodPost {
-			return opInviteCreate
+			return opInviteLinkMint
 		}
-		return opInvitesList // GET
+		return opInviteLinkList // GET
 	default:
 		return opStub
 	}

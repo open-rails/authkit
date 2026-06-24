@@ -102,9 +102,9 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 		t.Errorf("org owner must NOT hold repo:repo:write")
 	}
 
-	// Resource addressing: (persona, resource_slug) -> internal id.
-	if got, err := st.GroupByResourceSlug(ctx, "org", "acme"); err != nil || got != orgID {
-		t.Errorf("GroupByResourceSlug(org,acme) = %q,%v; want %q", got, err, orgID)
+	// Resource addressing: (persona, instance_slug) -> internal id.
+	if got, err := st.GroupByInstanceSlug(ctx, "org", "acme"); err != nil || got != orgID {
+		t.Errorf("GroupByInstanceSlug(org,acme) = %q,%v; want %q", got, err, orgID)
 	}
 
 	// Custom role (org opted into AllowCustomRoles): define it, then assign it to

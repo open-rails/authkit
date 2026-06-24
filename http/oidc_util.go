@@ -47,8 +47,8 @@ func oidcCallbackPath(p, provider string) string {
 		return strings.TrimSuffix(p, "/login") + "/callback"
 	case strings.HasSuffix(p, "/link/start"):
 		return strings.TrimSuffix(p, "/link/start") + "/callback"
-	case strings.HasSuffix(p, "/reauth/start"):
-		return strings.TrimSuffix(p, "/reauth/start") + "/reauth/callback"
+	case strings.HasSuffix(p, "/step-up/start"):
+		return strings.TrimSuffix(p, "/step-up/start") + "/step-up/callback"
 	default:
 		if i := strings.Index(p, "/oidc/"); i >= 0 {
 			return p[:i] + "/oidc/" + provider + "/callback"

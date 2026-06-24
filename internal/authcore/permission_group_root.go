@@ -29,11 +29,6 @@ const (
 	PermRootRemoteAppsManage = "root:remote-apps:manage" // manage federation issuers as an operator
 	PermRootAPIKeysRevoke    = "root:api-keys:revoke"    // revoke any api-key
 	PermRootSessionsRevoke   = "root:sessions:revoke"    // revoke any user session
-
-	// SuperAdminRoleName is the root role authkit ships in addition to owner:
-	// the apex operator. Like owner it holds root:* (they are equivalent on the
-	// root persona); kept as a distinct name for the familiar "super-admin" slug.
-	SuperAdminRoleName = "super-admin"
 )
 
 // IntrinsicRootPermissions returns the authkit-built-in root: permission set
@@ -48,18 +43,18 @@ func IntrinsicRootPermissions() []string {
 }
 
 // IntrinsicRootPersona returns the base `root` PersonaDef authkit ships: the
-// parentless singleton persona whose owner/super-admin hold root:*. An app passes
-// this to BuildSchema along with EXTRA root roles (moderation bundles) and its
-// other personas; the extra root roles may hold any root: perm (intrinsic or
-// app-declared). Custom roles are OFF on root (operators are not end users).
+// parentless singleton persona. Its apex is the `owner` role (= root:*),
+// auto-injected by normalizePersona along with `member`; there is no separate
+// super-admin (#136 — the owner/admin redesign folded super-admin into owner).
+// An app passes this to BuildSchema along with EXTRA root roles (bounded operator
+// bundles like doujins's `admin`, which must NOT hold root:roles:manage if they
+// shouldn't be able to promote) and its other personas; the extra root roles may
+// hold any root: perm (intrinsic or app-declared). Custom roles are OFF on root
+// (operators are not end users).
 func IntrinsicRootPersona(extraRootRoles ...RoleDef) PersonaDef {
-	roles := make([]RoleDef, 0, len(extraRootRoles)+1)
-	// super-admin == root:* (owner is also seeded = root:* by normalizePersona).
-	roles = append(roles, RoleDef{Name: SuperAdminRoleName, Permissions: []string{OwnerGrant(RootPersona)}})
-	roles = append(roles, extraRootRoles...)
 	return PersonaDef{
 		Name:  RootPersona,
-		Roles: roles,
+		Roles: extraRootRoles, // owner (root:*) + member are auto-injected by normalizePersona
 		// AllowedParents empty ⇒ parentless singleton (the only such persona).
 		Routes: ManagementProfile{MemberAssignment: true}, // operators are assigned root roles via API
 	}

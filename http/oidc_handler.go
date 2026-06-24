@@ -10,7 +10,7 @@ import (
 // OIDCHandler returns a handler that serves browser redirect flows:
 // - GET /oidc/{provider}/login
 // - GET /oidc/{provider}/callback
-// - GET /oidc/{provider}/reauth/callback
+// - GET /oidc/{provider}/step-up/callback
 func (s *Service) OIDCHandler() http.Handler {
 	if s == nil || s.svc == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, ErrAuthkitNotInitialized) })

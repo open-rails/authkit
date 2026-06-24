@@ -170,14 +170,13 @@ func (s *Service) RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID, s
 	return s.UnassignGroupRoleAs(ctx, actorUserID, RootPersona, "", strings.TrimSpace(userID), SubjectKindUser, role)
 }
 
-// listRoleSlugsByUserErr is the error-PROPAGATING form of listRoleSlugsByUser:
+// ListRoleSlugsByUserErr is the error-PROPAGATING form of ListRoleSlugsByUser:
 // a failure resolving the user's root-group roles is returned, not swallowed
 // into an empty slice, so authz callers can FAIL CLOSED instead of silently
 // treating a backend outage as "this user has no roles" (#136). A missing root
-// group is genuinely empty (not an error). Exposed via the facade as
-// ListRoleSlugsByUserErr for consumers that must surface role-resolution
-// failures (e.g. doujins #420 middleware).
-func (s *Service) listRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error) {
+// group is genuinely empty (not an error). Consumed by callers that must surface
+// role-resolution failures (e.g. doujins #420 middleware).
+func (s *Service) ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error) {
 	if s.pg == nil {
 		return nil, nil
 	}

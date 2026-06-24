@@ -24,16 +24,6 @@ func (q *Queries) GroupAssignmentsDeleteByUser(ctx context.Context, userID strin
 	return err
 }
 
-const groupInvitesDeleteByInviter = `-- name: GroupInvitesDeleteByInviter :exec
-DELETE FROM profiles.group_invites
-WHERE invited_by = $1::uuid
-`
-
-func (q *Queries) GroupInvitesDeleteByInviter(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, groupInvitesDeleteByInviter, userID)
-	return err
-}
-
 const sessionsRevokeAllQuiet = `-- name: SessionsRevokeAllQuiet :exec
 UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2
 `

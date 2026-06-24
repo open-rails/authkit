@@ -486,11 +486,12 @@ const (
 	// ErrRateLimited is the rate_limited AuthKit HTTP wire error code.
 	ErrRateLimited ErrorCode = "rate_limited"
 
-	// ErrReauthFailed is the reauth_failed AuthKit HTTP wire error code.
-	ErrReauthFailed ErrorCode = "reauth_failed"
+	// ErrStepUpFailed is the step_up_failed AuthKit HTTP wire error code.
+	ErrStepUpFailed ErrorCode = "step_up_failed"
 
-	// ErrReauthRequired is the reauth_required AuthKit HTTP wire error code.
-	ErrReauthRequired ErrorCode = "reauth_required"
+	// ErrStepUpRequired is the step_up_required AuthKit HTTP wire error code: the
+	// caller must re-prove identity (any configured method) before this action.
+	ErrStepUpRequired ErrorCode = "step_up_required"
 
 	// ErrRegenerateCodesFailed is the regenerate_codes_failed AuthKit HTTP wire error code.
 	ErrRegenerateCodesFailed ErrorCode = "regenerate_codes_failed"

@@ -396,7 +396,7 @@ func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
 
 	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+uniquePhone()+`"}`, staleToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"code":"reauth_required"`)
+	require.Contains(t, w.Body.String(), `"code":"step_up_required"`)
 
 	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+uniquePhone()+`","password":"`+pass+`"}`, staleToken)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())

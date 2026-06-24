@@ -34,7 +34,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	var authMeta map[string]any
 	if !SensitiveClaims(claims) {
 		if body.CurrentPassword == "" {
-			s.reauthRequired(w, r, claims)
+			s.requireStepUp(w, r, claims)
 			return
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
@@ -46,7 +46,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-			serverErr(w, ErrReauthFailed)
+			serverErr(w, ErrStepUpFailed)
 			return
 		}
 		freshness, _ := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())

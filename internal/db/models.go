@@ -38,18 +38,19 @@ type ProfilesGroupCustomRole struct {
 	UpdatedAt   time.Time
 }
 
-type ProfilesGroupInvite struct {
+type ProfilesGroupInviteLink struct {
 	ID        string
 	GroupID   string
-	UserID    string
-	InvitedBy string
 	Role      string
-	Status    string
+	InvitedBy string
+	CodeHash  string
+	Email     *string
+	MaxUses   *int32
+	Uses      int32
 	ExpiresAt *time.Time
-	ActedAt   *time.Time
+	RevokedAt *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt *time.Time
 }
 
 // Declared containment schema: which parent persona each permission-group persona allows. root is absent.
@@ -112,8 +113,8 @@ type ProfilesPermissionGroup struct {
 	Persona       string
 	ParentID      *string
 	ParentPersona *string
-	// Lowercase URL-safe slug for the app resource and API addressing key; the group id is internal only.
-	ResourceSlug *string
+	// Lowercase URL-safe slug identifying WHICH instance of the persona (e.g. acme-store for a merchant); the API addressing key. The group id is internal only.
+	InstanceSlug *string
 	Metadata     []byte
 	CreatedAt    time.Time
 	UpdatedAt    time.Time

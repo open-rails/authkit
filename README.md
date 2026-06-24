@@ -188,7 +188,7 @@ Host-facing JSON API groups are:
 - `RoutePublic`: public JSON discovery, such as `/identity-providers`.
 - `RouteRegister`: public registration and verification support.
 - `RouteSession`: login, refresh, logout, password reset, login-time 2FA, wallet login.
-- `RouteUser`: authenticated self-service account routes, reauth, provider linking, wallet linking.
+- `RouteUser`: authenticated self-service account routes, step-up, provider linking, wallet linking.
 - `RouteAdmin`: intrinsic `/admin/*` root-permission routes.
 - `RoutePermissionGroups`: generated per-persona group-management routes.
 
@@ -267,7 +267,7 @@ global_roles:
 
 permission_groups:
   - persona: merchant
-    resource_slug: cozy-art
+    instance_slug: cozy-art
     issuers:
       - issuer: https://cozy.example
         jwks_uri: https://cozy.example/.well-known/jwks.json
@@ -744,30 +744,44 @@ Roles (global storage)
 - Role IDs are deterministic UUIDv5 derived from slug (`uuidv5(namespace, "role:"+slug)`), so role rows are stable across environments.
 
 Permission groups
-- AuthKit exposes resource-scoped membership, roles, and credentials through generated
+- AuthKit exposes instance-scoped membership, roles, and credentials through generated
   permission-group routes derived from the host's configured schema.
-- Terminology: a configured permission-group persona is the public route and
-  permission namespace. For example, a `merchant` persona generates
-  `/merchant/:resource_slug/...` routes and `merchant:<area>:<action>`
-  permissions.
+- Terminology (the vocabulary the API uses consistently):
+  - **persona** — the TYPE of group; also permission segment 1 (`merchant`, `customer`).
+  - **instance** — a SPECIFIC group of that persona, addressed by `instance_slug`
+    (`acme-store`). Renamed from `resource_slug` in #135 — `instance_slug` is the path
+    param and the JSON response field.
+  - **resource** — a noun/area WITHIN a persona; permission segment 2 (`subscription`).
+  - **action** — permission segment 3 (`cancel`). So a permission reads
+    `persona:resource:action`, e.g. `merchant:subscription:cancel` — the *instance*
+    (`acme-store`) never appears in a permission string; it is carried by the group.
+  - A `merchant` persona generates `/merchant/:instance_slug/...` routes gated by
+    `merchant:<resource>:<action>` permissions.
+- Adding an EXISTING user to a group is a direct, confirmation-free `POST …/members`.
+  Bringing in a (possibly not-yet-registered) person uses INVITE LINKS (#134): a manager
+  mints a high-entropy code; the recipient redeems it (signing up first if needed) and
+  the role is assigned. Email-bound links work only for one verified address; shareable
+  links work for anyone with the code, up to `max_uses` and expiry. Invite-link minting
+  is gated on the registration mode permitting invited signup (`open`/`invite_only`).
 - Generated permission-group routes:
   - GET /me/groups
-  - GET /:persona/:resource_slug/members
-  - POST /:persona/:resource_slug/members
-  - DELETE /:persona/:resource_slug/members/:user
-  - PUT /:persona/:resource_slug/members/:user/roles/:role
-  - GET /:persona/:resource_slug/roles
-  - POST /:persona/:resource_slug/roles
-  - DELETE /:persona/:resource_slug/roles/:role
-  - GET /:persona/:resource_slug/api-keys
-  - POST /:persona/:resource_slug/api-keys
-  - DELETE /:persona/:resource_slug/api-keys/:key
-  - GET /:persona/:resource_slug/remote-applications
-  - POST /:persona/:resource_slug/remote-applications
-  - DELETE /:persona/:resource_slug/remote-applications/:app
-  - GET /:persona/:resource_slug/invites
-  - POST /:persona/:resource_slug/invites
-  - DELETE /:persona/:resource_slug/invites/:invite
+  - POST /invites/redeem            (any authenticated user redeems an invite-link code)
+  - GET /:persona/:instance_slug/members
+  - POST /:persona/:instance_slug/members
+  - DELETE /:persona/:instance_slug/members/:user
+  - PUT /:persona/:instance_slug/members/:user/roles/:role
+  - GET /:persona/:instance_slug/roles
+  - POST /:persona/:instance_slug/roles
+  - DELETE /:persona/:instance_slug/roles/:role
+  - GET /:persona/:instance_slug/api-keys
+  - POST /:persona/:instance_slug/api-keys
+  - DELETE /:persona/:instance_slug/api-keys/:key
+  - GET /:persona/:instance_slug/remote-applications
+  - POST /:persona/:instance_slug/remote-applications
+  - DELETE /:persona/:instance_slug/remote-applications/:app
+  - GET /:persona/:instance_slug/invites/links
+  - POST /:persona/:instance_slug/invites/links
+  - DELETE /:persona/:instance_slug/invites/links/:link
   - Each persona emits only the route families enabled by its management
     profile. Built-in `root` emits member-management plus role-list routes.
 - Token claim shape (uniform; no mode):
@@ -886,7 +900,7 @@ Password hash policy (verification whitelist):
 - For unverifiable imports, hosts store the row with
   `hash_algo = "legacy-reset-required"` (`core.HashAlgoLegacyResetRequired`),
   preserving the raw legacy hash for forensics only. Every password-verify
-  path (login, reauth, change-password) then returns
+  path (login, step-up, change-password) then returns
   `core.ErrPasswordResetRequired`, surfaced over HTTP as a 401 with the stable
   body code `password_reset_required`, so clients can tell the user to reset
   instead of showing generic invalid-credentials.
@@ -1051,10 +1065,10 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /user/2fa/backup-codes (requires auth) → {backup_codes}
   - POST /2fa/challenge (during login) → starts a selected non-default factor from an existing password challenge
   - POST /2fa/verify (during login) → {access_token, refresh_token}
-- Reauth:
-  - POST /reauth/password with `{password}` (requires auth) → {access_token, token_type, expires_in, fresh_auth}
-  - POST /reauth/2fa with optional `{method:"email|sms|totp"}` starts selected/default 2FA reauth; final `{code, method?, backup_code?}` returns {access_token, token_type, expires_in, fresh_auth}. Reauth is a hard-cut method-name API: it does not accept or return `factor_id`.
-  - Reauth does not rotate refresh tokens; clients retry sensitive actions with the returned access token. Refresh-token rotation remains `POST /token`.
+- Step-up:
+  - POST /step-up/password with `{password}` (requires auth) → {access_token, token_type, expires_in, fresh_auth}
+  - POST /step-up/2fa with optional `{method:"email|sms|totp"}` starts selected/default 2FA step-up; final `{code, method?, backup_code?}` returns {access_token, token_type, expires_in, fresh_auth}. Step-up is a hard-cut method-name API: it does not accept or return `factor_id`.
+  - Step-up does not rotate refresh tokens; clients retry sensitive actions with the returned access token. Refresh-token rotation remains `POST /token`.
 - Admin roles (admin only):
   - POST /admin/roles/grant
   - POST /admin/roles/revoke
@@ -1145,7 +1159,7 @@ Frontend (React) quick guide
   - PATCH /user/biography with `{biography}` (Authorization)
   - POST /user/password with `{old_password, new_password}` (Authorization)
   - DELETE /user (Authorization) → deletes account
-  - Sensitive-action `reauth_required` errors include `reauth_methods` and, when 2FA is enabled, `reauth_2fa` with available methods/default method/display-safe destinations. Call `/reauth/password` or `/reauth/2fa`, replace the in-memory access token with the returned `access_token`, then retry. Do not call `/token` just to finish reauth.
+  - Sensitive-action `step_up_required` errors include `step_up_methods` and, when 2FA is enabled, `step_up_2fa` with available methods/default method/display-safe destinations. Call `/step-up/password` or `/step-up/2fa`, replace the in-memory access token with the returned `access_token`, then retry. Do not call `/token` just to finish step-up.
 - Solana Wallet (SIWS)
   - Login/Register: POST /solana/challenge → wallet.signIn(input) → POST /solana/login
   - Link wallet: POST /solana/challenge → wallet.signIn(input) → POST /solana/link (with Authorization)

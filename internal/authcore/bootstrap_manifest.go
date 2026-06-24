@@ -160,6 +160,15 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 		result.GlobalRoles++
 	}
 
+	// #136: owner is the apex and is seeded SEED-IF-ABSENT (break-glass) — compute
+	// owner presence ONCE so a manifest never re-asserts owners once any exist
+	// (runtime owner management wins; the manifest only fires from a zero-owner
+	// state to recover from lockout).
+	rootHasOwner, err := s.rootGroupHasOwner(ctx)
+	if err != nil {
+		return result, err
+	}
+
 	for _, user := range manifest.Users {
 		applied, created, err := s.applyBootstrapUser(ctx, user)
 		if err != nil {
@@ -194,9 +203,10 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 			if slug == "" {
 				continue
 			}
-			// AssignRoleBySlug seeds the bootstrap admin as a root-group owner/
-			// super-admin (admin -> super-admin), or any other declared root role.
-			if err := s.AssignRoleBySlug(ctx, applied.ID, slug); err != nil {
+			// #136: seed the genesis user's root role. "owner" (the apex, root:*)
+			// is seed-if-absent and uses the genesis path that bypasses the runtime
+			// owner-reserved guard; any other declared root role assigns directly.
+			if err := s.seedBootstrapRootRole(ctx, applied.ID, slug, rootHasOwner); err != nil {
 				return result, err
 			}
 			result.GlobalRoleAssignments++
@@ -204,6 +214,40 @@ func (s *Service) ReconcileBootstrapManifest(ctx context.Context, manifest Boots
 	}
 
 	return result, nil
+}
+
+// rootGroupHasOwner reports whether the singleton root group currently has any
+// owner. Used to make manifest owner-seeding seed-if-absent (#136).
+func (s *Service) rootGroupHasOwner(ctx context.Context) (bool, error) {
+	members, err := s.ListGroupMembers(ctx, RootPersona, "")
+	if err != nil {
+		if errors.Is(err, ErrGroupNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, m := range members {
+		if m.Role == OwnerRoleName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// seedBootstrapRootRole seeds one root role for a genesis (manifest) user.
+// "owner" — the apex (root:*) — is SEED-IF-ABSENT and goes through the genesis
+// path (AssignGroupRole) that bypasses the runtime owner-reserved guard; any
+// other declared root role is assigned directly. Genesis seeding is the
+// deploy-time trust root and intentionally bypasses the #136 runtime
+// capability/no-escalation rules.
+func (s *Service) seedBootstrapRootRole(ctx context.Context, userID, slug string, rootHasOwner bool) error {
+	if strings.EqualFold(slug, OwnerRoleName) {
+		if rootHasOwner {
+			return nil // break-glass: owners already exist; don't fight runtime
+		}
+		return s.AssignGroupRole(ctx, RootPersona, "", userID, SubjectKindUser, OwnerRoleName)
+	}
+	return s.AssignRoleBySlug(ctx, userID, slug)
 }
 
 func validateBootstrapManifest(manifest BootstrapManifest) error {

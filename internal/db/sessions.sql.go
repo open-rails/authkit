@@ -158,27 +158,34 @@ func (q *Queries) SessionInsert(ctx context.Context, arg SessionInsertParams) (S
 
 const sessionMarkAuthenticated = `-- name: SessionMarkAuthenticated :execrows
 UPDATE profiles.refresh_sessions
-SET last_authenticated_at = now(), auth_methods = $4
-WHERE id = $1::uuid
-  AND user_id = $2::uuid
-  AND issuer = $3
+SET last_authenticated_at = now(),
+    auth_methods = ARRAY(
+      SELECT DISTINCT unnest(COALESCE(auth_methods, '{}'::text[]) || $1::text[])
+    )
+WHERE id = $2::uuid
+  AND user_id = $3::uuid
+  AND issuer = $4
   AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
 `
 
 type SessionMarkAuthenticatedParams struct {
+	AuthMethods []string
 	SessionID   string
 	UserID      string
 	Issuer      string
-	AuthMethods []string
 }
 
+// Re-proving identity refreshes the freshness window and UNIONS the methods
+// just used into whatever the session already proved — it never downgrades
+// assurance. A password-only re-auth on an MFA session keeps its otp/mfa AMR,
+// so a later RequireMFA gate still passes.
 func (q *Queries) SessionMarkAuthenticated(ctx context.Context, arg SessionMarkAuthenticatedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, sessionMarkAuthenticated,
+		arg.AuthMethods,
 		arg.SessionID,
 		arg.UserID,
 		arg.Issuer,
-		arg.AuthMethods,
 	)
 	if err != nil {
 		return 0, err

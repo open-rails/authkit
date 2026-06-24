@@ -221,17 +221,17 @@ Browser OIDC routes:
 ```http
 GET /{provider}/login
 GET /{provider}/callback
-GET /{provider}/reauth/callback
+GET /{provider}/step-up/callback
 ```
 
-Account-link/reauth start routes:
+Account-link / step-up start routes:
 
 ```http
 POST /oidc/{provider}/link/start
-POST /oidc/{provider}/reauth/start
+POST /oidc/{provider}/step-up/start
 ```
 
-OIDC reauth now requests a fresh provider authentication where supported.
+OIDC step-up now requests a fresh provider authentication where supported.
 
 ### Contact-change routes are collapsed
 
@@ -246,14 +246,14 @@ POST /phone/verify/confirm
 
 Old `/user/email`, `/user/phone`, `/user/email/change/...`, and
 `/user/phone/change/...` flows should not be used. Starting a contact change is
-an authenticated verification request and may return a reauth/step-up error; the
-frontend should complete reauth and retry the original request.
+an authenticated verification request and may return a step-up error; the
+frontend should complete step-up and retry the original request.
 
-### Reauth / step-up routes
+### Step-up routes
 
 ```http
-POST /reauth/password
-POST /reauth/2fa
+POST /step-up/password
+POST /step-up/2fa
 ```
 
 Use these when AuthKit says the current session is too old or not MFA-backed
@@ -360,6 +360,6 @@ POST   /admin/users/{user_id}/restore
 5. Remove Twilio URL-builder config and consume AuthKit-provided final URLs.
 6. Update frontend confirmation pages to handle scanner-safe GET landings and
    POST confirmations.
-7. Update frontend account security UI to the collapsed 2FA, reauth, contact,
+7. Update frontend account security UI to the collapsed 2FA, step-up, contact,
    and passkey routes.
 8. Same-origin validate OIDC `return_to` before redirecting.

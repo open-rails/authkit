@@ -3,7 +3,7 @@ package authcore
 // Route-surface generation (#111): the auto-generated management routes are
 // DERIVED from each configured group persona's management profile. Public routes
 // and permission strings call that configured name the persona: a `merchant` persona
-// emits `/merchant/:resource_slug/...` routes gated by `merchant:<area>:<action>`.
+// emits `/merchant/:instance_slug/...` routes gated by `merchant:<area>:<action>`.
 // A disabled capability emits NO route, so calling it 404s, which is stronger
 // than a runtime 403. Group ids never appear in a path.
 
@@ -22,11 +22,11 @@ func PermInvitesManage(t string) string    { return t + ":invites:manage" }
 func PermInvitesRead(t string) string      { return t + ":invites:read" }
 
 // GeneratedRoute is one auto-generated management endpoint: addressed by the
-// RESOURCE's own id (:resource_slug), gated by Perm (a concrete <persona>:<res>:<act>).
+// RESOURCE's own id (:instance_slug), gated by Perm (a concrete <persona>:<res>:<act>).
 type GeneratedRoute struct {
 	Persona string
 	Method  string
-	Path    string // e.g. /merchant/:resource_slug/members
+	Path    string // e.g. /merchant/:instance_slug/members
 	Perm    string
 }
 
@@ -38,7 +38,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 	var out []GeneratedRoute
 	for _, persona := range s.Personas() {
 		td, _ := s.Persona(persona)
-		base := "/" + persona + "/:resource_slug"
+		base := "/" + persona + "/:instance_slug"
 		p := td.Routes
 
 		if p.MemberAssignment {
@@ -75,12 +75,15 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 				GeneratedRoute{persona, "DELETE", base + "/remote-applications/:app", mg},
 			)
 		}
+		// Invite-LINK routes (#134): mint / list / revoke a high-entropy invite
+		// link. Redemption is NOT here — it is the persona-agnostic POST
+		// /invites/redeem (any authenticated user), mounted as a fixed route.
 		if p.Invitation {
 			rd, mg := PermInvitesRead(persona), PermInvitesManage(persona)
 			out = append(out,
-				GeneratedRoute{persona, "POST", base + "/invites", mg},
-				GeneratedRoute{persona, "GET", base + "/invites", rd},
-				GeneratedRoute{persona, "DELETE", base + "/invites/:invite", mg},
+				GeneratedRoute{persona, "POST", base + "/invites/links", mg},
+				GeneratedRoute{persona, "GET", base + "/invites/links", rd},
+				GeneratedRoute{persona, "DELETE", base + "/invites/links/:link", mg},
 			)
 		}
 	}

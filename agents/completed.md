@@ -5159,3 +5159,59 @@ Authenticated step-up route:
 2. `param` coverage — envelope supports it; wire only the obvious validation fields in v1, expand incrementally.
 3. Share types with openrails? authkit is the LOWER layer (openrails imports authkit), so authkit defines the canonical envelope; a FOLLOW-UP could have openrails `pkg/api` re-export authkit's types to unify on ONE definition. Out of scope here.
 4. Back-compat — clean break (no dual-emit), matching the #111 precedent; coordinate consumer migration via the version bump.
+
+---
+
+# #134: Unify signup/contact-change email+phone verification on one verification pipeline
+
+**Completed:** yes
+
+AuthKit had two verification implementations for the same job: prove control of
+an email address or phone number before applying a state transition.
+
+## Completed Changes
+- Unified signup, existing unverified contact verification, and pending
+  contact-change verification onto:
+  - `POST /email/verify/request`
+  - `POST /email/verify/confirm`
+  - `POST /phone/verify/request`
+  - `POST /phone/verify/confirm`
+- Hard-cut `/user/email` and `/user/phone`; they are no longer a second
+  verification API.
+- Account email/phone change request generation now sends both a short OTP code
+  and high-entropy link token through the same `VerificationMessage{Code,
+  LinkURL, Purpose}` sender path as signup/current-contact verification.
+- `/email/verify/confirm` and `/phone/verify/confirm` now finalize pending
+  contact changes through the same verification route surface.
+- Short-code contact-change confirmation remains bound to the authenticated user
+  and requested identifier; link-token confirmation uses only the one-time
+  high-entropy token.
+- Twilio default email/SMS copy can distinguish `signup`, `contact_verify`, and
+  `contact_change` via `VerificationMessage.Purpose`.
+- README, SEMVER, `BREAKING.md`, and `agents/api-endpoints.md` document the
+  hard-cut route surface.
+
+## Tasks
+- [x] Extract a shared verification request helper for email and phone that
+  accepts purpose/finalizer metadata and emits `VerificationMessage{Code,
+  LinkURL, Purpose}`.
+- [x] Make account email/phone change request generation use the same helper as
+  signup/existing-contact verification; send both code and link token.
+- [x] Make `/email/verify/confirm` and `/phone/verify/confirm` dispatch by
+  stored record kind so pending contact changes finalize through the same route
+  as signup/existing-contact verification.
+- [x] Remove duplicated confirmation branches from `/user/email` and
+  `/user/phone`.
+- [x] Keep `ConfirmEmailChange` / `ConfirmPhoneChange` as thin wrappers over the
+  shared pending-change finalizer for code confirmation.
+- [x] Update Twilio default copy/builders to receive enough purpose context for
+  signup/contact-change wording without adding new sender interface methods.
+- [x] Update README, SEMVER, `BREAKING.md`, and `agents/api-endpoints.md`.
+- [x] Add coverage for email/phone code+link verification, contact-change
+  code+link, token reuse failure, wrong identifier failure, removed old routes,
+  and fresh-auth gating for contact-change start.
+
+## Validation
+- `go test ./http ./internal/authcore ./providers/email/twilio ./providers/sms/twilio`
+- `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_issue134?sslmode=disable go test ./http -run 'TestVerificationConfirmAcceptsCodeOrToken|TestUnifiedVerificationRoutesHandleContactChanges|TestUnifiedVerificationContactChangeTokenAndFreshAuth|TestAuthKitBuiltLinksRedirectWithoutConsumingToken|TestPasswordResetConfirmConsumesTokenDirectly' -count=1 -v`
+- `AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_issue134?sslmode=disable go test ./...`

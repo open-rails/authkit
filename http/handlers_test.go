@@ -123,12 +123,12 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
 }
 
-func TestOIDCHandler_ReauthCallback_MissingStateOrCode(t *testing.T) {
+func TestOIDCHandler_StepUpCallback_MissingStateOrCode(t *testing.T) {
 	s := newTestService(t)
 	h := s.OIDCHandler()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/oidc/google/reauth/callback", nil)
+	r := httptest.NewRequest(http.MethodGet, "/oidc/google/step-up/callback", nil)
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
@@ -329,18 +329,18 @@ func TestOIDCLoginDropsMaliciousReturnTo(t *testing.T) {
 	require.Equal(t, "/", sd.ReturnTo)
 }
 
-func TestOIDCCallbackPath_ReauthStartUsesReauthCallback(t *testing.T) {
-	require.Equal(t, "/api/v1/oidc/google/reauth/callback", oidcCallbackPath("/api/v1/oidc/google/reauth/start", "google"))
+func TestOIDCCallbackPath_StepUpStartUsesStepUpCallback(t *testing.T) {
+	require.Equal(t, "/api/v1/oidc/google/step-up/callback", oidcCallbackPath("/api/v1/oidc/google/step-up/start", "google"))
 	require.Equal(t, "/api/v1/oidc/google/callback", oidcCallbackPath("/api/v1/oidc/google/login", "google"))
 	require.Equal(t, "/api/v1/oidc/google/callback", oidcCallbackPath("/api/v1/oidc/google/link/start", "google"))
 }
 
-func TestOIDCReauthAuthTimeFreshness(t *testing.T) {
+func TestOIDCStepUpAuthTimeFreshness(t *testing.T) {
 	started := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
-	require.True(t, validOIDCReauthTime(started, started.Add(time.Second), started.Add(30*time.Second)))
-	require.False(t, validOIDCReauthTime(started, time.Time{}, started.Add(30*time.Second)))
-	require.False(t, validOIDCReauthTime(started, started.Add(-10*time.Minute), started.Add(30*time.Second)))
-	require.False(t, validOIDCReauthTime(started, started.Add(10*time.Minute), started.Add(30*time.Second)))
+	require.True(t, validOIDCStepUpTime(started, started.Add(time.Second), started.Add(30*time.Second)))
+	require.False(t, validOIDCStepUpTime(started, time.Time{}, started.Add(30*time.Second)))
+	require.False(t, validOIDCStepUpTime(started, started.Add(-10*time.Minute), started.Add(30*time.Second)))
+	require.False(t, validOIDCStepUpTime(started, started.Add(10*time.Minute), started.Add(30*time.Second)))
 }
 
 func TestAPIHandler_GenericPasswordResetRoutesRemoved(t *testing.T) {

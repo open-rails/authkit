@@ -160,19 +160,19 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	}
 	require.NotEmpty(t, totpFactorID)
 
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"method":"totp"}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"method":"totp"`)
 	require.NotContains(t, w.Body.String(), "factor")
-	reauthCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"method":"totp","code":"`+reauthCode+`"}`, setupToken)
+	stepUpCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp","code":"`+stepUpCode+`"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "access_token")
 
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"factor_id":"`+totpFactorID+`"}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"factor_id":"`+totpFactorID+`"}`, setupToken)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	// Keep the selected-login assertion below independent from the selected
-	// reauth assertion above; core replay tests cover reuse rejection.
+	// step-up assertion above; core replay tests cover reuse rejection.
 	_, err = pool.Exec(ctx, `UPDATE profiles.mfa_factors SET last_totp_step=NULL WHERE id=$1::uuid`, totpFactorID)
 	require.NoError(t, err)
 

@@ -35,12 +35,12 @@ const (
 	AssuranceLevelMFA      = "urn:authkit:loa:2"
 )
 
-var ErrReauthenticationRequired = errors.New("reauth_required")
+var ErrStepUpRequired = errors.New("step_up_required")
 
 type SessionFreshness struct {
 	LastAuthenticatedAt           time.Time
-	TimeUntilReauthRequired       time.Duration
-	ReauthRequiredForSensitiveOps bool
+	TimeUntilStepUpRequired       time.Duration
+	StepUpRequiredForSensitiveOps bool
 	AuthMethods                   []string
 }
 
@@ -224,8 +224,8 @@ func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string
 	}
 	return SessionFreshness{
 		LastAuthenticatedAt:           fresh.FreshSince,
-		TimeUntilReauthRequired:       remaining,
-		ReauthRequiredForSensitiveOps: remaining <= 0,
+		TimeUntilStepUpRequired:       remaining,
+		StepUpRequiredForSensitiveOps: remaining <= 0,
 		AuthMethods:                   normalizeAuthMethods(fresh.AuthMethods),
 	}, nil
 }
@@ -235,8 +235,8 @@ func (s *Service) RequireFreshSession(ctx context.Context, userID, sessionID str
 	if err != nil {
 		return SessionFreshness{}, err
 	}
-	if freshness.ReauthRequiredForSensitiveOps {
-		return freshness, ErrReauthenticationRequired
+	if freshness.StepUpRequiredForSensitiveOps {
+		return freshness, ErrStepUpRequired
 	}
 	return freshness, nil
 }

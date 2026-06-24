@@ -43,7 +43,7 @@ type Service struct {
 	// the auto-generated group-management routes (#111). nil in production (the
 	// default delegates to core.Service.Can); set only by handler tests that need
 	// to gate without a database.
-	groupCanFn func(r *http.Request, subjectID, persona, resourceSlug, perm string) (bool, error)
+	groupCanFn func(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error)
 }
 
 func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {

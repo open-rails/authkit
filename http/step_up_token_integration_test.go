@@ -13,14 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPasswordReauthReturnsFreshAccessToken(t *testing.T) {
+func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 	ctx := context.Background()
 	pool := newServerTestPool(t)
 	srv, err := NewServer(newServerTestConfig(), pool, WithoutRateLimiter())
 	require.NoError(t, err)
 
-	email := uniqueEmail("reauth-password")
-	username := "reauthpwd" + uniqueSuffix()
+	email := uniqueEmail("stepup-password")
+	username := "stepuppwd" + uniqueSuffix()
 	const pass = "Correct-password-12345"
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestPasswordReauthReturnsFreshAccessToken(t *testing.T) {
 	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
 	require.NoError(t, err)
 
-	w := serveAuthJSON(srv, http.MethodPost, "/reauth/password", `{"password":"`+pass+`"}`, token)
+	w := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var body struct {
 		AccessToken string `json:"access_token"`
@@ -52,7 +52,46 @@ func TestPasswordReauthReturnsFreshAccessToken(t *testing.T) {
 	require.Equal(t, core.AssuranceLevelPassword, claims["acr"])
 }
 
-func TestTOTPReauthReturnsFreshMFAAccessToken(t *testing.T) {
+// A password-only re-auth on a session that was established with MFA must NOT
+// strip its otp/mfa AMR: re-proving identity unions methods, it never downgrades
+// assurance, so a later RequireMFA step-up gate still passes.
+func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
+	ctx := context.Background()
+	pool := newServerTestPool(t)
+	srv, err := NewServer(newServerTestConfig(), pool, WithoutRateLimiter())
+	require.NoError(t, err)
+
+	email := uniqueEmail("stepup-nodowngrade")
+	username := "stepupnodg" + uniqueSuffix()
+	const pass = "Correct-password-12345"
+	user, err := srv.svc.CreateUser(ctx, email, username)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	hash, err := password.HashArgon2id(pass)
+	require.NoError(t, err)
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+
+	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
+	require.NoError(t, err)
+	// Simulate a session that proved a second factor at login.
+	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET auth_methods = ARRAY['pwd','otp','mfa']::text[] WHERE id=$1::uuid`, sid)
+	require.NoError(t, err)
+	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	require.NoError(t, err)
+
+	w := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"`+pass+`"}`, token)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var body struct {
+		AccessToken string `json:"access_token"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	claims := unverifiedAccessClaims(t, body.AccessToken)
+	require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"], "password re-auth must preserve MFA methods")
+	require.Equal(t, core.AssuranceLevelMFA, claims["acr"], "password re-auth must not downgrade MFA assurance")
+}
+
+func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
@@ -60,8 +99,8 @@ func TestTOTPReauthReturnsFreshMFAAccessToken(t *testing.T) {
 	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
 
-	email := uniqueEmail("reauth-totp")
-	username := "reauthotp" + uniqueSuffix()
+	email := uniqueEmail("stepup-totp")
+	username := "stepupotp" + uniqueSuffix()
 	const pass = "Correct-password-12345"
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
@@ -87,11 +126,11 @@ func TestTOTPReauthReturnsFreshMFAAccessToken(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp","code":"`+code+`"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	reauthCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"code":"`+reauthCode+`"}`, setupToken)
+	stepUpCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"code":"`+stepUpCode+`"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var body struct {
 		AccessToken string `json:"access_token"`
@@ -105,7 +144,7 @@ func TestTOTPReauthReturnsFreshMFAAccessToken(t *testing.T) {
 	require.Equal(t, core.AssuranceLevelMFA, claims["acr"])
 }
 
-func TestTwoFactorReauthMethodOptionsAndStaleMFARetry(t *testing.T) {
+func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
@@ -113,8 +152,8 @@ func TestTwoFactorReauthMethodOptionsAndStaleMFARetry(t *testing.T) {
 	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
 
-	email := uniqueEmail("reauth-options")
-	username := "reauthopts" + uniqueSuffix()
+	email := uniqueEmail("stepup-options")
+	username := "stepupopts" + uniqueSuffix()
 	const pass = "Correct-password-12345"
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
@@ -146,12 +185,12 @@ func TestTwoFactorReauthMethodOptionsAndStaleMFARetry(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var me struct {
-		ReauthMethods []string               `json:"reauth_methods"`
-		Reauth2FA     reauthOptionsTestShape `json:"reauth_2fa"`
+		StepUpMethods []string               `json:"step_up_methods"`
+		StepUp2FA     stepUpOptionsTestShape `json:"step_up_2fa"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &me))
-	require.Contains(t, me.ReauthMethods, "2fa")
-	requireReauth2FAOptions(t, me.Reauth2FA, []string{"email", "sms", "totp"}, "email")
+	require.Contains(t, me.StepUpMethods, "2fa")
+	requireStepUp2FAOptions(t, me.StepUp2FA, []string{"email", "sms", "totp"}, "email")
 
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour', auth_methods = ARRAY['pwd','otp','mfa']::text[] WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
@@ -160,44 +199,44 @@ func TestTwoFactorReauthMethodOptionsAndStaleMFARetry(t *testing.T) {
 
 	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa/backup-codes", `{}`, staleToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	var reauthRequired struct {
+	var stepUpRequired struct {
 		Error struct {
 			Code     string `json:"code"`
 			Metadata struct {
-				ReauthMethods []string               `json:"reauth_methods"`
-				Reauth2FA     reauthOptionsTestShape `json:"reauth_2fa"`
+				StepUpMethods []string               `json:"step_up_methods"`
+				StepUp2FA     stepUpOptionsTestShape `json:"step_up_2fa"`
 			} `json:"metadata"`
 		} `json:"error"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &reauthRequired))
-	require.Equal(t, "reauth_required", reauthRequired.Error.Code)
-	require.Contains(t, reauthRequired.Error.Metadata.ReauthMethods, "2fa")
-	requireReauth2FAOptions(t, reauthRequired.Error.Metadata.Reauth2FA, []string{"email", "sms", "totp"}, "email")
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &stepUpRequired))
+	require.Equal(t, "step_up_required", stepUpRequired.Error.Code)
+	require.Contains(t, stepUpRequired.Error.Metadata.StepUpMethods, "2fa")
+	requireStepUp2FAOptions(t, stepUpRequired.Error.Metadata.StepUp2FA, []string{"email", "sms", "totp"}, "email")
 
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"method":"totp"}`, staleToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp"}`, staleToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"method":"totp"`)
 	require.NotContains(t, w.Body.String(), "factor")
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"method":"bad"}`, staleToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"bad"}`, staleToken)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"factor_id":"anything"}`, staleToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"factor_id":"anything"}`, staleToken)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 
-	reauthCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
-	w = serveAuthJSON(srv, http.MethodPost, "/reauth/2fa", `{"method":"totp","code":"`+reauthCode+`"}`, staleToken)
+	stepUpCode := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30+1)
+	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp","code":"`+stepUpCode+`"}`, staleToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var reauthBody struct {
+	var stepUpBody struct {
 		AccessToken string `json:"access_token"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &reauthBody))
-	require.NotEmpty(t, reauthBody.AccessToken)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &stepUpBody))
+	require.NotEmpty(t, stepUpBody.AccessToken)
 
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa/backup-codes", `{}`, reauthBody.AccessToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa/backup-codes", `{}`, stepUpBody.AccessToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "backup_codes")
 }
 
-type reauthOptionsTestShape struct {
+type stepUpOptionsTestShape struct {
 	Methods       []string `json:"methods"`
 	DefaultMethod string   `json:"default_method"`
 	Options       []struct {
@@ -208,7 +247,7 @@ type reauthOptionsTestShape struct {
 	} `json:"options"`
 }
 
-func requireReauth2FAOptions(t *testing.T, got reauthOptionsTestShape, methods []string, defaultMethod string) {
+func requireStepUp2FAOptions(t *testing.T, got stepUpOptionsTestShape, methods []string, defaultMethod string) {
 	t.Helper()
 	require.ElementsMatch(t, methods, got.Methods)
 	require.Equal(t, defaultMethod, got.DefaultMethod)

@@ -41,16 +41,73 @@ func (s *Service) AssignRoleBySlug(ctx context.Context, userID, slug string) err
 	return s.impl.AssignRoleBySlug(ctx, userID, slug)
 }
 
-func (s *Service) AssignGroupRole(ctx context.Context, persona, resourceSlug, subjectID, subjectKind, role string) error {
-	return s.impl.AssignGroupRole(ctx, persona, resourceSlug, subjectID, subjectKind, role)
+func (s *Service) AssignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string) error {
+	return s.impl.AssignGroupRole(ctx, persona, instanceSlug, subjectID, subjectKind, role)
+}
+
+// AssignRoleBySlugAs / RemoveRoleBySlugAs / AssignGroupRoleAs / UnassignGroupRoleAs
+// are the actor-aware role-change methods (#136): they enforce the actor's
+// <persona>:roles:manage capability + no-escalation (perms(role) ⊆ perms(actor))
+// in core. Runtime/admin endpoints MUST use these; the non-As methods are the
+// unchecked genesis path (bootstrap/migration).
+func (s *Service) AssignRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
+	return s.impl.AssignRoleBySlugAs(ctx, actorUserID, userID, slug)
+}
+
+func (s *Service) RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
+	return s.impl.RemoveRoleBySlugAs(ctx, actorUserID, userID, slug)
+}
+
+func (s *Service) AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
+	return s.impl.AssignGroupRoleAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind, role)
+}
+
+func (s *Service) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
+	return s.impl.UnassignGroupRoleAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind, role)
+}
+
+// ListRoleSlugsByUserErr is the error-propagating ListRoleSlugsByUser (#136):
+// role-resolution failures are returned (not swallowed into an empty slice) so
+// authz callers can fail closed.
+func (s *Service) ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error) {
+	return s.impl.ListRoleSlugsByUserErr(ctx, userID)
+}
+
+// CreateGroupInviteLink mints a permission-group invite link (#134); the returned
+// Code is the plaintext shown ONCE. Gated on the registration mode permitting
+// invited self-registration (ErrExternalInvitesDisabled otherwise).
+func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error) {
+	return s.impl.CreateGroupInviteLink(ctx, req)
+}
+
+// ListGroupInviteLinks lists a group's invite links (never returns the code).
+func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]GroupInviteLink, error) {
+	return s.impl.ListGroupInviteLinks(ctx, persona, instanceSlug)
+}
+
+// RevokeGroupInviteLink revokes a group's invite link by id.
+func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSlug, linkID string) error {
+	return s.impl.RevokeGroupInviteLink(ctx, persona, instanceSlug, linkID)
+}
+
+// RedeemGroupInviteLink redeems code for the authenticated redeemer, assigning the
+// link's role and returning where it applied.
+func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error) {
+	return s.impl.RedeemGroupInviteLink(ctx, code, redeemerUserID)
+}
+
+// ExternalInvitesEnabled reports whether invite-link minting is permitted by the
+// configured registration mode.
+func (s *Service) ExternalInvitesEnabled() bool {
+	return s.impl.ExternalInvitesEnabled()
 }
 
 func (s *Service) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
 	return s.impl.BanUser(ctx, userID, reason, until, bannedBy)
 }
 
-func (s *Service) Can(ctx context.Context, subjectID, subjectKind, persona, resourceSlug, perm string) (bool, error) {
-	return s.impl.Can(ctx, subjectID, subjectKind, persona, resourceSlug, perm)
+func (s *Service) Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error) {
+	return s.impl.Can(ctx, subjectID, subjectKind, persona, instanceSlug, perm)
 }
 
 func (s *Service) ChangePassword(ctx context.Context, userID, current, new string, keepSessionID *string) error {
@@ -165,16 +222,16 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 	return s.impl.LinkProviderByIssuer(ctx, userID, issuer, providerSlug, subject, email)
 }
 
-func (s *Service) ListAPIKeys(ctx context.Context, persona, resourceSlug string) ([]APIKey, error) {
-	return s.impl.ListAPIKeys(ctx, persona, resourceSlug)
+func (s *Service) ListAPIKeys(ctx context.Context, persona, instanceSlug string) ([]APIKey, error) {
+	return s.impl.ListAPIKeys(ctx, persona, instanceSlug)
 }
 
 func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
 	return s.impl.ListEntitlements(ctx, userID)
 }
 
-func (s *Service) ListGroupMembers(ctx context.Context, persona, resourceSlug string) ([]GroupMember, error) {
-	return s.impl.ListGroupMembers(ctx, persona, resourceSlug)
+func (s *Service) ListGroupMembers(ctx context.Context, persona, instanceSlug string) ([]GroupMember, error) {
+	return s.impl.ListGroupMembers(ctx, persona, instanceSlug)
 }
 
 func (s *Service) ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error) {
@@ -197,12 +254,12 @@ func (s *Service) ListUsersDeletedBefore(ctx context.Context, cutoff time.Time, 
 	return s.impl.ListUsersDeletedBefore(ctx, cutoff, limit)
 }
 
-func (s *Service) MintAPIKey(ctx context.Context, persona, resourceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
-	return s.impl.MintAPIKey(ctx, persona, resourceSlug, name, role, createdBy, expiresAt)
+func (s *Service) MintAPIKey(ctx context.Context, persona, instanceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error) {
+	return s.impl.MintAPIKey(ctx, persona, instanceSlug, name, role, createdBy, expiresAt)
 }
 
-func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, resourceSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
-	return s.impl.MintAPIKeyWithOptions(ctx, persona, resourceSlug, opts)
+func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
+	return s.impl.MintAPIKeyWithOptions(ctx, persona, instanceSlug, opts)
 }
 
 func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error) {
@@ -253,8 +310,8 @@ func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret 
 	return s.impl.ResolveAPIKeyWithResources(ctx, keyID, secret)
 }
 
-func (s *Service) ResolveGroupIDForSlug(ctx context.Context, persona, resourceSlug string) (string, error) {
-	return s.impl.ResolveGroupIDForSlug(ctx, persona, resourceSlug)
+func (s *Service) ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error) {
+	return s.impl.ResolveGroupIDForSlug(ctx, persona, instanceSlug)
 }
 
 func (s *Service) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error) {
@@ -269,8 +326,8 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	return s.impl.RestoreUser(ctx, id)
 }
 
-func (s *Service) RevokeAPIKey(ctx context.Context, persona, resourceSlug, tokenID string) (bool, error) {
-	return s.impl.RevokeAPIKey(ctx, persona, resourceSlug, tokenID)
+func (s *Service) RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error) {
+	return s.impl.RevokeAPIKey(ctx, persona, instanceSlug, tokenID)
 }
 
 func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {

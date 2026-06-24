@@ -55,10 +55,10 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	})
 
 	// Create an org persona group (owner seeded) under root; then a repo under it.
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme", OwnerSubjectID: owner}); err != nil {
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: owner}); err != nil {
 		t.Fatalf("create org permission group: %v", err)
 	}
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "repo", ResourceSlug: "r1", ParentResourceSlug: "acme"}); err != nil {
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "repo", InstanceSlug: "r1", ParentInstanceSlug: "acme"}); err != nil {
 		t.Fatalf("create repo: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSubjectGroups: %v", err)
 	}
-	if len(sgroups) == 0 || sgroups[0].Persona != "repo" || sgroups[0].ResourceSlug != "r1" {
+	if len(sgroups) == 0 || sgroups[0].Persona != "repo" || sgroups[0].InstanceSlug != "r1" {
 		t.Errorf("ListSubjectGroups(dev) should show the repo:r1 membership; got %+v", sgroups)
 	}
 	if len(sgroups) != 1 || sgroups[0].Role != MemberRoleName {
@@ -121,7 +121,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	}
 
 	// Containment enforced at the service layer (before the DB): repo under root.
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "repo", ResourceSlug: "rX", ParentPersona: RootPersona}); err == nil {
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "repo", InstanceSlug: "rX", ParentPersona: RootPersona}); err == nil {
 		t.Errorf("repo directly under root should be rejected")
 	}
 }
@@ -153,7 +153,7 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("root: %v", err)
 	}
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme"}); err != nil {
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme"}); err != nil {
 		t.Fatalf("create org permission group: %v", err)
 	}
 	var uid string

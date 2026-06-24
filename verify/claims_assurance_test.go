@@ -82,10 +82,10 @@ func TestSensitiveDefaults(t *testing.T) {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode reauth_required body: %v", err)
+		t.Fatalf("decode step_up_required body: %v", err)
 	}
-	if body.Error.Code != "reauth_required" || body.Error.Metadata["max_age_seconds"] == nil {
-		t.Fatalf("reauth envelope = %+v", body)
+	if body.Error.Code != "step_up_required" || body.Error.Metadata["max_age_seconds"] == nil {
+		t.Fatalf("step-up envelope = %+v", body)
 	}
 }
 

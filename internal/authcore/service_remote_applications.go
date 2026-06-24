@@ -385,14 +385,14 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 
 // ListRemoteApplicationsForGroup returns the remote_applications whose
 // controlling permission_group_id is the group addressed by (persona,
-// resourceSlug) (#111). It resolves the group via the store, then filters
+// instanceSlug) (#111). It resolves the group via the store, then filters
 // remote_applications by permission_group_id so a per-persona management caller
 // sees only the issuers it controls (ListRemoteApplications lists ALL groups').
-func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, resourceSlug string) ([]RemoteApplication, error) {
+func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, instanceSlug string) ([]RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(resourceSlug))
+	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
 	if err != nil {
 		return nil, err
 	}

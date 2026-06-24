@@ -264,7 +264,7 @@ func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
 	plainJWT, _, err := s.svc.IssueAccessToken(ctx, plainID, "", nil)
 	require.NoError(t, err)
 
-	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", core.SuperAdminRoleName, adminID)
+	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", core.OwnerRoleName, adminID)
 	apiKeyDeny := mintAdminTestAPIKey(t, s, ctx, prefix+"api-deny", core.MemberRoleName, adminID)
 	delegatedAllow := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-allow", []string{core.PermRootUsersRead})
 	delegatedDeny := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-deny", nil)

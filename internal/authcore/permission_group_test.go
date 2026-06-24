@@ -230,21 +230,21 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 	}
 }
 
-func TestValidateGroupResourceSlug(t *testing.T) {
-	if err := validateGroupResourceSlug("merchant", "acme-1"); err != nil {
+func TestValidateGroupInstanceSlug(t *testing.T) {
+	if err := validateGroupInstanceSlug("merchant", "acme-1"); err != nil {
 		t.Fatalf("valid resource slug rejected: %v", err)
 	}
-	if err := validateGroupResourceSlug(RootPersona, ""); err != nil {
+	if err := validateGroupInstanceSlug(RootPersona, ""); err != nil {
 		t.Fatalf("root group without resource slug rejected: %v", err)
 	}
-	if err := validateGroupResourceSlug(RootPersona, "root"); err == nil {
+	if err := validateGroupInstanceSlug(RootPersona, "root"); err == nil {
 		t.Fatal("root group resource slug accepted, want error")
 	}
 
 	bad := []string{"", "Acme", "has space", "has/slash", "ends-", "-starts"}
 	for _, slug := range bad {
-		if err := validateGroupResourceSlug("merchant", slug); err == nil {
-			t.Errorf("validateGroupResourceSlug(%q) = nil, want error", slug)
+		if err := validateGroupInstanceSlug("merchant", slug); err == nil {
+			t.Errorf("validateGroupInstanceSlug(%q) = nil, want error", slug)
 		}
 	}
 }

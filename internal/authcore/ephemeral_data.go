@@ -27,7 +27,7 @@ const (
 	keyPasswordReset        = "auth:password_reset:token:"
 	keyPasswordResetSession = "auth:password_reset:session:"
 	keyTwoFactor            = "auth:2fa:code:"
-	keyTwoFactorReauth      = "auth:2fa:reauth:"
+	keyTwoFactorStepUp      = "auth:2fa:step-up:"
 	keyTwoFactorChallenge   = "auth:2fa:challenge:"
 	keyPasskeyCeremony      = "auth:passkey:"
 )
@@ -425,14 +425,14 @@ func (s *Service) consumeMFACode(ctx context.Context, userID, codeHash string) (
 	return true, nil
 }
 
-func (s *Service) storeMFAReauthCode(ctx context.Context, userID, sessionID, codeHash, method, destination string, ttl time.Duration) error {
+func (s *Service) storeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method, destination string, ttl time.Duration) error {
 	data := twoFactorData{CodeHash: codeHash, Method: method, Destination: destination}
-	return s.ephemSetJSON(ctx, keyTwoFactorReauth+userID+":"+sessionID, data, ttl)
+	return s.ephemSetJSON(ctx, keyTwoFactorStepUp+userID+":"+sessionID, data, ttl)
 }
 
-func (s *Service) consumeMFAReauthCode(ctx context.Context, userID, sessionID, codeHash, method string) (bool, error) {
+func (s *Service) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method string) (bool, error) {
 	var data twoFactorData
-	key := keyTwoFactorReauth + userID + ":" + sessionID
+	key := keyTwoFactorStepUp + userID + ":" + sessionID
 	ok, err := s.ephemGetJSON(ctx, key, &data)
 	if err != nil || !ok {
 		return false, nil

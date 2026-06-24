@@ -39,11 +39,18 @@ WHERE id = sqlc.arg(session_id)::uuid
   AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionMarkAuthenticated :execrows
+-- Re-proving identity refreshes the freshness window and UNIONS the methods
+-- just used into whatever the session already proved — it never downgrades
+-- assurance. A password-only re-auth on an MFA session keeps its otp/mfa AMR,
+-- so a later RequireMFA gate still passes.
 UPDATE profiles.refresh_sessions
-SET last_authenticated_at = now(), auth_methods = $4
+SET last_authenticated_at = now(),
+    auth_methods = ARRAY(
+      SELECT DISTINCT unnest(COALESCE(auth_methods, '{}'::text[]) || sqlc.arg(auth_methods)::text[])
+    )
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid
-  AND issuer = $3
+  AND issuer = sqlc.arg(issuer)
   AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 

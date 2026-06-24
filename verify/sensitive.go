@@ -13,7 +13,7 @@ type SensitiveOptions struct {
 	RequireMFA    bool
 	AMR           []string
 	ACR           string
-	ReauthMethods []string
+	StepUpMethods []string
 }
 
 func Sensitive(options ...SensitiveOptions) func(http.Handler) http.Handler {
@@ -22,7 +22,7 @@ func Sensitive(options ...SensitiveOptions) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
 			if err != nil || !SensitiveClaims(cl, opts) {
-				writeErrData(w, http.StatusForbidden, "reauth_required", sensitiveMetadata(opts))
+				writeErrData(w, http.StatusForbidden, "step_up_required", sensitiveMetadata(opts))
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -62,12 +62,12 @@ func normalizeSensitiveOptions(options ...SensitiveOptions) SensitiveOptions {
 }
 
 func sensitiveMetadata(opts SensitiveOptions) map[string]any {
-	methods := opts.ReauthMethods
+	methods := opts.StepUpMethods
 	if len(methods) == 0 {
 		methods = []string{"password", "2fa"}
 	}
 	out := map[string]any{
-		"reauth_methods":  methods,
+		"step_up_methods": methods,
 		"max_age_seconds": int64(opts.MaxAge.Seconds()),
 	}
 	if opts.RequireMFA {

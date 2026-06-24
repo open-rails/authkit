@@ -50,7 +50,7 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", userID, SubjectKindUser, "admin"); err != nil {
 		t.Fatalf("assign admin after MFA: %v", err)
 	}
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme"}); err != nil {
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme"}); err != nil {
 		t.Fatalf("CreatePermissionGroup: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, "org", "acme", userID, SubjectKindUser, "member"); err != nil {
@@ -104,21 +104,20 @@ func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
 
 	owner := insertBareUser(t, pool)
 	invitee := insertBareUser(t, pool)
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", ResourceSlug: "acme", OwnerSubjectID: owner}); err != nil {
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: owner}); err != nil {
 		t.Fatalf("CreatePermissionGroup: %v", err)
 	}
-	inviteID, err := svc.CreateGroupInvite(ctx, "org", "acme", invitee, "member", owner)
-	if err != nil {
-		t.Fatalf("CreateGroupInvite: %v", err)
-	}
-	if err := svc.AcceptGroupInvite(ctx, inviteID, invitee); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
-		t.Fatalf("accept MFA-required invite without MFA = %v", err)
+	// AssignGroupRole enforces the same MFA-on-assignment guard the old invite
+	// accept did (requireMFAForRoleAssignment): an MFA-required role cannot be
+	// granted to a user without enabled MFA.
+	if err := svc.AssignGroupRole(ctx, "org", "acme", invitee, SubjectKindUser, "member"); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
+		t.Fatalf("assign MFA-required role without MFA = %v", err)
 	}
 	if _, err := svc.Enable2FA(ctx, invitee, "email", nil); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
-	if err := svc.AcceptGroupInvite(ctx, inviteID, invitee); err != nil {
-		t.Fatalf("accept after MFA: %v", err)
+	if err := svc.AssignGroupRole(ctx, "org", "acme", invitee, SubjectKindUser, "member"); err != nil {
+		t.Fatalf("assign after MFA: %v", err)
 	}
 	if ok, err := svc.Can(ctx, invitee, SubjectKindUser, "org", "acme", "org:repo:read"); err != nil || !ok {
 		t.Fatalf("invitee should hold org:repo:read after accept; got %v,%v", ok, err)

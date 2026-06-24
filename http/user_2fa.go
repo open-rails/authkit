@@ -144,6 +144,11 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, ErrInvalidCode)
 			return
 		}
+		// Enrolling proved a live TOTP code — count it as the session's MFA proof so
+		// the user clears a RequireMFA gate without a redundant /step-up/2fa.
+		if claims.SessionID != "" {
+			_ = s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"})
+		}
 		resp := map[string]any{
 			"enabled":      true,
 			"method":       method,
@@ -166,6 +171,12 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		serverErr(w, ErrEnableTwoFAFailed)
 		return
+	}
+
+	// SMS enrollment verified a live code above; count it as the session's MFA
+	// proof. Email enrollment proves no code here, so it does not freshen.
+	if method == "sms" && claims.SessionID != "" {
+		_ = s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"})
 	}
 
 	resp := map[string]any{
@@ -254,7 +265,7 @@ func removedMFARolesResponse(removed []core.RemovedMFARoleAssignment) []map[stri
 		out = append(out, map[string]any{
 			"group_id":      r.GroupID,
 			"persona":       r.Persona,
-			"resource_slug": r.ResourceSlug,
+			"instance_slug": r.InstanceSlug,
 			"role":          r.Role,
 			"removed_at":    r.RemovedAt.UTC().Format(time.RFC3339),
 		})

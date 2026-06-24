@@ -153,14 +153,25 @@ MintServiceJWT, MintDelegatedAccessToken, MintRemoteApplicationAccessToken, Mint
 with params `ServiceJWTMintOptions`, `DelegatedAccessParams`, `RemoteApplicationAccessParams`,
 `CustomJWTMintOptions`. `MaxCustomJWTLifetime = 1h` is a covered ceiling.
 
-**Service facade methods** (covered) — the curated ~66-method embedder surface, reached
+**Passkeys are HTTP-transport-driven (no facade methods, by design).** The WebAuthn
+ceremony methods (`BeginPasskeyRegistration`/`Finish…`, `BeginPasskeyLogin`/`Finish…`,
+`ListPasskeys`, `RenamePasskey`, `DeletePasskey`) live on `internal/authcore` and are
+exercised through the `RoutePasskeys` HTTP routes ([§5.3](#53-static-api-route-table-covered)),
+not the `core.Service` facade. The covered passkey **library** surface is therefore the
+`PasskeyConfig` ([§7.3](#73-config-surface)), the `Passkey` / `PasskeyLoginResult` types,
+and the `ErrPasskey*` sentinels below; the ceremony request/response JSON bodies follow the
+W3C WebAuthn standard (`navigator.credentials.create`/`get`) and are exercised via the routes.
+
+**Service facade methods** (covered) — the curated ~71-method embedder surface, reached
 via `svc.Core()` from the HTTP service or directly from `core.NewFromConfig`. Grouped by
 concern: user lifecycle/admin (`CreateUser`, `ImportUser`, `UpdateImportedUser`,
 `GetUserBy{Email,Username,Phone,SolanaAddress}`, `BanUser`/`UnbanUser`,
 `{Soft,Hard}DeleteUser`, `RestoreUser`, `AdminListUsers`/`AdminGetUser`/…); tokens
 (`Mint*`, `IssueAccessToken`); passwords (`VerifyUserPassword`, `ChangePassword`,
 `UpsertPasswordHash`); RBAC/groups (`Can`, `AssignRoleBySlug`/`RemoveRoleBySlug`/
-`UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`); API keys
+`UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
+links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
+`RedeemGroupInviteLink`/`ExternalInvitesEnabled`); API keys
 (`MintAPIKey`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey[WithResources]`); remote
 apps; identity linking; sessions; bootstrap; and accessors (`JWKS`, `Postgres`, `Schema`,
 `Options`, `PublicKeysByKID`, `Keyfunc`, …). Every method on the facade is covered; the
@@ -176,8 +187,11 @@ apps; identity linking; sessions; bootstrap; and accessors (`JWKS`, `Postgres`, 
 
 **Permission-group / RBAC types** (covered): `GroupSchema`, `PersonaDef`, `RoleDef`,
 `PermissionDef`, `ManagementProfile`, `GeneratedRoute`, `GroupAssignment`,
-`GroupMember`, `GroupInvite`, `GroupInviteStatus*` consts, `SubjectGroupMembership`,
-`CreatePermissionGroupRequest`, `CustomRoleResolver`, `PermissionGroupStore`,
+`GroupMember`, `SubjectGroupMembership`, `CreatePermissionGroupRequest`,
+`GroupInviteLink`, `GroupInviteLinkCreated`, `CreateGroupInviteLinkRequest`,
+`RedeemGroupInviteLinkResult`, `GroupInviteMessage` (#134 invite links — these
+REPLACE the removed `GroupInvite`/`GroupInviteStatus*` user_id-invite API),
+`CustomRoleResolver`, `PermissionGroupStore`,
 `SubjectKindUser`/`SubjectKind*` consts, `RootPersona`, the `PermRoot*` constants, and the
 `Perm*(t string) string` / `OwnerGrant` / `PermissionPersona` permission-builder funcs.
 
@@ -186,6 +200,11 @@ consumers implement): `EmailSender`, `SMSSender`, `SMSHealthChecker`,
 `EntitlementsProvider`, `BatchEntitlementsProvider`, `EntitlementFilterProvider`,
 `EphemeralStore`, `AuthEventLogger`, `AuthEventLogReader`, `SolanaSNSResolver`,
 `ResourceScopeAuthorizer`, `CustomRoleResolver`.
+`GroupInviteEmailSender` (#134) is an OPTIONAL capability, NOT part of the required
+`EmailSender` contract: an `EmailSender` MAY also implement
+`SendGroupInvite(ctx, email, GroupInviteMessage)` to receive AuthKit-built invite-link
+emails; a sender that doesn't is simply never asked to send them (so this is additive,
+not a breaking method addition to `EmailSender`).
 Verification senders receive final AuthKit-built URLs in `VerificationMessage.LinkURL`;
 password-reset senders receive the final reset URL, not a raw token.
 
@@ -202,10 +221,12 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `ValidationErrorCode`, plus the `ErrCode*` validation-code constants.
 
 **Sentinel errors** (covered — consumers compare with `errors.Is`): `ErrUserBanned`,
-`ErrPasswordResetRequired` (→ HTTP `password_reset_required`), `ErrReauthenticationRequired`,
+`ErrPasswordResetRequired` (→ HTTP `password_reset_required`), `ErrStepUpRequired` (→ HTTP `step_up_required`),
 `ErrTwoFAEnrollmentRequired`, `ErrRenameRateLimited`, `ErrOwnerSlugTaken`,
 `ErrPasskeyNotFound`, `ErrPasskeyUserVerificationRequired`, `ErrPasskeyCloneDetected`,
-`ErrGroupNotFound`, `ErrNotGroupMember`, `ErrInviteNotFound`, `ErrUserRoleNotFound`,
+`ErrGroupNotFound`, `ErrNotGroupMember`, `ErrInviteLinkNotFound`, `ErrInviteLinkExpired`,
+`ErrInviteLinkExhausted`, `ErrInviteLinkRevoked`, `ErrInviteEmailMismatch`,
+`ErrExternalInvitesDisabled` (#134), `ErrUserRoleNotFound`,
 `ErrReservedRoleSlug`, `ErrCannotRemoveLastAdminRole`, `ErrEntitlementFilterUnavailable`,
 `ErrInvalidBootstrapManifest`, `ErrEmptyCustomClaims`, `ErrRemoteApplicationNotFound`,
 `ErrAttributeDefNotFound`, and the `ErrInvalid*` re-exports from `authbase`.
@@ -386,10 +407,10 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | GET | `/passkeys` | passkeys | required |
 | PATCH | `/passkeys/{id}` | passkeys | required |
 | DELETE | `/passkeys/{id}` | passkeys | required |
-| POST | `/reauth/password` | user | required |
-| POST | `/reauth/2fa` | user | required |
+| POST | `/step-up/password` | user | required |
+| POST | `/step-up/2fa` | user | required |
 | POST | `/oidc/{provider}/link/start` | user | required |
-| POST | `/oidc/{provider}/reauth/start` | user | required |
+| POST | `/oidc/{provider}/step-up/start` | user | required |
 | GET | `/user/2fa` | user | required |
 | POST | `/user/2fa` | user | required |
 | DELETE | `/user/2fa` | user | required |
@@ -408,28 +429,32 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 ### 5.4 Generated permission-group routes (covered, schema-derived)
 
 For each configured permission-group persona, AuthKit **generates** routes
-addressed by resource slug. A capability a profile disables emits **no** route (calling it
-404s — stronger than 403). The cross-persona `GET /me/groups` is always present.
+addressed by the persona's **instance slug** (`{instance_slug}` — which specific
+merchant/team/etc.; renamed from `resource_slug` in #135 — a breaking change to the
+path param name AND to the `instance_slug` field in JSON responses). A capability a
+profile disables emits **no** route (calling it 404s — stronger than 403). The
+cross-persona `GET /me/groups` and `POST /invites/redeem` are always present.
 
 | Method | Path shape | Wired |
 |---|---|---|
 | GET | `/me/groups` | yes |
-| GET | `/{persona}/{resource_slug}/members` | yes |
-| POST | `/{persona}/{resource_slug}/members` | yes |
-| DELETE | `/{persona}/{resource_slug}/members/{user}` | yes |
-| PUT | `/{persona}/{resource_slug}/members/{user}/roles/{role}` | yes |
-| GET | `/{persona}/{resource_slug}/roles` | yes (catalog read) |
-| POST | `/{persona}/{resource_slug}/roles` | **501 stub** |
-| DELETE | `/{persona}/{resource_slug}/roles/{role}` | **501 stub** |
-| GET | `/{persona}/{resource_slug}/api-keys` | yes |
-| POST | `/{persona}/{resource_slug}/api-keys` | yes |
-| DELETE | `/{persona}/{resource_slug}/api-keys/{key}` | yes |
-| GET | `/{persona}/{resource_slug}/remote-applications` | yes |
-| POST | `/{persona}/{resource_slug}/remote-applications` | yes |
-| DELETE | `/{persona}/{resource_slug}/remote-applications/{app}` | yes |
-| GET | `/{persona}/{resource_slug}/invites` | yes |
-| POST | `/{persona}/{resource_slug}/invites` | yes |
-| DELETE | `/{persona}/{resource_slug}/invites/{invite}` | yes |
+| POST | `/invites/redeem` | yes (#134 — any authenticated user redeems an invite-link `code`) |
+| GET | `/{persona}/{instance_slug}/members` | yes |
+| POST | `/{persona}/{instance_slug}/members` | yes |
+| DELETE | `/{persona}/{instance_slug}/members/{user}` | yes |
+| PUT | `/{persona}/{instance_slug}/members/{user}/roles/{role}` | yes |
+| GET | `/{persona}/{instance_slug}/roles` | yes (catalog read) |
+| POST | `/{persona}/{instance_slug}/roles` | **501 stub** |
+| DELETE | `/{persona}/{instance_slug}/roles/{role}` | **501 stub** |
+| GET | `/{persona}/{instance_slug}/api-keys` | yes |
+| POST | `/{persona}/{instance_slug}/api-keys` | yes |
+| DELETE | `/{persona}/{instance_slug}/api-keys/{key}` | yes |
+| GET | `/{persona}/{instance_slug}/remote-applications` | yes |
+| POST | `/{persona}/{instance_slug}/remote-applications` | yes |
+| DELETE | `/{persona}/{instance_slug}/remote-applications/{app}` | yes |
+| GET | `/{persona}/{instance_slug}/invites/links` | yes (#134 — list invite links) |
+| POST | `/{persona}/{instance_slug}/invites/links` | yes (#134 — mint; returns the code once) |
+| DELETE | `/{persona}/{instance_slug}/invites/links/{link}` | yes (#134 — revoke) |
 
 > The custom-role **define/delete** routes return `501 not_implemented`. Promoting them
 > from 501 to a working response is **not** breaking; the `not_implemented` code on those
@@ -441,7 +466,7 @@ addressed by resource slug. A capability a profile disables emits **no** route (
 |---|---|---|
 | GET | `/{provider}/login` | begins OIDC, redirects to provider; optional app-relative `return_to` |
 | GET | `/{provider}/callback` | full-page callback → `{BaseURL}{CallbackPath}#access_token=…&refresh_token=…&return_to=…` |
-| GET | `/{provider}/reauth/callback` | reauth variant |
+| GET | `/{provider}/step-up/callback` | step-up variant |
 
 The fragment-callback contract (tokens in the URL `#fragment`, default callback
 `/login/callback`) is covered. `return_to`, when supplied at login start, is
@@ -488,7 +513,7 @@ The full set is enumerated in `http/error_codes.go` (~260 codes). Notable stable
 referenced by behavior elsewhere in this contract: `invalid_request`, `not_found`,
 `unauthorized`, `forbidden`, `rate_limited`, `database_error`, `invalid_credentials`,
 `password_too_short`, `password_reset_required`, `registration_disabled`,
-`reauth_required`, `2fa_enrollment_required`,
+`step_up_required`, `2fa_enrollment_required`,
 `rename_rate_limited`, `owner_slug_taken`, `username_not_allowed`,
 `permission_grant_denied`, `unknown_permission`, `unknown_role`,
 `role_not_grantable_to_api_key`, `resource_scope_denied`.
@@ -629,6 +654,11 @@ an optional field with a backward-compatible zero-value default is MINOR.
   `MaxTTL` (0 ⇒ uncapped).
 - **`TwoFactor`** `TwoFactorConfig`: `TOTPSecretKey` (16/24/32 bytes). Role-level
   MFA requirements live on `RoleDef.RequiresMFA`.
+- **`Passkeys`** `PasskeyConfig`: `RPID` (WebAuthn relying-party id; defaults to the
+  `Frontend.BaseURL` hostname), `RPDisplayName` (defaults to `Token.Issuer`, else RPID),
+  `Origins` (allowed WebAuthn origins; defaults to `[BaseURL origin]`; every origin host
+  must equal `RPID` or be a subdomain of it), `UserVerification` (`preferred` default |
+  `required` | `discouraged`). Requires a valid `Frontend.BaseURL` origin to be usable.
 - **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `Groups` (`[]PersonaDef`).
 - **Top-level**: `Environment`, `Schema`, `SolanaNetwork`.
 

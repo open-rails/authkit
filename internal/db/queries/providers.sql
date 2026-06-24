@@ -54,7 +54,7 @@ WHERE user_id = $1 AND issuer = $2;
 SELECT subject FROM profiles.user_providers
 WHERE user_id = $1 AND issuer = $2;
 
--- HTTP-layer provider lookups (http/reauth.go, http/user_me_get.go).
+-- HTTP-layer provider lookups (http/step_up.go, http/user_me_get.go).
 
 -- name: UserProviderLinkExists :one
 SELECT EXISTS (

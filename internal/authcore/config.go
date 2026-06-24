@@ -82,6 +82,10 @@ type FrontendConfig struct {
 	// PasswordResetPath is the host-owned frontend route that receives
 	// scanner-safe password reset link landings. Empty defaults to "/reset".
 	PasswordResetPath string
+	// InvitePath is the host-owned frontend route that receives permission-group
+	// invite links (`?code=…`); the SPA reads the code and POSTs it to the redeem
+	// endpoint. Empty defaults to "/accept-invite". (#134)
+	InvitePath string
 }
 
 // RegistrationConfig controls verification policy and public self-registration.

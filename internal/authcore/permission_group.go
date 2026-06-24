@@ -38,16 +38,16 @@ const (
 // segmentRe matches ONE lowercase permission segment (persona, resource, or
 // action): a letter followed by letters/digits/hyphens.
 var segmentRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-var resourceSlugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+var instanceSlugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
-func validateGroupResourceSlug(persona, slug string) error {
+func validateGroupInstanceSlug(persona, slug string) error {
 	if persona == RootPersona {
 		if slug != "" {
 			return fmt.Errorf("root group must not have a resource slug")
 		}
 		return nil
 	}
-	if !resourceSlugRe.MatchString(slug) {
+	if !instanceSlugRe.MatchString(slug) {
 		return fmt.Errorf("resource slug %q must be lowercase URL-safe", slug)
 	}
 	return nil

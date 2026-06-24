@@ -189,12 +189,12 @@ type StateData struct {
 	RedirectURI string
 	LinkUserID  string
 	ReturnTo    string
-	// Reauth* fields identify a step-up reauthentication flow for an existing
+	// StepUp* fields identify a step-up authentication flow for an existing
 	// session. Login/link flows leave these empty.
-	ReauthUserID    string
-	ReauthSessionID string
-	ReauthReturnTo  string
-	ReauthStartedAt time.Time
+	StepUpUserID    string
+	StepUpSessionID string
+	StepUpReturnTo  string
+	StepUpStartedAt time.Time
 	UI              string // "popup" to trigger popup HTML callback; else redirect
 	PopupNonce      string // echoed in popup postMessage for opener validation
 }

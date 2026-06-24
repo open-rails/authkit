@@ -28,13 +28,10 @@ func TestBuildSchema_InjectsRootAndValidates(t *testing.T) {
 	if _, ok := s.Persona(RootPersona); !ok {
 		t.Fatalf("root persona not present after BuildSchema")
 	}
-	// root owner = root:* (super-admin reach), moderation-only.
+	// root owner = root:* (the apex; #136 folded super-admin into owner).
 	owner, _ := s.Role(RootPersona, OwnerRoleName)
 	if len(owner.Permissions) != 1 || owner.Permissions[0] != "root:*" {
 		t.Errorf("root owner = %v, want [root:*]", owner.Permissions)
-	}
-	if _, ok := s.Role(RootPersona, SuperAdminRoleName); !ok {
-		t.Errorf("root missing super-admin role")
 	}
 	// the merchant persona is a child of root.
 	if err := s.ValidateParent("merchant", RootPersona); err != nil {

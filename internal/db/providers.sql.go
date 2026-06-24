@@ -134,7 +134,7 @@ type UserProviderLinkExistsParams struct {
 	ProviderSlug *string
 }
 
-// HTTP-layer provider lookups (http/reauth.go, http/user_me_get.go).
+// HTTP-layer provider lookups (http/step_up.go, http/user_me_get.go).
 func (q *Queries) UserProviderLinkExists(ctx context.Context, arg UserProviderLinkExistsParams) (bool, error) {
 	row := q.db.QueryRow(ctx, userProviderLinkExists, arg.UserID, arg.Issuer, arg.ProviderSlug)
 	var exists bool

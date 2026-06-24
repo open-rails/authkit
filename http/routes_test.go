@@ -20,10 +20,10 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireRoute(t, sessionUser, http.MethodPost, "/token")
 	requireRoute(t, sessionUser, http.MethodPost, "/2fa/verify")
 	requireRoute(t, sessionUser, http.MethodGet, "/me")
-	requireRoute(t, sessionUser, http.MethodPost, "/reauth/password")
-	requireRoute(t, sessionUser, http.MethodPost, "/reauth/2fa")
+	requireRoute(t, sessionUser, http.MethodPost, "/step-up/password")
+	requireRoute(t, sessionUser, http.MethodPost, "/step-up/2fa")
 	requireRoute(t, sessionUser, http.MethodPost, "/oidc/{provider}/link/start")
-	requireRoute(t, sessionUser, http.MethodPost, "/oidc/{provider}/reauth/start")
+	requireRoute(t, sessionUser, http.MethodPost, "/oidc/{provider}/step-up/start")
 	requireNoRoute(t, sessionUser, http.MethodPost, "/register")
 	requireNoRoute(t, sessionUser, http.MethodGet, "/user/me")
 	requireNoRoute(t, sessionUser, http.MethodGet, "/me/bootstrap")
@@ -37,7 +37,7 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireNoRoute(t, admin, http.MethodPost, "/admin/users/toggle-active")
 
 	permissions := s.APIRoutes(RoutePermissionGroups)
-	requireRoute(t, permissions, http.MethodPost, "/root/{resource_slug}/members")
+	requireRoute(t, permissions, http.MethodPost, "/root/{instance_slug}/members")
 	requireRoute(t, permissions, http.MethodGet, "/me/groups")
 	requireNoRoute(t, permissions, http.MethodPost, "/password/login")
 
@@ -51,7 +51,7 @@ func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {
 	routes := s.Routes().OIDCBrowser()
 	requireRoute(t, routes, http.MethodGet, "/{provider}/login")
 	requireRoute(t, routes, http.MethodGet, "/{provider}/callback")
-	requireRoute(t, routes, http.MethodGet, "/{provider}/reauth/callback")
+	requireRoute(t, routes, http.MethodGet, "/{provider}/step-up/callback")
 	requireNoRoute(t, routes, http.MethodGet, "/oidc/{provider}/login")
 	requireNoRoute(t, s.APIRoutes(RoutePublic, RouteSession, RouteUser), http.MethodGet, "/{provider}/login")
 }
