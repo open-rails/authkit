@@ -35,13 +35,16 @@ func (p *fakeDirectoryProvider) ListSubjectsWithEntitlement(_ context.Context, e
 func TestAdminListUsers_GenericDirectory(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
+	// #111/#136: roles are catalog-defined (core.Config), not runtime slugs. Declare
+	// a bounded `admin` root role for the directory filter to resolve (super-admin
+	// was removed in #136 — the apex is the built-in owner).
+	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "admin", Permissions: []string{PermRootUsersRead}}))
+	require.NoError(t, err)
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc.groupSchema = gs
 
 	suffix := time.Now().UnixNano()
 	prefix := fmt.Sprintf("dir%d", suffix)
-	// #111: the role plane is now the root permission-group. Roles are
-	// catalog-defined (core.Config), not runtime slugs, so the directory's role
-	// filter resolves a real root catalog role — "admin" maps onto super-admin.
 	const roleSlug = "admin"
 
 	t.Cleanup(func() {
