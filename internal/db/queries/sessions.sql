@@ -17,10 +17,14 @@ SELECT id::text, user_id, family_id::text
 FROM profiles.refresh_sessions
 WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL;
 
--- name: SessionRotate :exec
+-- name: SessionRotate :execrows
+-- Conditional compare-and-swap: rotate only if the current hash still matches the
+-- one the caller read. 0 rows affected means another concurrent refresh already
+-- rotated this session (or it was revoked) — the caller must treat that as a lost
+-- race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
 UPDATE profiles.refresh_sessions
-SET previous_token_hash = current_token_hash, current_token_hash = $1, last_used_at = now(), user_agent = $2, ip_addr = $3
-WHERE id = $4 AND revoked_at IS NULL;
+SET previous_token_hash = current_token_hash, current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(), user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr)
+WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash) AND revoked_at IS NULL;
 
 -- name: SessionsListByUser :many
 SELECT id::text, family_id::text, created_at, last_authenticated_at, last_used_at, expires_at, revoked_at,

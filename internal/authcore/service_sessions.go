@@ -155,11 +155,25 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", errors.New("user_disabled")
 	}
 
-	// Rotate: set previous = current, current = new
+	// Rotate: set previous = current, current = new — as an atomic compare-and-swap
+	// conditioned on the current hash we just read (h). If 0 rows change, another
+	// concurrent refresh already rotated this session (benign double-submit) or it
+	// was revoked; reject cleanly without minting a second token and WITHOUT
+	// triggering family revoke (losing the race is not token reuse).
 	newTok := randB64(32)
 	newHash := s.hashRefresh(newTok)
-	if err = s.q.SessionRotate(ctx, db.SessionRotateParams{CurrentTokenHash: newHash, UserAgent: nullable(ua), IpAddr: ipText(ip), ID: sid}); err != nil {
+	rotated, err := s.q.SessionRotate(ctx, db.SessionRotateParams{
+		NewTokenHash:             newHash,
+		UserAgent:                nullable(ua),
+		IpAddr:                   ipText(ip),
+		ID:                       sid,
+		ExpectedCurrentTokenHash: h,
+	})
+	if err != nil {
 		return "", time.Time{}, "", err
+	}
+	if rotated == 0 {
+		return "", time.Time{}, "", errors.New("invalid refresh token")
 	}
 
 	// Mint new ID token
