@@ -325,7 +325,10 @@ type remoteAppRegisterRequest struct {
 	Mode           string              `json:"mode"`
 	PublicKeys     []core.RemoteAppKey `json:"public_keys"`
 	AllowedOrigins []string            `json:"allowed_origins"`
-	Enabled        bool                `json:"enabled"`
+	// Enabled is a pointer so an omitted field ("enabled" absent) is
+	// distinguishable from an explicit false. Omitted defaults to true on this
+	// register/upsert endpoint; an explicit false still disables the issuer.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // groupRemoteAppRegister registers (upserts) a remote_application owned by the
@@ -342,6 +345,13 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 		s.writeGroupOpError(w, err)
 		return
 	}
+	// Default to enabled when the field is omitted; preserve an explicit
+	// true/false. A plain bool would collapse "omitted" into false and silently
+	// disable an existing issuer on any partial re-register (e.g. rotating keys).
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
 	ra, err := s.svc.UpsertRemoteApplication(r.Context(), core.RemoteApplication{
 		Slug:              strings.TrimSpace(body.Slug),
 		PermissionGroupID: gid,
@@ -350,7 +360,7 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 		Mode:              strings.TrimSpace(body.Mode),
 		PublicKeys:        body.PublicKeys,
 		AllowedOrigins:    body.AllowedOrigins,
-		Enabled:           body.Enabled,
+		Enabled:           enabled,
 	})
 	if err != nil {
 		s.writeGroupOpError(w, err)

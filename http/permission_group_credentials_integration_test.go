@@ -321,5 +321,45 @@ func TestGroupRemoteAppLifecycle_HTTP(t *testing.T) {
 	require.Len(t, listed.Data, 0)
 }
 
+// Regression: omitting "enabled" on a re-register (upsert) must NOT silently
+// disable an already-enabled issuer. The request field was a plain bool that
+// collapsed "field omitted" into false; it is now a *bool defaulting to true
+// when absent, while an explicit false still disables the issuer.
+func TestGroupRemoteAppRegisterEnabledOmitted_HTTP(t *testing.T) {
+	s, pool, caller := newCredTestService(t)
+	ctx := context.Background()
+
+	_, err := s.svc.CreatePermissionGroup(ctx, core.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-en", OwnerSubjectID: caller})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug LIKE 'ci-en%'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-en'`)
+	})
+
+	regGR := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/remote-applications", Perm: "merchant:credentials:manage"}
+	register := func(t *testing.T, body string) map[string]any {
+		t.Helper()
+		w := s.drive(t, regGR, "m-en", caller, body)
+		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		return out
+	}
+
+	const issuer = "https://issuer.ci.example/en"
+
+	// 1. Initial register, explicitly enabled.
+	reg := register(t, `{"slug":"ci-en","issuer":"`+issuer+`","jwks_uri":"https://issuer.ci.example/.well-known/jwks.json","enabled":true}`)
+	require.Equal(t, true, reg["enabled"])
+
+	// 2. Partial re-register (rotate jwks_uri) that OMITS "enabled": must stay enabled.
+	reg = register(t, `{"slug":"ci-en","issuer":"`+issuer+`","jwks_uri":"https://issuer.ci.example/rotated/jwks.json"}`)
+	require.Equal(t, true, reg["enabled"], "omitting enabled must not disable an existing issuer")
+
+	// 3. Explicit enabled:false must still disable (guards the intended disable path).
+	reg = register(t, `{"slug":"ci-en","issuer":"`+issuer+`","jwks_uri":"https://issuer.ci.example/rotated/jwks.json","enabled":false}`)
+	require.Equal(t, false, reg["enabled"], "explicit enabled:false must still disable")
+}
+
 // Invite-LINK lifecycle over HTTP (mint -> list -> redeem -> revoke) is covered
 // by the #134 link tests; the old user_id invite/accept flow was removed.
