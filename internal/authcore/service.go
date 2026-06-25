@@ -697,7 +697,9 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 			// Surface the misuse (key only — values may be PII): AuthKit's own
 			// flows never put these in extra, so a hit means a host is trying to
 			// set authority/identity it does not control.
-			stdlog.Printf("authkit: warning: dropping reserved claim %q from caller-supplied extra during access-token issuance for user %s", k, userID)
+			safeUserID := strings.ReplaceAll(userID, "\n", "")
+			safeUserID = strings.ReplaceAll(safeUserID, "\r", "")
+			stdlog.Printf("authkit: warning: dropping reserved claim %q from caller-supplied extra during access-token issuance for user %s", k, safeUserID)
 			continue
 		}
 		claims[k] = v
