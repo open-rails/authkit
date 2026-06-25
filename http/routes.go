@@ -172,9 +172,18 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(core.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
 	}
 
+	// Passkey routes are mounted only when passkeys are configured. Without a
+	// Relying Party ID the WebAuthn ceremonies fail closed, so exposing the
+	// /passkeys/* endpoints would just serve guaranteed errors. Embedders that
+	// set PasskeyConfig.RPID get the routes; everyone else doesn't advertise a
+	// feature they can't fulfil.
+	passkeysEnabled := s.svc.PasskeysEnabled()
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {
+			continue
+		}
+		if route.Group == RoutePasskeys && !passkeysEnabled {
 			continue
 		}
 		route.Handler = lang(route.Handler)

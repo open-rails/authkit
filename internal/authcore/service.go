@@ -1368,6 +1368,13 @@ func (s *Service) HasEmailSender() bool { return s.email != nil }
 // HasSMSSender returns true if an SMS sender is configured.
 func (s *Service) HasSMSSender() bool { return s.sms != nil }
 
+// PasskeysEnabled reports whether passkey (WebAuthn) support is configured.
+// Passkeys require a Relying Party ID (PasskeyConfig.RPID); without it every
+// WebAuthn ceremony fails closed (the origin must match the RPID). The HTTP
+// transport uses this to skip mounting the /passkeys/* routes entirely rather
+// than exposing endpoints that can only error.
+func (s *Service) PasskeysEnabled() bool { return strings.TrimSpace(s.opts.PasskeyRPID) != "" }
+
 // CheckSMSHealth probes whether the configured SMS sender can actually deliver,
 // without sending a message, when the sender implements SMSHealthChecker. The
 // result is cached and gates phone-based flows via SMSAvailable. It returns the
