@@ -107,7 +107,7 @@ func TestImportUsers_RejectIsolation(t *testing.T) {
 	u, e := uniq()
 	inputs := []ImportUserInput{
 		{Username: u("ok1"), Email: e("ok1")},
-		{Username: "ab", Email: e("badname")},  // username too short -> rejected
+		{Username: "ab", Email: e("badname")},       // username too short -> rejected
 		{Username: u("ok2"), Email: "not-an-email"}, // bad email -> rejected
 		{Username: u("ok3"), Email: e("ok3")},
 	}

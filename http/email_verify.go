@@ -215,9 +215,9 @@ func (s *Service) createTokensForUser(r *http.Request, userID string, method str
 
 func authMethodsForSessionMethod(method string) []string {
 	switch method {
-	case "email_verification":
+	case "email_verification", "passwordless_email":
 		return []string{"email"}
-	case "phone_verification":
+	case "phone_verification", "passwordless_sms":
 		return []string{"sms"}
 	default:
 		return []string{"pwd"}

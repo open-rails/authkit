@@ -43,6 +43,7 @@ type Options struct {
 	FrontendCallbackPath      string
 	FrontendVerifyPath        string
 	FrontendPasswordResetPath string
+	FrontendPasswordlessPath  string
 	FrontendInvitePath        string
 	PasskeyRPID               string
 	PasskeyRPDisplayName      string
@@ -66,6 +67,11 @@ type Options struct {
 
 	// NativeUserRegistrationMode controls public native-user self-registration.
 	NativeUserRegistrationMode RegistrationMode
+	// PasswordlessLoginEnabled enables contact-based passwordless sessions.
+	PasswordlessLoginEnabled bool
+	// PasswordlessAutoRegistrationEnabled allows unknown verified contacts to
+	// create no-password users during passwordless confirmation.
+	PasswordlessAutoRegistrationEnabled bool
 
 	// Environment is host-provided runtime mode used for dev/prod behavior checks.
 	Environment string
@@ -169,12 +175,14 @@ var (
 	ErrPhoneInUse              = errors.New("phone_in_use")
 	ErrEmailSenderUnavailable  = errors.New("email_sender_unavailable")
 	ErrSMSSenderUnavailable    = errors.New("sms_unavailable")
+	ErrPasswordlessDisabled    = errors.New("passwordless_disabled")
 )
 
 const (
 	defaultFrontendCallbackPath      = "/login/callback"
 	defaultFrontendVerifyPath        = "/verify"
 	defaultFrontendPasswordResetPath = "/reset"
+	defaultFrontendPasswordlessPath  = "/passwordless"
 	defaultFrontendInvitePath        = "/accept-invite"
 )
 
@@ -217,6 +225,9 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 	}
 	if strings.TrimSpace(opts.FrontendPasswordResetPath) == "" {
 		opts.FrontendPasswordResetPath = defaultFrontendPasswordResetPath
+	}
+	if strings.TrimSpace(opts.FrontendPasswordlessPath) == "" {
+		opts.FrontendPasswordlessPath = defaultFrontendPasswordlessPath
 	}
 	if strings.TrimSpace(opts.FrontendInvitePath) == "" {
 		opts.FrontendInvitePath = defaultFrontendInvitePath
@@ -301,6 +312,10 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	if err != nil {
 		return nil, err
 	}
+	frontendPasswordlessPath, err := normalizeFrontendPath("FrontendPasswordlessPath", cfg.Frontend.PasswordlessPath, defaultFrontendPasswordlessPath)
+	if err != nil {
+		return nil, err
+	}
 	frontendInvitePath, err := normalizeFrontendPath("FrontendInvitePath", cfg.Frontend.InvitePath, defaultFrontendInvitePath)
 	if err != nil {
 		return nil, err
@@ -354,34 +369,37 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		return nil, fmt.Errorf("authkit: invalid Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", cfg.Schema)
 	}
 	opts := Options{
-		Issuer:                     issuer,
-		IssuedAudiences:            issuedAudiences,
-		ExpectedAudiences:          expectedAudiences,
-		AccessTokenDuration:        accessTTL,
-		RefreshTokenDuration:       refTTL,
-		SessionMaxPerUser:          maxSess,
-		BaseURL:                    baseURL,
-		FrontendCallbackPath:       frontendCallbackPath,
-		FrontendVerifyPath:         frontendVerifyPath,
-		FrontendPasswordResetPath:  frontendPasswordResetPath,
-		FrontendInvitePath:         frontendInvitePath,
-		PasskeyRPID:                passkeyRPID,
-		PasskeyRPDisplayName:       passkeyName,
-		PasskeyOrigins:             passkeyOrigins,
-		PasskeyUserVerification:    passkeyUV,
-		Schema:                     schema,
-		RegistrationVerification:   registrationVerification,
-		NativeUserRegistrationMode: nativeUserRegistrationMode,
-		Environment:                strings.TrimSpace(cfg.Environment),
-		SolanaNetwork:              strings.TrimSpace(cfg.SolanaNetwork),
-		SolanaSNSEnabled:           true,
-		SolanaSNSLookupTimeout:     3 * time.Second,
-		SolanaSNSCacheTTL:          24 * time.Hour,
-		APIKeyPrefix:               tokenPrefix,
-		APIKeyMaxTTL:               maxTTL,
-		TOTPSecretKey:              append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),
-		RequireMFAEnrollment:       cfg.TwoFactor.RequireEnrollment,
-		Permissions:                cfg.RBAC.Permissions,
+		Issuer:                              issuer,
+		IssuedAudiences:                     issuedAudiences,
+		ExpectedAudiences:                   expectedAudiences,
+		AccessTokenDuration:                 accessTTL,
+		RefreshTokenDuration:                refTTL,
+		SessionMaxPerUser:                   maxSess,
+		BaseURL:                             baseURL,
+		FrontendCallbackPath:                frontendCallbackPath,
+		FrontendVerifyPath:                  frontendVerifyPath,
+		FrontendPasswordResetPath:           frontendPasswordResetPath,
+		FrontendPasswordlessPath:            frontendPasswordlessPath,
+		FrontendInvitePath:                  frontendInvitePath,
+		PasskeyRPID:                         passkeyRPID,
+		PasskeyRPDisplayName:                passkeyName,
+		PasskeyOrigins:                      passkeyOrigins,
+		PasskeyUserVerification:             passkeyUV,
+		Schema:                              schema,
+		RegistrationVerification:            registrationVerification,
+		NativeUserRegistrationMode:          nativeUserRegistrationMode,
+		PasswordlessLoginEnabled:            cfg.Registration.PasswordlessLogin,
+		PasswordlessAutoRegistrationEnabled: cfg.Registration.PasswordlessAutoRegistration,
+		Environment:                         strings.TrimSpace(cfg.Environment),
+		SolanaNetwork:                       strings.TrimSpace(cfg.SolanaNetwork),
+		SolanaSNSEnabled:                    true,
+		SolanaSNSLookupTimeout:              3 * time.Second,
+		SolanaSNSCacheTTL:                   24 * time.Hour,
+		APIKeyPrefix:                        tokenPrefix,
+		APIKeyMaxTTL:                        maxTTL,
+		TOTPSecretKey:                       append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),
+		RequireMFAEnrollment:                cfg.TwoFactor.RequireEnrollment,
+		Permissions:                         cfg.RBAC.Permissions,
 	}
 	// pg is positional but MAY be nil at the core layer (verify-only construction
 	// or config-only unit tests need no store); WithPostgres(nil) is a no-op, so a
@@ -1324,6 +1342,18 @@ func (s *Service) emailPasswordResetURL(token string) string {
 
 func (s *Service) phonePasswordResetURL(token string) string {
 	return s.verificationURL(s.opts.FrontendPasswordResetPath, "phone", token)
+}
+
+func (s *Service) passwordlessURL(channel, token, returnTo string) string {
+	q := url.Values{}
+	q.Set("token", token)
+	if channel != "" {
+		q.Set("channel", channel)
+	}
+	if safe := sanitizePasswordlessReturnTo(returnTo); safe != "" {
+		q.Set("return_to", safe)
+	}
+	return s.authkitURL(s.opts.FrontendPasswordlessPath, q)
 }
 
 var (

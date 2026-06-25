@@ -305,6 +305,26 @@ func (s *Service) PatchUserMetadata(ctx context.Context, userID string, patch ma
 	return s.impl.PatchUserMetadata(ctx, userID, patch)
 }
 
+func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRequest) (PasswordlessStartResult, error) {
+	return s.impl.StartPasswordless(ctx, req)
+}
+
+func (s *Service) ConfirmPasswordlessCode(ctx context.Context, identifier, code string) (PasswordlessConfirmResult, error) {
+	return s.impl.ConfirmPasswordlessCode(ctx, identifier, code)
+}
+
+func (s *Service) ConfirmPasswordlessToken(ctx context.Context, token string) (PasswordlessConfirmResult, error) {
+	return s.impl.ConfirmPasswordlessToken(ctx, token)
+}
+
+func (s *Service) RecordFailedPasswordlessCode(ctx context.Context, identifier string) {
+	s.impl.RecordFailedPasswordlessCode(ctx, identifier)
+}
+
+func (s *Service) ClearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
+	s.impl.ClearPasswordlessCodeAttempts(ctx, identifier)
+}
+
 func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
 	return s.impl.PublicKeysByKID()
 }

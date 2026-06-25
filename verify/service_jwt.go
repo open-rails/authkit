@@ -16,14 +16,14 @@ import (
 // receiving host still owns authorization: intersect Permissions with its own
 // server-side grants before allowing an action.
 type ServiceJWTPrincipal struct {
-	Issuer      string
-	Subject     string
-	RemoteApplicationSlug         string
-	Audiences   []string
-	Permissions []string
-	Resources   []authbase.APIKeyResource
-	JTI         string
-	ExpiresAt   time.Time
+	Issuer                string
+	Subject               string
+	RemoteApplicationSlug string
+	Audiences             []string
+	Permissions           []string
+	Resources             []authbase.APIKeyResource
+	JTI                   string
+	ExpiresAt             time.Time
 }
 
 type serviceJWTPrincipalCtxKey struct{}

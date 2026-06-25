@@ -141,10 +141,13 @@ func main() {
       CallbackPath:      "/login/callback",
       VerifyPath:        "/verify",
       PasswordResetPath: "/reset",
+      PasswordlessPath:  "/passwordless",
     },
     // Registration: core.RegistrationConfig{
-    //   Verification:   core.RegistrationVerificationRequired, // none|optional|required
-    //   NativeUserMode: core.RegistrationModeOpen,             // open|invite_only|admin_only|admin_bootstrap_only|...
+    //   Verification:                      core.RegistrationVerificationRequired, // none|optional|required
+    //   NativeUserMode:                    core.RegistrationModeOpen,             // open|invite_only|admin_only|admin_bootstrap_only|...
+    //   PasswordlessLogin:                 true,
+    //   PasswordlessAutoRegistration:      true,
     // },
     // Keys.Source nil => auto-discovery in AuthKit (env/fs/dev fallback)
   }
@@ -213,7 +216,7 @@ separate registration modes on `core.Config`:
 It defaults to `open`. Any non-open native-user mode turns off public user
 self-registration and auto-registration paths: `POST /register`,
 `/register/availability`, `/register/resend-email`, `/register/resend-phone`,
-OIDC/social/Solana auto-create, and pending-registration confirmation all return
+passwordless auto-registration, OIDC/social/Solana auto-create, and pending-registration confirmation all return
 a stable `registration_disabled` error (`/register/availability` reports every
 field as unavailable, never usable). Existing-user authentication is unaffected:
 login, refresh, logout, password reset/recovery, token verification, and
@@ -905,6 +908,7 @@ Verification delivery and expiry
 - Email verification codes and links expire in 60 minutes.
 - Phone/SMS verification codes and links expire in 15 minutes.
 - Password reset link tokens expire in 1 hour.
+- Passwordless login codes and magic links expire in 10 minutes.
 - Sender integrations receive `core.VerificationMessage{Code, LinkURL}` and must send only provided fields; at least one must be present. Password-reset senders receive the final reset URL, not a raw token.
 - Code-based and link-based flows are both supported:
   - Email verify code: `POST /email/verify/confirm` with `{"email":"user@example.com","code":"123456"}`
@@ -917,6 +921,9 @@ Verification delivery and expiry
   - Email password reset confirm: `POST /email/password/reset/confirm` with `{"token":"...","new_password":"..."}`
   - Phone password reset browser link: `GET /phone/password/reset/confirm?token=...` redirects to `Frontend.PasswordResetPath`; frontend then posts the token and new password.
   - Phone password reset confirm: `POST /phone/password/reset/confirm` with `{"token":"...","new_password":"..."}`
+  - Passwordless start: `POST /passwordless/start` with `{identifier,email?,phone_number?,mode?,return_to?}`; `mode` is `code`, `link`, or omitted for both.
+  - Passwordless confirm: `POST /passwordless/confirm` with `{identifier,code}` or `{token}`. Existing contacts log in and are marked verified. If `PasswordlessAutoRegistration` is enabled and native registration is open, unknown verified contacts create users with generated usernames and no `profiles.user_passwords` row.
+  - Passwordless magic links land on `Frontend.PasswordlessPath`; only app-relative `return_to` values are returned with the token response.
 - AuthKit API routes are prefix-neutral. Your API can live under a prefix (recommended: `/api/v1`); do not add an extra `/auth` segment when embedding AuthKit.
 
 Identity validation policy
@@ -1038,6 +1045,8 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
   - POST /oidc/:provider/link/start (RouteUser API group, requires auth) -> {auth_url}
 - Password:
   - POST /password/login (accepts email, phone, or username in identifier field)
+  - POST /passwordless/start ({identifier,email?,phone_number?,mode?,return_to?}) -> 202
+  - POST /passwordless/confirm ({identifier,code} or {token}) -> {access_token, refresh_token, token_type, expires_in, return_to?}
   - POST /email/password/reset/request
   - GET /email/password/reset/confirm?token=... (browser landing; redirects to Frontend.PasswordResetPath)
   - POST /email/password/reset/confirm ({token, new_password})

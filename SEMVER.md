@@ -173,7 +173,9 @@ concern: user lifecycle/admin (`CreateUser`, `ImportUser`, `UpdateImportedUser`,
 links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
 `RedeemGroupInviteLink`/`ExternalInvitesEnabled`); API keys
 (`MintAPIKey`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey[WithResources]`); remote
-apps; identity linking; sessions; bootstrap; and accessors (`JWKS`, `Postgres`, `Schema`,
+apps; identity linking; sessions; bootstrap; passwordless (`StartPasswordless`,
+`ConfirmPasswordlessCode`, `ConfirmPasswordlessToken`, `RecordFailedPasswordlessCode`,
+`ClearPasswordlessCodeAttempts`); and accessors (`JWKS`, `Postgres`, `Schema`,
 `Options`, `PublicKeysByKID`, `Keyfunc`, …). Every method on the facade is covered; the
 229 implementation methods on `internal/authcore.Service` are **not**.
 
@@ -181,7 +183,8 @@ apps; identity linking; sessions; bootstrap; and accessors (`JWKS`, `Postgres`, 
 `AdminUserSort`, `AdminListUsersResult`, `AdminUserListOptions`, `AdminRecoverUserInput`,
 `ImportUserInput`, `Session`, `SessionFreshness`, `SessionRevokeReason`,
 `SessionEventType`, `AuthSessionEvent`, `PendingRegistration`, `PendingChangeKind`,
-`PreferredLanguage`, `Passkey`, `PasskeyLoginResult`, `APIKey`, `APIKeyMintOptions`, `APIKeyResource` (alias),
+`PreferredLanguage`, `Passkey`, `PasskeyLoginResult`, `PasswordlessStartRequest`,
+`PasswordlessStartResult`, `PasswordlessConfirmResult`, `APIKey`, `APIKeyMintOptions`, `APIKeyResource` (alias),
 `ResolvedAPIKey` (alias), `TwoFactorSettings`, `TwoFactorFactor`, `MFAStatus`,
 `RemovedMFARoleAssignment`, `VerificationMessage`, `SolanaLinkedAccount`, `ValidationError`.
 
@@ -229,7 +232,7 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `ErrExternalInvitesDisabled` (#134), `ErrUserRoleNotFound`,
 `ErrCannotRemoveLastAdminRole`, `ErrEntitlementFilterUnavailable`,
 `ErrInvalidBootstrapManifest`, `ErrEmptyCustomClaims`, `ErrRemoteApplicationNotFound`,
-`ErrAttributeDefNotFound`, and the `ErrInvalid*` re-exports from `authbase`.
+`ErrPasswordlessDisabled`, `ErrAttributeDefNotFound`, and the `ErrInvalid*` re-exports from `authbase`.
 `HashAlgoLegacyResetRequired = "legacy-reset-required"` is a covered stored value.
 
 > **Done (#126):** the former dual API (a ~230-method flat `*core.Service` plus an unused
@@ -369,6 +372,8 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/sessions/current` | session | none |
 | DELETE | `/logout` | session | required |
 | POST | `/password/login` | session | none |
+| POST | `/passwordless/start` | session | none |
+| POST | `/passwordless/confirm` | session | none |
 | POST | `/passkeys/login/begin` | passkeys | none |
 | POST | `/passkeys/login/finish` | passkeys | none |
 | POST | `/email/password/reset/request` | session | none |
@@ -512,7 +517,7 @@ MINOR (a client must already tolerate unknown codes). Compare against the consta
 The full set is enumerated in `http/error_codes.go` (~260 codes). Notable stable codes
 referenced by behavior elsewhere in this contract: `invalid_request`, `not_found`,
 `unauthorized`, `forbidden`, `rate_limited`, `database_error`, `invalid_credentials`,
-`password_too_short`, `password_reset_required`, `registration_disabled`,
+`password_too_short`, `password_reset_required`, `passwordless_disabled`, `registration_disabled`,
 `step_up_required`, `2fa_enrollment_required`,
 `rename_rate_limited`, `owner_slug_taken`, `username_not_allowed`,
 `permission_grant_denied`, `unknown_permission`, `unknown_role`,
@@ -645,9 +650,10 @@ an optional field with a backward-compatible zero-value default is MINOR.
   `AccessTokenDuration`, `RefreshTokenDuration`, `SessionMaxPerUser` (0 ⇒ default 3).
 - **`Frontend`** `FrontendConfig`: `BaseURL` (defaults to issuer if empty),
   `CallbackPath` (default `/login/callback`), `VerifyPath` (default `/verify`),
-  `PasswordResetPath` (default `/reset`).
+  `PasswordResetPath` (default `/reset`), `PasswordlessPath` (default `/passwordless`).
 - **`Registration`** `RegistrationConfig`: `Verification` (`none`|`optional`|`required`,
-  default `none`), `NativeUserMode` (`open` default; non-open disables public signup).
+  default `none`), `NativeUserMode` (`open` default; non-open disables public signup),
+  `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false).
   The `RegistrationMode` & `RegistrationVerificationPolicy` enum value sets are covered.
 - **`Keys`** `KeysConfig`: `Source`, `Path`, `VerifyOnly` (no-signer mode: minting returns
   `ErrMissingSigner`, verification/JWKS still work).

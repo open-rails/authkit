@@ -10,3 +10,4 @@ authkit
 *.sarif
 
 **/.DS_Store
+.gstack/

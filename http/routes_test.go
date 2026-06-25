@@ -17,6 +17,8 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 
 	sessionUser := s.APIRoutes(RouteSession, RouteUser)
 	requireRoute(t, sessionUser, http.MethodPost, "/password/login")
+	requireRoute(t, sessionUser, http.MethodPost, "/passwordless/start")
+	requireRoute(t, sessionUser, http.MethodPost, "/passwordless/confirm")
 	requireRoute(t, sessionUser, http.MethodPost, "/token")
 	requireRoute(t, sessionUser, http.MethodPost, "/2fa/verify")
 	requireRoute(t, sessionUser, http.MethodGet, "/me")

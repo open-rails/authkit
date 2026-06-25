@@ -51,7 +51,6 @@ func TestRequireFreshAuth(t *testing.T) {
 	}
 }
 
-
 func TestSensitiveDefaults(t *testing.T) {
 	h := assuranceProtected(Sensitive())
 

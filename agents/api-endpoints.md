@@ -88,6 +88,8 @@ Notes:
 |--------|------|------|-------------|
 | GET | `/identity-providers` | PUBLIC | List enabled external identity providers |
 | POST | `/password/login` | PUBLIC | Password login |
+| POST | `/passwordless/start` | PUBLIC | Start email/SMS passwordless login; body accepts `{identifier}` or `{email}` or `{phone_number}`, optional `mode: "code"|"link"|"both"` and safe app-relative `return_to`; returns anti-enumeration `202` when enabled |
+| POST | `/passwordless/confirm` | PUBLIC | Confirm passwordless login with `{identifier,code}` or `{token}`; returns normal access/refresh tokens and optional safe `return_to` |
 | POST | `/passkeys/login/begin` | PUBLIC | Begin passkey login; optional `{ "login": "email-or-username-or-phone" }` for username-scoped options, omitted for discoverable/usernameless login |
 | POST | `/passkeys/login/finish` | PUBLIC | Finish passkey login by POSTing the `PublicKeyCredential` JSON returned by `navigator.credentials.get()` |
 | POST | `/register` | PUBLIC | Unified registration (email or phone); success returns `next_action`: `none`, `verify_email`, or `verify_phone`; `none` includes access/refresh tokens |
@@ -113,6 +115,12 @@ Token taxonomy:
 - API key: opaque bearer secret; it holds one permission-group role and its permissions resolve from that role at verify time; resources are a separate per-key binding.
 
 Step-up updates the current refresh-session auth state but does not rotate the refresh token. Clients should retry sensitive actions with the returned access token; `POST /token` remains the refresh-token rotation route.
+
+Passwordless login:
+- Disabled by default. Enable with `Registration.PasswordlessLogin`; enable unknown-contact account creation with `Registration.PasswordlessAutoRegistration` while native registration remains open.
+- `POST /passwordless/start` always returns `202 {"ok":true}` for valid input when the feature is enabled. Unknown contacts only receive a challenge when auto-registration is enabled.
+- Confirmed existing contacts are marked verified and receive sessions with `amr=email` or `amr=sms`. Auto-created users get a generated username, verified email/phone, and no password row until they set a password later.
+- Magic links use `Frontend.PasswordlessPath`; absolute or protocol-relative `return_to` values are dropped.
 
 Passkeys:
 - Configure `core.Config.Passkeys` with `RPID`, `RPDisplayName`, and `Origins`;
@@ -148,7 +156,7 @@ Reserved slug policy:
 | GET | `/phone/password/reset/confirm` | PUBLIC | Browser reset-link landing; redirects to frontend with token |
 | POST | `/phone/password/reset/confirm` | PUBLIC | Confirm phone password reset using `token` + `new_password` |
 
-Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
+Request-code endpoints are rate-limited by default: one request per client every 60 seconds and 6 per hour for registration, registration resend, email/phone verification, passwordless start, password reset, and email/phone change flows. `429` responses include `Retry-After` and `retry_after_seconds` when AuthKit can compute the reset time.
 
 Registration resend and email/phone verification request endpoints are honest about malformed input and target state. They return validation errors for malformed identifiers, `pending_registration_not_found` for missing pending registration resend targets, `user_not_found` for missing public verification targets, and `email_already_verified` / `phone_already_verified` for already-verified accounts.
 

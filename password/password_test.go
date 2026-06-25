@@ -119,10 +119,10 @@ func TestIsBcryptHash(t *testing.T) {
 
 func TestValidate_LengthBoundary(t *testing.T) {
 	tests := []struct {
-		name        string
-		password    string
-		wantErr     bool
-		wantErrMsg  string
+		name       string
+		password   string
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{"7 chars — too short", "1234567", true, "password_too_short"},
 		{"8 chars — minimum valid", "12345678", false, ""},

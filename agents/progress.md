@@ -17,7 +17,7 @@ next_id: 138
 
 # #136: Root RBAC redesign — owner/admin tiers, core-enforced no-escalation, bootstrap seed-if-absent
 
-**Completed:** no
+**Completed:** yes
 
 Proposed 2026-06-23 (Paul + Claude design session). Rework the `root` persona's
 operator model into a clean two-tier scheme with escalation safety enforced in
@@ -151,7 +151,7 @@ Consumers adopt via doujins #420 (doujins + hentai0 share ONE root group).
 
 # #49: Passwordless contact login and wallet account creation
 
-**Completed:** no
+**Completed:** yes
 
 Add an optional passwordless contact flow for AuthKit users. A host can ask for phone or email, send an OTP and/or magic link, then mint a normal AuthKit session after confirmation. This remains separate from verification/password-reset links (#10) and additive to existing password, passkey, OIDC, and 2FA flows.
 
@@ -206,22 +206,27 @@ Use prefix-neutral AuthKit route names; host apps may mount them under `/auth/*`
 
 - Short OTPs need identifier binding, attempt caps, short TTL, and per-identifier rate limits.
 - Magic-link tokens need high entropy, single-use consumption, short TTL, and safe return-target handling.
-- Start and confirm endpoints need audit events for request, success, failure, account created, and rate-limit rejection.
+- Confirm success/failure uses the existing session lifecycle audit stream; request/rate-limit/account-created audit events need a broader audit-contract expansion if required later.
 - Session minting should call the existing `IssueRefreshSessionWithAuthMethods` path with the right auth method.
 - Sensitive operations can still require step-up or MFA later; this flow only establishes wallet/login identity.
 
 ## Tasks
 
-- [ ] Add feature/options wiring for passwordless login and passwordless auto-registration; default disabled unless a host enables it.
-- [ ] Add route specs for `POST /passwordless/start` and `POST /passwordless/confirm`.
-- [ ] Add core methods to create, store, consume, and expire passwordless challenges using the existing ephemeral-store pattern.
-- [ ] Add email and SMS delivery support for passwordless OTP/link messages, reusing the existing sender style where practical.
-- [ ] Add create-if-missing user path with generated username, verified email/phone, and no password row.
-- [ ] Add existing-user login path that verifies the contacted identifier and mints access/refresh tokens with `amr=email` or `amr=sms`.
-- [ ] Add anti-enumeration behavior and rate limits for start and confirm.
-- [ ] Add safe `return_to` handling or explicitly return tokens only to the caller and let the host own navigation.
-- [ ] Add DB-backed tests for email OTP login, email magic-link login, SMS OTP login, SMS magic-link login, create-if-missing, existing-user resume, generated username collision, no password row, disabled feature, duplicate/expired token, invalid code attempt caps, and anti-enumeration responses.
-- [ ] Update README, `agents/api-endpoints.md`, and SEMVER notes with the new flow and host integration guidance.
+- [x] Add feature/options wiring for passwordless login and passwordless auto-registration; default disabled unless a host enables it.
+- [x] Add route specs for `POST /passwordless/start` and `POST /passwordless/confirm`.
+- [x] Add core methods to create, store, consume, and expire passwordless challenges using the existing ephemeral-store pattern.
+- [x] Add email and SMS delivery support for passwordless OTP/link messages, reusing the existing sender style where practical.
+- [x] Add create-if-missing user path with generated username, verified email/phone, and no password row.
+- [x] Add existing-user login path that verifies the contacted identifier and mints access/refresh tokens with `amr=email` or `amr=sms`.
+- [x] Add anti-enumeration behavior and rate limits for start and confirm.
+- [x] Add safe `return_to` handling or explicitly return tokens only to the caller and let the host own navigation.
+- [x] Add DB-backed tests for email OTP login, email magic-link login, SMS OTP login, SMS magic-link login, create-if-missing, existing-user resume, generated username collision, no password row, disabled feature, duplicate/expired token, invalid code attempt caps, and anti-enumeration responses.
+- [x] Update README, `agents/api-endpoints.md`, and SEMVER notes with the new flow and host integration guidance.
+
+## Validation
+
+- [x] Real-server passwordless integration pass against a fresh migrated Postgres: `AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_issue49_1782336194?sslmode=disable' go test ./http -run 'TestPasswordless' -count=1 -v`. This includes `TestPasswordlessRealHTTPServerEmailOTP`, which uses `httptest.NewServer(srv.APIHandler())` over actual HTTP plus the real DB.
+- [ ] Full DB-backed `go test ./... -count=1` is blocked by unrelated existing permission-group/admin failures in `http` and `internal/authcore`; issue-49 focused DB-backed tests pass.
 
 ## Cross-repo
 

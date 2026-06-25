@@ -82,6 +82,9 @@ type FrontendConfig struct {
 	// PasswordResetPath is the host-owned frontend route that receives
 	// scanner-safe password reset link landings. Empty defaults to "/reset".
 	PasswordResetPath string
+	// PasswordlessPath is the host-owned frontend route that receives
+	// passwordless login magic links. Empty defaults to "/passwordless".
+	PasswordlessPath string
 	// InvitePath is the host-owned frontend route that receives permission-group
 	// invite links (`?code=…`); the SPA reads the code and POSTs it to the redeem
 	// endpoint. Empty defaults to "/accept-invite". (#134)
@@ -97,6 +100,12 @@ type RegistrationConfig struct {
 	// defaults to "open". Non-open modes disable every public user-creation path
 	// while leaving embedded admin/bootstrap core APIs available.
 	NativeUserMode RegistrationMode
+	// PasswordlessLogin enables contact-based passwordless sessions. Off by
+	// default; hosts must opt in before /passwordless/start sends challenges.
+	PasswordlessLogin bool
+	// PasswordlessAutoRegistration lets a verified unknown contact create a
+	// no-password user during passwordless confirmation. Off by default.
+	PasswordlessAutoRegistration bool
 }
 
 // KeysConfig controls signing-key resolution.

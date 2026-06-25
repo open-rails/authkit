@@ -465,6 +465,9 @@ const (
 	// ErrPhoneVerificationUnavailable is the phone_verification_unavailable AuthKit HTTP wire error code.
 	ErrPhoneVerificationUnavailable ErrorCode = "phone_verification_unavailable"
 
+	// ErrPasswordlessDisabled is the passwordless_disabled AuthKit HTTP wire error code.
+	ErrPasswordlessDisabled ErrorCode = "passwordless_disabled"
+
 	// ErrPKCEGenerationFailed is the pkce_generation_failed AuthKit HTTP wire error code.
 	ErrPKCEGenerationFailed ErrorCode = "pkce_generation_failed"
 

@@ -102,6 +102,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteSession, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
 		{Method: http.MethodDelete, Path: "/logout", Group: RouteSession, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
 		{Method: http.MethodPost, Path: "/password/login", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
+		{Method: http.MethodPost, Path: "/passwordless/start", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordlessStartPOST)},
+		{Method: http.MethodPost, Path: "/passwordless/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordlessConfirmPOST)},
 		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
 		{Method: http.MethodPost, Path: "/passkeys/login/finish", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginFinishPOST)},
 		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
