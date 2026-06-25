@@ -76,8 +76,12 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var assertion passkeyRequestOptions
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &assertion))
-	require.Len(t, assertion.PublicKey.AllowCredentials, 1)
-	require.Equal(t, base64URL(authn.credentialID), assertion.PublicKey.AllowCredentials[0].ID)
+	// AK2-PK-002: login-begin is ALWAYS discoverable, so even a known identifier
+	// yields an empty allowCredentials list (identical to the unknown-identifier
+	// response above) — no account-existence probe, no credential-ID leak. The
+	// authenticator resolves its resident credential and the ceremony still
+	// completes via the user handle (verified by the finish below).
+	require.Empty(t, assertion.PublicKey.AllowCredentials)
 
 	w = serveJSON(srv, http.MethodPost, "/passkeys/login/finish", string(authn.assertion(t, assertion, 1)))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
