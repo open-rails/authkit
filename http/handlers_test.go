@@ -39,7 +39,31 @@ func newTestCoreService(t *testing.T) *authcore.Service {
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
-	coreSvc := newTestCoreService(t)
+	return serviceFromCore(t, newTestCoreService(t))
+}
+
+// newTestServiceWithPasskeys builds a test Service whose core has a passkey
+// Relying Party ID configured, so PasskeysEnabled() is true and the /passkeys/*
+// routes are mounted.
+func newTestServiceWithPasskeys(t *testing.T) *Service {
+	t.Helper()
+	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
+	require.NoError(t, err)
+	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := core.Options{
+		Issuer:                   "https://example.com",
+		IssuedAudiences:          []string{"test-app"},
+		ExpectedAudiences:        []string{"test-app"},
+		AccessTokenDuration:      time.Hour,
+		RegistrationVerification: core.RegistrationVerificationNone,
+		PasskeyRPID:              "example.com",
+		PasskeyRPDisplayName:     "Example",
+	}
+	return serviceFromCore(t, authcore.NewService(opts, ks))
+}
+
+func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {
+	t.Helper()
 	opts := coreSvc.Options()
 	ver := NewVerifier(WithSkew(5 * time.Second))
 	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{

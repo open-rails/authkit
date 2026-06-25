@@ -45,6 +45,21 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireNoRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/providers")
 }
 
+func TestPasskeyRoutesGatedOnPasskeyConfig(t *testing.T) {
+	// No PasskeyConfig (RPID unset): the /passkeys/* routes are not mounted, so
+	// the embedder never exposes WebAuthn endpoints that can only fail.
+	off := newTestService(t)
+	require.False(t, off.svc.PasskeysEnabled())
+	requireNoRoute(t, off.APIRoutes(RoutePasskeys), http.MethodGet, "/passkeys")
+	requireNoRoute(t, off.Routes().DefaultAPI(), http.MethodPost, "/passkeys/login/begin")
+
+	// With an RPID configured, the passkey routes appear.
+	on := newTestServiceWithPasskeys(t)
+	require.True(t, on.svc.PasskeysEnabled())
+	requireRoute(t, on.APIRoutes(RoutePasskeys), http.MethodGet, "/passkeys")
+	requireRoute(t, on.Routes().DefaultAPI(), http.MethodPost, "/passkeys/login/begin")
+}
+
 func TestOIDCBrowserRoutesArePrefixNeutral(t *testing.T) {
 	s := newTestService(t)
 
