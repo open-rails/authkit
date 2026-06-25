@@ -384,11 +384,13 @@ func (s *Service) storePasswordReset(ctx context.Context, tokenHash, userID stri
 
 func (s *Service) consumePasswordReset(ctx context.Context, tokenHash string) (string, error) {
 	var data passwordResetData
-	ok, err := s.ephemGetJSON(ctx, keyPasswordReset+tokenHash, &data)
+	// Single-use: the token hash IS the key, so presenting it consumes it. Consume
+	// atomically (same class as AK2-PK-001) so a reset token can't be redeemed
+	// twice by concurrent requests racing a Get+Del.
+	ok, err := s.ephemConsumeJSON(ctx, keyPasswordReset+tokenHash, &data)
 	if err != nil || !ok {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	_ = s.ephemDel(ctx, keyPasswordReset+tokenHash)
 	return data.UserID, nil
 }
 
@@ -399,11 +401,12 @@ func (s *Service) storePasswordResetSession(ctx context.Context, sessionHash, us
 
 func (s *Service) consumePasswordResetSession(ctx context.Context, sessionHash string) (string, error) {
 	var data passwordResetSessionData
-	ok, err := s.ephemGetJSON(ctx, keyPasswordResetSession+sessionHash, &data)
+	// Single-use: the session hash IS the key. Consume atomically (same class as
+	// AK2-PK-001) so concurrent requests can't redeem one reset session twice.
+	ok, err := s.ephemConsumeJSON(ctx, keyPasswordResetSession+sessionHash, &data)
 	if err != nil || !ok {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	_ = s.ephemDel(ctx, keyPasswordResetSession+sessionHash)
 	return data.UserID, nil
 }
 
@@ -465,10 +468,14 @@ func (s *Service) storePasskeyCeremony(ctx context.Context, challenge string, da
 
 func (s *Service) consumePasskeyCeremony(ctx context.Context, challenge string) (passkeyCeremonyData, error) {
 	var data passkeyCeremonyData
-	ok, err := s.ephemGetJSON(ctx, keyPasskeyCeremony+challenge, &data)
+	// AK2-PK-001: the WebAuthn challenge is single-use — consume it ATOMICALLY so
+	// two concurrent finish requests presenting the same challenge cannot both
+	// succeed (assertion/registration replay). A Get+Del here is not single-use
+	// under concurrency. The synced-passkey signCount=0 case means the counter is
+	// no backstop, so this atomicity is the replay defense.
+	ok, err := s.ephemConsumeJSON(ctx, keyPasskeyCeremony+challenge, &data)
 	if err != nil || !ok {
 		return data, jwt.ErrTokenUnverifiable
 	}
-	_ = s.ephemDel(ctx, keyPasskeyCeremony+challenge)
 	return data, nil
 }

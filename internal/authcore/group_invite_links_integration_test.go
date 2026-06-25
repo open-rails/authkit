@@ -62,6 +62,18 @@ func insertUserWithEmail(t *testing.T, pool *pgxpool.Pool, email string, verifie
 	return id
 }
 
+// acmeOwner creates a fresh user and seeds them as OWNER of the org/acme group via
+// the genesis (unchecked) path, so they may legitimately mint invites — the mint
+// now enforces no-escalation (AK2-AUTHZ-1), so an unauthorized minter is rejected.
+func acmeOwner(t *testing.T, svc *Service, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+	id := insertBareUser(t, pool)
+	if err := svc.AssignGroupRole(ctx, "org", "acme", id, SubjectKindUser, OwnerRoleName); err != nil {
+		t.Fatalf("seed acme owner: %v", err)
+	}
+	return id
+}
+
 func mustHoldMember(t *testing.T, svc *Service, ctx context.Context, userID string) {
 	t.Helper()
 	ok, err := svc.Can(ctx, userID, SubjectKindUser, "org", "acme", "org:repo:read")
@@ -77,7 +89,7 @@ func TestInviteLink_ShareableRedeemIdempotent(t *testing.T) {
 	user := insertBareUser(t, pool)
 
 	created, err := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{
-		Persona: "org", InstanceSlug: "acme", Role: "member", InvitedBy: insertBareUser(t, pool),
+		Persona: "org", InstanceSlug: "acme", Role: "member", InvitedBy: acmeOwner(t, svc, ctx, pool),
 	})
 	if err != nil {
 		t.Fatalf("CreateGroupInviteLink: %v", err)
@@ -108,7 +120,7 @@ func TestInviteLink_ShareableRedeemIdempotent(t *testing.T) {
 // VERIFIED address; a mismatched or unverified redeemer is rejected.
 func TestInviteLink_EmailBound(t *testing.T) {
 	svc, pool, ctx := setupInviteLinkTest(t, RegistrationModeOpen)
-	inviter := insertBareUser(t, pool)
+	inviter := acmeOwner(t, svc, ctx, pool)
 	bob := insertUserWithEmail(t, pool, "bob@example.com", true)
 	mallory := insertUserWithEmail(t, pool, "mallory@example.com", true)
 	unverified := insertUserWithEmail(t, pool, "eve@example.com", false)
@@ -143,7 +155,7 @@ func TestInviteLink_EmailBound(t *testing.T) {
 // refusals.
 func TestInviteLink_ExpiryRevokeExhausted(t *testing.T) {
 	svc, pool, ctx := setupInviteLinkTest(t, RegistrationModeOpen)
-	inviter := insertBareUser(t, pool)
+	inviter := acmeOwner(t, svc, ctx, pool)
 
 	// Expired.
 	expired, _ := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{Persona: "org", InstanceSlug: "acme", Role: "member", InvitedBy: inviter})
@@ -186,6 +198,84 @@ func TestInviteLink_GatingDisabled(t *testing.T) {
 	}
 	if svc.ExternalInvitesEnabled() {
 		t.Fatalf("ExternalInvitesEnabled() should be false under closed registration")
+	}
+}
+
+// TestInviteLink_MintEnforcesNoEscalation_DB is the AK2-AUTHZ-1 regression: minting
+// an invite is a DEFERRED role grant, so the mint must pass the same no-escalation
+// check as every other grant surface (#136). A minter with only members:manage
+// cannot mint an `owner` invite (which it — or a confederate — could then redeem to
+// full owner); an unauthorized user cannot mint at all; an owner can. Mirrors
+// TestAssignRoleBySlugAs_NoEscalation_DB on the invite surface.
+func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	clean := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invite_links`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
+	}
+	clean()
+	t.Cleanup(clean)
+
+	// "org" persona with a bounded `member-manager` (members:manage, NOT owner) and a
+	// plain `member`; `owner` (org:*) is auto-injected.
+	gs, err := BuildSchema(PersonaDef{
+		Name: "org", AllowedParents: []string{RootPersona},
+		Routes: ManagementProfile{MemberAssignment: true, InviteLinks: true},
+		Roles: []RoleDef{
+			{Name: "member", Permissions: []string{"org:repo:read"}},
+			{Name: "member-manager", Permissions: []string{PermMembersManage("org"), "org:repo:read"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildSchema: %v", err)
+	}
+	svc := NewService(Options{Issuer: "https://test", NativeUserRegistrationMode: RegistrationModeOpen}, Keyset{}, WithPostgres(pool))
+	svc.groupSchema = gs
+	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
+		t.Fatalf("seed containment: %v", err)
+	}
+	if _, err := svc.EnsureRootGroup(ctx); err != nil {
+		t.Fatalf("ensure root group: %v", err)
+	}
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme"}); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+
+	owner := insertBareUser(t, pool)
+	if err := svc.AssignGroupRole(ctx, "org", "acme", owner, SubjectKindUser, OwnerRoleName); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	memberMgr := insertBareUser(t, pool)
+	if err := svc.AssignGroupRole(ctx, "org", "acme", memberMgr, SubjectKindUser, "member-manager"); err != nil {
+		t.Fatalf("seed member-manager: %v", err)
+	}
+	nobody := insertBareUser(t, pool)
+
+	mint := func(inviter, role string) error {
+		_, err := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{
+			Persona: "org", InstanceSlug: "acme", Role: role, InvitedBy: inviter,
+		})
+		return err
+	}
+
+	// Unauthorized minter (no members:manage) cannot mint at all.
+	if err := mint(nobody, "member"); !errors.Is(err, ErrInsufficientRoleAuthority) {
+		t.Fatalf("bare user mint = %v, want ErrInsufficientRoleAuthority", err)
+	}
+	// member-manager HAS members:manage and covers member's perms → may mint a member invite.
+	if err := mint(memberMgr, "member"); err != nil {
+		t.Fatalf("member-manager mint member should succeed, got %v", err)
+	}
+	// THE FIX: member-manager does NOT hold org:* → cannot mint an OWNER invite.
+	if err := mint(memberMgr, "owner"); !errors.Is(err, ErrRoleAssignmentEscalation) {
+		t.Fatalf("member-manager mint owner = %v, want ErrRoleAssignmentEscalation", err)
+	}
+	// owner (org:*) covers owner → may mint an owner invite.
+	if err := mint(owner, "owner"); err != nil {
+		t.Fatalf("owner mint owner should succeed, got %v", err)
 	}
 }
 

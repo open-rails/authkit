@@ -56,3 +56,24 @@ func (k *KV) Del(ctx context.Context, key string) error {
 	delete(k.items, key)
 	return nil
 }
+
+// Consume atomically returns and deletes a key under a single lock hold, so a
+// value is delivered to AT MOST ONE caller even under concurrent reads — the
+// in-memory analogue of Redis GETDEL. Required for single-use credentials whose
+// KEY is the secret (passkey challenge, password-reset token); a Get+Del pair
+// would let two concurrent requests both observe the value before either deletes.
+// Missing or expired key => (nil, false, nil).
+func (k *KV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
+	_ = ctx
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	it, ok := k.items[key]
+	if !ok {
+		return nil, false, nil
+	}
+	delete(k.items, key) // delete inside the same lock span: at-most-once delivery
+	if !it.expires.IsZero() && time.Now().After(it.expires) {
+		return nil, false, nil
+	}
+	return it.value, true, nil
+}

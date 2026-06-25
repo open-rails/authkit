@@ -208,6 +208,7 @@ var ErrResourceScopeDenied = authcore.ErrResourceScopeDenied
 var ErrAttributeDefNotFound = authcore.ErrAttributeDefNotFound
 var ErrCannotRemoveLastAdminRole = authcore.ErrCannotRemoveLastAdminRole
 var ErrCustomClaimsReserved = authcore.ErrCustomClaimsReserved
+var ErrCustomJWTReservedType = authcore.ErrCustomJWTReservedType
 var ErrEmailAlreadyVerified = authcore.ErrEmailAlreadyVerified
 var ErrEmailDeliveryFailed = authcore.ErrEmailDeliveryFailed
 var ErrEmailInUse = authcore.ErrEmailInUse

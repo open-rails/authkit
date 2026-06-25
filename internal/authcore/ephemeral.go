@@ -20,6 +20,14 @@ type EphemeralStore interface {
 	Get(ctx context.Context, key string) ([]byte, bool, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Del(ctx context.Context, key string) error
+	// Consume atomically returns AND deletes a key in a single operation, so the
+	// value is delivered to AT MOST ONE caller even under concurrent reads
+	// (Redis GETDEL / a single locked get-delete). Single-use credentials whose
+	// KEY is the secret — a WebAuthn/passkey challenge, a password-reset token —
+	// MUST be read via Consume, never Get+Del: a non-atomic read-then-delete lets
+	// two concurrent requests both observe the value before either deletes it,
+	// defeating the single-use guarantee (replay). Missing key => (nil, false, nil).
+	Consume(ctx context.Context, key string) ([]byte, bool, error)
 }
 
 func (s *Service) EphemeralMode() EphemeralMode {
@@ -83,6 +91,21 @@ func (s *Service) ephemGetString(ctx context.Context, key string) (string, bool,
 		return "", ok, err
 	}
 	return string(b), true, nil
+}
+
+// ephemConsumeJSON atomically reads-and-deletes key (single-use) and unmarshals the
+// value into out. Use this — never ephemGetJSON + ephemDel — for credentials whose
+// KEY is the secret (passkey challenge, password-reset token): the atomic consume
+// guarantees at-most-once delivery so concurrent requests cannot replay the same key.
+func (s *Service) ephemConsumeJSON(ctx context.Context, key string, out any) (bool, error) {
+	if !s.useEphemeralStore() {
+		return false, fmt.Errorf("ephemeral store unavailable")
+	}
+	b, ok, err := s.ephemeralStore.Consume(ctx, key)
+	if err != nil || !ok {
+		return false, err
+	}
+	return true, unmarshalJSON(b, out)
 }
 
 func (s *Service) ephemDel(ctx context.Context, key string) error {

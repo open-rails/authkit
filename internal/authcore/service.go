@@ -583,6 +583,44 @@ func (s *Service) Issue2FAEnrollmentToken(ctx context.Context, userID string) (t
 	return s.issueAccessToken(ctx, userID, "", map[string]any{"2fa_enrollment": true}, 10*time.Minute)
 }
 
+// reservedAccessTokenClaims are claims the verifier extracts as authoritative
+// identity / authorization / assurance (see verify/verifier.go extractClaims).
+// AuthKit sets these itself from authenticated state, or not at all; a
+// caller-supplied `extra` value for any of them is DROPPED, never signed
+// (AK2-AUTH-01). Without this, a host that forwards any request-influenced data
+// into IssueAccessToken / PasswordLogin(...extra) could mint a validly-signed
+// token with attacker-chosen roles/permissions/identity, which the verifier then
+// trusts (verify/middleware.go even skips the DB role lookup when the token
+// already carries `roles`).
+//
+// Intentionally NOT reserved: `sid`, `provider`, `2fa_enrollment`, and arbitrary
+// host/custom claims are deliberate, caller-settable protocol/app claims set by
+// AuthKit's own flows (login/OIDC/passkey/enrollment) and carry no authority the
+// verifier trusts as identity. AuthKit-owned claims (iss/sub/aud/iat/exp/
+// entitlements, and auth_time/amr/acr/mfa_enrolled when AuthKit sets them) are
+// already protected by the owned-claim check below; they appear here too so a
+// host can never inject the assurance variants AuthKit did not set.
+var reservedAccessTokenClaims = map[string]struct{}{
+	"roles":            {},
+	"permissions":      {},
+	"global_roles":     {},
+	"org_roles":        {},
+	"groups":           {},
+	"email":            {},
+	"email_verified":   {},
+	"username":         {},
+	"discord_username": {},
+	"user_tier":        {},
+	"plan":             {},
+	"delegated_sub":    {},
+	"attributes":       {},
+	"amr":              {},
+	"acr":              {},
+	"auth_time":        {},
+	"jti":              {},
+	"mfa_enrolled":     {},
+}
+
 func (s *Service) issueAccessToken(ctx context.Context, userID, email string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, ttl)
@@ -647,11 +685,19 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 	}
 	// Caller-supplied claims fill gaps but never override an AuthKit-owned claim
 	// (sub/iss/aud/iat/exp/entitlements always; auth_time/amr/acr/mfa_enrolled when
-	// set). This prevents a host from forging identity, expiry, or assurance via
-	// extra, while still allowing custom claims and assurance claims AuthKit did
-	// not set itself.
+	// set) and never populate a reserved authority/identity/assurance claim the
+	// verifier trusts (AK2-AUTH-01). This prevents a host from forging identity,
+	// authorization, expiry, or assurance via extra, while still allowing custom
+	// claims and the deliberate protocol claims (sid/provider/2fa_enrollment).
 	for k, v := range extra {
 		if _, owned := claims[k]; owned {
+			continue
+		}
+		if _, reserved := reservedAccessTokenClaims[k]; reserved {
+			// Surface the misuse (key only — values may be PII): AuthKit's own
+			// flows never put these in extra, so a hit means a host is trying to
+			// set authority/identity it does not control.
+			stdlog.Printf("authkit: warning: dropping reserved claim %q from caller-supplied extra during access-token issuance for user %s", k, userID)
 			continue
 		}
 		claims[k] = v

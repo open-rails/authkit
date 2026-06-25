@@ -156,6 +156,43 @@ func TestMintCustomJWTReservedClaimRejected(t *testing.T) {
 	}
 }
 
+// TestMintCustomJWTReservedTypeRejected is the AK2-AUTH-02 regression: MintCustomJWT
+// must refuse to stamp one of AuthKit's own first-party `typ` values (the verifier
+// classifies a token's principal class by `typ`), so a host cannot forge a custom
+// token indistinguishable from a real access / delegated / remote-app / service
+// token. Rejection is case-insensitive (mirrors the verifier's EqualFold).
+func TestMintCustomJWTReservedTypeRejected(t *testing.T) {
+	svc := mustServiceWithGeneratedKeys(t)
+	ctx := context.Background()
+
+	for _, typ := range []string{
+		"access+jwt", "delegated-access+jwt", "remote-application-access+jwt", "service+jwt",
+		"Access+JWT", "ACCESS+JWT", "  access+jwt  ", // case/whitespace variants must also be rejected
+	} {
+		_, err := svc.MintCustomJWT(ctx, CustomJWTMintOptions{
+			TTL:     time.Minute,
+			Type:    typ,
+			Subject: "victim",
+			Claims:  map[string]any{"roles": []string{"admin"}, "x": "y"},
+		})
+		if !errors.Is(err, ErrCustomJWTReservedType) {
+			t.Fatalf("typ %q: want ErrCustomJWTReservedType, got %v", typ, err)
+		}
+	}
+
+	// A genuine custom typ (and an empty typ) must still mint successfully.
+	if _, err := svc.MintCustomJWT(ctx, CustomJWTMintOptions{
+		TTL: time.Minute, Type: "worker-capability+jwt", Claims: map[string]any{"cap_kind": "x"},
+	}); err != nil {
+		t.Fatalf("custom typ must be allowed, got %v", err)
+	}
+	if _, err := svc.MintCustomJWT(ctx, CustomJWTMintOptions{
+		TTL: time.Minute, Claims: map[string]any{"cap_kind": "x"},
+	}); err != nil {
+		t.Fatalf("empty typ must be allowed, got %v", err)
+	}
+}
+
 // TestMintCustomJWTGuardrails covers empty/oversized claim sets and missing TTL.
 func TestMintCustomJWTGuardrails(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)

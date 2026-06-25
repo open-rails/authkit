@@ -154,7 +154,9 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	}
 	persona := strings.TrimSpace(req.Persona)
 	instanceSlug := strings.TrimSpace(req.InstanceSlug)
-	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
+	st := s.groupStore()
+	sch := s.groupSchemaOrDefault()
+	if !s.validRoleForPersona(sch, persona, role) {
 		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group", role, persona)
 	}
 	if req.MaxUses != nil && *req.MaxUses < 1 {
@@ -167,8 +169,20 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 			return GroupInviteLinkCreated{}, err
 		}
 	}
-	gid, err := s.resolveGroupID(ctx, s.groupStore(), persona, instanceSlug)
+	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
 	if err != nil {
+		return GroupInviteLinkCreated{}, err
+	}
+	// AK2-AUTHZ-1: an invite link is a DEFERRED role grant, so the MINT must pass
+	// the same no-escalation check every other grant surface uses (member
+	// add/role-change via AssignGroupRoleAs, API-key mint via authorizeAPIKeyRoleGrant).
+	// The minter (invited_by — the authenticated caller, never request-supplied)
+	// must hold members:manage in this group AND already hold every permission the
+	// invited role confers; otherwise a holder of only members-management authority
+	// could mint (and then redeem) an `owner` invite to escalate. The gate is on
+	// MINT because the redeemer is not the granting authority — the redeemer's own
+	// grants are irrelevant to what the link is allowed to confer.
+	if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, invitedBy, role); err != nil {
 		return GroupInviteLinkCreated{}, err
 	}
 
