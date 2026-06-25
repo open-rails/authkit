@@ -51,6 +51,12 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 		}},
 	}, pool)
 	require.NoError(t, err)
+	// Seed the permission-group containment + root group so AssignGroupRole(root,...)
+	// works (the directory tests grant the intrinsic root owner role). Mirrors the
+	// other DB-backed http tests' setup.
+	require.NoError(t, coreSvc.SeedPermissionGroupContainment(context.Background()))
+	_, err = coreSvc.EnsureRootGroup(context.Background())
+	require.NoError(t, err)
 	ver := NewVerifier(WithSkew(5 * time.Second))
 	require.NoError(t, ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
@@ -341,7 +347,16 @@ func mintAdminTestDelegatedToken(t *testing.T, s *Service, ctx context.Context, 
 	signer, err := jwtkit.NewRSASigner(2048, slug+"-kid")
 	require.NoError(t, err)
 	issuer := "https://" + slug + ".example"
-	registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, "")
+	// A delegated token's claimed permissions are bounded (#76) by the SIGNING
+	// remote application's stored authority — the verifier rejects (401) any claim
+	// outside that ceiling. Grant the app the root owner role when the token claims
+	// permissions so the ceiling admits them; the deny case claims none and stays
+	// authority-less (it 403s on the missing permission).
+	raRole := ""
+	if len(perms) > 0 {
+		raRole = core.OwnerRoleName
+	}
+	registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, raRole)
 	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))

@@ -188,24 +188,22 @@ func (s *Service) FinishPasskeyRegistration(ctx context.Context, userID string, 
 }
 
 func (s *Service) BeginPasskeyLogin(ctx context.Context, identifier string) (*protocol.CredentialAssertion, error) {
+	// AK2-PK-002: `identifier` is accepted for API compatibility but intentionally
+	// NOT used to scope the assertion. Branching to wa.BeginLogin for a known user
+	// would populate allowCredentials with that user's credential descriptors,
+	// leaking to an UNAUTHENTICATED caller both whether the account exists and its
+	// credential IDs (an enumeration oracle: the response shape differs for known
+	// vs unknown identifiers). Always issue a discoverable (usernameless) assertion
+	// with an empty allowCredentials list so the response is identical regardless
+	// of input. Passkeys are discoverable/resident, so the authenticator selects
+	// the credential and FinishPasskeyLogin resolves the user from the asserted
+	// credential's user handle.
+	_ = identifier
 	wa, err := s.webAuthn()
 	if err != nil {
 		return nil, err
 	}
-	var (
-		assertion *protocol.CredentialAssertion
-		session   *webauthn.SessionData
-	)
-	if userID := s.userIDByLoginIdentifier(ctx, identifier); userID != "" {
-		if u, err := s.passkeyUser(ctx, userID, false); err == nil && len(u.credentials) > 0 {
-			assertion, session, err = wa.BeginLogin(u, webauthn.WithUserVerification(s.passkeyUserVerification()))
-			if err != nil {
-				return nil, err
-			}
-			return assertion, s.storePasskeySession(ctx, session, "")
-		}
-	}
-	assertion, session, err = wa.BeginDiscoverableLogin(webauthn.WithUserVerification(s.passkeyUserVerification()))
+	assertion, session, err := wa.BeginDiscoverableLogin(webauthn.WithUserVerification(s.passkeyUserVerification()))
 	if err != nil {
 		return nil, err
 	}
@@ -474,23 +472,7 @@ func nullBytes(in []byte) []byte {
 	return in
 }
 
-func (s *Service) userIDByLoginIdentifier(ctx context.Context, identifier string) string {
-	identifier = strings.TrimSpace(identifier)
-	if identifier == "" {
-		return ""
-	}
-	var u *User
-	var err error
-	switch {
-	case strings.Contains(identifier, "@"):
-		u, err = s.getUserByEmail(ctx, NormalizeEmail(identifier))
-	case strings.HasPrefix(identifier, "+"):
-		u, err = s.getUserByPhone(ctx, NormalizePhone(identifier))
-	default:
-		u, err = s.getUserByUsername(ctx, identifier)
-	}
-	if err != nil || u == nil {
-		return ""
-	}
-	return u.ID
-}
+// userIDByLoginIdentifier was removed with the AK2-PK-002 fix: BeginPasskeyLogin no
+// longer resolves an identifier to a user (doing so leaked existence + credential
+// IDs via the assertion's allowCredentials). Passkey login is now always
+// discoverable; the user is resolved at finish from the asserted credential.

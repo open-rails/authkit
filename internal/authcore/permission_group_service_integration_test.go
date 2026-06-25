@@ -83,6 +83,12 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if ok, _ := svc.Can(ctx, dev, SubjectKindUser, "org", "acme", "org:repo:read"); ok {
 		t.Errorf("a repo collaborator must NOT gain org-scoped authority")
 	}
+	// While assigned, ListSubjectGroups shows the repo:r1 membership.
+	if sg, err := svc.ListSubjectGroups(ctx, dev, SubjectKindUser); err != nil {
+		t.Fatalf("ListSubjectGroups (assigned): %v", err)
+	} else if len(sg) != 1 || sg[0].Persona != "repo" || sg[0].InstanceSlug != "r1" {
+		t.Errorf("ListSubjectGroups(dev) should show the repo:r1 membership; got %+v", sg)
+	}
 	if err := svc.UnassignGroupRole(ctx, "repo", "r1", dev, SubjectKindUser, "writer"); err != nil {
 		t.Fatalf("remove writer: %v", err)
 	}
@@ -104,12 +110,10 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if !foundOwner {
 		t.Errorf("ListGroupMembers(org,acme) should include the owner; got %+v", members)
 	}
+	// After removal, the membership is gone.
 	sgroups, err := svc.ListSubjectGroups(ctx, dev, SubjectKindUser)
 	if err != nil {
 		t.Fatalf("ListSubjectGroups: %v", err)
-	}
-	if len(sgroups) == 0 || sgroups[0].Persona != "repo" || sgroups[0].InstanceSlug != "r1" {
-		t.Errorf("ListSubjectGroups(dev) should show the repo:r1 membership; got %+v", sgroups)
 	}
 	if len(sgroups) != 0 {
 		t.Errorf("ListSubjectGroups(dev) should be empty after role removal; got %+v", sgroups)

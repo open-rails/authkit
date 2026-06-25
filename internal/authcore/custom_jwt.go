@@ -34,7 +34,41 @@ var (
 	// AuthKit and the raw map may not silently clobber them. Use the explicit
 	// Issuer option to override `iss`.
 	ErrCustomClaimsReserved = errors.New("custom_jwt_reserved_claim")
+	// ErrCustomJWTReservedType is returned when CustomJWTMintOptions.Type is one of
+	// AuthKit's own first-party token classes (access / delegated-access /
+	// remote-application-access / service `+jwt`). MintCustomJWT mints CUSTOM token
+	// shapes only; minting an AuthKit class would produce a token the verifier
+	// trusts as a first-party principal (AK2-AUTH-02).
+	ErrCustomJWTReservedType = errors.New("custom_jwt_reserved_type")
 )
+
+// reservedCustomJWTTypes are AuthKit's own first-party JOSE `typ` values. The
+// verifier classifies a token into a trusted principal class by `typ`
+// (verify.Verify, case-insensitively), so MintCustomJWT — the escape hatch for
+// CUSTOM token shapes — must refuse to stamp any of them; otherwise a host could
+// mint a token indistinguishable from a real access / delegated-access /
+// remote-application / service token (AK2-AUTH-02).
+var reservedCustomJWTTypes = []string{
+	jwtkit.AccessTokenType,
+	jwtkit.DelegatedAccessTokenType,
+	jwtkit.RemoteApplicationAccessTokenType,
+	ServiceJWTType,
+}
+
+// isReservedCustomJWTType reports whether typ matches an AuthKit first-party token
+// class, compared case-insensitively to mirror the verifier's EqualFold check.
+func isReservedCustomJWTType(typ string) bool {
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		return false
+	}
+	for _, r := range reservedCustomJWTTypes {
+		if strings.EqualFold(typ, r) {
+			return true
+		}
+	}
+	return false
+}
 
 // reservedCustomClaims are the registered claims AuthKit owns and the host
 // Claims map is forbidden from setting. `iss` is settable only through the
@@ -77,7 +111,10 @@ type CustomJWTMintOptions struct {
 	TTL time.Duration
 	// Type is the JOSE `typ` header (e.g. "worker-capability+jwt"). When empty the
 	// header is left unset — unlike the opinionated minters, MintCustomJWT does
-	// not impose a default `typ`; the host owns the token shape.
+	// not impose a default `typ`; the host owns the token shape. It may NOT be one
+	// of AuthKit's own first-party classes (access / delegated-access /
+	// remote-application-access / service `+jwt`) — doing so returns
+	// ErrCustomJWTReservedType (AK2-AUTH-02).
 	Type string
 	// Subject, when set, becomes the `sub` claim and wins over any `sub` in Claims.
 	Subject string
@@ -112,6 +149,13 @@ func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) 
 	}
 	if opts.TTL <= 0 {
 		return "", errors.New("custom_jwt_ttl_required")
+	}
+	// AK2-AUTH-02: refuse to stamp one of AuthKit's own first-party `typ` values.
+	// The verifier classifies a token's principal class by `typ`, so a custom JWT
+	// stamped access+jwt (etc.) with a host-chosen sub/roles would be trusted as a
+	// real first-party token. MintCustomJWT is for CUSTOM shapes only.
+	if isReservedCustomJWTType(opts.Type) {
+		return "", ErrCustomJWTReservedType
 	}
 
 	// Copy the host claims so we never mutate the caller's map, and reject any

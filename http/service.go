@@ -45,6 +45,39 @@ type Service struct {
 	groupCanFn PermissionGroupAuthorizer
 }
 
+// failClosedBuckets are the credential-VERIFICATION endpoints where the secret
+// being checked is low-entropy (a password, or a short numeric code) and a single
+// unthrottled window is enough to brute-force it. For these, if the rate limiter
+// cannot be consulted because of a BACKEND ERROR (e.g. a Redis outage), the
+// request is DENIED (fail closed) rather than allowed — losing the limiter must
+// not silently remove the only online brute-force defense (AK2-AUTH-05). Every
+// other bucket keeps failing open, so a limiter outage degrades availability for
+// the affected endpoint rather than taking down the whole auth surface.
+//
+// Note: this applies only to the limiter-ERROR path. A deliberately absent limiter
+// (WithoutRateLimiter / s.rl == nil) is a configuration choice, not an outage, and
+// continues to fail open — denying every login because a host opted out of rate
+// limiting would be the wrong default.
+var failClosedBuckets = map[string]struct{}{
+	RL2FAVerify:              {},
+	RLPasswordLogin:          {},
+	RLPasswordResetConfirm:   {},
+	RLEmailVerifyConfirm:     {},
+	RLPhoneVerifyConfirm:     {},
+	RLUserEmailChangeConfirm: {},
+	RLUserPhoneChangeConfirm: {},
+}
+
+// limiterErrorResult is the verdict when the rate limiter returns a backend error.
+// It fails CLOSED (denies) for the brute-force-sensitive verification buckets and
+// open for everything else.
+func limiterErrorResult(bucket string) RateLimitResult {
+	if _, failClosed := failClosedBuckets[bucket]; failClosed {
+		return RateLimitResult{Allowed: false}
+	}
+	return RateLimitResult{Allowed: true}
+}
+
 func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket string) bool {
 	result := s.allowResult(r, bucket)
 	if result.Allowed {
@@ -92,7 +125,7 @@ func (s *Service) allowResultForKey(bucket, key string) RateLimitResult {
 	if rl, ok := s.rl.(RateLimiterWithResult); ok {
 		result, err := rl.AllowNamedResult(bucket, key)
 		if err != nil {
-			return RateLimitResult{Allowed: true}
+			return limiterErrorResult(bucket)
 		}
 		availability := availabilityFromRateLimit(bucket, result, time.Now())
 		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
@@ -100,7 +133,7 @@ func (s *Service) allowResultForKey(bucket, key string) RateLimitResult {
 	if rl, ok := s.rl.(RateLimiterWithRetryAfter); ok {
 		allowed, retryAfter, err := rl.AllowNamedWithRetryAfter(bucket, key)
 		if err != nil {
-			return RateLimitResult{Allowed: true}
+			return limiterErrorResult(bucket)
 		}
 		result := RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
 		if !allowed {
@@ -115,7 +148,7 @@ func (s *Service) allowResultForKey(bucket, key string) RateLimitResult {
 	}
 	ok, err := s.rl.AllowNamed(bucket, key)
 	if err != nil {
-		return RateLimitResult{Allowed: true}
+		return limiterErrorResult(bucket)
 	}
 	return RateLimitResult{Allowed: ok}
 }
@@ -139,7 +172,7 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if rl, ok := s.rl.(RateLimiterWithResult); ok {
 		result, err := rl.AllowNamedResult(bucket, key)
 		if err != nil {
-			return RateLimitResult{Allowed: true}
+			return limiterErrorResult(bucket)
 		}
 		availability := availabilityFromRateLimit(bucket, result, time.Now())
 		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
@@ -147,7 +180,7 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if rl, ok := s.rl.(RateLimiterWithRetryAfter); ok {
 		allowed, retryAfter, err := rl.AllowNamedWithRetryAfter(bucket, key)
 		if err != nil {
-			return RateLimitResult{Allowed: true}
+			return limiterErrorResult(bucket)
 		}
 		result := RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
 		if !allowed {
@@ -162,7 +195,7 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	}
 	ok, err := s.rl.AllowNamed(bucket, key)
 	if err != nil {
-		return RateLimitResult{Allowed: true}
+		return limiterErrorResult(bucket)
 	}
 	return RateLimitResult{Allowed: ok}
 }
