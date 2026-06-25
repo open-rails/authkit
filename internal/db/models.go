@@ -30,6 +30,11 @@ type ProfilesApiKeyResource struct {
 	CreatedAt  time.Time
 }
 
+type ProfilesBootstrapApply struct {
+	Name      string
+	AppliedAt time.Time
+}
+
 type ProfilesGroupCustomRole struct {
 	PermissionGroupID string
 	Role              string
