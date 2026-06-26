@@ -66,3 +66,18 @@ type AuthEventLogReader interface {
 	// If userID is empty, returns events for all users.
 	ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error)
 }
+
+// AuthEventLogReader returns the configured session-event reader when the audit
+// sink also supports reads (the first-party ClickHouse adapter does), else nil.
+// The HTTP server derives its admin sign-in / login-history reader from this, so
+// hosts wire reads and writes through ONE option (the ClickHouse adapter) instead
+// of a separate server-side reader.
+func (s *Service) AuthEventLogReader() AuthEventLogReader {
+	if s == nil {
+		return nil
+	}
+	if r, ok := s.authlog.(AuthEventLogReader); ok {
+		return r
+	}
+	return nil
+}

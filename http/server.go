@@ -57,6 +57,12 @@ func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 	}
 	s.svc = coreSvc
 
+	// Admin sign-in / login-history reads are derived from the client's audit sink
+	// (#143: no separate server-side reader option). When the sink supports reads
+	// (the ClickHouse adapter does) this is non-nil; otherwise history routes report
+	// the log unavailable.
+	s.authlogr = coreSvc.AuthEventLogReader()
+
 	// AuthKit owns the rate-limit policy: auto-create the limiter unless the host
 	// explicitly set or disabled one (the advanced/test-only WithRateLimiter /
 	// WithoutRateLimiter seams). Redis-backed when a Redis client is supplied via
@@ -168,11 +174,6 @@ func WithClientIPFunc(fn ClientIPFunc) Option {
 		}
 		s.clientIP = fn
 	}
-}
-
-// WithAuthLogReader supplies the session-event reader (admin sign-in views).
-func WithAuthLogReader(r embedded.AuthEventLogReader) Option {
-	return func(s *Server) { s.authlogr = r }
 }
 
 // WithLanguageConfig sets the i18n language configuration.

@@ -179,7 +179,6 @@ var ValidatePhone = authcore.ValidatePhone
 var ValidateUsername = authcore.ValidateUsername
 var ValidationErrorCode = authcore.ValidationErrorCode
 var WithAPIKeyResourceAuthorizer = authcore.WithAPIKeyResourceAuthorizer
-var WithAuthLogger = authcore.WithAuthLogger
 var WithEmailSender = authcore.WithEmailSender
 var WithEntitlements = authcore.WithEntitlements
 var WithPostgres = authcore.WithPostgres

@@ -136,7 +136,7 @@ serve the HTTP handlers stays internal and is **not** covered.
 func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service, error)
 func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service
 type Option func(*Service)
-  WithAuthLogger, WithEmailSender, WithEntitlements,
+  WithEmailSender, WithEntitlements,
   WithEphemeralStore, WithPostgres, WithAPIKeyResourceAuthorizer, WithSMSSender,
   WithSolanaSNSResolver
 ```
@@ -321,7 +321,7 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
 type Server = Service; NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error)
 Option: WithRedis, WithEmailSender, WithSMSSender, WithEntitlements,
   WithTrustedProxies, WithLanguageConfig,
-  WithAuthLogger, WithAuthLogReader, WithAPIKeyResourceAuthorizer,
+  WithAPIKeyResourceAuthorizer,
   WithSolanaSNSResolver
 Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups), svc.Core()
