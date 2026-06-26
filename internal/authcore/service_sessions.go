@@ -147,11 +147,23 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", errors.New("user_disabled")
 	}
 
+	// Mint the new access token BEFORE rotating the refresh session. Minting reads
+	// only pre-rotation state (identity, session freshness via sid, entitlements), so
+	// the token is identical either way — but ordering the fallible mint first means a
+	// mint failure leaves the session un-rotated and the caller's current refresh token
+	// still valid (a retry succeeds), instead of stranding them on the now-"previous"
+	// token and tripping reuse-detection (family revoke) on the next attempt.
+	claims := map[string]any{"sid": sid}
+	accessToken, exp, err := s.IssueAccessToken(ctx, uid, email, claims)
+	if err != nil {
+		return "", time.Time{}, "", err
+	}
+
 	// Rotate: set previous = current, current = new — as an atomic compare-and-swap
 	// conditioned on the current hash we just read (h). If 0 rows change, another
 	// concurrent refresh already rotated this session (benign double-submit) or it
-	// was revoked; reject cleanly without minting a second token and WITHOUT
-	// triggering family revoke (losing the race is not token reuse).
+	// was revoked; reject cleanly (the already-minted token is simply discarded) and
+	// WITHOUT triggering family revoke (losing the race is not token reuse).
 	newTok := randB64(32)
 	newHash := s.hashRefresh(newTok)
 	rotated, err := s.q.SessionRotate(ctx, db.SessionRotateParams{
@@ -166,13 +178,6 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	}
 	if rotated == 0 {
 		return "", time.Time{}, "", errors.New("invalid refresh token")
-	}
-
-	// Mint new ID token
-	claims := map[string]any{"sid": sid}
-	accessToken, exp, err := s.IssueAccessToken(ctx, uid, email, claims)
-	if err != nil {
-		return "", time.Time{}, "", err
 	}
 
 	return accessToken, exp, newTok, nil
