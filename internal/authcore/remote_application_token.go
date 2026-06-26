@@ -94,9 +94,5 @@ func MintRemoteApplicationAccessToken(ctx context.Context, signer jwtkit.Signer,
 	delete(claims, "sub")
 	delete(claims, "delegated_sub")
 
-	headers := map[string]any{"typ": RemoteApplicationAccessTokenType}
-	if hs, ok := signer.(jwtkit.HeaderSigner); ok {
-		return hs.SignWithHeaders(ctx, claims, headers)
-	}
-	return "", errors.New("header signer required")
+	return jwtkit.SignWithType(ctx, signer, claims, RemoteApplicationAccessTokenType, true)
 }

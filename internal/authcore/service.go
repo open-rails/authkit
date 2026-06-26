@@ -735,11 +735,7 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 	if s.keys.Active == nil {
 		return "", time.Time{}, ErrMissingSigner // #87: verify-only Service cannot mint
 	}
-	hs, ok := s.keys.Active.(jwtkit.HeaderSigner)
-	if !ok {
-		return "", time.Time{}, errors.New("header signer required")
-	}
-	tok, err := hs.SignWithHeaders(ctx, claims, map[string]any{"typ": jwtkit.AccessTokenType})
+	tok, err := jwtkit.SignWithType(ctx, s.keys.Active, claims, jwtkit.AccessTokenType, true)
 	return tok, expiresAt, err
 }
 

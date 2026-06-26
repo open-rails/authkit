@@ -48,6 +48,28 @@ type HeaderSigner interface {
 	SignWithHeaders(ctx context.Context, claims jwt.MapClaims, headers map[string]any) (token string, err error)
 }
 
+// SignWithType signs claims, optionally stamping the JOSE `typ` header. It is the
+// single home for the "assert HeaderSigner and set typ, or fall back" idiom that
+// AuthKit's token-minting paths share:
+//   - typ == "": plain Sign (no typ header).
+//   - typ != "" && requireHeader: assert HeaderSigner; error if the signer can't
+//     stamp headers.
+//   - typ != "" && !requireHeader: stamp via HeaderSigner when available, else
+//     fall back to a plain Sign.
+func SignWithType(ctx context.Context, signer Signer, claims jwt.MapClaims, typ string, requireHeader bool) (string, error) {
+	if typ == "" {
+		return signer.Sign(ctx, claims)
+	}
+	hs, ok := signer.(HeaderSigner)
+	if !ok {
+		if requireHeader {
+			return "", errors.New("header signer required")
+		}
+		return signer.Sign(ctx, claims)
+	}
+	return hs.SignWithHeaders(ctx, claims, map[string]any{"typ": typ})
+}
+
 // Minimal in-memory RSA signer for bootstrap/dev. Production should load from KMS or DB.
 type RSASigner struct {
 	key *rsa.PrivateKey
