@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/internal/db"
 )
 
 type userMeResponse struct {
@@ -74,36 +73,33 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hasPassword := s.svc.HasPassword(r.Context(), adminUser.ID)
-	solanaLinkedAccount, _ := s.svc.GetSolanaLinkedAccount(r.Context(), adminUser.ID)
+	solanaLinkedAccount, slErr := s.svc.GetSolanaLinkedAccount(r.Context(), adminUser.ID)
 	solanaAddress := ""
 	if solanaLinkedAccount != nil {
 		solanaAddress = solanaLinkedAccount.Address
-	} else {
+	} else if slErr != nil {
+		// Only fall back to the address-only lookup when the linked-account read
+		// ERRORED; a clean "no wallet" already means there is no address to find,
+		// so this avoids a second user_providers query for every non-Solana user.
 		solanaAddress, _ = s.svc.GetSolanaAddress(r.Context(), adminUser.ID)
 	}
 	var solanaAddressPtr *string
 	if solanaAddress != "" {
 		solanaAddressPtr = &solanaAddress
 	}
-	// TODO - Move to service layer. This is currently the only place we need to know about linked providers, but if we add more endpoints that surface this info, it may make sense to return it from the service directly instead of doing a separate DB query here.
 	linkedProviders := []string{}
 	userAliases := []string{}
-	if pg := s.svc.Postgres(); pg != nil {
-		queries := db.New(db.ForSchema(pg, s.svc.Schema()))
-		if providers, err := queries.UserProviderSlugs(r.Context(), adminUser.ID); err == nil {
-			for _, provider := range providers {
-				provider = strings.TrimSpace(provider)
-				if provider != "" {
-					linkedProviders = append(linkedProviders, provider)
-				}
+	if providers, aliases, err := s.svc.UserProfileLinks(r.Context(), adminUser.ID); err == nil {
+		for _, provider := range providers {
+			provider = strings.TrimSpace(provider)
+			if provider != "" {
+				linkedProviders = append(linkedProviders, provider)
 			}
 		}
-		if aliases, err := queries.UserSlugAliases(r.Context(), adminUser.ID); err == nil {
-			for _, alias := range aliases {
-				alias = strings.TrimSpace(alias)
-				if alias != "" {
-					userAliases = append(userAliases, alias)
-				}
+		for _, alias := range aliases {
+			alias = strings.TrimSpace(alias)
+			if alias != "" {
+				userAliases = append(userAliases, alias)
 			}
 		}
 	}

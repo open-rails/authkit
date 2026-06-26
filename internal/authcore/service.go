@@ -3842,6 +3842,24 @@ func (s *Service) UnlinkProvider(ctx context.Context, userID, provider string) e
 	return s.unlinkProvider(ctx, userID, provider)
 }
 
+// UserProfileLinks returns the user's linked provider slugs (non-null) and username
+// aliases — the two extra lists GET /me needs beyond AdminGetUser. Keeps raw
+// db.Queries out of the HTTP layer, which previously built its own db handle inline.
+func (s *Service) UserProfileLinks(ctx context.Context, userID string) (providerSlugs []string, aliases []string, err error) {
+	if s.pg == nil {
+		return nil, nil, nil
+	}
+	providerSlugs, err = s.q.UserProviderSlugs(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	aliases, err = s.q.UserSlugAliases(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return providerSlugs, aliases, nil
+}
+
 // UnlinkProviderUnlessLast atomically removes the provider link only if the user
 // retains a login method afterward (a password, or another provider). Returns
 // (false, nil) when removal would strip the last login method. The check and the
