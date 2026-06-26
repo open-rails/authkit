@@ -491,10 +491,10 @@ Host mental model:
       `authhttp.WithTrustedProxies(trustedProxies)`. The server should keep a
       safe default using `RemoteAddr`; hosts behind proxies only provide trusted
       proxy CIDRs. Keep arbitrary `ClientIPFunc` injection internal/test/advanced.
-- [x] DECISION: keep an HTTP internal-error logging hook, but name/document it as
-      internal observability, not auth-event history. It reports swallowed handler
-      failures such as delivery/provider/database errors while clients receive a
-      stable public error. Prefer a clearer name such as `WithInternalErrorLogger`.
+- [x] DECISION: delete public `authhttp.WithErrorLogger`. For swallowed internal
+      handler failures, AuthKit should use Go's standard `slog.Default()` so the
+      host controls output globally (`slog.SetDefault(...)`) and infrastructure
+      captures stdout/stderr as usual.
 - [x] DECISION: delete public `authhttp.WithPermissionGroupAuthorizer`. Generated
       permission-group routes should authorize through the embedded client/engine
       (`Can`) directly. The current override is useful for tests and unusual lazy
@@ -503,12 +503,75 @@ Host mental model:
       should be derived from AuthKit config (`Frontend.BaseURL` / issuer host) and
       request fallback, not a separate server constructor option.
 - [ ] Remove `WithPermissionGroupAuthorizer` and `WithSolanaDomain` from first-run
-      docs and public API inventory; keep `WithInternalErrorLogger` in advanced
-      server observability docs.
+      docs and public API inventory.
 - [ ] Delete `PermissionGroupAuthorizer`, `WithPermissionGroupAuthorizer`, and the
       `groupCanFn` field from public HTTP server code. Update tests to exercise
       the real `Can` path or use package-internal helpers instead of a public
       option seam.
+- [ ] Delete `WithErrorLogger`, `InternalErrorEvent` as a public callback contract,
+      and the server `errorLogger` field. Route swallowed internal handler errors
+      to `slog.Default()` with structured attributes instead.
+- [x] DECISION: route groups should be coarse host-mounted surfaces, not the main
+      feature-toggle system. Hosts should turn features on/off in config
+      (`Registration`, passkeys, passwordless, persona capabilities), and disabled
+      features should not expose usable routes. Route-group mounting is for where
+      a host places whole surfaces in its router.
+- [ ] Rework/rename route groups around host decisions:
+      `Auth` (login/token/logout/password reset/passwordless), `Registration`
+      (account creation only), `Verification` if email/phone verification remains
+      useful without registration, `Account` (current user/profile/MFA/passkeys),
+      `Admin`, and `PermissionGroups`. Keep OIDC browser redirects and JWKS as
+      separately mounted special cases.
+- [ ] Replace current route constants with the new public route groups:
+      `RouteAuth`, `RouteRegistration`, `RouteVerification`, `RouteAccount`,
+      `RouteAdmin`, and `RoutePermissionGroups`. Delete `RoutePublic`,
+      `RouteSession`, `RouteUser`, and `RoutePasskeys` from the host-facing API.
+- [ ] Route mapping:
+      `RouteAuth` gets `/identity-providers`, `/token`, `/sessions/current`,
+      `/logout`, `/password/login`, password reset routes, passwordless routes,
+      `/2fa/challenge`, `/2fa/verify`, Solana login/challenge, and passkey login
+      begin/finish. `RouteRegistration` gets `/register`, `/register/availability`,
+      `/register/resend-*`, and `/register/abandon`. `RouteVerification` gets
+      `/email/verify/*` and `/phone/verify/*`. `RouteAccount` gets `/me`,
+      `/user/*`, provider unlink/link/step-up routes, Solana link, 2FA enrollment
+      and backup-code routes, and passkey register/list/update/delete routes.
+      `RouteAdmin` remains admin user/operator routes. `RoutePermissionGroups`
+      remains generated persona-group management plus `/me/groups`,
+      `/me/permissions`, and `/invites/redeem`.
+- [ ] Stop treating auth methods as primary route groups where config is better.
+      Passkey login belongs to `RouteAuth`; passkey management belongs to
+      `RouteAccount`; passkey availability should come from `PasskeyConfig`.
+      Passwordless routes belong to `RouteAuth`, but are exposed/usable only when
+      passwordless login is enabled. Registration routes belong to
+      `RouteRegistration`, but are exposed/usable only when registration mode is
+      not `Closed`; invite-only registration requires a valid invite token.
+- [ ] Make route generation config-aware before mounting: disabled registration,
+      passwordless, passkeys, 2FA methods, OIDC providers, Solana/SIWS, and persona
+      capabilities should remove or fail-closed their routes by config. Hosts should
+      not rely on omitting a route group as the security control.
+- [x] DECISION: add one public auth capability/discovery endpoint instead of making
+      frontends infer feature availability from mounted routes. It should report
+      configured auth methods and frontend-safe availability only: registration
+      mode/open vs invite-only/closed, enabled OIDC providers, password login,
+      passwordless channels/modes, passkey login availability, Solana/SIWS
+      availability, and public verification requirements.
+- [ ] Replace/augment `GET /identity-providers` with `GET /auth/capabilities`
+      under `RouteAuth`. Keep provider summaries there and include only
+      non-sensitive booleans/enums. Do not expose secrets, internal sender health,
+      or admin-only config.
+- [ ] Define the `GET /auth/capabilities` response contract in root `authkit`
+      types so embedded and remote/non-Go clients see the same shape. Include:
+      registration mode plus invite-token requirement; enabled provider summaries;
+      password login availability; passwordless enabled/channels/modes; passkey
+      login availability; Solana/SIWS login availability; public verification
+      requirements; and supported UI languages if language config remains mounted.
+- [ ] Keep `GET /identity-providers` only as a compatibility alias if needed during
+      implementation, but do not make it the primary frontend discovery endpoint
+      in new docs.
+- [ ] Keep authenticated account-specific capability details on account endpoints:
+      `/me` and `/user/2fa` should report user-specific MFA state, enrolled
+      factors, allowed 2FA methods from config, backup-code status, linked
+      providers, and available step-up methods.
 - [ ] Move any custom auth-state store injection to internal tests or an unadvertised
       test seam. Do not expose it in README or normal package docs.
 - [x] Update current consumers to v0.69.0 client-first (DONE 2026-06-26, all
@@ -804,15 +867,19 @@ commit so restructure + cleanup ship together.
 
 # #140: ship a Can-backed permission gate (RequirePermission middleware)
 
-**Completed:** authkit side yes; cross-repo doujins adoption pending (optional)
+**Completed:** yes
 
-STATUS 2026-06-26 (Claude): authkit side DONE & shipped — `verify.RequirePermission`
-(Can-backed, fail-closed) is in ≤ v0.69.0. The ONLY thing left is the doujins-side
-adoption: delete its local `principalHasPermissionDB` + `catalogRolesGranting` +
-`permission.ForRoles` expansion and gate purely via authkit's `Can`. NOT done here on
-purpose — it's a behavior-sensitive AUTHORIZATION change (swaps doujins's local perm→role
-catalog for authkit's permission-group resolution), so it needs explicit go-ahead +
-doujins's DB-backed auth tests to prove decisions don't shift. Tracked as doujins #422/#423.
+STATUS 2026-06-26 (Claude): DONE both sides, DB-proven. authkit: shipped
+`verify.RequirePermission` and factored its authority decision into exported
+`verify.Allow(ctx, checker, claims, perm, scope)` (token-carried OR Can; v0.71.0) so
+non-HTTP gates share it. doujins ADOPTED it — deleted its local
+`principalHasPermissionDB`/`PrincipalHasPermissionDB`; the gin `RequirePermission` is now
+a thin adapter over `verify.Allow`, and the OpenRails delegated billing-admin check calls
+`verify.Allow` directly. The role→permission expansion was already gone (it delegated to
+Can); this removed the last local gate copy. Behavior is identical by construction (same
+token glob-match via `PermMatches` OR `Can` in the root scope); proven by the DB-backed
+`TestIdentityContinuity` (real Postgres: non-admin → 403 on /v1/merchant/*) + authkit's
+new `verify.Allow` unit test.
 
 Proposed 2026-06-25 (doujins boundary review). authkit owns the permission-group
 schema and has `Can(subjectID, subjectKind, persona, instanceSlug, perm)`, but
