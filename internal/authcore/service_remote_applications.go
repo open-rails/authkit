@@ -313,17 +313,6 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 
-// ResolveRemoteApplicationGroup returns the controlling permission_group_id of
-// the remote_application registered for issuer (#111). ErrRemoteApplicationNotFound
-// if unknown.
-func (s *Service) ResolveRemoteApplicationGroup(ctx context.Context, issuer string) (string, error) {
-	ra, err := s.GetRemoteApplication(ctx, issuer)
-	if err != nil {
-		return "", err
-	}
-	return ra.PermissionGroupID, nil
-}
-
 // GetRemoteApplicationBySlug returns a remote_application by slug.
 func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {

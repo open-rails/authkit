@@ -3,7 +3,6 @@ package authhttp
 import (
 	"errors"
 	authkit "github.com/open-rails/authkit"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -191,7 +190,7 @@ func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, use
 
 func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authTokensResponse, error) {
 	ua := r.UserAgent()
-	ip := net.ParseIP(clientIP(r))
+	ip := parseIP(clientIP(r))
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, ua, ip, authMethodsForSessionMethod(method))
 	if err != nil {
 		return authTokensResponse{}, err

@@ -1765,7 +1765,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		codeHash := sha256Hex(code)
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
-		normEmail := normalizeEmail(email)
+		normEmail := NormalizeEmail(email)
 		if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
 			codeHash: ttl,
 			linkHash: defaultEmailVerificationTTL,

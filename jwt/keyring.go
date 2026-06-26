@@ -16,7 +16,10 @@ type KeyRing struct {
 // signer's public key (when the signer implements PublicKeySigner). Retired keys
 // remain in JWKS for rotation without being used to sign.
 func NewKeyRing(active Signer, verificationKeys map[string]crypto.PublicKey) *KeyRing {
-	pubs := mergePublicKeys(verificationKeys, nil)
+	pubs := clonePublicKeyMap(verificationKeys)
+	if pubs == nil {
+		pubs = map[string]crypto.PublicKey{}
+	}
 	if ps, ok := active.(PublicKeySigner); ok {
 		kid := strings.TrimSpace(ps.KID())
 		if kid != "" && ps.PublicKey() != nil {

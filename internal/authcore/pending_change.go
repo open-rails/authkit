@@ -59,7 +59,7 @@ func (k PendingChangeKind) isEmail() bool {
 // service does, so lookups by target are stable.
 func normalizePendingTarget(kind PendingChangeKind, target string) string {
 	if kind.isEmail() {
-		return normalizeEmail(target)
+		return NormalizeEmail(target)
 	}
 	return NormalizePhone(target)
 }

@@ -49,15 +49,11 @@ func (s *Service) useEphemeralStore() bool {
 	return s != nil && s.ephemeralStore != nil
 }
 
-func normalizeEmail(email string) string {
-	return NormalizeEmail(email)
-}
-
 func (s *Service) ephemSetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store unavailable")
 	}
-	b, err := marshalJSON(value)
+	b, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -72,7 +68,7 @@ func (s *Service) ephemGetJSON(ctx context.Context, key string, out any) (bool, 
 	if err != nil || !ok {
 		return false, err
 	}
-	return true, unmarshalJSON(b, out)
+	return true, json.Unmarshal(b, out)
 }
 
 func (s *Service) ephemSetString(ctx context.Context, key, value string, ttl time.Duration) error {
@@ -105,7 +101,7 @@ func (s *Service) ephemConsumeJSON(ctx context.Context, key string, out any) (bo
 	if err != nil || !ok {
 		return false, err
 	}
-	return true, unmarshalJSON(b, out)
+	return true, json.Unmarshal(b, out)
 }
 
 func (s *Service) ephemDel(ctx context.Context, key string) error {
@@ -115,25 +111,3 @@ func (s *Service) ephemDel(ctx context.Context, key string) error {
 	return s.ephemeralStore.Del(ctx, key)
 }
 
-func marshalJSON(v any) ([]byte, error) {
-	type jsonMarshaler interface {
-		MarshalJSON() ([]byte, error)
-	}
-	if jm, ok := v.(jsonMarshaler); ok {
-		return jm.MarshalJSON()
-	}
-	return jsonMarshal(v)
-}
-
-func unmarshalJSON(b []byte, v any) error {
-	type jsonUnmarshaler interface {
-		UnmarshalJSON([]byte) error
-	}
-	if ju, ok := v.(jsonUnmarshaler); ok {
-		return ju.UnmarshalJSON(b)
-	}
-	return jsonUnmarshal(b, v)
-}
-
-func jsonMarshal(v any) ([]byte, error)   { return json.Marshal(v) }
-func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }

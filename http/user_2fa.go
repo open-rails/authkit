@@ -145,7 +145,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		backupCodes, err := s.svc.EnableTOTP2FADefault(r.Context(), claims.UserID, req.Code, req.Default)
+		backupCodes, err := s.svc.EnableTOTP2FA(r.Context(), claims.UserID, req.Code, req.Default)
 		if err != nil {
 			badRequest(w, ErrInvalidCode)
 			return

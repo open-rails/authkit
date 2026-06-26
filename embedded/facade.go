@@ -56,11 +56,6 @@ func WithRedis(rd *redis.Client) Option {
 	return authcore.WithEphemeralStore(redisstore.NewKV(rd), EphemeralRedis)
 }
 
-// Wrap adapts an internal engine into the public facade. Used by the authkit/http
-// transport; the parameter type lives in internal/ and cannot be named (or
-// constructed) outside the module, so this does not expose the engine externally.
-func Wrap(impl *authcore.Service) *Client { return &Client{impl: impl} }
-
 // Unwrap returns the internal engine a Client wraps, for the authkit/http
 // transport's client-first NewServer (it builds route handlers over the engine).
 // The return type lives in internal/ and is unnameable outside the module.

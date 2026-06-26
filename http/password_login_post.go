@@ -319,10 +319,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 				serverErr(w, ErrTwoFAChallengeFailed)
 				return
 			}
-			obfuscatedID := verificationID
-			if len(verificationID) > 5 {
-				obfuscatedID = strings.Repeat("*", len(verificationID)-5) + verificationID[len(verificationID)-5:]
-			}
+			obfuscatedID := obfuscateVerificationID(verificationID)
 			factors := twoFactorFactorResponses(twoFASettings.Factors)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"requires_2fa":    true,

@@ -64,29 +64,6 @@ func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role st
 	return s.groupStore().AssignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
 }
 
-// RemoveRemoteApplicationMember soft-deletes a remote_application's role in its
-// controlling permission-group.
-func (s *Service) RemoveRemoteApplicationMember(ctx context.Context, appID, role string) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	gid, err := s.remoteApplicationGroupID(ctx, appID)
-	if err != nil {
-		return err
-	}
-	role = strings.ToLower(strings.TrimSpace(role))
-	if role == "" {
-		// Remove every role the app holds in its controlling group.
-		q := db.ForSchema(s.pg, s.dbSchema())
-		_, err := q.Exec(ctx,
-			`UPDATE profiles.group_remote_application_roles SET deleted_at = now(), updated_at = now()
-			 WHERE permission_group_id = $1::uuid AND remote_application_id = $2::uuid AND deleted_at IS NULL`,
-			gid, strings.TrimSpace(appID))
-		return err
-	}
-	return s.groupStore().UnassignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
-}
-
 // RemoteApplicationRoles returns the roles a remote_application holds in its
 // controlling permission-group, or ErrNotGroupMember when it holds none.
 func (s *Service) RemoteApplicationRoles(ctx context.Context, appID string) ([]string, error) {
