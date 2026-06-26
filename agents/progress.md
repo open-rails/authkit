@@ -17,6 +17,14 @@ next_id: 149
 
 **Completed:** no
 
+STATUS 2026-06-26 (Claude): authkit-side DONE. `FrontendConfig.CallbackPath` →
+`OIDCReturnPath` renamed end-to-end (public field, internal `Options` chain,
+default const, normalize fn, and the OIDC/OAuth full-page redirect in
+`http/{oidc,oauth2}_browser.go`); default `/login/callback` preserved; backend
+provider-callback path (`oidcCallbackPath`) deliberately untouched. README,
+SEMVER, and `agents/api-endpoints.md` updated. `go build ./...` + `go vet` + the
+DB-free suite are green. Consumer migration pending the #143 coordinated bump.
+
 Proposed 2026-06-26 (Paul + Codex). `embedded.FrontendConfig.CallbackPath` is
 too vague and reads like the OAuth/OIDC provider callback URL. In AuthKit it is
 not that. AuthKit owns the backend provider callback; this field is the host SPA
@@ -82,6 +90,22 @@ Grown from real consumption, NOT the 7-interface taxonomy — the rest land when
 signature actually narrows. Also dropped `ApplyBootstrapManifestFile` from the contract
 (Paul's call; lands in #142's portability audit). build+vet+gofmt green; full suite green.
 Client-first construction is folded into #142 (one migration, with remote).
+
+STATUS 2026-06-26 (Claude): slice-A option culls landed (authkit-side, breaking).
+Removed: `WithDBTXWrapper` (dead, no call sites); `WithErrorLogger` +
+`InternalErrorEvent` + the `errorLogger` field (swallowed internal errors now go to
+`slog.Default()` with structured attrs — default deployments newly emit those ERROR
+logs); `WithSolanaDomain` (SIWS message domain now derived from `Frontend.BaseURL`/
+issuer host with the existing Origin→Host request fallback); and public
+`embedded.WithEphemeralStore` (internal `authcore.WithEphemeralStore` kept as the
+mechanism; `embedded.New` still auto-injects an in-memory store and `WithRedis`
+stays). Public-surface inventory in SEMVER §4.2/§5 updated. `go build` + `go vet` +
+DB-free suite green (caught + fixed one regression: `register_response_test.go`
+constructs via `authcore.NewService` directly, so it re-injects the memory store
+through the internal option). Remaining slice-A culls: `WithRateLimiter`/
+`WithoutRateLimiter` → automatic; `WithClientIPFunc` → `WithTrustedProxies`;
+`WithPermissionGroupAuthorizer`; `WithSolanaSNSResolver` → AuthKit-owned default;
+`WithAuthLogger`/`WithAuthLogReader` → `WithClickHouse`.
 
 REVIEW (Claude, 2026-06-26): strong core, trim the edges.
 - KEEP (the real win): client-first construction — `authhttp.NewServer(client, httpOpts)`,
