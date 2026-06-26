@@ -23,7 +23,9 @@ type Service struct {
 	verifier            *Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter
+	rlExplicit          bool // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
 	clientIP            ClientIPFunc
+	trustedProxyErr     error // deferred WithTrustedProxies CIDR parse error, surfaced by NewServer
 	oidcProviders       map[string]oidckit.RPConfig
 	providers           map[string]authprovider.Provider
 	authProvidersByName map[string]authprovider.Provider
@@ -33,10 +35,12 @@ type Service struct {
 	langCfg             *LanguageConfig
 	authlogr            embedded.AuthEventLogReader
 
-	// groupCanFn overrides the permission-group authorization predicate used by
-	// the auto-generated group-management routes (#111). nil delegates to
-	// embedded.Client.Can.
-	groupCanFn PermissionGroupAuthorizer
+	// groupCanFn is a package-internal test hook for the auto-generated
+	// group-management routes' authorization predicate (#111): handler/wiring tests
+	// set it to assert which perm a route gates on without a database. Production
+	// never sets it (there is no public option) — nil delegates to
+	// embedded.Client.Can. See groupCan.
+	groupCanFn func(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error)
 }
 
 // failClosedBuckets are the credential-VERIFICATION endpoints where the secret

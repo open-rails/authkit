@@ -320,7 +320,7 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
 ```
 type Server = Service; NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error)
 Option: WithRedis, WithEmailSender, WithSMSSender, WithEntitlements,
-  WithRateLimiter, WithoutRateLimiter, WithClientIPFunc, WithLanguageConfig,
+  WithTrustedProxies, WithLanguageConfig,
   WithAuthLogger, WithAuthLogReader, WithAPIKeyResourceAuthorizer,
   WithSolanaSNSResolver
 Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
