@@ -20,6 +20,18 @@ There are two smaller interfaces carved out of it for people who only need a few
 
 Fix: split it into a few small interfaces by topic (users, tokens, groups, etc).
 
+Progress:
+- Stage 1 (done): taught the code generator to handle a `Client` built from
+  smaller embedded interfaces. It used to only read one flat interface. No output
+  change yet (still the same 93 methods), this just unblocks the actual split.
+- Stage 2 (done): split the 93 methods into 15 small interfaces named by topic
+  (Users, Passwords, Tokens, Groups, Sessions, APIKeys, Providers, RemoteApps,
+  Passwordless, Bootstrap, Senders, Entitlements, Maintenance, Admin, Roles) and
+  `Client` now just embeds them. Same 93 methods, generated code byte-identical,
+  all tests pass. Hosts can now depend on the one small interface they use.
+  Reviewed before committing: dropped a junk-drawer interface, fixed a couple of
+  miscategorized methods, and removed a duplicate slice.
+
 
 2. Service file is 4,792 lines
 
