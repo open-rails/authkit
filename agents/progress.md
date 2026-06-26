@@ -804,7 +804,15 @@ commit so restructure + cleanup ship together.
 
 # #140: ship a Can-backed permission gate (RequirePermission middleware)
 
-**Completed:** no
+**Completed:** authkit side yes; cross-repo doujins adoption pending (optional)
+
+STATUS 2026-06-26 (Claude): authkit side DONE & shipped — `verify.RequirePermission`
+(Can-backed, fail-closed) is in ≤ v0.69.0. The ONLY thing left is the doujins-side
+adoption: delete its local `principalHasPermissionDB` + `catalogRolesGranting` +
+`permission.ForRoles` expansion and gate purely via authkit's `Can`. NOT done here on
+purpose — it's a behavior-sensitive AUTHORIZATION change (swaps doujins's local perm→role
+catalog for authkit's permission-group resolution), so it needs explicit go-ahead +
+doujins's DB-backed auth tests to prove decisions don't shift. Tracked as doujins #422/#423.
 
 Proposed 2026-06-25 (doujins boundary review). authkit owns the permission-group
 schema and has `Can(subjectID, subjectKind, persona, instanceSlug, perm)`, but
@@ -841,7 +849,11 @@ expansion and gates purely via authkit. Pairs with #138's `authkit.Client`.
 
 # #139: verify.Verifier.VerifyRequest — request→claims extractor (un-hack out-of-band auth gates)
 
-**Completed:** no
+**Completed:** yes
+
+STATUS 2026-06-26 (Claude): DONE both sides. `verify.VerifyRequest` shipped (≤ v0.69.0);
+doujins ADOPTED it — `internal/billing/openrailsembed/auth.go` now calls `v.VerifyRequest(r)`
+(the discard-ResponseWriter hack is gone). No remaining cross-repo work.
 
 STATUS 2026-06-25 (Claude): code + a direct `VerifyRequest` test are in the working tree; `verify` pkg green (Required now delegates to it). Held pending a pinnable authkit release; doujins re-applies then (doujins #422).
 
