@@ -3349,10 +3349,15 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 	}
 
 	if slug := strings.TrimSpace(o.Role); slug != "" {
-		// root_role filters on a user's role in the singleton root group.
+		// root_role filters on a user's role in the singleton root group. Use
+		// WHERE EXISTS (not a JOIN) so the result is one row per user — no
+		// duplication, so no SELECT DISTINCT is needed and the (col, id) sort can
+		// use an index.
 		slug = normalizeRootRoleSlug(slug)
-		from += " JOIN profiles.group_user_roles gur ON gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $" + fmt.Sprint(argIdx) +
-			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id AND pg.persona = 'root' AND pg.deleted_at IS NULL"
+		where = append(where, "EXISTS (SELECT 1 FROM profiles.group_user_roles gur"+
+			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id"+
+			" WHERE gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $"+fmt.Sprint(argIdx)+
+			" AND pg.persona = 'root' AND pg.deleted_at IS NULL)")
 		args = append(args, slug)
 		argIdx++
 	}
@@ -3384,8 +3389,9 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 }
 
 // adminUserOrderBy renders a safe ORDER BY (closed enum) with a stable id
-// tiebreaker. Every column referenced is in the SELECT list so SELECT DISTINCT
-// is legal.
+// tiebreaker. The id tiebreaker is the raw uuid (not ::text) so the (col, id)
+// admin indexes can serve the ordering; uuidv7 byte order matches the canonical
+// string's lexical order, so the row order is unchanged from the prior ::text cast.
 func adminUserOrderBy(o AdminUserListOptions) string {
 	col := "u.created_at"
 	switch o.Sort {
@@ -3400,7 +3406,7 @@ func adminUserOrderBy(o AdminUserListOptions) string {
 	if o.Desc {
 		dir = "DESC"
 	}
-	return col + " " + dir + ", u.id::text " + dir
+	return col + " " + dir + ", u.id " + dir
 }
 
 // AdminCountUsers returns the number of users matching opts (same filters as
@@ -3449,7 +3455,7 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 
 	argIdx := len(args) + 1
 	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.email_verified, u.phone_verified, u.banned_at, u.banned_until, u.ban_reason, u.banned_by, u.deleted_at, u.biography, u.created_at, u.updated_at, u.last_login"
-	query := "SELECT DISTINCT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + adminUserOrderBy(opts) + " OFFSET $" + fmt.Sprint(argIdx) + " LIMIT $" + fmt.Sprint(argIdx+1)
+	query := "SELECT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + adminUserOrderBy(opts) + " OFFSET $" + fmt.Sprint(argIdx) + " LIMIT $" + fmt.Sprint(argIdx+1)
 	args = append(args, offset, opts.PageSize)
 
 	rows, err := s.pg.Query(ctx, db.RewriteSQL(query, s.dbSchema()), args...)
