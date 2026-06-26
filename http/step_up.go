@@ -227,6 +227,13 @@ func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd 
 		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 		return true
 	}
+	return s.emitStepUpResult(w, r, sd, provider)
+}
+
+// emitStepUpResult writes the success result shared by the OIDC and OAuth2 step-up
+// completers: a fresh-token JSON body (tagged with the provider name) when JSON is
+// requested, else a success redirect. Always returns true (request handled).
+func (s *Service) emitStepUpResult(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, providerName string) bool {
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
 		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, time.Now())
 		body, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)
@@ -234,7 +241,7 @@ func (s *Service) completeOIDCStepUp(w http.ResponseWriter, r *http.Request, sd 
 			redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 			return true
 		}
-		body["provider"] = provider
+		body["provider"] = providerName
 		writeJSON(w, http.StatusOK, body)
 		return true
 	}

@@ -97,53 +97,9 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req struct {
-		Output struct {
-			Account struct {
-				Address   string `json:"address"`
-				PublicKey string `json:"publicKey"`
-			} `json:"account"`
-			Signature     string `json:"signature"`
-			SignedMessage string `json:"signedMessage"`
-		} `json:"output"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+	output, ok := decodeSIWSOutput(w, r)
+	if !ok {
 		return
-	}
-
-	signature, err := base64.StdEncoding.DecodeString(req.Output.Signature)
-	if err != nil {
-		signature, err = base64.RawURLEncoding.DecodeString(req.Output.Signature)
-		if err != nil {
-			badRequest(w, ErrInvalidSignatureEncoding)
-			return
-		}
-	}
-	signedMessage, err := base64.StdEncoding.DecodeString(req.Output.SignedMessage)
-	if err != nil {
-		signedMessage, err = base64.RawURLEncoding.DecodeString(req.Output.SignedMessage)
-		if err != nil {
-			badRequest(w, ErrInvalidMessageEncoding)
-			return
-		}
-	}
-
-	var publicKey []byte
-	if req.Output.Account.PublicKey != "" {
-		publicKey, err = base64.StdEncoding.DecodeString(req.Output.Account.PublicKey)
-		if err != nil {
-			publicKey, _ = base64.RawURLEncoding.DecodeString(req.Output.Account.PublicKey)
-		}
-	}
-
-	output := siws.SignInOutput{
-		Account: siws.AccountInfo{
-			Address:   req.Output.Account.Address,
-			PublicKey: publicKey,
-		},
-		Signature:     signature,
-		SignedMessage: signedMessage,
 	}
 
 	accessToken, expiresAt, refreshToken, userID, created, err := s.svc.VerifySIWSAndLogin(r.Context(), s.siwsCache(), output, nil)
@@ -185,7 +141,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		"created":       created,
 		"user": map[string]any{
 			"id":             userID,
-			"solana_address": req.Output.Account.Address,
+			"solana_address": output.Account.Address,
 		},
 	})
 }
@@ -201,53 +157,9 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Output struct {
-			Account struct {
-				Address   string `json:"address"`
-				PublicKey string `json:"publicKey"`
-			} `json:"account"`
-			Signature     string `json:"signature"`
-			SignedMessage string `json:"signedMessage"`
-		} `json:"output"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		badRequest(w, ErrInvalidRequest)
+	output, ok := decodeSIWSOutput(w, r)
+	if !ok {
 		return
-	}
-
-	signature, err := base64.StdEncoding.DecodeString(req.Output.Signature)
-	if err != nil {
-		signature, err = base64.RawURLEncoding.DecodeString(req.Output.Signature)
-		if err != nil {
-			badRequest(w, ErrInvalidSignatureEncoding)
-			return
-		}
-	}
-	signedMessage, err := base64.StdEncoding.DecodeString(req.Output.SignedMessage)
-	if err != nil {
-		signedMessage, err = base64.RawURLEncoding.DecodeString(req.Output.SignedMessage)
-		if err != nil {
-			badRequest(w, ErrInvalidMessageEncoding)
-			return
-		}
-	}
-
-	var publicKey []byte
-	if req.Output.Account.PublicKey != "" {
-		publicKey, err = base64.StdEncoding.DecodeString(req.Output.Account.PublicKey)
-		if err != nil {
-			publicKey, _ = base64.RawURLEncoding.DecodeString(req.Output.Account.PublicKey)
-		}
-	}
-
-	output := siws.SignInOutput{
-		Account: siws.AccountInfo{
-			Address:   req.Output.Account.Address,
-			PublicKey: publicKey,
-		},
-		Signature:     signature,
-		SignedMessage: signedMessage,
 	}
 
 	if err := s.svc.LinkSolanaWallet(r.Context(), s.siwsCache(), claims.UserID, output); err != nil {
@@ -271,6 +183,55 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":        true,
 		"message":        "Solana wallet linked successfully",
-		"solana_address": req.Output.Account.Address,
+		"solana_address": output.Account.Address,
 	})
+}
+
+// decodeSIWSB64 decodes a base64 string, trying StdEncoding then RawURLEncoding —
+// wallets vary in which they emit for the signature/message/public-key fields.
+func decodeSIWSB64(s string) ([]byte, error) {
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return b, nil
+	}
+	return base64.RawURLEncoding.DecodeString(s)
+}
+
+// decodeSIWSOutput decodes the shared `{output:{account,signature,signedMessage}}`
+// SIWS request body used by both the login and link handlers. On a decode failure
+// it writes the appropriate 400 and returns ok=false (the caller just returns).
+func decodeSIWSOutput(w http.ResponseWriter, r *http.Request) (siws.SignInOutput, bool) {
+	var req struct {
+		Output struct {
+			Account struct {
+				Address   string `json:"address"`
+				PublicKey string `json:"publicKey"`
+			} `json:"account"`
+			Signature     string `json:"signature"`
+			SignedMessage string `json:"signedMessage"`
+		} `json:"output"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return siws.SignInOutput{}, false
+	}
+	signature, err := decodeSIWSB64(req.Output.Signature)
+	if err != nil {
+		badRequest(w, ErrInvalidSignatureEncoding)
+		return siws.SignInOutput{}, false
+	}
+	signedMessage, err := decodeSIWSB64(req.Output.SignedMessage)
+	if err != nil {
+		badRequest(w, ErrInvalidMessageEncoding)
+		return siws.SignInOutput{}, false
+	}
+	// Public key is optional and best-effort (the address is authoritative).
+	var publicKey []byte
+	if req.Output.Account.PublicKey != "" {
+		publicKey, _ = decodeSIWSB64(req.Output.Account.PublicKey)
+	}
+	return siws.SignInOutput{
+		Account:       siws.AccountInfo{Address: req.Output.Account.Address, PublicKey: publicKey},
+		Signature:     signature,
+		SignedMessage: signedMessage,
+	}, true
 }

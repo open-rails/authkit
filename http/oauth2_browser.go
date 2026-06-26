@@ -358,19 +358,7 @@ func (s *Service) completeOAuthStepUp(w http.ResponseWriter, r *http.Request, sd
 		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
 		return true
 	}
-	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		freshness, _ := s.svc.SessionFreshness(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, time.Now())
-		body, err := s.freshAccessTokenResponse(r, sd.StepUpUserID, sd.StepUpSessionID, freshness)
-		if err != nil {
-			redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
-			return true
-		}
-		body["provider"] = cfg.Name
-		writeJSON(w, http.StatusOK, body)
-		return true
-	}
-	redirectStepUpResult(w, r, sd.StepUpReturnTo, "success")
-	return true
+	return s.emitStepUpResult(w, r, sd, cfg.Name)
 }
 
 func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, sd oidckit.StateData, info oauth2UserInfo) (string, bool, error) {
