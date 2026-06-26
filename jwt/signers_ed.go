@@ -30,19 +30,9 @@ func (s *Ed25519Signer) PublicKey() crypto.PublicKey {
 }
 
 func (s *Ed25519Signer) Sign(_ context.Context, claims jwt.MapClaims) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
-	token.Header["kid"] = s.kid
-	return token.SignedString(s.key)
+	return signWithHeaders(jwt.SigningMethodEdDSA, s.key, s.kid, claims, nil)
 }
 
 func (s *Ed25519Signer) SignWithHeaders(_ context.Context, claims jwt.MapClaims, headers map[string]any) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
-	for k, val := range headers {
-		if k == "kid" || k == "alg" {
-			continue
-		}
-		token.Header[k] = val
-	}
-	token.Header["kid"] = s.kid
-	return token.SignedString(s.key)
+	return signWithHeaders(jwt.SigningMethodEdDSA, s.key, s.kid, claims, headers)
 }

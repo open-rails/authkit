@@ -331,10 +331,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	identifier := strings.TrimSpace(req.Identifier)
-	if identifier == "" {
-		identifier = strings.TrimSpace(req.Email)
-	}
+	identifier := firstTrimmedNonEmpty(req.Identifier, req.Email)
 	if identifier == "" || req.Password == "" {
 		badRequest(w, ErrInvalidRequest)
 		return

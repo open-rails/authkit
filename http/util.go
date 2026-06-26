@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 )
 
 // maxRequestBodyBytes caps the size of a JSON request body we will read. Auth
@@ -48,4 +49,16 @@ func parseIP(s string) net.IP {
 		s = h
 	}
 	return net.ParseIP(s)
+}
+
+// firstTrimmedNonEmpty returns the first value that is non-empty after TrimSpace,
+// or "" if all are blank. Used to coalesce alternative request identifier fields
+// (e.g. login/email/identifier) in caller-specified preference order.
+func firstTrimmedNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -4,26 +4,26 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"testing"
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-func TestOAuth2OutboundHTTPClientHasTimeout(t *testing.T) {
-	require.NotNil(t, oauth2OutboundHTTPClient)
-	require.Equal(t, oauth2OutboundTimeout, oauth2OutboundHTTPClient.Timeout)
+func TestDefaultOutboundHTTPClientHasTimeout(t *testing.T) {
+	require.NotNil(t, defaultOutboundHTTPClient)
+	require.Equal(t, DefaultOutboundTimeout, defaultOutboundHTTPClient.Timeout)
 }
 
-func TestOAuth2OutboundHTTPClientUsedByUserInfoFetch(t *testing.T) {
-	orig := oauth2OutboundHTTPClient
-	t.Cleanup(func() { oauth2OutboundHTTPClient = orig })
+func TestOAuth2UserInfoFetchUsesDefaultOutboundClient(t *testing.T) {
+	orig := defaultOutboundHTTPClient
+	t.Cleanup(func() { defaultOutboundHTTPClient = orig })
 
 	var usedClient *http.Client
-	oauth2OutboundHTTPClient = &http.Client{
+	defaultOutboundHTTPClient = &http.Client{
 		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-			usedClient = oauth2OutboundHTTPClient
+			usedClient = defaultOutboundHTTPClient
 			return http.DefaultTransport.RoundTrip(r)
 		}),
 		Timeout: 5 * time.Second,
@@ -48,7 +48,7 @@ func TestOAuth2OutboundHTTPClientUsedByUserInfoFetch(t *testing.T) {
 		oauth2TokenResp{AccessToken: "tok", TokenType: "Bearer"},
 	)
 	require.NoError(t, err)
-	require.Equal(t, oauth2OutboundHTTPClient, usedClient)
+	require.Equal(t, defaultOutboundHTTPClient, usedClient)
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)

@@ -141,11 +141,5 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 }
 
 func passwordlessIdentifier(identifier, email, phone string) string {
-	if strings.TrimSpace(identifier) != "" {
-		return strings.TrimSpace(identifier)
-	}
-	if strings.TrimSpace(email) != "" {
-		return strings.TrimSpace(email)
-	}
-	return strings.TrimSpace(phone)
+	return firstTrimmedNonEmpty(identifier, email, phone)
 }

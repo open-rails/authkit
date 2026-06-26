@@ -26,10 +26,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	identifier := strings.TrimSpace(req.Email)
-	if identifier == "" {
-		identifier = strings.TrimSpace(req.Login)
-	}
+	identifier := firstTrimmedNonEmpty(req.Email, req.Login)
 
 	// Per-identifier check: prevents distributed brute-force against a single account
 	// from many IPs, each spending their own per-IP budget.

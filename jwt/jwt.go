@@ -93,24 +93,30 @@ func (s *RSASigner) PublicKey() crypto.PublicKey { return &s.key.PublicKey }
 func (s *RSASigner) PrivateKey() *rsa.PrivateKey { return s.key }
 
 func (s *RSASigner) Sign(_ context.Context, claims jwt.MapClaims) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token.Header["kid"] = s.kid
-	return token.SignedString(s.key)
+	return signWithHeaders(jwt.SigningMethodRS256, s.key, s.kid, claims, nil)
 }
 
 // SignWithHeaders implements HeaderSigner: it signs claims and merges extra JOSE
 // header params (e.g. `typ`) into the token header. The signer's own kid is set
 // last and cannot be overridden by the supplied headers.
 func (s *RSASigner) SignWithHeaders(_ context.Context, claims jwt.MapClaims, headers map[string]any) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	return signWithHeaders(jwt.SigningMethodRS256, s.key, s.kid, claims, headers)
+}
+
+// signWithHeaders is the shared signing body for every in-memory signer: build the
+// token with the given method, merge any extra JOSE headers (kid/alg are reserved
+// to the signer), stamp kid, and sign. The key is whatever crypto key the method
+// expects (SignedString takes any).
+func signWithHeaders(method jwt.SigningMethod, key any, kid string, claims jwt.MapClaims, headers map[string]any) (string, error) {
+	token := jwt.NewWithClaims(method, claims)
 	for k, val := range headers {
 		if k == "kid" || k == "alg" {
 			continue
 		}
 		token.Header[k] = val
 	}
-	token.Header["kid"] = s.kid
-	return token.SignedString(s.key)
+	token.Header["kid"] = kid
+	return token.SignedString(key)
 }
 
 // NewRSASignerFromPEM constructs an RSASigner from a PEM-encoded RSA private key.

@@ -71,7 +71,7 @@ func oauth2GetJSON(r *http.Request, url string, token oauth2TokenResp, accept st
 		req.Header.Set("Accept", accept)
 	}
 	req.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
-	resp, err := oauth2OutboundHTTPClient.Do(req)
+	resp, err := defaultOutboundHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

@@ -325,7 +325,7 @@ func (s *Service) exchangeOAuthCode(r *http.Request, cfg authprovider.Provider, 
 	req, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := oauth2OutboundHTTPClient.Do(req)
+	resp, err := defaultOutboundHTTPClient.Do(req)
 	if err != nil {
 		return oauth2TokenResp{}, err
 	}

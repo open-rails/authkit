@@ -118,10 +118,7 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	// guessed code would match (and take over) whichever account happens to hold
 	// it, and a per-IP-only limit is trivially defeated by IP rotation (AK F1).
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
-	email := strings.TrimSpace(req.Email)
-	if email == "" {
-		email = strings.TrimSpace(req.Identifier)
-	}
+	email := firstTrimmedNonEmpty(req.Email, req.Identifier)
 	if code == "" || email == "" {
 		badRequest(w, ErrInvalidRequest)
 		return

@@ -6,7 +6,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -66,10 +65,7 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
 		_ = decodeJSON(r, &req)
 	}
-	identifier := strings.TrimSpace(req.Login)
-	if identifier == "" {
-		identifier = strings.TrimSpace(req.Email)
-	}
+	identifier := firstTrimmedNonEmpty(req.Login, req.Email)
 	if identifier != "" && s.rateLimitedByIdentifier(w, r, RLPasskeyLogin, identifier) {
 		return
 	}
