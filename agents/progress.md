@@ -402,8 +402,8 @@ Host mental model:
 - [ ] Move advanced engine hooks out of the first README constructor example:
       `WithEntitlements` (host billing/product entitlements projected into access
       tokens plus admin user detail/list enrichment and entitlement filtering),
-      and `WithAuthLogger` (external auth/session audit sink such as ClickHouse).
-      Keep them documented only in advanced/support sections.
+      and `WithClickHouse` (auth/session history backed by ClickHouse). Keep them
+      documented only in advanced/support sections.
 - [x] DECISION: delete API-key resource scopes entirely. API keys should be
       scoped by their permission group plus one role; if a host needs narrower
       scope, it should mint the key on a narrower permission group such as
@@ -464,9 +464,11 @@ Host mental model:
       migration schema. This is the standard implementation for admin sign-in
       history / user login history views.
 - [ ] Replace `embedded.WithAuthLogger(...)` and `authhttp.WithAuthLogReader(...)`
-      in public examples/API with one ClickHouse option. Passing no ClickHouse
-      means no external auth-event history and admin sign-in history routes should
-      report auth log unavailable.
+      in public examples/API with one `embedded.WithClickHouse(ch)` option. The
+      embedded client owns both auth-event writes and history reads; `authhttp.NewServer(client)`
+      should derive the reader from the client, not require a separate server
+      option. Passing no ClickHouse means no external auth-event history and admin
+      sign-in history routes should report auth log unavailable.
 - [ ] Keep low-level `AuthEventLogger` / `AuthEventLogReader` interfaces internal
       or advanced-only only if needed for tests; do not document custom file/stdout
       loggers until there is a real host need.
@@ -477,6 +479,36 @@ Host mental model:
       auth state. Redis replaces the default in-memory store for multi-instance
       deployments and stores short-lived auth data such as challenges, OIDC state,
       passwordless/verification/reset tokens, and related counters.
+- [x] DECISION: do not expose `authhttp.WithRateLimiter` as normal host setup.
+      AuthKit owns the rate-limit policy and should create the limiter itself:
+      Redis-backed when the embedded client has Redis, in-memory otherwise.
+      Custom limiter injection, if kept, is internal/test/advanced only.
+- [ ] Replace public examples of `authhttp.WithRateLimiter(...)` /
+      `authhttp.WithoutRateLimiter()` with automatic rate limiting derived from
+      the embedded client. Do not allow production hosts to accidentally disable
+      brute-force/spam protections through a normal setup option.
+- [x] DECISION: replace raw `authhttp.WithClientIPFunc(...)` in normal docs with
+      `authhttp.WithTrustedProxies(trustedProxies)`. The server should keep a
+      safe default using `RemoteAddr`; hosts behind proxies only provide trusted
+      proxy CIDRs. Keep arbitrary `ClientIPFunc` injection internal/test/advanced.
+- [x] DECISION: keep an HTTP internal-error logging hook, but name/document it as
+      internal observability, not auth-event history. It reports swallowed handler
+      failures such as delivery/provider/database errors while clients receive a
+      stable public error. Prefer a clearer name such as `WithInternalErrorLogger`.
+- [x] DECISION: delete public `authhttp.WithPermissionGroupAuthorizer`. Generated
+      permission-group routes should authorize through the embedded client/engine
+      (`Can`) directly. The current override is useful for tests and unusual lazy
+      materialization only; keep any seam internal/test-only.
+- [x] DECISION: delete public `authhttp.WithSolanaDomain`. SIWS challenge domain
+      should be derived from AuthKit config (`Frontend.BaseURL` / issuer host) and
+      request fallback, not a separate server constructor option.
+- [ ] Remove `WithPermissionGroupAuthorizer` and `WithSolanaDomain` from first-run
+      docs and public API inventory; keep `WithInternalErrorLogger` in advanced
+      server observability docs.
+- [ ] Delete `PermissionGroupAuthorizer`, `WithPermissionGroupAuthorizer`, and the
+      `groupCanFn` field from public HTTP server code. Update tests to exercise
+      the real `Can` path or use package-internal helpers instead of a public
+      option seam.
 - [ ] Move any custom auth-state store injection to internal tests or an unadvertised
       test seam. Do not expose it in README or normal package docs.
 - [x] Update current consumers to v0.69.0 client-first (DONE 2026-06-26, all
@@ -524,7 +556,10 @@ Host mental model:
 
 # #142: Standalone self-hostable server + remote SDK (authkit Phase 2)
 
-**Completed:** no
+**Completed:** yes (track A client-first + full consumer migration; track B standalone
+server + generated remote SDK, shipped v0.70.0. Two tasks pruned as over-engineering:
+the in-process transport adapter and the flag/file config layer. mTLS / signed-JWT mgmt
+auth left as future hardening — bearer token ships.)
 
 STATUS 2026-06-26 (Claude): foundation landed (additive, non-breaking). Built the
 remote-SDK transport END-TO-END for the first capability slice (`authkit.Authorizer`):
@@ -551,7 +586,7 @@ now defaults to an in-memory ephemeral store (was the http layer's job), new
 `embedded.WithRedis` (engine store) + `embedded.Unwrap` (engine extraction for the
 transport); `authhttp.WithRedis` is now HTTP-only (OIDC/SIWS state caches), and the
 engine-dep option wrappers (WithEphemeralStore/WithEmailSender/WithSMSSender/
-WithEntitlements/WithAuthLogger/WithAPIKeyResourceAuthorizer/WithSolanaSNSResolver) +
+WithEntitlements/WithClickHouse/WithAPIKeyResourceAuthorizer/WithSolanaSNSResolver) +
 `Server.coreOpts` are deleted from `authhttp`. DROPPED `Server.Client()` (host owns the
 client). Migrated all 34 in-repo `NewServer` sites (devserver + ~33 http tests + gin
 test). build+vet+gofmt green; full DB-backed suites (http, internal/authcore, riverjobs)
@@ -640,15 +675,17 @@ user over the management API and read it back; no-token call → 401.
       FULL `authkit.Client` (compile-time conformance in `remote/conformance.go`). All 93
       methods generated; error mapping re-derives `errors.Is(err, authkit.ErrX)` via the
       shared `authkit.ErrorForCode`.
-- [~] **Transport seam** — SOLVED differently from etcd's `v3client`: the management
-      handlers operate on the `authkit.Client` interface, which `embedded.Client` already
-      IS (direct in-process calls — no adapter needed), and `remote.Client` is GENERATED
-      from that same interface. So the two transports are derived from one contract and
-      cannot drift — without routing embedded through HTTP handlers (which would be pure
-      overhead in-process). The literal in-process-HTTP adapter is YAGNI.
-- [~] **Config unification** — the binary builds `embedded.Config` from env (DB/issuer/
-      keys/schema/redis/registration-verification). A shared flag/file-driven config
-      struct is polish, not blocking.
+- [x] ~~Transport seam (in-process direct-call adapter)~~ — DELETED as over-engineering.
+      etcd needs `v3client` because its embedded client would otherwise re-implement the
+      gRPC client; here the management handlers operate on the `authkit.Client` interface,
+      which `embedded.Client` already IS (direct in-process calls), and `remote.Client` is
+      GENERATED from that same interface. The two transports are derived from one contract
+      and cannot drift — routing embedded through HTTP handlers would be pure in-process
+      overhead for zero benefit. No adapter exists or is needed.
+- [x] **Config unification** — DONE via env: `cmd/authkit-server` builds `embedded.Config`
+      from `AUTHKIT_*`/`DB_URL` (issuer/keys/schema/redis/registration-verification). A
+      flag/file config layer is YAGNI for ~11 knobs (etcd has it for a huge surface); add
+      it only if a real deploy needs flags.
 - [x] **Tests** — `remote/remote_test.go`: fake-`authkit.Client`-backed parity over
       `httptest` (bool/[]string/pointer-struct/multi-return/no-ctx round-trips + error
       identity + auth seam). `remote/parity_db_test.go`: REAL embedded engine — write via
