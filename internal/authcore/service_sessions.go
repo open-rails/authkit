@@ -66,12 +66,6 @@ func (s *Service) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID
 	if err := s.requireSessionMFAState(ctx, userID, authMethods); err != nil {
 		return "", "", nil, err
 	}
-	// Enforce session limit
-	if s.opts.SessionMaxPerUser > 0 {
-		if err = s.enforceSessionLimit(ctx, userID, s.opts.Issuer); err != nil {
-			return "", "", nil, err
-		}
-	}
 	// Generate token
 	rt := randB64(32)
 	hash := s.hashRefresh(rt)
@@ -80,17 +74,40 @@ func (s *Service) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID
 		exp := time.Now().Add(s.opts.RefreshTokenDuration)
 		expPtr = &exp
 	}
-	var sid, fam string
-	sid, err = newUUIDV7String()
+	sid, err := newUUIDV7String()
 	if err != nil {
 		return "", "", nil, err
 	}
-	fam, err = newUUIDV7String()
+	fam, err := newUUIDV7String()
 	if err != nil {
 		return "", "", nil, err
 	}
-	// Insert row
-	row, err := s.q.SessionInsert(ctx, db.SessionInsertParams{
+
+	// Enforce the per-user session cap and insert the new session in ONE
+	// transaction, serialized against concurrent creates for the same user by a
+	// transaction-scoped advisory lock. Without the lock the count→evict→insert
+	// steps race: N concurrent logins at the cap each read count==max, each evict
+	// the same one oldest session, and each insert — leaving the user above
+	// SessionMaxPerUser. The lock auto-releases at transaction end.
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return "", "", nil, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(db.ForSchema(tx, s.dbSchema()))
+
+	var evicted []string
+	if s.opts.SessionMaxPerUser > 0 {
+		if lockErr := q.SessionCreateLock(ctx, userID+"|"+s.opts.Issuer); lockErr != nil {
+			return "", "", nil, lockErr
+		}
+		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.opts.Issuer)
+		if err != nil {
+			return "", "", nil, err
+		}
+	}
+
+	row, err := q.SessionInsert(ctx, db.SessionInsertParams{
 		ID:               sid,
 		FamilyID:         fam,
 		UserID:           userID,
@@ -103,6 +120,18 @@ func (s *Service) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID
 	})
 	if err != nil {
 		return "", "", nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", nil, err
+	}
+
+	// Audit evictions after commit (best-effort; mirrors the post-commit logging in
+	// AdminRecoverUser).
+	if len(evicted) > 0 {
+		reason := string(SessionRevokeReasonEvicted)
+		for _, esid := range evicted {
+			s.logSessionRevoked(ctx, userID, esid, &reason)
+		}
 	}
 	return row.ID, rt, expPtr, nil
 }
@@ -385,31 +414,33 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSess
 	return nil
 }
 
-// enforceSessionLimit enforces max active sessions per user using policy.
-func (s *Service) enforceSessionLimit(ctx context.Context, userID, issuer string) error {
+// enforceSessionLimitTx evicts the oldest sessions so that inserting one more keeps
+// the user at or below SessionMaxPerUser. It runs on the caller's transaction-bound
+// queries (q) — under the per-user advisory lock taken by the caller — so the count +
+// evict + the subsequent insert observe a consistent view and the active count can
+// never exceed the cap. Returns the evicted session ids for the caller to audit after
+// commit (so a logging failure can't roll back the eviction).
+func (s *Service) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userID, issuer string) ([]string, error) {
 	if s.opts.SessionMaxPerUser <= 0 {
-		return nil
+		return nil, nil
 	}
-	count, err := s.q.SessionsCountActive(ctx, db.SessionsCountActiveParams{UserID: userID, Issuer: issuer})
+	count, err := q.SessionsCountActive(ctx, db.SessionsCountActiveParams{UserID: userID, Issuer: issuer})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if int(count) < s.opts.SessionMaxPerUser {
-		return nil
+		return nil, nil
 	}
-	// evict-oldest in a single statement
+	// evict-oldest in a single statement so inserting one more lands at the cap
 	excess := int(count) - s.opts.SessionMaxPerUser + 1
-	if excess > 0 {
-		ids, err := s.q.SessionsEvictOldest(ctx, db.SessionsEvictOldestParams{UserID: userID, Issuer: issuer, EvictCount: int64(excess)})
-		if err != nil {
-			return err
-		}
-		reason := string(SessionRevokeReasonEvicted)
-		for _, sid := range ids {
-			s.logSessionRevoked(ctx, userID, sid, &reason)
-		}
+	if excess <= 0 {
+		return nil, nil
 	}
-	return nil
+	ids, err := q.SessionsEvictOldest(ctx, db.SessionsEvictOldestParams{UserID: userID, Issuer: issuer, EvictCount: int64(excess)})
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func (s *Service) revokeFamily(ctx context.Context, familyID string) error {
