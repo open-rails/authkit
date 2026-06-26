@@ -1,13 +1,9 @@
 package authcore
 
-// Invite LINKS (#134): the human "bring a (possibly not-yet-registered) person
-// into a permission-group" flow. A high-entropy code is minted for a group+role;
-// when a logged-in user REDEEMS it, that role is assigned to them. Two shapes,
-// one primitive:
-//   - email-bound  (Email set, MaxUses defaults to 1): only that verified address
-//     may redeem — "email a specific person".
-//   - shareable    (Email empty, MaxUses NULL = unlimited or a cap): anyone with
-//     the code may redeem — "post the link in a channel".
+// Invite LINKS (#134/#147): the human "bring a stranger into a permission-group"
+// flow. A high-entropy, unbound, single-use code is minted for a group+role; when
+// a logged-in user REDEEMS it, that role is assigned to them. Possession of the
+// link is the credential.
 // Redeeming IS joining; there is no separate accept/decline step (adding an
 // existing user directly is the members endpoint, which needs no confirmation).
 //
@@ -31,61 +27,26 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Per-kind default link lifetimes (overridable per-link via ExpiresIn). #147:
-// the identity-proven (email-bound) invite outlives the anyone-with-the-link
-// shareable one, never the reverse — a stranger holding a shareable link gets a
-// shorter window than a named recipient who proved their email.
-const (
-	defaultEmailInviteTTL     = 7 * 24 * time.Hour // email-bound: "email a specific person"
-	defaultShareableInviteTTL = 72 * time.Hour     // shareable: "post the link in a channel"
-)
+const defaultGroupInviteTTL = 72 * time.Hour
 
 var (
 	// ErrInviteLinkNotFound indicates no invite link matched the code/lookup.
 	ErrInviteLinkNotFound = authkit.ErrInviteLinkNotFound
 	// ErrInviteLinkExpired indicates the link's expires_at has passed.
 	ErrInviteLinkExpired = authkit.ErrInviteLinkExpired
-	// ErrInviteLinkExhausted indicates the link hit its max_uses cap.
-	ErrInviteLinkExhausted = authkit.ErrInviteLinkExhausted
 	// ErrInviteLinkRevoked indicates the link was revoked by a manager.
 	ErrInviteLinkRevoked = authkit.ErrInviteLinkRevoked
-	// ErrInviteEmailMismatch indicates an email-bound link was redeemed by a user
-	// whose verified email does not match the bound address.
-	ErrInviteEmailMismatch = authkit.ErrInviteEmailMismatch
 	// ErrExternalInvitesDisabled indicates invite links are off because the
 	// deployment's registration mode does not permit invited self-registration.
 	ErrExternalInvitesDisabled = authkit.ErrExternalInvitesDisabled
 )
-
-// GroupInviteMessage carries the rendered data an email sender needs to deliver a
-// permission-group invite. AuthKit builds InviteURL (BaseURL + FrontendInvitePath
-// + ?code=); the host supplies transport + branding/copy.
-type GroupInviteMessage struct {
-	InviteURL    string // the accept-invite link the recipient clicks
-	Persona      string // the group's persona (e.g. "merchant")
-	InstanceSlug string // which instance (e.g. "acme-store")
-	Role         string // the role the invite grants
-	Purpose      string // lets senders vary copy without new methods
-}
-
-// GroupInviteEmailSender is an OPTIONAL capability on an EmailSender: if the
-// configured sender also implements it, AuthKit delivers email-bound invite links
-// through it. Senders that don't implement it simply don't get invite emails —
-// the minter still receives the code/URL to deliver out-of-band. Optional (not
-// folded into EmailSender) because invites are an opt-in feature; a deployment
-// that never mints invite links should not be forced to render invite email.
-type GroupInviteEmailSender interface {
-	SendGroupInvite(ctx context.Context, email string, msg GroupInviteMessage) error
-}
 
 // GroupInviteLink is the non-secret view of an invite link (never carries the
 // code or its hash).
 type GroupInviteLink = authkit.GroupInviteLink
 
 // CreateGroupInviteLinkRequest mints an invite link for the group addressed by
-// (Persona, InstanceSlug) granting Role. Email set => email-bound (defaults to
-// single-use); empty => shareable. MaxUses caps redemptions (nil = unlimited).
-// ExpiresIn overrides the per-kind default lifetime.
+// (Persona, InstanceSlug) granting Role. ExpiresIn overrides the default lifetime.
 type CreateGroupInviteLinkRequest = authkit.CreateGroupInviteLinkRequest
 
 // GroupInviteLinkCreated is the mint result: the plaintext Code (shown ONCE) and
@@ -117,8 +78,8 @@ func (s *Service) inviteURL(code string) string {
 	return s.authkitURL(s.opts.FrontendInvitePath, q)
 }
 
-// CreateGroupInviteLink mints an invite link (and, for email-bound links, emails
-// it when the sender supports invite delivery). Returns the plaintext code ONCE.
+// CreateGroupInviteLink mints an unbound single-use invite link. Returns the
+// plaintext code ONCE.
 func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error) {
 	if err := s.requirePG(); err != nil {
 		return GroupInviteLinkCreated{}, err
@@ -137,16 +98,6 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, persona, role) {
 		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group", role, persona)
-	}
-	if req.MaxUses != nil && *req.MaxUses < 1 {
-		return GroupInviteLinkCreated{}, errors.New("invalid_max_uses")
-	}
-	email := ""
-	if strings.TrimSpace(req.Email) != "" {
-		email = NormalizeEmail(req.Email)
-		if err := ValidateEmail(email); err != nil {
-			return GroupInviteLinkCreated{}, err
-		}
 	}
 	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
 	if err != nil {
@@ -167,54 +118,24 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 
 	ttl := req.ExpiresIn
 	if ttl <= 0 {
-		ttl = defaultShareableInviteTTL
-		if email != "" {
-			ttl = defaultEmailInviteTTL
-		}
+		ttl = defaultGroupInviteTTL
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
-	// Email-bound links default to single-use unless the caller set max_uses.
-	maxUses := req.MaxUses
-	if email != "" && maxUses == nil {
-		one := 1
-		maxUses = &one
-	}
 
 	code := randB64(32)
 	codeHash := sha256Hex(code)
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var id string
 	err = q.QueryRow(ctx,
-		`INSERT INTO profiles.group_invite_links (permission_group_id, role, invited_by, code_hash, email, max_uses, expires_at)
-		 VALUES ($1::uuid, $2, $3::uuid, $4, NULLIF($5,''), $6, $7)
+		`INSERT INTO profiles.group_invite_links (permission_group_id, role, invited_by, code_hash, expires_at)
+		 VALUES ($1::uuid, $2, $3::uuid, $4, $5)
 		 RETURNING id::text`,
-		gid, role, invitedBy, codeHash, email, maxUses, expiresAt).Scan(&id)
+		gid, role, invitedBy, codeHash, expiresAt).Scan(&id)
 	if err != nil {
 		return GroupInviteLinkCreated{}, err
 	}
 	created := GroupInviteLinkCreated{ID: id, Code: code, URL: s.inviteURL(code)}
-
-	// Email-bound: AuthKit delivers the link (batteries-included, #131 model).
-	// Best-effort — the minter holds the code regardless, so a transient send
-	// failure does not undo the mint.
-	if email != "" {
-		s.sendGroupInviteEmail(ctx, email, persona, instanceSlug, role, created.URL)
-	}
 	return created, nil
-}
-
-func (s *Service) sendGroupInviteEmail(ctx context.Context, email, persona, instanceSlug, role, inviteURL string) {
-	if s.email == nil {
-		return
-	}
-	sender, ok := s.email.(GroupInviteEmailSender)
-	if !ok {
-		return
-	}
-	msg := GroupInviteMessage{InviteURL: inviteURL, Persona: persona, InstanceSlug: instanceSlug, Role: role, Purpose: "group_invite"}
-	_ = s.withSendTimeout(ctx, func(sendCtx context.Context) error {
-		return sender.SendGroupInvite(sendCtx, email, msg)
-	})
 }
 
 // ListGroupInviteLinks lists the group's invite links (active and inactive),
@@ -229,8 +150,8 @@ func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlu
 	}
 	q := db.ForSchema(s.pg, s.dbSchema())
 	rows, err := q.Query(ctx,
-		`SELECT id::text, permission_group_id::text, role, invited_by::text, COALESCE(email,''),
-		        max_uses, uses, expires_at, revoked_at, created_at, updated_at
+		`SELECT id::text, permission_group_id::text, role, invited_by::text,
+		        uses, expires_at, revoked_at, created_at, updated_at
 		 FROM profiles.group_invite_links
 		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
@@ -241,8 +162,8 @@ func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlu
 	out := make([]GroupInviteLink, 0)
 	for rows.Next() {
 		var l GroupInviteLink
-		if err := rows.Scan(&l.ID, &l.PermissionGroupID, &l.Role, &l.InvitedBy, &l.Email,
-			&l.MaxUses, &l.Uses, &l.ExpiresAt, &l.RevokedAt, &l.CreatedAt, &l.UpdatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.PermissionGroupID, &l.Role, &l.InvitedBy,
+			&l.Uses, &l.ExpiresAt, &l.RevokedAt, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -283,10 +204,9 @@ func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSl
 type RedeemGroupInviteLinkResult = authkit.RedeemGroupInviteLinkResult
 
 // RedeemGroupInviteLink redeems code on behalf of the authenticated redeemerUserID:
-// it validates the link (live, not expired/revoked, within max_uses; for an
-// email-bound link the redeemer's verified email must match), assigns the role in
-// the same transaction, and increments uses. Idempotent: if the redeemer already
-// holds that role, it succeeds WITHOUT consuming a use.
+// it validates the link (live, not expired/revoked, unused), assigns the role in
+// the same transaction, and marks the code used. Idempotent: if the redeemer
+// already holds that role, it succeeds without changing uses.
 func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error) {
 	var zero RedeemGroupInviteLinkResult
 	if err := s.requirePG(); err != nil {
@@ -306,18 +226,17 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
 
-	var linkID, groupID, persona, instanceSlug, role, email string
-	var maxUses *int
+	var linkID, groupID, persona, instanceSlug, role string
 	var uses int
 	var expiresAt, revokedAt *time.Time
 	err = q.QueryRow(ctx,
 		`SELECT l.id::text, l.permission_group_id::text, g.persona, COALESCE(g.instance_slug,''), l.role,
-		        COALESCE(l.email,''), l.max_uses, l.uses, l.expires_at, l.revoked_at
+		        l.uses, l.expires_at, l.revoked_at
 		 FROM profiles.group_invite_links l
 		 JOIN profiles.permission_groups g ON g.id = l.permission_group_id
 		 WHERE l.code_hash = $1 AND g.deleted_at IS NULL
 		 FOR UPDATE OF l`,
-		codeHash).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &email, &maxUses, &uses, &expiresAt, &revokedAt)
+		codeHash).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &uses, &expiresAt, &revokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return zero, ErrInviteLinkNotFound
 	}
@@ -330,28 +249,15 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
 		return zero, ErrInviteLinkExpired
 	}
-	if maxUses != nil && uses >= *maxUses {
-		return zero, ErrInviteLinkExhausted
-	}
-
-	// Email-bound: only the matching VERIFIED address may redeem (defense in depth —
-	// a forwarded link still only works for the intended recipient).
-	if email != "" {
-		u, err := s.getUserByID(ctx, redeemerUserID)
-		if err != nil {
-			return zero, err
-		}
-		if u == nil || u.Email == nil || !u.EmailVerified || NormalizeEmail(*u.Email) != email {
-			return zero, ErrInviteEmailMismatch
-		}
-	}
-
 	// Idempotency: already holds this role => success, no use consumed.
 	already, err := subjectHasRole(ctx, q, groupID, redeemerUserID, role)
 	if err != nil {
 		return zero, err
 	}
 	if !already {
+		if uses > 0 {
+			return zero, ErrInviteLinkNotFound
+		}
 		if err := s.requireMFAForRoleAssignment(ctx, q, persona, redeemerUserID, SubjectKindUser, role); err != nil {
 			return zero, err
 		}

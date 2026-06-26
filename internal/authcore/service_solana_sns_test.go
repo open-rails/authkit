@@ -2,7 +2,6 @@ package authcore
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,37 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-type fakeSolanaSNSResolver struct {
-	names map[string]string
-	err   error
-}
-
-func (r fakeSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, address string) (string, error) {
-	if r.err != nil {
-		return "", r.err
-	}
-	return r.names[address], nil
-}
-
-type mutableSolanaSNSResolver struct {
-	calls atomic.Int64
-	mu    sync.Mutex
-	name  string
-}
-
-func (r *mutableSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, address string) (string, error) {
-	r.calls.Add(1)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.name, nil
-}
-
-func (r *mutableSolanaSNSResolver) setName(name string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.name = name
-}
 
 func TestNormalizeSolanaSNSName(t *testing.T) {
 	tests := []struct {
@@ -71,6 +39,17 @@ func TestNormalizeSolanaSNSName(t *testing.T) {
 	}
 }
 
+func withSolanaSNSTestProxy(t *testing.T, h http.HandlerFunc) {
+	t.Helper()
+	server := httptest.NewServer(h)
+	oldURL := defaultSolanaSNSProxyURL
+	defaultSolanaSNSProxyURL = server.URL
+	t.Cleanup(func() {
+		defaultSolanaSNSProxyURL = oldURL
+		server.Close()
+	})
+}
+
 func TestDefaultSolanaSNSResolverUsesFavoriteDomainProxy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/favorite-domain/wallet-address" {
@@ -90,16 +69,31 @@ func TestDefaultSolanaSNSResolverUsesFavoriteDomainProxy(t *testing.T) {
 	}
 }
 
-func TestNewServiceInstallsDefaultSolanaSNSResolver(t *testing.T) {
-	svc := NewService(Options{SolanaSNSEnabled: true}, Keyset{})
-	if _, ok := svc.opts.SolanaSNSResolver.(defaultSolanaSNSResolver); !ok {
-		t.Fatalf("NewService did not install default SNS resolver: %T", svc.opts.SolanaSNSResolver)
-	}
+// A stale favorite domain (wallet set it then transferred/sold it) must NOT be
+// returned — the wallet no longer owns the name.
+func TestDefaultSolanaSNSResolverIgnoresStaleFavorite(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"s":"ok","result":{"domain":"raw","reverse":"SoldAway","stale":true}}`))
+	}))
+	t.Cleanup(server.Close)
 
-	custom := fakeSolanaSNSResolver{}
-	customSvc := NewService(Options{SolanaSNSEnabled: true, SolanaSNSResolver: custom}, Keyset{})
-	if _, ok := customSvc.opts.SolanaSNSResolver.(fakeSolanaSNSResolver); !ok {
-		t.Fatalf("custom SolanaSNSResolver did not override default: %T", customSvc.opts.SolanaSNSResolver)
+	resolver := defaultSolanaSNSResolver{client: server.Client(), baseURL: server.URL}
+	name, err := resolver.ResolvePrimaryName(context.Background(), "wallet-address")
+	if err != nil {
+		t.Fatalf("ResolvePrimaryName: %v", err)
+	}
+	if name != "" {
+		t.Fatalf("stale favorite should resolve to empty, got %q", name)
+	}
+}
+
+func TestNewServiceUsesAuthKitDefaultSolanaSNSResolver(t *testing.T) {
+	svc := NewService(Options{SolanaSNSEnabled: true}, Keyset{})
+	if !svc.solanaSNSEnabled() {
+		t.Fatalf("NewService did not enable AuthKit-owned SNS resolution")
+	}
+	if svc.solanaSNSResolver.baseURL != defaultSolanaSNSProxyURL {
+		t.Fatalf("resolver baseURL = %q, want %q", svc.solanaSNSResolver.baseURL, defaultSolanaSNSProxyURL)
 	}
 }
 
@@ -108,11 +102,16 @@ func TestSolanaSNSResolveAndStore(t *testing.T) {
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address
+	withSolanaSNSTestProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/"+address) {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"Example.SOL","stale":false}}`))
+	})
 
 	svc := NewService(Options{
 		Issuer:                     "https://test",
 		SolanaSNSEnabled:           true,
-		SolanaSNSResolver:          fakeSolanaSNSResolver{names: map[string]string{address: "Example.SOL"}},
 		SolanaSNSLookupTimeout:     time.Second,
 		SolanaSNSCacheTTL:          time.Hour,
 		NativeUserRegistrationMode: RegistrationModeOpen,
@@ -143,12 +142,15 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address
-	resolver := &mutableSolanaSNSResolver{name: "cached.sol"}
+	var calls atomic.Int64
+	withSolanaSNSTestProxy(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"cached.sol","stale":false}}`))
+	})
 
 	svc := NewService(Options{
 		Issuer:                 "https://test",
 		SolanaSNSEnabled:       true,
-		SolanaSNSResolver:      resolver,
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))
@@ -156,8 +158,8 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)
 	}
-	if resolver.calls.Load() != 1 {
-		t.Fatalf("resolver calls after link = %d, want 1", resolver.calls.Load())
+	if calls.Load() != 1 {
+		t.Fatalf("resolver calls after link = %d, want 1", calls.Load())
 	}
 
 	for i := 0; i < 3; i++ {
@@ -169,8 +171,8 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 			t.Fatalf("unexpected cached account: %+v", account)
 		}
 	}
-	if resolver.calls.Load() != 1 {
-		t.Fatalf("fresh cache should not call resolver again, got %d calls", resolver.calls.Load())
+	if calls.Load() != 1 {
+		t.Fatalf("fresh cache should not call resolver again, got %d calls", calls.Load())
 	}
 }
 
@@ -179,12 +181,23 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address
-	resolver := &mutableSolanaSNSResolver{name: "before.sol"}
+	var mu sync.Mutex
+	name := "before.sol"
+	setName := func(next string) {
+		mu.Lock()
+		defer mu.Unlock()
+		name = next
+	}
+	withSolanaSNSTestProxy(t, func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		current := name
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"` + current + `","stale":false}}`))
+	})
 
 	svc := NewService(Options{
 		Issuer:                 "https://test",
 		SolanaSNSEnabled:       true,
-		SolanaSNSResolver:      resolver,
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Nanosecond,
 	}, Keyset{}, WithPostgres(pool))
@@ -193,7 +206,7 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 		t.Fatalf("LinkProviderByIssuer: %v", err)
 	}
 
-	resolver.setName("after.sol")
+	setName("after.sol")
 	account, err := svc.GetSolanaLinkedAccount(ctx, user.ID)
 	if err != nil {
 		t.Fatalf("GetSolanaLinkedAccount stale: %v", err)
@@ -203,11 +216,10 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 	}
 	waitForSolanaSNSProfileValue(t, ctx, pool, user.ID, svc.solanaIssuer(), "after.sol")
 
-	resolver.setName("")
+	setName("")
 	freshSvc := NewService(Options{
 		Issuer:                 "https://test",
 		SolanaSNSEnabled:       true,
-		SolanaSNSResolver:      resolver,
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))
@@ -228,11 +240,13 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 	ctx := context.Background()
 	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
 	address := output.Account.Address
+	withSolanaSNSTestProxy(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"s":"ok","result":{"reverse":"","stale":false}}`))
+	})
 
 	notFoundSvc := NewService(Options{
 		Issuer:                 "https://test",
 		SolanaSNSEnabled:       true,
-		SolanaSNSResolver:      fakeSolanaSNSResolver{names: map[string]string{}},
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))
@@ -248,11 +262,13 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 		t.Fatalf("unexpected not-found account: %+v", notFoundAccount)
 	}
 
+	withSolanaSNSTestProxy(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusBadGateway)
+	})
 	errorSvc := NewService(Options{
 		Issuer:                 "https://test",
 		SolanaNetwork:          "devnet",
 		SolanaSNSEnabled:       true,
-		SolanaSNSResolver:      fakeSolanaSNSResolver{err: errors.New("boom")},
 		SolanaSNSLookupTimeout: time.Second,
 		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))

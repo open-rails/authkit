@@ -179,8 +179,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		}
 
 		// Brand-new identity with no existing local account: this is a public
-		// registration path. InviteOnly requires an email-bound account invite
-		// token carried from flow start; Open keeps the historical behavior.
+		// registration path. InviteOnly requires an unbound account invite token
+		// carried from flow start; Open keeps the historical behavior.
 		if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly {
 			if strings.TrimSpace(email) == "" {
 				registrationDisabled(w)

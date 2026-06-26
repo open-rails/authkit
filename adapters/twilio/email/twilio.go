@@ -241,21 +241,6 @@ func (s *Sender) SendWelcome(ctx context.Context, email, username string) error 
 	return s.sendEmail(ctx, email, Message{Subject: copy.welcomeSubject, TextBody: copy.welcomeBody, HTMLBody: html, Categories: []string{"auth", "welcome"}})
 }
 
-// SendGroupInvite delivers a permission-group invite link (#134). AuthKit has
-// already built msg.InviteURL; this renders a simple branded email pointing at it.
-// Implements embedded.GroupInviteEmailSender (the optional invite-delivery capability).
-func (s *Sender) SendGroupInvite(ctx context.Context, email string, msg embedded.GroupInviteMessage) error {
-	where := strings.TrimSpace(msg.Persona)
-	if strings.TrimSpace(msg.InstanceSlug) != "" {
-		where = strings.TrimSpace(msg.Persona + " " + msg.InstanceSlug)
-	}
-	subject := fmt.Sprintf("You've been invited to %s", s.appLabel())
-	text := fmt.Sprintf("You've been invited to join %s as %q. Accept: %s", where, msg.Role, msg.InviteURL)
-	html := fmt.Sprintf("<p>You've been invited to join %s as <b>%s</b>.</p><p><a href=\"%s\">Accept invitation</a></p>",
-		escapeHTML(where), escapeHTML(msg.Role), escapeHTML(msg.InviteURL))
-	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "group-invite"}})
-}
-
 func (s *Sender) appLabel() string {
 	if strings.TrimSpace(s.AppName) != "" {
 		return strings.TrimSpace(s.AppName)

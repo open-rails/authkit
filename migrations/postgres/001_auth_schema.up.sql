@@ -411,11 +411,10 @@ CREATE TABLE IF NOT EXISTS profiles.group_custom_roles (
   CONSTRAINT gcr_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 
--- Invite LINKS (#134): a high-entropy code that, when redeemed by a logged-in
--- user, grants `role` in the group. email-bound (only that verified address may
--- redeem) for "email a specific person"; email NULL = shareable (anyone with the
--- code). max_uses caps redemptions (NULL = unlimited; 1 = single-use email
--- invite). The plaintext code is shown to the minter ONCE; only its sha256 hex is
+-- Invite LINKS (#134/#147): a high-entropy, unbound, single-use code that, when
+-- redeemed by a logged-in user, grants `role` in the group. Possession of the
+-- link is the credential; email/SMS delivery is only a convenience outside this
+-- table. The plaintext code is shown to the minter ONCE; only its sha256 hex is
 -- stored. invited_by CASCADEs so a user hard-delete clears the links they minted.
 CREATE TABLE IF NOT EXISTS profiles.group_invite_links (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -423,15 +422,13 @@ CREATE TABLE IF NOT EXISTS profiles.group_invite_links (
   role text NOT NULL,
   invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   code_hash text NOT NULL UNIQUE,
-  email text,
-  max_uses integer,
   uses integer NOT NULL DEFAULT 0,
   expires_at timestamptz,
   revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT gil_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$'),
-  CONSTRAINT gil_max_uses_chk CHECK (max_uses IS NULL OR max_uses >= 1)
+  CONSTRAINT gil_single_use_chk CHECK (uses IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS group_invite_links_group_idx
   ON profiles.group_invite_links (permission_group_id)
@@ -450,12 +447,47 @@ CREATE TABLE IF NOT EXISTS profiles.account_registration_invites (
   revoked_at timestamptz,
   consumed_at timestamptz,
   consumed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  -- #147: an account-registration code MAY also carry a permission-group grant, so
+  -- ONE unbound single-use link registers a stranger AND joins them to a group on
+  -- consume. All three are set together or all NULL (a pure registration invite).
+  grant_persona text,
+  grant_instance_slug text,
+  grant_role text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT account_reg_invite_grant_all_or_none_chk CHECK (
+    (grant_persona IS NULL AND grant_instance_slug IS NULL AND grant_role IS NULL)
+    OR (grant_persona IS NOT NULL AND grant_role IS NOT NULL)
+  )
 );
 CREATE INDEX IF NOT EXISTS account_registration_invites_email_idx
   ON profiles.account_registration_invites (email, expires_at)
   WHERE revoked_at IS NULL AND consumed_at IS NULL;
+
+-- #147: known-user permission-group invites. The invitee already has an account,
+-- so this carries NO token — the pending row is keyed to user_id and the recipient
+-- accepts/declines with their OWN auth token (authenticated AS that user is the
+-- credential). Distinct from the stranger account_registration_invites code.
+CREATE TABLE IF NOT EXISTS profiles.group_membership_invites (
+  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  role text NOT NULL,
+  invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  accepted_at timestamptz,
+  declined_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- At most one PENDING invite per (group, user, role).
+CREATE UNIQUE INDEX IF NOT EXISTS group_membership_invites_pending_uidx
+  ON profiles.group_membership_invites (permission_group_id, user_id, role)
+  WHERE accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS group_membership_invites_user_pending_idx
+  ON profiles.group_membership_invites (user_id)
+  WHERE accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS profiles.api_keys (
   id uuid PRIMARY KEY DEFAULT uuidv7(),

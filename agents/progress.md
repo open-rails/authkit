@@ -270,8 +270,21 @@ IMPLEMENTED 2026-06-26 (Claude) — authkit-side, all green on a fresh-migrated 
 - RATE-LIMIT/PROXY — added `WithTrustedProxies(cidrs)`; automatic Redis-aware rate limiting (memory
   default, redislimiter when `WithRedis`). `WithRateLimiter`/`WithoutRateLimiter`/`WithClientIPFunc`
   kept advanced.
-- DEFERRED (net-new, NO regression — `WithAuthLogger`/`WithAuthLogReader` still work): first-party
-  ClickHouse adapter + `embedded.WithClickHouse`; AuthKit-owned default SNS resolver (on-chain RPC).
+- CLICKHOUSE (DONE 2026-06-26, simplified per Paul): DELETED the whole `AuthEventLogger`/
+  `AuthEventLogReader` abstraction + `WithAuthLogger`/`WithAuthLogReader` seams + aliases. Now a
+  single concrete `WithClickHouse(conn)` — AuthKit uses ClickHouse DIRECTLY to log session events
+  (INSERT) and answer admin sign-in history (SELECT) against `user_auth_session_events`. Engine
+  exposes `ListSessionEvents` + `SessionEventHistoryEnabled`; `http/admin_signins` calls the engine
+  directly (no separate reader option). clickhouse-go promoted indirect→direct. Round-trip
+  INTEGRATION-TESTED against real ClickHouse (`clickhouse_audit_test.go`, env-gated on
+  `AUTHKIT_TEST_CLICKHOUSE_ADDR`; passed against the local CH on :9002).
+- SNS (DONE 2026-06-26): the AuthKit-owned default resolver ALREADY EXISTED (keyless SNS SDK proxy
+  `sdk-proxy.sns.id/favorite-domain/{address}`, auto-installed in `NewService`) — earlier "deferred"
+  was wrong. Helius is forward-only (name→address), so the proxy is correct. DELETED the
+  `WithSolanaSNSResolver` override seam + `embedded.SolanaSNSResolver` alias + `SolanaConfig.SNSResolver`
+  field + all doc mentions (AuthKit owns the resolver; no host override). FIXED a real bug: the proxy
+  `stale` flag (wallet set a primary domain then transferred/sold it) was ignored → AuthKit could show
+  a `.sol` name the user no longer owns; now returns empty. Unit-tested (`...IgnoresStaleFavorite`).
 NOTE: the shared compose DB is stale vs the evolving migration (#145 `group_id`→`permission_group_id`);
 `task test` needs a DB re-migrate once #145 lands — validation above ran against a fresh DB.
 
@@ -1043,49 +1056,61 @@ of the #143 release train (shared consumer bump tracked in #143).
 
 # #147: Registration modes + first-class invites
 
-**Completed:** no — design FINALIZED 2026-06-26 (NO TOKENS; invites keyed to identity).
-Codex's tokened account-registration subsystem AND every URL/link token (shareable or
-email-bound) are superseded; rework to identity-keyed DB rows.
+**Completed:** no — design FINALIZED 2026-06-26. The discriminator is STRANGER (no account yet)
+vs KNOWN USER (has an account): a stranger gets a single-use token LINK; a known user accepts via
+their OWN auth (no token). Codex's tokened account-reg subsystem is the right shape for the
+stranger half; the known-user half + the unification below are the rework.
 
-DECISION 2026-06-26 (Paul, FINAL — supersedes the earlier token / no-token / single-use-link
-iterations): invites carry NO URL token at all. Each invite is keyed to the identity it targets;
-authenticating-as / verifying that identity IS the credential.
-  - Permission-group invite -> keyed to a UserID. You invite an EXISTING user. Pending-membership
-    row (user_id, persona, instance_slug, role, invited_by, expires_at, accepted_at, revoked_at).
-    The invitee sees it when logged in and manually accepts — being authenticated AS that UserID is
-    the credential. No token, no email match.
-  - Account-registration invite -> keyed to an email OR phone. You invite a not-yet-user by contact.
-    Allowlist row (contact, kind=email|phone, invited_by, expires_at, consumed_at, revoked_at). They
-    register with that contact; the normal signup contact-verification proves ownership;
-    `registrationAllowedForContact(contact)` = contact ∈ allowlist. Consuming marks it used + sets
-    the contact verified. No token.
-  - NO shareable/unbound link and NO URL token in either case — drops the single-use-link idea and
-    the `group_invite_links` code/max_uses machinery entirely. Simplest design: an invite always
-    targets a known identity (UserID for a member, contact for a registrant).
-  HARD DEPENDENCY (registration only): the invited signup MUST verify the contact — the
-  contact-ownership proof is the credential.
-  ORDERING: a non-user can be invited only to REGISTER (by contact); once they exist they are
-  invited to a GROUP (by UserID).
+DECISION 2026-06-26 (Paul, FINAL — supersedes ALL earlier token/no-token/contact-keyed iterations):
 
-OPEN (needs Paul) — combined "invite stranger@email straight into group X": group invites need a
-UserID but a stranger has none yet. (i) two steps — registration invite now (contact), then a
-UserID-keyed group invite after they register (simplest); or (ii) the registration invite carries a
-deferred "then add to group X as role Y" intent that materializes as a UserID-keyed pending group
-invite on registration (better UX). Recommend (ii); defaulting to (i) until confirmed.
+  STRANGER (unknown / not yet a user) -> SINGLE-USE TOKEN code in a URL query param, UNBOUND.
+    - AuthKit mints one single-use, unguessable code. It can email/text the link as a CONVENIENCE,
+      but it is the SAME link the inviter may instead paste into Discord / hand over any channel. The
+      code is NOT bound to the address it was sent to — possession of the link is the credential
+      (single-use limits blast radius). Email/SMS delivery is convenience, not a binding.
+    - ONE code covers the whole journey: under InviteOnly a valid code AUTHORIZES registration, and
+      (when it carries an optional persona/instance/role) ALSO grants that group role on consume.
+      Register + join = one token. A standalone registration invite is the same code with no role.
+    - Redemption: recipient opens BaseURL+InvitePath?code=… -> SPA. Signed in -> SPA POSTs the code
+      -> consumed -> granted. Not signed in -> SPA has them register / sign in first, THEN POSTs the
+      code. "Visiting the link is acceptance"; the SPA MAY add a yes/no screen (its call whether to
+      POST the code).
 
-REWORK 2026-06-26 (Claude): converge the shipped tokened subsystem to the decision above:
-  (a) account_registration_invites.go — drop the high-entropy URL token + `randB64` code +
-      `WithAccountRegistrationInviteToken`/`ConsumeAccountRegistrationInvite` ctx-token plumbing.
-      Table becomes a CONTACT allowlist (contact, kind, invited_by, expires_at, consumed_at,
-      revoked_at). `hasValidAccountRegistrationInvite` -> pure contact lookup (no token). FORCE
-      contact verification on the invited signup; consuming marks used + verifies the contact.
-  (b) permission-group invite — replace the `group_invite_links` code/email/max_uses link with a
-      UserID-keyed pending-membership table; accept = authenticated UserID matches the row. Delete
-      the shareable-link + email-bound-link code paths.
-  (c) `groupMemberAdd` — existing user_id -> direct add (unchanged); unknown email/phone ->
-      registration invite (contact allowlist) [+ deferred group intent per the OPEN decision]. No
-      token responses anywhere.
-  Update Codex's integration tests to assert identity-keyed (no-token) redemption.
+  KNOWN USER (already has an account) -> NO token. A pending invite keyed to the UserID.
+    - AuthKit notifies them (email/text) with a link to the SPA accept/deny page; the accept/deny
+      route authorizes with the recipient's OWN auth token (they are logged in as themselves), NOT a
+      consumable code. "Visiting the link is acceptance", or the SPA shows an allow/deny screen then
+      calls accept/deny with their auth.
+    - Pending-membership row (user_id, persona, instance_slug, role, invited_by, expires_at,
+      accepted_at, declined_at, revoked_at). Credential = authenticated as that UserID.
+    - Distinct from the existing owner DIRECT-ADD (silently grants an existing user a role, no
+      consent); the known-user INVITE is the consent-based variant.
+
+  Net: strangers => one unbound single-use token link (any channel; combines register + join);
+  known users => identity-keyed pending invite accepted with their own auth. No email-binding, no
+  max_uses / multi-use shareable links. The combined "stranger straight into my group" case is
+  handled by the single stranger code carrying the role — no separate deferred-intent table.
+
+REWORK 2026-06-26 (Claude): converge the shipped subsystem to the decision above:
+  (a) Stranger token — KEEP a single-use high-entropy code (Codex's account_registration_invites.go
+      token is the right shape), but make it UNBOUND (drop email-as-redemption-binding) and unify it
+      with the group invite: ONE code row optionally carries (persona, instance_slug, role); consuming
+      it authorizes registration AND, if a role is set, grants it. registrationAllowedFor… becomes
+      "a valid unconsumed code is presented" (the code is the credential), not a contact allowlist.
+      PARTIALLY DONE (Claude): account-registration code is now UNBOUND — `hasValidAccountRegistration-
+      Invite` + `consume…` key on the code alone (email ignored, single-use enforced);
+      `TestAccountRegistrationInvite_UnboundByEmail` proves a different email registers with the same
+      code. STILL TODO: optional (persona,instance,role) on the code so it ALSO grants a group role
+      on consume (the register+join unification).
+  (b) Known-user group invite — ADD a UserID-keyed pending-membership table + accept/deny routes that
+      authorize via the caller's OWN auth token (no code). Notify by email/text with an SPA link.
+  (c) `groupMemberAdd` — target is an existing user -> known-user pending invite (consent) or direct
+      add; unknown email/phone -> mint a stranger single-use code, email/text it, AND return the link
+      so the inviter can share it any channel.
+  (d) Simplify `group_invite_links` — single-use, unbound; the email column is delivery-only
+      (optional), never a redemption constraint; drop `max_uses`/`uses`.
+  Update Codex's integration tests to assert: stranger-code redemption (register + join in one),
+  unbound any-holder single-use, and known-user own-auth accept/deny.
 
 AUDIT 2026-06-26 (Codex): revised integration coverage for the changed invite and
 registration flows. Added DB-backed HTTP/core checks for invite-only `/register`,
@@ -1102,7 +1127,7 @@ STATUS 2026-06-26: account-registration invites are implemented and DB-backed
 integration coverage is green; consumer breaking-bump work remains tracked in
 #143/#145/#149, not here.
 
-DONE (validated, `go build ./...` clean, unit tests pass):
+DONE (validated 2026-06-26; DB-backed tests added/updated):
 - Registration vocabulary moved to root `authkit` (`registration.go`): `RegistrationMode`
   (Open/InviteOnly/Closed only — `AdminOnly`/`AdminBootstrapOnly`/`ManifestOnly` HARD-DELETED) +
   `RegistrationVerificationPolicy`. `authcore` re-exports via alias, `embedded` re-exports the
@@ -1113,29 +1138,28 @@ DONE (validated, `go build ./...` clean, unit tests pass):
 - `embedded.RegistrationConfig` already uses the (now root-backed) enum types.
 - Added intrinsic root permission `root:users:invite` (`PermRootUsersInvite`); in
   `IntrinsicRootPermissions`, owner holds it via `root:*`, re-exported through `embedded`.
-- Concrete invite TTL defaults: `defaultEmailInviteTTL`=7d, `defaultShareableInviteTTL` 24h->72h
-  (identity-proven email-bound outlives the anyone-with-the-link shareable one, never reverse).
+- Concrete invite TTL default: group invite codes default to 72h and account-registration invite
+  codes default to 7d.
 - Central email-aware gate `registrationAllowedForEmail(ctx, email)` (`registration_gate.go`):
-  the SINGLE chokepoint — Open->true, Closed->false, InviteOnly->`hasValidAccountRegistrationInvite`.
+  the SINGLE chokepoint — Open->true, Closed->false, InviteOnly->valid unbound invite code.
   Core email front-door (`CreatePendingRegistrationWithLanguage`) routes through it (Open/Closed
   unchanged); `TestRegistrationAllowedForEmail` covers the matrix.
-
-IMPLEMENTED (SUPERSEDED token design — see DECISION/REWORK above) — first-class
-account-registration-invite subsystem, separate from permission-group invites
-(own table + high-entropy time-bound URL token, NOT `group_invite_links`).
-`InviteOnly` now admits email-bound account creation with a valid account invite;
-standalone account invites require `root:users:invite`; unknown-email
-permission-group adds mint separate group and account invite tokens when
-registration is invite-only; registration, passwordless, OIDC/OAuth, and verified
-pending-registration finalizers route through the invite-aware gate. NOTE: the
-high-entropy TOKEN for the email-bound + account-registration cases is being
-replaced with DB rows (verified-email match) per the 2026-06-26 decision; only the
-shareable group link keeps a token.
+- Account-registration invites are high-entropy, time-bound, unbound, single-use URL-token invites
+  in their own table. Under InviteOnly, possession of a valid code authorizes registration; the
+  address the invite was delivered to is delivery metadata, not a redemption constraint.
+- Permission-group invite links are high-entropy, time-bound, unbound, single-use URL-token links.
+  Removed the public `Email` / `MaxUses` request/result fields, the email-bound mismatch/exhausted
+  sentinel errors, the optional `GroupInviteEmailSender` / `GroupInviteMessage` alias surface, and
+  the Twilio group-invite sender hook. A spent code succeeds only for the original redeemer's
+  idempotent retry; a different holder gets not-found.
+- Unknown-email permission-group add mints an unbound group invite link; when registration is
+  invite-only it also mints a separate account-registration invite so the recipient can create an
+  account before manually redeeming the group code. Existing users are still direct-add only.
 
 Split out of #143 (2026-06-26): the registration-mode cull (`Open` / `InviteOnly` / `Closed`)
 plus first-class invites — account-registration invites SEPARATE from permission-group invites
-(two independent tokens), email-bound redemption, shareable vs email-bound group links, and
-rate limits. This is net-new feature surface, not API cleanup. Part of the #143 release train.
+(two independent unbound single-use tokens for unknown-email InviteOnly onboarding) and rate
+limits. This is net-new feature surface, not API cleanup. Part of the #143 release train.
 
 - [x] DECISION: registration policy enums belong in root `authkit`, not `embedded`,
       because they are shared public contract vocabulary for embedded + future remote.
@@ -1155,20 +1179,20 @@ rate limits. This is net-new feature surface, not API cleanup. Part of the #143 
 - [x] DECISION: when an owner/admin tries to add an email that does not belong to
       an existing account, AuthKit should send an invite email asking that person
       to register or log in, then manually accept the invite link.
-- [x] DECISION: email-bound invites may only be redeemed by an account with that
-      same verified email. If an invite is sent to `fidika@gmail.com`, registering
-      or logging in as `someoneelse@gmail.com` must not redeem it.
+- [x] ~~DECISION: email-bound invites may only be redeemed by an account with that
+      same verified email.~~ SUPERSEDED 2026-06-26 (FINAL): stranger invites are NOT
+      email-bound. The single-use code is UNBOUND — whoever holds the link redeems it
+      once. The email/text is only a delivery convenience; the inviter may share the
+      same link any channel (Discord etc.).
 - [x] ~~DECISION: support two group invite kinds: (1) general-purpose shareable link
-      with no bound email, redeemable by whoever has the link within expiry/max-use
-      limits; (2) email-bound invite, redeemable only by an account with the same
-      verified email.~~ SUPERSEDED 2026-06-26 (FINAL decision above): NO group invite
-      links at all. A permission-group invite is keyed to a UserID (existing user
-      accepts while logged in). Inviting a not-yet-user is a REGISTRATION invite
-      (keyed to email/phone), not a group invite. No shareable link, no max_uses.
+      ...; (2) email-bound invite ...~~ SUPERSEDED 2026-06-26 (FINAL): the two kinds are
+      STRANGER vs KNOWN-USER, not shareable vs email-bound. Stranger -> single-use UNBOUND
+      token link (any channel; consuming it registers-if-needed + grants the optional
+      role). Known user -> NO token; accept/deny via their OWN auth token, keyed to UserID.
+      No multi-use/max_uses shareable link.
 - [x] DECISION: invites are time-bound manual accepts. Do not auto-add users to
       permission groups after signup/login; the recipient must click/open the
-      invite link and accept/redeem it. Default validity should be a few days for
-      both shareable links and email-bound invite links.
+      invite link and accept/redeem it. Default validity should be a few days.
 - [x] DECISION: invite creation/email sending must be rate-limited. A user must
       not be able to spam a large number of invite emails quickly.
 - [x] Move `RegistrationVerificationPolicy` +
@@ -1187,29 +1211,22 @@ rate limits. This is net-new feature surface, not API cleanup. Part of the #143 
       new accounts.
 - [x] Keep account-registration invites and permission-group invites separate — and
       keep their TOKENS separate too. An unknown-email group invite under `InviteOnly`
-      sends TWO independent tokens (a standalone account-registration invite plus the
-      email-bound group invite), NOT one token that "carries" the other. Two clear steps
-      (register, then accept the group invite), zero coupling between the subsystems; the
-      email-bound rule already guards both. The only thing "carrying" would save is one
-      email — not worth welding the two subsystems together.
+      returns TWO independent unbound single-use tokens (a standalone account-registration
+      invite plus the group invite). Two clear steps: register, then manually redeem the
+      group invite.
 - [x] Authorize permission-group invites with that group's existing
       `<persona>:members:manage` no-escalation checks. A group owner/manager may
       attach a registration credential only for that group invite; this does not
       grant general `root:users:invite` authority.
-- [x] ~~Registration invites must be high-entropy, time-bound URL tokens, not short
-      OTP-style codes.~~ SUPERSEDED 2026-06-26: email-bound account-registration invites
-      carry NO token — they are an email-keyed allowlist row; the invited signup's own
-      email-verification is the inbox proof. Email-bound invites still authorize account
-      creation only for that email. (High-entropy tokens remain only for the unbound
-      shareable group link.)
+- [x] Registration invites (the STRANGER path) must be high-entropy, time-bound,
+      SINGLE-USE URL tokens, not short OTP-style codes. The token is UNBOUND (not tied
+      to the address it was delivered to); possession of the link is the credential.
+      (Known-user invites use no token — own-auth accept; see the FINAL decision above.)
 - [x] Permission-group invite acceptance stays separate from account creation.
       If a group invite helped an unknown recipient register, the user still must
       manually accept/redeem the group invite before AuthKit adds the membership.
-- [x] Preserve the existing email-bound redemption rule in the onboarding flow:
-      invite email must equal the redeemer account's verified email.
 - [x] Make the invite API/docs name invite kinds clearly: account-registration
-      invite, permission-group shareable link, and permission-group email-bound
-      invite.
+      invite and permission-group invite link.
 - [x] RESEARCH: registration gating is SPLIT across two layers (NOT all in service.go):
       core `internal/authcore/service.go` (`normalizeRegistrationMode`,
       `PublicNativeUserRegistrationEnabled`, `CreatePendingRegistration*`,
@@ -1237,35 +1254,21 @@ rate limits. This is net-new feature surface, not API cleanup. Part of the #143 
       route ALL gates through it — do NOT thread invite-awareness through ~10 divergent
       call sites (`PublicNativeUserRegistrationEnabled()` takes no email, which is exactly
       why the single email-aware helper is needed). Under `InviteOnly` it returns true iff a
-      valid, unexpired email-bound account-registration invite exists for that email; `Open`
+      valid, unexpired unbound account-registration invite code is present; `Open`
       stays true; `Closed` false. Call it from the core sites AND the HTTP-layer OIDC/OAuth
       gates (`publicRegistrationDisabled()`), passwordless, and Solana. Solana has no email
       binding and stays fail-closed for new account auto-create under `InviteOnly`.
-- [x] Spec the two cross-subsystem rules the two-token flow needs: (1) consuming an
-      email-bound account-registration invite MUST set `email_verified=true` on the new
-      account — else `RedeemGroupInviteLink` (which requires a verified email,
-      `group_invite_links.go:342`) rejects the follow-on group redemption; (2) define the
-      account-registration invite's TTL relative to the group invite plus a re-issue path,
-      so a stranger can't consume the account token, register, then find the group invite
-      already expired (account created, no membership).
-- [x] Update `internal/authcore/group_invite_links.go` defaults to CONCRETE TTLs —
-      `defaultEmailInviteTTL` = 7 days, `defaultShareableInviteTTL` = 72h — the
-      identity-proven (email-bound) invite outlives the anyone-with-the-link shareable
-      one, never the reverse. (Email-bound 7d is already today's value; shareable goes
-      24h → 72h.) A removed knob
-      still needs a named default; "a few days" is not a spec. Keep explicit per-invite
-      expiry overrides.
+- [x] Update `internal/authcore/group_invite_links.go` default to a concrete 72h
+      `defaultGroupInviteTTL`. Keep explicit per-invite expiry overrides.
 - [x] Add the account-registration invite contract separately from group invites,
       including creation, email delivery, validation during registration, expiry,
       revocation, and consumption semantics.
 - [x] Update `CreateGroupInviteLink` / `CreateGroupInviteLinkRequest` /
-      `GroupInviteLinkCreated` contract docs to name the two permission-group
-      kinds: no-email shareable link vs email-bound invite.
+      `GroupInviteLinkCreated` contract docs to name the unbound single-use group-link shape.
 - [x] Update `http/permission_group_operations.go` add-member flow: existing
       `user_id` adds directly and silently; email with no account creates/sends an
-      email-bound group invite instead of failing or auto-adding. If registration
-      is not public, also send a SEPARATE email-bound account-registration invite —
-      two independent tokens (per above), do not fold one into the other.
+      unbound group invite instead of failing or auto-adding. If registration is
+      invite-only, also create a SEPARATE unbound account-registration invite.
 - [x] Add invite-specific rate limits around invite creation/email sending,
       preferably keyed by actor user, target email, and group; return a stable
       rate-limit error instead of sending more mail.
@@ -1276,9 +1279,8 @@ rate limits. This is net-new feature surface, not API cleanup. Part of the #143 
 - [x] Add integration tests for: existing user direct add no notification; unknown
       email creates group invite; standalone account-registration invite works
       under `InviteOnly`; group invite for unknown email can authorize registration
-      only through an attached account-registration invite; wrong verified email
-      cannot register/redeem; manual group accept required; expired/revoked/
-      exhausted invites rejected; shareable group link still obeys expiry/max-use
+      only through a separate account-registration invite; manual group accept required;
+      expired/revoked/spent invites rejected; group link still obeys expiry
       but does not unlock invite-only registration by itself. AuthKit suite is
       green with DB-backed integration enabled (2026-06-26 command above).
 

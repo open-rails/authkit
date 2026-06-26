@@ -18,7 +18,6 @@ import (
 const (
 	defaultSolanaSNSLookupTimeout = 3 * time.Second
 	defaultSolanaSNSCacheTTL      = 24 * time.Hour
-	defaultSolanaSNSProxyURL      = "https://sdk-proxy.sns.id"
 
 	SolanaSNSStatusDisabled = "disabled"
 	SolanaSNSStatusPending  = "pending"
@@ -32,17 +31,14 @@ const (
 	solanaSNSProfilePrimaryKey = "sns_primary_name"
 )
 
-// SolanaSNSResolver resolves a verified Solana wallet address to its primary .sol name.
-type SolanaSNSResolver interface {
-	ResolvePrimaryName(ctx context.Context, address string) (string, error)
-}
+var defaultSolanaSNSProxyURL = "https://sdk-proxy.sns.id"
 
 type defaultSolanaSNSResolver struct {
 	client  *http.Client
 	baseURL string
 }
 
-func newDefaultSolanaSNSResolver() SolanaSNSResolver {
+func newDefaultSolanaSNSResolver() defaultSolanaSNSResolver {
 	return defaultSolanaSNSResolver{
 		client:  http.DefaultClient,
 		baseURL: defaultSolanaSNSProxyURL,
@@ -123,7 +119,7 @@ type solanaSNSProfile struct {
 }
 
 func (s *Service) solanaSNSEnabled() bool {
-	return s != nil && s.opts.SolanaSNSEnabled && s.opts.SolanaSNSResolver != nil
+	return s != nil && s.opts.SolanaSNSEnabled
 }
 
 func (s *Service) solanaSNSLookupTimeout() time.Duration {
@@ -181,7 +177,7 @@ func (s *Service) ResolveAndStoreSolanaSNS(ctx context.Context, userID, address 
 	status := SolanaSNSStatusResolved
 	var primaryName *string
 	var errorCode *string
-	name, err := s.opts.SolanaSNSResolver.ResolvePrimaryName(resolveCtx, address)
+	name, err := s.solanaSNSResolver.ResolvePrimaryName(resolveCtx, address)
 	if err != nil {
 		status = SolanaSNSStatusError
 		code := solanaSNSProviderError

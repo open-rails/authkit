@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -14,11 +16,10 @@ import (
 const defaultAccountRegistrationInviteTTL = 7 * 24 * time.Hour
 
 var (
-	ErrAccountRegistrationInviteConsumed      = authkit.ErrAccountRegistrationInviteConsumed
-	ErrAccountRegistrationInviteEmailMismatch = authkit.ErrAccountRegistrationInviteEmailMismatch
-	ErrAccountRegistrationInviteExpired       = authkit.ErrAccountRegistrationInviteExpired
-	ErrAccountRegistrationInviteNotFound      = authkit.ErrAccountRegistrationInviteNotFound
-	ErrAccountRegistrationInviteRevoked       = authkit.ErrAccountRegistrationInviteRevoked
+	ErrAccountRegistrationInviteConsumed = authkit.ErrAccountRegistrationInviteConsumed
+	ErrAccountRegistrationInviteExpired  = authkit.ErrAccountRegistrationInviteExpired
+	ErrAccountRegistrationInviteNotFound = authkit.ErrAccountRegistrationInviteNotFound
+	ErrAccountRegistrationInviteRevoked  = authkit.ErrAccountRegistrationInviteRevoked
 )
 
 type accountInviteTokenContextKey struct{}
@@ -92,7 +93,35 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	if invitedBy == "" {
 		return AccountRegistrationInviteCreated{}, errors.New("invalid_invite")
 	}
-	if requireRootInvitePermission {
+	// Optional permission-group grant (#147): persona+role required together;
+	// instance "" is the singleton root group. All NULL = a pure registration invite.
+	var grantPersona, grantInstance, grantRole *string
+	if p := strings.TrimSpace(req.GroupPersona); p != "" || strings.TrimSpace(req.GroupRole) != "" {
+		role := strings.TrimSpace(req.GroupRole)
+		if p == "" || role == "" {
+			return AccountRegistrationInviteCreated{}, errors.New("invalid_invite: group grant needs both persona and role")
+		}
+		inst := strings.TrimSpace(req.GroupInstanceSlug)
+		grantPersona, grantInstance, grantRole = &p, &inst, &role
+	}
+	// Authorize by the credential the code actually confers (#147): a code that
+	// joins a GROUP is authorized by that group's role-assignment authority
+	// (members:manage + no-escalation); a pure account-registration code by the
+	// root `root:users:invite` permission.
+	if grantPersona != nil {
+		sch := s.groupSchemaOrDefault()
+		if !s.validRoleForPersona(sch, *grantPersona, *grantRole) {
+			return AccountRegistrationInviteCreated{}, errors.New("invalid_role")
+		}
+		st := s.groupStore()
+		gid, err := s.resolveGroupID(ctx, st, *grantPersona, *grantInstance)
+		if err != nil {
+			return AccountRegistrationInviteCreated{}, err
+		}
+		if err := s.authorizeRoleChange(ctx, st, sch, *grantPersona, gid, invitedBy, *grantRole); err != nil {
+			return AccountRegistrationInviteCreated{}, err
+		}
+	} else if requireRootInvitePermission {
 		ok, err := s.Can(ctx, invitedBy, SubjectKindUser, RootPersona, "", PermRootUsersInvite)
 		if err != nil {
 			return AccountRegistrationInviteCreated{}, err
@@ -111,10 +140,11 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var id string
 	err := q.QueryRow(ctx,
-		`INSERT INTO profiles.account_registration_invites (email, invited_by, code_hash, expires_at)
-		 VALUES ($1, $2::uuid, $3, $4)
+		`INSERT INTO profiles.account_registration_invites
+		   (email, invited_by, code_hash, expires_at, grant_persona, grant_instance_slug, grant_role)
+		 VALUES ($1, $2::uuid, $3, $4, $5, $6, $7)
 		 RETURNING id::text`,
-		email, invitedBy, codeHash, expiresAt).Scan(&id)
+		email, invitedBy, codeHash, expiresAt, grantPersona, grantInstance, grantRole).Scan(&id)
 	if err != nil {
 		return AccountRegistrationInviteCreated{}, err
 	}
@@ -175,23 +205,24 @@ func (s *Service) RevokeAccountRegistrationInvite(ctx context.Context, inviteID,
 }
 
 func (s *Service) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {
+	// #147 FINAL: the stranger invite is UNBOUND — the single-use code is the
+	// credential, not the address it was delivered to. We check only that a valid,
+	// unconsumed, unexpired code is presented; `email` (the registrant's chosen
+	// address) is irrelevant to authorization. Whoever holds the link may register.
 	token := accountRegistrationInviteTokenFromContext(ctx)
 	if token == "" || s.pg == nil {
 		return false, nil
 	}
-	email = NormalizeEmail(email)
-	if err := ValidateEmail(email); err != nil {
-		return false, err
-	}
+	_ = email
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var exists bool
 	err := q.QueryRow(ctx,
 		`SELECT EXISTS(
 		   SELECT 1 FROM profiles.account_registration_invites
-		   WHERE code_hash = $1 AND email = $2 AND revoked_at IS NULL
+		   WHERE code_hash = $1 AND revoked_at IS NULL
 		     AND consumed_at IS NULL AND expires_at > now()
 		 )`,
-		sha256Hex(token), email).Scan(&exists)
+		sha256Hex(token)).Scan(&exists)
 	return exists, err
 }
 
@@ -200,36 +231,71 @@ func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, u
 	if err != nil || mode != RegistrationModeInviteOnly {
 		return nil
 	}
-	email = NormalizeEmail(email)
-	if err := ValidateEmail(email); err != nil {
+	_ = email // #147 FINAL: unbound — consumed by code, not by address.
+	token := accountRegistrationInviteTokenFromContext(ctx)
+	if token == "" {
+		// Unbound consumption is keyed solely on the code; with none presented
+		// there is nothing to consume (registration only reached here under a valid
+		// code via hasValidAccountRegistrationInvite).
+		return nil
+	}
+	return s.redeemAccountRegistrationInviteCode(ctx, token, userID)
+}
+
+// RedeemAccountRegistrationInvite consumes an account-registration invite code for
+// an ALREADY-signed-in user (#147): the stranger link, when opened by someone who
+// already has — or has just created — an account, is redeemed here. If the code
+// carried a permission-group grant, the user is added to that group/role. Single-use.
+func (s *Service) RedeemAccountRegistrationInvite(ctx context.Context, code, userID string) error {
+	if err := s.requirePG(); err != nil {
 		return err
 	}
+	if strings.TrimSpace(code) == "" {
+		return ErrAccountRegistrationInviteNotFound
+	}
+	return s.redeemAccountRegistrationInviteCode(ctx, code, userID)
+}
+
+// redeemAccountRegistrationInviteCode atomically marks the code consumed (single-use)
+// and, if it carries a group grant, adds userID to that group/role.
+func (s *Service) redeemAccountRegistrationInviteCode(ctx context.Context, code, userID string) error {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return errors.New("invalid_user")
 	}
-	token := accountRegistrationInviteTokenFromContext(ctx)
-	tokenHash := ""
-	if token != "" {
-		tokenHash = sha256Hex(token)
-	}
+	tokenHash := sha256Hex(code)
 	q := db.ForSchema(s.pg, s.dbSchema())
-	tag, err := q.Exec(ctx,
+	var persona, instance, role *string
+	var consumedID string
+	err := q.QueryRow(ctx,
 		`UPDATE profiles.account_registration_invites
-		 SET consumed_at = now(), consumed_by = $3::uuid, updated_at = now()
+		 SET consumed_at = now(), consumed_by = $2::uuid, updated_at = now()
 		 WHERE id = (
 		   SELECT id FROM profiles.account_registration_invites
-		   WHERE ($1 = '' OR code_hash = $1) AND email = $2 AND revoked_at IS NULL
+		   WHERE code_hash = $1 AND revoked_at IS NULL
 		     AND consumed_at IS NULL AND expires_at > now()
-		   ORDER BY created_at ASC
 		   LIMIT 1
-		 )`,
-		tokenHash, email, userID)
+		 )
+		 RETURNING id::text, grant_persona, grant_instance_slug, grant_role`,
+		tokenHash, userID).Scan(&consumedID, &persona, &instance, &role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAccountRegistrationInviteNotFound
+	}
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrAccountRegistrationInviteNotFound
+	// Optional group grant: add the user to the carried group/role on consume.
+	// ponytail: consume + grant are not one transaction; AssignGroupRole is
+	// store-idempotent, so a rare post-consume grant failure is recoverable by
+	// re-adding the member rather than worth a tx-threaded grant here.
+	if persona != nil && role != nil {
+		inst := ""
+		if instance != nil {
+			inst = *instance
+		}
+		if gErr := s.AssignGroupRole(ctx, *persona, inst, userID, SubjectKindUser, *role); gErr != nil {
+			return gErr
+		}
 	}
 	return nil
 }

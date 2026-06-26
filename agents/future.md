@@ -156,7 +156,15 @@ Non-goals: removing the local backend (kept as default for dev/simple prod); cha
 
 **Completed:** no
 
-AuthKit already has the audit *mechanism* — a pluggable, best-effort `AuthEventLogger` sink (`core/audit.go`) with a ClickHouse implementation (`migrations/clickhouse/001_auth_analytics.up.sql` → `user_auth_session_events`) and a reader (`AuthEventLogReader.ListSessionEvents`, consumed by `http/admin_signins.go`). But the taxonomy is **session-lifecycle only**: `SessionEventType` is exactly `session_created | session_revoked | password_changed | password_recovery | session_failed`, and `AuthSessionEvent` is session-shaped (`user_id`, `session_id`, `method`, `reason`, `ip`, `ua`).
+> BASELINE CHANGED (2026-06-26, #143): the `AuthEventLogger`/`AuthEventLogReader` interface
+> abstraction was DELETED. AuthKit now logs + reads session events DIRECTLY through a concrete
+> ClickHouse connection wired by `embedded.WithClickHouse(conn)` (sink + reader in
+> `internal/authcore/clickhouse_audit.go`; engine exposes `LogSession*` / `ListSessionEvents`).
+> This proposal must follow the SAME concrete pattern — add security events as more rows/queries on
+> the existing ClickHouse connection (a `security_events` table), NOT a new pluggable interface. The
+> references below to `AuthEventLogger`/`AuthEventLogReader` describe the OLD abstracted mechanism.
+
+AuthKit already has the audit *mechanism* — a best-effort ClickHouse sink (`internal/authcore/clickhouse_audit.go`, wired by `WithClickHouse`) over `migrations/clickhouse/001_auth_analytics.up.sql` → `user_auth_session_events`, plus a reader (`(*Service).ListSessionEvents`, consumed by `http/admin_signins.go`). But the taxonomy is **session-lifecycle only**: `SessionEventType` is exactly `session_created | session_revoked | password_changed | password_recovery | session_failed`, and `AuthSessionEvent` is session-shaped (`user_id`, `session_id`, `method`, `reason`, `ip`, `ua`).
 
 The irony driving this issue: AuthKit *generates* exactly the events a compliance auditor (SOC2 / GDPR / HIPAA) cares about — and that single-tenant auth libraries can't — precisely because of its multi-tenant authority surface, yet **none of them reach the sink**:
 

@@ -19,8 +19,8 @@ const (
 // through privileged APIs, bootstrap, or manual DB operations regardless of mode.
 //
 //	Open       — anyone may self-register.
-//	InviteOnly — self-registration requires a valid account-registration invite
-//	             bound to the registrant's email (see account-registration invites).
+//	InviteOnly — self-registration requires a valid unbound account-registration
+//	             invite code.
 //	Closed      — no public self-registration at all.
 //
 // The former AdminOnly / AdminBootstrapOnly / ManifestOnly modes were removed

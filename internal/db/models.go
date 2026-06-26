@@ -49,8 +49,6 @@ type ProfilesGroupInviteLink struct {
 	Role              string
 	InvitedBy         string
 	CodeHash          string
-	Email             *string
-	MaxUses           *int32
 	Uses              int32
 	ExpiresAt         *time.Time
 	RevokedAt         *time.Time

@@ -71,7 +71,6 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 				Persona:      persona,
 				InstanceSlug: instanceSlug,
 				Role:         role,
-				Email:        email,
 				InvitedBy:    actor.UserID,
 			})
 			if err != nil {
@@ -492,13 +491,9 @@ func remoteAppJSON(ra *authkit.RemoteApplication) map[string]any {
 // --- invite links (#134) -----------------------------------------------------
 
 // inviteLinkCreateRequest is the body for POST /<persona>/<instance_slug>/invites/links.
-// role is required; email set => email-bound (defaults single-use); max_uses caps
-// redemptions (omit = unlimited shareable / 1 email); expires_in_seconds overrides
-// the per-kind default lifetime.
+// role is required; expires_in_seconds overrides the default lifetime.
 type inviteLinkCreateRequest struct {
 	Role             string `json:"role"`
-	Email            string `json:"email,omitempty"`
-	MaxUses          *int   `json:"max_uses,omitempty"`
 	ExpiresInSeconds *int64 `json:"expires_in_seconds,omitempty"`
 }
 
@@ -512,15 +507,10 @@ func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, pe
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if strings.TrimSpace(body.Email) != "" && s.rateLimitedByIdentifier(w, r, RLInviteCreate, body.Email) {
-		return
-	}
 	req := authkit.CreateGroupInviteLinkRequest{
 		Persona:      persona,
 		InstanceSlug: instanceSlug,
 		Role:         strings.TrimSpace(body.Role),
-		Email:        strings.TrimSpace(body.Email),
-		MaxUses:      body.MaxUses,
 		InvitedBy:    invitedBy,
 	}
 	if body.ExpiresInSeconds != nil && *body.ExpiresInSeconds > 0 {
@@ -553,12 +543,6 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, pe
 			"invited_by": l.InvitedBy,
 			"uses":       l.Uses,
 			"created_at": l.CreatedAt,
-		}
-		if l.Email != "" {
-			m["email"] = l.Email
-		}
-		if l.MaxUses != nil {
-			m["max_uses"] = *l.MaxUses
 		}
 		if l.ExpiresAt != nil {
 			m["expires_at"] = l.ExpiresAt
@@ -634,8 +618,7 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		errors.Is(err, authkit.ErrInviteLinkNotFound):
 		notFound(w, ErrNotFound)
 		return
-	case errors.Is(err, authkit.ErrInviteEmailMismatch),
-		errors.Is(err, authkit.ErrExternalInvitesDisabled),
+	case errors.Is(err, authkit.ErrExternalInvitesDisabled),
 		errors.Is(err, authkit.ErrInsufficientRoleAuthority),
 		errors.Is(err, authkit.ErrRoleAssignmentEscalation):
 		forbidden(w, ErrForbidden)
@@ -643,7 +626,6 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	case errors.Is(err, authkit.ErrInvalidRemoteApplication),
 		errors.Is(err, authkit.ErrReservedIssuer),
 		errors.Is(err, authkit.ErrInviteLinkExpired),
-		errors.Is(err, authkit.ErrInviteLinkExhausted),
 		errors.Is(err, authkit.ErrInviteLinkRevoked):
 		badRequest(w, ErrInvalidRequest)
 		return

@@ -414,7 +414,7 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 		}
 	}
 	// No existing account for this provider identity or email. Auto-creating a
-	// new account is a public registration path. InviteOnly requires an email-bound
+	// new account is a public registration path. InviteOnly requires an unbound
 	// account invite token carried from flow start.
 	if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly {
 		if strings.TrimSpace(info.Email) == "" {

@@ -178,8 +178,6 @@ type GroupInviteLink struct {
 	PermissionGroupID string
 	Role              string
 	InvitedBy         string
-	Email             string // "" = permission-group shareable link; set = permission-group email-bound invite
-	MaxUses           *int   // nil = unlimited
 	Uses              int
 	ExpiresAt         *time.Time
 	RevokedAt         *time.Time
@@ -191,8 +189,6 @@ type CreateGroupInviteLinkRequest struct {
 	Persona      string
 	InstanceSlug string
 	Role         string
-	Email        string // empty => permission-group shareable link; set => permission-group email-bound invite
-	MaxUses      *int
 	ExpiresIn    time.Duration
 	InvitedBy    string
 }
@@ -225,6 +221,13 @@ type CreateAccountRegistrationInviteRequest struct {
 	Email     string
 	InvitedBy string
 	ExpiresIn time.Duration
+	// Optional permission-group grant (#147): when set, consuming the code ALSO
+	// adds the (new or signed-in) user to this group/role — one unbound link that
+	// registers a stranger AND joins them. GroupPersona+GroupRole are required
+	// together (GroupInstanceSlug may be "" for the singleton root group).
+	GroupPersona      string
+	GroupInstanceSlug string
+	GroupRole         string
 }
 
 type AccountRegistrationInviteCreated struct {

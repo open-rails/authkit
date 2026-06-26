@@ -79,3 +79,58 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 		t.Fatalf("account registration invite was not consumed by new user")
 	}
 }
+
+// #147 FINAL: the stranger invite is UNBOUND — a valid single-use code lets the
+// holder register under ANY email, not only the address it was delivered to.
+func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{
+		Issuer:                     "https://test",
+		NativeUserRegistrationMode: RegistrationModeInviteOnly,
+		RegistrationVerification:   RegistrationVerificationNone,
+	}, Keyset{}, WithPostgres(pool))
+	rootID, err := svc.EnsureRootGroup(ctx)
+	if err != nil {
+		t.Fatalf("EnsureRootGroup: %v", err)
+	}
+	inviter := insertBareUser(t, pool)
+	if err := NewPermissionGroupStore(pool).AssignRole(ctx, rootID, inviter, SubjectKindUser, OwnerRoleName); err != nil {
+		t.Fatalf("seed root owner: %v", err)
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano()%1e10)
+	sentTo := "sent-" + suffix + "@example.com"  // the address AuthKit emailed
+	usedBy := "other-" + suffix + "@example.com" // a DIFFERENT address that holds the link
+	username := "other" + suffix
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid OR email=ANY($2)`, inviter, []string{sentTo, usedBy})
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.account_registration_invites WHERE email=$1`, sentTo)
+	})
+
+	created, err := svc.CreateAccountRegistrationInvite(ctx, CreateAccountRegistrationInviteRequest{
+		Email:     sentTo,
+		InvitedBy: inviter,
+	})
+	if err != nil {
+		t.Fatalf("CreateAccountRegistrationInvite: %v", err)
+	}
+
+	// Register with a DIFFERENT email using the same code — must succeed (unbound).
+	phc, err := password.HashArgon2id("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	inviteCtx := contextWithAccountRegistrationInviteToken(ctx, created.Code)
+	if _, err := svc.CreatePendingRegistration(inviteCtx, usedBy, username, phc, 0); err != nil {
+		t.Fatalf("unbound registration with a different email: %v", err)
+	}
+	if u, err := svc.GetUserByEmail(ctx, usedBy); err != nil || u == nil {
+		t.Fatalf("different-email user not created: %v", err)
+	}
+
+	// The single-use code is now spent — a second registration is rejected.
+	if _, err := svc.CreatePendingRegistration(inviteCtx, "third-"+suffix+"@example.com", "third"+suffix, phc, 0); !errors.Is(err, ErrRegistrationDisabled) {
+		t.Fatalf("reuse of a consumed code = %v, want ErrRegistrationDisabled", err)
+	}
+}

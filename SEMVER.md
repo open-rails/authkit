@@ -136,9 +136,8 @@ serve the HTTP handlers stays internal and is **not** covered.
 func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service, error)
 func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service
 type Option func(*Service)
-  WithAuthLogger, WithEmailSender, WithEntitlements,
-  WithEphemeralStore, WithPostgres, WithAPIKeyResourceAuthorizer, WithSMSSender,
-  WithSolanaSNSResolver
+  WithClickHouse, WithEmailSender, WithEntitlements,
+  WithEphemeralStore, WithPostgres, WithSMSSender
 ```
 
 **Config types** (every field is covered; see [§7.3](#73-config-surface)):
@@ -192,8 +191,8 @@ apps; identity linking; sessions; bootstrap; passwordless (`StartPasswordless`,
 `PermissionDef`, `ManagementProfile`, `GeneratedRoute`, `GroupAssignment`,
 `GroupMember`, `SubjectGroupMembership`, `CreatePermissionGroupRequest`,
 `GroupInviteLink`, `GroupInviteLinkCreated`, `CreateGroupInviteLinkRequest`,
-`RedeemGroupInviteLinkResult`, `GroupInviteMessage` (#134 invite links — these
-REPLACE the removed `GroupInvite`/`GroupInviteStatus*` user_id-invite API),
+`RedeemGroupInviteLinkResult` (#134/#147 invite links — these REPLACE the removed
+`GroupInvite`/`GroupInviteStatus*` user_id-invite API),
 `CustomRoleResolver`, `PermissionGroupStore`,
 `SubjectKindUser`/`SubjectKind*` consts, `RootPersona`, the `PermRoot*` constants, and the
 `Perm*(t string) string` / `OwnerGrant` / `PermissionPersona` permission-builder funcs.
@@ -201,13 +200,7 @@ REPLACE the removed `GroupInvite`/`GroupInviteStatus*` user_id-invite API),
 **Interfaces consumers implement** (covered — adding a method is MAJOR for an interface
 consumers implement): `EmailSender`, `SMSSender`, `SMSHealthChecker`,
 `EntitlementsProvider`, `BatchEntitlementsProvider`, `EntitlementFilterProvider`,
-`EphemeralStore`, `AuthEventLogger`, `AuthEventLogReader`, `SolanaSNSResolver`,
-`APIKeyResourceAuthorizer`, `CustomRoleResolver`.
-`GroupInviteEmailSender` (#134) is an OPTIONAL capability, NOT part of the required
-`EmailSender` contract: an `EmailSender` MAY also implement
-`SendGroupInvite(ctx, email, GroupInviteMessage)` to receive AuthKit-built invite-link
-emails; a sender that doesn't is simply never asked to send them (so this is additive,
-not a breaking method addition to `EmailSender`).
+`EphemeralStore`, `CustomRoleResolver`.
 Verification senders receive final AuthKit-built URLs in `VerificationMessage.LinkURL`;
 password-reset senders receive the final reset URL, not a raw token.
 
@@ -228,8 +221,7 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `ErrTwoFAEnrollmentRequired`, `ErrRenameRateLimited`, `ErrOwnerSlugTaken`,
 `ErrPasskeyNotFound`, `ErrPasskeyUserVerificationRequired`, `ErrPasskeyCloneDetected`,
 `ErrGroupNotFound`, `ErrNotGroupMember`, `ErrInviteLinkNotFound`, `ErrInviteLinkExpired`,
-`ErrInviteLinkExhausted`, `ErrInviteLinkRevoked`, `ErrInviteEmailMismatch`,
-`ErrExternalInvitesDisabled` (#134), `ErrUserRoleNotFound`,
+`ErrInviteLinkRevoked`, `ErrExternalInvitesDisabled` (#134/#147), `ErrUserRoleNotFound`,
 `ErrCannotRemoveLastAdminRole`, `ErrEntitlementFilterUnavailable`,
 `ErrInvalidBootstrapManifest`, `ErrEmptyCustomClaims`, `ErrRemoteApplicationNotFound`,
 `ErrPasswordlessDisabled`, `ErrAttributeDefNotFound`, and the `ErrInvalid*` re-exports from `authbase`.
@@ -319,10 +311,7 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
 `authhttp` is the integration entry point. Covered:
 ```
 type Server = Service; NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error)
-Option: WithRedis, WithEmailSender, WithSMSSender, WithEntitlements,
-  WithTrustedProxies, WithLanguageConfig,
-  WithAuthLogger, WithAuthLogReader, WithAPIKeyResourceAuthorizer,
-  WithSolanaSNSResolver
+Option: WithRedis, WithTrustedProxies, WithLanguageConfig
 Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups), svc.Core()
 Re-exports from verify: Verifier, NewVerifier, Claims, Enricher, IssuerOptions, IssuerKey,

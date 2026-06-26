@@ -10,11 +10,9 @@ import "context"
 //
 //	Open       — always true.
 //	Closed      — always false.
-//	InviteOnly — true iff a valid, unexpired, email-bound account-registration
-//	             invite exists for email.
-//
-// The email-bound rule (the invite email must equal the redeemer's verified
-// email) is enforced at redemption, not here.
+//	InviteOnly — true iff a valid, unconsumed, unexpired account-registration invite
+//	             CODE is presented on ctx (#147 FINAL: the stranger invite is UNBOUND;
+//	             the single-use code is the credential, not the email).
 func (s *Service) registrationAllowedForEmail(ctx context.Context, email string) (bool, error) {
 	mode, err := normalizeRegistrationMode(s.opts.NativeUserRegistrationMode)
 	if err != nil {
@@ -31,5 +29,5 @@ func (s *Service) registrationAllowedForEmail(ctx context.Context, email string)
 }
 
 // hasValidAccountRegistrationInvite is implemented in
-// account_registration_invites.go. It requires a high-entropy token on ctx and an
-// email match; group invite tokens never satisfy this account-registration gate.
+// account_registration_invites.go. It requires a valid single-use account-invite
+// code on ctx (UNBOUND — no email match); group invite tokens are a separate code.

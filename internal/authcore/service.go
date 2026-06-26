@@ -80,8 +80,6 @@ type Options struct {
 	SolanaNetwork string
 	// SolanaSNSEnabled enables AuthKit-owned Solana Name Service resolution for SIWS-linked wallets.
 	SolanaSNSEnabled bool
-	// SolanaSNSResolver resolves a verified Solana wallet address to its primary .sol name.
-	SolanaSNSResolver SolanaSNSResolver
 	// SolanaSNSLookupTimeout bounds resolver calls. Empty defaults to 3 seconds.
 	SolanaSNSLookupTimeout time.Duration
 	// SolanaSNSCacheTTL controls when cached SNS metadata is considered stale. Empty defaults to 24 hours.
@@ -194,18 +192,19 @@ const (
 
 // Service is the core auth service used by HTTP adapters.
 type Service struct {
-	opts           Options
-	keys           Keyset
-	email          EmailSender
-	sms            SMSSender
-	pg             *pgxpool.Pool
-	q              *db.Queries
-	schema         string       // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema    *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
-	entitlements   EntitlementsProvider
-	authlog        *clickHouseAuthLog // session-event sink/reader; nil unless WithClickHouse
-	ephemeralStore EphemeralStore
-	ephemeralMode  EphemeralMode
+	opts              Options
+	keys              Keyset
+	email             EmailSender
+	sms               SMSSender
+	pg                *pgxpool.Pool
+	q                 *db.Queries
+	schema            string       // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema       *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
+	entitlements      EntitlementsProvider
+	authlog           *clickHouseAuthLog // session-event sink/reader; nil unless WithClickHouse
+	solanaSNSResolver defaultSolanaSNSResolver
+	ephemeralStore    EphemeralStore
+	ephemeralMode     EphemeralMode
 	// cfg is the host Config this Service was built from, retained so the HTTP
 	// transport (client-first NewServer) can read HTTP-layer config that rides in
 	// Config but the engine doesn't consume (OIDC providers/descriptors). Zero
@@ -253,14 +252,11 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 		panic(fmt.Sprintf("authkit: invalid Schema %q (want lowercase identifier matching ^[a-z_][a-z0-9_]*$, max 63 bytes)", opts.Schema))
 	}
 	opts.Schema = schema
-	s := &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory}
+	s := &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory, solanaSNSResolver: newDefaultSolanaSNSResolver()}
 	for _, o := range coreOpts {
 		if o != nil {
 			o(s)
 		}
-	}
-	if s.opts.SolanaSNSEnabled && s.opts.SolanaSNSResolver == nil {
-		s.opts.SolanaSNSResolver = newDefaultSolanaSNSResolver()
 	}
 	return s
 }

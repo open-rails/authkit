@@ -20,8 +20,6 @@ func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpoo
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
-		// Email-bound tests insert fixed @example.com addresses; clear them so a
-		// re-run doesn't collide on users_email_uidx.
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email LIKE '%@example.com'`)
 	}
 	clean()
@@ -115,44 +113,32 @@ func TestInviteLink_ShareableRedeemIdempotent(t *testing.T) {
 	}
 }
 
-// TestInviteLink_EmailBound: an email-bound link redeems only for the matching
-// VERIFIED address; a mismatched or unverified redeemer is rejected.
-func TestInviteLink_EmailBound(t *testing.T) {
+// TestInviteLink_UnboundSingleUse: group invite links are possession-based and
+// single-use. Email delivery is not a redemption constraint.
+func TestInviteLink_UnboundSingleUse(t *testing.T) {
 	svc, pool, ctx := setupInviteLinkTest(t, RegistrationModeOpen)
 	inviter := acmeOwner(t, svc, ctx, pool)
 	bob := insertUserWithEmail(t, pool, "bob@example.com", true)
 	mallory := insertUserWithEmail(t, pool, "mallory@example.com", true)
-	unverified := insertUserWithEmail(t, pool, "eve@example.com", false)
 
-	mint := func(email string) GroupInviteLinkCreated {
-		c, err := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{
-			Persona: "org", InstanceSlug: "acme", Role: "member", Email: email, InvitedBy: inviter,
-		})
-		if err != nil {
-			t.Fatalf("mint for %s: %v", email, err)
-		}
-		return c
+	created, err := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{
+		Persona: "org", InstanceSlug: "acme", Role: "member", InvitedBy: inviter,
+	})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
 	}
-
-	// Matching verified email: success.
-	if _, err := svc.RedeemGroupInviteLink(ctx, mint("bob@example.com").Code, bob); err != nil {
-		t.Fatalf("bob redeem own invite: %v", err)
+	if _, err := svc.RedeemGroupInviteLink(ctx, created.Code, bob); err != nil {
+		t.Fatalf("first holder redeem: %v", err)
 	}
 	mustHoldMember(t, svc, ctx, bob)
 
-	// Wrong user (different verified email): rejected.
-	if _, err := svc.RedeemGroupInviteLink(ctx, mint("carol@example.com").Code, mallory); !errors.Is(err, ErrInviteEmailMismatch) {
-		t.Fatalf("mismatched redeemer = %v, want ErrInviteEmailMismatch", err)
-	}
-	// Right address but UNVERIFIED: rejected.
-	if _, err := svc.RedeemGroupInviteLink(ctx, mint("eve@example.com").Code, unverified); !errors.Is(err, ErrInviteEmailMismatch) {
-		t.Fatalf("unverified redeemer = %v, want ErrInviteEmailMismatch", err)
+	if _, err := svc.RedeemGroupInviteLink(ctx, created.Code, mallory); !errors.Is(err, ErrInviteLinkNotFound) {
+		t.Fatalf("second holder redeem = %v, want ErrInviteLinkNotFound", err)
 	}
 }
 
-// TestInviteLink_ExpiryRevokeExhausted covers the three "link no longer usable"
-// refusals.
-func TestInviteLink_ExpiryRevokeExhausted(t *testing.T) {
+// TestInviteLink_ExpiryRevokeSpent covers "link no longer usable" refusals.
+func TestInviteLink_ExpiryRevokeSpent(t *testing.T) {
 	svc, pool, ctx := setupInviteLinkTest(t, RegistrationModeOpen)
 	inviter := acmeOwner(t, svc, ctx, pool)
 
@@ -174,14 +160,14 @@ func TestInviteLink_ExpiryRevokeExhausted(t *testing.T) {
 		t.Fatalf("revoked redeem = %v, want ErrInviteLinkRevoked", err)
 	}
 
-	// Exhausted: max_uses = 1, first redeem ok, second refused.
-	one := 1
-	capped, _ := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{Persona: "org", InstanceSlug: "acme", Role: "member", MaxUses: &one, InvitedBy: inviter})
-	if _, err := svc.RedeemGroupInviteLink(ctx, capped.Code, insertBareUser(t, pool)); err != nil {
-		t.Fatalf("first capped redeem: %v", err)
+	// Spent: first redeemer gets the role; a different second holder cannot use
+	// the same single-use code.
+	spent, _ := svc.CreateGroupInviteLink(ctx, CreateGroupInviteLinkRequest{Persona: "org", InstanceSlug: "acme", Role: "member", InvitedBy: inviter})
+	if _, err := svc.RedeemGroupInviteLink(ctx, spent.Code, insertBareUser(t, pool)); err != nil {
+		t.Fatalf("first single-use redeem: %v", err)
 	}
-	if _, err := svc.RedeemGroupInviteLink(ctx, capped.Code, insertBareUser(t, pool)); !errors.Is(err, ErrInviteLinkExhausted) {
-		t.Fatalf("second capped redeem = %v, want ErrInviteLinkExhausted", err)
+	if _, err := svc.RedeemGroupInviteLink(ctx, spent.Code, insertBareUser(t, pool)); !errors.Is(err, ErrInviteLinkNotFound) {
+		t.Fatalf("second single-use redeem = %v, want ErrInviteLinkNotFound", err)
 	}
 }
 
