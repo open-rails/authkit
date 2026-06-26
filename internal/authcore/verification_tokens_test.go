@@ -2,11 +2,29 @@ package authcore
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	memorystore "github.com/open-rails/authkit/storage/memory"
 )
+
+// failingEphemeralStore is a stub EphemeralStore that always returns an error on Set,
+// simulating a Redis outage or similar ephemeral-store write failure.
+type failingEphemeralStore struct{}
+
+func (f *failingEphemeralStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	return nil, false, nil
+}
+func (f *failingEphemeralStore) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	return errors.New("ephemeral store unavailable: simulated write failure")
+}
+func (f *failingEphemeralStore) Del(ctx context.Context, key string) error {
+	return nil
+}
+func (f *failingEphemeralStore) Consume(ctx context.Context, key string) ([]byte, bool, error) {
+	return nil, false, nil
+}
 
 func TestVerificationMessageValidate(t *testing.T) {
 	if err := (VerificationMessage{}).Validate(); err == nil {
@@ -105,6 +123,45 @@ func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 	}
 	if len(data.TokenHashes) < 2 {
 		t.Fatalf("expected both code+link token hashes, got %d", len(data.TokenHashes))
+	}
+}
+
+// TestSendEmailVerificationStoreFailureSurfaces asserts that when the ephemeral
+// store fails to write, sendEmailVerificationToUser returns the store error rather
+// than silently swallowing it (regression for the return-nil bug).
+func TestSendEmailVerificationStoreFailureSurfaces(t *testing.T) {
+	svc := NewService(
+		Options{RegistrationVerification: RegistrationVerificationRequired},
+		Keyset{},
+		WithEphemeralStore(&failingEphemeralStore{}, EphemeralMemory),
+	)
+
+	email := "user@example.test"
+	u := &User{
+		ID:            "user-store-fail",
+		Email:         &email,
+		EmailVerified: false,
+	}
+
+	err := svc.sendEmailVerificationToUser(context.Background(), u, 0)
+	if err == nil {
+		t.Fatal("expected non-nil error when ephemeral store write fails, got nil")
+	}
+}
+
+// TestSendPhoneVerificationStoreFailureSurfaces asserts that when the ephemeral
+// store fails to write, SendPhoneVerificationToUser returns the store error rather
+// than silently swallowing it (regression for the return-nil bug).
+func TestSendPhoneVerificationStoreFailureSurfaces(t *testing.T) {
+	svc := NewService(
+		Options{RegistrationVerification: RegistrationVerificationRequired},
+		Keyset{},
+		WithEphemeralStore(&failingEphemeralStore{}, EphemeralMemory),
+	)
+
+	err := svc.SendPhoneVerificationToUser(context.Background(), "+15551234567", "user-store-fail", 0)
+	if err == nil {
+		t.Fatal("expected non-nil error when ephemeral store write fails, got nil")
 	}
 }
 

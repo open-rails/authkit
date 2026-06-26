@@ -1670,7 +1670,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 		codeHash:      ttl,
 		linkTokenHash: defaultEmailVerificationTTL,
 	}); err != nil {
-		return nil
+		return err
 	}
 	username := ""
 	if u.Username != nil {
@@ -2178,7 +2178,7 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 			codeHash: ttl,
 			linkHash: defaultPhoneVerificationTTL,
 		}); err != nil {
-			return nil
+			return err
 		}
 	} else {
 		return nil
