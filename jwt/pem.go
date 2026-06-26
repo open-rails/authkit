@@ -9,7 +9,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // PublicKeySigner is implemented by in-memory signers that expose their public key.
@@ -114,20 +113,6 @@ func clonePublicKeyMap(in map[string]crypto.PublicKey) map[string]crypto.PublicK
 	}
 	out := make(map[string]crypto.PublicKey, len(in))
 	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
-func mergePublicKeys(base map[string]crypto.PublicKey, extra map[string]crypto.PublicKey) map[string]crypto.PublicKey {
-	out := clonePublicKeyMap(base)
-	if out == nil {
-		out = make(map[string]crypto.PublicKey, len(extra))
-	}
-	for k, v := range extra {
-		if strings.TrimSpace(k) == "" || v == nil {
-			continue
-		}
 		out[k] = v
 	}
 	return out

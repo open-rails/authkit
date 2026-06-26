@@ -73,7 +73,7 @@ func (s *Service) handleOAuthStepUpStartPOST(w http.ResponseWriter, r *http.Requ
 		badRequest(w, ErrProviderNotLinked)
 		return
 	}
-	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeStepUpReturnTo(body.ReturnTo), "")
+	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeReturnTo(body.ReturnTo), "")
 }
 
 func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, stepUpUserID, stepUpReturnTo, returnTo string) {

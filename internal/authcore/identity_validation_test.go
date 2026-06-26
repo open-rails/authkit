@@ -67,3 +67,15 @@ func TestValidatePasswordCanonicalPolicy(t *testing.T) {
 		t.Fatalf("ValidatePassword(valid) err=%v", err)
 	}
 }
+
+// TestValidateUsernameDoesNotHardcodeReservedList guards that reserved account
+// names (admin/root/sudo/superuser) pass username SYNTAX validation — they are an
+// account-name policy enforced elsewhere, not a syntax rule. Relocated from
+// http/validate_test.go when the http.validateUsername passthrough was deleted (#156).
+func TestValidateUsernameDoesNotHardcodeReservedList(t *testing.T) {
+	for _, username := range []string{"admin", "root", "sudo", "superuser", "SuperUser"} {
+		if err := ValidateUsername(username); err != nil {
+			t.Fatalf("expected syntax validation to pass for %q, got %v", username, err)
+		}
+	}
+}

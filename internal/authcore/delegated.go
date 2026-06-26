@@ -127,9 +127,5 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	// Invariant: a delegated access token must never carry `sub`.
 	delete(claims, "sub")
 
-	headers := map[string]any{"typ": DelegatedAccessTokenType}
-	if hs, ok := signer.(jwtkit.HeaderSigner); ok {
-		return hs.SignWithHeaders(ctx, claims, headers)
-	}
-	return "", errors.New("header signer required")
+	return jwtkit.SignWithType(ctx, signer, claims, DelegatedAccessTokenType, true)
 }

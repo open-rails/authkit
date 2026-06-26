@@ -219,8 +219,7 @@ func (s *Sender) sendMessage(ctx context.Context, to, body string) error {
 	if err != nil {
 		return err
 	}
-	g := strings.TrimSpace(s.AccountSID)
-	req.SetBasicAuth(g, strings.TrimSpace(s.AuthToken))
+	req.SetBasicAuth(strings.TrimSpace(s.AccountSID), strings.TrimSpace(s.AuthToken))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := s.httpClient().Do(req)

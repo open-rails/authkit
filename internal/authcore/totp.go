@@ -61,12 +61,10 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 	return secret, buildTOTPURI(s.opts.Issuer, label, secret), nil
 }
 
-// EnableTOTP2FA verifies the pending secret before enabling authenticator-app 2FA.
-func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string) ([]string, error) {
-	return s.EnableTOTP2FADefault(ctx, userID, code, false)
-}
-
-func (s *Service) EnableTOTP2FADefault(ctx context.Context, userID, code string, makeDefault bool) ([]string, error) {
+// EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
+// the user, returning fresh backup codes. makeDefault sets it as the user's default
+// second factor.
+func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string, makeDefault bool) ([]string, error) {
 	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
 		return nil, Err2FAMethodUnavailable
 	}

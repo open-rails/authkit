@@ -56,7 +56,7 @@ func TestTOTPEnrollmentVerifyAndReplay(t *testing.T) {
 
 	code, err := totpCode(secret, time.Now().Unix()/totpPeriod)
 	require.NoError(t, err)
-	backupCodes, err := svc.EnableTOTP2FA(ctx, user.ID, code)
+	backupCodes, err := svc.EnableTOTP2FA(ctx, user.ID, code, false)
 	require.NoError(t, err)
 	require.Len(t, backupCodes, 10)
 

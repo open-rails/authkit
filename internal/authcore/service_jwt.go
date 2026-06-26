@@ -93,15 +93,7 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 		"token_use":   ServiceJWTTokenUse,
 		"permissions": permissions,
 	}
-	var (
-		token string
-		err   error
-	)
-	if hs, ok := signer.(jwtkit.HeaderSigner); ok {
-		token, err = hs.SignWithHeaders(ctx, claims, map[string]any{"typ": ServiceJWTType})
-	} else {
-		token, err = signer.Sign(ctx, claims)
-	}
+	token, err := jwtkit.SignWithType(ctx, signer, claims, ServiceJWTType, false)
 	if err != nil {
 		return "", ServiceJWTClaims{}, err
 	}

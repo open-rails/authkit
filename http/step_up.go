@@ -188,7 +188,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 		RedirectURI:     redirectURI,
 		StepUpUserID:    claims.UserID,
 		StepUpSessionID: claims.SessionID,
-		StepUpReturnTo:  sanitizeStepUpReturnTo(body.ReturnTo),
+		StepUpReturnTo:  sanitizeReturnTo(body.ReturnTo),
 		StepUpStartedAt: startedAt,
 	}); err != nil {
 		serverErr(w, ErrStateStoreFailed)
@@ -451,10 +451,6 @@ func sanitizeReturnTo(value string) string {
 		return "/"
 	}
 	return value
-}
-
-func sanitizeStepUpReturnTo(value string) string {
-	return sanitizeReturnTo(value)
 }
 
 func redirectStepUpResult(w http.ResponseWriter, r *http.Request, returnTo, status string) {

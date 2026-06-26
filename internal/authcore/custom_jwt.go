@@ -173,12 +173,5 @@ func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) 
 	// Set the `typ` header only when the host asked for one; otherwise leave it
 	// unset (the host owns the token shape). The signer owns `kid`/`alg` and
 	// rejects attempts to override them.
-	if typ := strings.TrimSpace(opts.Type); typ != "" {
-		hs, ok := signer.(jwtkit.HeaderSigner)
-		if !ok {
-			return "", errors.New("header signer required")
-		}
-		return hs.SignWithHeaders(ctx, claims, map[string]any{"typ": typ})
-	}
-	return signer.Sign(ctx, claims)
+	return jwtkit.SignWithType(ctx, signer, claims, strings.TrimSpace(opts.Type), true)
 }
