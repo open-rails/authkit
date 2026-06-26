@@ -77,7 +77,7 @@ remote applications, and group role assignments.
 
 Notes:
 - Browser OIDC routes are served by `OIDCHandler()`, not `APIHandler()`, and should usually be public routes such as `/oidc/:provider/login` and `/oidc/:provider/callback`.
-- After AuthKit handles the provider callback, full-page login redirects to `{BaseURL}{FrontendCallbackPath}`. The default frontend callback path is `/login/callback`; host apps may configure another app-relative path.
+- After AuthKit handles the provider callback, full-page login redirects to `{BaseURL}{OIDCReturnPath}`. The default OIDC return path is `/login/callback`; host apps may configure another app-relative path.
 - `GET /oidc/:provider/login?return_to=/subscribe?plan=pro` preserves the app-relative path through the provider redirect and returns it as `return_to` in the callback URL fragment. AuthKit rejects absolute URLs, protocol-relative URLs, backslashes, and CR/LF before storing it.
 - JSON/SPAs flows such as password login, registration, in-app 2FA, and POST-based verification/reset do not navigate away; the client owns any `return_to` state for those flows.
 

@@ -278,7 +278,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		base = "/"
 	}
 	frag := buildAuthResultFragment(token, rt, int64(time.Until(exp).Seconds()), provider, state, sd.ReturnTo)
-	target := buildFrontendCallbackURL(base, s.svc.Options().FrontendCallbackPath, frag)
+	target := buildFrontendCallbackURL(base, s.svc.Options().OIDCReturnPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
 }
 

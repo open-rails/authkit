@@ -73,9 +73,12 @@ type FrontendConfig struct {
 	// reset/verify links). If empty and Token.Issuer is a well-formed URL,
 	// NewFromConfig defaults it to the issuer.
 	BaseURL string
-	// CallbackPath is the host-owned frontend route that receives full-page OIDC
-	// login results. Empty defaults to "/login/callback".
-	CallbackPath string
+	// OIDCReturnPath is the host SPA landing route AuthKit redirects to after it
+	// finishes an OIDC/social login flow (the browser is sent to
+	// BaseURL + OIDCReturnPath with the login result). This is NOT the backend
+	// OAuth/OIDC provider callback URL — AuthKit owns that. Empty defaults to
+	// "/login/callback".
+	OIDCReturnPath string
 	// VerifyPath is the host-owned frontend route that receives scanner-safe
 	// verification link landings. Empty defaults to "/verify".
 	VerifyPath string

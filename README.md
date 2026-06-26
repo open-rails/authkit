@@ -97,7 +97,7 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 		},
 		Frontend: embedded.FrontendConfig{
 			BaseURL:           "https://app.example.com",
-			CallbackPath:      "/login/callback",
+			OIDCReturnPath:    "/login/callback",
 			VerifyPath:        "/verify",
 			PasswordResetPath: "/reset",
 			PasswordlessPath:  "/passwordless",

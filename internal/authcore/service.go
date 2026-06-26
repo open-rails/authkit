@@ -40,8 +40,8 @@ type Options struct {
 	SessionMaxPerUser    int
 	// Optional link building.
 	BaseURL string
-	// FrontendCallbackPath is the host-owned frontend route that receives full-page OIDC login results.
-	FrontendCallbackPath      string
+	// OIDCReturnPath is the host-owned frontend route that receives full-page OIDC login results.
+	OIDCReturnPath            string
 	FrontendVerifyPath        string
 	FrontendPasswordResetPath string
 	FrontendPasswordlessPath  string
@@ -180,7 +180,7 @@ var (
 )
 
 const (
-	defaultFrontendCallbackPath      = "/login/callback"
+	defaultOIDCReturnPath            = "/login/callback"
 	defaultFrontendVerifyPath        = "/verify"
 	defaultFrontendPasswordResetPath = "/reset"
 	defaultFrontendPasswordlessPath  = "/passwordless"
@@ -223,8 +223,8 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
 		opts.NativeUserRegistrationMode = mode
 	}
-	if strings.TrimSpace(opts.FrontendCallbackPath) == "" {
-		opts.FrontendCallbackPath = defaultFrontendCallbackPath
+	if strings.TrimSpace(opts.OIDCReturnPath) == "" {
+		opts.OIDCReturnPath = defaultOIDCReturnPath
 	}
 	if strings.TrimSpace(opts.FrontendVerifyPath) == "" {
 		opts.FrontendVerifyPath = defaultFrontendVerifyPath
@@ -306,7 +306,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 			return nil, fmt.Errorf("authkit: BaseURL is required when Issuer is not a well-formatted URL (issuer=%q)", issuer)
 		}
 	}
-	frontendCallbackPath, err := normalizeFrontendCallbackPath(cfg.Frontend.CallbackPath)
+	oidcReturnPath, err := normalizeOIDCReturnPath(cfg.Frontend.OIDCReturnPath)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +382,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		RefreshTokenDuration:                refTTL,
 		SessionMaxPerUser:                   maxSess,
 		BaseURL:                             baseURL,
-		FrontendCallbackPath:                frontendCallbackPath,
+		OIDCReturnPath:                      oidcReturnPath,
 		FrontendVerifyPath:                  frontendVerifyPath,
 		FrontendPasswordResetPath:           frontendPasswordResetPath,
 		FrontendPasswordlessPath:            frontendPasswordlessPath,
@@ -472,8 +472,8 @@ func normalizeRegistrationMode(v RegistrationMode) (RegistrationMode, error) {
 	}
 }
 
-func normalizeFrontendCallbackPath(raw string) (string, error) {
-	return normalizeFrontendPath("FrontendCallbackPath", raw, defaultFrontendCallbackPath)
+func normalizeOIDCReturnPath(raw string) (string, error) {
+	return normalizeFrontendPath("OIDCReturnPath", raw, defaultOIDCReturnPath)
 }
 
 func normalizeFrontendPath(name, raw, defaultPath string) (string, error) {
