@@ -184,10 +184,13 @@ Host mental model:
 - [ ] Keep `embedded.Client` broad as the concrete engine type if that is the
       simplest implementation. Do not confuse concrete method count with public
       interface size.
-- [ ] Pare `authhttp.Server` down to HTTP-adapter methods only:
-      `APIHandler`, `APIRoutes`, `OIDCHandler`, `OIDCBrowserRoutes`,
-      `JWKSHandler`, `PermissionGroupRoutes`, `Routes`, `Verifier`, and
-      HTTP-specific status helpers if still useful. No programmatic auth facade.
+- [x] Pare `authhttp.Server` down to HTTP-adapter methods only (DONE 2026-06-26):
+      dropped the `SetEntitlementsProvider` engine passthrough (host now calls it on
+      its own client). Remaining exported methods are all HTTP adapters/status:
+      `APIHandler`, `APIRoutes`, `OIDCHandler`, `OIDCBrowserRoutes`, `JWKSHandler`,
+      `PermissionGroupRoutes`, `Routes`, `Verifier`, and the SMS-health status reads
+      (`SMSAvailable`/`SMSHealthy`/`SMSHealthReason`/`CheckSMSHealth` — kept as useful
+      status helpers). No programmatic auth facade remains.
 - [x] DECISION: contract types already live in root `authkit` (#141 hardcut moved them;
       `embedded` re-exports ENGINE symbols only). `Config`/`Options`/ports STAY in
       `embedded` — engine construction, not wire contract (#138 partition; remote uses
@@ -196,21 +199,96 @@ Host mental model:
       (`WithEmailSender`, `WithSMSSender`, `WithEntitlements`,
       `WithEphemeralStore`, etc.). Do not make `embedded` a dumping ground for
       validation constants and DTO aliases.
-- [ ] Move registration policy enums to root `authkit`: `RegistrationVerificationPolicy`
-      plus `RegistrationVerificationNone|Optional|Required`, and simplify
-      `RegistrationMode` to the public self-registration policy only:
-      `RegistrationModeOpen|InviteOnly|Closed`.
-      `embedded.RegistrationConfig` should use those root types/constants so future
-      `remote` and host docs do not import shared vocabulary from `embedded`.
-      Delete `AdminOnly`, `AdminBootstrapOnly`, and `ManifestOnly`; operators can
-      always create users through privileged APIs/bootstrap/manual DB operations
-      outside the public native registration mode.
-      Make `InviteOnly` real and narrow: owners/admins can directly add existing
-      users to permission groups, so invite links are only for onboarding someone
-      who does not already have an account. A valid email-bound group invite should
-      authorize account creation for that email, then automatically grant the
-      invited group membership/role after signup/login/verification. Do not model
-      invites as a parallel consent flow for existing users.
+- [x] DECISION: registration policy enums belong in root `authkit`, not `embedded`,
+      because they are shared public contract vocabulary for embedded + future remote.
+- [x] DECISION: simplify `RegistrationMode` to public self-registration policy only:
+      keep `Open`, `InviteOnly`, and `Closed`; delete `AdminOnly`,
+      `AdminBootstrapOnly`, and `ManifestOnly`. Operators can always create users
+      through privileged APIs/bootstrap/manual DB operations outside public native
+      registration mode.
+- [x] DECISION: `InviteOnly` means account onboarding by valid invite, not a generic
+      permission-group consent flow. Owners/admins can directly add existing users
+      to permission groups; invite links are only for onboarding someone who does
+      not already have an account.
+- [x] DECISION: do not send email/SMS notifications when an existing user is directly
+      added to a permission group. It is spam-prone because owners can unilaterally
+      add people to their own groups. Email/SMS belongs only to explicit invite
+      onboarding for non-users.
+- [x] DECISION: when an owner/admin tries to add an email that does not belong to
+      an existing account, AuthKit should send an invite email asking that person
+      to register or log in, then manually accept the invite link.
+- [x] DECISION: email-bound invites may only be redeemed by an account with that
+      same verified email. If an invite is sent to `fidika@gmail.com`, registering
+      or logging in as `someoneelse@gmail.com` must not redeem it.
+- [x] DECISION: support two group invite kinds: (1) general-purpose shareable link
+      with no bound email, redeemable by whoever has the link within expiry/max-use
+      limits; (2) email-bound invite, redeemable only by an account with the same
+      verified email.
+- [x] DECISION: invites are time-bound manual accepts. Do not auto-add users to
+      permission groups after signup/login; the recipient must click/open the
+      invite link and accept/redeem it. Default validity should be a few days for
+      both shareable links and email-bound invite links.
+- [x] DECISION: invite creation/email sending must be rate-limited. A user must
+      not be able to spam a large number of invite emails quickly.
+- [ ] Move `RegistrationVerificationPolicy` +
+      `RegistrationVerificationNone|Optional|Required` to root `authkit`.
+- [ ] Move simplified `RegistrationModeOpen|InviteOnly|Closed` to root `authkit`
+      and delete `AdminOnly`, `AdminBootstrapOnly`, and `ManifestOnly`.
+- [ ] Update `embedded.RegistrationConfig` to use the root registration enum types
+      so future `remote` and host docs do not import shared vocabulary from
+      `embedded`.
+- [ ] Make `InviteOnly` real: a valid email-bound group invite should authorize
+      account creation for that email, then require the user to manually accept
+      the time-bound invite link to receive the group membership/role.
+- [ ] Preserve the existing email-bound redemption rule in the onboarding flow:
+      invite email must equal the redeemer account's verified email.
+- [ ] Make the invite API/docs name the two invite kinds clearly: shareable link
+      versus email-bound invite.
+- [x] RESEARCH: registration gating lives in `internal/authcore/service.go`:
+      `normalizeRegistrationMode`, `Options.PublicNativeUserRegistrationEnabled`,
+      `CreatePendingRegistration*`, `ConfirmPendingRegistration*`,
+      `CreatePendingPhoneRegistration*`, passwordless auto-registration, and
+      Solana/OIDC auto-create paths all need invite-aware registration checks.
+- [x] RESEARCH: group invite storage already mostly fits the model:
+      `migrations/postgres/001_auth_schema.up.sql` has `group_invite_links` with
+      optional `email`, `max_uses`, `uses`, `expires_at`, and `revoked_at`.
+- [x] RESEARCH: invite creation/redemption lives in
+      `internal/authcore/group_invite_links.go`: `externalInvitesEnabled`,
+      `CreateGroupInviteLink`, `inviteURL`, `sendGroupInviteEmail`,
+      `RedeemGroupInviteLink`, plus default TTLs
+      (`defaultEmailInviteTTL`, `defaultShareableInviteTTL`).
+- [x] RESEARCH: permission-group HTTP member/invite routes live in
+      `http/permission_group_operations.go` and `http/permission_group_routes.go`.
+      `memberRequest` currently accepts only `user_id`, so "add by email, invite if
+      unknown" requires an API/request-shape change.
+- [x] RESEARCH: public route registry in `http/routes.go` already has registration,
+      passwordless, verification, and `/invites/redeem`; invite landing/start may need
+      either a new unauthenticated route or an invite token parameter accepted by
+      existing registration/passwordless routes.
+- [ ] Update `internal/authcore/service.go` registration checks so `InviteOnly`
+      rejects ordinary public registration but allows registration when a valid,
+      unexpired email-bound invite exists for the registering email.
+- [ ] Update passwordless/OIDC/Solana auto-registration paths to honor the same
+      invite-aware rule under `InviteOnly`.
+- [ ] Update `internal/authcore/group_invite_links.go` defaults so both shareable
+      and email-bound invite links are time-bound for a few days; keep explicit
+      per-invite expiry overrides.
+- [ ] Update `CreateGroupInviteLink` / `CreateGroupInviteLinkRequest` /
+      `GroupInviteLinkCreated` contract docs to name the two kinds: no-email
+      shareable link vs email-bound invite.
+- [ ] Update `http/permission_group_operations.go` add-member flow: existing
+      `user_id` adds directly and silently; email with no account creates/sends an
+      email-bound invite instead of failing or auto-adding.
+- [ ] Add invite-specific rate limits around invite creation/email sending,
+      preferably keyed by actor user, target email, and group; return a stable
+      rate-limit error instead of sending more mail.
+- [ ] Add/adjust HTTP route support so an unauthenticated invite recipient can land
+      on the invite link, register or log in, then manually redeem/accept the same
+      invite. Do not auto-redeem after account creation.
+- [ ] Add integration tests for: existing user direct add no notification; unknown
+      email creates invite; invite-bound registration allowed under `InviteOnly`;
+      wrong verified email cannot redeem; manual accept required; expired/revoked/
+      exhausted invite rejected; shareable link still obeys expiry/max-use.
 - [ ] Make examples and docs use root contract names:
       `authkit.Config`, `authkit.User`, `authkit.ValidateUsername`,
       `authkit.SubjectKindUser`, `authkit.RegistrationVerificationRequired`, etc.
