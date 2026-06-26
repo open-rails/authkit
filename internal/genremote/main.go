@@ -111,22 +111,54 @@ func parseMethods(file string) []method {
 	if err != nil {
 		panic(err)
 	}
-	var methods []method
+	// Index every interface declared in the file. Client may be composed from
+	// smaller embedded interfaces (#143); the generator flattens the whole
+	// embedded set into one method list, so the wire/transport is unchanged
+	// whether Client is one flat interface or a composition of topic interfaces.
+	ifaces := map[string]*ast.InterfaceType{}
 	ast.Inspect(f, func(n ast.Node) bool {
-		ts, ok := n.(*ast.TypeSpec)
-		if !ok || ts.Name.Name != "Client" {
-			return true
+		if ts, ok := n.(*ast.TypeSpec); ok {
+			if it, ok := ts.Type.(*ast.InterfaceType); ok {
+				ifaces[ts.Name.Name] = it
+			}
 		}
-		it, ok := ts.Type.(*ast.InterfaceType)
-		if !ok {
-			return true
-		}
+		return true
+	})
+	root, ok := ifaces["Client"]
+	if !ok {
+		panic("genremote: no Client interface found in " + file)
+	}
+
+	var methods []method
+	seen := map[string]bool{}
+	var collect func(it *ast.InterfaceType, from string)
+	collect = func(it *ast.InterfaceType, from string) {
 		for _, fld := range it.Methods.List {
-			ft, ok := fld.Type.(*ast.FuncType)
-			if !ok || len(fld.Names) == 0 {
+			if len(fld.Names) == 0 {
+				// Embedded interface: flatten its methods in. Only local
+				// interfaces (declared in this file) are supported, so the
+				// generator stays a single-file stdlib-only parse.
+				id, ok := fld.Type.(*ast.Ident)
+				if !ok {
+					panic(fmt.Sprintf("genremote: %s embeds a non-local interface; only local interfaces are supported", from))
+				}
+				sub, ok := ifaces[id.Name]
+				if !ok {
+					panic(fmt.Sprintf("genremote: %s embeds unknown interface %s", from, id.Name))
+				}
+				collect(sub, id.Name)
 				continue
 			}
-			m := method{name: fld.Names[0].Name}
+			ft, ok := fld.Type.(*ast.FuncType)
+			if !ok {
+				continue
+			}
+			name := fld.Names[0].Name
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			m := method{name: name}
 			m.params = flatten(ft.Params)
 			m.results = flatten(ft.Results)
 			if len(m.params) > 0 && m.params[0].typ == "context.Context" {
@@ -139,8 +171,9 @@ func parseMethods(file string) []method {
 			}
 			methods = append(methods, m)
 		}
-		return false
-	})
+	}
+	collect(root, "Client")
+
 	sort.Slice(methods, func(i, j int) bool { return methods[i].name < methods[j].name })
 	return methods
 }
