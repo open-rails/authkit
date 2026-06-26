@@ -25,6 +25,15 @@ type User struct {
 	LastLogin       *time.Time
 }
 
+// UserRef is a slim user projection (id + display fields) returned by batch
+// lookups like Client.UsersByIDs — resolving many user IDs to display data in one
+// query, without N+1 single fetches. Part of the wire contract.
+type UserRef struct {
+	ID       string
+	Username string // "" if unset
+	Email    string // "" if unset
+}
+
 // Session is a sanitized session view (no tokens). Part of the wire contract.
 type Session struct {
 	ID                  string

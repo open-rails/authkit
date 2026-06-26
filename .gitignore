@@ -11,3 +11,4 @@ authkit
 
 **/.DS_Store
 .gstack/
+/authkit-devserver

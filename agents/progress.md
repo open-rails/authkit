@@ -9,7 +9,93 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 141
+next_id: 142
+
+---
+
+# #141: Repo cleanup — top-level package & root-file tidy (pre-1.0 hardcut)
+
+**Completed:** no
+
+Proposed 2026-06-25 (Paul + Claude, after the #138 restructure). With the package
+restructure landed, audit the public surface + repo root. Every top-level dir
+EXCEPT `internal/` (compiler-private) and `cmd/` (binaries) is importable = public
+API, so trimming/relocating now (pre-1.0) keeps the v1.0 surface clean. Breaking;
+hardcut, no compat. In-repo importer counts noted; external consumers
+(openrails/doujins) may differ — VERIFY before deleting.
+
+## Tasks
+
+### Relocate — group opt-in integrations under adapters/
+- [x] `providers/{email,sms}/twilio` → `adapters/twilio/{email,sms}` (pkg `twilio`);
+      `providers/` deleted. build+vet green.
+- [x] `riverjobs/` → `adapters/riverjobs` (kept dir=package; cleaner than `adapters/river`
+      with pkg `riverjobs`). `adapters/` now: chi, gin, twilio, riverjobs.
+
+### Relocate — devserver support kit follows the binary into cmd/
+- [x] `Dockerfile.devserver` → `cmd/authkit-devserver/Dockerfile`.
+- [x] `DEVSERVER.md` → `cmd/authkit-devserver/README.md`.
+- [~] `docker-compose.yaml` — KEPT at root (decision): it's the `task test` harness
+      (Postgres + devserver), and moving it forces an awkward `context: ../..`. Just
+      repointed its `dockerfile:` → `cmd/authkit-devserver/Dockerfile` (context stays root).
+- [x] `config/bootstrap.example.yaml` → `cmd/authkit-devserver/bootstrap.example.yaml`;
+      `config/` dir DELETED.
+- [x] Doc links updated (README bootstrap-example path, SEMVER devserver list +
+      `testing`→`authtest`). Taskfile needs no change (compose stayed at root; only a
+      comment mentions it). `go build ./...` + `./cmd/authkit-devserver` green.
+
+### Rename — kill the stdlib shadow
+- [x] `testing/` → `authtest` (dir + `package testing`→`authtest`, killing the stdlib
+      shadow). One in-repo importer (`http/verifier_multialg_test.go`, aliased
+      `authkittesting`) repointed. build+vet green.
+
+### Delete — verified against all 4 consumers (doujins/hentai0/cozy-art/tensorhub)
+- [x] `roles/` (`roles.IDFromSlug`) — confirmed UNUSED in-repo AND in all 4
+      consumers. DELETED. build+vet green.
+- [x] `identity/` — DELETED ENTIRELY, with the replacement shipped in the same change:
+        - authkit: added `UsersByIDs(ctx, []string) ([]UserRef, error)` to `authkit.Client`
+          (new `UserRef` contract type + engine method `Service.UsersByIDs` over the
+          existing `IdentityUsersByIDs` sqlc query + facade delegate). One method subsumes
+          identity's three batch reads (usernames/emails/users-by-ids).
+        - deleted `authkit/identity`; conformance holds (94-method Client); fixed the
+          bootstrap-example test path (was `config/`, now `cmd/authkit-devserver/`).
+          build+vet+gofmt green; full DB suite green on a fresh DB.
+      CROSS-REPO (doujins, on next bump): writes → `embedded.Client.UpdateUsername`/
+      `UpdateEmail` (gains the cooldown+validation its raw `identity` writes skipped);
+      reads → `Client.UsersByIDs`. Stale sqlc `Identity*` write/single-lookup queries in
+      `internal/db` are now unused (harmless generated code; prune on next sqlc regen).
+
+### Read-access design (DECISION — so `identity` never gets re-added)
+authkit must NOT ship pre-made query wrappers (`identity.Store` model: maintenance
+treadmill, leaks internal sqlc, duplicates the engine, lets hosts bypass invariants).
+Host read access is exposed TWO ways, by need:
+1. curated read METHODS on `authkit.Client` — single lookups + `AdminListUsers` exist
+   today; add batch ones (`UsernamesByIDs`/`UsersByIDs`) as real need appears. Portable
+   (works embedded AND remote), keeps tables private, enforces invariants.
+2. for an embedded host needing SQL JOINs against its own tables: a documented stable
+   read VIEW (e.g. `profiles.users_public`) queried with the host's OWN tooling —
+   authkit owns the view contract, the host owns the query. Add only when needed (YAGNI).
+Writes ALWAYS go through the engine. Tables stay an implementation detail.
+
+### Flags — decide, don't auto-do
+- [ ] Public-surface reduction: `siws`, `oidc`, `password`, `lang` are public but
+      used ONLY by the engine in-repo. Push the ones with no external consumer into
+      `internal/` to shrink v1.0 surface — confirm external usage per package first.
+- [ ] Root contract-pkg purity: `origin.go` (CORS allow-list) + `httperror.go`
+      (HTTP error envelope) rode in from the authbase fold — behavior/HTTP-shaped,
+      not pure wire types. Consider moving `origin.go` → `http`/`internal` for a
+      stricter contract package. Low priority.
+
+## Keep (core / legit public)
+`authprovider` (OAuth model, 6 importers), `embedded`, `http`, `verify`, `jwt`,
+`oidc`, `migrations`, `ratelimit`, `storage`, `password`, `lang`,
+`adapters/{chi,gin}`. Standard root files: `go.mod`/`go.sum`, `README.md`,
+`LICENSE`, `SECURITY.md`, `.gitignore`, `.gosec.json`, `Taskfile.yml`, `sqlc.yaml`,
+`BREAKING.md`, `SEMVER.md`.
+
+## Coordinate
+Lands with the #138 hardcut (same breaking pre-1.0 release); run after the #138
+commit so restructure + cleanup ship together.
 
 ---
 

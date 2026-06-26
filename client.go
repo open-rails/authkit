@@ -109,4 +109,11 @@ type Client interface {
 	UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error
 	ValidateVerificationConfiguration() error
 	VerifyUserPassword(ctx context.Context, userID, pass string) bool
+
+	// UsersByIDs resolves many user IDs to slim display projections (id +
+	// username/email) in ONE query — the batch read for "render N authors"
+	// without N+1. Missing IDs are simply absent from the result. (Replaces the
+	// removed authkit/identity store; writes go through UpdateUsername/UpdateEmail,
+	// which enforce the rename cooldown + validation raw table writes skip.)
+	UsersByIDs(ctx context.Context, ids []string) ([]UserRef, error)
 }

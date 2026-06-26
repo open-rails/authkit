@@ -1,5 +1,5 @@
 // Package testing provides utilities for testing applications that use authkit.
-package testing
+package authtest
 
 import (
 	"context"

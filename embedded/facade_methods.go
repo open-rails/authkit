@@ -170,6 +170,10 @@ func (s *Client) GetEmailByUserID(ctx context.Context, id string) (string, error
 	return s.impl.GetEmailByUserID(ctx, id)
 }
 
+func (s *Client) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error) {
+	return s.impl.UsersByIDs(ctx, ids)
+}
+
 func (s *Client) GetProviderUsername(ctx context.Context, userID, provider string) (string, error) {
 	return s.impl.GetProviderUsername(ctx, userID, provider)
 }

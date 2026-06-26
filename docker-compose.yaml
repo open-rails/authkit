@@ -18,7 +18,7 @@ services:
   issuer:
     build:
       context: .
-      dockerfile: Dockerfile.devserver
+      dockerfile: cmd/authkit-devserver/Dockerfile
       network: host
     depends_on:
       postgres:

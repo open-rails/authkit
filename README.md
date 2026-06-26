@@ -318,8 +318,8 @@ group_roles:
     role: deployer
 ```
 
-See `config/bootstrap.example.yaml` for a minimal file matching the current
-AuthKit manifest shape.
+See `cmd/authkit-devserver/bootstrap.example.yaml` for a minimal file matching the
+current AuthKit manifest shape.
 
 Bootstrap remote applications are root-controlled. Trust is inferred from the
 source: set `jwks_uri` for a JWKS URL, or `public_keys` for static PEM keys.

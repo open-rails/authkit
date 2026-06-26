@@ -12,8 +12,8 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	authkittesting "github.com/open-rails/authkit/authtest"
 	jwtkit "github.com/open-rails/authkit/jwt"
-	authkittesting "github.com/open-rails/authkit/testing"
 )
 
 func TestVerifierAcceptsES256RemoteApplicationIssuer(t *testing.T) {

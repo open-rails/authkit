@@ -124,7 +124,7 @@ group_roles:
 }
 
 func TestParseBootstrapManifestExample(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "bootstrap.example.yaml"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "cmd", "authkit-devserver", "bootstrap.example.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

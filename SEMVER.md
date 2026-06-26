@@ -707,10 +707,10 @@ preserving fixes.
 ## 9. Explicitly out of contract
 
 - `internal/db` and anything under `internal/` (sqlc-generated; may change any release).
-- The devserver (`authkit-devserver.go`, `DEVSERVER.md`, `Dockerfile.devserver`,
-  `docker-compose.devserver.yaml`) and its env vars (`DEVSERVER_*`,
-  `AUTHKIT_BOOTSTRAP_*`) — an operational tool, not a library contract.
-- `*_test.go` files and test-only helpers (package `testing` IS covered).
+- The devserver (`cmd/authkit-devserver/` — its `Dockerfile`/`README.md` — and the
+  root `docker-compose.yaml`) and its env vars (`DEVSERVER_*`, `AUTHKIT_BOOTSTRAP_*`)
+  — an operational tool, not a library contract.
+- `*_test.go` files and test-only helpers (the `authtest` package IS covered).
 - Error `message` strings (the human-readable `error.message`); log lines; metrics names.
 - Exact DB table/column layout beyond the invariants pinned in [§7.1](#71-database-schema--migrations).
 - Wall-clock timing, ordering of unordered collections, and unspecified internal behavior.
