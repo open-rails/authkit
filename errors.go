@@ -53,6 +53,13 @@ var (
 	ErrUserNotFound                    = errors.New("user_not_found")
 	ErrUserRoleNotFound                = errors.New("user_role_not_found")
 	ErrVerificationLinkExpired         = errors.New("verification_link_expired")
+	ErrSIWSAddressMismatch             = errors.New("siws_address_mismatch")
+	ErrSIWSChallengeExpired            = errors.New("siws_challenge_expired")
+	ErrSIWSChallengeNotFound           = errors.New("siws_challenge_not_found")
+	ErrSIWSDomainInvalid               = errors.New("siws_domain_invalid")
+	ErrSIWSSignatureInvalid            = errors.New("siws_signature_invalid")
+	ErrSIWSTimestampInvalid            = errors.New("siws_timestamp_invalid")
+	ErrWalletAlreadyLinked             = errors.New("wallet_already_linked")
 )
 
 // ErrorForCode maps a wire error code (a sentinel's Error() string) back to the
@@ -80,6 +87,8 @@ var errorsByCode = func() map[string]error {
 		ErrReservedIssuer, ErrResourceScopeDenied, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
 		ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
 		ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
+		ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
+		ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked,
 	}
 	m := make(map[string]error, len(all))
 	for _, e := range all {

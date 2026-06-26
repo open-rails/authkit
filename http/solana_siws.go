@@ -156,15 +156,16 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 			registrationDisabled(w)
 			return
 		}
-		errMsg := err.Error()
 		switch {
-		case contains(errMsg, "challenge not found"), contains(errMsg, "challenge expired"):
+		case errors.Is(err, authkit.ErrSIWSChallengeNotFound), errors.Is(err, authkit.ErrSIWSChallengeExpired):
 			unauthorized(w, ErrChallengeExpired)
-		case contains(errMsg, "signature verification failed"):
+		case errors.Is(err, authkit.ErrSIWSSignatureInvalid):
 			unauthorized(w, ErrInvalidSignature)
-		case contains(errMsg, "address mismatch"):
+		case errors.Is(err, authkit.ErrSIWSAddressMismatch):
 			badRequest(w, ErrAddressMismatch)
-		case contains(errMsg, "timestamp validation failed"):
+		case errors.Is(err, authkit.ErrSIWSDomainInvalid):
+			unauthorized(w, ErrAuthenticationFailed)
+		case errors.Is(err, authkit.ErrSIWSTimestampInvalid):
 			unauthorized(w, ErrChallengeExpired)
 		default:
 			unauthorized(w, ErrAuthenticationFailed)
@@ -250,15 +251,16 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.svc.LinkSolanaWallet(r.Context(), s.siwsCache(), claims.UserID, output); err != nil {
-		errMsg := err.Error()
 		switch {
-		case contains(errMsg, "challenge not found"), contains(errMsg, "challenge expired"):
+		case errors.Is(err, authkit.ErrSIWSChallengeNotFound), errors.Is(err, authkit.ErrSIWSChallengeExpired):
 			unauthorized(w, ErrChallengeExpired)
-		case contains(errMsg, "signature verification failed"):
+		case errors.Is(err, authkit.ErrSIWSSignatureInvalid):
 			unauthorized(w, ErrInvalidSignature)
-		case contains(errMsg, "address mismatch"):
+		case errors.Is(err, authkit.ErrSIWSAddressMismatch):
 			badRequest(w, ErrAddressMismatch)
-		case contains(errMsg, "wallet already linked"):
+		case errors.Is(err, authkit.ErrSIWSDomainInvalid):
+			unauthorized(w, ErrAuthenticationFailed)
+		case errors.Is(err, authkit.ErrWalletAlreadyLinked):
 			sendErr(w, http.StatusConflict, ErrWalletAlreadyLinked)
 		default:
 			serverErr(w, ErrLinkFailed)
@@ -271,13 +273,4 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		"message":        "Solana wallet linked successfully",
 		"solana_address": req.Output.Account.Address,
 	})
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

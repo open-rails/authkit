@@ -3,6 +3,7 @@ package authcore
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"testing"
 	"time"
 
@@ -74,8 +75,8 @@ func TestVerifySIWSChallenge_ServerExpiryEnforced(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected rejection for server-side expired challenge, got nil")
 	}
-	if got := err.Error(); got != "challenge expired" {
-		t.Fatalf("expected \"challenge expired\", got %q", got)
+	if !errors.Is(err, ErrSIWSChallengeExpired) {
+		t.Fatalf("expected ErrSIWSChallengeExpired, got %v", err)
 	}
 }
 
@@ -86,8 +87,8 @@ func TestVerifySIWSChallenge_DomainMismatch(t *testing.T) {
 	// Challenge was issued for a different domain than the signed message.
 	cd.Input.Domain = "evil.com"
 
-	if err := verifySIWSChallenge(cd, parsed, output, now); err == nil {
-		t.Fatal("expected domain mismatch rejection, got nil")
+	if err := verifySIWSChallenge(cd, parsed, output, now); !errors.Is(err, ErrSIWSDomainInvalid) {
+		t.Fatalf("expected ErrSIWSDomainInvalid, got %v", err)
 	}
 }
 
@@ -97,8 +98,8 @@ func TestVerifySIWSChallenge_AddressMismatch(t *testing.T) {
 
 	cd.Address = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
 
-	if err := verifySIWSChallenge(cd, parsed, output, now); err == nil {
-		t.Fatal("expected address mismatch rejection, got nil")
+	if err := verifySIWSChallenge(cd, parsed, output, now); !errors.Is(err, ErrSIWSAddressMismatch) {
+		t.Fatalf("expected ErrSIWSAddressMismatch, got %v", err)
 	}
 }
 
@@ -125,7 +126,7 @@ func TestVerifySIWSChallenge_BadSignature(t *testing.T) {
 	// Corrupt the signature.
 	output.Signature[0] ^= 0xFF
 
-	if err := verifySIWSChallenge(cd, parsed, output, now); err == nil {
-		t.Fatal("expected signature verification failure, got nil")
+	if err := verifySIWSChallenge(cd, parsed, output, now); !errors.Is(err, ErrSIWSSignatureInvalid) {
+		t.Fatalf("expected ErrSIWSSignatureInvalid, got %v", err)
 	}
 }

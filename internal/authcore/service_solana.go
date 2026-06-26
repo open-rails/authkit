@@ -7,8 +7,21 @@ import (
 	"strings"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/siws"
+)
+
+// SIWS sentinel aliases (root authkit sentinels) so the SIWS verification path
+// returns typed errors the HTTP layer maps with errors.Is — see http/solana_siws.go.
+var (
+	ErrSIWSChallengeNotFound = authkit.ErrSIWSChallengeNotFound
+	ErrSIWSChallengeExpired  = authkit.ErrSIWSChallengeExpired
+	ErrSIWSAddressMismatch   = authkit.ErrSIWSAddressMismatch
+	ErrSIWSDomainInvalid     = authkit.ErrSIWSDomainInvalid
+	ErrSIWSTimestampInvalid  = authkit.ErrSIWSTimestampInvalid
+	ErrSIWSSignatureInvalid  = authkit.ErrSIWSSignatureInvalid
+	ErrWalletAlreadyLinked   = authkit.ErrWalletAlreadyLinked
 )
 
 // SolanaProviderSlug is the provider slug used for Solana wallets.
@@ -112,7 +125,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		return "", time.Time{}, "", "", false, fmt.Errorf("failed to consume challenge: %w", err)
 	}
 	if !found {
-		return "", time.Time{}, "", "", false, fmt.Errorf("challenge not found or expired")
+		return "", time.Time{}, "", "", false, fmt.Errorf("%w", ErrSIWSChallengeNotFound)
 	}
 
 	// Run the stateless verification (expiry, address, domain, timestamps,
@@ -206,7 +219,7 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 		return fmt.Errorf("failed to consume challenge: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("challenge not found or expired")
+		return fmt.Errorf("%w", ErrSIWSChallengeNotFound)
 	}
 
 	// Run the stateless verification against the server-issued challenge.
@@ -221,7 +234,7 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 			// Already linked to this user - success (no-op)
 			return nil
 		}
-		return fmt.Errorf("wallet already linked to another account")
+		return fmt.Errorf("%w", ErrWalletAlreadyLinked)
 	}
 
 	// Link wallet to user
@@ -272,24 +285,24 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 	// Enforce the server-issued expiry window. This is authoritative and does
 	// not trust the client-supplied expirationTime in the signed message.
 	if now.After(challengeData.ExpiresAt) {
-		return fmt.Errorf("challenge expired")
+		return fmt.Errorf("%w", ErrSIWSChallengeExpired)
 	}
 
 	// Verify the address matches the one the challenge was issued for.
 	if challengeData.Address != output.Account.Address {
-		return fmt.Errorf("address mismatch")
+		return fmt.Errorf("%w", ErrSIWSAddressMismatch)
 	}
 
 	// Bind the signed message's domain to the server-issued challenge domain
 	// (anti-phishing). Field-level rather than strict byte-compare so wallets
 	// that reconstruct the message text remain compatible.
 	if err := siws.ValidateDomain(parsedInput, challengeData.Input.Domain); err != nil {
-		return fmt.Errorf("domain validation failed: %w", err)
+		return fmt.Errorf("%w: %v", ErrSIWSDomainInvalid, err)
 	}
 
 	// Verify the message timestamps (issuedAt skew, notBefore, expirationTime).
 	if err := siws.ValidateTimestamps(parsedInput); err != nil {
-		return fmt.Errorf("timestamp validation failed: %w", err)
+		return fmt.Errorf("%w: %v", ErrSIWSTimestampInvalid, err)
 	}
 
 	// If the wallet supplied a public key, ensure it is consistent with the
@@ -300,7 +313,7 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 
 	// Verify the cryptographic signature.
 	if err := siws.VerifySignature(output); err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
+		return fmt.Errorf("%w: %v", ErrSIWSSignatureInvalid, err)
 	}
 
 	return nil
