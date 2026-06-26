@@ -85,8 +85,8 @@ CREATE TABLE IF NOT EXISTS profiles.user_providers (
   UNIQUE (issuer, subject),
   UNIQUE (user_id, issuer)
 );
-CREATE INDEX IF NOT EXISTS user_providers_user_id_idx
-  ON profiles.user_providers (user_id);
+-- (user_providers_user_id_idx removed: redundant — UNIQUE (user_id, issuer) and
+-- the (user_id, provider_slug) index below both already cover user_id-only lookups.)
 CREATE INDEX IF NOT EXISTS user_providers_user_id_provider_slug_idx
   ON profiles.user_providers (user_id, provider_slug);
 

@@ -1,11 +1,5 @@
 -- Reserved-account + metadata queries (core/service_reserved_accounts.go).
 
--- name: UserSetReserved :exec
-UPDATE profiles.users
-SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb(sqlc.arg(reserved)::boolean), true),
-    updated_at = now()
-WHERE id = sqlc.arg(id)::uuid;
-
 -- name: UserPasswordDelete :exec
 DELETE FROM profiles.user_passwords WHERE user_id = sqlc.arg(user_id)::uuid;
 

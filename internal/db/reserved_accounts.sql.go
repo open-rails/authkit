@@ -81,9 +81,11 @@ func (q *Queries) UserMetadataPatch(ctx context.Context, arg UserMetadataPatchPa
 }
 
 const userPasswordDelete = `-- name: UserPasswordDelete :exec
+
 DELETE FROM profiles.user_passwords WHERE user_id = $1::uuid
 `
 
+// Reserved-account + metadata queries (core/service_reserved_accounts.go).
 func (q *Queries) UserPasswordDelete(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, userPasswordDelete, userID)
 	return err
@@ -95,24 +97,5 @@ DELETE FROM profiles.user_providers WHERE user_id = $1::uuid
 
 func (q *Queries) UserProvidersDeleteByUser(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, userProvidersDeleteByUser, userID)
-	return err
-}
-
-const userSetReserved = `-- name: UserSetReserved :exec
-
-UPDATE profiles.users
-SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{reserved}', to_jsonb($1::boolean), true),
-    updated_at = now()
-WHERE id = $2::uuid
-`
-
-type UserSetReservedParams struct {
-	Reserved bool
-	ID       string
-}
-
-// Reserved-account + metadata queries (core/service_reserved_accounts.go).
-func (q *Queries) UserSetReserved(ctx context.Context, arg UserSetReservedParams) error {
-	_, err := q.db.Exec(ctx, userSetReserved, arg.Reserved, arg.ID)
 	return err
 }
