@@ -1289,6 +1289,14 @@ inlined to `NormalizeEmail` (2 callers) + deleted; #160 ephemeral `marshalJSON`/
 referenced by `AllowNamed` (#155, breaking) — own pass; #165/#166 subsumed by #186; #167/#172/#173
 low-value (likely leave); #168/#169 advanced-adapter shared-pkg (bigger); #171 depends on #188.
 
+STATUS 2026-06-26 (Claude): #174 (flagship) DONE + green (build+vet; jwt `SignWithType` unit test —
+4 branches — + authcore token-minting tests pass). Added exported
+`jwt.SignWithType(ctx, signer, claims, typ string, requireHeader bool)`; collapsed ALL 7 HeaderSigner
+typ-stamp sites onto it — `service.go` (access, requireHeader=true), `service_jwt.go` (ServiceJWT,
+requireHeader=false fallback), `delegated.go`, `remote_application_token.go`, `custom_jwt.go`
+(`opts.Type`, empty→plain Sign), `authtest/issuer.go`, `cmd/authkit-devserver/main.go`. No
+`.(jwtkit.HeaderSigner)` asserts remain outside `jwt/`.
+
 Remove dead code, redundant no-op wrappers, pure-duplicate helpers, and same-logic /
 different-name functions across the module. Every item is grounded in code (file:line) and
 checked against its call sites + the public re-export layer (`embedded/aliases.go`,
