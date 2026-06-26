@@ -118,6 +118,7 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 
 	userID, err := s.svc.ConfirmPendingPhoneRegistration(r.Context(), phone, code)
 	if err == nil && userID != "" {
+		s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
 		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
 			serverErr(w, ErrTokenIssueFailed)
 			return
@@ -127,6 +128,7 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 
 	userID, err = s.svc.ConfirmPhoneVerificationUserID(r.Context(), phone, code)
 	if err == nil && userID != "" {
+		s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
 		if err := s.issueTokensForUser(w, r, userID, "phone_verification"); err != nil {
 			serverErr(w, ErrTokenIssueFailed)
 			return
@@ -136,10 +138,14 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 
 	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
 		if err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code); err == nil {
+			s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Phone number changed successfully"})
 			return
 		}
 	}
 
+	// All confirm paths failed: count the bad guess and (after the cap) invalidate
+	// the outstanding code for this number — mirrors email_verify.go.
+	s.svc.RecordFailedPhoneVerifyCode(r.Context(), phone)
 	badRequest(w, ErrInvalidOrExpiredCode)
 }

@@ -20,6 +20,12 @@ const (
 	maxEmailVerifyCodeAttempts = 5
 	keyEmailVerifyCodeAttempts = "auth:email_verify:attempts:"
 
+	// maxPhoneVerifyCodeAttempts mirrors the email cap for SMS codes: per-phone
+	// wrong-guess bound, after which the outstanding code(s) for that number are
+	// invalidated so the 6-digit code cannot be brute-forced within its TTL.
+	maxPhoneVerifyCodeAttempts = 5
+	keyPhoneVerifyCodeAttempts = "auth:phone_verify:attempts:"
+
 	keyPhoneVerifyToken     = "auth:phone_verify:token:"
 	keyPhoneVerifyIndex     = "auth:phone_verify:index:"
 	keyEmailVerifyToken     = "auth:email_verify:token:"
@@ -374,6 +380,66 @@ func (s *Service) invalidateEmailVerifyCodes(ctx context.Context, email string) 
 				s.deleteEmailVerificationByToken(ctx, tok)
 			}
 		}
+	}
+}
+
+// RecordFailedPhoneVerifyCode increments the per-phone failed-attempt counter for
+// the typed SMS verification code (the phone twin of RecordFailedEmailVerifyCode).
+// After maxPhoneVerifyCodeAttempts failures it invalidates the outstanding code(s)
+// for that number so the 6-digit code cannot be brute-forced within its TTL — the
+// HTTP per-identifier rate limit alone is per-IP and bypassable. No-op without an
+// ephemeral store.
+func (s *Service) RecordFailedPhoneVerifyCode(ctx context.Context, phone string) {
+	if !s.useEphemeralStore() {
+		return
+	}
+	phone = NormalizePhone(strings.TrimSpace(phone))
+	if phone == "" {
+		return
+	}
+	key := keyPhoneVerifyCodeAttempts + phone
+	n := 0
+	if v, ok, _ := s.ephemGetString(ctx, key); ok {
+		n, _ = strconv.Atoi(v)
+	}
+	n++
+	if n >= maxPhoneVerifyCodeAttempts {
+		s.invalidatePhoneVerifyCodes(ctx, phone)
+		_ = s.ephemDel(ctx, key)
+		return
+	}
+	_ = s.ephemSetString(ctx, key, strconv.Itoa(n), defaultPhoneVerificationTTL)
+}
+
+// ClearPhoneVerifyCodeAttempts resets the per-phone failed-attempt counter after a
+// successful confirmation.
+func (s *Service) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string) {
+	if !s.useEphemeralStore() {
+		return
+	}
+	phone = NormalizePhone(strings.TrimSpace(phone))
+	if phone == "" {
+		return
+	}
+	_ = s.ephemDel(ctx, keyPhoneVerifyCodeAttempts+phone)
+}
+
+// invalidatePhoneVerifyCodes deletes the outstanding phone codes for a number when
+// the attempt cap is hit, covering the two public (unauthenticated) confirm paths:
+// the pending phone registration and the existing-user phone-verification code
+// (purpose "verify_phone"). Mirrors invalidateEmailVerifyCodes; the auth-gated
+// phone-change flow is out of scope, same as the email cap.
+func (s *Service) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
+	phone = NormalizePhone(strings.TrimSpace(phone))
+	if phone == "" {
+		return
+	}
+	// Pending phone registration (new-signup flow).
+	s.deletePendingChangeByTarget(ctx, KindRegisterPhone, phone)
+	// Existing-user phone-verification code, via the purpose-scoped index.
+	idx := s.phoneVerificationIndexKey("verify_phone", phone)
+	if h, ok, _ := s.ephemGetString(ctx, idx); ok && h != "" {
+		s.deletePhoneVerificationByToken(ctx, "verify_phone", h)
 	}
 }
 
