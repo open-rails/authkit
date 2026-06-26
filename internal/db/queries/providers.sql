@@ -20,12 +20,14 @@ DELETE FROM profiles.user_providers WHERE user_id = $1 AND provider_slug = $2;
 -- name: UserProviderDeleteOtherSubjects :exec
 DELETE FROM profiles.user_providers WHERE user_id = $1 AND issuer = $2 AND subject != $3;
 
--- name: UserProviderUpsertByIssuer :exec
+-- name: UserProviderUpsertByIssuer :one
 INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (issuer, subject) DO UPDATE
 SET email_at_provider = EXCLUDED.email_at_provider,
-    provider_slug = COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug);
+    provider_slug = COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
+WHERE profiles.user_providers.user_id = EXCLUDED.user_id
+RETURNING id, user_id;
 
 -- name: ProviderLinkByIssuer :one
 SELECT user_id, email_at_provider FROM profiles.user_providers WHERE issuer = $1 AND subject = $2;

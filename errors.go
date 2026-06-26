@@ -60,6 +60,7 @@ var (
 	ErrSIWSSignatureInvalid            = errors.New("siws_signature_invalid")
 	ErrSIWSTimestampInvalid            = errors.New("siws_timestamp_invalid")
 	ErrWalletAlreadyLinked             = errors.New("wallet_already_linked")
+	ErrProviderAlreadyLinked           = errors.New("provider_already_linked")
 )
 
 // ErrorForCode maps a wire error code (a sentinel's Error() string) back to the
@@ -89,6 +90,7 @@ var errorsByCode = func() map[string]error {
 		ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 		ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 		ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked,
+		ErrProviderAlreadyLinked,
 	}
 	m := make(map[string]error, len(all))
 	for _, e := range all {

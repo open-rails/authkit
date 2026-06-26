@@ -298,12 +298,14 @@ func (q *Queries) UserProviderSubjectProfileByIssuer(ctx context.Context, arg Us
 	return i, err
 }
 
-const userProviderUpsertByIssuer = `-- name: UserProviderUpsertByIssuer :exec
+const userProviderUpsertByIssuer = `-- name: UserProviderUpsertByIssuer :one
 INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (issuer, subject) DO UPDATE
 SET email_at_provider = EXCLUDED.email_at_provider,
     provider_slug = COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
+WHERE profiles.user_providers.user_id = EXCLUDED.user_id
+RETURNING id, user_id
 `
 
 type UserProviderUpsertByIssuerParams struct {
@@ -315,8 +317,13 @@ type UserProviderUpsertByIssuerParams struct {
 	EmailAtProvider *string
 }
 
-func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProviderUpsertByIssuerParams) error {
-	_, err := q.db.Exec(ctx, userProviderUpsertByIssuer,
+type UserProviderUpsertByIssuerRow struct {
+	ID     string
+	UserID string
+}
+
+func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProviderUpsertByIssuerParams) (UserProviderUpsertByIssuerRow, error) {
+	row := q.db.QueryRow(ctx, userProviderUpsertByIssuer,
 		arg.ID,
 		arg.UserID,
 		arg.Issuer,
@@ -324,7 +331,9 @@ func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProvid
 		arg.Subject,
 		arg.EmailAtProvider,
 	)
-	return err
+	var i UserProviderUpsertByIssuerRow
+	err := row.Scan(&i.ID, &i.UserID)
+	return i, err
 }
 
 const userProviderUsername = `-- name: UserProviderUsername :one
