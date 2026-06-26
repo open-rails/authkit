@@ -1498,6 +1498,16 @@ STATUS 2026-06-26 (Claude): TIER 3 clean batch DONE + green (build+vet; jwt test
 (email_verify/register/passkeys/password_login) + reduced `passwordlessIdentifier` to it. Remaining
 clean Tier-3: #177 (step-up tail), #178 (SIWS decode), #180 (writeAccessTokenJSON), #182 (role-grants).
 
+STATUS 2026-06-26 (Claude): #178 + #177 DONE + green (build+vet). #178: extracted `decodeSIWSOutput` +
+`decodeSIWSB64` in `solana_siws.go`; both SIWS handlers (login/link) now share the ~37-line decode
+block. #177: extracted `emitStepUpResult(w,r,sd,providerName)` in `step_up.go`; `completeOIDCStepUp`/
+`completeOAuthStepUp` keep their distinct front halves (OIDC auth-time check + plain Mark; OAuth
+Mark-with-methods) and share the success tail. #182 DROPPED on implementation (not worth it): a clean
+shared resolver either regresses `effectiveGroupRolePermissions`'s catalog-first-NO-DB short-circuit
+(it only hits `CustomRolesFor` on a catalog miss) or adds a redundant lookup — the genuinely shared
+logic is ~3 lines with different control flow. Only #180 (`writeAccessTokenJSON`) remains in the clean
+Tier-3 set.
+
 Remove dead code, redundant no-op wrappers, pure-duplicate helpers, and same-logic /
 different-name functions across the module. Every item is grounded in code (file:line) and
 checked against its call sites + the public re-export layer (`embedded/aliases.go`,
@@ -2263,6 +2273,11 @@ fields in its own order); order preserved → behaviour-preserving.
 # #182: Consolidate role-grants resolution
 
 **Completed:** no
+
+DECISION 2026-06-26 (Claude — WON'T DO, on implementation): a clean shared resolver either regresses
+`effectiveGroupRolePermissions`'s catalog-first-NO-DB short-circuit (it hits `CustomRolesFor` only on a
+catalog miss) or adds a redundant catalog lookup. The genuinely shared logic is ~3 lines with different
+control flow + resolver-sourcing. Not worth the indirection (no-over-engineering rule). Closed.
 
 Parent #150 (Tier 3, internal-only; behaviour-preserving).
 
