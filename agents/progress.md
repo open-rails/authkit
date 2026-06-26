@@ -9,13 +9,88 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 142
+next_id: 143
+
+---
+
+# #142: Standalone self-hostable server + remote SDK (authkit Phase 2)
+
+**Completed:** no
+
+Proposed 2026-06-25 (split out of #138 Phase 2, now that the embedded restructure +
+pgx-free contract are committed). authkit is embedded-only today: an app runs the
+engine in-process (`embedded.New` / `authhttp.NewServer`). This issue makes authkit
+ALSO runnable as a STANDALONE, self-hostable server, so:
+- non-Go apps can use authkit over an HTTP management API, and
+- a Go app can swap embedded↔remote with ONE line (`embedded.New` ↔ `remote.New`) —
+  both satisfy the pgx-free `authkit.Client` contract #138 established.
+
+This is a NEW product surface, not a refactor — build when greenlit.
+
+## Design — etcd's "one client, two transports" (NOT two client impls)
+#138's etcd analysis is the blueprint:
+- ONE consumer-facing client driven by a TRANSPORT: an in-process direct-call adapter
+  (embedded) OR an HTTP transport (remote). Two independent client impls drift (error
+  mapping, timeouts, partial coverage); one client + two transports does not.
+- In-process = direct function calls through the real handler stack (etcd's `v3client`
+  via `proxy/grpcproxy/adapter`), NOT a loopback socket.
+- Handlers + wire DTOs defined ONCE; both transports feed them.
+
+## Target packages
+| Package | Role |
+|---|---|
+| `authkit/server` | standalone-server logic: engine + `authhttp` browser routes + the new authenticated MANAGEMENT API. Thin `main` in `cmd/authkit-server`. Owns its DB/Redis/config. |
+| `authkit/remote` | Go SDK: `remote.New(url, creds) (*remote.Client, error)` satisfying `authkit.Client` by marshaling each method to the management API. Lean (net/http only). |
+| transport seam | in-process direct-call adapter + HTTP transport feeding ONE shared client (etcd `v3client`). |
+
+Non-Go clients hit the management REST API directly (no SDK).
+
+## Tasks
+- [ ] **Interface portability audit.** Some `authkit.Client` methods are awkward over
+      the wire — `ApplyBootstrapManifestFile(path)` reads a LOCAL file (whose fs? the
+      server's), `CleanupExpiredAuthState` is a maintenance op, raw `Keyfunc`/`JWKS`
+      aren't on the interface but check the rest. Decide per method: keep / drop from
+      the remote surface / reshape (e.g. `ApplyBootstrapManifest(bytes)` only).
+- [ ] **Management HTTP API contract** — versioned REST/JSON covering the portable
+      Client methods (CreateUser, MintServiceJWT, Can, UsersByIDs, BanUser, API-key
+      mgmt, …). The frozen wire contract for non-Go clients + the remote SDK.
+- [ ] **App→server auth** — how a calling app authenticates to the management API
+      (service credential / signed service JWT / mTLS); least-privilege scoping.
+- [ ] **`authkit/server`** — standalone binary logic (engine + authhttp routes + mgmt
+      API + own config/DB/Redis); thin `main` in `cmd/authkit-server`.
+- [ ] **`authkit/remote`** — HTTP-transport SDK; `remote.New` returns a client
+      satisfying `authkit.Client`; per-method marshal + error mapping that preserves
+      `errors.Is(err, authkit.ErrX)` (shared identity #138 already provides).
+- [ ] **Transport seam** — embedded uses an in-process direct-call adapter over the
+      SAME management handlers (not a parallel impl), per etcd `v3client`.
+- [ ] **Config unification** — one server config struct, mutated by the library and
+      filled-from-flags/file by the binary (etcd `embed.Config`/`etcdmain`).
+- [ ] **Tests** — `remote.Client` against an in-process `httptest` server; assert
+      parity with `embedded.Client` over the shared `authkit.Client` interface.
+- [ ] **Docs** — deploy guide; the embedded↔remote one-line swap; non-Go REST examples.
+
+## Open questions
+- Management API home: a new `authkit/server` handler, or extend `authkit/http`?
+- The awkward methods (bootstrap-from-file, cleanup) — remote-exposed at all?
+- Error identity over the wire: map HTTP status+code → shared `authkit.Err*`.
+
+## Depends on
+#138 (DONE, committed `a08ac76`/`afa17d1`): the pgx-free `authkit.Client` contract +
+the `authkit/embedded` / `authkit/verify` split this builds on.
 
 ---
 
 # #141: Repo cleanup — top-level package & root-file tidy (pre-1.0 hardcut)
 
-**Completed:** no
+**Completed:** yes
+
+STATUS 2026-06-25 (Claude): DONE. Cleanup committed `afa17d1` (local on master, not
+pushed): all relocations/renames/deletes landed; `identity` replaced by
+`Client.UsersByIDs`. The two surface flags are DECIDED — keep everything public
+(external usage confirms oidc/password/lang are real library imports; siws leaks
+through storage's public API; the root helpers are the shared lean layer). No
+further churn. build+vet+gofmt green; full DB-backed + non-DB suites green on a
+fresh DB. Flag-decision note is an uncommitted progress.md edit.
 
 Proposed 2026-06-25 (Paul + Claude, after the #138 restructure). With the package
 restructure landed, audit the public surface + repo root. Every top-level dir
@@ -77,14 +152,17 @@ Host read access is exposed TWO ways, by need:
    authkit owns the view contract, the host owns the query. Add only when needed (YAGNI).
 Writes ALWAYS go through the engine. Tables stay an implementation detail.
 
-### Flags — decide, don't auto-do
-- [ ] Public-surface reduction: `siws`, `oidc`, `password`, `lang` are public but
-      used ONLY by the engine in-repo. Push the ones with no external consumer into
-      `internal/` to shrink v1.0 surface — confirm external usage per package first.
-- [ ] Root contract-pkg purity: `origin.go` (CORS allow-list) + `httperror.go`
-      (HTTP error envelope) rode in from the authbase fold — behavior/HTTP-shaped,
-      not pure wire types. Consider moving `origin.go` → `http`/`internal` for a
-      stricter contract package. Low priority.
+### Flags — DECIDED (keep everything; the public surface is correct)
+- [x] Public-surface reduction → KEEP `siws`/`oidc`/`password`/`lang` public. External
+      usage (across doujins/hentai0/cozy-art/tensorhub): oidc=4, password=2, lang=5 —
+      all legitimately imported as library primitives. `siws`=0 direct, BUT its
+      `ChallengeData` leaks through `storage/redis.SIWSCache`'s public signatures, so
+      internalizing would break that public API or force deeper surgery — not worth it.
+- [x] Root contract-pkg purity → KEEP `origin.go`/`httperror.go`/`permission.go` in
+      root. The root package IS the lean shared layer (it absorbed authbase's role);
+      these are legitimately-shared lean contract helpers (permission matching + key
+      format have external users; the error envelope is the wire error shape). Moving
+      them out just recreates the authbase split we deliberately folded. No churn.
 
 ## Keep (core / legit public)
 `authprovider` (OAuth model, 6 importers), `embedded`, `http`, `verify`, `jwt`,
@@ -170,7 +248,7 @@ this (needs a version doujins can pin).
 
 # #138: Package restructure for embedded-now / standalone-later (etcd-style dual mode)
 
-**Completed:** no
+**Completed:** yes (Phase 1/1.5/1.6 done + committed; Phase 2 split to #142)
 
 STATUS 2026-06-25 (Claude): Phase 1 landed in the working tree. Done: devserver →
 `cmd/authkit-devserver/`; `core` package → `embedded` (`core.Service` →
@@ -184,8 +262,10 @@ caller onto `embedded.New`. Deferred:
 making root literally pgx-free (relocating ~115 type defs; only Phase-2 `remote`
 needs it). Verified: `go build ./...` + `go vet ./...` green; non-DB tests pass;
 DB-backed riverjobs purge + http server tests pass against the compose Postgres.
-Not committed (dirty worktree). NOT done (Phase 2, deferred): `authkit/server`,
-management HTTP API, `authkit/remote`, transport/adapter layer.
+COMMITTED — Phase 1 `a08ac76`, with the 1.5/1.6 inversion+fold landed in the same
+tree, then #141 cleanup `afa17d1` (local on master, not pushed). Phase 2 (standalone
+server + `authkit/remote` SDK + transport seam) is SPLIT OUT to issue #142 — build
+when greenlit.
 
 Proposed 2026-06-25 (Paul + Claude design session). authkit is an **embedded Go
 library today**. We want it to *later* be offered as a **self-hostable standalone
@@ -274,13 +354,10 @@ one transport the engine *is* the client). The root interface is the one piece o
 deliberate forward-investment — it makes the Phase-2 swap construction-only instead
 of a type change in every consumer.
 
-## Phase 2 — standalone server (deferred; sketch)
+## Phase 2 — standalone server → SPLIT OUT to issue #142
 
-When greenlit, follow etcd; do NOT hand-roll a second client. Define mgmt handlers
-+ wire DTOs once (DTOs already at root); build an in-process direct-call adapter +
-an HTTP transport, both feeding ONE shared `authkit.Client`. `authkit/server` =
-self-hostable binary; `authkit/remote` = Go SDK; non-Go clients hit the REST API
-directly. Unify server config into one struct used by binary and `embedded`.
+The standalone self-hostable server, management HTTP API, `authkit/remote` SDK, and
+the etcd "one client, two transports" seam are now planned in their own issue, #142.
 
 ## Phase 1.5 — contract inversion to the ideal greenfield shape (DONE — root pgx-free)
 
