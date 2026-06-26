@@ -204,6 +204,11 @@ type Service struct {
 	authlog        AuthEventLogger
 	ephemeralStore EphemeralStore
 	ephemeralMode  EphemeralMode
+	// cfg is the host Config this Service was built from, retained so the HTTP
+	// transport (client-first NewServer) can read HTTP-layer config that rides in
+	// Config but the engine doesn't consume (OIDC providers/descriptors). Zero
+	// value for NewService-constructed (config-less) services.
+	cfg            Config
 	verifyWarnOnce sync.Once
 
 	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
@@ -415,6 +420,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		return nil, fmt.Errorf("permission-group schema: %w", gerr)
 	}
 	svc.groupSchema = gs
+	svc.cfg = cfg
 	return svc, nil
 }
 
@@ -740,6 +746,12 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 func (s *Service) Options() Options {
 	return s.opts
 }
+
+// Config returns the host Config this Service was built from. The client-first
+// HTTP transport reads it for HTTP-layer config (OIDC providers/descriptors) that
+// rides in Config but the engine doesn't consume. Zero value for a Service built
+// via NewService (config-less, e.g. some tests).
+func (s *Service) Config() Config { return s.cfg }
 
 // PublicKeysByKID returns the public keys indexed by key ID.
 func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {

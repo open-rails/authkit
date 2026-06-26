@@ -15,7 +15,7 @@ import (
 func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 	ctx := context.Background()
 	pool := newServerTestPool(t)
-	srv, err := NewServer(newServerTestConfig(), pool, WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	const pass = "Correct-password-12345"
@@ -36,7 +36,7 @@ func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 func TestProviderUnlinkRequiresFreshAuthOrPassword(t *testing.T) {
 	ctx := context.Background()
 	pool := newServerTestPool(t)
-	srv, err := NewServer(newServerTestConfig(), pool, WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	const pass = "Correct-password-12345"

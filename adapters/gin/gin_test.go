@@ -73,7 +73,9 @@ func newTestService(t *testing.T) *authhttp.Service {
 	pool, err := pgxpool.New(context.Background(), "postgres://authkit:authkit@127.0.0.1:5432/authkit_test")
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	svc, err := authhttp.NewServer(cfg, pool)
+	client, err := embedded.New(cfg, pool)
+	require.NoError(t, err)
+	svc, err := authhttp.NewServer(client)
 	require.NoError(t, err)
 	return svc
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +30,7 @@ func passwordlessTestServer(t *testing.T, autoRegister bool) (*Service, *capture
 	cfg.Registration.PasswordlessAutoRegistration = autoRegister
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(cfg, pool, WithEmailSender(emailSender), WithSMSSender(smsSender), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv, emailSender, smsSender
 }
@@ -174,7 +175,7 @@ func TestPasswordlessSMSOTPAndMagicLink(t *testing.T) {
 func TestPasswordlessDisabledAntiEnumerationAndCodeAttemptCap(t *testing.T) {
 	ctx := context.Background()
 	pool := newServerTestPool(t)
-	disabledSrv, err := NewServer(newServerTestConfig(), pool, WithEmailSender(&captureEmailSender{}), WithoutRateLimiter())
+	disabledSrv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(&captureEmailSender{})), WithoutRateLimiter())
 	require.NoError(t, err)
 	w := serveJSON(disabledSrv, http.MethodPost, "/passwordless/start", `{"identifier":"`+uniqueEmail("pwless-disabled")+`"}`)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
@@ -182,7 +183,7 @@ func TestPasswordlessDisabledAntiEnumerationAndCodeAttemptCap(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Registration.PasswordlessLogin = true
 	unknownSender := &captureEmailSender{}
-	noAutoSrv, err := NewServer(cfg, pool, WithEmailSender(unknownSender), WithoutRateLimiter())
+	noAutoSrv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(unknownSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 	w = serveJSON(noAutoSrv, http.MethodPost, "/passwordless/start", `{"identifier":"`+uniqueEmail("pwless-unknown")+`","mode":"code"}`)
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
@@ -190,7 +191,7 @@ func TestPasswordlessDisabledAntiEnumerationAndCodeAttemptCap(t *testing.T) {
 
 	cfg.Registration.PasswordlessAutoRegistration = true
 	attemptSender := &captureEmailSender{}
-	attemptSrv, err := NewServer(cfg, pool, WithEmailSender(attemptSender), WithoutRateLimiter())
+	attemptSrv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(attemptSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 	email := uniqueEmail("pwless-attempt")
 	w = serveJSON(attemptSrv, http.MethodPost, "/passwordless/start", `{"identifier":"`+email+`","mode":"code"}`)

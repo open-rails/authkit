@@ -180,7 +180,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	svc, err := NewServer(cfg, newNoDBPool(t))
+	svc, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)))
 	require.NoError(t, err)
 
 	h := svc.APIHandler()
@@ -207,7 +207,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Opt-out: disabling limiter should never rate limit.
-	svc, err = NewServer(cfg, newNoDBPool(t), WithoutRateLimiter())
+	svc, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 50; i++ {
@@ -220,7 +220,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Private Docker/proxy peers are rate-limited by default instead of failing open.
-	svc, err = NewServer(cfg, newNoDBPool(t))
+	svc, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)))
 	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {
@@ -244,7 +244,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	}
 
 	// Spoofed forwarded headers from untrusted peers are ignored; the peer identity is used.
-	svc, err = NewServer(cfg, newNoDBPool(t))
+	svc, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)))
 	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {
@@ -268,7 +268,7 @@ func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 
 	// When behind a trusted proxy, accept forwarded headers and enforce limits on the client IP.
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
-	svc, err = NewServer(cfg, newNoDBPool(t), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted)))
+	svc, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithClientIPFunc(ClientIPFromForwardedHeaders(trusted)))
 	require.NoError(t, err)
 	h = svc.APIHandler()
 	for i := 0; i < 20; i++ {

@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
@@ -35,10 +34,6 @@ type Service struct {
 	solanaDomain        string // Domain for SIWS messages (optional, derived from request if empty)
 	langCfg             *LanguageConfig
 	authlogr            embedded.AuthEventLogReader
-	// coreOpts accumulates embedded.Option values contributed by functional options
-	// during NewServer; they are applied when the core service is built, then the
-	// slice is cleared (transient, not retained past construction).
-	coreOpts []embedded.Option
 
 	// groupCanFn overrides the permission-group authorization predicate used by
 	// the auto-generated group-management routes (#111). nil delegates to
@@ -216,13 +211,12 @@ func (s *Service) SMSHealthReason() string { return s.svc.SMSHealthReason() }
 // configured and, if checked, found able to deliver).
 func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 
-// Client returns the embedder-facing AuthKit client (the authkit.Client contract)
-// backing this server — for provisioning, minting, and management (e.g.
-// CreateUser, MintServiceJWT, ApplyBootstrapManifest). It wraps the same
-// engine the server runs; code against authkit.Client to stay backend-agnostic
-// across the embedded↔standalone swap (#138).
-func (s *Service) Client() authkit.Client { return embedded.Wrap(s.svc) }
-func (s *Service) Verifier() *Verifier    { return s.verifier }
+// Verifier returns the server's token verifier. The embedder-facing client (for
+// provisioning/minting/management) is the *embedded.Client the host built and
+// passed to NewServer — code against authkit.Client to stay backend-agnostic
+// across the embedded↔standalone swap (#138); the server no longer vends it
+// (client-first, #142).
+func (s *Service) Verifier() *Verifier { return s.verifier }
 
 // SetEntitlementsProvider installs the entitlements provider on the underlying
 // core service after construction. It is the sanctioned late-binding seam for

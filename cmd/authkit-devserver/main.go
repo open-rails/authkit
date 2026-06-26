@@ -132,19 +132,23 @@ func runServe(cfg *config) error {
 		return fmt.Errorf("load jwt keys: %w", err)
 	}
 
-	var opts []authhttp.Option
+	var engineOpts []embedded.Option
 	if len(cfg.StaticEntitlements) > 0 {
-		opts = append(opts, authhttp.WithEntitlements(staticDevEntitlements{names: cfg.StaticEntitlements}))
+		engineOpts = append(engineOpts, embedded.WithEntitlements(staticDevEntitlements{names: cfg.StaticEntitlements}))
 	}
-	svc, err := authhttp.NewServer(devserverCoreConfig(cfg, keySource), pg, opts...)
+	client, err := embedded.New(devserverCoreConfig(cfg, keySource), pg, engineOpts...)
 	if err != nil {
 		return err
 	}
-	if err := svc.Verifier().LoadRemoteApplications(ctx, svc.Client(), cfg.ExpectedAudiences); err != nil {
+	svc, err := authhttp.NewServer(client)
+	if err != nil {
+		return err
+	}
+	if err := svc.Verifier().LoadRemoteApplications(ctx, client, cfg.ExpectedAudiences); err != nil {
 		return fmt.Errorf("load remote applications: %w", err)
 	}
 	if cfg.ApplyBootstrapOnStart {
-		if _, err := applyBootstrapManifest(ctx, svc.Client(), cfg.BootstrapManifestPath, authkit.BootstrapReconcileOptions{StartupOnly: true}); err != nil {
+		if _, err := applyBootstrapManifest(ctx, client, cfg.BootstrapManifestPath, authkit.BootstrapReconcileOptions{StartupOnly: true}); err != nil {
 			return err
 		}
 	}

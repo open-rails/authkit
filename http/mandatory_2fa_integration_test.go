@@ -20,7 +20,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := mandatory2FATestConfig()
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.SeedPermissionGroupContainment(ctx))
 	_, err = srv.svc.EnsureRootGroup(ctx)

@@ -9,7 +9,43 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 144
+next_id: 145
+
+---
+
+# #144: Rename frontend OIDC callback config to OIDCReturnPath
+
+**Completed:** no
+
+Proposed 2026-06-26 (Paul + Codex). `embedded.FrontendConfig.CallbackPath` is
+too vague and reads like the OAuth/OIDC provider callback URL. In AuthKit it is
+not that. AuthKit owns the backend provider callback; this field is the host SPA
+landing route after AuthKit finishes the OIDC/social login flow.
+
+BREAKING HARDCUT before v1.0: no compatibility alias, no deprecated field.
+
+## Target shape
+
+```go
+Frontend: embedded.FrontendConfig{
+    BaseURL:       "https://app.example.com",
+    OIDCReturnPath: "/login/callback",
+}
+```
+
+Meaning: after OIDC/social login completes, AuthKit redirects the browser to
+`BaseURL + OIDCReturnPath` with the login result.
+
+## Tasks
+
+- [ ] Rename `FrontendConfig.CallbackPath` to `OIDCReturnPath`.
+- [ ] Update config normalization/defaulting to keep the default path
+      `/login/callback`.
+- [ ] Update OIDC browser-flow code to use `OIDCReturnPath`.
+- [ ] Update README/examples and first-party consumers.
+- [ ] Search docs/comments/tests for `CallbackPath` and replace with the new
+      name where it refers to this frontend landing route.
+- [ ] Validate with `go test ./...`.
 
 ---
 
@@ -123,11 +159,12 @@ Host mental model:
 
 ## Tasks
 
-- [→] CONSTRUCTION SHAPE (client-first: `authhttp.NewServer(client, httpOpts)`, drop
-      `.Client()`, split embedded-vs-http options) is FOLDED INTO #142 — it reshapes the
-      SAME surface the remote SDK does, so it lands WITH remote and consumers migrate
-      ONCE. See #142 "Construction shape". `embedded.New` stays (Go idiom); New-vs-NewClient
-      is an open naming bikeshed, not blocking.
+- [x] CONSTRUCTION SHAPE (client-first: `authhttp.NewServer(client, httpOpts)`, drop
+      `.Client()`, split embedded-vs-http options) FOLDED INTO #142 and DONE there
+      (2026-06-26): `NewServer(client, opts)`, `.Client()` dropped, options split
+      (engine→`embedded.New`, http→`authhttp`), 34 in-repo sites migrated. See #142
+      "Construction shape". `embedded.New` stays (Go idiom); New-vs-NewClient is an open
+      naming bikeshed, not blocking. External consumer migration pending the next bump.
 - [~] Design the first small root interfaces from real consumers, not speculation:
       (DONE: `Authorizer` + `TokenIssuer` in `interfaces.go`. The rest grow when a real
       signature narrows — not pre-built.)
@@ -159,6 +196,21 @@ Host mental model:
       (`WithEmailSender`, `WithSMSSender`, `WithEntitlements`,
       `WithEphemeralStore`, etc.). Do not make `embedded` a dumping ground for
       validation constants and DTO aliases.
+- [ ] Move registration policy enums to root `authkit`: `RegistrationVerificationPolicy`
+      plus `RegistrationVerificationNone|Optional|Required`, and simplify
+      `RegistrationMode` to the public self-registration policy only:
+      `RegistrationModeOpen|InviteOnly|Closed`.
+      `embedded.RegistrationConfig` should use those root types/constants so future
+      `remote` and host docs do not import shared vocabulary from `embedded`.
+      Delete `AdminOnly`, `AdminBootstrapOnly`, and `ManifestOnly`; operators can
+      always create users through privileged APIs/bootstrap/manual DB operations
+      outside the public native registration mode.
+      Make `InviteOnly` real and narrow: owners/admins can directly add existing
+      users to permission groups, so invite links are only for onboarding someone
+      who does not already have an account. A valid email-bound group invite should
+      authorize account creation for that email, then automatically grant the
+      invited group membership/role after signup/login/verification. Do not model
+      invites as a parallel consent flow for existing users.
 - [ ] Make examples and docs use root contract names:
       `authkit.Config`, `authkit.User`, `authkit.ValidateUsername`,
       `authkit.SubjectKindUser`, `authkit.RegistrationVerificationRequired`, etc.
@@ -222,10 +274,35 @@ remote-SDK transport END-TO-END for the first capability slice (`authkit.Authori
 and a parity test proving values round-trip AND `errors.Is(err, authkit.ErrX)` survives
 the wire. `remote` is lean (net/http + authkit only, no engine/pgx). Interface-portability
 audit started: DROPPED `ApplyBootstrapManifestFile` from the contract (a file path is the
-SERVER's fs — meaningless remote; hosts load then `ApplyBootstrapManifest`). REMAINING:
-the other ~89 methods, the full code→error registry (add `authkit.ErrorForCode`; also
-normalize `ErrGroupNotFound`'s sentence-code wart), app→server auth design, the standalone
-`cmd/authkit-server` binary, and the client-first construction (folded here from #143).
+SERVER's fs — meaningless remote; hosts load then `ApplyBootstrapManifest`).
+
+STATUS 2026-06-26 (Claude): full code→error registry DONE. Added `authkit.ErrorForCode`
+(all 47 sentinels, one shared map) in `errors.go` + `errors_test.go` (round-trip +
+uniqueness check); normalized the `ErrGroupNotFound` sentence-code wart →
+`permission_group_not_found`. `remote/` now resolves wire codes through the shared
+registry (deleted its local 5-entry `codeErrors` map) — ONE source of truth for error
+identity, client+server. build+test green.
+
+STATUS 2026-06-26 (Claude): client-first construction DONE (Paul greenlit track A).
+`authhttp.NewServer(client *embedded.Client, opts...)` — the server is now an HTTP
+adapter over a client the host built; engine deps go on `embedded.New`, HTTP-layer
+options stay on `NewServer`. Specifics: added `authcore.Service.Config()` (retains the
+host Config so the transport reads HTTP-only OIDC providers/descriptors), `embedded.New`
+now defaults to an in-memory ephemeral store (was the http layer's job), new
+`embedded.WithRedis` (engine store) + `embedded.Unwrap` (engine extraction for the
+transport); `authhttp.WithRedis` is now HTTP-only (OIDC/SIWS state caches), and the
+engine-dep option wrappers (WithEphemeralStore/WithEmailSender/WithSMSSender/
+WithEntitlements/WithAuthLogger/WithAPIKeyResourceAuthorizer/WithSolanaSNSResolver) +
+`Server.coreOpts` are deleted from `authhttp`. DROPPED `Server.Client()` (host owns the
+client). Migrated all 34 in-repo `NewServer` sites (devserver + ~33 http tests + gin
+test). build+vet+gofmt green; full DB-backed suites (http, internal/authcore, riverjobs)
++ non-DB suites pass on a fresh migrated DB. NOT yet in track A: pare `Server` to
+HTTP-adapter methods only (`SetEntitlementsProvider` passthrough still there — separate
+task), and the 4 EXTERNAL consumers (doujins/hentai0/cozy-art/tensorhub) on the next bump.
+
+REMAINING: (A-tail) pare `Server` + external consumer migration. (B) standalone-server
+bulk — the other ~89 mgmt-API methods, `cmd/authkit-server`, app→server auth; the issue
+marks this "build when greenlit" (speculative until the standalone product is committed).
 
 Proposed 2026-06-25 (split out of #138 Phase 2, now that the embedded restructure +
 pgx-free contract are committed). authkit is embedded-only today: an app runs the
@@ -258,14 +335,14 @@ Non-Go clients hit the management REST API directly (no SDK).
 ## Construction shape (client-first) — folded from #143
 Land these WITH the remote SDK so consumers migrate ONCE to the v1.0 shape (doing them
 as a separate issue = two migrations of the same construction surface):
-- [ ] `authhttp.NewServer(client, httpOpts...)` — client-first; the server becomes an
-      HTTP adapter over a client the host already built (no hidden engine).
-- [ ] Drop `authhttp.Server.Client()` — redundant once the host owns the client.
-- [ ] Split options: engine deps (senders / ephemeral store / entitlements / auth log /
+- [x] `authhttp.NewServer(client, httpOpts...)` — client-first; the server becomes an
+      HTTP adapter over a client the host already built (no hidden engine). DONE.
+- [x] Drop `authhttp.Server.Client()` — redundant once the host owns the client. DONE.
+- [x] Split options: engine deps (senders / ephemeral store / entitlements / auth log /
       API-key authorizer / Solana) on `embedded.New`; HTTP behavior (rate limiter /
       client IP / language / error logger / route wrappers) on `authhttp.NewServer`.
-      Move `WithRedis`/`WithEphemeralStore` onto `embedded` so hosts don't import
-      `storage/*` directly.
+      Moved `WithRedis` onto `embedded` (`embedded.WithRedis`); `authhttp.WithRedis` is
+      now HTTP-state-only. `WithEphemeralStore` already on `embedded`. DONE.
 - [ ] `remote.New` mirrors `embedded.New`; both return the concrete client, host types
       its var `authkit.Client` for the swap. (New-vs-NewClient naming = Paul's bikeshed.)
 - [ ] KEEP the broad `authkit.Client` seam (per #143 review) — small capability

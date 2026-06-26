@@ -25,7 +25,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("totp-http")
@@ -93,7 +93,7 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("multi-2fa")

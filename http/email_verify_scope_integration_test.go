@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +17,7 @@ func TestEmailVerifyConfirm_CodeIsEmailScoped(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
-	srv, err := NewServer(newServerTestConfig(), pool, WithEmailSender(emailSender), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender)), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	victim := uniqueEmail("f1-victim")

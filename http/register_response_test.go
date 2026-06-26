@@ -207,7 +207,7 @@ func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testin
 }
 
 func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
-	s, err := NewServer(embedded.Config{
+	s, err := NewServer(newServerClient(t, embedded.Config{
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
@@ -215,7 +215,7 @@ func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 		},
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired},
-	}, newNoDBPool(t), WithEmailSender(testEmailSender{}))
+	}, newNoDBPool(t), embedded.WithEmailSender(testEmailSender{})))
 	require.NoError(t, err)
 	h := s.APIHandler()
 

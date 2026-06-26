@@ -40,7 +40,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	svc, err := NewServer(cfg, pool)
+	svc, err := NewServer(newServerClient(t, cfg, pool))
 	require.NoError(t, err)
 
 	coreSvc := authcore.NewService(embedded.Options{Issuer: "https://example.com"}, embedded.Keyset{}, embedded.WithPostgres(pool))

@@ -77,7 +77,7 @@ func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 			},
 		},
 	}
-	s, err := NewServer(cfg, newNoDBPool(t))
+	s, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)))
 	require.NoError(t, err)
 
 	github, ok := s.authProvider("github")

@@ -11,8 +11,11 @@ package embedded
 
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	memorystore "github.com/open-rails/authkit/storage/memory"
+	redisstore "github.com/open-rails/authkit/storage/redis"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -34,18 +37,32 @@ type Client struct {
 	impl *authcore.Service
 }
 
-// NewFromConfig builds a Client from host configuration. Postgres is required
-// (positional); optional dependencies are functional options.
+// New builds a Client from host configuration. Postgres is required (positional);
+// optional dependencies are functional options. The ephemeral store defaults to
+// in-memory (dev-friendly); pass WithRedis / WithEphemeralStore to override —
+// later options win.
 func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
-	impl, err := authcore.NewFromConfig(cfg, pg, extraOpts...)
+	opts := append([]Option{WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)}, extraOpts...)
+	impl, err := authcore.NewFromConfig(cfg, pg, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{impl: impl}, nil
 }
 
-// Wrap adapts an internal engine into the public facade. It is used by the
-// authkit/http transport to back svc.Client(); the parameter type lives in
-// internal/ and cannot be named (or constructed) outside the module, so this
-// does not expose the full engine to external callers.
+// WithRedis uses a Redis client as the engine's ephemeral store, so hosts don't
+// import authkit/storage/redis directly. The HTTP transport's OIDC/SIWS state
+// caches take the same *redis.Client via authhttp.WithRedis (separate layer).
+func WithRedis(rd *redis.Client) Option {
+	return WithEphemeralStore(redisstore.NewKV(rd), EphemeralRedis)
+}
+
+// Wrap adapts an internal engine into the public facade. Used by the authkit/http
+// transport; the parameter type lives in internal/ and cannot be named (or
+// constructed) outside the module, so this does not expose the engine externally.
 func Wrap(impl *authcore.Service) *Client { return &Client{impl: impl} }
+
+// Unwrap returns the internal engine a Client wraps, for the authkit/http
+// transport's client-first NewServer (it builds route handlers over the engine).
+// The return type lives in internal/ and is unnameable outside the module.
+func Unwrap(c *Client) *authcore.Service { return c.impl }

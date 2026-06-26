@@ -112,25 +112,15 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 }
 
 // errorForCode re-derives an AuthKit sentinel from a wire error code so
-// errors.Is(err, authkit.ErrX) holds across the network. MVP registry keyed off
-// each sentinel's own code; the FULL table (all 53 sentinels) is a #142 follow-up,
-// ideally exposed as authkit.ErrorForCode so client+server share one map. (Note:
-// authkit.ErrGroupNotFound's code is a human sentence, not snake_case — a wire-
-// contract cleanup #142 should normalize.)
+// errors.Is(err, authkit.ErrX) holds across the network, via the shared
+// authkit.ErrorForCode registry (one source of truth for client + server). Codes
+// outside the contract surface as an opaque remote error.
 func errorForCode(code string) error {
 	if code == "" {
 		return errors.New("remote: unknown error")
 	}
-	if e, ok := codeErrors[code]; ok {
+	if e := authkit.ErrorForCode(code); e != nil {
 		return e
 	}
 	return fmt.Errorf("remote: %s", code)
-}
-
-var codeErrors = map[string]error{
-	authkit.ErrUserNotFound.Error():     authkit.ErrUserNotFound,
-	authkit.ErrUserBanned.Error():       authkit.ErrUserBanned,
-	authkit.ErrGroupNotFound.Error():    authkit.ErrGroupNotFound,
-	authkit.ErrNotGroupMember.Error():   authkit.ErrNotGroupMember,
-	authkit.ErrUserRoleNotFound.Error(): authkit.ErrUserRoleNotFound,
 }

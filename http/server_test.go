@@ -46,11 +46,25 @@ func newServerTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// #106: Postgres is a required positional argument — a nil pool is rejected at
-// construction (no DB needed; the nil-check runs before any core init).
+// newServerClient builds the embedded engine that a client-first NewServer wraps
+// (#142). engineOpts are wired onto the client; HTTP-layer options stay on NewServer.
+func newServerClient(t *testing.T, cfg embedded.Config, pool *pgxpool.Pool, engineOpts ...embedded.Option) *embedded.Client {
+	t.Helper()
+	c, err := embedded.New(cfg, pool, engineOpts...)
+	require.NoError(t, err)
+	return c
+}
+
+// #106: Postgres is mandatory — NewServer rejects a nil client and a client built
+// without a Postgres pool (no DB needed; the check runs before any HTTP init).
 func TestNewServer_RequiresPostgres(t *testing.T) {
-	_, err := NewServer(newServerTestConfig(), nil)
-	require.Error(t, err, "NewServer must reject a nil *pgxpool.Pool")
+	_, err := NewServer(nil)
+	require.Error(t, err, "NewServer must reject a nil client")
+
+	c, err := embedded.New(newServerTestConfig(), nil) // nil pg => no Postgres
+	require.NoError(t, err)
+	_, err = NewServer(c)
+	require.Error(t, err, "NewServer must reject a client without Postgres")
 }
 
 // #108: functional options are applied INSIDE the constructor (before return),
@@ -59,21 +73,21 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	pool := newServerTestPool(t)
 
 	// Option takes effect at construction.
-	srv, err := NewServer(newServerTestConfig(), pool, WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
-	require.NotNil(t, srv.Client(), "core service wired")
+	require.NotNil(t, srv.svc, "core engine wired")
 	require.Nil(t, srv.rl, "WithoutRateLimiter option must be applied at construction")
 
 	// Production without Redis fails conditional validation.
 	prodCfg := newServerTestConfig()
 	prodCfg.Environment = "production"
-	_, err = NewServer(prodCfg, pool)
+	_, err = NewServer(newServerClient(t, prodCfg, pool))
 	require.Error(t, err, "production without a Redis store must fail validation")
 
 	// Production WITH Redis passes (client is lazy; not contacted at construction).
 	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
 	t.Cleanup(func() { _ = rdb.Close() })
-	_, err = NewServer(prodCfg, pool, WithRedis(rdb))
+	_, err = NewServer(newServerClient(t, prodCfg, pool), WithRedis(rdb))
 	require.NoError(t, err, "production with Redis must pass validation")
 }
 
@@ -81,7 +95,7 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 // assignable to *Service (and vice versa).
 func TestServerAlias_BackCompat(t *testing.T) {
 	pool := newServerTestPool(t)
-	svc, err := NewServer(newServerTestConfig(), pool)
+	svc, err := NewServer(newServerClient(t, newServerTestConfig(), pool))
 	require.NoError(t, err)
 	var _ *Server = svc  // Server == Service (alias)
 	var _ *Service = svc // both directions

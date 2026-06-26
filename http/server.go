@@ -8,12 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
-	authcore "github.com/open-rails/authkit/internal/authcore"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	memorystore "github.com/open-rails/authkit/storage/memory"
-	redisstore "github.com/open-rails/authkit/storage/redis"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -30,20 +27,25 @@ type Server = Service
 // WithX builder methods were removed in #108.
 type Option func(*Server)
 
-// NewServer constructs the auth Server. Postgres is REQUIRED (the durable user/
-// role and permission-group store has no in-memory fallback and is a positional argument the
-// type system enforces (#106); pure token verification with no storage uses
-// authhttp.NewVerifier / authkit/verify instead. Every optional dependency is a
-// functional option:
+// NewServer constructs the auth Server over a client the host already built —
+// client-first construction (#142). The host wires the engine and its
+// dependencies on embedded.New; NewServer is the HTTP adapter over it and takes
+// only HTTP-layer options. Postgres is REQUIRED: the durable user/role and
+// permission-group store has no in-memory fallback (#106), so the client must be
+// Postgres-backed; pure token verification with no storage uses
+// authhttp.NewVerifier / authkit/verify instead.
 //
-//	srv, err := authhttp.NewServer(cfg, pg,
-//	    authhttp.WithRedis(rdb),
-//	    authhttp.WithEmailSender(mailer),
+//	client, err := embedded.New(cfg, pg, embedded.WithEmailSender(mailer))
+//	srv, err := authhttp.NewServer(client,
+//	    authhttp.WithRedis(rdb), // OIDC/SIWS state caches
 //	)
-func NewServer(cfg embedded.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error) {
-	if pg == nil {
-		return nil, errors.New("authkit: NewServer requires a non-nil *pgxpool.Pool (Postgres is mandatory)")
+func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
+	if client == nil || client.Postgres() == nil {
+		return nil, errors.New("authkit: authhttp.NewServer requires a Postgres-backed *embedded.Client (Postgres is mandatory)")
 	}
+	coreSvc := embedded.Unwrap(client)
+	cfg := coreSvc.Config()
+
 	// HTTP-level defaults set BEFORE options so an option can override them.
 	s := &Server{
 		rl:       memorylimiter.New(ToMemoryLimits(DefaultRateLimits())),
@@ -54,17 +56,7 @@ func NewServer(cfg embedded.Config, pg *pgxpool.Pool, opts ...Option) (*Server, 
 			opt(s)
 		}
 	}
-
-	// Build the core service: default to an in-memory ephemeral store, which any
-	// WithRedis/WithEphemeralStore option (collected in s.coreOpts) overrides
-	// since later options win.
-	coreOpts := append([]embedded.Option{embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)}, s.coreOpts...)
-	coreSvc, err := authcore.NewFromConfig(cfg, pg, coreOpts...)
-	if err != nil {
-		return nil, err
-	}
 	s.svc = coreSvc
-	s.coreOpts = nil // transient; not retained past construction
 
 	o := coreSvc.Options()
 	ver := NewVerifier(
@@ -106,44 +98,16 @@ func (s *Server) validate(cfg embedded.Config) error {
 	return nil
 }
 
-// --- Functional options (#108). Core-dependency options accumulate into
-// s.coreOpts (applied when the core service is built); HTTP-level options set
-// fields on the Server directly. ---
+// --- Functional options (#108). These are HTTP-LAYER options only; engine
+// dependencies (email/SMS senders, entitlements, ephemeral store, auth logger,
+// API-key authorizer, Solana resolver) are wired on embedded.New, since the host
+// builds the client before constructing the server (client-first, #142). ---
 
-// WithRedis supplies the Redis client: the ephemeral store + the OIDC state cache.
+// WithRedis supplies the Redis client for the HTTP layer's OIDC and SIWS state
+// caches (and satisfies the production durable-store requirement). The engine's
+// ephemeral store takes the same *redis.Client separately via embedded.WithRedis.
 func WithRedis(rd *redis.Client) Option {
-	return func(s *Server) {
-		s.rd = rd
-		if rd != nil {
-			s.coreOpts = append(s.coreOpts, embedded.WithEphemeralStore(redisstore.NewKV(rd), embedded.EphemeralRedis))
-		}
-	}
-}
-
-// WithEphemeralStore overrides the ephemeral store + mode.
-func WithEphemeralStore(store embedded.EphemeralStore, mode embedded.EphemeralMode) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithEphemeralStore(store, mode)) }
-}
-
-// WithEmailSender supplies the email provider.
-func WithEmailSender(es embedded.EmailSender) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithEmailSender(es)) }
-}
-
-// WithSMSSender supplies the SMS provider.
-func WithSMSSender(sender embedded.SMSSender) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithSMSSender(sender)) }
-}
-
-// WithEntitlements supplies the entitlements provider.
-func WithEntitlements(p embedded.EntitlementsProvider) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithEntitlements(p)) }
-}
-
-// WithAPIKeyResourceAuthorizer supplies the host policy that authorizes
-// non-empty resource scopes on API-key minting.
-func WithAPIKeyResourceAuthorizer(a embedded.APIKeyResourceAuthorizer) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithAPIKeyResourceAuthorizer(a)) }
+	return func(s *Server) { s.rd = rd }
 }
 
 // PermissionGroupAuthorizer authorizes one generated permission-group route.
@@ -153,16 +117,6 @@ type PermissionGroupAuthorizer func(r *http.Request, subjectID, persona, instanc
 // for example to lazily materialize host-owned groups before checking Can.
 func WithPermissionGroupAuthorizer(fn PermissionGroupAuthorizer) Option {
 	return func(s *Server) { s.groupCanFn = fn }
-}
-
-// WithAuthLogger supplies the session-event audit sink.
-func WithAuthLogger(l embedded.AuthEventLogger) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithAuthLogger(l)) }
-}
-
-// WithSolanaSNSResolver enables Solana Name Service resolution via the host resolver.
-func WithSolanaSNSResolver(r embedded.SolanaSNSResolver) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithSolanaSNSResolver(r)) }
 }
 
 // WithRateLimiter overrides the default in-memory rate limiter.
