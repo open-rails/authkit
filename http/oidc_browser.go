@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
@@ -208,11 +208,11 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	extra := map[string]any{"provider": provider}
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
-		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) {
+		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
 			s.write2FAEnrollmentRequired(w, r, userID)
 			return
 		}
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return
 		}
@@ -222,7 +222,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	extra["sid"] = sid
 	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, email, extra)
 	if err != nil {
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return
 		}

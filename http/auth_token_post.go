@@ -2,11 +2,10 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 	"time"
-
-	core "github.com/open-rails/authkit/core"
 )
 
 func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -26,11 +25,11 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	ip := parseIP(clientIP(r))
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)
 	if err != nil {
-		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) {
+		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
 			send2FAEnrollmentRequiredError(w)
 			return
 		}
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return
 		}

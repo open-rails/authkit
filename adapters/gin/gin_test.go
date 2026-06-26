@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/stretchr/testify/require"
@@ -54,15 +54,15 @@ func newTestService(t *testing.T) *authhttp.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	cfg := core.Config{
-		Token: core.TokenConfig{
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:              "https://example.com",
 			IssuedAudiences:     []string{"test-app"},
 			ExpectedAudiences:   []string{"test-app"},
 			AccessTokenDuration: time.Hour,
 		},
-		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
-		Keys: core.KeysConfig{Source: jwtkit.StaticKeySource{
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{"test-kid": signer.PublicKey()},
 		}},

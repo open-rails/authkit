@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
@@ -62,14 +62,14 @@ func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := core.ValidatePassword(req.NewPassword); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidatePassword(req.NewPassword); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
 
 	_, err := s.svc.ConfirmPasswordReset(r.Context(), strings.TrimSpace(req.Token), req.NewPassword)
 	if err != nil {
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}

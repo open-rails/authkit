@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
 
@@ -10,38 +11,28 @@ import (
 )
 
 // ImportUserStatus is the per-row outcome of ImportUsers.
-type ImportUserStatus string
+type ImportUserStatus = authkit.ImportUserStatus
 
 const (
 	// ImportStatusInserted: the user row was created.
-	ImportStatusInserted ImportUserStatus = "inserted"
+	ImportStatusInserted = authkit.ImportStatusInserted
 	// ImportStatusSkipped: a matching user already existed (by username/email/
 	// phone), or the row duplicated an earlier row in the same batch. Skipped
 	// rows are left untouched — bulk import is insert-or-skip, never overwrite,
 	// so a re-run is idempotent and never clobbers data a user changed after
 	// import.
-	ImportStatusSkipped ImportUserStatus = "skipped"
+	ImportStatusSkipped = authkit.ImportStatusSkipped
 	// ImportStatusRejected: the row failed validation/normalization (bad email,
 	// username, phone) and was not imported.
-	ImportStatusRejected ImportUserStatus = "rejected"
+	ImportStatusRejected = authkit.ImportStatusRejected
 )
 
 // ImportUserResult is the outcome for one input row, addressed by its original
 // index in the input slice.
-type ImportUserResult struct {
-	Index  int
-	UserID string // set when Status == inserted
-	Status ImportUserStatus
-	Reason string // set for skipped/rejected (machine-ish: "duplicate_in_batch", "already_exists", or a validation code)
-}
+type ImportUserResult = authkit.ImportUserResult
 
 // ImportUsersResult aggregates the per-row outcomes plus rollup counts.
-type ImportUsersResult struct {
-	Results  []ImportUserResult
-	Inserted int
-	Skipped  int
-	Rejected int
-}
+type ImportUsersResult = authkit.ImportUsersResult
 
 // importUsersChunkSize bounds rows per multi-row INSERT. 13 cols/row keeps the
 // bound query well under PostgreSQL's 65535-parameter ceiling.

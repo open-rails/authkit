@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 
 	"github.com/open-rails/authkit/internal/db"
@@ -31,11 +32,11 @@ import (
 var (
 	// ErrInsufficientRoleAuthority: the actor lacks `<persona>:members:manage` in
 	// the group, so it may not change role assignments there at all.
-	ErrInsufficientRoleAuthority = errors.New("insufficient_role_authority")
+	ErrInsufficientRoleAuthority = authkit.ErrInsufficientRoleAuthority
 	// ErrRoleAssignmentEscalation: the target role confers a permission the actor
 	// does not itself hold — assigning (or revoking) it would be privilege
 	// escalation.
-	ErrRoleAssignmentEscalation = errors.New("role_assignment_escalation")
+	ErrRoleAssignmentEscalation = authkit.ErrRoleAssignmentEscalation
 )
 
 // grantsCoverAll reports whether actorGrants cover EVERY permission in

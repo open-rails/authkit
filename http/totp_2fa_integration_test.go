@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"
@@ -25,7 +25,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("totp-http")
@@ -93,7 +93,7 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("multi-2fa")

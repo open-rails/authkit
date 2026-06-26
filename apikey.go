@@ -1,11 +1,11 @@
-// Package authbase holds authentication primitives shared between authkit's
+// Package authkit holds authentication primitives shared between authkit's
 // issuing core and its verification layer: plain data types, opaque-credential
 // parsing, and sentinel errors that carry NO dependency on Postgres or the rest
 // of core (stdlib only). It exists so the verification path — and, later, a
 // standalone verify module (agents #110/#107) — can depend on these without
 // pulling in the storage layer. The core package re-exports every symbol here as
 // an alias, so existing callers using core.X are unaffected.
-package authbase
+package authkit
 
 import (
 	"errors"

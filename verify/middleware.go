@@ -2,93 +2,100 @@ package verify
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 )
 
+// authError carries the HTTP status + reason a verification failure would have
+// written, so VerifyRequest can return it and both Required (which writes it) and
+// out-of-band callers (which inspect err != nil) share one pipeline.
+type authError struct {
+	status int
+	reason string
+}
+
+func (e *authError) Error() string { return e.reason }
+
+// VerifyRequest runs the full Required authentication pipeline — bearer parse,
+// API-key resolution, JWT verify, 2FA/issuer gates, DB enrichment, ban/deleted
+// gate — and returns the enriched claims WITHOUT writing a response. Embedders
+// that authenticate a request outside the middleware chain call this instead of
+// driving Required against a throwaway ResponseWriter.
+func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
+	tokenStr := bearerToken(r.Header.Get("Authorization"))
+	if tokenStr == "" {
+		return Claims{}, &authError{http.StatusUnauthorized, "missing_token"}
+	}
+
+	// API-key branch, BEFORE JWT verification. A shaped-but-invalid API key is
+	// rejected here rather than re-tried as a JWT. API-key principals carry no
+	// UserID, so the live-user enrichment/ban gate below is skipped for them.
+	if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
+		if serr != nil {
+			return Claims{}, &authError{http.StatusUnauthorized, serr.Error()}
+		}
+		return scl, nil
+	}
+
+	cl, err := v.Verify(tokenStr)
+	if err != nil {
+		return Claims{}, &authError{http.StatusUnauthorized, err.Error()}
+	}
+	if cl.TwoFAEnrollment && !allowed2FAEnrollmentPath(r.Method, r.URL.Path) {
+		return Claims{}, &authError{http.StatusForbidden, "forbidden"}
+	}
+	if v.enrich != nil && cl.IsDelegated() {
+		// Fail-closed issuer gate (#78): resolve remote_application by the
+		// VALIDATED issuer, reject unknown/disabled. READ-ONLY.
+		ra, err := v.enrich.GetRemoteApplication(r.Context(), cl.Issuer)
+		if err != nil || ra == nil || !ra.Enabled {
+			return Claims{}, &authError{http.StatusUnauthorized, "invalid_token"}
+		}
+	}
+
+	// Best-effort DB enrichment. Skipped for delegated principals: their subject
+	// does not exist locally, so local enrichment + the IsUserAllowed gate must
+	// not apply (delegated tokens carry no UserID anyway).
+	if v.enrich != nil && cl.UserID != "" && !cl.IsDelegated() {
+		if du, err := v.enrich.GetProviderUsername(r.Context(), cl.UserID, "discord"); err == nil && du != "" {
+			cl.DiscordUsername = du
+		}
+		if len(cl.Roles) == 0 {
+			if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
+				cl.Roles = rs
+			}
+		}
+		if cl.Email == "" {
+			if e, err := v.enrich.GetEmailByUserID(r.Context(), cl.UserID); err == nil && strings.TrimSpace(e) != "" {
+				cl.Email = e
+			}
+		}
+		// Live user gate (ban/deleted).
+		allowed, err := v.enrich.IsUserAllowed(r.Context(), cl.UserID)
+		if err != nil || !allowed {
+			return Claims{}, &authError{http.StatusUnauthorized, "user_disabled"}
+		}
+	}
+
+	return cl, nil
+}
+
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
 func Required(v *Verifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tokenStr := bearerToken(r.Header.Get("Authorization"))
-			if tokenStr == "" {
-				unauthorized(w, "missing_token")
-				return
-			}
-
-			// API-key branch, BEFORE JWT verification.
-			// If the bearer token carries the configured API-key marker it is
-			// resolved against the DB as an API-key principal; a shaped-but-invalid
-			// API key is rejected here rather than mistakenly re-tried as a JWT. The
-			// password-login rate limiter lives on a different code path, so API keys
-			// bypass it by design. API-key principals carry no UserID, so the
-			// live-user enrichment/ban gate below is skipped for them.
-			if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
-				if serr != nil {
-					unauthorized(w, serr.Error())
-					return
-				}
-				r = r.WithContext(applyRequestContext(SetClaims(r.Context(), scl)))
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			cl, err := v.Verify(tokenStr)
+			cl, err := v.VerifyRequest(r)
 			if err != nil {
-				unauthorized(w, err.Error())
+				var ae *authError
+				if errors.As(err, &ae) && ae.status == http.StatusForbidden {
+					forbidden(w, ae.reason)
+				} else {
+					unauthorized(w, err.Error())
+				}
 				return
 			}
-			if cl.TwoFAEnrollment && !allowed2FAEnrollmentPath(r.Method, r.URL.Path) {
-				forbidden(w, "forbidden")
-				return
-			}
-			if v.enrich != nil && cl.IsDelegated() {
-				// Fail-closed issuer gate (#78): resolve the remote_application by
-				// the VALIDATED issuer and reject unknown/disabled ones. READ-ONLY
-				// — no per-request write. Auth rides entirely on the token.
-				ra, err := v.enrich.GetRemoteApplication(r.Context(), cl.Issuer)
-				if err != nil || ra == nil || !ra.Enabled {
-					unauthorized(w, "invalid_token")
-					return
-				}
-			}
-
-			// Best-effort DB enrichment when a service is attached. Skipped for
-			// delegated principals: their subject does not exist locally, so the
-			// local-user enrichment + the IsUserAllowed gate must not apply (the
-			// resource server authorizes by issuer trust instead). A delegated
-			// token carries no `sub`, so UserID is empty anyway — this is the
-			// explicit guard.
-			if v.enrich != nil && cl.UserID != "" && !cl.IsDelegated() {
-				// Discord username enrichment.
-				if du, err := v.enrich.GetProviderUsername(r.Context(), cl.UserID, "discord"); err == nil && du != "" {
-					cl.DiscordUsername = du
-				}
-
-				// Role enrichment: if a non-delegated token carries no roles,
-				// supply the user's canonical roles.
-				if len(cl.Roles) == 0 {
-					if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
-						cl.Roles = rs
-					}
-				}
-
-				// Email enrichment: if token has no email claim, try canonical email from DB.
-				if cl.Email == "" {
-					if e, err := v.enrich.GetEmailByUserID(r.Context(), cl.UserID); err == nil && strings.TrimSpace(e) != "" {
-						cl.Email = e
-					}
-				}
-
-				// Live user gate (ban/deleted).
-				allowed, err := v.enrich.IsUserAllowed(r.Context(), cl.UserID)
-				if err != nil || !allowed {
-					unauthorized(w, "user_disabled")
-					return
-				}
-			}
-
 			r = r.WithContext(applyRequestContext(SetClaims(r.Context(), cl)))
 			next.ServeHTTP(w, r)
 		})

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	oidckit "github.com/open-rails/authkit/oidc"
@@ -21,14 +21,14 @@ func newTestServiceBaseURL(t *testing.T, baseURL string) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := core.Options{
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := embedded.Options{
 		Issuer:                   "https://example.com",
 		BaseURL:                  baseURL,
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
 		AccessTokenDuration:      time.Hour,
-		RegistrationVerification: core.RegistrationVerificationNone,
+		RegistrationVerification: embedded.RegistrationVerificationNone,
 	}
 	coreSvc := authcore.NewService(opts, ks)
 	ver := NewVerifier(WithSkew(5 * time.Second))

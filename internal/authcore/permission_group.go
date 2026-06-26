@@ -16,7 +16,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 )
 
 const (
@@ -76,7 +76,7 @@ func ValidatePermission(p string) error {
 //
 // The persona segment is always a literal — a bare `*` or `*`-persona is rejected,
 // which is what makes reach != capability structural (a `merchant:*` grant can
-// never name a `root:`/`customer:` perm). Mirrors authbase.PermMatches semantics
+// never name a `root:`/`customer:` perm). Mirrors authkit.PermMatches semantics
 // but is STRICTER: it forbids mid-glob forms like `persona:*:action`.
 func ValidateGrantPattern(g string) error {
 	if g == "" {
@@ -88,7 +88,7 @@ func ValidateGrantPattern(g string) error {
 	}
 	switch len(segs) {
 	case 2:
-		if segs[1] != authbase.PermWildcard {
+		if segs[1] != authkit.PermWildcard {
 			return fmt.Errorf("grant %q: a two-segment grant must be <persona>:*", g)
 		}
 		return nil
@@ -96,7 +96,7 @@ func ValidateGrantPattern(g string) error {
 		if !segmentRe.MatchString(segs[1]) {
 			return fmt.Errorf("grant %q: resource segment must match [a-z][a-z0-9-]*", g)
 		}
-		if segs[2] != authbase.PermWildcard && !segmentRe.MatchString(segs[2]) {
+		if segs[2] != authkit.PermWildcard && !segmentRe.MatchString(segs[2]) {
 			return fmt.Errorf("grant %q: action segment must be a name or *", g)
 		}
 		return nil
@@ -117,7 +117,7 @@ func PermissionPersona(perm string) string {
 // OwnerGrant is the namespace-pure owner grant for a persona: `<persona>:*`.
 // Never a bare `*`. The owner role of every persona holds exactly this.
 func OwnerGrant(persona string) string {
-	return persona + ":" + authbase.PermWildcard
+	return persona + ":" + authkit.PermWildcard
 }
 
 // RoleDef is a named permission bundle within a persona's catalog. Its

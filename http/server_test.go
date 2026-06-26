@@ -6,19 +6,19 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
-func newServerTestConfig() core.Config {
-	return core.Config{
-		Token: core.TokenConfig{
+func newServerTestConfig() embedded.Config {
+	return embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		// Environment empty => dev => signing keys are auto-generated.
 	}
 }
@@ -61,7 +61,7 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	// Option takes effect at construction.
 	srv, err := NewServer(newServerTestConfig(), pool, WithoutRateLimiter())
 	require.NoError(t, err)
-	require.NotNil(t, srv.Core(), "core service wired")
+	require.NotNil(t, srv.Client(), "core service wired")
 	require.Nil(t, srv.rl, "WithoutRateLimiter option must be applied at construction")
 
 	// Production without Redis fails conditional validation.

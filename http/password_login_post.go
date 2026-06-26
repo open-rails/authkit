@@ -2,11 +2,11 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
 	pwhash "github.com/open-rails/authkit/password"
 )
 
@@ -181,7 +181,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 
 		if needsEmailVerify || needsPhoneVerify {
 			if verr := s.svc.CheckUserPassword(r.Context(), userID, req.Password); verr != nil {
-				if errors.Is(verr, core.ErrPasswordResetRequired) {
+				if errors.Is(verr, authkit.ErrPasswordResetRequired) {
 					logLoginFailed(s, r, userID, "password_reset_required")
 					unauthorized(w, ErrPasswordResetRequired)
 					return
@@ -227,12 +227,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	if userID != "" {
 		token, exp, err = s.svc.PasswordLoginByUserID(r.Context(), userID, req.Password, nil)
 		if err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				logLoginFailed(s, r, userID, "user_banned")
 				unauthorized(w, ErrUserBanned)
 				return
 			}
-			if errors.Is(err, core.ErrPasswordResetRequired) {
+			if errors.Is(err, authkit.ErrPasswordResetRequired) {
 				logLoginFailed(s, r, userID, "password_reset_required")
 				unauthorized(w, ErrPasswordResetRequired)
 				return
@@ -244,12 +244,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	} else {
 		token, exp, err = s.svc.PasswordLogin(r.Context(), loginEmail, req.Password, nil)
 		if err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				logLoginFailed(s, r, "", "user_banned")
 				unauthorized(w, ErrUserBanned)
 				return
 			}
-			if errors.Is(err, core.ErrPasswordResetRequired) {
+			if errors.Is(err, authkit.ErrPasswordResetRequired) {
 				logLoginFailed(s, r, "", "password_reset_required")
 				unauthorized(w, ErrPasswordResetRequired)
 				return
@@ -342,7 +342,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		}
 		sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), finalUserID, r.UserAgent(), nil)
 		if err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				logLoginFailed(s, r, finalUserID, "user_banned")
 				unauthorized(w, ErrUserBanned)
 				return
@@ -366,7 +366,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		}
 		token, exp, err = s.svc.IssueAccessToken(r.Context(), finalUserID, emailForToken, map[string]any{"sid": sid})
 		if err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				logLoginFailed(s, r, finalUserID, "user_banned")
 				unauthorized(w, ErrUserBanned)
 				return

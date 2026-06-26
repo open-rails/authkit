@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
@@ -22,11 +22,11 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	phone := strings.TrimSpace(req.PhoneNumber)
-	if err := core.ValidatePhone(phone); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidatePhone(phone); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
-	phone = core.NormalizePhone(phone)
+	phone = embedded.NormalizePhone(phone)
 
 	// Per-identifier check: prevents SMS bombing of a single phone number (and
 	// the associated delivery cost) from many IPs.
@@ -47,7 +47,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 			if s.handleDeliveryError(w, r, "user_phone_change_request", "send_phone_verification", err) {
 				return
 			}
-			if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+			if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 				badRequest(w, code)
 				return
 			}

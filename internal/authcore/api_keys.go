@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -26,12 +26,12 @@ import (
 // binding. Permissions are app-defined strings, opaque to authkit. See agents
 // #43 (lifecycle) and #111 (permission-groups).
 
-// Token sentinel errors are defined in authbase and re-exported here for
+// Token sentinel errors are defined in authkit and re-exported here for
 // backward compatibility (so core.X callers and errors.Is checks are unaffected).
 var (
-	ErrInvalidAccessToken = authbase.ErrInvalidAccessToken
-	ErrAccessTokenRevoked = authbase.ErrAccessTokenRevoked
-	ErrAccessTokenExpired = authbase.ErrAccessTokenExpired
+	ErrInvalidAccessToken = authkit.ErrInvalidAccessToken
+	ErrAccessTokenRevoked = authkit.ErrAccessTokenRevoked
+	ErrAccessTokenExpired = authkit.ErrAccessTokenExpired
 )
 
 const (
@@ -42,13 +42,13 @@ const (
 
 const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
-// API-key marker/parse/format helpers are defined in authbase (core-free) and
+// API-key marker/parse/format helpers are defined in authkit (core-free) and
 // re-exported here for backward compatibility.
 var (
-	APIKeyMarker    = authbase.APIKeyMarker
-	HasAPIKeyPrefix = authbase.HasAPIKeyPrefix
-	FormatAPIKey    = authbase.FormatAPIKey
-	ParseAPIKey     = authbase.ParseAPIKey
+	APIKeyMarker    = authkit.APIKeyMarker
+	HasAPIKeyPrefix = authkit.HasAPIKeyPrefix
+	FormatAPIKey    = authkit.FormatAPIKey
+	ParseAPIKey     = authkit.ParseAPIKey
 )
 
 func randBase62(n int) (string, error) {
@@ -74,31 +74,19 @@ func sha256Raw(s string) []byte {
 // holds; Permissions is that role's RESOLVED effective permission set (a
 // convenience projection — the role is the source of truth, edit it to change
 // the key).
-type APIKey struct {
-	ID          string
-	KeyID       string
-	Name        string
-	Role        string
-	Permissions []string
-	Resources   []APIKeyResource
-	CreatedBy   string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
-	ExpiresAt   *time.Time
-	RevokedAt   *time.Time
-}
+type APIKey = authkit.APIKey
 
 // APIKeyResource is one opaque, host-defined resource scope carried by an API
-// key. Defined in authbase (core-free) and re-exported here.
-type APIKeyResource = authbase.APIKeyResource
+// key. Defined in authkit (core-free) and re-exported here.
+type APIKeyResource = authkit.APIKeyResource
 
-// ResolvedAPIKey is defined in authbase (core-free) and re-exported here.
-type ResolvedAPIKey = authbase.ResolvedAPIKey
+// ResolvedAPIKey is defined in authkit (core-free) and re-exported here.
+type ResolvedAPIKey = authkit.ResolvedAPIKey
 
 // ErrResourceScopeDenied means the configured API-key resource authorizer did
 // not allow the requested resource scope. A missing authorizer denies non-empty
 // resource scopes by default.
-var ErrResourceScopeDenied = errors.New("resource_scope_denied")
+var ErrResourceScopeDenied = authkit.ErrResourceScopeDenied
 
 // APIKeyResourceAuthorizationRequest is passed to the host-owned authorizer
 // before AuthKit persists resource scopes on a newly minted API key.
@@ -129,13 +117,7 @@ func (f APIKeyResourceAuthorizerFunc) AuthorizeAPIKeyResources(ctx context.Conte
 // references exactly ONE role (Role) that must be valid for the owning group's
 // persona catalog (or a group custom role); its permissions are resolved from that
 // role at use time. Resource-scope is a separate binding.
-type APIKeyMintOptions struct {
-	Name      string
-	Role      string
-	Resources []APIKeyResource
-	CreatedBy string
-	ExpiresAt *time.Time
-}
+type APIKeyMintOptions = authkit.APIKeyMintOptions
 
 func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
 	if in == nil {

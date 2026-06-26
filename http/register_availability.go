@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 type registrationAvailabilityField struct {
@@ -82,7 +82,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 
 func (s *Service) registrationUsernameAvailability(r *http.Request, username string) (*registrationAvailabilityField, error) {
 	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			return &registrationAvailabilityField{Available: false, Error: code.String()}, nil
 		}
 		return nil, err
@@ -101,10 +101,10 @@ func (s *Service) registrationUsernameAvailability(r *http.Request, username str
 }
 
 func (s *Service) registrationEmailAvailability(r *http.Request, email string) (*registrationAvailabilityField, error) {
-	if err := core.ValidateEmail(email); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: ErrorCode(core.ValidationErrorCode(err)).String()}, nil
+	if err := embedded.ValidateEmail(email); err != nil {
+		return &registrationAvailabilityField{Available: false, Error: ErrorCode(embedded.ValidationErrorCode(err)).String()}, nil
 	}
-	email = core.NormalizeEmail(email)
+	email = embedded.NormalizeEmail(email)
 
 	emailTaken, _, err := s.svc.CheckPendingRegistrationConflict(r.Context(), email, "")
 	if err != nil {
@@ -118,10 +118,10 @@ func (s *Service) registrationEmailAvailability(r *http.Request, email string) (
 }
 
 func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*registrationAvailabilityField, error) {
-	if err := core.ValidatePhone(phone); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: ErrorCode(core.ValidationErrorCode(err)).String()}, nil
+	if err := embedded.ValidatePhone(phone); err != nil {
+		return &registrationAvailabilityField{Available: false, Error: ErrorCode(embedded.ValidationErrorCode(err)).String()}, nil
 	}
-	phone = core.NormalizePhone(phone)
+	phone = embedded.NormalizePhone(phone)
 
 	phoneTaken, _, err := s.svc.CheckPhoneRegistrationConflict(r.Context(), phone, "")
 	if err != nil {

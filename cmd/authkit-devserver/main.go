@@ -14,7 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/open-rails/authkit/core"
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/embedded"
 	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
@@ -27,7 +28,7 @@ type config struct {
 	DBURL                    string
 	DevMode                  bool
 	DevMintSecret            string
-	RegistrationVerification core.RegistrationVerificationPolicy
+	RegistrationVerification embedded.RegistrationVerificationPolicy
 	MigrateOnStart           bool
 	IssuedAudiences          []string
 	ExpectedAudiences        []string
@@ -87,11 +88,11 @@ func loadConfig() (*config, error) {
 		IssuedAudiences:          issuedAudiences,
 		ExpectedAudiences:        expectedAudiences,
 		Environment:              envOr("DEVSERVER_ENVIRONMENT", "dev"),
-		RegistrationVerification: core.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
+		RegistrationVerification: embedded.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(envOr("DEVSERVER_REGISTRATION_VERIFICATION", "none")))),
 		APIKeyPrefix:             strings.TrimSpace(firstEnv("DEVSERVER_API_KEY_PREFIX", "DEVSERVER_TOKEN_PREFIX")),
 		PermissionCatalog:        parseCSVEnv("DEVSERVER_PERMISSION_CATALOG", nil),
 		StaticEntitlements:       parseCSVEnv("DEVSERVER_STATIC_ENTITLEMENTS", nil),
-		BootstrapManifestPath:    strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", core.DefaultBootstrapManifestPath)),
+		BootstrapManifestPath:    strings.TrimSpace(envOr("AUTHKIT_BOOTSTRAP_PATH", embedded.DefaultBootstrapManifestPath)),
 		ApplyBootstrapOnStart:    envBool("AUTHKIT_BOOTSTRAP_ON_START", false),
 	}
 	if c.Issuer == "" {
@@ -104,7 +105,7 @@ func loadConfig() (*config, error) {
 		return nil, fmt.Errorf("DEVSERVER_DEV_MINT_SECRET is required when DEVSERVER_DEV_MODE=true")
 	}
 	switch c.RegistrationVerification {
-	case core.RegistrationVerificationNone, core.RegistrationVerificationOptional, core.RegistrationVerificationRequired:
+	case embedded.RegistrationVerificationNone, embedded.RegistrationVerificationOptional, embedded.RegistrationVerificationRequired:
 	default:
 		return nil, fmt.Errorf("DEVSERVER_REGISTRATION_VERIFICATION must be one of: none, optional, required")
 	}
@@ -139,11 +140,11 @@ func runServe(cfg *config) error {
 	if err != nil {
 		return err
 	}
-	if err := svc.Verifier().LoadRemoteApplications(ctx, svc.Core(), cfg.ExpectedAudiences); err != nil {
+	if err := svc.Verifier().LoadRemoteApplications(ctx, svc.Client(), cfg.ExpectedAudiences); err != nil {
 		return fmt.Errorf("load remote applications: %w", err)
 	}
 	if cfg.ApplyBootstrapOnStart {
-		if _, err := applyBootstrapManifest(ctx, svc.Core(), cfg.BootstrapManifestPath, core.BootstrapReconcileOptions{StartupOnly: true}); err != nil {
+		if _, err := applyBootstrapManifest(ctx, svc.Client(), cfg.BootstrapManifestPath, authkit.BootstrapReconcileOptions{StartupOnly: true}); err != nil {
 			return err
 		}
 	}
@@ -207,15 +208,15 @@ func runBootstrapApply(cfg *config, args []string) error {
 	}
 	defer pg.Close()
 
-	manifest, err := core.LoadBootstrapManifestFile(path)
+	manifest, err := embedded.LoadBootstrapManifestFile(path)
 	if err != nil {
 		return fmt.Errorf("read bootstrap manifest: %w", err)
 	}
-	svc, err := core.NewFromConfig(devserverCoreConfig(cfg, jwtkit.StaticKeySource{}), pg)
+	svc, err := embedded.New(devserverCoreConfig(cfg, jwtkit.StaticKeySource{}), pg)
 	if err != nil {
 		return err
 	}
-	result, err := applyBootstrapManifestData(ctx, svc, manifest, core.BootstrapReconcileOptions{
+	result, err := applyBootstrapManifestData(ctx, svc, manifest, authkit.BootstrapReconcileOptions{
 		DryRun:      dryRun,
 		StartupOnly: startupOnly,
 		Name:        name,
@@ -226,33 +227,33 @@ func runBootstrapApply(cfg *config, args []string) error {
 	return json.NewEncoder(os.Stdout).Encode(result)
 }
 
-func devserverCoreConfig(cfg *config, keySource jwtkit.KeySource) core.Config {
-	return core.Config{
-		Token: core.TokenConfig{
+func devserverCoreConfig(cfg *config, keySource jwtkit.KeySource) embedded.Config {
+	return embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            cfg.Issuer,
 			IssuedAudiences:   cfg.IssuedAudiences,
 			ExpectedAudiences: cfg.ExpectedAudiences,
 		},
-		Keys:         core.KeysConfig{Source: keySource},
+		Keys:         embedded.KeysConfig{Source: keySource},
 		Environment:  cfg.Environment,
-		Registration: core.RegistrationConfig{Verification: cfg.RegistrationVerification},
-		APIKeys:      core.APIKeysConfig{Prefix: cfg.APIKeyPrefix},
-		RBAC:         core.RBACConfig{Permissions: toPermissionDefs(cfg.PermissionCatalog)},
+		Registration: embedded.RegistrationConfig{Verification: cfg.RegistrationVerification},
+		APIKeys:      embedded.APIKeysConfig{Prefix: cfg.APIKeyPrefix},
+		RBAC:         embedded.RBACConfig{Permissions: toPermissionDefs(cfg.PermissionCatalog)},
 	}
 }
 
-func applyBootstrapManifest(ctx context.Context, svc *core.Service, path string, opts core.BootstrapReconcileOptions) (core.BootstrapManifestResult, error) {
+func applyBootstrapManifest(ctx context.Context, svc authkit.Client, path string, opts authkit.BootstrapReconcileOptions) (authkit.BootstrapManifestResult, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		path = core.DefaultBootstrapManifestPath
+		path = embedded.DefaultBootstrapManifestPath
 	}
 	return svc.ApplyBootstrapManifestFile(ctx, path, opts)
 }
 
-func applyBootstrapManifestData(ctx context.Context, svc *core.Service, manifest core.BootstrapManifest, opts core.BootstrapReconcileOptions) (core.BootstrapManifestResult, error) {
+func applyBootstrapManifestData(ctx context.Context, svc authkit.Client, manifest authkit.BootstrapManifest, opts authkit.BootstrapReconcileOptions) (authkit.BootstrapManifestResult, error) {
 	result, err := svc.ApplyBootstrapManifest(ctx, manifest, opts)
 	if err != nil {
-		return core.BootstrapManifestResult{}, fmt.Errorf("apply bootstrap manifest: %w", err)
+		return authkit.BootstrapManifestResult{}, fmt.Errorf("apply bootstrap manifest: %w", err)
 	}
 	return result, nil
 }
@@ -332,14 +333,14 @@ func (p staticDevEntitlements) ListEntitlements(context.Context, string) ([]stri
 	return append([]string(nil), p.names...), nil
 }
 
-func toPermissionDefs(names []string) []core.PermissionDef {
+func toPermissionDefs(names []string) []embedded.PermissionDef {
 	if len(names) == 0 {
 		return nil
 	}
-	defs := make([]core.PermissionDef, 0, len(names))
+	defs := make([]embedded.PermissionDef, 0, len(names))
 	for _, n := range names {
 		if n = strings.TrimSpace(n); n != "" {
-			defs = append(defs, core.PermissionDef{Name: n})
+			defs = append(defs, embedded.PermissionDef{Name: n})
 		}
 	}
 	return defs

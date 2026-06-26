@@ -2,12 +2,13 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/db"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
@@ -30,7 +31,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
-		if errors.Is(verr, core.ErrPasswordResetRequired) {
+		if errors.Is(verr, authkit.ErrPasswordResetRequired) {
 			// The stored hash can never verify (legacy reset-required); the user
 			// cannot step up with a password and must reset it first.
 			unauthorized(w, ErrPasswordResetRequired)
@@ -254,7 +255,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 	}
 	if password != "" {
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, password); verr != nil {
-			if errors.Is(verr, core.ErrPasswordResetRequired) {
+			if errors.Is(verr, authkit.ErrPasswordResetRequired) {
 				unauthorized(w, ErrPasswordResetRequired)
 				return false, nil
 			}
@@ -281,7 +282,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims Claims) {
 	metadata := map[string]any{
 		"step_up_methods": s.stepUpMethods(r, claims.UserID),
-		"max_age_seconds": int64(core.SensitiveActionFreshAuthWindow.Seconds()),
+		"max_age_seconds": int64(embedded.SensitiveActionFreshAuthWindow.Seconds()),
 	}
 	if twoFA := s.stepUpTwoFactorOptions(r, claims.UserID); twoFA != nil {
 		metadata["step_up_2fa"] = twoFA
@@ -292,7 +293,7 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims C
 	sendErrData(w, http.StatusForbidden, ErrStepUpRequired, metadata)
 }
 
-func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness core.SessionFreshness) (map[string]any, error) {
+func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness embedded.SessionFreshness) (map[string]any, error) {
 	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, "", map[string]any{"sid": sessionID})
 	if err != nil {
 		return nil, err
@@ -349,7 +350,7 @@ func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *stepUp
 	}
 	factors := settings.Factors
 	if len(factors) == 0 && strings.TrimSpace(settings.Method) != "" {
-		factors = []core.TwoFactorFactor{{
+		factors = []embedded.TwoFactorFactor{{
 			Method:      strings.TrimSpace(settings.Method),
 			PhoneNumber: settings.PhoneNumber,
 			IsDefault:   true,
@@ -419,7 +420,7 @@ func validTwoFactorStepUpMethod(method string) bool {
 	}
 }
 
-func sessionFreshnessResponse(f core.SessionFreshness) map[string]any {
+func sessionFreshnessResponse(f embedded.SessionFreshness) map[string]any {
 	out := map[string]any{
 		"step_up_required_for_sensitive_actions": f.StepUpRequiredForSensitiveOps,
 		"time_until_step_up_required":            int64((f.TimeUntilStepUpRequired + time.Second - time.Nanosecond) / time.Second),

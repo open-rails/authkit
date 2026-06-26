@@ -6,23 +6,23 @@ import (
 	"strings"
 	"testing"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
 
 // merchantSchema is the profile under test: merchant has member-assignment +
 // api-key minting, but NO custom-role creation, NO remote-apps, NO invites.
 // repo has members only. Mirrors core's TestGeneratedRoutes_SurfaceMirrorsProfile.
-func merchantSchema(t *testing.T) *core.GroupSchema {
+func merchantSchema(t *testing.T) *embedded.GroupSchema {
 	t.Helper()
-	s, err := core.BuildSchema(
-		core.PersonaDef{
-			Name: "merchant", AllowedParents: []string{core.RootPersona},
-			Routes: core.ManagementProfile{MemberAssignment: true, APIKeyMinting: true},
+	s, err := embedded.BuildSchema(
+		embedded.PersonaDef{
+			Name: "merchant", AllowedParents: []string{embedded.RootPersona},
+			Routes: embedded.ManagementProfile{MemberAssignment: true, APIKeyMinting: true},
 		},
-		core.PersonaDef{
-			Name: "repo", AllowedParents: []string{core.RootPersona},
-			Routes: core.ManagementProfile{MemberAssignment: true},
+		embedded.PersonaDef{
+			Name: "repo", AllowedParents: []string{embedded.RootPersona},
+			Routes: embedded.ManagementProfile{MemberAssignment: true},
 		},
 	)
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
 	called := false
 	s.groupCanFn = func(_ *http.Request, _, _, _, _ string) (bool, error) { called = true; return true, nil }
 
-	gr := core.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/members", Perm: "merchant:members:manage"}
+	gr := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/members", Perm: "merchant:members:manage"}
 	h := s.generatedGroupHandler(gr)
 	r := httptest.NewRequest(http.MethodPost, "/merchant/m1/members", strings.NewReader(`{"user_id":"u9"}`))
 	r = withMuxParams(r, gr.Path, map[string]string{"instance_slug": "m1"})
@@ -97,9 +97,9 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 // TestAllGeneratedRoutesWired asserts the generator emits NO unimplemented routes:
 // every per-persona management route maps to a real operation (no opStub / 501).
 func TestAllGeneratedRoutesWired(t *testing.T) {
-	sch, err := core.BuildSchema(core.PersonaDef{
-		Name: "org", AllowedParents: []string{core.RootPersona}, AllowCustomRoles: true,
-		Routes: core.ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
+	sch, err := embedded.BuildSchema(embedded.PersonaDef{
+		Name: "org", AllowedParents: []string{embedded.RootPersona}, AllowCustomRoles: true,
+		Routes: embedded.ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
 	})
 	require.NoError(t, err)
 	routes := sch.GeneratedRoutes()

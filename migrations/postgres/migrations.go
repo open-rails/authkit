@@ -8,7 +8,7 @@
 //	m := migratekit.NewPostgres(sqlDB, "authkit")
 //	_ = m.ApplyMigrations(ctx, ms)
 //
-// Hosts that configure a non-default schema (core.Config.Schema, authkit
+// Hosts that configure a non-default schema (embedded.Config.Schema, authkit
 // issue 69) must run the migrations rendered for that schema instead:
 //
 //	fsys, _ := migrations.FSForSchema("openrails_auth")
@@ -50,7 +50,7 @@ var schemaWordRE = regexp.MustCompile(`\bprofiles\b`)
 // qualified table/function names, table_schema string literals) is replaced
 // with the configured name. The schema must match ^[a-z_][a-z0-9_]*$ (max 63
 // bytes). For "profiles" (or empty) it returns the embedded FS unchanged, so
-// callers can pass core.Service.Schema() unconditionally.
+// callers can pass embedded.Client.Schema() unconditionally.
 //
 // This is a deliberate, validated text substitution performed once at load
 // time — the embedded files themselves are never modified, and the FS export

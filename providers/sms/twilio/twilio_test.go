@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authlang "github.com/open-rails/authkit/lang"
 )
 
@@ -55,7 +55,7 @@ func TestSendVerificationUsesMessagingAPIWithCodeAndLink(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	err = s.SendVerification(context.Background(), "+15555550123", core.VerificationMessage{
+	err = s.SendVerification(context.Background(), "+15555550123", embedded.VerificationMessage{
 		Code:    "123456",
 		LinkURL: "https://example.com/verify?token=verify-token",
 	})

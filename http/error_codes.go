@@ -1,6 +1,6 @@
 package authhttp
 
-import core "github.com/open-rails/authkit/core"
+import "github.com/open-rails/authkit/embedded"
 
 // ErrorCode is a stable AuthKit HTTP wire error code.
 type ErrorCode string
@@ -250,7 +250,7 @@ const (
 	ErrInvalidDefinition ErrorCode = "invalid_definition"
 
 	// ErrInvalidEmail is the invalid_email AuthKit HTTP wire error code.
-	ErrInvalidEmail ErrorCode = core.ErrCodeInvalidEmail
+	ErrInvalidEmail ErrorCode = embedded.ErrCodeInvalidEmail
 
 	// ErrInvalidExpiresAt is the invalid_expires_at AuthKit HTTP wire error code.
 	ErrInvalidExpiresAt ErrorCode = "invalid_expires_at"
@@ -289,7 +289,7 @@ const (
 	ErrInvalidPassword ErrorCode = "invalid_password"
 
 	// ErrInvalidPhoneNumber is the invalid_phone_number AuthKit HTTP wire error code.
-	ErrInvalidPhoneNumber ErrorCode = core.ErrCodeInvalidPhoneNumber
+	ErrInvalidPhoneNumber ErrorCode = embedded.ErrCodeInvalidPhoneNumber
 
 	// ErrInvalidPreferredLanguage is the invalid_preferred_language AuthKit HTTP wire error code.
 	ErrInvalidPreferredLanguage ErrorCode = "invalid_preferred_language"
@@ -394,7 +394,7 @@ const (
 	ErrOwnerNamespaceInfoFailed ErrorCode = "owner_namespace_info_failed"
 
 	// ErrOwnerSlugTaken is the owner_slug_taken AuthKit HTTP wire error code.
-	ErrOwnerSlugTaken ErrorCode = core.ErrCodeOwnerSlugTaken
+	ErrOwnerSlugTaken ErrorCode = embedded.ErrCodeOwnerSlugTaken
 
 	// ErrOwnerUserNotFound is the owner_user_not_found AuthKit HTTP wire error code.
 	ErrOwnerUserNotFound ErrorCode = "owner_user_not_found"
@@ -412,7 +412,7 @@ const (
 	ErrPasskeyFailed ErrorCode = "passkey_failed"
 
 	// ErrPasswordTooShort is the password_too_short AuthKit HTTP wire error code.
-	ErrPasswordTooShort ErrorCode = core.ErrCodePasswordTooShort
+	ErrPasswordTooShort ErrorCode = embedded.ErrCodePasswordTooShort
 
 	// ErrPendingRegistrationNotFound is the pending_registration_not_found AuthKit HTTP wire error code.
 	ErrPendingRegistrationNotFound ErrorCode = "pending_registration_not_found"
@@ -527,7 +527,7 @@ const (
 	ErrRemoveMemberFailed ErrorCode = "remove_member_failed"
 
 	// ErrRenameRateLimited is the rename_rate_limited AuthKit HTTP wire error code.
-	ErrRenameRateLimited ErrorCode = core.ErrCodeRenameRateLimited
+	ErrRenameRateLimited ErrorCode = embedded.ErrCodeRenameRateLimited
 
 	// ErrResendFailed is the resend_failed AuthKit HTTP wire error code.
 	ErrResendFailed ErrorCode = "resend_failed"
@@ -614,31 +614,31 @@ const (
 	ErrUserinfoFailed ErrorCode = "userinfo_failed"
 
 	// ErrUsernameCannotContainAt is the username_cannot_contain_at AuthKit HTTP wire error code.
-	ErrUsernameCannotContainAt ErrorCode = core.ErrCodeUsernameCannotContainAt
+	ErrUsernameCannotContainAt ErrorCode = embedded.ErrCodeUsernameCannotContainAt
 
 	// ErrUsernameCannotStartWithPlus is the username_cannot_start_with_plus AuthKit HTTP wire error code.
-	ErrUsernameCannotStartWithPlus ErrorCode = core.ErrCodeUsernameCannotStartWithPlus
+	ErrUsernameCannotStartWithPlus ErrorCode = embedded.ErrCodeUsernameCannotStartWithPlus
 
 	// ErrUsernameInUse is the username_in_use AuthKit HTTP wire error code.
 	ErrUsernameInUse ErrorCode = "username_in_use"
 
 	// ErrUsernameInvalidCharacters is the username_invalid_characters AuthKit HTTP wire error code.
-	ErrUsernameInvalidCharacters ErrorCode = core.ErrCodeUsernameInvalidCharacters
+	ErrUsernameInvalidCharacters ErrorCode = embedded.ErrCodeUsernameInvalidCharacters
 
 	// ErrUsernameMissing is the username_missing AuthKit HTTP wire error code.
 	ErrUsernameMissing ErrorCode = "username_missing"
 
 	// ErrUsernameMustStartWithLetter is the username_must_start_with_letter AuthKit HTTP wire error code.
-	ErrUsernameMustStartWithLetter ErrorCode = core.ErrCodeUsernameMustStartWithLetter
+	ErrUsernameMustStartWithLetter ErrorCode = embedded.ErrCodeUsernameMustStartWithLetter
 
 	// ErrUsernameNotAllowed is the username_not_allowed AuthKit HTTP wire error code.
-	ErrUsernameNotAllowed ErrorCode = core.ErrCodeUsernameNotAllowed
+	ErrUsernameNotAllowed ErrorCode = embedded.ErrCodeUsernameNotAllowed
 
 	// ErrUsernameTooLong is the username_too_long AuthKit HTTP wire error code.
-	ErrUsernameTooLong ErrorCode = core.ErrCodeUsernameTooLong
+	ErrUsernameTooLong ErrorCode = embedded.ErrCodeUsernameTooLong
 
 	// ErrUsernameTooShort is the username_too_short AuthKit HTTP wire error code.
-	ErrUsernameTooShort ErrorCode = core.ErrCodeUsernameTooShort
+	ErrUsernameTooShort ErrorCode = embedded.ErrCodeUsernameTooShort
 
 	// ErrVerificationLinkExpired is the verification_link_expired AuthKit HTTP wire error code.
 	ErrVerificationLinkExpired ErrorCode = "verification_link_expired"

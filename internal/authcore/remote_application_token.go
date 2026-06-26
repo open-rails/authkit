@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
 
@@ -37,28 +38,7 @@ const RemoteApplicationAccessTokenType = jwtkit.RemoteApplicationAccessTokenType
 // (permission-group role membership only), resolved at verify from the validated
 // `iss`. The token therefore carries NO authority role claims of its own — and
 // even if a caller adds them, the verifier ignores them.
-type RemoteApplicationAccessParams struct {
-	// Issuer becomes the `iss` claim: the remote_application's OIDC issuer,
-	// registered with the validating resource server. Required when minting via
-	// the free function; the *Service mint method defaults it to the Service's
-	// configured Issuer when empty.
-	Issuer string
-	// Audiences becomes the `aud` claim: the target resource API(s).
-	Audiences []string
-	// TTL is the token lifetime. Defaults to 15m when zero.
-	TTL time.Duration
-	// JTI, when set, becomes the `jti` claim. Optional.
-	JTI string
-	// NotBefore, when set, becomes the `nbf` claim. Optional.
-	NotBefore time.Time
-	// Permissions, when non-nil, becomes the `permissions` claim: a DOWN-SCOPING
-	// request for least-privilege (#76 amendment). The stored grant is the
-	// ceiling; effective = this claim, but EVERY claimed perm must be within the
-	// stored grant — an out-of-grant claimed perm REJECTS the token at verify (a
-	// remote application access token can never widen). nil/absent => no claim
-	// => full stored ceiling (backward-compatible with v0.28.0 tokens).
-	Permissions []string
-}
+type RemoteApplicationAccessParams = authkit.RemoteApplicationAccessParams
 
 // MintRemoteApplicationAccessToken signs a remote application access token using the
 // Service's internal signer. When p.Issuer is empty it defaults to the Service's

@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/fxamacker/cbor/v2"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"
 )
@@ -23,13 +23,13 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
-	cfg.Passkeys = core.PasskeyConfig{
+	cfg.Passkeys = embedded.PasskeyConfig{
 		RPID:             "example.com",
 		RPDisplayName:    "Example",
 		Origins:          []string{"https://example.com"},
 		UserVerification: "preferred",
 	}
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
@@ -54,7 +54,7 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 
 	w = serveAuthJSON(srv, http.MethodPost, "/passkeys/register/finish", string(authn.attestation(t, creation)), setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var created core.Passkey
+	var created embedded.Passkey
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
 	require.NotEmpty(t, created.ID)
 	require.True(t, created.BackupEligible)
@@ -92,7 +92,7 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.RefreshToken)
 	claims := unverifiedAccessClaims(t, tokens.AccessToken)
-	require.Equal(t, core.AssuranceLevelMFA, claims["acr"])
+	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
 	require.ElementsMatch(t, []any{"swk", "mfa"}, claims["amr"])
 	require.NotZero(t, claims["auth_time"])
 
@@ -115,7 +115,7 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 	w = serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
-		Passkeys []core.Passkey `json:"passkeys"`
+		Passkeys []embedded.Passkey `json:"passkeys"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
 	require.Len(t, listed.Passkeys, 1)
@@ -126,12 +126,12 @@ func TestPasskeyManagementHTTPIntegration(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
-	cfg.Passkeys = core.PasskeyConfig{
+	cfg.Passkeys = embedded.PasskeyConfig{
 		RPID:          "example.com",
 		RPDisplayName: "Example",
 		Origins:       []string{"https://example.com"},
 	}
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-mgmt"), "passkeymgmt"+uniqueSuffix())

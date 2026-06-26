@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +50,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 		badRequest(w, ErrMissingSessionID)
 		return
 	}
-	ctx := core.WithSessionRevokeReason(r.Context(), core.SessionRevokeReasonUserRevoke)
+	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevoke)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, sid); err != nil {
 		serverErr(w, ErrFailedToRevoke)
 		return
@@ -67,7 +67,7 @@ func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
-	ctx := core.WithSessionRevokeReason(r.Context(), core.SessionRevokeReasonUserRevokeAll)
+	ctx := embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonUserRevokeAll)
 	if err := s.svc.RevokeAllSessions(ctx, cl.UserID, nil); err != nil {
 		serverErr(w, ErrFailedToRevokeAll)
 		return

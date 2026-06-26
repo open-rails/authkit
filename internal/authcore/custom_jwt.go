@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
 
@@ -25,21 +26,21 @@ const (
 var (
 	// ErrEmptyCustomClaims is returned when CustomJWTMintOptions.Claims is empty —
 	// MintCustomJWT exists to carry host claims, so an empty set is a caller bug.
-	ErrEmptyCustomClaims = errors.New("custom_jwt_empty_claims")
+	ErrEmptyCustomClaims = authkit.ErrEmptyCustomClaims
 	// ErrTooManyCustomClaims is returned when the host claim set exceeds
 	// maxCustomJWTClaims.
-	ErrTooManyCustomClaims = errors.New("custom_jwt_too_many_claims")
+	ErrTooManyCustomClaims = authkit.ErrTooManyCustomClaims
 	// ErrCustomClaimsReserved is returned when the host Claims map tries to set a
 	// registered claim that AuthKit owns (`iss`/`iat`/`exp`) — those are set by
 	// AuthKit and the raw map may not silently clobber them. Use the explicit
 	// Issuer option to override `iss`.
-	ErrCustomClaimsReserved = errors.New("custom_jwt_reserved_claim")
+	ErrCustomClaimsReserved = authkit.ErrCustomClaimsReserved
 	// ErrCustomJWTReservedType is returned when CustomJWTMintOptions.Type is one of
 	// AuthKit's own first-party token classes (access / delegated-access /
 	// remote-application-access / service `+jwt`). MintCustomJWT mints CUSTOM token
 	// shapes only; minting an AuthKit class would produce a token the verifier
 	// trusts as a first-party principal (AK2-AUTH-02).
-	ErrCustomJWTReservedType = errors.New("custom_jwt_reserved_type")
+	ErrCustomJWTReservedType = authkit.ErrCustomJWTReservedType
 )
 
 // reservedCustomJWTTypes are AuthKit's own first-party JOSE `typ` values. The
@@ -100,30 +101,7 @@ var reservedCustomClaims = map[string]struct{}{
 //     carry its own `sub`/`aud` (the host owns those for custom tokens). When an
 //     explicit Subject/Audiences IS provided, it wins over any `sub`/`aud` in the
 //     Claims map.
-type CustomJWTMintOptions struct {
-	// Claims is the host's claim set, e.g. {"cap_kind": "...", "grants": [...],
-	// "release_id": "..."}. Required and non-empty. It may carry `sub`/`aud`
-	// (unless overridden by the Subject/Audiences options) but may NOT carry the
-	// AuthKit-owned registered claims `iss`/`iat`/`exp`.
-	Claims map[string]any
-	// TTL is the token lifetime. Required (must be > 0); capped at
-	// MaxCustomJWTLifetime.
-	TTL time.Duration
-	// Type is the JOSE `typ` header (e.g. "worker-capability+jwt"). When empty the
-	// header is left unset — unlike the opinionated minters, MintCustomJWT does
-	// not impose a default `typ`; the host owns the token shape. It may NOT be one
-	// of AuthKit's own first-party classes (access / delegated-access /
-	// remote-application-access / service `+jwt`) — doing so returns
-	// ErrCustomJWTReservedType (AK2-AUTH-02).
-	Type string
-	// Subject, when set, becomes the `sub` claim and wins over any `sub` in Claims.
-	Subject string
-	// Audiences, when set, becomes the `aud` claim and wins over any `aud` in Claims.
-	Audiences []string
-	// Issuer, when set, becomes the `iss` claim; otherwise `iss` defaults to the
-	// Service's configured Issuer. This is the ONLY way to override `iss`.
-	Issuer string
-}
+type CustomJWTMintOptions = authkit.CustomJWTMintOptions
 
 // MintCustomJWT signs a JWT carrying an arbitrary first-party claim set using the
 // Service's internal signer — the SAME signing path as MintServiceJWT /

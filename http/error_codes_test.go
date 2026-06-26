@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-rails/authkit/authbase"
-	core "github.com/open-rails/authkit/core"
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func TestErrorHelpersDoNotUseBareStringCodes(t *testing.T) {
@@ -57,13 +57,13 @@ func TestErrorHelpersDoNotUseBareStringCodes(t *testing.T) {
 }
 
 func TestHTTPValidationErrorCodesAliasCore(t *testing.T) {
-	if ErrInvalidEmail.String() != core.ErrCodeInvalidEmail {
+	if ErrInvalidEmail.String() != embedded.ErrCodeInvalidEmail {
 		t.Fatalf("invalid_email diverged")
 	}
-	if ErrInvalidPhoneNumber.String() != core.ErrCodeInvalidPhoneNumber {
+	if ErrInvalidPhoneNumber.String() != embedded.ErrCodeInvalidPhoneNumber {
 		t.Fatalf("invalid_phone_number diverged")
 	}
-	if ErrPasswordTooShort.String() != core.ErrCodePasswordTooShort {
+	if ErrPasswordTooShort.String() != embedded.ErrCodePasswordTooShort {
 		t.Fatalf("password_too_short diverged")
 	}
 }
@@ -81,7 +81,7 @@ func TestHTTPErrorCodeConstantServedByAPIHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
-	var body authbase.ErrorEnvelope
+	var body authkit.ErrorEnvelope
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +89,8 @@ func TestHTTPErrorCodeConstantServedByAPIHandler(t *testing.T) {
 		t.Fatalf("error.code = %q, want %q", body.Error.Code, ErrInvalidRequest)
 	}
 	// Stripe-style envelope (#115): type + message are always populated.
-	if body.Error.Type != authbase.ErrorTypeInvalidRequest {
-		t.Fatalf("error.type = %q, want %q", body.Error.Type, authbase.ErrorTypeInvalidRequest)
+	if body.Error.Type != authkit.ErrorTypeInvalidRequest {
+		t.Fatalf("error.type = %q, want %q", body.Error.Type, authkit.ErrorTypeInvalidRequest)
 	}
 	if body.Error.Message == "" {
 		t.Fatalf("error.message is empty; envelope = %+v", body.Error)

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/stretchr/testify/require"
 )
@@ -48,13 +48,13 @@ func TestAuthProviderCacheIsolation(t *testing.T) {
 }
 
 func TestNewServicePrebuildsAuthProviders(t *testing.T) {
-	cfg := core.Config{
-		Token: core.TokenConfig{
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test"},
 			ExpectedAudiences: []string{"test"},
 		},
-		Identity: core.IdentityConfig{
+		Identity: embedded.IdentityConfig{
 			Providers: map[string]oidckit.RPConfig{
 				"github": {ClientID: "github-client", ClientSecret: "github-secret"},
 			},

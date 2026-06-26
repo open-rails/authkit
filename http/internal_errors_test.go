@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/open-rails/authkit/authbase"
-	core "github.com/open-rails/authkit/core"
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,12 +60,12 @@ func TestHandleVerificationRequestErrorMapsHonestTargetErrors(t *testing.T) {
 		status int
 		code   string
 	}{
-		{name: "invalid_email", err: core.ValidateEmail("bad"), status: http.StatusBadRequest, code: "invalid_email"},
-		{name: "user_not_found", err: core.ErrUserNotFound, status: http.StatusNotFound, code: "user_not_found"},
-		{name: "pending_registration_not_found", err: core.ErrPendingRegistrationNotFound, status: http.StatusNotFound, code: "pending_registration_not_found"},
-		{name: "email_already_verified", err: core.ErrEmailAlreadyVerified, status: http.StatusConflict, code: "email_already_verified"},
-		{name: "phone_already_verified", err: core.ErrPhoneAlreadyVerified, status: http.StatusConflict, code: "phone_already_verified"},
-		{name: "verification_link_expired", err: core.ErrVerificationLinkExpired, status: http.StatusGone, code: "verification_link_expired"},
+		{name: "invalid_email", err: embedded.ValidateEmail("bad"), status: http.StatusBadRequest, code: "invalid_email"},
+		{name: "user_not_found", err: authkit.ErrUserNotFound, status: http.StatusNotFound, code: "user_not_found"},
+		{name: "pending_registration_not_found", err: authkit.ErrPendingRegistrationNotFound, status: http.StatusNotFound, code: "pending_registration_not_found"},
+		{name: "email_already_verified", err: authkit.ErrEmailAlreadyVerified, status: http.StatusConflict, code: "email_already_verified"},
+		{name: "phone_already_verified", err: authkit.ErrPhoneAlreadyVerified, status: http.StatusConflict, code: "phone_already_verified"},
+		{name: "verification_link_expired", err: authkit.ErrVerificationLinkExpired, status: http.StatusGone, code: "verification_link_expired"},
 	}
 
 	for _, tt := range tests {
@@ -79,7 +79,7 @@ func TestHandleVerificationRequestErrorMapsHonestTargetErrors(t *testing.T) {
 			}
 			// Stripe-style nested envelope (#115): assert code, plus that type +
 			// message are always populated.
-			var env authbase.ErrorEnvelope
+			var env authkit.ErrorEnvelope
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 			require.Equal(t, tt.code, env.Error.Code)
 			require.NotEmpty(t, env.Error.Type)

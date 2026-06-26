@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	authlang "github.com/open-rails/authkit/lang"
@@ -21,7 +21,7 @@ import (
 
 type testEmailSender struct{}
 
-func (testEmailSender) SendVerification(context.Context, string, string, core.VerificationMessage) error {
+func (testEmailSender) SendVerification(context.Context, string, string, embedded.VerificationMessage) error {
 	return nil
 }
 func (testEmailSender) SendPasswordResetLink(context.Context, string, string, string) error {
@@ -38,7 +38,7 @@ type failingVerificationEmailSender struct {
 	testEmailSender
 }
 
-func (failingVerificationEmailSender) SendVerification(context.Context, string, string, core.VerificationMessage) error {
+func (failingVerificationEmailSender) SendVerification(context.Context, string, string, embedded.VerificationMessage) error {
 	return errors.New("provider rejected message")
 }
 
@@ -51,7 +51,7 @@ type failableEmailSender struct {
 	fail bool
 }
 
-func (s *failableEmailSender) SendVerification(context.Context, string, string, core.VerificationMessage) error {
+func (s *failableEmailSender) SendVerification(context.Context, string, string, embedded.VerificationMessage) error {
 	if s.fail {
 		return errors.New("provider rejected message")
 	}
@@ -63,20 +63,20 @@ type recordingEmailSender struct {
 	languages []string
 }
 
-func (s *recordingEmailSender) SendVerification(ctx context.Context, email, username string, msg core.VerificationMessage) error {
+func (s *recordingEmailSender) SendVerification(ctx context.Context, email, username string, msg embedded.VerificationMessage) error {
 	lang, _ := authlang.LanguageFromContext(ctx)
 	s.languages = append(s.languages, lang)
 	return nil
 }
 
-func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificationPolicy, coreOpts ...core.Option) *Service {
+func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerificationPolicy, coreOpts ...embedded.Option) *Service {
 	t.Helper()
 
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := append([]core.Option{core.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)}, coreOpts...)
-	coreSvc := authcore.NewService(core.Options{
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := append([]embedded.Option{embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)}, coreOpts...)
+	coreSvc := authcore.NewService(embedded.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
@@ -95,7 +95,7 @@ func newRegistrationTestService(t *testing.T, policy core.RegistrationVerificati
 }
 
 func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(testEmailSender{}))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(testEmailSender{}))
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func TestAPIHandler_RegisterRequiredEmailVerificationResponse(t *testing.T) {
 }
 
 func TestAPIHandler_RegisterEmailDeliveryFailure(t *testing.T) {
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(failingVerificationEmailSender{}))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(failingVerificationEmailSender{}))
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -142,7 +142,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 	// sender is flipped to fail so the resend path returns email_delivery_failed.
 	// (#108 removed the chainable WithEmailSender swap this previously used.)
 	sender := &failableEmailSender{}
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(sender))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(sender))
 	_, err := s.svc.CreatePendingRegistration(context.Background(), "user@example.com", "user", "argon2id$hash", 0)
 	require.NoError(t, err)
 	sender.fail = true
@@ -160,7 +160,7 @@ func TestAPIHandler_RegisterResendEmailDeliveryFailure(t *testing.T) {
 }
 
 func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(testEmailSender{}))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(testEmailSender{}))
 	_, err := s.svc.CreatePendingRegistration(context.Background(), "user@example.com", "user", "argon2id$hash", 0)
 	require.NoError(t, err)
 	h := s.APIHandler()
@@ -178,7 +178,7 @@ func TestAPIHandler_EmailVerifyRequestResendsPendingRegistration(t *testing.T) {
 
 func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testing.T) {
 	sender := &recordingEmailSender{}
-	s := newRegistrationTestService(t, core.RegistrationVerificationRequired, core.WithEmailSender(sender))
+	s := newRegistrationTestService(t, embedded.RegistrationVerificationRequired, embedded.WithEmailSender(sender))
 	// WithLanguageConfig is an HTTP-level field (#108 removed the chainable
 	// setter); the test is package authhttp, so set it directly.
 	langCfg := LanguageConfig{Supported: []string{"en", "es"}, Default: "en"}
@@ -207,14 +207,14 @@ func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testin
 }
 
 func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
-	s, err := NewServer(core.Config{
-		Token: core.TokenConfig{
+	s, err := NewServer(embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
-		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationRequired},
+		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired},
 	}, newNoDBPool(t), WithEmailSender(testEmailSender{}))
 	require.NoError(t, err)
 	h := s.APIHandler()

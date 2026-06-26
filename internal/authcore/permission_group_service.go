@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 
 	"github.com/open-rails/authkit/internal/db"
@@ -58,13 +59,7 @@ func (s *Service) EnsureRootGroup(ctx context.Context) (string, error) {
 // CreatePermissionGroupRequest creates a permission group. Parent is addressed by
 // (ParentPersona, ParentInstanceSlug); for a single-allowed-parent persona ParentPersona
 // may be omitted. OwnerSubjectID, when set, is seeded with the owner role.
-type CreatePermissionGroupRequest struct {
-	Persona            string
-	InstanceSlug       string
-	ParentPersona      string
-	ParentInstanceSlug string
-	OwnerSubjectID     string
-}
+type CreatePermissionGroupRequest = authkit.CreatePermissionGroupRequest
 
 // CreatePermissionGroup validates containment against the schema, resolves the
 // parent group, creates the group, and (atomically) seeds the owner assignment.
@@ -231,7 +226,7 @@ func (s *Service) Can(ctx context.Context, subjectID, subjectKind, persona, inst
 // perm its roles grant, with globs (e.g. `root:*`) returned VERBATIM. This is the
 // read primitive behind a "what can I do here" introspection endpoint (#421): a
 // client fetches it once and gates UI on the strings (glob-matching with the same
-// authbase.PermMatches the server enforces with) instead of re-deriving authority
+// authkit.PermMatches the server enforces with) instead of re-deriving authority
 // from role slugs. Scoped per group instance BY DESIGN — perms are persona-
 // namespaced, so a global union would be both large and meaningless. An unknown
 // group ⇒ empty (no authority), not an error; real lookup failures propagate

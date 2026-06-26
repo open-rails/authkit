@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
@@ -36,7 +37,7 @@ func groupRoleTable(subjectKind string) (table, subjectColumn string, err error)
 
 // ErrGroupNotFound is returned when a (persona, instance_slug) or id resolves to no
 // live permission-group.
-var ErrGroupNotFound = errors.New("permission group not found")
+var ErrGroupNotFound = authkit.ErrGroupNotFound
 
 // PermissionGroupStore is the database access layer for permission-groups. It
 // holds a db.DBTX (a *pgxpool.Pool or a pgx.Tx), so callers choose the txn scope.
@@ -332,7 +333,7 @@ func (st *PermissionGroupStore) CanOnGroup(ctx context.Context, schema *GroupSch
 // chain), resolved against the schema's catalog + per-group custom roles. Unlike
 // CanOnGroup (which tests ONE perm), this returns the whole effective grant set
 // as PATTERNS — globs like `root:*` are returned verbatim, NOT expanded into every
-// concrete perm (the caller glob-matches with authbase.PermMatches). Powers the
+// concrete perm (the caller glob-matches with authkit.PermMatches). Powers the
 // permission-introspection endpoint (authkit/doujins #421). An empty assignment
 // set returns an empty (non-nil) slice.
 func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *GroupSchema, subjectID, subjectKind, groupID string) ([]string, error) {
@@ -359,11 +360,7 @@ func (st *PermissionGroupStore) GrantsOnGroup(ctx context.Context, schema *Group
 }
 
 // GroupMember is one role-assignment in a group (roster listing).
-type GroupMember struct {
-	SubjectID   string
-	SubjectKind string
-	Role        string
-}
+type GroupMember = authkit.GroupMember
 
 // GroupMembers lists the live role-assignments in a group.
 func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
@@ -391,11 +388,7 @@ func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string
 }
 
 // SubjectGroupMembership is one (persona, resource, role) a subject holds.
-type SubjectGroupMembership struct {
-	Persona      string
-	InstanceSlug string
-	Role         string
-}
+type SubjectGroupMembership = authkit.SubjectGroupMembership
 
 // SubjectGroups lists every group membership a subject holds (cross-persona),
 // the data behind /me/groups.

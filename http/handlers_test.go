@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authprovider"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	oidckit "github.com/open-rails/authkit/oidc"
@@ -24,15 +24,15 @@ func newTestCoreService(t *testing.T) *authcore.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := core.Options{
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := embedded.Options{
 		Issuer:              "https://example.com",
 		IssuedAudiences:     []string{"test-app"},
 		ExpectedAudiences:   []string{"test-app"},
 		AccessTokenDuration: time.Hour,
 		// Tests that use newTestCoreService are not testing registration/verification flows,
 		// so we explicitly opt out to avoid needing a real email sender.
-		RegistrationVerification: core.RegistrationVerificationNone,
+		RegistrationVerification: embedded.RegistrationVerificationNone,
 	}
 	return authcore.NewService(opts, ks)
 }
@@ -49,13 +49,13 @@ func newTestServiceWithPasskeys(t *testing.T) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := core.Options{
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := embedded.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
 		AccessTokenDuration:      time.Hour,
-		RegistrationVerification: core.RegistrationVerificationNone,
+		RegistrationVerification: embedded.RegistrationVerificationNone,
 		PasskeyRPID:              "example.com",
 		PasskeyRPDisplayName:     "Example",
 	}

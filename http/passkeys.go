@@ -3,12 +3,11 @@ package authhttp
 import (
 	"encoding/json"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"io"
 	"net/http"
 	"strings"
 	"time"
-
-	core "github.com/open-rails/authkit/core"
 )
 
 func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +92,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	}
 	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), nil)
 	if err != nil {
-		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) && result.UserID != "" {
+		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) && result.UserID != "" {
 			s.write2FAEnrollmentRequired(w, r, result.UserID)
 			return
 		}
@@ -142,7 +141,7 @@ func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.svc.RenamePasskey(r.Context(), claims.UserID, r.PathValue("id"), req.Label); err != nil {
-		if errors.Is(err, core.ErrPasskeyNotFound) {
+		if errors.Is(err, authkit.ErrPasskeyNotFound) {
 			notFound(w, ErrNotFound)
 			return
 		}
@@ -162,7 +161,7 @@ func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.svc.DeletePasskey(r.Context(), claims.UserID, r.PathValue("id")); err != nil {
-		if errors.Is(err, core.ErrPasskeyNotFound) {
+		if errors.Is(err, authkit.ErrPasskeyNotFound) {
 			notFound(w, ErrNotFound)
 			return
 		}

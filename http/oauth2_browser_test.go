@@ -3,13 +3,14 @@ package authhttp
 import (
 	"crypto"
 	"encoding/json"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	oidckit "github.com/open-rails/authkit/oidc"
@@ -19,17 +20,17 @@ import (
 // newRegistrationModeService builds an http.Service whose core Options carry the
 // native-user registration mode under test. No DB; the registration-disabled
 // gate fires before any storage call (a nil pool returns empty, not an error).
-func newRegistrationModeService(t *testing.T, nativeMode core.RegistrationMode) *Service {
+func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMode) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := core.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := core.Options{
+	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := embedded.Options{
 		Issuer:                     "https://example.com",
 		IssuedAudiences:            []string{"test-app"},
 		ExpectedAudiences:          []string{"test-app"},
 		AccessTokenDuration:        time.Hour,
-		RegistrationVerification:   core.RegistrationVerificationNone,
+		RegistrationVerification:   embedded.RegistrationVerificationNone,
 		NativeUserRegistrationMode: nativeMode,
 	}
 	coreSvc := authcore.NewService(opts, ks)
@@ -164,7 +165,7 @@ func TestFetchOAuthUserInfoUsesCustomDescriptorMapping(t *testing.T) {
 // registration is disabled. No DB: the disabled gate fires after the (empty)
 // provider-link + email lookups.
 func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
-	s := newRegistrationModeService(t, core.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
 	cfg := authprovider.Provider{
 		Name:   "github",
 		Kind:   authprovider.KindOAuth2,
@@ -181,14 +182,14 @@ func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 		oidckit.StateData{},
 		info,
 	)
-	require.ErrorIs(t, err, core.ErrRegistrationDisabled)
+	require.ErrorIs(t, err, authkit.ErrRegistrationDisabled)
 	require.False(t, created)
 }
 
 // The explicit link flow (StateData.LinkUserID set) is NOT a registration path,
 // so it is unaffected by the registration-disabled gate.
 func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
-	s := newRegistrationModeService(t, core.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
 	cfg := authprovider.Provider{
 		Name:   "github",
 		Kind:   authprovider.KindOAuth2,

@@ -7,8 +7,9 @@ import (
 	"sync"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/open-rails/authkit/ratelimit"
@@ -33,15 +34,15 @@ type Service struct {
 	memStateCache       oidckit.StateCache
 	solanaDomain        string // Domain for SIWS messages (optional, derived from request if empty)
 	langCfg             *LanguageConfig
-	authlogr            core.AuthEventLogReader
-	// coreOpts accumulates core.Option values contributed by functional options
+	authlogr            embedded.AuthEventLogReader
+	// coreOpts accumulates embedded.Option values contributed by functional options
 	// during NewServer; they are applied when the core service is built, then the
 	// slice is cleared (transient, not retained past construction).
-	coreOpts []core.Option
+	coreOpts []embedded.Option
 
 	// groupCanFn overrides the permission-group authorization predicate used by
 	// the auto-generated group-management routes (#111). nil delegates to
-	// core.Service.Can.
+	// embedded.Client.Can.
 	groupCanFn PermissionGroupAuthorizer
 }
 
@@ -215,15 +216,20 @@ func (s *Service) SMSHealthReason() string { return s.svc.SMSHealthReason() }
 // configured and, if checked, found able to deliver).
 func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 
-func (s *Service) Core() *core.Service { return core.Wrap(s.svc) }
-func (s *Service) Verifier() *Verifier { return s.verifier }
+// Client returns the embedder-facing AuthKit client (the authkit.Client contract)
+// backing this server — for provisioning, minting, and management (e.g.
+// CreateUser, MintServiceJWT, ApplyBootstrapManifestFile). It wraps the same
+// engine the server runs; code against authkit.Client to stay backend-agnostic
+// across the embedded↔standalone swap (#138).
+func (s *Service) Client() authkit.Client { return embedded.Wrap(s.svc) }
+func (s *Service) Verifier() *Verifier    { return s.verifier }
 
 // SetEntitlementsProvider installs the entitlements provider on the underlying
 // core service after construction. It is the sanctioned late-binding seam for
 // the embedded-billing entitlements cycle (an embedded engine authenticates
 // through this server's Verifier/Core yet also supplies the provider). Call it
-// during wiring, before serving. See core.Service.SetEntitlementsProvider.
-func (s *Service) SetEntitlementsProvider(p core.EntitlementsProvider) {
+// during wiring, before serving. See embedded.Client.SetEntitlementsProvider.
+func (s *Service) SetEntitlementsProvider(p embedded.EntitlementsProvider) {
 	s.svc.SetEntitlementsProvider(p)
 }
 

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/stretchr/testify/require"
 )
@@ -171,14 +171,14 @@ func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
 }
 
 func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
-	cfg := core.Config{
-		Token: core.TokenConfig{
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
-		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
+		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
 	svc, err := NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)

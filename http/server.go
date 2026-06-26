@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
 	memorystore "github.com/open-rails/authkit/storage/memory"
@@ -17,9 +17,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Server is the net/http mounting wrapper around core.Service. It is the
-// canonical name; Service is retained as an alias to disambiguate from
-// core.Service (#109).
+// Server is the exported, recommended name for the net/http mounting wrapper
+// embedders construct with NewServer (it IS an HTTP server). Service is the
+// original struct name, kept as an alias; both refer to the same type. The #109
+// collision — a second public type also named Service — is resolved by #138: the
+// embedder-facing facade is now embedded.Client, reached via Server.Client().
 type Server = Service
 
 // Option configures a Server at construction. Options are applied INSIDE
@@ -38,7 +40,7 @@ type Option func(*Server)
 //	    authhttp.WithRedis(rdb),
 //	    authhttp.WithEmailSender(mailer),
 //	)
-func NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error) {
+func NewServer(cfg embedded.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error) {
 	if pg == nil {
 		return nil, errors.New("authkit: NewServer requires a non-nil *pgxpool.Pool (Postgres is mandatory)")
 	}
@@ -56,7 +58,7 @@ func NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, erro
 	// Build the core service: default to an in-memory ephemeral store, which any
 	// WithRedis/WithEphemeralStore option (collected in s.coreOpts) overrides
 	// since later options win.
-	coreOpts := append([]core.Option{core.WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory)}, s.coreOpts...)
+	coreOpts := append([]embedded.Option{embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)}, s.coreOpts...)
 	coreSvc, err := authcore.NewFromConfig(cfg, pg, coreOpts...)
 	if err != nil {
 		return nil, err
@@ -94,7 +96,7 @@ func NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, erro
 
 // validate enforces the CONDITIONAL dependency requirements for the configured
 // feature set (pg is already guaranteed by the signature).
-func (s *Server) validate(cfg core.Config) error {
+func (s *Server) validate(cfg embedded.Config) error {
 	env := strings.ToLower(strings.TrimSpace(cfg.Environment))
 	if env == "prod" || env == "production" {
 		if s.rd == nil {
@@ -113,35 +115,35 @@ func WithRedis(rd *redis.Client) Option {
 	return func(s *Server) {
 		s.rd = rd
 		if rd != nil {
-			s.coreOpts = append(s.coreOpts, core.WithEphemeralStore(redisstore.NewKV(rd), core.EphemeralRedis))
+			s.coreOpts = append(s.coreOpts, embedded.WithEphemeralStore(redisstore.NewKV(rd), embedded.EphemeralRedis))
 		}
 	}
 }
 
 // WithEphemeralStore overrides the ephemeral store + mode.
-func WithEphemeralStore(store core.EphemeralStore, mode core.EphemeralMode) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithEphemeralStore(store, mode)) }
+func WithEphemeralStore(store embedded.EphemeralStore, mode embedded.EphemeralMode) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithEphemeralStore(store, mode)) }
 }
 
 // WithEmailSender supplies the email provider.
-func WithEmailSender(es core.EmailSender) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithEmailSender(es)) }
+func WithEmailSender(es embedded.EmailSender) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithEmailSender(es)) }
 }
 
 // WithSMSSender supplies the SMS provider.
-func WithSMSSender(sender core.SMSSender) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithSMSSender(sender)) }
+func WithSMSSender(sender embedded.SMSSender) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithSMSSender(sender)) }
 }
 
 // WithEntitlements supplies the entitlements provider.
-func WithEntitlements(p core.EntitlementsProvider) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithEntitlements(p)) }
+func WithEntitlements(p embedded.EntitlementsProvider) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithEntitlements(p)) }
 }
 
 // WithAPIKeyResourceAuthorizer supplies the host policy that authorizes
 // non-empty resource scopes on API-key minting.
-func WithAPIKeyResourceAuthorizer(a core.APIKeyResourceAuthorizer) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithAPIKeyResourceAuthorizer(a)) }
+func WithAPIKeyResourceAuthorizer(a embedded.APIKeyResourceAuthorizer) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithAPIKeyResourceAuthorizer(a)) }
 }
 
 // PermissionGroupAuthorizer authorizes one generated permission-group route.
@@ -154,13 +156,13 @@ func WithPermissionGroupAuthorizer(fn PermissionGroupAuthorizer) Option {
 }
 
 // WithAuthLogger supplies the session-event audit sink.
-func WithAuthLogger(l core.AuthEventLogger) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithAuthLogger(l)) }
+func WithAuthLogger(l embedded.AuthEventLogger) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithAuthLogger(l)) }
 }
 
 // WithSolanaSNSResolver enables Solana Name Service resolution via the host resolver.
-func WithSolanaSNSResolver(r core.SolanaSNSResolver) Option {
-	return func(s *Server) { s.coreOpts = append(s.coreOpts, core.WithSolanaSNSResolver(r)) }
+func WithSolanaSNSResolver(r embedded.SolanaSNSResolver) Option {
+	return func(s *Server) { s.coreOpts = append(s.coreOpts, embedded.WithSolanaSNSResolver(r)) }
 }
 
 // WithRateLimiter overrides the default in-memory rate limiter.
@@ -180,7 +182,7 @@ func WithClientIPFunc(fn ClientIPFunc) Option {
 }
 
 // WithAuthLogReader supplies the session-event reader (admin sign-in views).
-func WithAuthLogReader(r core.AuthEventLogReader) Option {
+func WithAuthLogReader(r embedded.AuthEventLogReader) Option {
 	return func(s *Server) { s.authlogr = r }
 }
 

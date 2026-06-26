@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // InternalErrorEvent captures a swallowed internal handler error so host apps
@@ -62,24 +63,24 @@ func handleVerificationRequestError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
 	}
-	if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+	if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 		badRequest(w, code)
 		return true
 	}
 	switch {
-	case errors.Is(err, core.ErrUserNotFound):
+	case errors.Is(err, authkit.ErrUserNotFound):
 		notFound(w, ErrUserNotFound)
 		return true
-	case errors.Is(err, core.ErrPendingRegistrationNotFound):
+	case errors.Is(err, authkit.ErrPendingRegistrationNotFound):
 		notFound(w, ErrPendingRegistrationNotFound)
 		return true
-	case errors.Is(err, core.ErrEmailAlreadyVerified):
+	case errors.Is(err, authkit.ErrEmailAlreadyVerified):
 		sendErr(w, http.StatusConflict, ErrEmailAlreadyVerified)
 		return true
-	case errors.Is(err, core.ErrPhoneAlreadyVerified):
+	case errors.Is(err, authkit.ErrPhoneAlreadyVerified):
 		sendErr(w, http.StatusConflict, ErrPhoneAlreadyVerified)
 		return true
-	case errors.Is(err, core.ErrVerificationLinkExpired):
+	case errors.Is(err, authkit.ErrVerificationLinkExpired):
 		sendErr(w, http.StatusGone, ErrVerificationLinkExpired)
 		return true
 	default:

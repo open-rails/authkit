@@ -8,13 +8,14 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/stretchr/testify/require"
@@ -27,12 +28,12 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "admin-dir-kid")
 	require.NoError(t, err)
-	opts := core.Options{
+	opts := embedded.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},
 		ExpectedAudiences:        []string{"test-app"},
 		AccessTokenDuration:      time.Hour,
-		RegistrationVerification: core.RegistrationVerificationNone,
+		RegistrationVerification: embedded.RegistrationVerificationNone,
 	}
 	coreSvc, err := authcore.NewFromConfig(authcore.Config{
 		Token: authcore.TokenConfig{
@@ -103,7 +104,7 @@ func adminUserPathStatus(t *testing.T, s *Service, token, path string) int {
 	return w.Code
 }
 
-func adminIDsOf(users []core.AdminUser) []string {
+func adminIDsOf(users []authkit.AdminUser) []string {
 	out := make([]string, len(users))
 	for i := range users {
 		out[i] = users[i].ID
@@ -118,7 +119,7 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 
 	suffix := time.Now().UnixNano()
 	prefix := fmt.Sprintf("hadir%d", suffix)
-	const roleSlug = core.OwnerRoleName // intrinsic root role.
+	const roleSlug = embedded.OwnerRoleName // intrinsic root role.
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username LIKE $1`, prefix+"%")
@@ -135,8 +136,8 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	idD := mk("ddd")
 
 	// Root owner assignment for A + B.
-	require.NoError(t, s.svc.AssignGroupRole(ctx, core.RootPersona, "", idA, core.SubjectKindUser, roleSlug))
-	require.NoError(t, s.svc.AssignGroupRole(ctx, core.RootPersona, "", idB, core.SubjectKindUser, roleSlug))
+	require.NoError(t, s.svc.AssignGroupRole(ctx, embedded.RootPersona, "", idA, embedded.SubjectKindUser, roleSlug))
+	require.NoError(t, s.svc.AssignGroupRole(ctx, embedded.RootPersona, "", idB, embedded.SubjectKindUser, roleSlug))
 
 	// Ban D (so status filters can distinguish it).
 	banUntil := time.Now().UTC().Add(time.Hour)
@@ -207,8 +208,8 @@ func TestAdminUsersListOptionsFromQuery(t *testing.T) {
 	require.Equal(t, 25, got.PageSize)
 	require.Equal(t, "alice", got.Search)
 	require.Equal(t, "moderator", got.Role)
-	require.Equal(t, core.AdminUserStatusBanned, got.Status)
-	require.Equal(t, core.AdminUserSortEmail, got.Sort)
+	require.Equal(t, authkit.AdminUserStatusBanned, got.Status)
+	require.Equal(t, authkit.AdminUserSortEmail, got.Sort)
 	require.False(t, got.Desc) // order=asc
 	require.Equal(t, "premium", got.Entitlement)
 }
@@ -295,11 +296,11 @@ func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
 	plainJWT, _, err := s.svc.IssueAccessToken(ctx, plainID, "", nil)
 	require.NoError(t, err)
 
-	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", core.OwnerRoleName, adminID)
+	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", embedded.OwnerRoleName, adminID)
 	apiKeyDeny := mintAdminTestAPIKey(t, s, ctx, prefix+"api-deny", "no-access", adminID)
-	delegatedAllow := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-allow", []string{core.PermRootResourcesRead})
+	delegatedAllow := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-allow", []string{embedded.PermRootResourcesRead})
 	delegatedDeny := mintAdminTestDelegatedToken(t, s, ctx, prefix+"delegated-deny", nil)
-	remoteAllow := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-allow", core.OwnerRoleName)
+	remoteAllow := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-allow", embedded.OwnerRoleName)
 	remoteDeny := mintAdminTestRemoteAppToken(t, s, ctx, prefix+"remote-deny", "no-access")
 
 	for name, token := range map[string]string{
@@ -330,14 +331,14 @@ func createAdminTestUser(t *testing.T, s *Service, ctx context.Context, username
 	u, err := s.svc.CreateUser(ctx, username+"@test.example", username)
 	require.NoError(t, err)
 	if admin {
-		require.NoError(t, s.svc.AssignGroupRole(ctx, core.RootPersona, "", u.ID, core.SubjectKindUser, core.OwnerRoleName))
+		require.NoError(t, s.svc.AssignGroupRole(ctx, embedded.RootPersona, "", u.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
 	}
 	return u.ID
 }
 
 func mintAdminTestAPIKey(t *testing.T, s *Service, ctx context.Context, name, role, createdBy string) string {
 	t.Helper()
-	_, token, err := s.svc.MintAPIKey(ctx, core.RootPersona, "", name, role, createdBy, nil)
+	_, token, err := s.svc.MintAPIKey(ctx, embedded.RootPersona, "", name, role, createdBy, nil)
 	require.NoError(t, err)
 	return token
 }
@@ -354,13 +355,13 @@ func mintAdminTestDelegatedToken(t *testing.T, s *Service, ctx context.Context, 
 	// authority-less (it 403s on the missing permission).
 	raRole := ""
 	if len(perms) > 0 {
-		raRole = core.OwnerRoleName
+		raRole = embedded.OwnerRoleName
 	}
 	registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, raRole)
 	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))
-	token, err := core.MintDelegatedAccessToken(ctx, signer, core.DelegatedAccessParams{
+	token, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 		Issuer:           issuer,
 		Audiences:        []string{"test-app"},
 		DelegatedSubject: slug + "-subject",
@@ -381,7 +382,7 @@ func mintAdminTestRemoteAppToken(t *testing.T, s *Service, ctx context.Context, 
 	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))
-	token, err := core.MintRemoteApplicationAccessToken(ctx, signer, core.RemoteApplicationAccessParams{
+	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{
 		Issuer:    issuer,
 		Audiences: []string{"test-app"},
 		TTL:       time.Minute,
@@ -390,16 +391,16 @@ func mintAdminTestRemoteAppToken(t *testing.T, s *Service, ctx context.Context, 
 	return token
 }
 
-func registerAdminTestRemoteApplication(t *testing.T, s *Service, ctx context.Context, slug, issuer string, signer *jwtkit.RSASigner, role string) *core.RemoteApplication {
+func registerAdminTestRemoteApplication(t *testing.T, s *Service, ctx context.Context, slug, issuer string, signer *jwtkit.RSASigner, role string) *authkit.RemoteApplication {
 	t.Helper()
 	gid, err := s.svc.EnsureRootGroup(ctx)
 	require.NoError(t, err)
-	ra, err := s.svc.UpsertRemoteApplication(ctx, core.RemoteApplication{
+	ra, err := s.svc.UpsertRemoteApplication(ctx, authkit.RemoteApplication{
 		Slug:              slug,
 		PermissionGroupID: gid,
 		Issuer:            issuer,
 		Enabled:           true,
-		PublicKeys: []core.RemoteAppKey{{
+		PublicKeys: []authkit.RemoteAppKey{{
 			KID:          signer.KID(),
 			PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey()),
 		}},

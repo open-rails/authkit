@@ -2,11 +2,10 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 	"time"
-
-	core "github.com/open-rails/authkit/core"
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +69,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"pwd", "otp", "mfa"})
 	if err != nil {
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			logLoginFailed(s, r, userID, "user_banned")
 			unauthorized(w, ErrUserBanned)
 			return
@@ -92,7 +91,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 
 	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, emailForToken, map[string]any{"sid": sid})
 	if err != nil {
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return
 		}

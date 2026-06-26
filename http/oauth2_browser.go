@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"io"
 	stdlog "log"
 	"net/http"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
-	core "github.com/open-rails/authkit/core"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
@@ -222,7 +222,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 			accountExistsLinkRequired(w)
 			return
 		}
-		if errors.Is(err, core.ErrRegistrationDisabled) {
+		if errors.Is(err, authkit.ErrRegistrationDisabled) {
 			registrationDisabled(w)
 			return
 		}
@@ -237,11 +237,11 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	extra := map[string]any{"provider": cfg.Name}
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
-		if errors.Is(err, core.ErrTwoFAEnrollmentRequired) {
+		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
 			s.write2FAEnrollmentRequired(w, r, userID)
 			return
 		}
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return
 		}
@@ -251,7 +251,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	extra["sid"] = sid
 	accessToken, exp, err := s.svc.IssueAccessToken(r.Context(), userID, email, extra)
 	if err != nil {
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return
 		}
@@ -415,7 +415,7 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 	// new account is a public registration path, blocked when public registration
 	// is disabled (existing-user login above still works).
 	if s.publicRegistrationDisabled() {
-		return "", false, core.ErrRegistrationDisabled
+		return "", false, authkit.ErrRegistrationDisabled
 	}
 	username := s.svc.DeriveUsernameForOAuth(r.Context(), cfg.Name, info.Preferred, info.Email, info.Display)
 	u, err := s.svc.CreateUser(r.Context(), info.Email, username)

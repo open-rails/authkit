@@ -2,12 +2,13 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 type authTokensResponse struct {
@@ -30,11 +31,11 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 	email := strings.TrimSpace(req.Email)
-	if err := core.ValidateEmail(email); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidateEmail(email); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
-	email = core.NormalizeEmail(email)
+	email = embedded.NormalizeEmail(email)
 
 	// Per-identifier check: prevents verification-mail bombing of a single
 	// address from many IPs.
@@ -56,7 +57,7 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 			if s.handleDeliveryError(w, r, "user_email_change_request", "send_email_verification", err) {
 				return
 			}
-			if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+			if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 				badRequest(w, code)
 				return
 			}
@@ -126,11 +127,11 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := core.ValidateEmail(email); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidateEmail(email); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
-	email = core.NormalizeEmail(email)
+	email = embedded.NormalizeEmail(email)
 
 	// Per-identifier cap: a failed code is not consumed, so bound guesses against
 	// one address even from many IPs.
@@ -142,7 +143,7 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	if userID, err := s.svc.ConfirmPendingRegistration(r.Context(), email, code); err == nil && userID != "" {
 		s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)
 				return
 			}
@@ -155,7 +156,7 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	if userID, err := s.svc.ConfirmEmailVerification(r.Context(), email, code); err == nil && userID != "" {
 		s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)
 				return
 			}

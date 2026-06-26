@@ -2,7 +2,7 @@ package authhttp
 
 // Auto-generated per-persona group-management HTTP surface (#111, task #15).
 //
-// The route surface IS the capability spec: core.GroupSchema.GeneratedRoutes()
+// The route surface IS the capability spec: embedded.GroupSchema.GeneratedRoutes()
 // emits one GeneratedRoute per enabled management capability per persona,
 // addressed by the RESOURCE slug (:instance_slug) and gated by a concrete
 // <persona>:<area>:<action> perm. A disabled capability emits NO route here, so
@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // RoutePermissionGroups is the route group for the auto-generated per-persona
@@ -25,13 +25,13 @@ import (
 const RoutePermissionGroups RouteGroup = "permission_groups"
 
 // groupCan is the authorization predicate the generated handlers gate on. It
-// defaults to core.Service.Can; it is a field only so handler tests can stub the
+// defaults to embedded.Client.Can; it is a field only so handler tests can stub the
 // decision without a database (production never reassigns it).
 func (s *Service) groupCan(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error) {
 	if s.groupCanFn != nil {
 		return s.groupCanFn(r, subjectID, persona, instanceSlug, perm)
 	}
-	return s.svc.Can(r.Context(), subjectID, core.SubjectKindUser, persona, instanceSlug, perm)
+	return s.svc.Can(r.Context(), subjectID, embedded.SubjectKindUser, persona, instanceSlug, perm)
 }
 
 // notImplemented is the wire code for a generated route whose operation is not
@@ -96,7 +96,7 @@ func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
 // binding a handler per route that gates on route.Perm and dispatches by the
 // route's path SHAPE (members / members-role / roles / api-keys / ...). The
 // generator's `:param` paths are converted to net/http ServeMux `{param}` syntax.
-func generatedRouteSpecs(s *Service, routes []core.GeneratedRoute) []RouteSpec {
+func generatedRouteSpecs(s *Service, routes []embedded.GeneratedRoute) []RouteSpec {
 	out := make([]RouteSpec, 0, len(routes))
 	for _, gr := range routes {
 		gr := gr // capture per-iteration
@@ -138,7 +138,7 @@ func pathParam(r *http.Request, name string) string {
 //  4. performs the operation. members, roles (catalog read), api-keys,
 //     remote-applications, and invites are fully wired; only custom-role
 //     define/delete routes depend on custom-role support being enabled.
-func (s *Service) generatedGroupHandler(gr core.GeneratedRoute) http.HandlerFunc {
+func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := ClaimsFromContext(r.Context())

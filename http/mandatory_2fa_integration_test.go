@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := mandatory2FATestConfig()
-	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), core.EphemeralMemory), WithoutRateLimiter())
+	srv, err := NewServer(cfg, pool, WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory), WithoutRateLimiter())
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.SeedPermissionGroupContainment(ctx))
 	_, err = srv.svc.EnsureRootGroup(ctx)
@@ -28,15 +29,15 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	operatorID := mustPasswordUser(t, srv, "mfa-required-operator")
 	_, err = srv.svc.Enable2FA(ctx, operatorID, "email", nil)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", operatorID, core.SubjectKindUser, "admin"))
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", operatorID, embedded.SubjectKindUser, "admin"))
 
 	adminID := mustPasswordUser(t, srv, "mfa-required-admin")
-	err = srv.svc.AssignGroupRole(ctx, core.RootPersona, "", adminID, core.SubjectKindUser, "admin")
-	require.True(t, errors.Is(err, core.ErrTwoFAEnrollmentRequired), "assign without MFA = %v", err)
+	err = srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", adminID, embedded.SubjectKindUser, "admin")
+	require.True(t, errors.Is(err, authkit.ErrTwoFAEnrollmentRequired), "assign without MFA = %v", err)
 
 	_, err = srv.svc.Enable2FA(ctx, adminID, "email", nil)
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRole(ctx, core.RootPersona, "", adminID, core.SubjectKindUser, "admin"))
+	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", adminID, embedded.SubjectKindUser, "admin"))
 
 	w := login(t, srv, "mfa-required-admin", adminID)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -67,16 +68,16 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
 }
 
-func mandatory2FATestConfig() core.Config {
+func mandatory2FATestConfig() embedded.Config {
 	cfg := newServerTestConfig()
-	cfg.RBAC.Groups = []core.PersonaDef{{
-		Name: core.RootPersona,
-		Roles: []core.RoleDef{{
+	cfg.RBAC.Groups = []embedded.PersonaDef{{
+		Name: embedded.RootPersona,
+		Roles: []embedded.RoleDef{{
 			Name:        "admin",
 			Permissions: []string{"root:*"},
 			RequiresMFA: true,
 		}},
-		Routes: core.ManagementProfile{MemberAssignment: true},
+		Routes: embedded.ManagementProfile{MemberAssignment: true},
 	}}
 	return cfg
 }

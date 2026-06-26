@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"os"
 	"strings"
 	"time"
@@ -16,8 +17,8 @@ import (
 const DefaultBootstrapManifestPath = "/etc/authkit/bootstrap.yaml"
 
 var (
-	ErrInvalidBootstrapManifest  = errors.New("invalid_bootstrap_manifest")
-	ErrBootstrapDatabaseNotEmpty = errors.New("bootstrap_database_not_empty")
+	ErrInvalidBootstrapManifest  = authkit.ErrInvalidBootstrapManifest
+	ErrBootstrapDatabaseNotEmpty = authkit.ErrBootstrapDatabaseNotEmpty
 )
 
 const defaultBootstrapApplyName = "default"
@@ -32,85 +33,19 @@ const defaultBootstrapApplyName = "default"
 // genesis path; any other name must be a catalog role of the root persona
 // (declared in core.Config, e.g. an app's bounded "admin"). Group role
 // assignments address groups by stable (persona, instance_slug), never UUID.
-type BootstrapManifest struct {
-	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
-	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
-	GroupRoles         []BootstrapManifestGroupRole         `json:"group_roles" yaml:"group_roles"`
-}
+type BootstrapManifest = authkit.BootstrapManifest
 
-type BootstrapManifestUser struct {
-	Email         string                 `json:"email" yaml:"email"`
-	PhoneNumber   string                 `json:"phone_number" yaml:"phone_number"`
-	Username      string                 `json:"username" yaml:"username"`
-	EmailVerified bool                   `json:"email_verified" yaml:"email_verified"`
-	PhoneVerified bool                   `json:"phone_verified" yaml:"phone_verified"`
-	Banned        bool                   `json:"banned" yaml:"banned"`
-	BannedAt      *time.Time             `json:"banned_at" yaml:"banned_at"`
-	BannedUntil   *time.Time             `json:"banned_until" yaml:"banned_until"`
-	BanReason     *string                `json:"ban_reason" yaml:"ban_reason"`
-	BannedBy      *string                `json:"banned_by" yaml:"banned_by"`
-	Metadata      map[string]any         `json:"metadata" yaml:"metadata"`
-	Password      *BootstrapUserPassword `json:"password" yaml:"password"`
-	// RootRole assigns one root permission-group role to this user by name.
-	// "owner" (the built-in apex, root:*) is seeded SEED-IF-ABSENT; any other
-	// name is assigned as a same-named catalog role of the root persona.
-	RootRole string `json:"root_role" yaml:"root_role"`
-}
+type BootstrapManifestUser = authkit.BootstrapManifestUser
 
-type BootstrapManifestRemoteApplication struct {
-	Slug           string         `json:"slug" yaml:"slug"`
-	Issuer         string         `json:"issuer" yaml:"issuer"`
-	JWKSURI        string         `json:"jwks_uri" yaml:"jwks_uri"`
-	PublicKeys     []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
-	AllowedOrigins []string       `json:"allowed_origins" yaml:"allowed_origins"`
-	Enabled        *bool          `json:"enabled" yaml:"enabled"`
-	RootRole       string         `json:"root_role" yaml:"root_role"`
-}
+type BootstrapManifestRemoteApplication = authkit.BootstrapManifestRemoteApplication
 
-type BootstrapManifestGroupRole struct {
-	Username              string `json:"username" yaml:"username"`
-	RemoteApplicationSlug string `json:"remote_application_slug" yaml:"remote_application_slug"`
-	Persona               string `json:"persona" yaml:"persona"`
-	InstanceSlug          string `json:"instance_slug" yaml:"instance_slug"`
-	Role                  string `json:"role" yaml:"role"`
-}
+type BootstrapManifestGroupRole = authkit.BootstrapManifestGroupRole
 
-type BootstrapUserPassword struct {
-	Plaintext     string         `json:"plaintext" yaml:"plaintext"`
-	Hash          string         `json:"hash" yaml:"hash"`
-	HashAlgo      string         `json:"hash_algo" yaml:"hash_algo"`
-	HashParams    map[string]any `json:"hash_params" yaml:"hash_params"`
-	ResetRequired bool           `json:"reset_required" yaml:"reset_required"`
-	// Enforce makes the password DESIRED-STATE (#89): re-asserted on every
-	// reconcile. Default false = SEED-ONCE — the password is applied only when
-	// the user is first created, so a password rotated out of band (via the
-	// admin API) is never reverted to the manifest value on a later reconcile.
-	// Must not be combined with ResetRequired (forcing a reset every run is
-	// nonsensical).
-	Enforce bool `json:"enforce" yaml:"enforce"`
-}
+type BootstrapUserPassword = authkit.BootstrapUserPassword
 
-type BootstrapReconcileOptions struct {
-	DryRun bool
-	// StartupOnly applies the manifest at most once, using Name as the marker.
-	// Leave false for ordinary operator/CLI applies.
-	StartupOnly bool
-	// Name scopes the startup apply-once marker. Empty means "default".
-	Name string
-}
+type BootstrapReconcileOptions = authkit.BootstrapReconcileOptions
 
-type BootstrapManifestResult struct {
-	DryRun               bool `json:"dry_run"`
-	AlreadyApplied       bool `json:"already_applied"`
-	UsersCreated         int  `json:"users_created"`
-	UsersUpdated         int  `json:"users_updated"`
-	PasswordsSet         int  `json:"passwords_set"`
-	PasswordsKept        int  `json:"passwords_kept"`
-	RootRoleAssignments  int  `json:"root_role_assignments"`
-	GroupRoleAssignments int  `json:"group_role_assignments"`
-	RemoteApplications   int  `json:"remote_applications"`
-	RemoteAppRootRoles   int  `json:"remote_application_root_roles"`
-}
+type BootstrapManifestResult = authkit.BootstrapManifestResult
 
 func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	var manifest BootstrapManifest

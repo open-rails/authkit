@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -31,15 +31,15 @@ func validateRemoteAppSlug(slug string) error {
 
 var (
 	// ErrRemoteApplicationNotFound indicates no remote_application matched.
-	ErrRemoteApplicationNotFound = errors.New("remote_application_not_found")
-	// ErrInvalidRemoteApplication is defined in authbase and re-exported here.
-	ErrInvalidRemoteApplication = authbase.ErrInvalidRemoteApplication
+	ErrRemoteApplicationNotFound = authkit.ErrRemoteApplicationNotFound
+	// ErrInvalidRemoteApplication is defined in authkit and re-exported here.
+	ErrInvalidRemoteApplication = authkit.ErrInvalidRemoteApplication
 	// ErrReservedIssuer indicates an attempt to register a remote_application
 	// under the platform's own issuer string. The platform issuer is the local,
 	// first-party signing identity; allowing a federated remote_application to
 	// claim it would overwrite the trusted local issuer entry (key-swap / auth
 	// DoS — see AK-AUTH-01).
-	ErrReservedIssuer = errors.New("reserved_issuer")
+	ErrReservedIssuer = authkit.ErrReservedIssuer
 )
 
 // Remote-application trust modes (#74). A remote_application is a federation
@@ -50,15 +50,15 @@ var (
 //	static — authorized_keys-style human-managed PEM list for principals without
 //	         a JWKS endpoint; manual rotation by design.
 //
-// Remote-application trust modes are defined in authbase (core-free) and
+// Remote-application trust modes are defined in authkit (core-free) and
 // re-exported here.
 const (
-	RemoteAppModeJWKS   = authbase.RemoteAppModeJWKS
-	RemoteAppModeStatic = authbase.RemoteAppModeStatic
+	RemoteAppModeJWKS   = authkit.RemoteAppModeJWKS
+	RemoteAppModeStatic = authkit.RemoteAppModeStatic
 )
 
-// RemoteAppKey is defined in authbase (core-free) and re-exported here.
-type RemoteAppKey = authbase.RemoteAppKey
+// RemoteAppKey is defined in authkit (core-free) and re-exported here.
+type RemoteAppKey = authkit.RemoteAppKey
 
 // NormalizeRemoteAppTrustSource validates the mutually-exclusive trust source of
 // a registration and returns the normalized mode. Empty mode is inferred: a key
@@ -227,17 +227,17 @@ func decodeRemoteAppKeys(raw []byte) []RemoteAppKey {
 	return keys
 }
 
-// Origin helpers are defined in authbase (core-free) and re-exported here.
+// Origin helpers are defined in authkit (core-free) and re-exported here.
 var (
-	NormalizeAllowedOrigin  = authbase.NormalizeAllowedOrigin
-	NormalizeAllowedOrigins = authbase.NormalizeAllowedOrigins
-	OriginAllowed           = authbase.OriginAllowed
+	NormalizeAllowedOrigin  = authkit.NormalizeAllowedOrigin
+	NormalizeAllowedOrigins = authkit.NormalizeAllowedOrigins
+	OriginAllowed           = authkit.OriginAllowed
 )
 
 // RemoteApplication is a federation principal: an external system that
 // authenticates by signing JWTs verified against its JWKS/public keys. Defined
-// in authbase (core-free) and re-exported here.
-type RemoteApplication = authbase.RemoteApplication
+// in authkit (core-free) and re-exported here.
+type RemoteApplication = authkit.RemoteApplication
 
 func remoteAppFromUpsert(row db.RemoteApplicationUpsertRow) *RemoteApplication {
 	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), AllowedOrigins: row.AllowedOrigins, Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}

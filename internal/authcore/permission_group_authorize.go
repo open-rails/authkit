@@ -7,7 +7,7 @@ package authcore
 // feeds them here. Keeping the decision pure makes it exhaustively unit-testable
 // without a database and keeps the authz-critical matching in one place.
 
-import "github.com/open-rails/authkit/authbase"
+import authkit "github.com/open-rails/authkit"
 
 // GroupAssignment is a subject's role-assignment set within ONE permission-group,
 // tagged with that group's persona. The engine produces a slice of these by walking
@@ -76,7 +76,7 @@ func (s *GroupSchema) Can(assignments []GroupAssignment, custom CustomRoleResolv
 // anyGrantCovers reports whether any grant token covers perm.
 func anyGrantCovers(grants []string, perm string) bool {
 	for _, g := range grants {
-		if authbase.PermMatches(g, perm) {
+		if authkit.PermMatches(g, perm) {
 			return true
 		}
 	}

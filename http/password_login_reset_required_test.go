@@ -11,13 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 // TestPasswordLogin_LegacyResetRequired drives the full HTTP handler against a
 // real database: a user whose stored hash is flagged
-// core.HashAlgoLegacyResetRequired must get 401 with the machine-readable code
+// embedded.HashAlgoLegacyResetRequired must get 401 with the machine-readable code
 // "password_reset_required" (same status family as invalid_credentials; only
 // the body code differs, and only for this flagged cohort). Skips when
 // AUTHKIT_TEST_DATABASE_URL is unset.
@@ -31,25 +31,25 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	cfg := core.Config{
-		Token: core.TokenConfig{
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
-		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
+		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
 	svc, err := NewServer(cfg, pool)
 	require.NoError(t, err)
 
-	coreSvc := authcore.NewService(core.Options{Issuer: "https://example.com"}, core.Keyset{}, core.WithPostgres(pool))
+	coreSvc := authcore.NewService(embedded.Options{Issuer: "https://example.com"}, embedded.Keyset{}, embedded.WithPostgres(pool))
 	const email = "legacy-reset-required-http@example.com"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
 	u, err := coreSvc.CreateUser(ctx, email, "legacyresetrequiredhttp")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, u.ID) })
-	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "8RmkP1jcmYBbE", core.HashAlgoLegacyResetRequired, nil))
+	require.NoError(t, coreSvc.UpsertPasswordHash(ctx, u.ID, "8RmkP1jcmYBbE", embedded.HashAlgoLegacyResetRequired, nil))
 
 	for _, identifier := range []string{email, "legacyresetrequiredhttp"} {
 		w := httptest.NewRecorder()

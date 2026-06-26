@@ -1,0 +1,72 @@
+package verify
+
+import (
+	"context"
+	"net/http"
+)
+
+// PermissionChecker evaluates whether a subject holds a permission within a
+// permission-group instance — the server-side authorization primitive. The
+// embedded engine (`embedded.Client` / the root `authkit.Client`, which expose
+// `Can`) satisfy this directly; verify declares the port so it never imports the
+// engine (verify is jwt-only).
+type PermissionChecker interface {
+	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)
+}
+
+// PermissionScope is the permission-group instance a request's authority is
+// evaluated against. For a singleton persona (e.g. `root`) Instance is "".
+type PermissionScope struct {
+	Persona  string
+	Instance string
+}
+
+// subjectKindUser is the subject-kind discriminator for an authenticated human
+// user. Mirrors embedded.SubjectKindUser (a stable stored value); verify cannot
+// import embedded, and the gate only reaches Can for human users (machine
+// principals are handled by the token-carried branch below), so it is fixed here.
+const subjectKindUser = "user"
+
+// RequirePermission gates a handler on `perm`, evaluated server-side via the
+// PermissionChecker in the scope `resolve` derives from the request — so one gate
+// serves a singleton persona (`root`) AND resource-scoped personas
+// (`/v1/merchants/{id}/...` → {Persona: "merchant", Instance: id}). It must run
+// after Required so the verified Claims are in context.
+//
+// Two authority paths, matching how authkit carries it:
+//   - API-key / delegated-access principals carry their permission strings ON the
+//     token; those are checked directly (no group lookup).
+//   - Human users carry only identity; their authority is resolved against the
+//     registered permission-group schema via Can.
+//
+// Fail-closed: missing claims, no resolver, an unknown group, or a Can error all
+// deny (403).
+func RequirePermission(checker PermissionChecker, perm string, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl, err := GetClaims(r.Context())
+			if err != nil {
+				forbidden(w, "forbidden")
+				return
+			}
+			// Token-carried authority (API keys, delegated access): the perm is on
+			// the token; no subject/group lookup.
+			if cl.HasPermission(perm) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Human user: evaluate against the group schema.
+			if checker == nil || resolve == nil || cl.UserID == "" {
+				forbidden(w, "forbidden")
+				return
+			}
+			scope := resolve(r)
+			ok, err := checker.Can(r.Context(), cl.UserID, subjectKindUser, scope.Persona, scope.Instance, perm)
+			if err != nil || !ok {
+				forbidden(w, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

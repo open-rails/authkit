@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) confirmPhoneVerificationToken(w http.ResponseWriter, r *http.Request, token, identifier, phoneNumber string) {
@@ -40,11 +40,11 @@ func (s *Service) handlePhoneVerifyLinkFailure(w http.ResponseWriter, ctx contex
 		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
-	if err := core.ValidatePhone(target); err != nil {
+	if err := embedded.ValidatePhone(target); err != nil {
 		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
-	target = core.NormalizePhone(target)
+	target = embedded.NormalizePhone(target)
 
 	if u, err := s.svc.GetUserByPhone(ctx, target); err == nil && u != nil {
 		if u.PhoneVerified {

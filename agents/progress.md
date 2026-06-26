@@ -9,9 +9,306 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 138
+next_id: 141
 
 ---
+
+# #140: ship a Can-backed permission gate (RequirePermission middleware)
+
+**Completed:** no
+
+Proposed 2026-06-25 (doujins boundary review). authkit owns the permission-group
+schema and has `Can(subjectID, subjectKind, persona, instanceSlug, perm)`, but
+ships NO request-level gate — so embedding hosts hand-roll one AND reimplement the
+role→permission expansion against a local copy of the catalog. doujins's
+`principalHasPermissionDB` maps perm→roles from its own `roleBundles` and borrows
+authkit only for role membership, duplicating what `Can` already does end-to-end.
+Hard cut: ship the gate, hosts delete their copies.
+
+STATUS 2026-06-25 (Claude): implementation DONE in the working tree —
+`verify/require_permission.go` + `require_permission_test.go` (6 cases),
+`go build/vet/test ./verify/` green. Held with #139 pending a pinnable release.
+
+## Tasks
+- [x] `net/http` `RequirePermission(checker, perm, resolve)` middleware in
+      `verify/require_permission.go`: `resolve` → (persona, instanceSlug) so ONE
+      gate serves singleton `root` AND resource-scoped `merchant`/`customer`; reads
+      verified Claims; token-carried perms short-circuit, else `Can` → 403/next;
+      fail-closed.
+- [x] tests (`require_permission_test.go`, 6): singleton allow/deny, resource-scoped
+      instance pass-through, token short-circuit, no-claims + nil-checker forbidden.
+- [~] `Can` on the `authkit.Client` interface — #138's (93-method Client exists).
+      The gate deliberately depends on a NARROW `verify.PermissionChecker` port
+      (`embedded.Client`/`authkit.Client` satisfy it directly), so `verify` stays
+      jwt-only and never imports the engine.
+- [ ] document the net/http→gin wrap (composes with the standard gin wrapper, e.g.
+      doujins's `wrapHTTPMiddleware`) — doc nicety, non-blocking.
+
+CROSS-REPO CONSUMER (doujins #422/#423): once shipped, doujins deletes
+`principalHasPermissionDB` + `catalogRolesGranting` + the local `permission.ForRoles`
+expansion and gates purely via authkit. Pairs with #138's `authkit.Client`.
+
+---
+
+# #139: verify.Verifier.VerifyRequest — request→claims extractor (un-hack out-of-band auth gates)
+
+**Completed:** no
+
+STATUS 2026-06-25 (Claude): code + a direct `VerifyRequest` test are in the working tree; `verify` pkg green (Required now delegates to it). Held pending a pinnable authkit release; doujins re-applies then (doujins #422).
+
+Proposed 2026-06-25. `verify.Required`/`Optional` are the only way to run the
+full auth pipeline (bearer parse, API-key branch, JWT verify, 2FA + delegated
+issuer gates, DB enrichment, ban/deleted gate). An embedder that must
+authenticate a request OUTSIDE the http-middleware chain (openrails' billingauth
+seam, consumed by doujins) currently drives `Required` against a throwaway
+ResponseWriter and scrapes claims back out of the request context — a hack.
+
+Change (additive, non-breaking; stays inside `verify/`, which #138 leaves
+unchanged): extract the pipeline body of `Required` into
+
+    func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error)
+
+returning the enriched claims, or an error carrying the would-be HTTP status
+(401/403) via an unexported `authError`. `Required` becomes a thin wrapper that
+calls `VerifyRequest` and writes the response — single source of truth, behavior
+preserved (verify tests green). Patch: scratchpad/authkit-verifyrequest.patch.
+
+Coordinate with #138 (same repo, active): no package overlap (verify/ untouched
+there), so this can land independently or fold into the #138 release.
+
+CROSS-REPO CONSUMER (doujins): `internal/billing/openrailsembed/auth.go` replaces
+its discard-writer `verifyRequest` with `v.VerifyRequest(r)` once authkit ships
+this (needs a version doujins can pin).
+
+---
+
+# #138: Package restructure for embedded-now / standalone-later (etcd-style dual mode)
+
+**Completed:** no
+
+STATUS 2026-06-25 (Claude): Phase 1 landed in the working tree. Done: devserver →
+`cmd/authkit-devserver/`; `core` package → `embedded` (`core.Service` →
+`embedded.Client`, `NewFromConfig` → `New`, 69 importers updated); root `authkit`
+package with the 93-method `Client` interface + data-contract re-exports +
+compile-time conformance proof; `svc.Core()` → `svc.Client() authkit.Client`
+(http + devserver are the root's first importers, seam exercised end-to-end);
+#109 disambiguation (collision resolved by the rename). Cut public `NewService`
+(Options+Keyset escape hatch, no real consumer) after rewriting its lone test
+caller onto `embedded.New`. Deferred:
+making root literally pgx-free (relocating ~115 type defs; only Phase-2 `remote`
+needs it). Verified: `go build ./...` + `go vet ./...` green; non-DB tests pass;
+DB-backed riverjobs purge + http server tests pass against the compose Postgres.
+Not committed (dirty worktree). NOT done (Phase 2, deferred): `authkit/server`,
+management HTTP API, `authkit/remote`, transport/adapter layer.
+
+Proposed 2026-06-25 (Paul + Claude design session). authkit is an **embedded Go
+library today**. We want it to *later* be offered as a **self-hostable standalone
+server** (so non-Go apps can use it over HTTP), and a consumer should swap
+embedded ↔ standalone with **minimal effort** — the way openrails does. This issue
+restructures the embedded library now so the swap seam exists, then stops.
+Standalone is Phase 2, deferred until we decide to build that product. Breaking;
+lands with the #108 hardcut, pre-1.0.
+
+Reference design is **etcd** (runs both ways: `embed` package + `clientv3` +
+standalone binary). An agent analyzed it; the load-bearing lessons:
+
+1. **Lean client/contract module, heavy server module.** etcd's `client/v3` (gRPC
+   only) + `api/v3` (shared DTOs) carry no raft/storage. → our lean root + heavy
+   `embedded` split is right.
+2. **Write the client ONCE; vary the transport.** etcd does NOT have two client
+   impls. One `clientv3.Client` is fed by either a real gRPC socket OR a
+   zero-serialization **in-process adapter** (`v3client.New(server)` via
+   `proxy/grpcproxy/adapter`, presenting server handlers as the client interface).
+   → **This corrects the earlier sketch of two independent impls (`embedded` +
+   `remote`) each satisfying the interface — two impls drift (error mapping,
+   timeouts, partial coverage). One client + two transports does not.**
+3. **In-process = direct calls, NOT a loopback socket.** etcd's embedded fast path
+   makes direct function calls through the real handler stack. → when we build
+   standalone, embedded must not route through HTTP/loopback.
+4. **One config struct, two front doors.** `embed.Config` is mutated by embedders
+   and filled-from-flags/file by the binary (`etcdmain` wraps the same struct);
+   `main` is ~10 lines.
+5. **Frozen wire-contract package** (`api/v3`) versioned independently. → our root
+   DTOs are the start of this.
+
+## Target layout
+
+| Package | Deps | Phase | Role |
+|---|---|---|---|
+| `authkit` (root) | lean (stdlib) | 1 | contract: `Client` interface, shared DTOs (`User`/`Session`/`APIKey`/`Config`…), sentinel errors. No pgx/redis/http. Swap seam + frozen wire-contract. |
+| `authkit/embedded` | + pgx | 1 | in-process engine; `New(cfg, pg) (*Client, error)`; satisfies `authkit.Client` via direct Go calls. (today's `core` + `internal/authcore`) |
+| `authkit/http` | + oidc/redis/ratelimit | 1 (rename) | browser-facing auth-flow routes an embedding app mounts. Stays; becomes a component of the Phase-2 standalone server. |
+| `authkit/verify` | jwt only | 1 (unchanged) | local JWT validation, both modes. Must never import `embedded`. |
+| `authkit/server` | + http + mgmt API | 2 | standalone self-hostable binary: engine + `http` routes + authenticated management API for non-Go clients. Thin `main` in `cmd/`. |
+| transport/adapter layer | lean | 2 | in-process direct-call adapter (embedded) + HTTP transport (remote), both feeding one shared client (etcd `v3client`/`adapter`). |
+| `authkit/remote` | + net/http | 2 | Go SDK over the mgmt API. Satisfies `authkit.Client`. |
+
+Consumer code, unchanged across the swap:
+```go
+var c authkit.Client
+c, _ = embedded.New(cfg, pg)                       // Phase 1 — in-process
+c, _ = remote.New("https://auth.acme.com", creds)  // Phase 2 — standalone
+c.CreateUser(ctx, "a@b.com", "alice")              // identical either way
+```
+
+## Phase 1 — embedded restructure + seam (this issue)
+
+- [x] Create root `authkit`: `authkit.Client` interface = the portable 93-method
+      subset (infra accessors `Postgres()`/`Keyfunc()`/`JWKS()`/`Options()`/`Schema()`
+      kept OFF it), `client.go`; data types/enums/sentinel errors re-exported in
+      `types.go`; compile-time `var _ Client = (*embedded.Client)(nil)` conformance
+      proof holds. **DEFERRED:** literal "ZERO pgx imports" — root re-exports from
+      `embedded`, so it transitively imports pgx today. Making root pgx-free means
+      relocating ~115 type DEFINITIONS out of the pgx-importing engine files into a
+      lean package (the structs themselves are plain — `User`/`Session`/`Config` use
+      only stdlib — but their files hold the engine). That's a large separable
+      surgery whose only consumer is Phase-2 `remote`; carved out as its own task.
+- [x] Rename `core` → `embedded`; `core.NewFromConfig` → `embedded.New`;
+      `core.Service` → `embedded.Client`; all 69 importers updated; build green.
+- [x] DELETE public `core.NewService`/`embedded.NewService` (the Options+Keyset
+      escape hatch — no real consumer; real construction is `embedded.New(Config, pg)`).
+      Its one caller, the river purge-worker DB test, was rewritten onto
+      `embedded.New(Config{Keys.VerifyOnly}, pg)` (no signer needed). Internal
+      `authcore.NewService` kept (used by `New` + in-package tests). DB test green.
+- [x] `svc.Core()` → `svc.Client()` returning `authkit.Client` (the interface seam;
+      devserver bootstrap helpers now take `authkit.Client`). http + devserver are
+      the root package's first real importers — seam exercised end-to-end.
+- [x] Move devserver (`package main` at repo root, test-only) → `cmd/authkit-devserver/`;
+      thin `main`. Frees root to be the library package. (Dockerfile.devserver build path updated.)
+- [x] `authkit/http` #109 disambiguation: the collision is RESOLVED by the
+      core→embedded rename (no second public `Service` type exists; facade is
+      `embedded.Client`). `Server` kept as the recommended exported alias
+      (`type Server = Service`); stale `core.Service` doc fixed. Full receiver
+      rename `Service`→`Server` skipped — pure churn, no behavior change, nothing
+      left to disambiguate.
+
+**NOT in Phase 1 (YAGNI until standalone greenlit):** no `authkit/server` binary,
+no management HTTP API, no `authkit/remote` SDK, no transport/adapter layer (with
+one transport the engine *is* the client). The root interface is the one piece of
+deliberate forward-investment — it makes the Phase-2 swap construction-only instead
+of a type change in every consumer.
+
+## Phase 2 — standalone server (deferred; sketch)
+
+When greenlit, follow etcd; do NOT hand-roll a second client. Define mgmt handlers
++ wire DTOs once (DTOs already at root); build an in-process direct-call adapter +
+an HTTP transport, both feeding ONE shared `authkit.Client`. `authkit/server` =
+self-hostable binary; `authkit/remote` = Go SDK; non-Go clients hit the REST API
+directly. Unify server config into one struct used by binary and `embedded`.
+
+## Phase 1.5 — contract inversion to the ideal greenfield shape (DONE — root pgx-free)
+
+STATUS 2026-06-25 (Claude): COMPLETE. Root `authkit` is now pgx-free — it depends
+on `authbase` + stdlib only (`go list -deps` verified). The wire contract (47+6
+sentinel errors, `User`/`Session`, 34 DTOs/enums + 11 enum consts) lives in the
+lean `authbase` package; `internal/authcore` aliases every symbol back so engine
+code is unchanged; root re-exports the contract from `authbase`; the
+`embedded.Client`→`authkit.Client` conformance assertion moved into `embedded`.
+Dependency direction is now correct (infra → contract, never the reverse). build
++ vet green; full DB-backed suites pass on a fresh migrated DB. Only the optional
+naming polish (fold `authbase` into root) remains. NOT committed (dirty worktree).
+
+Decision (Paul, 2026-06-25): a pgx-free root is the IDEAL design, not just nicer —
+it's the correct dependency direction. Infra (pgx persistence, http transport) are
+ADAPTERS that depend INWARD on the contract; the contract depends on nothing heavy
+(etcd `api/v3` / hexagonal ports). Today's shape is INVERTED — root re-exports
+*outward* from the engine, so the contract depends on the implementation. Fix it.
+
+**Contract home = `authbase`** (already lean/stdlib-only, already imported by
+`authcore`; its own doc says it exists for verify "and, later, a remote SDK" — it
+IS the designed contract package). Already holds RemoteApplication, APIKey types,
+ResolvedAPIKey, ServiceJWTClaims, key-format helpers, 3 sentinel errors.
+
+**Mechanic (incremental, build-green — no big-bang cycle-break):** for each
+contract symbol DEFINED in `internal/authcore`:
+1. move its DEFINITION into `authbase` (stdlib-only; topological order, leaves first);
+2. in `authcore` replace the def with `type X = authbase.X` (authcore already imports authbase);
+3. `embedded/aliases.go` + root `types.go` re-exports keep working via the alias chain → green.
+
+**FINAL FLIP** (once every root-exposed symbol resolves through `authbase`):
+point root `types.go` re-exports at `authbase` instead of `embedded`; move the
+`var _ authkit.Client = (*embedded.Client)(nil)` conformance into `embedded`; drop
+root's `embedded` import → **root is pgx-free**.
+
+**Partition (contract vs engine):**
+- CONTRACT → `authbase`: DTOs (`User`, `Session`, `AdminUser`, `GroupMember`, …),
+  enums (`RegistrationMode`, `SessionRevokeReason`, …), the `*Request`/`*Result`/
+  `*Options` in the `Client` interface, sentinel errors, key-format helpers.
+- ENGINE → stays in `authcore`/`embedded`, OFF root's surface: `Config`, `Options`,
+  `Keyset`, ports (`EmailSender`/`SMSSender`/`EntitlementsProvider`/`AuthEventLogger`),
+  `WithX` construction options. Trim these from root `types.go` — they aren't contract.
+
+**Cycle-break note:** the conformance assertion must leave root (else root→embedded→
+pgx). Defining straight into root would force authcore→root while root still imports
+embedded — a cycle; staging through `authbase` (which authcore already imports)
+avoids it and keeps every step green.
+
+**Stages** (each build-green) — ALL DONE except the optional fold-in:
+- [x] sentinel errors → `authbase`: all 47 authcore-defined sentinels MOVED to
+      `authbase/errors.go`; authcore aliases them (`var ErrX = authbase.ErrX`).
+      Shared `errors.Is` identity now lives in the contract pkg.
+- [x] leaf DTOs → `authbase`: `User` + `Session` (authbase/user.go).
+- [x] composite DTOs + enums → `authbase`: 34 types + 11 enum consts moved to
+      `authbase/contract.go` (Admin*, APIKey*, Bootstrap*, Group invite*, Group
+      membership, mint params, Import*, Passwordless*, MFAStatus, PreferredLanguage),
+      authcore aliases them all. One method (`AdminUserListOptions.normalize`)
+      converted to a free function (can't define methods on an alias).
+- [x] trim engine types off root `types.go`: root now re-exports ONLY the contract
+      from `authbase` (102 symbols: DTOs + enums + 53 sentinel errors). `Config`/
+      `Options`/`Keyset`/ports/`WithX` dropped from root (reach them via `embedded`).
+- [x] FINAL FLIP → **root is pgx-free**: `types.go` re-exports from `authbase`,
+      conformance assertion `var _ authkit.Client = (*embedded.Client)(nil)` moved
+      to `embedded/conformance.go`, root's `embedded` import dropped. `go list -deps`
+      on root = `{authbase}` only — no pgx/redis/authcore/embedded/http. `verify`
+      still pgx-free. Full DB-backed suites (internal/authcore, http, riverjobs)
+      green on a freshly-migrated DB.
+- [ ] fold `authbase` into root `authkit` (one contract package) — see Phase 1.6.
+
+## Phase 1.6 — fold authbase into root + delete legacy (HARDCUT, no compat) — DONE
+
+STATUS 2026-06-25 (Claude): `authbase` package FOLDED into root `authkit` and
+deleted; its 9 files now define the contract in the root package, root `types.go`
+re-export shell deleted, all 34 importers repointed to root, stale comments
+cleaned. Root `authkit` is the ONE contract package — pgx-free (`go list -deps` =
+root only), holds DTOs + enums + 53 sentinel errors + the `Client` interface.
+`verify` still pgx-free. build + vet + gofmt green; full DB-backed + non-DB suites
+pass on a fresh DB. Only the cosmetic `embedded` alias trim declined (see below).
+NOT committed (dirty worktree).
+
+Make root `authkit` the ONE contract package consumers import (`authkit.User`,
+`authkit.ErrUserNotFound`, `authkit.Client`). No `authbase` package, no redundant
+re-export shells. Breaking; hardcut, no compatibility aliases.
+
+- [x] Move `authbase/*.go` (9 files + `httperror_test.go`) into root `authkit`
+      package; `package authbase` → `package authkit`. Defs now LIVE in root.
+- [x] Delete root `types.go` (the re-export shell — redundant once defs are in root).
+- [x] Rewrite all 34 `authbase` importers: import path → root, `authbase.` →
+      `authkit.` (authcore engine aliases now `type X = authkit.X`; verify/http/embedded
+      repointed). Stale `authbase` comment mentions cleaned up too.
+- [x] Delete the now-empty `authbase/` directory.
+- [x] Verify: no import cycle; root pgx-free + lean (`go list -deps` root = {root} only);
+      `verify` still pgx-free; build + vet + gofmt green.
+- [x] Full DB-backed suites (internal/authcore, http, riverjobs) + non-DB (root
+      `authkit`, verify, jwt, adapters) pass on a fresh migrated DB; gofmt clean.
+- [x] Trim `embedded/aliases.go` contract re-exports (HARDCUT, per Paul). Dropped
+      all 117 redundant contract re-exports (types + 53 errors + enum consts +
+      helpers); `embedded/aliases.go` now re-exports ENGINE symbols only
+      (Config/Options/ports/WithX/engine enums). The 93-method `embedded` facade and
+      every consumer (http/cmd/adapters/riverjobs) now spell the contract `authkit.X`;
+      unused `embedded`/`authkit` imports pruned. One subtlety handled: a substring
+      repoint had corrupted engine types sharing a contract prefix
+      (`APIKeyResource*`) — reverted those to `embedded.X`. build + vet + gofmt green;
+      full DB-backed + non-DB suites pass on a fresh DB; root still pgx-free.
+
+## Open decisions
+
+- Naming collision `authkit.Client` (interface) vs `embedded.Client` (struct) —
+  fine in Go (`http.Client`); alternatives `authkit.API` / `embedded.Engine`.
+- Root = contract (chosen — so `remote` imports it without pgx; no `authkit.New`,
+  construction is `embedded.New`) vs root = embedded entrypoint (`authkit.New`,
+  pulls pgx) with contract in `authkit/api`.
+- Exact interface surface: which of the ~95 methods are portable contract vs
+  embedded-only infra — needs a method-by-method pass.
 
 ---
 

@@ -1,7 +1,7 @@
 package authhttp
 
-import core "github.com/open-rails/authkit/core"
+import "github.com/open-rails/authkit/embedded"
 
 func validateUsername(username string) error {
-	return core.ValidateUsername(username)
+	return embedded.ValidateUsername(username)
 }

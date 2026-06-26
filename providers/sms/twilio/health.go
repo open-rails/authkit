@@ -14,7 +14,7 @@ import (
 // Messaging Service exists and has at least one attached sender, and that any
 // toll-free sender has completed Twilio toll-free verification (the silent
 // failure behind error 30032). It returns nil when delivery is expected to
-// succeed, or a descriptive error otherwise. Implements core.SMSHealthChecker.
+// succeed, or a descriptive error otherwise. Implements embedded.SMSHealthChecker.
 func (s *Sender) CheckHealth(ctx context.Context) error {
 	if s == nil {
 		return fmt.Errorf("twilio sender is nil")

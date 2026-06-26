@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *http.Request) {
@@ -24,11 +24,11 @@ func (s *Service) handlePhonePasswordResetRequestPOST(w http.ResponseWriter, r *
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
-	if err := core.ValidatePhone(phone); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidatePhone(phone); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
-	phone = core.NormalizePhone(phone)
+	phone = embedded.NormalizePhone(phone)
 
 	// Per-identifier check: prevents reset-SMS bombing of a single phone number
 	// (and the associated delivery cost) from many IPs.
@@ -72,14 +72,14 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := core.ValidatePassword(newPass); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidatePassword(newPass); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
 
 	userID, err := s.svc.ConfirmPasswordReset(r.Context(), token, newPass)
 	if err != nil {
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}

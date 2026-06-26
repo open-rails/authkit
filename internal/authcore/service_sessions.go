@@ -12,21 +12,13 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Session represents a sanitized session view (no tokens).
-type Session struct {
-	ID                  string
-	FamilyID            string
-	CreatedAt           time.Time
-	LastAuthenticatedAt *time.Time
-	LastUsedAt          time.Time
-	ExpiresAt           *time.Time
-	RevokedAt           *time.Time
-	UserAgent           *string
-	IPAddr              *string
-}
+// Session is defined in the lean authkit contract package (#138 inversion);
+// aliased here so engine code keeps using the bare name.
+type Session = authkit.Session
 
 const SensitiveActionFreshAuthWindow = 15 * time.Minute
 
@@ -35,7 +27,7 @@ const (
 	AssuranceLevelMFA      = "urn:authkit:loa:2"
 )
 
-var ErrStepUpRequired = errors.New("step_up_required")
+var ErrStepUpRequired = authkit.ErrStepUpRequired
 
 type SessionFreshness struct {
 	LastAuthenticatedAt           time.Time

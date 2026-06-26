@@ -2,10 +2,11 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request) {
@@ -26,8 +27,8 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := core.ValidatePassword(body.NewPassword); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidatePassword(body.NewPassword); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
 
@@ -38,7 +39,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.CurrentPassword); verr != nil {
-			if errors.Is(verr, core.ErrPasswordResetRequired) {
+			if errors.Is(verr, authkit.ErrPasswordResetRequired) {
 				unauthorized(w, ErrPasswordResetRequired)
 				return
 			}
@@ -71,13 +72,13 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 		changeErr = s.svc.ChangePassword(r.Context(), claims.UserID, body.CurrentPassword, body.NewPassword, keep)
 	}
 	if changeErr != nil {
-		if errors.Is(changeErr, core.ErrPasswordResetRequired) {
+		if errors.Is(changeErr, authkit.ErrPasswordResetRequired) {
 			// The current password can never verify against a legacy
 			// reset-required hash; route the user to the reset flow.
 			badRequest(w, ErrPasswordResetRequired)
 			return
 		}
-		if code := ErrorCode(core.ValidationErrorCode(changeErr)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(changeErr)); code != "" {
 			badRequest(w, code)
 			return
 		}

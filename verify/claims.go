@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 )
 
 // Claims is a typed view of authenticated user information attached by middleware.
@@ -86,7 +86,7 @@ type Claims struct {
 	// Resources are opaque host-defined resource scopes carried by an
 	// API key. Empty means the API-key principal has no AuthKit-stored
 	// resource constraints; resource-aware hosts decide whether to require them.
-	Resources []authbase.APIKeyResource
+	Resources []authkit.APIKeyResource
 
 	// RemoteApplicationID / RemoteApplicationSlug identify the remote_application
 	// authenticated by a remote application access token. Populated ONLY for
@@ -227,7 +227,7 @@ func (c Claims) AttributeIsReference(key string) bool {
 // the requested concrete permission.
 func (c Claims) HasPermission(perm string) bool {
 	for _, p := range c.Permissions {
-		if authbase.PermissionTokenCovers(p, perm) {
+		if authkit.PermissionTokenCovers(p, perm) {
 			return true
 		}
 	}

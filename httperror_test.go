@@ -1,4 +1,4 @@
-package authbase
+package authkit
 
 import (
 	"encoding/json"

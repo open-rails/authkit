@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/authprovider"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
@@ -63,9 +63,9 @@ func TestResolveOAuthUser_ExistingEmail_RefusesSilentLink(t *testing.T) {
 	pool := newAccountLinkPG(t)
 	ctx := context.Background()
 	coreSvc := authcore.NewService(
-		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
-		core.Keyset{},
-		core.WithPostgres(pool),
+		embedded.Options{Issuer: "https://example.com", NativeUserRegistrationMode: embedded.RegistrationModeOpen},
+		embedded.Keyset{},
+		embedded.WithPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
 
@@ -96,9 +96,9 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	pool := newAccountLinkPG(t)
 	ctx := context.Background()
 	coreSvc := authcore.NewService(
-		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
-		core.Keyset{},
-		core.WithPostgres(pool),
+		embedded.Options{Issuer: "https://example.com", NativeUserRegistrationMode: embedded.RegistrationModeOpen},
+		embedded.Keyset{},
+		embedded.WithPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
 
@@ -132,9 +132,9 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	pool := newAccountLinkPG(t)
 	ctx := context.Background()
 	coreSvc := authcore.NewService(
-		core.Options{Issuer: "https://example.com", NativeUserRegistrationMode: core.RegistrationModeOpen},
-		core.Keyset{},
-		core.WithPostgres(pool),
+		embedded.Options{Issuer: "https://example.com", NativeUserRegistrationMode: embedded.RegistrationModeOpen},
+		embedded.Keyset{},
+		embedded.WithPostgres(pool),
 	)
 	s := &Service{svc: coreSvc}
 

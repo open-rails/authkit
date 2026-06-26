@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"net/url"
 	"strings"
 	"time"
@@ -38,19 +39,19 @@ const (
 
 var (
 	// ErrInviteLinkNotFound indicates no invite link matched the code/lookup.
-	ErrInviteLinkNotFound = errors.New("group_invite_link_not_found")
+	ErrInviteLinkNotFound = authkit.ErrInviteLinkNotFound
 	// ErrInviteLinkExpired indicates the link's expires_at has passed.
-	ErrInviteLinkExpired = errors.New("group_invite_link_expired")
+	ErrInviteLinkExpired = authkit.ErrInviteLinkExpired
 	// ErrInviteLinkExhausted indicates the link hit its max_uses cap.
-	ErrInviteLinkExhausted = errors.New("group_invite_link_exhausted")
+	ErrInviteLinkExhausted = authkit.ErrInviteLinkExhausted
 	// ErrInviteLinkRevoked indicates the link was revoked by a manager.
-	ErrInviteLinkRevoked = errors.New("group_invite_link_revoked")
+	ErrInviteLinkRevoked = authkit.ErrInviteLinkRevoked
 	// ErrInviteEmailMismatch indicates an email-bound link was redeemed by a user
 	// whose verified email does not match the bound address.
-	ErrInviteEmailMismatch = errors.New("group_invite_email_mismatch")
+	ErrInviteEmailMismatch = authkit.ErrInviteEmailMismatch
 	// ErrExternalInvitesDisabled indicates invite links are off because the
 	// deployment's registration mode does not permit invited self-registration.
-	ErrExternalInvitesDisabled = errors.New("external_invites_disabled")
+	ErrExternalInvitesDisabled = authkit.ErrExternalInvitesDisabled
 )
 
 // GroupInviteMessage carries the rendered data an email sender needs to deliver a
@@ -76,41 +77,17 @@ type GroupInviteEmailSender interface {
 
 // GroupInviteLink is the non-secret view of an invite link (never carries the
 // code or its hash).
-type GroupInviteLink struct {
-	ID                string
-	PermissionGroupID string
-	Role              string
-	InvitedBy         string
-	Email             string // "" = shareable (anyone may redeem)
-	MaxUses           *int   // nil = unlimited
-	Uses              int
-	ExpiresAt         *time.Time
-	RevokedAt         *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
+type GroupInviteLink = authkit.GroupInviteLink
 
 // CreateGroupInviteLinkRequest mints an invite link for the group addressed by
 // (Persona, InstanceSlug) granting Role. Email set => email-bound (defaults to
 // single-use); empty => shareable. MaxUses caps redemptions (nil = unlimited).
 // ExpiresIn overrides the per-kind default lifetime.
-type CreateGroupInviteLinkRequest struct {
-	Persona      string
-	InstanceSlug string
-	Role         string
-	Email        string
-	MaxUses      *int
-	ExpiresIn    time.Duration
-	InvitedBy    string
-}
+type CreateGroupInviteLinkRequest = authkit.CreateGroupInviteLinkRequest
 
 // GroupInviteLinkCreated is the mint result: the plaintext Code (shown ONCE) and
 // the ready-to-send URL.
-type GroupInviteLinkCreated struct {
-	ID   string
-	Code string
-	URL  string
-}
+type GroupInviteLinkCreated = authkit.GroupInviteLinkCreated
 
 // externalInvitesEnabled reports whether invite LINKS may be minted. They make
 // sense only when AuthKit permits invited self-registration: open (anyone may
@@ -301,11 +278,7 @@ func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSl
 
 // RedeemGroupInviteLinkResult reports which (persona, instance, role) a redemption
 // granted, so the caller/SPA can route the user to the right place.
-type RedeemGroupInviteLinkResult struct {
-	Persona      string
-	InstanceSlug string
-	Role         string
-}
+type RedeemGroupInviteLinkResult = authkit.RedeemGroupInviteLinkResult
 
 // RedeemGroupInviteLink redeems code on behalf of the authenticated redeemerUserID:
 // it validates the link (live, not expired/revoked, within max_uses; for an

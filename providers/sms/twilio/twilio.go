@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authlang "github.com/open-rails/authkit/lang"
 )
 
 const messagesURLFormat = "https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json"
 
 // VerificationBuilder renders a verification SMS body.
-type VerificationBuilder func(ctx context.Context, phone string, msg core.VerificationMessage) string
+type VerificationBuilder func(ctx context.Context, phone string, msg embedded.VerificationMessage) string
 
 // PasswordResetBuilder renders a password reset SMS body.
 type PasswordResetBuilder func(ctx context.Context, phone, resetURL string) string
@@ -98,7 +98,7 @@ func (s *Sender) httpClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 
-func (s *Sender) SendVerification(ctx context.Context, phone string, msg core.VerificationMessage) error {
+func (s *Sender) SendVerification(ctx context.Context, phone string, msg embedded.VerificationMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
@@ -153,7 +153,7 @@ func contextLanguage(ctx context.Context) string {
 	}
 }
 
-func defaultVerificationBody(ctx context.Context, app string, msg core.VerificationMessage) string {
+func defaultVerificationBody(ctx context.Context, app string, msg embedded.VerificationMessage) string {
 	parts := make([]string, 0, 2)
 	if strings.TrimSpace(msg.Code) != "" {
 		action := "verification"

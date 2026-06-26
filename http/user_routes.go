@@ -1,11 +1,12 @@
 package authhttp
 
 import (
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request) {
@@ -26,11 +27,11 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
-		if err == core.ErrOwnerSlugTaken {
+		if err == authkit.ErrOwnerSlugTaken {
 			badRequest(w, ErrOwnerSlugTaken)
 			return
 		}
-		if err == core.ErrRenameRateLimited {
+		if err == authkit.ErrRenameRateLimited {
 			seconds, _ := s.svc.TimeUntilUsernameRenameAvailable(r.Context(), claims.UserID, time.Now())
 			availability := cooldownAvailability(ActionUpdateUsername, seconds, 72*time.Hour, time.Now())
 			data := availability.toMap()
@@ -38,7 +39,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 			sendErrData(w, http.StatusTooManyRequests, ErrRenameRateLimited, data)
 			return
 		}
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
@@ -73,7 +74,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	normalized, err := core.NormalizePreferredLanguage(language)
+	normalized, err := embedded.NormalizePreferredLanguage(language)
 	if err != nil || !s.supportsLanguage(normalized) {
 		badRequest(w, ErrInvalidPreferredLanguage)
 		return

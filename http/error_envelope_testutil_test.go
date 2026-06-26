@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,7 +13,7 @@ import (
 // Replaces the old flat `{"error":"<code>"}` JSONEq assertions.
 func requireErrorCode(t *testing.T, body, code string) {
 	t.Helper()
-	var env authbase.ErrorEnvelope
+	var env authkit.ErrorEnvelope
 	require.NoError(t, json.Unmarshal([]byte(body), &env), "error body: %s", body)
 	require.Equal(t, code, env.Error.Code, "error body: %s", body)
 	require.NotEmpty(t, env.Error.Type, "error.type must be set")

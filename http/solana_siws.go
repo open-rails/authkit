@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
 	"github.com/open-rails/authkit/siws"
 )
 
@@ -127,11 +127,11 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 
 	accessToken, expiresAt, refreshToken, userID, created, err := s.svc.VerifySIWSAndLogin(r.Context(), s.siwsCache(), output, nil)
 	if err != nil {
-		if errors.Is(err, core.ErrUserBanned) {
+		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)
 			return
 		}
-		if errors.Is(err, core.ErrRegistrationDisabled) {
+		if errors.Is(err, authkit.ErrRegistrationDisabled) {
 			registrationDisabled(w)
 			return
 		}

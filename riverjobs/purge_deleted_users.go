@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/riverqueue/river"
 )
 
@@ -35,11 +35,11 @@ type BeforeUserHardDeleteFunc func(ctx context.Context, userID string) error
 // app-domain data (likes/favorites/comments, etc.) before AuthKit deletes the user row.
 type PurgeDeletedUsersWorker struct {
 	river.WorkerDefaults[PurgeDeletedUsersArgs]
-	svc    *core.Service
+	svc    *embedded.Client
 	before BeforeUserHardDeleteFunc
 }
 
-func NewPurgeDeletedUsersWorker(svc *core.Service, before BeforeUserHardDeleteFunc) *PurgeDeletedUsersWorker {
+func NewPurgeDeletedUsersWorker(svc *embedded.Client, before BeforeUserHardDeleteFunc) *PurgeDeletedUsersWorker {
 	return &PurgeDeletedUsersWorker{svc: svc, before: before}
 }
 

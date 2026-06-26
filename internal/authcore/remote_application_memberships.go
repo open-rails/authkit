@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -13,7 +14,7 @@ import (
 
 // ErrNotGroupMember is returned when a remote_application holds no role in its
 // controlling permission-group.
-var ErrNotGroupMember = errors.New("not_group_member")
+var ErrNotGroupMember = authkit.ErrNotGroupMember
 
 // remoteApplicationGroupID resolves a remote_application's controlling
 // permission_group_id (its REQUIRED group, #111). appID is the remote_application

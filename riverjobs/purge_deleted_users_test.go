@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // testPG mirrors core's DB-backed test gating: it returns a pool against
@@ -35,7 +35,17 @@ func testPG(t *testing.T) *pgxpool.Pool {
 // security-critical boundary that decides which soft-deleted users get hard-deleted.
 func TestPurgeCandidateSelectionBoundary(t *testing.T) {
 	pool := testPG(t)
-	svc := core.NewService(core.Options{Issuer: "https://test"}, core.Keyset{}, core.WithPostgres(pool))
+	svc, svcErr := embedded.New(embedded.Config{
+		Token: embedded.TokenConfig{
+			Issuer:            "https://test",
+			IssuedAudiences:   []string{"test"},
+			ExpectedAudiences: []string{"test"},
+		},
+		Keys: embedded.KeysConfig{VerifyOnly: true}, // purge worker only queries; no signer needed
+	}, pool)
+	if svcErr != nil {
+		t.Fatalf("new service: %v", svcErr)
+	}
 	ctx := context.Background()
 
 	const retentionDays = 30

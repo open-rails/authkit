@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 type twoFactorStatusResponse struct {
@@ -241,7 +241,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	if factorID == "" {
 		factorID = strings.TrimSpace(body.FactorID)
 	}
-	var removed []core.RemovedMFARoleAssignment
+	var removed []embedded.RemovedMFARoleAssignment
 	var err error
 	if factorID == "" {
 		removed, err = s.svc.Disable2FAWithRemovedRoles(r.Context(), claims.UserID)
@@ -259,7 +259,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func removedMFARolesResponse(removed []core.RemovedMFARoleAssignment) []map[string]any {
+func removedMFARolesResponse(removed []embedded.RemovedMFARoleAssignment) []map[string]any {
 	out := make([]map[string]any, 0, len(removed))
 	for _, r := range removed {
 		out = append(out, map[string]any{
@@ -294,7 +294,7 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": backupCodes})
 }
 
-func twoFactorFactorResponses(factors []core.TwoFactorFactor) []twoFactorFactorResponse {
+func twoFactorFactorResponses(factors []embedded.TwoFactorFactor) []twoFactorFactorResponse {
 	out := make([]twoFactorFactorResponse, 0, len(factors))
 	for _, factor := range factors {
 		out = append(out, twoFactorFactorResponse{

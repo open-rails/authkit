@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Request) {
@@ -18,7 +18,7 @@ func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	events, err := s.authlogr.ListSessionEvents(r.Context(), userID, core.SessionEventCreated, core.SessionEventFailed)
+	events, err := s.authlogr.ListSessionEvents(r.Context(), userID, embedded.SessionEventCreated, embedded.SessionEventFailed)
 	if err != nil {
 		serverErr(w, ErrFailedToListSignins)
 		return

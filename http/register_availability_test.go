@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +49,7 @@ func TestRegisterAvailability_InvalidPhoneDoesNotRequireDatabase(t *testing.T) {
 // requested field (username/email/phone) as unavailable with a stable reason —
 // no DB lookup happens.
 func TestRegisterAvailability_DisabledIncludesAllFields(t *testing.T) {
-	s := newRegistrationModeService(t, core.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestRegisterAvailability_DisabledIncludesAllFields(t *testing.T) {
 // When native-user registration is disabled, the public /register POST is
 // short-circuited with registration_disabled before any body parsing or DB use.
 func TestRegisterPost_DisabledShortCircuits(t *testing.T) {
-	s := newRegistrationModeService(t, core.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()

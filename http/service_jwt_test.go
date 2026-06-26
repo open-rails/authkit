@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	"github.com/stretchr/testify/require"
 )
@@ -31,11 +32,11 @@ func TestVerifyServiceJWTValidToken(t *testing.T) {
 	issuer := "https://auth.hentai0.example"
 	v := newServiceJWTVerifier(t, signer, issuer, []string{"openrails"})
 
-	token, _, err := core.MintServiceJWT(context.Background(), signer, issuer, core.ServiceJWTMintOptions{
+	token, _, err := embedded.MintServiceJWT(context.Background(), signer, issuer, authkit.ServiceJWTMintOptions{
 		Subject:     "service:hentai0-runtime",
 		Audiences:   []string{"openrails"},
 		Permissions: []string{"openrails:entitlements:read"},
-		Resources:   []core.APIKeyResource{{Persona: "openrails.merchant", ID: "hentai0"}},
+		Resources:   []authkit.APIKeyResource{{Persona: "openrails.merchant", ID: "hentai0"}},
 		JTI:         "jti-1",
 	})
 	require.NoError(t, err)
@@ -45,7 +46,7 @@ func TestVerifyServiceJWTValidToken(t *testing.T) {
 	require.Equal(t, "service:hentai0-runtime", claims.Subject)
 	require.Equal(t, "hentai0", principal.RemoteApplicationSlug)
 	require.Equal(t, []string{"openrails:entitlements:read"}, principal.Permissions)
-	require.Equal(t, []core.APIKeyResource{{Persona: "openrails.merchant", ID: "hentai0"}}, principal.Resources)
+	require.Equal(t, []authkit.APIKeyResource{{Persona: "openrails.merchant", ID: "hentai0"}}, principal.Resources)
 }
 
 func TestVerifyServiceJWTRejections(t *testing.T) {
@@ -56,7 +57,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 	now := time.Now().UTC()
 
 	t.Run("wrong audience", func(t *testing.T) {
-		token, _, err := core.MintServiceJWT(context.Background(), signer, issuer, core.ServiceJWTMintOptions{
+		token, _, err := embedded.MintServiceJWT(context.Background(), signer, issuer, authkit.ServiceJWTMintOptions{
 			Subject: "service:hentai0-runtime", Audiences: []string{"tensorhub"},
 		})
 		require.NoError(t, err)
@@ -68,7 +69,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 		token, err := signer.Sign(context.Background(), jwt.MapClaims{
 			"iss": issuer, "sub": "service:hentai0-runtime", "aud": "openrails",
 			"iat": now.Add(-30 * time.Minute).Unix(), "nbf": now.Add(-30 * time.Minute).Unix(), "exp": now.Add(-time.Minute).Unix(),
-			"jti": "expired", "token_use": core.ServiceJWTTokenUse, "permissions": []string{"openrails:entitlements:read"},
+			"jti": "expired", "token_use": authkit.ServiceJWTTokenUse, "permissions": []string{"openrails:entitlements:read"},
 		})
 		require.NoError(t, err)
 		_, _, err = v.VerifyServiceJWT(context.Background(), token)
@@ -79,7 +80,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 		token, err := signer.Sign(context.Background(), jwt.MapClaims{
 			"iss": issuer, "sub": "service:hentai0-runtime", "aud": "openrails",
 			"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(time.Hour).Unix(),
-			"jti": "too-long", "token_use": core.ServiceJWTTokenUse, "permissions": []string{"openrails:entitlements:read"},
+			"jti": "too-long", "token_use": authkit.ServiceJWTTokenUse, "permissions": []string{"openrails:entitlements:read"},
 		})
 		require.NoError(t, err)
 		_, _, err = v.VerifyServiceJWT(context.Background(), token)
@@ -94,7 +95,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 		})
 		require.NoError(t, err)
 		_, _, err = v.VerifyServiceJWT(context.Background(), token)
-		require.ErrorIs(t, err, core.ErrInvalidServiceJWT)
+		require.ErrorIs(t, err, authkit.ErrInvalidServiceJWT)
 	})
 
 	t.Run("wrong token use", func(t *testing.T) {
@@ -105,14 +106,14 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 		})
 		require.NoError(t, err)
 		_, _, err = v.VerifyServiceJWT(context.Background(), token)
-		require.ErrorIs(t, err, core.ErrInvalidServiceJWT)
+		require.ErrorIs(t, err, authkit.ErrInvalidServiceJWT)
 	})
 
 	t.Run("malformed permissions", func(t *testing.T) {
 		token, err := signer.Sign(context.Background(), jwt.MapClaims{
 			"iss": issuer, "sub": "service:hentai0-runtime", "aud": "openrails",
 			"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(time.Minute).Unix(), "jti": "bad-perms",
-			"token_use": core.ServiceJWTTokenUse, "permissions": "openrails:entitlements:read",
+			"token_use": authkit.ServiceJWTTokenUse, "permissions": "openrails:entitlements:read",
 		})
 		require.NoError(t, err)
 		_, _, err = v.VerifyServiceJWT(context.Background(), token)
@@ -122,7 +123,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 	t.Run("bad signature", func(t *testing.T) {
 		rogue, err := jwtkit.NewRSASigner(2048, "rogue")
 		require.NoError(t, err)
-		token, _, err := core.MintServiceJWT(context.Background(), rogue, issuer, core.ServiceJWTMintOptions{
+		token, _, err := embedded.MintServiceJWT(context.Background(), rogue, issuer, authkit.ServiceJWTMintOptions{
 			Subject: "service:hentai0-runtime", Audiences: []string{"openrails"},
 		})
 		require.NoError(t, err)
@@ -131,7 +132,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 	})
 
 	t.Run("unknown issuer", func(t *testing.T) {
-		token, _, err := core.MintServiceJWT(context.Background(), signer, "https://unknown.example", core.ServiceJWTMintOptions{
+		token, _, err := embedded.MintServiceJWT(context.Background(), signer, "https://unknown.example", authkit.ServiceJWTMintOptions{
 			Subject: "service:hentai0-runtime", Audiences: []string{"openrails"},
 		})
 		require.NoError(t, err)
@@ -150,7 +151,7 @@ func TestVerifyServiceJWTScopeCompatibilityAndReplayHook(t *testing.T) {
 	token, err := signer.Sign(context.Background(), jwt.MapClaims{
 		"iss": issuer, "sub": "service:hentai0-runtime", "aud": "openrails",
 		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(time.Minute).Unix(),
-		"jti": "scope-ok", "token_use": core.ServiceJWTTokenUse,
+		"jti": "scope-ok", "token_use": authkit.ServiceJWTTokenUse,
 		"scope": "openrails:entitlements:read openrails:credits:reserve",
 	})
 	require.NoError(t, err)
@@ -160,7 +161,7 @@ func TestVerifyServiceJWTScopeCompatibilityAndReplayHook(t *testing.T) {
 	require.Equal(t, principal.Permissions, claims.Scope)
 
 	replayErr := errors.New("replay")
-	_, _, err = v.VerifyServiceJWT(context.Background(), token, WithServiceJWTReplayChecker(func(context.Context, core.ServiceJWTClaims) error {
+	_, _, err = v.VerifyServiceJWT(context.Background(), token, WithServiceJWTReplayChecker(func(context.Context, authkit.ServiceJWTClaims) error {
 		return replayErr
 	}))
 	require.ErrorIs(t, err, replayErr)
@@ -171,7 +172,7 @@ func TestRequiredServiceJWTMiddleware(t *testing.T) {
 	require.NoError(t, err)
 	issuer := "https://auth.hentai0.example"
 	v := newServiceJWTVerifier(t, signer, issuer, []string{"openrails"})
-	token, _, err := core.MintServiceJWT(context.Background(), signer, issuer, core.ServiceJWTMintOptions{
+	token, _, err := embedded.MintServiceJWT(context.Background(), signer, issuer, authkit.ServiceJWTMintOptions{
 		Subject: "service:hentai0-runtime", Audiences: []string{"openrails"},
 	})
 	require.NoError(t, err)
@@ -212,7 +213,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	serviceToken, _, err := core.MintServiceJWT(context.Background(), signer, issuer, core.ServiceJWTMintOptions{
+	serviceToken, _, err := embedded.MintServiceJWT(context.Background(), signer, issuer, authkit.ServiceJWTMintOptions{
 		Subject: "service:hentai0-runtime", Audiences: []string{"openrails"}, JTI: "svc-denial",
 	})
 	require.NoError(t, err)
@@ -263,13 +264,13 @@ func TestVerifyServiceJWTDisabledRemoteApplicationIssuerFailsClosed(t *testing.T
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 	issuer := "https://disabled-issuer.example"
-	token, _, err := core.MintServiceJWT(context.Background(), signer, issuer, core.ServiceJWTMintOptions{
+	token, _, err := embedded.MintServiceJWT(context.Background(), signer, issuer, authkit.ServiceJWTMintOptions{
 		Subject: "service:disabled", Audiences: []string{"openrails"},
 	})
 	require.NoError(t, err)
 
 	v := NewVerifier()
-	src := disabledRemoteApplicationIssuerSource{issuer: core.RemoteApplication{
+	src := disabledRemoteApplicationIssuerSource{issuer: authkit.RemoteApplication{
 		Slug: "hentai0", Issuer: issuer, JWKSURI: "https://disabled-issuer.example/jwks", Enabled: false,
 	}}
 	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"openrails"}))
@@ -278,16 +279,16 @@ func TestVerifyServiceJWTDisabledRemoteApplicationIssuerFailsClosed(t *testing.T
 }
 
 type disabledRemoteApplicationIssuerSource struct {
-	issuer core.RemoteApplication
+	issuer authkit.RemoteApplication
 }
 
-func (s disabledRemoteApplicationIssuerSource) ListRemoteApplications(context.Context, bool) ([]core.RemoteApplication, error) {
+func (s disabledRemoteApplicationIssuerSource) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {
 	return nil, nil
 }
 
-func (s disabledRemoteApplicationIssuerSource) GetRemoteApplication(_ context.Context, issuerID string) (*core.RemoteApplication, error) {
+func (s disabledRemoteApplicationIssuerSource) GetRemoteApplication(_ context.Context, issuerID string) (*authkit.RemoteApplication, error) {
 	if issuerID == s.issuer.Issuer {
 		return &s.issuer, nil
 	}
-	return nil, core.ErrRemoteApplicationNotFound
+	return nil, authkit.ErrRemoteApplicationNotFound
 }

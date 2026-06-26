@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +30,7 @@ type captureEmailSender struct {
 	verifyURL   string
 }
 
-func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg core.VerificationMessage) error {
+func (s *captureEmailSender) SendVerification(_ context.Context, _, _ string, msg embedded.VerificationMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code
@@ -99,7 +99,7 @@ type captureSMSSender struct {
 	verifyURL   string
 }
 
-func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg core.VerificationMessage) error {
+func (s *captureSMSSender) SendVerification(_ context.Context, _ string, msg embedded.VerificationMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.verifyCode = msg.Code

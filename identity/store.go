@@ -24,7 +24,7 @@ func NewStore(pg *pgxpool.Pool) *Store {
 
 // NewStoreInSchema is NewStore against AuthKit tables in the given schema
 // (empty means the default "profiles"). The schema must match
-// ^[a-z_][a-z0-9_]*$ (max 63 bytes); pass core.Service.Schema() to stay in
+// ^[a-z_][a-z0-9_]*$ (max 63 bytes); pass embedded.Client.Schema() to stay in
 // sync with the embedding service.
 func NewStoreInSchema(pg *pgxpool.Pool, schema string) (*Store, error) {
 	if schema != "" && !db.ValidSchemaName(schema) {

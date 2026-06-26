@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-var ErrTwoFAEnrollmentRequired = errors.New("2fa_enrollment_required")
+var ErrTwoFAEnrollmentRequired = authkit.ErrTwoFAEnrollmentRequired
 
 type RemovedMFARoleAssignment struct {
 	PermissionGroupID string
@@ -21,11 +22,7 @@ type RemovedMFARoleAssignment struct {
 	RemovedAt         time.Time
 }
 
-type MFAStatus struct {
-	Enabled        bool
-	Satisfied      bool
-	AllowedMethods []string
-}
+type MFAStatus = authkit.MFAStatus
 
 func (s *Service) MFAStatus(ctx context.Context, userID string) (MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)

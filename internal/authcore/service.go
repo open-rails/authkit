@@ -23,6 +23,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 	jwtkit "github.com/open-rails/authkit/jwt"
 	authlang "github.com/open-rails/authkit/lang"
@@ -147,35 +148,35 @@ const HashAlgoLegacyResetRequired = "legacy-reset-required"
 
 var (
 	// ErrUserBanned indicates the account is blocked from authenticating.
-	ErrUserBanned = errors.New("user_banned")
+	ErrUserBanned = authkit.ErrUserBanned
 	// ErrPasswordResetRequired indicates the account's stored password hash is
 	// flagged HashAlgoLegacyResetRequired: no plaintext can ever verify against
 	// it, so the user must complete a password reset before password auth (login,
 	// step-up, change-password) can succeed. HTTP layers map this to the stable
 	// code "password_reset_required".
-	ErrPasswordResetRequired = errors.New("password_reset_required")
+	ErrPasswordResetRequired = authkit.ErrPasswordResetRequired
 	// ErrUserNotFound indicates a user does not exist (or is not visible).
-	ErrUserNotFound = errors.New("user_not_found")
+	ErrUserNotFound = authkit.ErrUserNotFound
 	// ErrInvalidUntil indicates a time-limited operation has a non-future expiry.
-	ErrInvalidUntil = errors.New("invalid_until")
+	ErrInvalidUntil = authkit.ErrInvalidUntil
 	// ErrEmailAlreadyVerified indicates an email verification request targeted an already-verified email.
-	ErrEmailAlreadyVerified = errors.New("email_already_verified")
+	ErrEmailAlreadyVerified = authkit.ErrEmailAlreadyVerified
 	// ErrPhoneAlreadyVerified indicates a phone verification request targeted an already-verified phone.
-	ErrPhoneAlreadyVerified = errors.New("phone_already_verified")
+	ErrPhoneAlreadyVerified = authkit.ErrPhoneAlreadyVerified
 	// ErrPendingRegistrationNotFound indicates a registration resend request did not match a pending registration.
-	ErrPendingRegistrationNotFound = errors.New("pending_registration_not_found")
+	ErrPendingRegistrationNotFound = authkit.ErrPendingRegistrationNotFound
 	// ErrRegistrationDisabled indicates a public user-creation path was attempted
 	// while native-user registration is bootstrap-only. Existing-user
 	// authentication is unaffected; only NEW account creation through
 	// public/auto-registration is blocked.
-	ErrRegistrationDisabled = errors.New("registration_disabled")
+	ErrRegistrationDisabled = authkit.ErrRegistrationDisabled
 	// ErrVerificationLinkExpired indicates a verification link/token no longer has a pending verification record.
-	ErrVerificationLinkExpired = errors.New("verification_link_expired")
-	ErrEmailInUse              = errors.New("email_in_use")
-	ErrPhoneInUse              = errors.New("phone_in_use")
-	ErrEmailSenderUnavailable  = errors.New("email_sender_unavailable")
-	ErrSMSSenderUnavailable    = errors.New("sms_unavailable")
-	ErrPasswordlessDisabled    = errors.New("passwordless_disabled")
+	ErrVerificationLinkExpired = authkit.ErrVerificationLinkExpired
+	ErrEmailInUse              = authkit.ErrEmailInUse
+	ErrPhoneInUse              = authkit.ErrPhoneInUse
+	ErrEmailSenderUnavailable  = authkit.ErrEmailSenderUnavailable
+	ErrSMSSenderUnavailable    = authkit.ErrSMSSenderUnavailable
+	ErrPasswordlessDisabled    = authkit.ErrPasswordlessDisabled
 )
 
 const (
@@ -1357,8 +1358,8 @@ func (s *Service) passwordlessURL(channel, token, returnTo string) string {
 }
 
 var (
-	ErrEmailDeliveryFailed = errors.New("email_delivery_failed")
-	ErrSMSDeliveryFailed   = errors.New("sms_delivery_failed")
+	ErrEmailDeliveryFailed = authkit.ErrEmailDeliveryFailed
+	ErrSMSDeliveryFailed   = authkit.ErrSMSDeliveryFailed
 )
 
 // EmailSender sends verification/login/reset emails.
@@ -2315,24 +2316,9 @@ func sha256Hex(s string) string {
 
 // --- Direct Postgres helpers (profiles schema) ---
 
-type User struct {
-	ID              string
-	Email           *string // Nullable - phone-only users have NULL email
-	PhoneNumber     *string
-	Username        *string
-	DiscordUsername *string
-	EmailVerified   bool
-	PhoneVerified   bool
-	BannedAt        *time.Time
-	BannedUntil     *time.Time
-	BanReason       *string
-	BannedBy        *string
-	DeletedAt       *time.Time
-	Biography       *string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastLogin       *time.Time
-}
+// User is defined in the lean authkit contract package (#138 inversion); aliased
+// here so engine code keeps using the bare name.
+type User = authkit.User
 
 func userFromByIDRow(r db.UserByIDRow) *User {
 	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
@@ -2363,9 +2349,7 @@ func NormalizePreferredLanguage(language string) (string, error) {
 	return language, nil
 }
 
-type PreferredLanguage struct {
-	Language string
-}
+type PreferredLanguage = authkit.PreferredLanguage
 
 func (s *Service) SetPreferredLanguage(ctx context.Context, userID, language string) error {
 	if s.pg == nil {
@@ -2430,29 +2414,7 @@ func (s *Service) withSendTimeout(ctx context.Context, send func(context.Context
 	return send(ctx)
 }
 
-type ImportUserInput struct {
-	Email         string
-	PhoneNumber   string
-	Username      string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	Metadata      map[string]any
-	CreatedAt     *time.Time
-	UpdatedAt     *time.Time
-
-	// Optional pre-hashed credential to import alongside the user (bulk legacy
-	// migration). When PasswordHash is non-empty and the user row is inserted,
-	// ImportUsers stores it verbatim. The verify-time whitelist (argon2id/bcrypt,
-	// else legacy-reset-required) still governs login; bulk import does not
-	// re-validate the hash, matching single-row UpsertPasswordHash.
-	PasswordHash string
-	HashAlgo     string
-	HashParams   []byte
-}
+type ImportUserInput = authkit.ImportUserInput
 
 func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, error) {
 	if s.pg == nil {
@@ -3189,12 +3151,12 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 	return out
 }
 
-var ErrUserRoleNotFound = errors.New("user_role_not_found")
+var ErrUserRoleNotFound = authkit.ErrUserRoleNotFound
 
 // ErrCannotRemoveLastAdminRole is retained for the admin HTTP adapter's error
 // mapping. The root layer has no "last admin" lock, so core no longer returns
 // it, but the exported symbol stays so dependents keep compiling.
-var ErrCannotRemoveLastAdminRole = errors.New("cannot_remove_last_admin_role")
+var ErrCannotRemoveLastAdminRole = authkit.ErrCannotRemoveLastAdminRole
 
 // assignRoleBySlug grants a user a role in the root permission-group (#111).
 // The unchecked path is for genesis/bootstrap/migration; runtime callers use the
@@ -3305,77 +3267,44 @@ func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error
 }
 
 // Admin listing/get/delete
-type AdminUser struct {
-	ID              string     `json:"id"`
-	Email           *string    `json:"email"` // Nullable for phone-only users
-	PhoneNumber     *string    `json:"phone_number"`
-	Username        *string    `json:"username"`
-	DiscordUsername *string    `json:"discord_username"`
-	EmailVerified   bool       `json:"email_verified"`
-	PhoneVerified   bool       `json:"phone_verified"`
-	BannedAt        *time.Time `json:"banned_at,omitempty"`
-	BannedUntil     *time.Time `json:"banned_until,omitempty"`
-	BanReason       *string    `json:"ban_reason,omitempty"`
-	BannedBy        *string    `json:"banned_by,omitempty"`
-	DeletedAt       *time.Time `json:"deleted_at"`
-	Biography       *string    `json:"biography"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	LastLogin       *time.Time `json:"last_login"`
-	Roles           []string   `json:"roles"`
-	Entitlements    []string   `json:"entitlements"`
-}
+type AdminUser = authkit.AdminUser
 
 // AdminListUsersResult contains paginated user list with total count
-type AdminListUsersResult struct {
-	Users  []AdminUser `json:"users"`
-	Total  int64       `json:"total"`
-	Limit  int         `json:"limit"`
-	Offset int         `json:"offset"`
-}
+type AdminListUsersResult = authkit.AdminListUsersResult
 
 // AdminUserStatus filters the directory by account state.
-type AdminUserStatus string
+type AdminUserStatus = authkit.AdminUserStatus
 
 const (
-	AdminUserStatusActive  AdminUserStatus = "active"  // not deleted, not banned
-	AdminUserStatusBanned  AdminUserStatus = "banned"  // not deleted, currently banned
-	AdminUserStatusDeleted AdminUserStatus = "deleted" // soft-deleted
-	AdminUserStatusAny     AdminUserStatus = "any"     // no deleted/banned predicate
+	AdminUserStatusActive  = authkit.AdminUserStatusActive
+	AdminUserStatusBanned  = authkit.AdminUserStatusBanned
+	AdminUserStatusDeleted = authkit.AdminUserStatusDeleted
+	AdminUserStatusAny     = authkit.AdminUserStatusAny
 	// "" (zero value) defaults to non-deleted (the historical "All users" behavior).
 )
 
 // AdminUserSort selects the directory ordering column.
-type AdminUserSort string
+type AdminUserSort = authkit.AdminUserSort
 
 const (
-	AdminUserSortCreatedAt AdminUserSort = "created_at" // default
-	AdminUserSortLastLogin AdminUserSort = "last_login"
-	AdminUserSortUsername  AdminUserSort = "username"
-	AdminUserSortEmail     AdminUserSort = "email"
+	AdminUserSortCreatedAt = authkit.AdminUserSortCreatedAt
+	AdminUserSortLastLogin = authkit.AdminUserSortLastLogin
+	AdminUserSortUsername  = authkit.AdminUserSortUsername
+	AdminUserSortEmail     = authkit.AdminUserSortEmail
 )
 
 // AdminUserListOptions is the admin dashboard user-directory query. It carries
 // no host product knowledge: Role is the root_role query param, a singleton-root
 // permission-group role slug. Status/Sort are closed enums. Entitlement
 // filtering delegates to the billing provider, never a cross-schema join.
-type AdminUserListOptions struct {
-	Page        int
-	PageSize    int
-	Search      string          // ILIKE over username/email/phone_number
-	Role        string          // root_role slug (e.g. "admin"); empty = no role filter
-	Status      AdminUserStatus // empty = non-deleted (historical default)
-	Sort        AdminUserSort   // empty = created_at
-	Desc        bool            // true = descending
-	Entitlement string          // empty = no entitlement filter; else provider-backed
-}
+type AdminUserListOptions = authkit.AdminUserListOptions
 
 // ErrEntitlementFilterUnavailable is returned by AdminListUsers/AdminCountUsers
 // when an Entitlement filter is requested but no EntitlementFilterProvider is
 // configured — fail loud rather than silently return everyone.
-var ErrEntitlementFilterUnavailable = errors.New("authkit: entitlement filtering requires an EntitlementFilterProvider")
+var ErrEntitlementFilterUnavailable = authkit.ErrEntitlementFilterUnavailable
 
-func (o AdminUserListOptions) normalize() AdminUserListOptions {
+func normalizeAdminUserListOptions(o AdminUserListOptions) AdminUserListOptions {
 	if o.Page <= 0 {
 		o.Page = 1
 	}
@@ -3485,7 +3414,7 @@ func (s *Service) AdminCountUsers(ctx context.Context, opts AdminUserListOptions
 // provider-backed entitlement filtering. Each row is enriched with role slugs
 // and (via the entitlements provider) entitlement names.
 func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions) (*AdminListUsersResult, error) {
-	opts = opts.normalize()
+	opts = normalizeAdminUserListOptions(opts)
 	if s.pg == nil {
 		return &AdminListUsersResult{Users: []AdminUser{}, Total: 0, Limit: opts.PageSize, Offset: 0}, nil
 	}

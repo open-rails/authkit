@@ -3,16 +3,17 @@ package authhttp
 import (
 	"context"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) confirmEmailVerificationToken(w http.ResponseWriter, r *http.Request, token, identifier, email string) {
 	if userID, err := s.svc.ConfirmPendingRegistrationByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)
 				return
 			}
@@ -23,7 +24,7 @@ func (s *Service) confirmEmailVerificationToken(w http.ResponseWriter, r *http.R
 	}
 	if userID, err := s.svc.ConfirmEmailVerificationByToken(r.Context(), token); err == nil && strings.TrimSpace(userID) != "" {
 		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)
 				return
 			}
@@ -49,11 +50,11 @@ func (s *Service) handleEmailVerifyLinkFailure(w http.ResponseWriter, ctx contex
 		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
-	if err := core.ValidateEmail(target); err != nil {
+	if err := embedded.ValidateEmail(target); err != nil {
 		badRequest(w, ErrInvalidOrExpiredToken)
 		return
 	}
-	target = core.NormalizeEmail(target)
+	target = embedded.NormalizeEmail(target)
 
 	if u, err := s.svc.GetUserByEmail(ctx, target); err == nil && u != nil {
 		if u.EmailVerified {

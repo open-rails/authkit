@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
 
@@ -27,25 +28,11 @@ const (
 	keyPasswordlessAttempts = "auth:passwordless:attempts:"
 )
 
-type PasswordlessStartRequest struct {
-	Identifier        string
-	Mode              string
-	ReturnTo          string
-	PreferredLanguage string
-}
+type PasswordlessStartRequest = authkit.PasswordlessStartRequest
 
-type PasswordlessStartResult struct {
-	Sent    bool
-	Channel string
-	Code    string
-	LinkURL string
-}
+type PasswordlessStartResult = authkit.PasswordlessStartResult
 
-type PasswordlessConfirmResult struct {
-	UserID   string
-	Method   string
-	ReturnTo string
-}
+type PasswordlessConfirmResult = authkit.PasswordlessConfirmResult
 
 type passwordlessChallenge struct {
 	Channel           string   `json:"channel"`

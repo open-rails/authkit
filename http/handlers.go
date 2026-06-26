@@ -3,7 +3,7 @@ package authhttp
 import (
 	"net/http"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // JWKSHandler returns a handler for GET /.well-known/jwks.json.
@@ -20,8 +20,8 @@ func (s *Service) APIHandler() http.Handler {
 	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
 		panic(err)
 	}
-	if !core.IsDevEnvironment(s.svc.Options().Environment) {
-		if s.svc.EphemeralMode() != core.EphemeralRedis {
+	if !embedded.IsDevEnvironment(s.svc.Options().Environment) {
+		if s.svc.EphemeralMode() != embedded.EphemeralRedis {
 			panic("authkit: redis-compatible ephemeral store is required in production")
 		}
 	}

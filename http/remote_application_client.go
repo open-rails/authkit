@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	authkit "github.com/open-rails/authkit"
 	"io"
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 // RemoteApplicationIssuersClient publishes this remote application's issuer
@@ -65,7 +66,7 @@ type RemoteApplicationIssuerRegistration struct {
 	JWKSURI string
 	// PublicKeys is the static-mode key list for platforms without a JWKS
 	// endpoint (#74). Mutually exclusive with JWKSURI.
-	PublicKeys []core.RemoteAppKey
+	PublicKeys []authkit.RemoteAppKey
 	// AllowedOrigins is the exact browser Origin allow-list the resource server
 	// should accept for delegated browser requests signed by this issuer.
 	AllowedOrigins []string
@@ -83,10 +84,10 @@ func (fc *RemoteApplicationIssuersClient) RegisterIssuer(ctx context.Context, ac
 	if strings.TrimSpace(reg.Slug) == "" || strings.TrimSpace(reg.Issuer) == "" {
 		return errors.New("slug and issuer are required")
 	}
-	if _, err := core.NormalizeRemoteAppTrustSource(reg.JWKSURI, "", reg.PublicKeys); err != nil {
+	if _, err := embedded.NormalizeRemoteAppTrustSource(reg.JWKSURI, "", reg.PublicKeys); err != nil {
 		return err
 	}
-	allowedOrigins, err := core.NormalizeAllowedOrigins(reg.AllowedOrigins)
+	allowedOrigins, err := authkit.NormalizeAllowedOrigins(reg.AllowedOrigins)
 	if err != nil {
 		return err
 	}
@@ -128,9 +129,9 @@ func (fc *RemoteApplicationIssuersClient) RegisterIssuer(ctx context.Context, ac
 // remote AuthKit's remote-application registration endpoint (#111: the issuer is
 // nested under a permission-group on the receiving side).
 type remoteApplicationRegistration struct {
-	Slug           string              `json:"slug"`
-	Issuer         string              `json:"issuer"`
-	JWKSURI        string              `json:"jwks_uri,omitempty"`
-	PublicKeys     []core.RemoteAppKey `json:"public_keys,omitempty"`
-	AllowedOrigins []string            `json:"allowed_origins,omitempty"`
+	Slug           string                 `json:"slug"`
+	Issuer         string                 `json:"issuer"`
+	JWKSURI        string                 `json:"jwks_uri,omitempty"`
+	PublicKeys     []authkit.RemoteAppKey `json:"public_keys,omitempty"`
+	AllowedOrigins []string               `json:"allowed_origins,omitempty"`
 }

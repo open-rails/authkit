@@ -7,7 +7,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/authkit-devserver ./authkit-devserver.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/authkit-devserver ./cmd/authkit-devserver
 # Pre-create the key-persistence dir owned by the non-root runtime UID so the
 # devserver can write signing keys without running as root. A fresh named volume
 # mounted at /.runtime/authkit inherits this ownership on first use.

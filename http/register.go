@@ -2,10 +2,11 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authlang "github.com/open-rails/authkit/lang"
 	pwhash "github.com/open-rails/authkit/password"
 )
@@ -93,12 +94,12 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	if s.rateLimitedByIdentifier(w, r, RLAuthRegister, identifier) {
 		return
 	}
-	if err := core.ValidatePassword(pass); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidatePassword(pass); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
 	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
@@ -108,8 +109,8 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 	username = strings.TrimSpace(username)
 
-	isPhone := core.ValidatePhone(identifier) == nil
-	isEmail := core.ValidateEmail(identifier) == nil
+	isPhone := embedded.ValidatePhone(identifier) == nil
+	isEmail := embedded.ValidateEmail(identifier) == nil
 	if !isPhone && !isEmail {
 		badRequest(w, ErrInvalidIdentifier)
 		return
@@ -126,11 +127,11 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	policy := s.svc.Options().RegistrationVerificationPolicy()
-	requiresVerification := policy == core.RegistrationVerificationRequired
+	requiresVerification := policy == embedded.RegistrationVerificationRequired
 	preferredLanguage := preferredLanguageFromRequest(r)
 
 	if isPhone {
-		identifier = core.NormalizePhone(identifier)
+		identifier = embedded.NormalizePhone(identifier)
 		if requiresVerification && !s.svc.SMSAvailable() {
 			serverErr(w, ErrPhoneRegistrationUnavailable)
 			return
@@ -154,7 +155,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			if s.handleDeliveryError(w, r, "register", "send_phone_verification", err) {
 				return
 			}
-			if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+			if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 				badRequest(w, code)
 				return
 			}
@@ -174,7 +175,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			}
 			tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
 			if err != nil {
-				if errors.Is(err, core.ErrUserBanned) {
+				if errors.Is(err, authkit.ErrUserBanned) {
 					unauthorized(w, ErrUserBanned)
 					return
 				}
@@ -188,7 +189,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	identifier = core.NormalizeEmail(identifier)
+	identifier = embedded.NormalizeEmail(identifier)
 	if requiresVerification && !s.svc.HasEmailSender() {
 		serverErr(w, ErrEmailRegistrationUnavailable)
 		return
@@ -212,7 +213,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		if s.handleDeliveryError(w, r, "register", "send_email_verification", err) {
 			return
 		}
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
@@ -232,7 +233,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		}
 		tokenSet, err := s.createTokensForUser(r, u.ID, "registration")
 		if err != nil {
-			if errors.Is(err, core.ErrUserBanned) {
+			if errors.Is(err, authkit.ErrUserBanned) {
 				unauthorized(w, ErrUserBanned)
 				return
 			}
@@ -265,8 +266,8 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := core.ValidateEmail(req.Email); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidateEmail(req.Email); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
 	if !s.svc.HasEmailSender() {
@@ -334,7 +335,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	ok := map[string]any{"ok": true}
 
 	if strings.HasPrefix(identifier, "+") {
-		phone := core.NormalizePhone(identifier)
+		phone := embedded.NormalizePhone(identifier)
 		// Only delete when the password matches; otherwise respond ok without
 		// revealing whether a pending registration exists (anti-enumeration).
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
@@ -380,11 +381,11 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
-	if err := core.ValidatePhone(phone); err != nil {
-		badRequest(w, ErrorCode(core.ValidationErrorCode(err)))
+	if err := embedded.ValidatePhone(phone); err != nil {
+		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
 		return
 	}
-	phone = core.NormalizePhone(phone)
+	phone = embedded.NormalizePhone(phone)
 
 	if !s.svc.SMSAvailable() {
 		serverErr(w, ErrPhoneUnavailable)

@@ -211,7 +211,7 @@ mount only the `svc.Routes().Groups(...)` subset it intentionally exposes
 instead of `DefaultAPI()`. As a defense-in-depth backstop, AuthKit also exposes
 separate registration modes on `core.Config`:
 
-- `NativeUserRegistrationMode`: `open`, `invite_only`, `admin_only`,
+- `Registration.NativeUserMode`: `open`, `invite_only`, `admin_only`,
   `admin_bootstrap_only`, or `closed`.
 It defaults to `open`. Any non-open native-user mode turns off public user
 self-registration and auto-registration paths: `POST /register`,
@@ -615,10 +615,10 @@ AuthKit library behavior is host-owned: the embedding app should pass runtime be
 | Area | Ownership | Notes |
 | --- | --- | --- |
 | `Issuer`, `IssuedAudiences`, `ExpectedAudiences` | Host config | Required token contract inputs. |
-| `RequireVerifiedRegistrations`, `Environment`, `SolanaNetwork`, `NativeUserRegistrationMode`, `BaseURL` | Host config | Runtime behavior should be deterministic from config. |
-| `Keys` provided (`cfg.Keys != nil`) | Host config | Fully disables library key env/filesystem discovery. |
-| `Keys` omitted (`cfg.Keys == nil`) | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `<KeysPath>/keys.json` (default `/vault/auth`), `.runtime/authkit/*`). |
-| `KeysPath` / `AUTHKIT_KEYS_PATH` | Host config | Overrides the filesystem **directory** the local resolver scans for `keys.json`. Default `/vault/auth` (unchanged). See "Signing & key resolution for embedders". |
+| `Registration.Verification`, `Environment`, `SolanaNetwork`, `Registration.NativeUserMode`, `Frontend.BaseURL` | Host config | Runtime behavior should be deterministic from config. |
+| `Keys.Source` provided | Host config | Fully disables library key env/filesystem discovery. |
+| `Keys.Source` omitted | Library exception | Only allowed env/filesystem auto-discovery path (`ACTIVE_KEY_ID`, `ACTIVE_PRIVATE_KEY_PEM`, `PUBLIC_KEYS`, `<Keys.Path>/keys.json` (default `/vault/auth`), `.runtime/authkit/*`). |
+| `Keys.Path` / `AUTHKIT_KEYS_PATH` | Host config | Overrides the filesystem **directory** the local resolver scans for `keys.json`. Default `/vault/auth` (unchanged). See "Signing & key resolution for embedders". |
 
 ---
 
@@ -704,11 +704,11 @@ explicit `Subject`/`Audiences` options win over any `sub`/`aud` in the map. TTL 
 required and capped at `MaxCustomJWTLifetime` (1h); empty and oversized claim sets
 are rejected.
 
-**Local-backend key resolution precedence** (used when `cfg.Keys == nil`),
+**Local-backend key resolution precedence** (used when `cfg.Keys.Source == nil`),
 identical for the convenience auto-resolver and the explicit constructors:
 
 1. **Env** — `ACTIVE_KEY_ID` + `ACTIVE_PRIVATE_KEY_PEM` (+ optional `PUBLIC_KEYS`).
-2. **File** — `<dir>/keys.json` where `dir` = `cfg.KeysPath` → `AUTHKIT_KEYS_PATH`
+2. **File** — `<dir>/keys.json` where `dir` = `cfg.Keys.Path` → `AUTHKIT_KEYS_PATH`
    → `/vault/auth` (default, unchanged). The file uses the
    `{active_key_id, active_private_key_pem, public_keys}` envelope.
 3. **Dev-gen** — auto-generates and persists a keypair under `.runtime/authkit/`.
@@ -825,6 +825,7 @@ Permission groups
   is gated on the registration mode permitting invited signup (`open`/`invite_only`).
 - Generated permission-group routes:
   - GET /me/groups
+  - GET /me/permissions             (effective grants for ?persona= and ?instance=)
   - POST /invites/redeem            (any authenticated user redeems an invite-link code)
   - GET /:persona/:instance_slug/members
   - POST /:persona/:instance_slug/members
@@ -863,7 +864,7 @@ API Keys (opaque machine credentials)
   (`Claims.IsAPIKey()`), leaving `UserID` empty so the live-user ban/enrichment
   gate is skipped. Permissions are opaque to authkit; the embedding app owns the
   vocabulary and enforces meaning.
-- Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeyPrefix` brand. `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
+- Current wire format is `Authorization: Bearer <prefix>_st_<key_id>_<secret>`, where `<prefix>` is the host-configured `Config.APIKeys.Prefix` brand. `key_id` is a non-secret public id for indexed lookup; only `sha256(secret)` is stored; the full key is shown **once**.
 - Resolved in the `Required`/`Optional` middleware *before* JWT verification (constant-time secret compare; revoked/expired/group-deleted rejected; non-API-key credentials fall through to JWT). The API-key path is separate from the password-login handler, so API keys **bypass the interactive password-login rate limiter** by design.
 - **An API key holds exactly ONE permission-group role:** its effective permissions are resolved FROM that role at use time, so editing the role updates every key that holds it. The bespoke-permission use case is served by creating a custom group role. Resource-scope (`resources: [{persona,id}]`) stays a SEPARATE binding, orthogonal to the role.
 - **Mint authorization is native + role-based:** minting requires the generated `<persona>:credentials:manage` permission; the body field is `role` (a single role slug). AuthKit validates the role exists in the group and enforces no-step-up in core: the creator must hold `<persona>:credentials:manage` and already cover every permission the API-key role would confer. Permissions are NEVER frozen; they re-resolve from the role at verify time. An API key can never mint/list/revoke API keys because it has no user principal.
@@ -893,13 +894,7 @@ Service JWTs (OIDC/JWKS machine credentials)
 Reserved slug policy
 - Owner namespaces reserve user-facing slugs:
   - `restricted_name`: slug is blocked in `profiles.owner_reserved_names` and not publicly registrable.
-- Public lookup endpoint: `GET /namespaces/{slug}` returns public user-namespace metadata for the slug:
-  - `requested_slug`: normalized slug from the request.
-  - `slug`: current canonical slug when the request resolves to a live or held namespace; otherwise the requested slug.
-  - `claimable`: whether the user slug can be claimed.
-  - `renamed`: whether this lookup resolved through rename history.
-  - `hold_until`: present for rename reuse holds.
-  - optional `user` payload when a record exists.
+- There is no public namespace lookup route in the current AuthKit API surface.
 - The PostgreSQL baseline schema creates `profiles.owner_reserved_names` and seeds canonical restricted names (`admin`, `superuser`, `root`, `sudo`) directly.
 - Public register and rename paths do not use a hardcoded denylist; conflicts are enforced through owner-namespace uniqueness plus reserved-name table checks.
 - Reserved users are non-loginable (reserved placeholder credentials/providers are cleared by migration and reserve flows).
@@ -1042,6 +1037,7 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
 - OIDC:
   - GET /oidc/:provider/login?return_to=/app/path
   - GET /oidc/:provider/callback
+  - GET /oidc/:provider/step-up/callback
   - POST /oidc/:provider/link/start (RouteUser API group, requires auth) -> {auth_url}
 - Password:
   - POST /password/login (accepts email, phone, or username in identifier field)
@@ -1055,20 +1051,21 @@ AuthKit API route specs, and the `APIHandler()` net/http compatibility handler b
     - Success response includes `{ok, username, email, phone_number, discord_username, next_action}`
     - `next_action` is one of `none`, `verify_email`, or `verify_phone`
     - When `next_action` is `none`, the response also includes `{access_token, refresh_token, token_type, expires_in}`
-  - Set `RegistrationVerification: none|optional|required` in `core.Config`. AuthKit's
+  - Set `Registration.Verification: none|optional|required` in `core.Config`. AuthKit's
     library interface is this tri-state enum (third-party embedders may legitimately want
     `none` — no verification artifacts at all). See "Registration verification: the
     `AUTH_REQUIRE_VERIFIED_REGISTRATIONS` embedder convention" below for the canonical
     first-party config knob and the graceful no-sender behavior.
   - POST /register/resend-email
   - POST /register/resend-phone
+  - GET /register/availability
   - Registration resend requests now return `invalid_email` / `invalid_phone_number` for malformed input and `pending_registration_not_found` when no matching pending registration exists.
   - Message delivery failures from the configured sender are surfaced as stable `email_delivery_failed` / `sms_delivery_failed` errors after AuthKit attempts provider submission.
 
 #### Registration verification: the `AUTH_REQUIRE_VERIFIED_REGISTRATIONS` embedder convention
 
 AuthKit's library interface for registration verification is the tri-state enum
-`core.RegistrationVerification` (`none` | `optional` | `required`), set on `core.Config`.
+`core.RegistrationVerificationPolicy` (`none` | `optional` | `required`), set on `core.Config.Registration.Verification`.
 The enum is the stable contract: third-party embedders may legitimately want `none`
 (create users immediately, no verification artifacts ever).
 
@@ -1133,11 +1130,8 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /2fa/verify (during login) → {access_token, refresh_token}
 - Step-up:
   - POST /step-up/password with `{password}` (requires auth) → {access_token, token_type, expires_in, fresh_auth}
-  - POST /step-up/2fa with optional `{method:"email|sms|totp"}` starts selected/default 2FA step-up; final `{code, method?, backup_code?}` returns {access_token, token_type, expires_in, fresh_auth}. Step-up is a hard-cut method-name API: it does not accept or return `factor_id`.
+  - POST /step-up/2fa with optional `{method:"email|sms|totp", factor_id?}` starts selected/default 2FA step-up; final `{code, method?, factor_id?, backup_code?}` returns {access_token, token_type, expires_in, fresh_auth}.
   - Step-up does not rotate refresh tokens; clients retry sensitive actions with the returned access token. Refresh-token rotation remains `POST /token`.
-- Admin roles (admin only):
-  - POST /admin/roles/grant
-  - POST /admin/roles/revoke
 - Admin users (root permission required):
   - GET /admin/users (`root:resources:read`; query supports `root_role` and `status=deleted`)
   - GET /admin/users/:user_id (`root:resources:read`)
@@ -1148,8 +1142,6 @@ keeps working end-to-end. (`required` with no sender is rejected at startup by
   - POST /admin/users/:user_id/restore (`root:users:delete`)
   - GET /admin/users/:user_id/signins (`root:resources:read`)
   - POST /admin/users/:user_id/sessions/revoke (`root:users:recover`)
-- Public owner-namespace lookup:
-  - GET /namespaces/:slug → public user-namespace metadata + `claimable`
 - Solana wallet authentication (SIWS):
   - POST /solana/challenge → {domain, address, nonce, issuedAt, expirationTime, ...}
   - POST /solana/login → {access_token, refresh_token, user}

@@ -11,7 +11,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -55,14 +55,14 @@ func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 	const pass = "correct-horse-battery-97"
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1 OR username=$2`, email, username)
 
-	cfg := core.Config{
-		Token: core.TokenConfig{
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
-		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
+		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
 	svc, err := NewServer(cfg, pool, WithEntitlements(staticHTTPEntitlementsProvider{names: []string{"premium"}}))
 	require.NoError(t, err)

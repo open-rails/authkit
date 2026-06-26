@@ -10,21 +10,21 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
 // memRemoteAppSource is a minimal in-memory RemoteApplicationSource for the
 // verify layer.
 type memRemoteAppSource struct {
-	apps []authbase.RemoteApplication
+	apps []authkit.RemoteApplication
 }
 
-func (m *memRemoteAppSource) ListRemoteApplications(_ context.Context, enabledOnly bool) ([]authbase.RemoteApplication, error) {
+func (m *memRemoteAppSource) ListRemoteApplications(_ context.Context, enabledOnly bool) ([]authkit.RemoteApplication, error) {
 	if !enabledOnly {
 		return m.apps, nil
 	}
-	var out []authbase.RemoteApplication
+	var out []authkit.RemoteApplication
 	for _, a := range m.apps {
 		if a.Enabled {
 			out = append(out, a)
@@ -33,7 +33,7 @@ func (m *memRemoteAppSource) ListRemoteApplications(_ context.Context, enabledOn
 	return out, nil
 }
 
-func (m *memRemoteAppSource) GetRemoteApplication(_ context.Context, issuer string) (*authbase.RemoteApplication, error) {
+func (m *memRemoteAppSource) GetRemoteApplication(_ context.Context, issuer string) (*authkit.RemoteApplication, error) {
 	for i := range m.apps {
 		if m.apps[i].Issuer == issuer {
 			a := m.apps[i]
@@ -47,7 +47,7 @@ func (m *memRemoteAppSource) GetRemoteApplication(_ context.Context, issuer stri
 func newDelegatedVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *Verifier {
 	t.Helper()
 	v := NewVerifier()
-	v.SetRemoteApplicationSource(&memRemoteAppSource{apps: []authbase.RemoteApplication{{
+	v.SetRemoteApplicationSource(&memRemoteAppSource{apps: []authkit.RemoteApplication{{
 		ID:      "remote-app-1",
 		Slug:    "remote-app",
 		Issuer:  iss,
@@ -339,7 +339,7 @@ func TestRequireDelegatedOriginChecksVerifiedIssuer(t *testing.T) {
 
 	iss := "https://auth.doujins.com"
 	aud := []string{"openrails"}
-	src := &memRemoteAppSource{apps: []authbase.RemoteApplication{{
+	src := &memRemoteAppSource{apps: []authkit.RemoteApplication{{
 		Slug:           "doujins",
 		Issuer:         iss,
 		JWKSURI:        jwks.URL + "/.well-known/jwks.json",
@@ -399,7 +399,7 @@ func TestRequireDelegatedOriginChecksVerifiedIssuer(t *testing.T) {
 // only for an enabled remote_application's origin; a disabled app's origin is
 // forbidden. (federation_test.go coverage, current credentials-aware handler.)
 func TestRemoteApplicationCORSUsesEnabledOriginUnion(t *testing.T) {
-	src := &memRemoteAppSource{apps: []authbase.RemoteApplication{
+	src := &memRemoteAppSource{apps: []authkit.RemoteApplication{
 		{Slug: "doujins", Issuer: "https://auth.doujins.com", AllowedOrigins: []string{"https://doujins.com"}, Enabled: true},
 		{Slug: "hentai0", Issuer: "https://auth.hentai0.com", AllowedOrigins: []string{"https://hentai0.com"}, Enabled: false},
 	}}
@@ -441,9 +441,9 @@ type ceilingEnricher struct {
 	authority []string
 }
 
-func (e *ceilingEnricher) GetRemoteApplication(_ context.Context, issuer string) (*authbase.RemoteApplication, error) {
+func (e *ceilingEnricher) GetRemoteApplication(_ context.Context, issuer string) (*authkit.RemoteApplication, error) {
 	if issuer == e.issuer {
-		return &authbase.RemoteApplication{ID: e.appID, Issuer: e.issuer, Enabled: true}, nil
+		return &authkit.RemoteApplication{ID: e.appID, Issuer: e.issuer, Enabled: true}, nil
 	}
 	return nil, errors.New("not_found")
 }
@@ -455,13 +455,13 @@ func (e *ceilingEnricher) ResolveRemoteApplicationAuthority(_ context.Context, a
 	return []string{}, nil
 }
 
-func (e *ceilingEnricher) ResolveAPIKeyWithResources(context.Context, string, string) (authbase.ResolvedAPIKey, error) {
-	return authbase.ResolvedAPIKey{}, errors.New("unused")
+func (e *ceilingEnricher) ResolveAPIKeyWithResources(context.Context, string, string) (authkit.ResolvedAPIKey, error) {
+	return authkit.ResolvedAPIKey{}, errors.New("unused")
 }
-func (e *ceilingEnricher) ListRemoteApplications(context.Context, bool) ([]authbase.RemoteApplication, error) {
-	return []authbase.RemoteApplication{{ID: e.appID, Issuer: e.issuer, Enabled: true}}, nil
+func (e *ceilingEnricher) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {
+	return []authkit.RemoteApplication{{ID: e.appID, Issuer: e.issuer, Enabled: true}}, nil
 }
-func (e *ceilingEnricher) ResolveRemoteAppAttributeDef(context.Context, string, string, int32) (*authbase.RemoteAppAttributeDef, error) {
+func (e *ceilingEnricher) ResolveRemoteAppAttributeDef(context.Context, string, string, int32) (*authkit.RemoteAppAttributeDef, error) {
 	return nil, errors.New("unused")
 }
 func (e *ceilingEnricher) GetProviderUsername(context.Context, string, string) (string, error) {

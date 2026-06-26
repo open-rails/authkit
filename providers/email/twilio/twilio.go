@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	authlang "github.com/open-rails/authkit/lang"
 )
 
@@ -25,7 +25,7 @@ type Message struct {
 }
 
 // VerificationBuilder renders a verification email.
-type VerificationBuilder func(ctx context.Context, email, username string, msg core.VerificationMessage) Message
+type VerificationBuilder func(ctx context.Context, email, username string, msg embedded.VerificationMessage) Message
 
 // PasswordResetBuilder renders a password reset email.
 type PasswordResetBuilder func(ctx context.Context, email, username, resetURL string) Message
@@ -102,7 +102,7 @@ func (s *Sender) httpClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 
-func (s *Sender) SendVerification(ctx context.Context, email, username string, msg core.VerificationMessage) error {
+func (s *Sender) SendVerification(ctx context.Context, email, username string, msg embedded.VerificationMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func contextLanguage(ctx context.Context) string {
 	}
 }
 
-func defaultVerificationMessage(ctx context.Context, app string, msg core.VerificationMessage) Message {
+func defaultVerificationMessage(ctx context.Context, app string, msg embedded.VerificationMessage) Message {
 	copy := copyForContext(ctx, app)
 	intro := copy.verifyIntro
 	if strings.TrimSpace(msg.Purpose) == "contact_change" {
@@ -243,8 +243,8 @@ func (s *Sender) SendWelcome(ctx context.Context, email, username string) error 
 
 // SendGroupInvite delivers a permission-group invite link (#134). AuthKit has
 // already built msg.InviteURL; this renders a simple branded email pointing at it.
-// Implements core.GroupInviteEmailSender (the optional invite-delivery capability).
-func (s *Sender) SendGroupInvite(ctx context.Context, email string, msg core.GroupInviteMessage) error {
+// Implements embedded.GroupInviteEmailSender (the optional invite-delivery capability).
+func (s *Sender) SendGroupInvite(ctx context.Context, email string, msg embedded.GroupInviteMessage) error {
 	where := strings.TrimSpace(msg.Persona)
 	if strings.TrimSpace(msg.InstanceSlug) != "" {
 		where = strings.TrimSpace(msg.Persona + " " + msg.InstanceSlug)

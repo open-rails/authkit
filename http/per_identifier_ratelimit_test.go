@@ -9,19 +9,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func newPerIdentifierTestService(t *testing.T) *Service {
 	t.Helper()
-	cfg := core.Config{
-		Token: core.TokenConfig{
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
 			ExpectedAudiences: []string{"test-app"},
 		},
-		Frontend:     core.FrontendConfig{BaseURL: "https://example.com"},
-		Registration: core.RegistrationConfig{Verification: core.RegistrationVerificationNone},
+		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
 	svc, err := NewServer(cfg, newNoDBPool(t))
 	require.NoError(t, err)

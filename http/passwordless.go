@@ -2,11 +2,12 @@ package authhttp
 
 import (
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	core "github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Request) {
@@ -34,26 +35,26 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	_, err := s.svc.StartPasswordless(r.Context(), core.PasswordlessStartRequest{
+	_, err := s.svc.StartPasswordless(r.Context(), authkit.PasswordlessStartRequest{
 		Identifier:        identifier,
 		Mode:              req.Mode,
 		ReturnTo:          req.ReturnTo,
 		PreferredLanguage: req.PreferredLanguage,
 	})
 	if err != nil {
-		if errors.Is(err, core.ErrPasswordlessDisabled) {
+		if errors.Is(err, authkit.ErrPasswordlessDisabled) {
 			forbidden(w, ErrPasswordlessDisabled)
 			return
 		}
-		if code := ErrorCode(core.ValidationErrorCode(err)); code != "" {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
 			return
 		}
-		if errors.Is(err, core.ErrEmailSenderUnavailable) {
+		if errors.Is(err, authkit.ErrEmailSenderUnavailable) {
 			serverErr(w, ErrEmailVerificationUnavailable)
 			return
 		}
-		if errors.Is(err, core.ErrSMSSenderUnavailable) {
+		if errors.Is(err, authkit.ErrSMSSenderUnavailable) {
 			serverErr(w, ErrPhoneVerificationUnavailable)
 			return
 		}
@@ -84,7 +85,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	var result core.PasswordlessConfirmResult
+	var result authkit.PasswordlessConfirmResult
 	var err error
 	usedCode := false
 	if token := strings.TrimSpace(req.Token); token != "" {
@@ -104,7 +105,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 			}
 			logLoginFailed(s, r, "", "invalid_or_expired_passwordless_code")
 			badRequest(w, ErrInvalidOrExpiredCode)
-		case errors.Is(err, core.ErrRegistrationDisabled), errors.Is(err, core.ErrPasswordlessDisabled):
+		case errors.Is(err, authkit.ErrRegistrationDisabled), errors.Is(err, authkit.ErrPasswordlessDisabled):
 			logLoginFailed(s, r, "", "passwordless_disabled")
 			forbidden(w, ErrPasswordlessDisabled)
 		default:

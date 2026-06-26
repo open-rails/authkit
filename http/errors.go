@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/open-rails/authkit/authbase"
-	core "github.com/open-rails/authkit/core"
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/embedded"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -20,37 +20,37 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // sendErr writes the canonical Stripe-style error envelope
 // ({"error":{type,code,message}}); type is derived from the status and message
-// from the code catalog (authbase). The shape is shared with the verify package.
+// from the code catalog (authkit). The shape is shared with the verify package.
 func sendErr(w http.ResponseWriter, status int, code ErrorCode) {
-	writeJSON(w, status, authbase.NewErrorEnvelope(status, string(code), nil, nil))
+	writeJSON(w, status, authkit.NewErrorEnvelope(status, string(code), nil, nil))
 }
 
 // sendErrData attaches machine-readable context under error.metadata (e.g.
 // rate-limit/availability fields), keeping a single nested envelope shape.
 func sendErrData(w http.ResponseWriter, status int, code ErrorCode, data map[string]any) {
-	writeJSON(w, status, authbase.NewErrorEnvelope(status, string(code), nil, data))
+	writeJSON(w, status, authkit.NewErrorEnvelope(status, string(code), nil, data))
 }
 
 // badRequestParam emits a 400 naming the offending request field in error.param.
 func badRequestParam(w http.ResponseWriter, code ErrorCode, param string) {
-	writeJSON(w, http.StatusBadRequest, authbase.NewErrorEnvelope(http.StatusBadRequest, string(code), &param, nil))
+	writeJSON(w, http.StatusBadRequest, authkit.NewErrorEnvelope(http.StatusBadRequest, string(code), &param, nil))
 }
 
 // validationParam maps a known identity-validation wire code to the request
 // field it concerns, so a 400 for one of these codes carries error.param (#115).
 // Any code not listed simply omits param.
 var validationParam = map[ErrorCode]string{
-	ErrorCode(core.ErrCodeUsernameTooShort):            "username",
-	ErrorCode(core.ErrCodeUsernameTooLong):             "username",
-	ErrorCode(core.ErrCodeUsernameMustStartWithLetter): "username",
-	ErrorCode(core.ErrCodeUsernameCannotContainAt):     "username",
-	ErrorCode(core.ErrCodeUsernameCannotStartWithPlus): "username",
-	ErrorCode(core.ErrCodeUsernameInvalidCharacters):   "username",
-	ErrorCode(core.ErrCodeUsernameNotAllowed):          "username",
-	ErrorCode(core.ErrCodeOwnerSlugTaken):              "username",
-	ErrorCode(core.ErrCodeInvalidEmail):                "email",
-	ErrorCode(core.ErrCodeInvalidPhoneNumber):          "phone_number",
-	ErrorCode(core.ErrCodePasswordTooShort):            "password",
+	ErrorCode(embedded.ErrCodeUsernameTooShort):            "username",
+	ErrorCode(embedded.ErrCodeUsernameTooLong):             "username",
+	ErrorCode(embedded.ErrCodeUsernameMustStartWithLetter): "username",
+	ErrorCode(embedded.ErrCodeUsernameCannotContainAt):     "username",
+	ErrorCode(embedded.ErrCodeUsernameCannotStartWithPlus): "username",
+	ErrorCode(embedded.ErrCodeUsernameInvalidCharacters):   "username",
+	ErrorCode(embedded.ErrCodeUsernameNotAllowed):          "username",
+	ErrorCode(embedded.ErrCodeOwnerSlugTaken):              "username",
+	ErrorCode(embedded.ErrCodeInvalidEmail):                "email",
+	ErrorCode(embedded.ErrCodeInvalidPhoneNumber):          "phone_number",
+	ErrorCode(embedded.ErrCodePasswordTooShort):            "password",
 }
 
 // badRequest emits a 400. When the code is a known identity-validation code it
@@ -142,9 +142,9 @@ func deliveryErrCode(err error) ErrorCode {
 	switch {
 	case err == nil:
 		return ""
-	case errors.Is(err, core.ErrEmailDeliveryFailed):
+	case errors.Is(err, authkit.ErrEmailDeliveryFailed):
 		return ErrEmailDeliveryFailed
-	case errors.Is(err, core.ErrSMSDeliveryFailed):
+	case errors.Is(err, authkit.ErrSMSDeliveryFailed):
 		return ErrSMSDeliveryFailed
 	default:
 		return ""

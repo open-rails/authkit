@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
 // RemoteAppOptions builds the verifier IssuerOptions for a remote_application
 // (issuer/JWKS or static keys + allowed origins). Exported so authhttp handlers
 // that register issuers from stored remote_applications can reuse it.
-func RemoteAppOptions(ra authbase.RemoteApplication) IssuerOptions {
+func RemoteAppOptions(ra authkit.RemoteApplication) IssuerOptions {
 	return remoteAppOptions(ra)
 }
 
@@ -36,19 +36,19 @@ const (
 )
 
 // writeErr writes the canonical Stripe-style error envelope
-// ({"error":{type,code,message}}) via the shared authbase builder, so responses
+// ({"error":{type,code,message}}) via the shared authkit builder, so responses
 // are byte-identical whether a route is mounted through authhttp or the verify
 // package directly.
 func writeErr(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(authbase.NewErrorEnvelope(status, code, nil, nil))
+	_ = json.NewEncoder(w).Encode(authkit.NewErrorEnvelope(status, code, nil, nil))
 }
 
 func writeErrData(w http.ResponseWriter, status int, code string, data map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(authbase.NewErrorEnvelope(status, code, nil, data))
+	_ = json.NewEncoder(w).Encode(authkit.NewErrorEnvelope(status, code, nil, data))
 }
 
 func unauthorized(w http.ResponseWriter, code string) { writeErr(w, http.StatusUnauthorized, code) }

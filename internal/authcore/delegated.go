@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
 
@@ -23,49 +24,7 @@ const DelegatedAccessTokenType = jwtkit.DelegatedAccessTokenType
 // (DelegatedSubject) acting under the resource account that the VALIDATED
 // `iss` resolves to in the receiver's issuer registry. It NEVER carries a
 // normal `sub` — no local account is implied in the receiving service.
-type DelegatedAccessParams struct {
-	// Issuer becomes the `iss` claim: the AuthKit issuer that signed the token.
-	// Must match a remote_application registered with the validating resource server.
-	// Required when minting via the free function; the *Service mint method
-	// defaults it to the Service's configured Issuer when empty.
-	Issuer string
-	// Audiences becomes the `aud` claim: the target resource API(s), e.g.
-	// "openrails", "tensorhub", or "gen-orchestrator".
-	Audiences []string
-	// DelegatedSubject becomes `delegated_sub`: the issuer-side subject id.
-	// Required. No local account is implied in the receiving service.
-	DelegatedSubject string
-	// Permissions becomes the `permissions` claim: an array of resource-defined
-	// permission strings (NOT OAuth's space-delimited `scope`). Receiving
-	// services validate these against their own permission set.
-	Permissions []string
-	// Attributes becomes the `attributes` claim: the canonical app-specific
-	// ESCAPE HATCH (#75). An object of issuer-asserted, NAMESPACED, OPAQUE
-	// key/values that AuthKit transports + optionally shape-validates but NEVER
-	// interprets — the semantics belong to the consuming app (tensorhub etc.).
-	// Each value is set in ONE of two modes, per key:
-	//   INLINE    — the value carries the full definition, e.g.
-	//               {"tier":{"endpoints":[...],"caps":[...]}}. No lookup.
-	//   REFERENCE — the value is a short string key, e.g. {"tier":"tier-1"},
-	//               resolved by the consumer against a definition the
-	//               remote_application registered ahead of time (see the
-	//               attribute-def registry: Service.RegisterRemoteAppAttributeDef
-	//               / ResolveRemoteAppAttributeDef). Keeps tokens small.
-	// Reserved well-known keys: `tier` (opaque entitlement-tier string) and
-	// `roles` (a uuid array; prefer the typed Roles field below). Everything
-	// else is free-form per consuming app. Values are arbitrary JSON.
-	Attributes map[string]any
-	// Roles is a convenience for emitting the delegated subject's role UUIDs into
-	// `attributes.roles` (a JSON array of UUID strings). Equivalent to setting
-	// Attributes["roles"] yourself; when both are set this typed field wins.
-	Roles []string
-	// TTL is the token lifetime. Defaults to 15m when zero.
-	TTL time.Duration
-	// JTI, when set, becomes the `jti` claim (token identifier). Optional.
-	JTI string
-	// NotBefore, when set, becomes the `nbf` claim. Optional.
-	NotBefore time.Time
-}
+type DelegatedAccessParams = authkit.DelegatedAccessParams
 
 // MintDelegatedAccessToken signs a canonical delegated access token using the
 // Service's internal signer. The host passes claims/params only and NEVER

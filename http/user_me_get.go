@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-rails/authkit/core"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -16,7 +16,7 @@ type userMeResponse struct {
 	Username                          string                          `json:"username"`
 	DiscordUsername                   *string                         `json:"discord_username,omitempty"`
 	SolanaAddress                     *string                         `json:"solana_address,omitempty"`
-	SolanaLinkedAccount               *core.SolanaLinkedAccount       `json:"solana_linked_account,omitempty"`
+	SolanaLinkedAccount               *embedded.SolanaLinkedAccount   `json:"solana_linked_account,omitempty"`
 	LinkedProviders                   []string                        `json:"linked_providers,omitempty"`
 	EnabledProviders                  []string                        `json:"enabled_providers,omitempty"`
 	EmailVerified                     bool                            `json:"email_verified"`
@@ -131,7 +131,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	if !claims.AuthTime.IsZero() {
 		formatted := claims.AuthTime.UTC().Format(time.RFC3339)
 		lastAuthenticatedAt = &formatted
-		remaining := core.SensitiveActionFreshAuthWindow - time.Since(claims.AuthTime)
+		remaining := embedded.SensitiveActionFreshAuthWindow - time.Since(claims.AuthTime)
 		if remaining < 0 {
 			remaining = 0
 		}

@@ -4,44 +4,34 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
 const (
-	// ServiceJWTTokenUse + DefaultServiceJWTLifetime are defined in authbase
+	// ServiceJWTTokenUse + DefaultServiceJWTLifetime are defined in authkit
 	// (core-free) and re-exported here.
-	ServiceJWTTokenUse = authbase.ServiceJWTTokenUse
+	ServiceJWTTokenUse = authkit.ServiceJWTTokenUse
 	// ServiceJWTType is the JOSE typ header AuthKit stamps on minted service JWTs.
 	ServiceJWTType            = "service+jwt"
-	DefaultServiceJWTLifetime = authbase.DefaultServiceJWTLifetime
+	DefaultServiceJWTLifetime = authkit.DefaultServiceJWTLifetime
 )
 
 var (
-	// ErrInvalidServiceJWT is defined in authbase and re-exported here.
-	ErrInvalidServiceJWT = authbase.ErrInvalidServiceJWT
-	ErrMissingSigner     = errors.New("missing_signer")
+	// ErrInvalidServiceJWT is defined in authkit and re-exported here.
+	ErrInvalidServiceJWT = authkit.ErrInvalidServiceJWT
+	ErrMissingSigner     = authkit.ErrMissingSigner
 )
 
-// ServiceJWTClaims is defined in authbase (core-free) and re-exported here.
-type ServiceJWTClaims = authbase.ServiceJWTClaims
+// ServiceJWTClaims is defined in authkit (core-free) and re-exported here.
+type ServiceJWTClaims = authkit.ServiceJWTClaims
 
 // ServiceJWTMintOptions controls service-JWT minting for embedded hosts.
-type ServiceJWTMintOptions struct {
-	Subject     string
-	Audiences   []string
-	Permissions []string
-	Resources   []APIKeyResource
-	Lifetime    time.Duration
-	NotBefore   time.Time
-	IssuedAt    time.Time
-	JTI         string
-}
+type ServiceJWTMintOptions = authkit.ServiceJWTMintOptions
 
 // MintServiceJWT creates a short-lived signed service JWT from AuthKit's active
 // signing key. It defaults to a 15-minute lifetime and stamps

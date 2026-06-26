@@ -55,7 +55,7 @@ remote applications, and group role assignments.
 |-------|-------------|
 | **PUBLIC** | No authentication required. |
 | **AUTH** | Requires valid JWT token (logged-in user). |
-| **ADMIN** | Requires valid JWT with admin role. |
+| **PERM** | Requires the listed permission through AuthKit's permission-group engine. |
 
 ---
 
@@ -73,6 +73,7 @@ remote applications, and group role assignments.
 |--------|------|------|-------------|
 | GET | `/oidc/:provider/login` | PUBLIC | Start browser login (Google, Apple, Discord, etc.); optional app-relative `return_to` |
 | GET | `/oidc/:provider/callback` | PUBLIC | OIDC/OAuth callback |
+| GET | `/oidc/:provider/step-up/callback` | PUBLIC | OIDC/OAuth step-up callback |
 
 Notes:
 - Browser OIDC routes are served by `OIDCHandler()`, not `APIHandler()`, and should usually be public routes such as `/oidc/:provider/login` and `/oidc/:provider/callback`.
@@ -93,6 +94,7 @@ Notes:
 | POST | `/passkeys/login/begin` | PUBLIC | Begin passkey login; optional `{ "login": "email-or-username-or-phone" }` for username-scoped options, omitted for discoverable/usernameless login |
 | POST | `/passkeys/login/finish` | PUBLIC | Finish passkey login by POSTing the `PublicKeyCredential` JSON returned by `navigator.credentials.get()` |
 | POST | `/register` | PUBLIC | Unified registration (email or phone); success returns `next_action`: `none`, `verify_email`, or `verify_phone`; `none` includes access/refresh tokens |
+| GET | `/register/availability` | PUBLIC | Check whether username/email/phone registration inputs are available |
 | POST | `/register/resend-email` | PUBLIC | Resend email verification |
 | POST | `/register/resend-phone` | PUBLIC | Resend phone verification |
 | POST | `/token` | PUBLIC | Refresh user access token |
@@ -204,6 +206,8 @@ Always:
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/me/groups` | AUTH | List the caller's direct `{persona, instance_slug, role}` memberships |
+| GET | `/me/permissions` | AUTH | List effective permission grants for `?persona=` and `?instance=`; defaults to the singleton root group |
+| POST | `/invites/redeem` | AUTH | Redeem an invite-link code for the authenticated user |
 
 For each configured persona, AuthKit emits only the route families enabled by
 that persona's management profile:
@@ -241,7 +245,7 @@ acts as an API-key principal for that permission group: middleware sets
 embedding app owns the vocabulary and enforces meaning.
 
 **Presentation.** `Authorization: Bearer <prefix>_st_<key_id>_<secret>`. `<prefix>` is
-the host's configured `APIKeyPrefix` brand ( e.g. `cozy` → `cozy_st_…`); empty →
+the host's configured `core.Config.APIKeys.Prefix` brand (e.g. `cozy` → `cozy_st_…`); empty →
 bare `st_`. `key_id` is a non-secret public id for O(1) indexed lookup; only
 `sha256(secret)` is stored. The full token is shown **once** at creation.
 
@@ -260,15 +264,15 @@ no-escalation. Permissions resolve from that role at verify time rather than
 being frozen into the key. An API key carries no user, so it can never
 mint/list/revoke API keys.
 
-**Resource scopes.** API keys may also carry `resources: [{kind, id}]`. AuthKit
-stores these as opaque exact-match Kind/ID pairs and returns them from
+**Resource scopes.** API keys may also carry `resources: [{persona, id}]`. AuthKit
+stores these as opaque exact-match Persona/ID pairs and returns them from
 `ListAPIKeys`, `ResolveAPIKeyWithResources`, and API key middleware
 `Claims.Resources`. AuthKit validates only shape/length and duplicate pairs; it
-does not interpret resource kinds or grant wildcards by itself. A host may use
+does not interpret resource personas or grant wildcards by itself. A host may use
 literal IDs such as `"*"` if that host wants wildcard semantics. Hosts that need
-resource no-escalation install `core.Config.ResourceScopeAuthorizer`; otherwise
-any caller who passes the normal API key management and permission checks may attach
-valid resource scopes. The rule is: **permissions say what; resources say
+resource no-escalation install `core.WithAPIKeyResourceAuthorizer` or
+`authhttp.WithAPIKeyResourceAuthorizer`; without that hook, non-empty resource
+scopes fail closed. The rule is: **permissions say what; resources say
 where**.
 
 ## Service JWTs (OIDC/JWKS machine credentials)
@@ -277,7 +281,7 @@ First-party services that have their own AuthKit issuer/JWKS should mint
 short-lived service JWTs instead of receiving generated opaque API keys
 from the resource service. The canonical token shape is `iss`, `sub`, `aud`,
 `iat`, `nbf`, `exp`, `jti`, `token_use=service`, and `permissions: []`, with
-optional `resources: [{kind,id}]`. AuthKit's default mint lifetime is 15 minutes.
+optional `resources: [{persona,id}]`. AuthKit's default mint lifetime is 15 minutes.
 
 Use `core.MintServiceJWT` or `(*core.Service).MintServiceJWT` on the caller side,
 and `authhttp.Verifier.VerifyServiceJWT` or `authhttp.RequiredServiceJWT` on the
@@ -317,11 +321,11 @@ checked on every request.
 single `role`, `created_by` audit-only & `ON DELETE SET NULL` so a token
 outlives its minter, nullable `expires_at`/`revoked_at`, `last_used_at` touched
 best-effort/async) plus `profiles.api_key_resources` for opaque
-Kind/ID scope rows.
+Persona/ID scope rows.
 
-**Configuration.** `core.Config.APIKeyPrefix` (lowercase alnum, ≤16 chars; empty
-→ `st_`), `core.Config.APIKeyMaxTTL` (0 = no cap), and optional
-`core.Config.ResourceScopeAuthorizer`.
+**Configuration.** `core.Config.APIKeys.Prefix` (lowercase alnum, ≤16 chars; empty
+→ `st_`), `core.Config.APIKeys.MaxTTL` (0 = no cap), and optional
+`core.WithAPIKeyResourceAuthorizer` / `authhttp.WithAPIKeyResourceAuthorizer`.
 
 ---
 
@@ -376,8 +380,6 @@ least one factor. Disabling MFA removes those MFA-required user role assignments
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/admin/roles/grant` | ADMIN | Grant role to user |
-| POST | `/admin/roles/revoke` | ADMIN | Revoke role from user |
 | GET | `/admin/users` | `root:resources:read` | Dashboard user list. Query: `page`, `page_size`, `search`, `root_role`, `status=active\|banned\|deleted\|any`, `sort=created_at\|last_login\|username\|email`, `order=asc\|desc`, `entitlement` |
 | GET | `/admin/users/:user_id` | `root:resources:read` | Get user details |
 | POST | `/admin/users/:user_id/ban` | `root:users:ban` | Ban user. Body requires `until` as RFC3339 or `"infinite"` and may include `reason`. |
@@ -387,9 +389,6 @@ least one factor. Disabling MFA removes those MFA-required user role assignments
 | POST | `/admin/users/:user_id/restore` | `root:users:delete` | Restore (undelete) user |
 | GET | `/admin/users/:user_id/signins` | `root:resources:read` | List recent signin events for a user |
 | POST | `/admin/users/:user_id/sessions/revoke` | `root:users:recover` | Revoke all refresh sessions for a target user |
-| GET | `/namespaces/:slug` | PUBLIC | Fetch public user-namespace metadata: `requested_slug`, `slug`, `renamed`, optional `hold_until`, optional `user`, and `claimable` |
-
-Namespace lookup returns the user namespace plus rename/claimability metadata.
 
 ## Remote Application Issuers (resource-server side)
 

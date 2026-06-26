@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	authkit "github.com/open-rails/authkit"
 	"net"
 	"net/url"
 	"strings"
@@ -20,9 +21,9 @@ import (
 const passkeyCeremonyTTL = 10 * time.Minute
 
 var (
-	ErrPasskeyNotFound                 = errors.New("passkey_not_found")
-	ErrPasskeyUserVerificationRequired = errors.New("passkey_user_verification_required")
-	ErrPasskeyCloneDetected            = errors.New("passkey_clone_detected")
+	ErrPasskeyNotFound                 = authkit.ErrPasskeyNotFound
+	ErrPasskeyUserVerificationRequired = authkit.ErrPasskeyUserVerificationRequired
+	ErrPasskeyCloneDetected            = authkit.ErrPasskeyCloneDetected
 )
 
 type Passkey struct {

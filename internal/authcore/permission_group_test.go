@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-rails/authkit/authbase"
+	authkit "github.com/open-rails/authkit"
 )
 
 func TestValidatePermission(t *testing.T) {
@@ -276,7 +276,7 @@ func TestOwnerGrantCoverageIsNamespacePure(t *testing.T) {
 	s := tensorhubSchema(t)
 	org, _ := s.Role("org", OwnerRoleName)
 	grant := org.Permissions[0] // org:*
-	covers := func(perm string) bool { return authbase.PermMatches(grant, perm) }
+	covers := func(perm string) bool { return authkit.PermMatches(grant, perm) }
 	if !covers("org:repo:read") || !covers("org:billing:update") {
 		t.Errorf("org:* should cover its own namespace")
 	}
