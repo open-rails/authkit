@@ -199,6 +199,84 @@ Host mental model:
       (`WithEmailSender`, `WithSMSSender`, `WithEntitlements`,
       `WithEphemeralStore`, etc.). Do not make `embedded` a dumping ground for
       validation constants and DTO aliases.
+- [x] DECISION: simplify RBAC persona containment. A group instance already has
+      exactly one parent (`parent_id`/`parent_persona`); the public schema should
+      also declare exactly one parent persona per persona type, not
+      `AllowedParents []string`.
+- [ ] Replace `PersonaDef.AllowedParents []string` with `PersonaDef.Parent string`
+      hard-cut. Empty parent is valid only for the intrinsic `root` persona;
+      every non-root persona names exactly one parent persona. Do not default
+      missing parent to `root`; missing parent is a config error.
+- [x] DECISION: host-defined top-level personas must explicitly write
+      `Parent: authkit.RootPersona`. Do not treat empty `Parent` as root, and do
+      not ask host apps to define the intrinsic root persona themselves.
+- [x] DECISION: RBAC config has two separate declarations: (1) the complete
+      concrete permission catalog (`persona:resource:action`), and (2) persona
+      roles that reference those permissions. Do not make roles the only source
+      of the permission universe.
+- [ ] Validate persona role permissions against the catalog. App-declared roles
+      should reference declared concrete permissions; reserve wildcard grants
+      such as `<persona>:*` for AuthKit's generated owner role and deliberate
+      internal expansion.
+- [ ] Update `BuildSchema`/`NewGroupSchema` validation and containment seeding for
+      singular parent persona definitions. No configurable multi-parent hierarchy.
+- [ ] Update Postgres containment storage/query naming if useful
+      (`group_persona_parents` currently models many allowed parents); keep the
+      runtime group instance model singular.
+- [ ] Update docs/examples to show `persona:resource:action` permissions inside
+      persona roles, e.g. `root:users:ban`, `merchant:subscriptions:cancel`,
+      `endpoint:deployments:restart`.
+- [x] DECISION: simplify identity-provider config. Do not expose separate
+      built-in vs custom-provider fields; a provider is a provider.
+- [ ] Delete `IdentityConfig.ProviderDescriptors`.
+- [ ] Replace `IdentityConfig.Providers map[string]oidc.RPConfig` with
+      `IdentityConfig.Providers []authprovider.Provider`.
+- [ ] Keep provider name inside `authprovider.Provider.Name`, not as a map key.
+- [ ] Add small helper constructors for built-ins only if they materially improve
+      examples, e.g. `authprovider.Google(clientID, clientSecret)`.
+- [ ] Update first README example to use either `Identity: embedded.IdentityConfig{}`
+      or one built-in provider constructor, not custom-provider descriptor plumbing.
+- [x] DECISION: TOTP secret-encryption keys use the same security model as signing
+      keys: AuthKit reads them from the vault-mounted key directory (`Keys.Path`,
+      `/vault/auth` by default); host apps do not manually load/pass secrets during
+      normal embedded setup.
+- [x] DECISION: replace `TwoFactorConfig.RequireEnrollment bool` with explicit
+      host policy: `Mode` (`authkit.TwoFactorDisabled|Optional|Required`) plus
+      `Methods []authkit.TwoFactorMethod` (`Email|SMS|TOTP`). `Disabled` means no
+      user 2FA enrollment/challenge routes are usable; `Optional` means users may
+      enroll; `Required` means every user must enroll before normal session use.
+      Role-level `RequiresMFA` stays available for narrower enforcement.
+- [x] DECISION: backup codes are not host-configurable. When 2FA enrollment is
+      available, backup-code generation/recovery is always available as the
+      standard recovery path.
+- [ ] Move 2FA policy vocabulary to root `authkit`: `TwoFactorMode`,
+      `TwoFactorDisabled`, `TwoFactorOptional`, `TwoFactorRequired`,
+      `TwoFactorMethod`, `TwoFactorEmail`, `TwoFactorSMS`, `TwoFactorTOTP`.
+- [ ] Update `embedded.TwoFactorConfig` to use `Mode` and `Methods`; remove
+      `RequireEnrollment` from the public config hard-cut.
+- [ ] Gate 2FA routes and service operations from config: disabled means no
+      enroll/challenge/verify flow; optional/required expose only configured
+      methods, and fail closed when a method dependency is missing (for example,
+      SMS sender absent).
+- [ ] Keep backup-code routes/operations tied to 2FA availability, not to a
+      separate config flag.
+- [ ] Treat the TOTP encryption key as first-class key material, not incidental
+      config: define the file format, load path, validation, reload/rotation story,
+      and error semantics at the same rigor level as JWT signing keys.
+- [ ] Add vault/file loading for `TwoFactor.TOTPSecretKey` under `Keys.Path`.
+      Use strict file permissions/parse validation, require 16/24/32 bytes after
+      decoding, and fail closed for TOTP enrollment if the key is missing or invalid.
+- [ ] Decide whether TOTP key config needs the same knobs as signing keys
+      (`Source`/custom provider, path override, reloadable file source). Prefer a
+      small shared key-loading abstraction over host apps reading secrets manually.
+- [ ] Design TOTP key rotation deliberately: encrypted TOTP secrets need either a
+      key id/version prefix or a keyring so old enrolled secrets remain decryptable
+      after rotation while new enrollments use the active key.
+- [ ] Keep the explicit `TwoFactor.TOTPSecretKey []byte` override for tests and
+      custom key management, but make it an override over the file source, not the
+      normal path.
+- [ ] Document the expected vault-mounted TOTP key filename/format next to the JWT
+      `keys.json` docs.
 - [x] DECISION: registration policy enums belong in root `authkit`, not `embedded`,
       because they are shared public contract vocabulary for embedded + future remote.
 - [x] DECISION: simplify `RegistrationMode` to public self-registration policy only:
@@ -302,18 +380,37 @@ Host mental model:
 - [ ] Keep direct `jwt` use out of normal host examples. Token signing should go
       through `client.MintDelegatedAccessToken` / `client.MintServiceJWT`; hosts
       should not handle private keys for routine embedding.
-- [ ] Hide direct ephemeral storage use behind embedded options wherever possible:
-      normal hosts should use `embedded.WithRedis` / `embedded.WithEphemeralStore`,
-      not import `storage/redis` or `storage/memory` unless doing advanced wiring.
-- [ ] Update current consumers:
-      - doujins: migrate `embedded.New` imports/callers and replace broad
-        `authkit.Client` injection with narrow local/root capability interfaces
-        where practical.
-      - hentai0: migrate `embedded.New`; keep route filtering via `RouteGroup`.
-      - cozy-art: migrate old `core` imports to current package names and use
-        `embedded.NewClient` / `authkit.TokenIssuer` shape for platform token minting.
-      - tensorhub: migrate old `core` imports; use narrow federation/RBAC/token
-        capability interfaces around the heavy identity service.
+- [ ] Move advanced engine hooks out of the first README constructor example:
+      `WithEntitlements` (host billing/product entitlements projected into access
+      tokens/admin views), `WithAPIKeyResourceAuthorizer` (host no-escalation check
+      for resource-scoped API keys), and `WithAuthLogger` (external auth/session
+      audit sink such as ClickHouse). Keep them documented only in advanced/support
+      sections.
+- [x] DECISION: remove public `WithEphemeralStore` from the host-facing API. It is
+      jargon and unnecessary: AuthKit should always create and use an in-memory
+      auth-state store when Redis is not supplied.
+- [ ] Keep `embedded.WithRedis(rdb)` as the only normal host knob for temporary
+      auth state. Redis replaces the default in-memory store for multi-instance
+      deployments and stores short-lived auth data such as challenges, OIDC state,
+      passwordless/verification/reset tokens, and related counters.
+- [ ] Move any custom auth-state store injection to internal tests or an unadvertised
+      test seam. Do not expose it in README or normal package docs.
+- [x] Update current consumers to v0.69.0 client-first (DONE 2026-06-26, all
+      committed+pushed; build+vet green per repo). The migration is mechanical: the
+      host builds the engine with `embedded.New`/`core.New` (splitting engine vs HTTP
+      options), passes it to `authhttp.NewServer(client, ...)`, and uses the held
+      `*embedded.Client` everywhere `authhttp.Service.Client()` was called.
+      - openrails → v0.67.0: `ControlPlane.authClient`; Core()/delegated verifier use it.
+      - hentai0: `AuthKitService.Client`; threaded to the AuthKitProvider + OpenRails
+        embed sessionIdentity + user writer + entitlements install.
+      - doujins: `buildAuthKitService` returns the client too; `Infrastructure.AuthKitClient`
+        + `ServerInterface.GetAuthKitClient`; threaded to admin writer / gate / entitlements.
+      - cozy-art → openrails v0.67.0: `AuthKitProvider.Client()` + `API.authClient`;
+        dropped the `.(*core.Client)` casts.
+      - tensorhub → openrails v0.67.0: `identity.Service.authClient` (replaced all 19
+        `authProvider.Client()` sites).
+      (Narrowing broad `authkit.Client` injection to capability interfaces is a later,
+      non-blocking polish — the broad seam stays per the #143 review.)
 - [x] Add compile-time conformance checks for the small interfaces:
       `var _ authkit.Authorizer = (*embedded.Client)(nil)`, etc. (done in `embedded/conformance.go`).
 - [ ] Update README/embedding docs to show:
@@ -374,13 +471,19 @@ WithEntitlements/WithAuthLogger/WithAPIKeyResourceAuthorizer/WithSolanaSNSResolv
 `Server.coreOpts` are deleted from `authhttp`. DROPPED `Server.Client()` (host owns the
 client). Migrated all 34 in-repo `NewServer` sites (devserver + ~33 http tests + gin
 test). build+vet+gofmt green; full DB-backed suites (http, internal/authcore, riverjobs)
-+ non-DB suites pass on a fresh migrated DB. NOT yet in track A: pare `Server` to
-HTTP-adapter methods only (`SetEntitlementsProvider` passthrough still there — separate
-task), and the 4 EXTERNAL consumers (doujins/hentai0/cozy-art/tensorhub) on the next bump.
++ non-DB suites pass on a fresh migrated DB.
 
-REMAINING: (A-tail) pare `Server` + external consumer migration. (B) standalone-server
-bulk — the other ~89 mgmt-API methods, `cmd/authkit-server`, app→server auth; the issue
-marks this "build when greenlit" (speculative until the standalone product is committed).
+STATUS 2026-06-26 (Claude): track A COMPLETE end-to-end. Shipped authkit v0.69.0
+(client-first NewServer + dropped `Server.Client()` + shared `ErrorForCode` registry,
+then pared `SetEntitlementsProvider` off the HTTP `Server`). Migrated the ENTIRE consumer
+ecosystem to v0.69.0 client-first, each build+vet green and pushed: openrails v0.67.0,
+hentai0, doujins, cozy-art, tensorhub. So #142 track A (client-first construction +
+Server paring + consumer migration) is fully done.
+
+REMAINING: only (B) the standalone-server bulk — the other ~89 mgmt-API methods,
+`cmd/authkit-server`, app→server auth; the issue marks this "build when greenlit"
+(speculative until the standalone product is committed). The foundation (remote SDK
+transport + shared error identity) already proves the architecture.
 
 Proposed 2026-06-25 (split out of #138 Phase 2, now that the embedded restructure +
 pgx-free contract are committed). authkit is embedded-only today: an app runs the
@@ -1060,6 +1163,11 @@ Use prefix-neutral AuthKit route names; host apps may mount them under `/auth/*`
 - [x] Add create-if-missing user path with generated username, verified email/phone, and no password row.
 - [x] Add existing-user login path that verifies the contacted identifier and mints access/refresh tokens with `amr=email` or `amr=sms`.
 - [x] Add anti-enumeration behavior and rate limits for start and confirm.
+- [x] VERIFIED 2026-06-26: OTP/passwordless start is rate-limited by IP and
+      identifier (`RLPasswordlessStart`: 6/hour + 1m cooldown). Confirm is
+      rate-limited by IP and identifier (`RLPasswordlessConfirm`: 10/10m).
+      Challenges expire after 10 minutes. Five bad typed-code attempts for the
+      same identifier delete the challenge, so the original code no longer works.
 - [x] Add safe `return_to` handling or explicitly return tokens only to the caller and let the host own navigation.
 - [x] Add DB-backed tests for email OTP login, email magic-link login, SMS OTP login, SMS magic-link login, create-if-missing, existing-user resume, generated username collision, no password row, disabled feature, duplicate/expired token, invalid code attempt caps, and anti-enumeration responses.
 - [x] Update README, `agents/api-endpoints.md`, and SEMVER notes with the new flow and host integration guidance.
