@@ -9,7 +9,6 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
-	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,7 +95,7 @@ func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("stepup-totp")
@@ -149,7 +148,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	ctx := context.Background()
 	cfg := newServerTestConfig()
 	cfg.TwoFactor.TOTPSecretKey = []byte("0123456789abcdef")
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	email := uniqueEmail("stepup-options")

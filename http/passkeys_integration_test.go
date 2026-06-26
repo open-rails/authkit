@@ -15,7 +15,6 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/open-rails/authkit/embedded"
-	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +28,7 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 		Origins:          []string{"https://example.com"},
 		UserVerification: "preferred",
 	}
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())
@@ -131,7 +130,7 @@ func TestPasskeyManagementHTTPIntegration(t *testing.T) {
 		RPDisplayName: "Example",
 		Origins:       []string{"https://example.com"},
 	}
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-mgmt"), "passkeymgmt"+uniqueSuffix())

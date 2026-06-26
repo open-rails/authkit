@@ -12,7 +12,6 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/password"
-	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +19,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := mandatory2FATestConfig()
-	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.SeedPermissionGroupContainment(ctx))
 	_, err = srv.svc.EnsureRootGroup(ctx)

@@ -3,30 +3,18 @@ package authhttp
 import (
 	"context"
 	"errors"
-	"fmt"
-	authkit "github.com/open-rails/authkit"
+	"log/slog"
 	"net/http"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 )
 
-// InternalErrorEvent captures a swallowed internal handler error so host apps
-// can log it without exposing implementation details to clients.
-type InternalErrorEvent struct {
-	Route  string
-	Stage  string
-	Code   string
-	Method string
-	Path   string
-	Err    error
-}
-
-func (e InternalErrorEvent) Error() string {
-	return fmt.Sprintf("route=%s stage=%s code=%s method=%s path=%s: %v", e.Route, e.Stage, e.Code, e.Method, e.Path, e.Err)
-}
-
+// logInternalError records a swallowed internal handler error to the
+// host-controlled slog default (#143: no public error-logger hook). Details stay
+// server-side — clients only ever see the generic error envelope.
 func (s *Service) logInternalError(r *http.Request, route, stage, code string, err error) {
-	if s == nil || s.errorLogger == nil || err == nil {
+	if err == nil {
 		return
 	}
 	ctx := context.Background()
@@ -39,14 +27,14 @@ func (s *Service) logInternalError(r *http.Request, route, stage, code string, e
 			path = r.URL.Path
 		}
 	}
-	s.errorLogger(ctx, InternalErrorEvent{
-		Route:  route,
-		Stage:  stage,
-		Code:   code,
-		Method: method,
-		Path:   path,
-		Err:    err,
-	})
+	slog.Default().ErrorContext(ctx, "authkit: internal handler error",
+		slog.String("route", route),
+		slog.String("stage", stage),
+		slog.String("code", code),
+		slog.String("method", method),
+		slog.String("path", path),
+		slog.String("error", err.Error()),
+	)
 }
 
 func (s *Service) handleDeliveryError(w http.ResponseWriter, r *http.Request, route, stage string, err error) bool {

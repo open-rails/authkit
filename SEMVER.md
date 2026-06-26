@@ -136,7 +136,7 @@ serve the HTTP handlers stays internal and is **not** covered.
 func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service, error)
 func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service
 type Option func(*Service)
-  WithAuthLogger, WithDBTXWrapper, WithEmailSender, WithEntitlements,
+  WithAuthLogger, WithEmailSender, WithEntitlements,
   WithEphemeralStore, WithPostgres, WithAPIKeyResourceAuthorizer, WithSMSSender,
   WithSolanaSNSResolver
 ```
@@ -319,10 +319,10 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
 `authhttp` is the integration entry point. Covered:
 ```
 type Server = Service; NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error)
-Option: WithRedis, WithEmailSender, WithSMSSender, WithEntitlements, WithEphemeralStore,
+Option: WithRedis, WithEmailSender, WithSMSSender, WithEntitlements,
   WithRateLimiter, WithoutRateLimiter, WithClientIPFunc, WithLanguageConfig,
-  WithAuthLogger, WithAuthLogReader, WithErrorLogger, WithAPIKeyResourceAuthorizer,
-  WithSolanaDomain, WithSolanaSNSResolver
+  WithAuthLogger, WithAuthLogReader, WithAPIKeyResourceAuthorizer,
+  WithSolanaSNSResolver
 Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups), svc.Core()
 Re-exports from verify: Verifier, NewVerifier, Claims, Enricher, IssuerOptions, IssuerKey,
@@ -335,7 +335,7 @@ Rate limiting: RateLimiter, RateLimiterWithResult, RateLimiterWithRetryAfter, Li
 Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders, PublicRemoteAddrClientIP
 Language: LanguageConfig, LanguageMiddleware
 Routing: RouteGroup (+consts), RouteSpec, Routes
-Errors: ErrorCode (+the full constant set, §6.2), InternalErrorEvent
+Errors: ErrorCode (+the full constant set, §6.2)
 Remote-application issuers client: RemoteApplicationIssuersClient (+options/registration)
 ```
 
@@ -470,7 +470,7 @@ cross-persona `GET /me/groups` and `POST /invites/redeem` are always present.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/{provider}/login` | begins OIDC, redirects to provider; optional app-relative `return_to` |
-| GET | `/{provider}/callback` | full-page callback → `{BaseURL}{CallbackPath}#access_token=…&refresh_token=…&return_to=…` |
+| GET | `/{provider}/callback` | full-page callback → `{BaseURL}{OIDCReturnPath}#access_token=…&refresh_token=…&return_to=…` |
 | GET | `/{provider}/step-up/callback` | step-up variant |
 
 The fragment-callback contract (tokens in the URL `#fragment`, default callback
@@ -649,7 +649,7 @@ an optional field with a backward-compatible zero-value default is MINOR.
 - **`Token`** `TokenConfig`: `Issuer`, `IssuedAudiences`, `ExpectedAudiences`,
   `AccessTokenDuration`, `RefreshTokenDuration`, `SessionMaxPerUser` (0 ⇒ default 3).
 - **`Frontend`** `FrontendConfig`: `BaseURL` (defaults to issuer if empty),
-  `CallbackPath` (default `/login/callback`), `VerifyPath` (default `/verify`),
+  `OIDCReturnPath` (default `/login/callback`), `VerifyPath` (default `/verify`),
   `PasswordResetPath` (default `/reset`), `PasswordlessPath` (default `/passwordless`).
 - **`Registration`** `RegistrationConfig`: `Verification` (`none`|`optional`|`required`,
   default `none`), `NativeUserMode` (`open` default; non-open disables public signup),

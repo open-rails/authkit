@@ -24,14 +24,12 @@ type Service struct {
 	rd                  *redis.Client
 	rl                  RateLimiter
 	clientIP            ClientIPFunc
-	errorLogger         func(context.Context, InternalErrorEvent)
 	oidcProviders       map[string]oidckit.RPConfig
 	providers           map[string]authprovider.Provider
 	authProvidersByName map[string]authprovider.Provider
 	oidcMgr             *oidckit.Manager
 	oidcMgrOnce         sync.Once
 	memStateCache       oidckit.StateCache
-	solanaDomain        string // Domain for SIWS messages (optional, derived from request if empty)
 	langCfg             *LanguageConfig
 	authlogr            embedded.AuthEventLogReader
 

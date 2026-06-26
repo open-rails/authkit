@@ -1,7 +1,6 @@
 package authhttp
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -145,10 +144,3 @@ func WithLanguageConfig(cfg LanguageConfig) Option {
 	return func(s *Server) { s.langCfg = &cfg }
 }
 
-// WithErrorLogger supplies the internal-error observability hook.
-func WithErrorLogger(fn func(context.Context, InternalErrorEvent)) Option {
-	return func(s *Server) { s.errorLogger = fn }
-}
-
-// WithSolanaDomain sets the domain used in SIWS sign-in messages.
-func WithSolanaDomain(domain string) Option { return func(s *Server) { s.solanaDomain = domain } }

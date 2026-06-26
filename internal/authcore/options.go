@@ -57,15 +57,3 @@ func WithSMSSender(sender SMSSender) Option { return func(s *Service) { s.sms = 
 func WithSolanaSNSResolver(r SolanaSNSResolver) Option {
 	return func(s *Service) { s.opts.SolanaSNSResolver = r }
 }
-
-// WithDBTXWrapper re-binds the querier through wrap (a decorator over the
-// schema-rewriting db.DBTX). Test seam for counting/spy queriers; must be
-// applied after WithPostgres (NewFromConfig applies pg first).
-func WithDBTXWrapper(wrap func(db.DBTX) db.DBTX) Option {
-	return func(s *Service) {
-		if s.pg == nil || wrap == nil {
-			return
-		}
-		s.q = db.New(wrap(db.ForSchema(s.pg, s.dbSchema())))
-	}
-}

@@ -75,7 +75,7 @@ func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerifi
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
 	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := append([]embedded.Option{embedded.WithEphemeralStore(memorystore.NewKV(), embedded.EphemeralMemory)}, coreOpts...)
+	opts := append([]embedded.Option{authcore.WithEphemeralStore(memorystore.NewKV(), authcore.EphemeralMemory)}, coreOpts...)
 	coreSvc := authcore.NewService(embedded.Options{
 		Issuer:                   "https://example.com",
 		IssuedAudiences:          []string{"test-app"},

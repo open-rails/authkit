@@ -39,10 +39,9 @@ type Client struct {
 
 // New builds a Client from host configuration. Postgres is required (positional);
 // optional dependencies are functional options. The ephemeral store defaults to
-// in-memory (dev-friendly); pass WithRedis / WithEphemeralStore to override —
-// later options win.
+// in-memory (dev-friendly); pass WithRedis to override (later options win).
 func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
-	opts := append([]Option{WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)}, extraOpts...)
+	opts := append([]Option{authcore.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)}, extraOpts...)
 	impl, err := authcore.NewFromConfig(cfg, pg, opts...)
 	if err != nil {
 		return nil, err
@@ -54,7 +53,7 @@ func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
 // import authkit/storage/redis directly. The HTTP transport's OIDC/SIWS state
 // caches take the same *redis.Client via authhttp.WithRedis (separate layer).
 func WithRedis(rd *redis.Client) Option {
-	return WithEphemeralStore(redisstore.NewKV(rd), EphemeralRedis)
+	return authcore.WithEphemeralStore(redisstore.NewKV(rd), EphemeralRedis)
 }
 
 // Wrap adapts an internal engine into the public facade. Used by the authkit/http

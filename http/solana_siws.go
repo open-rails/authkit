@@ -4,13 +4,31 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	authkit "github.com/open-rails/authkit"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/siws"
 )
+
+// siwsDomainFromConfig derives the SIWS message domain (bare host, no scheme or
+// port) from AuthKit config — the frontend BaseURL host if set, else the issuer
+// host. Returns "" when neither yields a host, leaving the request-based fallback
+// (Origin header, then r.Host) to supply the domain.
+func siwsDomainFromConfig(baseURL, issuer string) string {
+	for _, raw := range []string{baseURL, issuer} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+			return u.Hostname()
+		}
+	}
+	return ""
+}
 
 func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RLSolanaChallenge) {
@@ -37,7 +55,10 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	domain := s.solanaDomain
+	// #143: the SIWS domain is derived from config (frontend BaseURL host, else
+	// issuer host), with request-based fallback. There is no WithSolanaDomain option.
+	opts := s.svc.Options()
+	domain := siwsDomainFromConfig(opts.BaseURL, opts.Issuer)
 	if domain == "" {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
