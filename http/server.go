@@ -63,9 +63,9 @@ func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 	// authhttp.WithRedis, so limits are shared across instances; in-memory otherwise.
 	if !s.rlExplicit {
 		if s.rd != nil {
-			s.rl = redislimiter.New(s.rd, ToRedisLimits(DefaultRateLimits()))
+			s.rl = redislimiter.New(s.rd, DefaultRateLimits())
 		} else {
-			s.rl = memorylimiter.New(ToMemoryLimits(DefaultRateLimits()))
+			s.rl = memorylimiter.New(DefaultRateLimits())
 		}
 	}
 

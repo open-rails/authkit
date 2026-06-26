@@ -2,9 +2,9 @@ package authkitchi
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/open-rails/authkit/adapters/internal/routepath"
 	authhttp "github.com/open-rails/authkit/http"
 )
 
@@ -67,7 +67,7 @@ func RegisterOIDC(r chi.Router, svc *authhttp.Service, mountPath string) {
 	if r == nil || svc == nil {
 		return
 	}
-	registerRoutes(r, cleanMountPath(mountPath), svc.Routes().OIDCBrowser(), nil)
+	registerRoutes(r, routepath.Clean(mountPath), svc.Routes().OIDCBrowser(), nil)
 }
 
 func RegisterJWKS(r chi.Router, svc *authhttp.Service) {
@@ -78,7 +78,7 @@ func RegisterJWKS(r chi.Router, svc *authhttp.Service) {
 }
 
 func registerRoutes(r chi.Router, mountPath string, routes []authhttp.RouteSpec, wrap func(authhttp.RouteSpec, http.Handler) http.Handler) {
-	prefix := cleanMountPath(mountPath)
+	prefix := routepath.Clean(mountPath)
 	for _, route := range routes {
 		if route.Method == "" || route.Path == "" || route.Handler == nil {
 			continue
@@ -87,8 +87,8 @@ func registerRoutes(r chi.Router, mountPath string, routes []authhttp.RouteSpec,
 		if wrap != nil {
 			handler = wrap(route, handler)
 		}
-		paramNames := routeParamNames(route.Path)
-		r.Method(route.Method, joinRoutePath(prefix, route.Path), http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		paramNames := routepath.ParamNames(route.Path)
+		r.Method(route.Method, routepath.Join(prefix, route.Path), http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			for _, name := range paramNames {
 				req.SetPathValue(name, chi.URLParam(req, name))
 			}
@@ -97,33 +97,3 @@ func registerRoutes(r chi.Router, mountPath string, routes []authhttp.RouteSpec,
 	}
 }
 
-func routeParamNames(path string) []string {
-	parts := strings.Split(path, "/")
-	names := make([]string, 0)
-	for _, part := range parts {
-		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
-			names = append(names, strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}"))
-		}
-	}
-	return names
-}
-
-func cleanMountPath(path string) string {
-	path = "/" + strings.Trim(strings.TrimSpace(path), "/")
-	if path == "/" {
-		return ""
-	}
-	return path
-}
-
-func joinRoutePath(prefix, path string) string {
-	prefix = cleanMountPath(prefix)
-	path = "/" + strings.Trim(strings.TrimSpace(path), "/")
-	if path == "/" {
-		path = ""
-	}
-	if prefix == "" && path == "" {
-		return "/"
-	}
-	return prefix + path
-}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/adapters/internal/routepath"
 	authhttp "github.com/open-rails/authkit/http"
 	"github.com/open-rails/authkit/verify"
 )
@@ -151,10 +152,10 @@ func RegisterOIDC(r gin.IRouter, svc *authhttp.Service, mountPath string) {
 	if r == nil || svc == nil {
 		return
 	}
-	prefix := cleanMountPath(mountPath)
+	prefix := routepath.Clean(mountPath)
 	routes := svc.Routes().OIDCBrowser()
 	for i := range routes {
-		routes[i].Path = joinRoutePath(prefix, routes[i].Path)
+		routes[i].Path = routepath.Join(prefix, routes[i].Path)
 	}
 	registerRoutes(r, routes, nil)
 }
@@ -175,7 +176,7 @@ func registerRoutes(r gin.IRouter, routes []authhttp.RouteSpec, wrap func(authht
 		if wrap != nil {
 			handler = wrap(route, handler)
 		}
-		paramNames := routeParamNames(route.Path)
+		paramNames := routepath.ParamNames(route.Path)
 		r.Handle(route.Method, ginPath(route.Path), func(c *gin.Context) {
 			for _, name := range paramNames {
 				c.Request.SetPathValue(name, c.Param(name))
@@ -196,33 +197,3 @@ func ginPath(path string) string {
 	return strings.Join(parts, "/")
 }
 
-func routeParamNames(path string) []string {
-	parts := strings.Split(path, "/")
-	names := make([]string, 0)
-	for _, part := range parts {
-		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
-			names = append(names, strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}"))
-		}
-	}
-	return names
-}
-
-func cleanMountPath(path string) string {
-	path = "/" + strings.Trim(strings.TrimSpace(path), "/")
-	if path == "/" {
-		return ""
-	}
-	return path
-}
-
-func joinRoutePath(prefix, path string) string {
-	prefix = cleanMountPath(prefix)
-	path = "/" + strings.Trim(strings.TrimSpace(path), "/")
-	if path == "/" {
-		path = ""
-	}
-	if prefix == "" && path == "" {
-		return "/"
-	}
-	return prefix + path
-}

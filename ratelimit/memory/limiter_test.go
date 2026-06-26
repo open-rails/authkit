@@ -4,10 +4,12 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/open-rails/authkit/ratelimit"
 )
 
 func TestCleanupEvictsIdleBuckets(t *testing.T) {
-	limiter := New(map[string]Limit{
+	limiter := New(map[string]ratelimit.Limit{
 		"probe": {Limit: 5, Window: 20 * time.Millisecond},
 	})
 
@@ -39,7 +41,7 @@ func TestCleanupEvictsIdleBuckets(t *testing.T) {
 }
 
 func TestCleanupKeepsBucketWithLiveTimestamps(t *testing.T) {
-	limiter := New(map[string]Limit{
+	limiter := New(map[string]ratelimit.Limit{
 		"login": {Limit: 5, Window: time.Hour},
 	})
 	if _, err := limiter.AllowNamed("login", "user"); err != nil {
@@ -51,7 +53,7 @@ func TestCleanupKeepsBucketWithLiveTimestamps(t *testing.T) {
 }
 
 func TestStartCleanupStopsOnContextCancel(t *testing.T) {
-	limiter := New(map[string]Limit{
+	limiter := New(map[string]ratelimit.Limit{
 		"probe": {Limit: 5, Window: 5 * time.Millisecond},
 	})
 	if _, err := limiter.AllowNamed("probe", "one-shot"); err != nil {
@@ -82,11 +84,11 @@ func TestStartCleanupStopsOnContextCancel(t *testing.T) {
 }
 
 func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
-	limiter := New(map[string]Limit{
+	limiter := New(map[string]ratelimit.Limit{
 		"request_code": {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 	})
 
-	allowed, retryAfter, err := limiter.AllowNamedWithRetryAfter("request_code", "user")
+	allowed, retryAfter, err := allowRetry(limiter,"request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,7 @@ func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
 		t.Fatalf("first request allowed=%v retry_after=%s, want allowed with no retry_after", allowed, retryAfter)
 	}
 
-	allowed, retryAfter, err = limiter.AllowNamedWithRetryAfter("request_code", "user")
+	allowed, retryAfter, err = allowRetry(limiter,"request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,11 +109,11 @@ func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
 }
 
 func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
-	limiter := New(map[string]Limit{
+	limiter := New(map[string]ratelimit.Limit{
 		"request_code": {Limit: 1, Window: time.Hour, Cooldown: time.Minute},
 	})
 
-	allowed, _, err := limiter.AllowNamedWithRetryAfter("request_code", "user")
+	allowed, _, err := allowRetry(limiter,"request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +121,7 @@ func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
 		t.Fatal("first request denied")
 	}
 
-	allowed, retryAfter, err := limiter.AllowNamedWithRetryAfter("request_code", "user")
+	allowed, retryAfter, err := allowRetry(limiter,"request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,4 +131,12 @@ func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
 	if retryAfter < 59*time.Minute || retryAfter > time.Hour {
 		t.Fatalf("retry_after=%s, want window reset around 1h", retryAfter)
 	}
+}
+
+// allowRetry adapts AllowNamedResult to the (allowed, retryAfter, err) shape these
+// cooldown/window tests assert on, after the dedicated AllowNamedWithRetryAfter
+// wrapper was removed (#189). The retry-after value comes from AllowNamedResult.
+func allowRetry(l *Limiter, bucket, key string) (bool, time.Duration, error) {
+	r, err := l.AllowNamedResult(bucket, key)
+	return r.Allowed, r.RetryAfter, err
 }

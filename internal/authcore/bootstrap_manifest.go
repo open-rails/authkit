@@ -75,14 +75,6 @@ func LoadBootstrapManifestFile(path string) (BootstrapManifest, error) {
 	return ParseBootstrapManifestYAML(raw)
 }
 
-func (s *Service) ApplyBootstrapManifestFile(ctx context.Context, path string, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
-	manifest, err := LoadBootstrapManifestFile(path)
-	if err != nil {
-		return BootstrapManifestResult{}, err
-	}
-	return s.ApplyBootstrapManifest(ctx, manifest, opts)
-}
-
 func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error) {
 	if err := s.requirePG(); err != nil {
 		return BootstrapManifestResult{}, err

@@ -506,7 +506,11 @@ users:
 `, username)), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
-	result, err := svc.ApplyBootstrapManifestFile(ctx, path, BootstrapReconcileOptions{})
+	manifest, err := LoadBootstrapManifestFile(path)
+	if err != nil {
+		t.Fatalf("load manifest file: %v", err)
+	}
+	result, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
 	if err != nil {
 		t.Fatalf("apply file: %v", err)
 	}

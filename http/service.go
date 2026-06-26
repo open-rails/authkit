@@ -10,7 +10,6 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	oidckit "github.com/open-rails/authkit/oidc"
-	"github.com/open-rails/authkit/ratelimit"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	redisstore "github.com/open-rails/authkit/storage/redis"
 	"github.com/redis/go-redis/v9"
@@ -124,22 +123,6 @@ func (s *Service) allowResultForKey(bucket, key string) RateLimitResult {
 		availability := availabilityFromRateLimit(bucket, result, time.Now())
 		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
 	}
-	if rl, ok := s.rl.(RateLimiterWithRetryAfter); ok {
-		allowed, retryAfter, err := rl.AllowNamedWithRetryAfter(bucket, key)
-		if err != nil {
-			return limiterErrorResult(bucket)
-		}
-		result := RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
-		if !allowed {
-			availability := availabilityFromRateLimit(bucket, ratelimit.Result{
-				Allowed:    false,
-				RetryAfter: retryAfter,
-				Reason:     ratelimit.ReasonLimitExceeded,
-			}, time.Now())
-			result.Availability = &availability
-		}
-		return result
-	}
 	ok, err := s.rl.AllowNamed(bucket, key)
 	if err != nil {
 		return limiterErrorResult(bucket)
@@ -170,22 +153,6 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 		}
 		availability := availabilityFromRateLimit(bucket, result, time.Now())
 		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
-	}
-	if rl, ok := s.rl.(RateLimiterWithRetryAfter); ok {
-		allowed, retryAfter, err := rl.AllowNamedWithRetryAfter(bucket, key)
-		if err != nil {
-			return limiterErrorResult(bucket)
-		}
-		result := RateLimitResult{Allowed: allowed, RetryAfter: retryAfter}
-		if !allowed {
-			availability := availabilityFromRateLimit(bucket, ratelimit.Result{
-				Allowed:    false,
-				RetryAfter: retryAfter,
-				Reason:     ratelimit.ReasonLimitExceeded,
-			}, time.Now())
-			result.Availability = &availability
-		}
-		return result
 	}
 	ok, err := s.rl.AllowNamed(bucket, key)
 	if err != nil {

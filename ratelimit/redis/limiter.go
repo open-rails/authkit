@@ -9,35 +9,18 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Limit defines window and max count for a bucket.
-type Limit struct {
-	Limit    int
-	Window   time.Duration
-	Cooldown time.Duration
-}
-
 // Limiter is a Redis-backed sliding window limiter using ZSETs.
 type Limiter struct {
 	rdb    *redis.Client
 	ctx    context.Context
-	limits map[string]Limit
+	limits map[string]ratelimit.Limit
 }
 
-func New(rdb *redis.Client, limits map[string]Limit) *Limiter {
+func New(rdb *redis.Client, limits map[string]ratelimit.Limit) *Limiter {
 	if limits == nil {
-		limits = map[string]Limit{}
+		limits = map[string]ratelimit.Limit{}
 	}
 	return &Limiter{rdb: rdb, ctx: context.Background(), limits: limits}
-}
-
-func (l *Limiter) get(bucket string) (Limit, bool) {
-	if v, ok := l.limits[bucket]; ok {
-		return v, true
-	}
-	if v, ok := l.limits["default"]; ok {
-		return v, true
-	}
-	return Limit{Limit: 100, Window: time.Minute}, false
 }
 
 // AllowNamed matches the auth adapter's internal interface.
@@ -46,10 +29,6 @@ func (l *Limiter) AllowNamed(bucket, key string) (bool, error) {
 	return result.Allowed, err
 }
 
-func (l *Limiter) AllowNamedWithRetryAfter(bucket, key string) (bool, time.Duration, error) {
-	result, err := l.AllowNamedResult(bucket, key)
-	return result.Allowed, result.RetryAfter, err
-}
 
 func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error) {
 	if l == nil || l.rdb == nil {
@@ -58,7 +37,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	if bucket == "" || key == "" {
 		return ratelimit.Result{}, fmt.Errorf("bucket and key required")
 	}
-	lim, _ := l.get(bucket)
+	lim, _ := ratelimit.LookupLimit(l.limits, bucket)
 	now := time.Now().UnixNano() / 1e6 // ms
 	start := now - lim.Window.Milliseconds()
 	limitKey := fmt.Sprintf("%s:%s", key, bucket)
@@ -110,7 +89,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 			RetryAfter: retryAfter,
 			Reason:     retryReason,
 			Limit:      lim.Limit,
-			Remaining:  remaining(lim.Limit, int(count)),
+			Remaining:  ratelimit.Remaining(lim.Limit, int(count)),
 			Window:     lim.Window,
 			Cooldown:   lim.Cooldown,
 		}, nil
@@ -124,16 +103,8 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	return ratelimit.Result{
 		Allowed:   true,
 		Limit:     lim.Limit,
-		Remaining: remaining(lim.Limit, int(count)+1),
+		Remaining: ratelimit.Remaining(lim.Limit, int(count)+1),
 		Window:    lim.Window,
 		Cooldown:  lim.Cooldown,
 	}, nil
-}
-
-func remaining(limit, used int) int {
-	left := limit - used
-	if left < 0 {
-		return 0
-	}
-	return left
 }

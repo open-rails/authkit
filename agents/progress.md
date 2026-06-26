@@ -1519,7 +1519,7 @@ spawns a cleanup goroutine with no `Close()` (leak); `ratelimit/redis/limiter.go
 
 # #155: Delete dead exported `http.AllowNamed` (BREAKING)
 
-**Completed:** no — APPROVED (Paul: fine to break exported items that aren't needed)
+**Completed:** yes — done (Paul-approved): deleted the dead pkg-level `AllowNamed` from `http/ratelimit.go`; the 2-arg `RateLimiter.AllowNamed` interface method stays. SEMVER §4.5 drop pending the bump.
 
 Parent #150 (BREAKING, but signed off — breaking an unused exported symbol is acceptable).
 
@@ -1585,7 +1585,7 @@ Sharing requires a new shared internal package; the methods become free function
 
 # #169: Extract `adapters/internal/routepath` (gin/chi)
 
-**Completed:** no
+**Completed:** yes — done: added `adapters/internal/routepath` (`ParamNames`/`Clean`/`Join`); gin + chi repointed, duplicated local helpers deleted.
 
 Parent #150 (Tier 2, internal-only; advanced "Provided" adapter, low priority).
 
@@ -1603,7 +1603,7 @@ adapter; only these three move.
 
 # #171: Move ratelimit `get`/`remaining` to shared pkg
 
-**Completed:** no
+**Completed:** yes — done: moved to `ratelimit.LookupLimit`/`ratelimit.Remaining`; both backends repointed, local copies deleted.
 
 Parent #150 (Tier 2, internal-only; advanced "Provided" pkg, low priority).
 
@@ -1805,7 +1805,7 @@ redundant double-trim. Both exported, same package. In-repo callers: `verify/cla
 
 # #188: Hoist one `ratelimit.Limit`; delete dup structs + converters (BREAKING)
 
-**Completed:** no
+**Completed:** yes — done: one `ratelimit.Limit`; deleted the 3 dup structs + `ToMemoryLimits`/`ToRedisLimits`; `DefaultRateLimits` returns `map[string]ratelimit.Limit` and `server.go` passes it straight to `New`. SEMVER §4.4/§4.5 drop pending the bump.
 
 Parent #150 (Tier 4, BREAKING; "Provided"/advanced pkgs, small blast radius — pairs with #143's
 auto-owned limiter). Unblocks #171's `get` move.
@@ -1829,7 +1829,7 @@ in THREE places — `memorylimiter` (`ratelimit/memory/limiter.go:13`), `redisli
 
 # #189: Collapse limiter interface 3-tier → 2; drop `AllowNamedWithRetryAfter` (BREAKING)
 
-**Completed:** no
+**Completed:** yes — done: dropped `RateLimiterWithRetryAfter` + the unreachable type-switch branches + both backend `AllowNamedWithRetryAfter` methods; the memory cooldown/window tests preserved via an `allowRetry` helper over `AllowNamedResult`. SEMVER §4.5 drop pending the bump.
 
 Parent #150 (Tier 4, BREAKING; pairs with #143's auto-owned limiter — custom injection becomes
 advanced/internal-only).
@@ -1859,7 +1859,7 @@ on the normal path).
 
 # #190: Delete orphaned `Service.ApplyBootstrapManifestFile`
 
-**Completed:** no
+**Completed:** yes — done: deleted the method; its test now uses `LoadBootstrapManifestFile`+`ApplyBootstrapManifest`. Off-contract → no SEMVER change.
 
 Parent #150 (listed under Tier 4, but actually NON-BREAKING on revalidation — can land with Tier 1).
 

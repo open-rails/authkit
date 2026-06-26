@@ -3,23 +3,15 @@ package authhttp
 import (
 	"time"
 
-	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
-	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
+	"github.com/open-rails/authkit/ratelimit"
 )
-
-// Limit configures a named rate limit bucket.
-type Limit struct {
-	Limit    int
-	Window   time.Duration
-	Cooldown time.Duration
-}
 
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits.
 //
 // These limits are enforced per client IP (as determined by the Service's ClientIPFunc).
 // Hosts can override by supplying their own limiter via WithRateLimiter(...).
-func DefaultRateLimits() map[string]Limit {
-	return map[string]Limit{
+func DefaultRateLimits() map[string]ratelimit.Limit {
+	return map[string]ratelimit.Limit{
 		"default": {Limit: 120, Window: time.Minute},
 
 		// Registration + login + token exchange
@@ -95,20 +87,4 @@ func DefaultRateLimits() map[string]Limit {
 		RLAdminUserSessionsRevokeAll: {Limit: 30, Window: time.Hour},
 		RLAdminPasswordReset:         {Limit: 20, Window: time.Hour},
 	}
-}
-
-func ToMemoryLimits(in map[string]Limit) map[string]memorylimiter.Limit {
-	out := make(map[string]memorylimiter.Limit, len(in))
-	for k, v := range in {
-		out[k] = memorylimiter.Limit{Limit: v.Limit, Window: v.Window, Cooldown: v.Cooldown}
-	}
-	return out
-}
-
-func ToRedisLimits(in map[string]Limit) map[string]redislimiter.Limit {
-	out := make(map[string]redislimiter.Limit, len(in))
-	for k, v := range in {
-		out[k] = redislimiter.Limit{Limit: v.Limit, Window: v.Window, Cooldown: v.Cooldown}
-	}
-	return out
 }

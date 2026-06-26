@@ -23,25 +23,6 @@ type RateLimiterWithResult interface {
 	AllowNamedResult(bucket string, key string) (ratelimit.Result, error)
 }
 
-type RateLimiterWithRetryAfter interface {
-	AllowNamedWithRetryAfter(bucket string, key string) (bool, time.Duration, error)
-}
-
-// AllowNamed applies a per-IP limit using the provided bucket name.
-// It fails open on limiter error.
-func AllowNamed(r *http.Request, rl RateLimiter, bucket string) bool {
-	if rl == nil {
-		return true
-	}
-	ip := clientIP(r)
-	key := "auth:" + bucket + ":ip:" + ip
-	ok, err := rl.AllowNamed(bucket, key)
-	if err != nil {
-		return true
-	}
-	return ok
-}
-
 func clientIP(r *http.Request) string {
 	if r == nil {
 		return ""
