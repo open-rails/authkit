@@ -5,37 +5,36 @@
 -- The controlling group is addressed as permission_group_id throughout.
 
 -- name: RemoteApplicationUpsert :one
-INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled)
-VALUES (sqlc.arg(slug), sqlc.narg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(allowed_origins), sqlc.arg(enabled))
+INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwks_uri, mode, public_keys, enabled)
+VALUES (sqlc.arg(slug), sqlc.narg(permission_group_id)::uuid, sqlc.arg(issuer), sqlc.arg(jwks_uri), sqlc.arg(mode), sqlc.arg(public_keys), sqlc.arg(enabled))
 ON CONFLICT (issuer) DO UPDATE
   SET slug          = EXCLUDED.slug,
       permission_group_id = EXCLUDED.permission_group_id,
       jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
-      allowed_origins = EXCLUDED.allowed_origins,
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
-RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at;
+RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at;
 
 -- name: RemoteApplicationByIssuer :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE issuer = $1 AND deleted_at IS NULL;
 
 -- name: RemoteApplicationBySlug :one
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE slug = $1 AND deleted_at IS NULL;
 
 -- name: RemoteApplicationsAll :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE deleted_at IS NULL
 ORDER BY slug ASC;
 
 -- name: RemoteApplicationsEnabled :many
-SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, allowed_origins, enabled, created_at, updated_at
+SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
 WHERE enabled = true AND deleted_at IS NULL
 ORDER BY slug ASC;

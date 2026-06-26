@@ -13,12 +13,12 @@ func (s *Service) handleAdminUserSigninsGET(w http.ResponseWriter, r *http.Reque
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if s.authlogr == nil {
+	if !s.svc.SessionEventHistoryEnabled() {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": ErrAuthlogUnavailable})
 		return
 	}
 
-	events, err := s.authlogr.ListSessionEvents(r.Context(), userID, embedded.SessionEventCreated, embedded.SessionEventFailed)
+	events, err := s.svc.ListSessionEvents(r.Context(), userID, embedded.SessionEventCreated, embedded.SessionEventFailed)
 	if err != nil {
 		serverErr(w, ErrFailedToListSignins)
 		return

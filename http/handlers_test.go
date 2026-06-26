@@ -73,6 +73,12 @@ func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {
 	return &Service{svc: coreSvc, verifier: ver}
 }
 
+func enableTestOIDCProvider(s *Service) {
+	s.authProvidersByName = map[string]authprovider.Provider{
+		"google": {Name: "google", Kind: authprovider.KindOIDC},
+	}
+}
+
 // newNoDBPool returns a *pgxpool.Pool that satisfies NewServer's mandatory
 // non-nil pool requirement (#106/#108) WITHOUT touching a database. pgxpool.New
 // with the default MinConns=0 never dials eagerly (idle resources are created in
@@ -138,6 +144,7 @@ func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 
 func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 	s := newTestService(t)
+	enableTestOIDCProvider(s)
 	h := s.OIDCHandler()
 
 	w := httptest.NewRecorder()
@@ -149,6 +156,7 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 
 func TestOIDCHandler_StepUpCallback_MissingStateOrCode(t *testing.T) {
 	s := newTestService(t)
+	enableTestOIDCProvider(s)
 	h := s.OIDCHandler()
 
 	w := httptest.NewRecorder()
@@ -181,12 +189,11 @@ func TestServiceStateCachePersistsWithoutRedis(t *testing.T) {
 
 func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 	s := newTestService(t)
-	s.oidcProviders = map[string]oidckit.RPConfig{
-		"discord": {ClientID: "discord-client", ClientSecret: "discord-secret"},
-		"github":  {ClientID: "github-client", ClientSecret: "github-secret"},
-	}
-	s.providers = map[string]authprovider.Provider{
-		"custom-oauth": {
+	var err error
+	s.authProvidersByName, err = buildAuthProvidersMap([]authprovider.Provider{
+		authprovider.Discord("discord-client", "discord-secret"),
+		authprovider.GitHub("github-client", "github-secret"),
+		{
 			Name:         "custom-oauth",
 			Kind:         authprovider.KindOAuth2,
 			Issuer:       "https://custom.example",
@@ -201,9 +208,7 @@ func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 				Subject: authprovider.FieldMapping{Path: "id"},
 			},
 		},
-	}
-	var err error
-	s.authProvidersByName, err = buildAuthProvidersMap(s.oidcProviders, s.providers)
+	})
 	require.NoError(t, err)
 	s.resetOIDCManagerForTest()
 	h := s.OIDCHandler()
@@ -242,11 +247,10 @@ func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 
 func configureGitHubOAuthForTest(t *testing.T, s *Service) {
 	t.Helper()
-	s.oidcProviders = map[string]oidckit.RPConfig{
-		"github": {ClientID: "github-client", ClientSecret: "github-secret"},
-	}
 	var err error
-	s.authProvidersByName, err = buildAuthProvidersMap(s.oidcProviders, s.providers)
+	s.authProvidersByName, err = buildAuthProvidersMap([]authprovider.Provider{
+		authprovider.GitHub("github-client", "github-secret"),
+	})
 	require.NoError(t, err)
 	s.resetOIDCManagerForTest()
 }
@@ -415,7 +419,9 @@ func TestAPIHandler_LegacyAuthPrefixNotMounted(t *testing.T) {
 }
 
 func TestAPIHandler_SolanaChallenge_InvalidRequest(t *testing.T) {
-	s := newTestService(t)
+	s := newRouteFeatureTestService(t, func(cfg *authcore.Config) {
+		cfg.SolanaNetwork = "devnet"
+	})
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()

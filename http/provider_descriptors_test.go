@@ -6,15 +6,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
-	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBuildAuthProvidersMapRejectsNonHTTPSCustomProvider(t *testing.T) {
-	_, err := buildAuthProvidersMap(nil, map[string]authprovider.Provider{
-		"evil": {
+	_, err := buildAuthProvidersMap([]authprovider.Provider{
+		{
 			Name:        "evil",
 			Kind:        authprovider.KindOAuth2,
 			TokenURL:    "http://evil.example/token",
@@ -55,11 +55,9 @@ func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 			ExpectedAudiences: []string{"test"},
 		},
 		Identity: embedded.IdentityConfig{
-			Providers: map[string]oidckit.RPConfig{
-				"github": {ClientID: "github-client", ClientSecret: "github-secret"},
-			},
-			ProviderDescriptors: map[string]authprovider.Provider{
-				"custom": {
+			Providers: []authprovider.Provider{
+				testBuiltInProvider(t, "github", "github-client", "github-secret"),
+				{
 					Name:     "custom",
 					Kind:     authprovider.KindOAuth2,
 					Issuer:   "https://custom.example",
@@ -90,14 +88,10 @@ func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 }
 
 func TestBuildAuthProvidersMapSkipsUnconfiguredProviders(t *testing.T) {
-	providers, err := buildAuthProvidersMap(map[string]oidckit.RPConfig{
-		"google": {ClientSecret: "google-secret"},
-		"discord": {
-			ClientID:     "discord-client",
-			ClientSecret: "discord-secret",
-		},
-	}, map[string]authprovider.Provider{
-		"custom": {
+	providers, err := buildAuthProvidersMap([]authprovider.Provider{
+		testBuiltInProvider(t, "google", "", "google-secret"),
+		testBuiltInProvider(t, "discord", "discord-client", "discord-secret"),
+		{
 			Name:         "custom",
 			Kind:         authprovider.KindOAuth2,
 			Issuer:       "https://custom.example",
@@ -117,8 +111,8 @@ func TestBuildAuthProvidersMapSkipsUnconfiguredProviders(t *testing.T) {
 func TestBuildAuthProvidersMapTreatsEmptySecretEnvAsUnavailable(t *testing.T) {
 	t.Setenv("AUTHKIT_EMPTY_PROVIDER_SECRET", "")
 
-	providers, err := buildAuthProvidersMap(nil, map[string]authprovider.Provider{
-		"custom": {
+	providers, err := buildAuthProvidersMap([]authprovider.Provider{
+		{
 			Name:         "custom",
 			Kind:         authprovider.KindOAuth2,
 			Issuer:       "https://custom.example",
@@ -131,6 +125,15 @@ func TestBuildAuthProvidersMapTreatsEmptySecretEnvAsUnavailable(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Empty(t, providers)
+}
+
+func testBuiltInProvider(t *testing.T, name, clientID, secret string) authprovider.Provider {
+	t.Helper()
+	p, ok := authprovider.BuiltIn(name)
+	require.True(t, ok)
+	p.ClientID = clientID
+	p.ClientSecret = authprovider.ClientSecret{Value: secret}
+	return p
 }
 
 func TestProvidersGETReturnsConfiguredProvidersOnly(t *testing.T) {
@@ -154,7 +157,7 @@ func TestProvidersGETReturnsConfiguredProvidersOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var body struct {
-		Providers []providerSummary `json:"providers"`
+		Providers []authkit.AuthProviderSummary `json:"providers"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Len(t, body.Providers, 1)

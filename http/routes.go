@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/open-rails/authkit/embedded"
 )
@@ -12,13 +13,12 @@ import (
 type RouteGroup string
 
 const (
-	RoutePublic      RouteGroup = "public"
-	RouteRegister    RouteGroup = "register"
-	RouteSession     RouteGroup = "session"
-	RouteUser        RouteGroup = "user"
-	RouteAdmin       RouteGroup = "admin"
-	RouteBrowserOIDC RouteGroup = "browser_oidc"
-	RoutePasskeys    RouteGroup = "passkeys"
+	RouteAuth             RouteGroup = "auth"
+	RouteRegistration     RouteGroup = "registration"
+	RouteAccount          RouteGroup = "account"
+	RouteAdmin            RouteGroup = "admin"
+	RoutePermissionGroups RouteGroup = "permission_groups"
+	RouteBrowserOIDC      RouteGroup = "browser_oidc"
 )
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
@@ -96,69 +96,69 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	optional := Optional(s.verifier)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
-		{Method: http.MethodGet, Path: "/identity-providers", Group: RoutePublic, Handler: http.HandlerFunc(s.handleProvidersGET)},
+		{Method: http.MethodGet, Path: "/auth/capabilities", Group: RouteAuth, Handler: http.HandlerFunc(s.handleCapabilitiesGET)},
 
-		{Method: http.MethodPost, Path: "/token", Group: RouteSession, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
-		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteSession, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
-		{Method: http.MethodDelete, Path: "/logout", Group: RouteSession, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
-		{Method: http.MethodPost, Path: "/password/login", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
-		{Method: http.MethodPost, Path: "/passwordless/start", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordlessStartPOST)},
-		{Method: http.MethodPost, Path: "/passwordless/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handlePasswordlessConfirmPOST)},
-		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
-		{Method: http.MethodPost, Path: "/passkeys/login/finish", Group: RoutePasskeys, Handler: http.HandlerFunc(s.handlePasskeyLoginFinishPOST)},
-		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
-		{Method: http.MethodGet, Path: "/email/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmGET)},
-		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
-		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
-		{Method: http.MethodGet, Path: "/phone/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmGET)},
-		{Method: http.MethodPost, Path: "/phone/password/reset/confirm", Group: RouteSession, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST)},
+		{Method: http.MethodPost, Path: "/token", Group: RouteAuth, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
+		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteAuth, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},
+		{Method: http.MethodDelete, Path: "/logout", Group: RouteAuth, Handler: required(http.HandlerFunc(s.handleLogoutDELETE))},
+		{Method: http.MethodPost, Path: "/password/login", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordLoginPOST)},
+		{Method: http.MethodPost, Path: "/passwordless/start", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordlessStartPOST)},
+		{Method: http.MethodPost, Path: "/passwordless/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordlessConfirmPOST)},
+		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
+		{Method: http.MethodPost, Path: "/passkeys/login/finish", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasskeyLoginFinishPOST)},
+		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
+		{Method: http.MethodGet, Path: "/email/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmGET)},
+		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
+		{Method: http.MethodPost, Path: "/phone/password/reset/request", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePhonePasswordResetRequestPOST)},
+		{Method: http.MethodGet, Path: "/phone/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmGET)},
+		{Method: http.MethodPost, Path: "/phone/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePhonePasswordResetConfirmPOST)},
 
-		{Method: http.MethodPost, Path: "/register", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
-		{Method: http.MethodGet, Path: "/register/availability", Group: RouteRegister, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
-		{Method: http.MethodPost, Path: "/register/resend-email", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationResendPOST)},
-		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
-		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
+		{Method: http.MethodPost, Path: "/register", Group: RouteRegistration, Handler: http.HandlerFunc(s.handleRegisterUnifiedPOST)},
+		{Method: http.MethodGet, Path: "/register/availability", Group: RouteRegistration, Handler: http.HandlerFunc(s.handleRegisterAvailabilityGET)},
+		{Method: http.MethodPost, Path: "/register/resend-email", Group: RouteRegistration, Handler: http.HandlerFunc(s.handlePendingRegistrationResendPOST)},
+		{Method: http.MethodPost, Path: "/register/resend-phone", Group: RouteRegistration, Handler: http.HandlerFunc(s.handlePhoneRegisterResendPOST)},
+		{Method: http.MethodPost, Path: "/register/abandon", Group: RouteRegistration, Handler: http.HandlerFunc(s.handlePendingRegistrationAbandonPOST)},
 
-		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handleEmailVerifyRequestPOST))},
-		{Method: http.MethodGet, Path: "/email/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmGET)},
-		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handleEmailVerifyConfirmPOST))},
+		{Method: http.MethodPost, Path: "/email/verify/request", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handleEmailVerifyRequestPOST))},
+		{Method: http.MethodGet, Path: "/email/verify/confirm", Group: RouteAccount, Handler: http.HandlerFunc(s.handleEmailVerifyConfirmGET)},
+		{Method: http.MethodPost, Path: "/email/verify/confirm", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handleEmailVerifyConfirmPOST))},
 
-		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyRequestPOST))},
-		{Method: http.MethodGet, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmGET)},
-		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RouteRegister, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyConfirmPOST))},
+		{Method: http.MethodPost, Path: "/phone/verify/request", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyRequestPOST))},
+		{Method: http.MethodGet, Path: "/phone/verify/confirm", Group: RouteAccount, Handler: http.HandlerFunc(s.handlePhoneVerifyConfirmGET)},
+		{Method: http.MethodPost, Path: "/phone/verify/confirm", Group: RouteAccount, Handler: optional(http.HandlerFunc(s.handlePhoneVerifyConfirmPOST))},
 
-		{Method: http.MethodPost, Path: "/user/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPasswordPOST))},
-		{Method: http.MethodGet, Path: "/user/sessions", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionsGET))},
-		{Method: http.MethodDelete, Path: "/user/sessions/{id}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionDELETE))},
-		{Method: http.MethodDelete, Path: "/user/sessions", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserSessionsDELETE))},
-		{Method: http.MethodGet, Path: "/me", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
-		{Method: http.MethodPatch, Path: "/user/username", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
-		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
-		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
-		{Method: http.MethodDelete, Path: "/user", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
-		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},
-		{Method: http.MethodPost, Path: "/passkeys/register/begin", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyRegisterBeginPOST))},
-		{Method: http.MethodPost, Path: "/passkeys/register/finish", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyRegisterFinishPOST))},
-		{Method: http.MethodGet, Path: "/passkeys", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeysGET))},
-		{Method: http.MethodPatch, Path: "/passkeys/{id}", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyPATCH))},
-		{Method: http.MethodDelete, Path: "/passkeys/{id}", Group: RoutePasskeys, Handler: required(http.HandlerFunc(s.handlePasskeyDELETE))},
+		{Method: http.MethodPost, Path: "/user/password", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPasswordPOST))},
+		{Method: http.MethodGet, Path: "/user/sessions", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserSessionsGET))},
+		{Method: http.MethodDelete, Path: "/user/sessions/{id}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserSessionDELETE))},
+		{Method: http.MethodDelete, Path: "/user/sessions", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserSessionsDELETE))},
+		{Method: http.MethodGet, Path: "/me", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
+		{Method: http.MethodPatch, Path: "/user/username", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
+		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
+		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
+		{Method: http.MethodDelete, Path: "/user", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
+		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},
+		{Method: http.MethodPost, Path: "/passkeys/register/begin", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handlePasskeyRegisterBeginPOST))},
+		{Method: http.MethodPost, Path: "/passkeys/register/finish", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handlePasskeyRegisterFinishPOST))},
+		{Method: http.MethodGet, Path: "/passkeys", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handlePasskeysGET))},
+		{Method: http.MethodPatch, Path: "/passkeys/{id}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handlePasskeyPATCH))},
+		{Method: http.MethodDelete, Path: "/passkeys/{id}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handlePasskeyDELETE))},
 
-		{Method: http.MethodPost, Path: "/step-up/password", Group: RouteUser, Handler: required(http.HandlerFunc(s.handlePasswordStepUpPOST))},
-		{Method: http.MethodPost, Path: "/step-up/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleTwoFactorStepUpPOST))},
+		{Method: http.MethodPost, Path: "/step-up/password", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handlePasswordStepUpPOST))},
+		{Method: http.MethodPost, Path: "/step-up/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleTwoFactorStepUpPOST))},
 
-		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},
-		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleOIDCStepUpStartPOST))},
+		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},
+		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleOIDCStepUpStartPOST))},
 
-		{Method: http.MethodGet, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FAStatusGET))},
-		{Method: http.MethodPost, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FAPOST))},
-		{Method: http.MethodDelete, Path: "/user/2fa", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FADELETE))},
-		{Method: http.MethodPost, Path: "/user/2fa/backup-codes", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleUser2FABackupCodesPOST))},
-		{Method: http.MethodPost, Path: "/2fa/challenge", Group: RouteSession, Handler: http.HandlerFunc(s.handleUser2FAChallengePOST)},
-		{Method: http.MethodPost, Path: "/2fa/verify", Group: RouteSession, Handler: http.HandlerFunc(s.handleUser2FAVerifyPOST)},
+		{Method: http.MethodGet, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FAStatusGET))},
+		{Method: http.MethodPost, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FAPOST))},
+		{Method: http.MethodDelete, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FADELETE))},
+		{Method: http.MethodPost, Path: "/user/2fa/backup-codes", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FABackupCodesPOST))},
+		{Method: http.MethodPost, Path: "/2fa/challenge", Group: RouteAuth, Handler: http.HandlerFunc(s.handleUser2FAChallengePOST)},
+		{Method: http.MethodPost, Path: "/2fa/verify", Group: RouteAuth, Handler: http.HandlerFunc(s.handleUser2FAVerifyPOST)},
 
-		{Method: http.MethodPost, Path: "/solana/challenge", Group: RouteSession, Handler: http.HandlerFunc(s.handleSolanaChallengePOST)},
-		{Method: http.MethodPost, Path: "/solana/login", Group: RouteSession, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
-		{Method: http.MethodPost, Path: "/solana/link", Group: RouteUser, Handler: required(http.HandlerFunc(s.handleSolanaLinkPOST))},
+		{Method: http.MethodPost, Path: "/solana/challenge", Group: RouteAuth, Handler: http.HandlerFunc(s.handleSolanaChallengePOST)},
+		{Method: http.MethodPost, Path: "/solana/login", Group: RouteAuth, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
+		{Method: http.MethodPost, Path: "/solana/link", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleSolanaLinkPOST))},
 
 		// Intrinsic user-admin directory. Auth is permission-based: human users
 		// authorize through the root permission-group, programmatic principals via
@@ -180,12 +180,33 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	// set PasskeyConfig.RPID get the routes; everyone else doesn't advertise a
 	// feature they can't fulfil.
 	passkeysEnabled := s.svc.PasskeysEnabled()
+	opts := s.svc.Options()
+	passwordlessEnabled := opts.PasswordlessLoginEnabled
+	registrationEnabled := opts.NativeUserRegistrationMode != embedded.RegistrationModeClosed
+	twoFactorEnabled := s.svc.TwoFactorEnabled()
+	solanaEnabled := strings.TrimSpace(opts.SolanaNetwork) != ""
+	oidcEnabled := len(s.authProviders()) > 0
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {
 			continue
 		}
-		if route.Group == RoutePasskeys && !passkeysEnabled {
+		if isPasskeyPath(route.Path) && !passkeysEnabled {
+			continue
+		}
+		if isPasswordlessPath(route.Path) && !passwordlessEnabled {
+			continue
+		}
+		if isRegistrationMutationPath(route.Path) && !registrationEnabled {
+			continue
+		}
+		if isTwoFactorPath(route.Path) && !twoFactorEnabled {
+			continue
+		}
+		if isSolanaPath(route.Path) && !solanaEnabled {
+			continue
+		}
+		if isOIDCPath(route.Path) && !oidcEnabled {
 			continue
 		}
 		route.Handler = lang(route.Handler)
@@ -205,9 +226,36 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	return out
 }
 
+func isPasskeyPath(path string) bool {
+	return path == "/passkeys" || strings.HasPrefix(path, "/passkeys/")
+}
+
+func isPasswordlessPath(path string) bool {
+	return path == "/passwordless/start" || path == "/passwordless/confirm"
+}
+
+func isRegistrationMutationPath(path string) bool {
+	return path == "/register" || path == "/register/abandon" || strings.HasPrefix(path, "/register/resend-")
+}
+
+func isTwoFactorPath(path string) bool {
+	return path == "/step-up/2fa" || path == "/user/2fa" || strings.HasPrefix(path, "/user/2fa/") || strings.HasPrefix(path, "/2fa/")
+}
+
+func isSolanaPath(path string) bool {
+	return strings.HasPrefix(path, "/solana/")
+}
+
+func isOIDCPath(path string) bool {
+	return strings.HasPrefix(path, "/oidc/")
+}
+
 // OIDCBrowserRoutes returns browser redirect routes with no mount prefix.
 func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 	if s == nil || s.svc == nil {
+		return nil
+	}
+	if len(s.authProviders()) == 0 {
 		return nil
 	}
 	selected := routeGroupSet(groups)

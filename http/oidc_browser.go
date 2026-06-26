@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/embedded"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
@@ -57,13 +58,14 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	popupNonce := r.URL.Query().Get("popup_nonce")
 
 	if err := s.oidcCfg().StateCache.Put(r.Context(), state, oidckit.StateData{
-		Provider:    provider,
-		Verifier:    verifier,
-		Nonce:       nonce,
-		RedirectURI: redirectURI,
-		ReturnTo:    sanitizeReturnTo(r.URL.Query().Get("return_to")),
-		UI:          ui,
-		PopupNonce:  popupNonce,
+		Provider:           provider,
+		Verifier:           verifier,
+		Nonce:              nonce,
+		RedirectURI:        redirectURI,
+		ReturnTo:           sanitizeReturnTo(r.URL.Query().Get("return_to")),
+		AccountInviteToken: strings.TrimSpace(r.URL.Query().Get("account_invite_token")),
+		UI:                 ui,
+		PopupNonce:         popupNonce,
 	}); err != nil {
 		serverErr(w, ErrStateStoreFailed)
 		return
@@ -177,8 +179,23 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		}
 
 		// Brand-new identity with no existing local account: this is a public
-		// registration path, blocked when public registration is disabled.
-		if s.publicRegistrationDisabled() {
+		// registration path. InviteOnly requires an email-bound account invite
+		// token carried from flow start; Open keeps the historical behavior.
+		if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly {
+			if strings.TrimSpace(email) == "" {
+				registrationDisabled(w)
+				return
+			}
+			allowed, err := s.svc.RegistrationAllowedForEmailWithInvite(r.Context(), email, sd.AccountInviteToken)
+			if err != nil {
+				serverErr(w, ErrDatabaseError)
+				return
+			}
+			if !allowed {
+				registrationDisabled(w)
+				return
+			}
+		} else if s.publicRegistrationDisabled() {
 			registrationDisabled(w)
 			return
 		}
@@ -197,6 +214,10 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// absent claim is treated as false (defense in depth).
 		if claims.EmailVerified != nil && *claims.EmailVerified && provider != "discord" {
 			_ = s.svc.SetEmailVerified(r.Context(), u.ID, true)
+		}
+		if err := s.svc.ConsumeAccountRegistrationInvite(r.Context(), email, u.ID, sd.AccountInviteToken); err != nil {
+			serverErr(w, ErrUserCreationFailed)
+			return
 		}
 		_ = s.svc.LinkProviderByIssuer(r.Context(), u.ID, issuer, provider, claims.Subject, claims.Email)
 		if strings.TrimSpace(provUsername) != "" {

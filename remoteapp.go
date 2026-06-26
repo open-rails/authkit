@@ -11,7 +11,7 @@ import (
 var ErrAttributeDefNotFound = errors.New("attribute_def_not_found")
 
 // ErrInvalidRemoteApplication indicates a malformed remote_application
-// registration payload (including invalid allowed-origin values).
+// registration payload.
 var ErrInvalidRemoteApplication = errors.New("invalid_remote_application")
 
 // Remote-application trust modes (#74). A remote_application is a federation
@@ -56,9 +56,8 @@ type RemoteApplication struct {
 	// RemoteAppModeStatic (human-managed PublicKeys list). Never both.
 	Mode string
 	// PublicKeys is the static-mode key list (empty in jwks mode).
-	PublicKeys     []RemoteAppKey
-	AllowedOrigins []string
-	Enabled        bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	PublicKeys []RemoteAppKey
+	Enabled    bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }

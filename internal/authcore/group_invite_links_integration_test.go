@@ -29,9 +29,8 @@ func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpoo
 
 	gs, err := BuildSchema(
 		PersonaDef{
-			Name: "org", AllowedParents: []string{RootPersona},
-			Routes: ManagementProfile{MemberAssignment: true, InviteLinks: true},
-			Roles:  []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
+			Name: "org", Parent: RootPersona,
+			Roles: []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
 		},
 	)
 	if err != nil {
@@ -222,8 +221,7 @@ func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
 	// "org" persona with a bounded `member-manager` (members:manage, NOT owner) and a
 	// plain `member`; `owner` (org:*) is auto-injected.
 	gs, err := BuildSchema(PersonaDef{
-		Name: "org", AllowedParents: []string{RootPersona},
-		Routes: ManagementProfile{MemberAssignment: true, InviteLinks: true},
+		Name: "org", Parent: RootPersona,
 		Roles: []RoleDef{
 			{Name: "member", Permissions: []string{"org:repo:read"}},
 			{Name: "member-manager", Permissions: []string{PermMembersManage("org"), "org:repo:read"}},

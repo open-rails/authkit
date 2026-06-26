@@ -25,7 +25,6 @@ type (
 	RemoteApplicationSource = verify.RemoteApplicationSource
 	SensitiveOptions        = verify.SensitiveOptions
 
-	ServiceJWTPrincipal     = verify.ServiceJWTPrincipal
 	ServiceJWTReplayChecker = verify.ServiceJWTReplayChecker
 	ServiceJWTVerifyOption  = verify.ServiceJWTVerifyOption
 )
@@ -36,33 +35,29 @@ const (
 )
 
 var (
-	NewVerifier            = verify.NewVerifier
-	Required               = verify.Required
-	Optional               = verify.Optional
-	RequireEntitlement     = verify.RequireEntitlement
-	RequireAnyEntitlement  = verify.RequireAnyEntitlement
-	RequireFreshAuth       = verify.RequireFreshAuth
-	RequireAMR             = verify.RequireAMR
-	RequireACR             = verify.RequireACR
-	Sensitive              = verify.Sensitive
-	SensitiveClaims        = verify.SensitiveClaims
-	ClaimsFromContext      = verify.ClaimsFromContext
-	WithSkew               = verify.WithSkew
-	WithAlgorithms         = verify.WithAlgorithms
-	WithHTTPClient         = verify.WithHTTPClient
-	WithSSRFGuard          = verify.WithSSRFGuard
-	WithAPIKeyPrefix       = verify.WithAPIKeyPrefix
-	WithPermissions        = verify.WithPermissions
-	WithAttributesPolicy   = verify.WithAttributesPolicy
-	WithAttributeHydration = verify.WithAttributeHydration
+	NewVerifier              = verify.NewVerifier
+	Required                 = verify.Required
+	Optional                 = verify.Optional
+	RequiredUser             = verify.RequiredUser
+	OptionalUser             = verify.OptionalUser
+	RequireEntitlement       = verify.RequireEntitlement
+	RequireAnyEntitlement    = verify.RequireAnyEntitlement
+	Sensitive                = verify.Sensitive
+	SensitiveClaims          = verify.SensitiveClaims
+	ClaimsFromContext        = verify.ClaimsFromContext
+	WithSkew                 = verify.WithSkew
+	WithAlgorithms           = verify.WithAlgorithms
+	WithHTTPClient           = verify.WithHTTPClient
+	WithSSRFGuard            = verify.WithSSRFGuard
+	WithAPIKeyPrefix         = verify.WithAPIKeyPrefix
+	WithPermissions          = verify.WithPermissions
+	WithAttributesPolicy     = verify.WithAttributesPolicy
+	WithAttributeHydration   = verify.WithAttributeHydration
+	WithRequireMFAEnrollment = verify.WithRequireMFAEnrollment
 
-	RequiredServiceJWT             = verify.RequiredServiceJWT
-	ServiceJWTPrincipalFromContext = verify.ServiceJWTPrincipalFromContext
-	WithServiceJWTMaxLifetime      = verify.WithServiceJWTMaxLifetime
-	WithServiceJWTReplayChecker    = verify.WithServiceJWTReplayChecker
-	RemoteApplicationCORS          = verify.RemoteApplicationCORS
-	RequireDelegatedOrigin         = verify.RequireDelegatedOrigin
-	NewSSRFGuardedClient           = verify.NewSSRFGuardedClient
+	WithServiceJWTMaxLifetime   = verify.WithServiceJWTMaxLifetime
+	WithServiceJWTReplayChecker = verify.WithServiceJWTReplayChecker
+	NewSSRFGuardedClient        = verify.NewSSRFGuardedClient
 
 	// lowercase alias so the delegated-roles test keeps referencing the cap.
 	maxDelegatedRoles = verify.MaxDelegatedRoles

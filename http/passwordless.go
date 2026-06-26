@@ -15,12 +15,13 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var req struct {
-		Identifier        string `json:"identifier"`
-		Email             string `json:"email"`
-		PhoneNumber       string `json:"phone_number"`
-		Mode              string `json:"mode"`
-		ReturnTo          string `json:"return_to"`
-		PreferredLanguage string `json:"preferred_language"`
+		Identifier         string `json:"identifier"`
+		Email              string `json:"email"`
+		PhoneNumber        string `json:"phone_number"`
+		Mode               string `json:"mode"`
+		ReturnTo           string `json:"return_to"`
+		PreferredLanguage  string `json:"preferred_language"`
+		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
@@ -36,14 +37,19 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 	}
 
 	_, err := s.svc.StartPasswordless(r.Context(), authkit.PasswordlessStartRequest{
-		Identifier:        identifier,
-		Mode:              req.Mode,
-		ReturnTo:          req.ReturnTo,
-		PreferredLanguage: req.PreferredLanguage,
+		Identifier:         identifier,
+		Mode:               req.Mode,
+		ReturnTo:           req.ReturnTo,
+		PreferredLanguage:  req.PreferredLanguage,
+		AccountInviteToken: req.AccountInviteToken,
 	})
 	if err != nil {
 		if errors.Is(err, authkit.ErrPasswordlessDisabled) {
 			forbidden(w, ErrPasswordlessDisabled)
+			return
+		}
+		if errors.Is(err, authkit.ErrRegistrationDisabled) {
+			registrationDisabled(w)
 			return
 		}
 		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {

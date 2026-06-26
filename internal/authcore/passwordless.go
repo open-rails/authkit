@@ -58,6 +58,7 @@ func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRe
 	if err != nil {
 		return PasswordlessStartResult{}, err
 	}
+	ctx = contextWithAccountRegistrationInviteToken(ctx, req.AccountInviteToken)
 	mode := normalizePasswordlessMode(req.Mode)
 	language, err := NormalizePreferredLanguage(req.PreferredLanguage)
 	if err != nil {
@@ -86,6 +87,15 @@ func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRe
 	} else {
 		if !s.passwordlessAutoRegistrationAllowed() {
 			return PasswordlessStartResult{Channel: channel}, nil
+		}
+		if channel == PasswordlessChannelEmail {
+			allowed, err := s.registrationAllowedForEmail(ctx, identifier)
+			if err != nil {
+				return PasswordlessStartResult{}, err
+			}
+			if !allowed {
+				return PasswordlessStartResult{}, ErrRegistrationDisabled
+			}
 		}
 		rec.GeneratedUsername = s.derivePasswordlessUsername(ctx, channel, identifier)
 	}
@@ -294,6 +304,9 @@ func (s *Service) createPasswordlessUser(ctx context.Context, rec passwordlessCh
 		if err := s.setEmailVerified(ctx, u.ID, true); err != nil {
 			return "", err
 		}
+		if err := s.consumeAccountRegistrationInvite(ctx, rec.Identifier, u.ID); err != nil {
+			return "", err
+		}
 		if rec.PreferredLanguage != "" {
 			_ = s.SetPreferredLanguage(ctx, u.ID, rec.PreferredLanguage)
 		}
@@ -349,7 +362,11 @@ func (s *Service) sendPasswordlessChallenge(ctx context.Context, rec passwordles
 }
 
 func (s *Service) passwordlessAutoRegistrationAllowed() bool {
-	return s != nil && s.opts.PasswordlessAutoRegistrationEnabled && s.opts.PublicNativeUserRegistrationEnabled()
+	if s == nil || !s.opts.PasswordlessAutoRegistrationEnabled {
+		return false
+	}
+	mode, err := normalizeRegistrationMode(s.opts.NativeUserRegistrationMode)
+	return err == nil && mode != RegistrationModeClosed
 }
 
 func (s *Service) derivePasswordlessUsername(ctx context.Context, channel, identifier string) string {

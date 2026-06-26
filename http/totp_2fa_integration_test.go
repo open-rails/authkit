@@ -86,7 +86,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	require.ElementsMatch(t, []any{"pwd", "otp", "mfa"}, claims["amr"])
 }
 
-func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
+func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
@@ -109,16 +109,7 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
 	require.NoError(t, err)
 
-	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"email"}`, setupToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"backup_codes"`)
-	var emailEnable struct {
-		BackupCodes []string `json:"backup_codes"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &emailEnable))
-	require.NotEmpty(t, emailEnable.BackupCodes)
-
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
+	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var enrollment struct {
 		Secret string `json:"secret"`
@@ -126,9 +117,14 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &enrollment))
 	require.NotEmpty(t, enrollment.Secret)
 	code := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30)
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp","code":"`+code+`"}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp","code":"`+code+`","default":true}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NotContains(t, w.Body.String(), "backup_codes")
+	require.Contains(t, w.Body.String(), `"backup_codes"`)
+	var totpEnable struct {
+		BackupCodes []string `json:"backup_codes"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &totpEnable))
+	require.NotEmpty(t, totpEnable.BackupCodes)
 
 	w = serveAuthJSON(srv, http.MethodGet, "/user/2fa", `{}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -142,18 +138,15 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 		} `json:"available_factors"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &status))
-	require.Equal(t, "email", status.Method)
+	require.Equal(t, "totp", status.Method)
 	require.Equal(t, 10, status.BackupCodesRemaining)
-	require.Len(t, status.AvailableFactors, 2)
+	require.Len(t, status.AvailableFactors, 1)
 	totpFactorID := ""
 	for _, factor := range status.AvailableFactors {
 		require.NotEqual(t, "backup_code", factor.Method)
-		if factor.Method == "email" {
-			require.True(t, factor.IsDefault)
-		}
 		if factor.Method == "totp" {
 			totpFactorID = factor.ID
-			require.False(t, factor.IsDefault)
+			require.True(t, factor.IsDefault)
 		}
 	}
 	require.NotEmpty(t, totpFactorID)
@@ -184,9 +177,9 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
 	require.True(t, challenge.Requires2FA)
-	require.Equal(t, "email", challenge.Method)
+	require.Equal(t, "totp", challenge.Method)
 
-	w = serveJSON(srv, http.MethodPost, "/2fa/verify", `{"user_id":"`+user.ID+`","challenge":"`+challenge.Challenge+`","code":"`+emailEnable.BackupCodes[0]+`","backup_code":true}`)
+	w = serveJSON(srv, http.MethodPost, "/2fa/verify", `{"user_id":"`+user.ID+`","challenge":"`+challenge.Challenge+`","code":"`+totpEnable.BackupCodes[0]+`","backup_code":true}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "access_token")
 
@@ -194,7 +187,7 @@ func TestMultiple2FAFactorsDefaultAndSelectedLoginHTTPIntegration(t *testing.T) 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &challenge))
 	require.True(t, challenge.Requires2FA)
-	require.Equal(t, "email", challenge.Method)
+	require.Equal(t, "totp", challenge.Method)
 
 	w = serveJSON(srv, http.MethodPost, "/2fa/challenge", `{"user_id":"`+user.ID+`","challenge":"`+challenge.Challenge+`","factor_id":"`+totpFactorID+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

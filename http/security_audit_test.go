@@ -73,6 +73,7 @@ func TestStateCookieMatches(t *testing.T) {
 
 func TestOIDCCallback_RejectsWithoutStateCookie(t *testing.T) {
 	s := newTestService(t)
+	enableTestOIDCProvider(s)
 	h := s.OIDCHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback?state=abc&code=xyz", nil)
@@ -83,6 +84,7 @@ func TestOIDCCallback_RejectsWithoutStateCookie(t *testing.T) {
 
 func TestOIDCCallback_StateCookiePassesCookieGate(t *testing.T) {
 	s := newTestService(t)
+	enableTestOIDCProvider(s)
 	require.NoError(t, s.stateCache().Put(context.Background(), "good-state", oidckit.StateData{Provider: "google"}))
 	h := s.OIDCHandler()
 	w := httptest.NewRecorder()

@@ -41,7 +41,7 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 
 	settings, err := s.svc.Get2FASettings(r.Context(), claims.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, twoFactorStatusResponse{Enabled: false, Method: "email", AllowedMethods: []string{"email", "sms", "totp"}})
+		writeJSON(w, http.StatusOK, twoFactorStatusResponse{Enabled: false, Method: "email", AllowedMethods: s.svc.TwoFactorAllowedMethods()})
 		return
 	}
 
@@ -53,7 +53,7 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 		DefaultFactor:        defaultTwoFactorFactorResponse(factors),
 		Factors:              factors,
 		AvailableFactors:     factors,
-		AllowedMethods:       []string{"email", "sms", "totp"},
+		AllowedMethods:       s.svc.TwoFactorAllowedMethods(),
 		BackupCodesRemaining: len(settings.BackupCodes),
 	})
 }
@@ -91,6 +91,12 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if method != "email" && method != "sms" && method != "totp" {
+		badRequest(w, ErrInvalidMethod)
+		return
+	}
+	// #148: reject a method the host disabled or whose dependency is missing
+	// (2FA off, method not in policy, or no sender/TOTP key) with a clean 400.
+	if !s.svc.TwoFactorMethodAvailable(method) {
 		badRequest(w, ErrInvalidMethod)
 		return
 	}

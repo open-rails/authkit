@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // authError carries the HTTP status + reason a verification failure would have
@@ -46,7 +45,16 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	if cl.TwoFAEnrollment && !allowed2FAEnrollmentPath(r.Method, r.URL.Path) {
 		return Claims{}, &authError{http.StatusForbidden, "forbidden"}
 	}
-	if v.enrich != nil && cl.IsDelegated() {
+	// #148: per-request forced-enrollment gate. When 2FA policy is Required, a
+	// native user whose token shows they are not yet enrolled (mfa_enrolled absent)
+	// is blocked from everything except the 2FA enroll/challenge routes — so an
+	// existing un-enrolled user is challenged on their NEXT authenticated request,
+	// not just at signup. Gated explicitly on IsUser: API-key/delegated/service
+	// principals can't enroll TOTP and bypass (note d).
+	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !allowed2FAEnrollmentPath(r.Method, r.URL.Path) {
+		return Claims{}, &authError{http.StatusForbidden, "2fa_enrollment_required"}
+	}
+	if v.enrich != nil && cl.isDelegated() {
 		// Fail-closed issuer gate (#78): resolve remote_application by the
 		// VALIDATED issuer, reject unknown/disabled. READ-ONLY.
 		ra, err := v.enrich.GetRemoteApplication(r.Context(), cl.Issuer)
@@ -58,7 +66,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// Best-effort DB enrichment. Skipped for delegated principals: their subject
 	// does not exist locally, so local enrichment + the IsUserAllowed gate must
 	// not apply (delegated tokens carry no UserID anyway).
-	if v.enrich != nil && cl.UserID != "" && !cl.IsDelegated() {
+	if v.enrich != nil && cl.UserID != "" && !cl.isDelegated() {
 		if du, err := v.enrich.GetProviderUsername(r.Context(), cl.UserID, "discord"); err == nil && du != "" {
 			cl.DiscordUsername = du
 		}
@@ -102,10 +110,24 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 	}
 }
 
+// allowed2FAEnrollmentPath reports whether a path is one a forced-enrollment-gated
+// user must still reach: the 2FA enroll surface (/user/2fa[/...]) and the
+// challenge/verify surface (/2fa/challenge, /2fa/verify). Matching by route suffix
+// keeps the verify layer free of the route table; the canonical 2FA route set
+// lives in http/routes.go and any addition there must stay covered here.
+// ponytail: suffix allowlist, not derived from the live route registry — upgrade
+// to registry-derived only if the 2FA route paths ever stop being stable suffixes.
 func allowed2FAEnrollmentPath(method, path string) bool {
+	if method != http.MethodGet && method != http.MethodPost && method != http.MethodDelete {
+		return false
+	}
 	path = strings.TrimRight(path, "/")
-	return (method == http.MethodGet || method == http.MethodPost) &&
-		(strings.HasSuffix(path, "/user/2fa") || path == "/user/2fa")
+	for _, suffix := range []string{"/user/2fa", "/user/2fa/backup-codes", "/2fa/challenge", "/2fa/verify"} {
+		if path == suffix || strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Optional validates when Authorization is present; otherwise passes through.
@@ -118,6 +140,41 @@ func Optional(v *Verifier) func(http.Handler) http.Handler {
 				return
 			}
 			req(next).ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequiredUser authenticates a native human user and rejects machine/delegated principals.
+func RequiredUser(v *Verifier) func(http.Handler) http.Handler {
+	req := Required(v)
+	return func(next http.Handler) http.Handler {
+		return req(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl, err := GetClaims(r.Context())
+			if err != nil || !cl.IsUser() {
+				unauthorized(w, "invalid_principal")
+				return
+			}
+			next.ServeHTTP(w, r)
+		}))
+	}
+}
+
+// OptionalUser enriches a request with native-user claims when present; machine
+// or invalid credentials fall through as anonymous.
+func OptionalUser(v *Verifier) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if bearerToken(r.Header.Get("Authorization")) == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			cl, err := v.VerifyRequest(r)
+			if err != nil || !cl.IsUser() {
+				next.ServeHTTP(w, r)
+				return
+			}
+			r = r.WithContext(applyRequestContext(SetClaims(r.Context(), cl)))
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -152,49 +209,8 @@ func RequireAnyEntitlement(ents ...string) func(http.Handler) http.Handler {
 	}
 }
 
-func RequireFreshAuth(maxAge time.Duration) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl, err := GetClaims(r.Context())
-			if err != nil || !isUserClaims(cl) || !cl.AuthenticatedWithin(maxAge) {
-				forbidden(w, "forbidden")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func RequireAMR(method string) func(http.Handler) http.Handler {
-	method = strings.TrimSpace(method)
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl, err := GetClaims(r.Context())
-			if err != nil || !isUserClaims(cl) || method == "" || !cl.HasAMR(method) {
-				forbidden(w, "forbidden")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func RequireACR(level string) func(http.Handler) http.Handler {
-	level = strings.TrimSpace(level)
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cl, err := GetClaims(r.Context())
-			if err != nil || !isUserClaims(cl) || level == "" || !strings.EqualFold(strings.TrimSpace(cl.ACR), level) {
-				forbidden(w, "forbidden")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 func isUserClaims(cl Claims) bool {
-	return strings.TrimSpace(cl.UserID) != "" && !cl.IsAPIKey() && !cl.IsRemoteApplication() && !cl.IsDelegated()
+	return cl.IsUser()
 }
 
 func toUnix(v any) (int64, bool) {

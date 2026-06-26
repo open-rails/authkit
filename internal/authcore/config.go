@@ -5,7 +5,6 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	jwtkit "github.com/open-rails/authkit/jwt"
-	oidckit "github.com/open-rails/authkit/oidc"
 )
 
 // Config is the host-provided configuration for an AuthKit Service. Fields are
@@ -30,8 +29,9 @@ type Config struct {
 	TwoFactor TwoFactorConfig
 	// Passkeys configures WebAuthn/FIDO2 passkey ceremonies.
 	Passkeys PasskeyConfig
-	// RBAC declares the app permission catalog, default roles, and owner policy.
-	RBAC RBACConfig
+	// RBAC declares the app's permission-group personas (#111): containment
+	// schema plus per-persona role catalogs. Empty yields root-only.
+	RBAC []PersonaDef
 
 	// Environment is a host-provided runtime mode string used for dev/prod
 	// behavior checks. "prod"/"production" mean production; anything else is
@@ -49,9 +49,8 @@ type Config struct {
 
 	// SolanaNetwork is the SIWS chain selector ("mainnet"/"testnet"/"devnet").
 	// Empty derives a default from Environment. Solana Name Service (SNS)
-	// resolution turns on automatically when a resolver is supplied via the
-	// WithSolanaSNSResolver option; its lookup timeout (3s) and cache TTL (24h)
-	// are fixed constants, not configurable.
+	// resolution is AuthKit-owned: it uses the built-in keyless resolver, with a
+	// fixed 3s lookup timeout and 24h cache TTL. There is no host override.
 	SolanaNetwork string
 }
 
@@ -140,10 +139,9 @@ type SolanaConfig struct {
 	// If empty, AuthKit derives a default from Environment.
 	Network string
 	// SNSEnabled enables AuthKit-owned Solana Name Service resolution for
-	// SIWS-linked wallets.
+	// SIWS-linked wallets. The resolver itself is AuthKit-owned (keyless,
+	// built-in) — there is no host override.
 	SNSEnabled bool
-	// SNSResolver resolves a verified Solana wallet address to its primary .sol name.
-	SNSResolver SolanaSNSResolver
 	// SNSLookupTimeout bounds resolver calls. Empty defaults to 3 seconds.
 	SNSLookupTimeout time.Duration
 	// SNSCacheTTL controls when cached SNS metadata is stale. Empty defaults to 24h.
@@ -152,14 +150,13 @@ type SolanaConfig struct {
 
 // IdentityConfig declares external OAuth2/OIDC identity providers.
 type IdentityConfig struct {
-	// Providers – identity providers by name ("google"/"apple"/"github"/
-	// "discord"). Only client id/secret are required; standard scopes derive
-	// from defaults.
-	Providers map[string]oidckit.RPConfig
-	// ProviderDescriptors define OAuth2/OIDC providers using config-first
-	// descriptors. They augment/override built-in Providers entries and are the
-	// preferred path for adding custom providers.
-	ProviderDescriptors map[string]authprovider.Provider
+	// Providers is the list of external identity providers — a provider is a
+	// provider, there is no built-in-vs-custom split (#143). Use a built-in
+	// constructor for the common ones (authprovider.Google/Apple/Discord/GitHub,
+	// which need only client id/secret and derive standard scopes/mapping) or a
+	// full authprovider.Provider descriptor for any other OAuth2/OIDC provider.
+	// Each provider carries its own Name.
+	Providers []authprovider.Provider
 }
 
 // APIKeysConfig configures opaque permission-group-owned machine credentials.
@@ -174,18 +171,26 @@ type APIKeysConfig struct {
 	MaxTTL time.Duration
 }
 
-// TwoFactorConfig configures optional 2FA methods.
+// TwoFactorConfig configures 2FA policy and key material (#148).
 type TwoFactorConfig struct {
-	// TOTPSecretKey encrypts persisted authenticator-app shared secrets. It must
-	// be 16, 24, or 32 bytes. Without it, TOTP enrollment fails closed.
-	TOTPSecretKey []byte
-
-	// RequireEnrollment, when true, forces EVERY user to enroll a second factor:
-	// a user without usable 2FA cannot establish or refresh an authenticated
-	// session and is told `2fa_enrollment_required` until they enroll (the
-	// "force 2FA at signup / first session" policy). Off by default; per-role
+	// Mode is the account-wide 2FA policy: Disabled (no enroll/challenge/verify
+	// routes usable), Optional (users may enroll), or Required (every user must
+	// enroll before normal session use; existing un-enrolled users are challenged
+	// on their next authenticated request). Empty defaults to Optional. Per-role
 	// RoleDef.RequiresMFA remains available for narrower enforcement.
-	RequireEnrollment bool
+	Mode TwoFactorMode
+
+	// Methods is the set of second-factor channels the host enables
+	// (Email/SMS/TOTP). Empty defaults to all three. A method whose dependency is
+	// missing (e.g. SMS with no SMS sender) fails closed regardless of this list.
+	Methods []TwoFactorMethod
+
+	// TOTPSecretKey encrypts persisted authenticator-app shared secrets. It must
+	// be 16, 24, or 32 bytes. This is an OVERRIDE for tests/custom key management;
+	// the normal path loads the key from <Keys.Path>/totp.key (vault-mounted key
+	// material, same model as JWT signing keys). Without either, TOTP enrollment
+	// fails closed.
+	TOTPSecretKey []byte
 }
 
 // PasskeyConfig configures WebAuthn relying-party identity and UV policy.
@@ -196,43 +201,5 @@ type PasskeyConfig struct {
 	UserVerification string
 }
 
-// RBACConfig declares the app permission catalog, default roles, and owner policy.
-type RBACConfig struct {
-	// Permissions is the embedding application's set of valid permission strings
-	// (e.g. `endpoint:revise`, `repo:create`); authkit stores and validates them
-	// as opaque catalog entries. The permission-group personas declared in Groups
-	// (#111) are the current model for scoping permissions.
-	Permissions []PermissionDef
-
-	// Groups declares the app's permission-group personas (#111): the containment
-	// schema + per-persona role catalogs + management profiles. authkit injects the
-	// intrinsic `root` persona when absent, so an empty slice yields a valid
-	// root-only deployment. Validated by NewFromConfig via BuildSchema.
-	Groups []PersonaDef
-}
-
-// PermissionDef is one entry in the permission set: an opaque permission
-// string plus a human-readable description (surfaced to admin UIs).
-type PermissionDef struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-}
-
-type RegistrationVerificationPolicy string
-
-const (
-	RegistrationVerificationNone     RegistrationVerificationPolicy = "none"
-	RegistrationVerificationOptional RegistrationVerificationPolicy = "optional"
-	RegistrationVerificationRequired RegistrationVerificationPolicy = "required"
-)
-
-type RegistrationMode string
-
-const (
-	RegistrationModeOpen               RegistrationMode = "open"
-	RegistrationModeInviteOnly         RegistrationMode = "invite_only"
-	RegistrationModeAdminOnly          RegistrationMode = "admin_only"
-	RegistrationModeAdminBootstrapOnly RegistrationMode = "admin_bootstrap_only"
-	RegistrationModeManifestOnly       RegistrationMode = "manifest_only"
-	RegistrationModeClosed             RegistrationMode = "closed"
-)
+// RegistrationVerificationPolicy and RegistrationMode are defined in authkit and
+// re-exported in registration.go (#147).

@@ -17,55 +17,21 @@ func merchantSchema(t *testing.T) *embedded.GroupSchema {
 	t.Helper()
 	s, err := embedded.BuildSchema(
 		embedded.PersonaDef{
-			Name: "merchant", AllowedParents: []string{embedded.RootPersona},
-			Routes: embedded.ManagementProfile{MemberAssignment: true, APIKeyMinting: true},
+			Name: "merchant", Parent: embedded.RootPersona,
+			Capabilities: embedded.PersonaCapabilities{APIKeys: true},
 		},
 		embedded.PersonaDef{
-			Name: "repo", AllowedParents: []string{embedded.RootPersona},
-			Routes: embedded.ManagementProfile{MemberAssignment: true},
+			Name: "repo", Parent: embedded.RootPersona,
 		},
 	)
 	require.NoError(t, err)
 	return s
 }
 
-// TestGeneratedRouteTable_GatesOnDeclaredPerm asserts every generated RouteSpec
-// is gated on the schema-declared perm by wiring its handler through a recording
-// authorizer stub and confirming the perm it is asked to authorize.
-func TestGeneratedRouteTable_GatesOnDeclaredPerm(t *testing.T) {
-	s := newTestService(t)
-	routes := merchantSchema(t).GeneratedRoutes()
-
-	for _, gr := range routes {
-		gr := gr
-		var gotPerm, gotPersona, gotResource string
-		s.groupCanFn = func(_ *http.Request, _, persona, instanceSlug, perm string) (bool, error) {
-			gotPersona, gotResource, gotPerm = persona, instanceSlug, perm
-			return false, nil // deny -> 403, but we only assert the gate inputs
-		}
-		h := s.generatedGroupHandler(gr)
-
-		// Drive the handler with a claims-bearing request at the concrete path.
-		path := strings.NewReplacer(":instance_slug", "m1", ":user", "u9", ":role", "support").Replace(gr.Path)
-		r := httptest.NewRequest(gr.Method, path, nil)
-		r = withMuxParams(r, gr.Path, map[string]string{"instance_slug": "m1", "user": "u9", "role": "support"})
-		r = r.WithContext(setClaims(r.Context(), Claims{UserID: "caller-1"}))
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-
-		require.Equalf(t, http.StatusForbidden, w.Code, "route %s %s should 403 when authorizer denies", gr.Method, gr.Path)
-		require.Equalf(t, gr.Perm, gotPerm, "route %s %s gated on wrong perm", gr.Method, gr.Path)
-		require.Equal(t, gr.Persona, gotPersona)
-		require.Equal(t, "m1", gotResource)
-	}
-}
-
 // TestGeneratedMembersRoute_Requires401WithoutClaims: no claims => 401, gate is
 // never consulted.
 func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
 	s := newTestService(t)
-	called := false
-	s.groupCanFn = func(_ *http.Request, _, _, _, _ string) (bool, error) { called = true; return true, nil }
 
 	gr := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/members", Perm: "merchant:members:manage"}
 	h := s.generatedGroupHandler(gr)
@@ -75,7 +41,6 @@ func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
 	h.ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.False(t, called, "authorizer must not be consulted without claims")
 }
 
 // withMuxParams rebuilds the request through a one-route ServeMux so r.PathValue
@@ -98,8 +63,9 @@ func withMuxParams(r *http.Request, colonPath string, _ map[string]string) *http
 // every per-persona management route maps to a real operation (no opStub / 501).
 func TestAllGeneratedRoutesWired(t *testing.T) {
 	sch, err := embedded.BuildSchema(embedded.PersonaDef{
-		Name: "org", AllowedParents: []string{embedded.RootPersona}, AllowCustomRoles: true,
-		Routes: embedded.ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
+		Name:         "org",
+		Parent:       embedded.RootPersona,
+		Capabilities: embedded.PersonaCapabilities{CustomRoles: true, APIKeys: true, RemoteApplications: true},
 	})
 	require.NoError(t, err)
 	routes := sch.GeneratedRoutes()

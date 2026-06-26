@@ -32,6 +32,9 @@ type totpEnrollmentData struct {
 
 // StartTOTPEnrollment creates a short-lived pending authenticator-app secret.
 func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secret, otpauthURI string, err error) {
+	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
+		return "", "", Err2FAMethodUnavailable
+	}
 	if _, err := aes.NewCipher(s.opts.TOTPSecretKey); err != nil {
 		return "", "", fmt.Errorf("totp secret encryption key not configured")
 	}
@@ -64,6 +67,9 @@ func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string) ([]str
 }
 
 func (s *Service) EnableTOTP2FADefault(ctx context.Context, userID, code string, makeDefault bool) ([]string, error) {
+	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
+		return nil, Err2FAMethodUnavailable
+	}
 	var pending totpEnrollmentData
 	ok, err := s.ephemGetJSON(ctx, keyTOTPEnrollment+userID, &pending)
 	if err != nil || !ok || strings.TrimSpace(pending.Secret) == "" {
@@ -147,6 +153,12 @@ func totpCode(secret string, step int64) (string, error) {
 	return fmt.Sprintf("%06d", bin%1000000), nil
 }
 
+// totpKeyVersion is the 1-byte key-id/version prefix stamped on every encrypted
+// TOTP secret (#148, lazy rotation). v1 builds no keyring; the prefix reserves the
+// calibration knob so a future keyring/rotation is purely additive — old secrets
+// stay decryptable by their prefix — with zero rotation machinery now.
+const totpKeyVersion byte = 1
+
 func (s *Service) encryptTOTPSecret(secret string) ([]byte, error) {
 	block, err := aes.NewCipher(s.opts.TOTPSecretKey)
 	if err != nil {
@@ -160,7 +172,10 @@ func (s *Service) encryptTOTPSecret(secret string) ([]byte, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	return gcm.Seal(nonce, nonce, []byte(secret), nil), nil
+	// Layout: [version byte] || nonce || GCM(nonce, secret). The version byte is
+	// authenticated as additional data so it cannot be stripped/swapped silently.
+	out := []byte{totpKeyVersion}
+	return gcm.Seal(append(out, nonce...), nonce, []byte(secret), out), nil
 }
 
 func (s *Service) decryptTOTPSecret(data []byte) (string, error) {
@@ -172,11 +187,18 @@ func (s *Service) decryptTOTPSecret(data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Strip and verify the version prefix; an unknown version means a future
+	// keyring stored it and this build cannot decrypt it.
+	if len(data) < 1 || data[0] != totpKeyVersion {
+		return "", jwt.ErrTokenUnverifiable
+	}
+	aad := data[:1]
+	data = data[1:]
 	if len(data) < gcm.NonceSize() {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	nonce, ciphertext := data[:gcm.NonceSize()], data[gcm.NonceSize():]
-	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	plain, err := gcm.Open(nil, nonce, ciphertext, aad)
 	if err != nil {
 		return "", err
 	}

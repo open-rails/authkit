@@ -86,8 +86,8 @@ func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 	if cl.UserID != "" {
 		t.Fatalf("expected empty UserID (no sub), got %q", cl.UserID)
 	}
-	if !cl.IsDelegated() {
-		t.Fatal("expected IsDelegated")
+	if _, ok := cl.Delegated(); !ok {
+		t.Fatal("expected delegated principal")
 	}
 	dp, ok := cl.Delegated()
 	if !ok {
@@ -141,7 +141,7 @@ func TestNativeTokenIsNotDelegated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cl.IsDelegated() {
+	if _, ok := cl.Delegated(); ok {
 		t.Fatal("native token should not be delegated")
 	}
 	if cl.UserID != "local-1" {
@@ -325,111 +325,6 @@ func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	}
 }
 
-// TestRequireDelegatedOriginChecksVerifiedIssuer re-creates the
-// federation_test.go origin-binding coverage: RequireDelegatedOrigin enforces the
-// request Origin against the remote_application registered for the VALIDATED
-// issuer. Server-to-server (no Origin) passes; a foreign Origin is forbidden.
-func TestRequireDelegatedOriginChecksVerifiedIssuer(t *testing.T) {
-	signer, err := jwtkit.NewRSASigner(2048, "host-kid")
-	if err != nil {
-		t.Fatal(err)
-	}
-	jwks := jwksTestServer(t, signer)
-	defer jwks.Close()
-
-	iss := "https://auth.doujins.com"
-	aud := []string{"openrails"}
-	src := &memRemoteAppSource{apps: []authkit.RemoteApplication{{
-		Slug:           "doujins",
-		Issuer:         iss,
-		JWKSURI:        jwks.URL + "/.well-known/jwks.json",
-		AllowedOrigins: []string{"https://doujins.com"},
-		Enabled:        true,
-	}}}
-	ver := NewVerifier()
-	if err := ver.LoadRemoteApplications(context.Background(), src, aud); err != nil {
-		t.Fatalf("LoadRemoteApplications: %v", err)
-	}
-	// Wire the enricher source too, so Required's fail-closed issuer gate resolves.
-	ver.SetRemoteApplicationSource(src)
-
-	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
-		Issuer:           iss,
-		Audiences:        aud,
-		DelegatedSubject: "external-user-1",
-		TTL:              time.Minute,
-	})
-	if err != nil {
-		t.Fatalf("mint: %v", err)
-	}
-	handler := RequireDelegatedOrigin(ver, true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	for _, tc := range []struct {
-		name   string
-		origin string
-		want   int
-	}{
-		{name: "matching origin", origin: "https://doujins.com", want: http.StatusOK},
-		{name: "no origin server to server", origin: "", want: http.StatusOK},
-		{name: "other merchant origin", origin: "https://hentai0.com", want: http.StatusForbidden},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cl, verr := ver.Verify(tok)
-			if verr != nil {
-				t.Fatalf("verify: %v", verr)
-			}
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/memberships/cancel", nil)
-			if tc.origin != "" {
-				req.Header.Set("Origin", tc.origin)
-			}
-			// Seed claims as Required would, then run the origin gate.
-			req = req.WithContext(setClaims(req.Context(), cl))
-			handler.ServeHTTP(rec, req)
-			if rec.Code != tc.want {
-				t.Fatalf("status = %d, want %d body=%s", rec.Code, tc.want, rec.Body.String())
-			}
-		})
-	}
-}
-
-// TestRemoteApplicationCORSUsesEnabledOriginUnion: preflight is allowed
-// only for an enabled remote_application's origin; a disabled app's origin is
-// forbidden. (federation_test.go coverage, current credentials-aware handler.)
-func TestRemoteApplicationCORSUsesEnabledOriginUnion(t *testing.T) {
-	src := &memRemoteAppSource{apps: []authkit.RemoteApplication{
-		{Slug: "doujins", Issuer: "https://auth.doujins.com", AllowedOrigins: []string{"https://doujins.com"}, Enabled: true},
-		{Slug: "hentai0", Issuer: "https://auth.hentai0.com", AllowedOrigins: []string{"https://hentai0.com"}, Enabled: false},
-	}}
-	ver := NewVerifier()
-	ver.SetRemoteApplicationSource(src)
-	handler := RemoteApplicationCORS(ver)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	allowed := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodOptions, "/memberships/cancel", nil)
-	req.Header.Set("Origin", "https://doujins.com")
-	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
-	handler.ServeHTTP(allowed, req)
-	if allowed.Code != http.StatusNoContent {
-		t.Fatalf("allowed preflight status = %d body=%s", allowed.Code, allowed.Body.String())
-	}
-	if got := allowed.Header().Get("Access-Control-Allow-Origin"); got != "https://doujins.com" {
-		t.Fatalf("Access-Control-Allow-Origin = %q", got)
-	}
-
-	disabled := httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodOptions, "/memberships/cancel", nil)
-	req.Header.Set("Origin", "https://hentai0.com")
-	handler.ServeHTTP(disabled, req)
-	if disabled.Code != http.StatusForbidden {
-		t.Fatalf("disabled origin preflight status = %d body=%s", disabled.Code, disabled.Body.String())
-	}
-}
-
 // ceilingEnricher is a minimal Enricher that resolves a single remote
 // application by issuer and returns a fixed stored-authority permission set, so
 // the delegated permission-ceiling (#76 target model) can be exercised without a
@@ -455,7 +350,7 @@ func (e *ceilingEnricher) ResolveRemoteApplicationAuthority(_ context.Context, a
 	return []string{}, nil
 }
 
-func (e *ceilingEnricher) ResolveAPIKeyWithResources(context.Context, string, string) (authkit.ResolvedAPIKey, error) {
+func (e *ceilingEnricher) ResolveAPIKeyDetailed(context.Context, string, string) (authkit.ResolvedAPIKey, error) {
 	return authkit.ResolvedAPIKey{}, errors.New("unused")
 }
 func (e *ceilingEnricher) ListRemoteApplications(context.Context, bool) ([]authkit.RemoteApplication, error) {

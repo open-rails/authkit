@@ -78,3 +78,39 @@ var builtIns = map[string]Provider{
 		},
 	},
 }
+
+// Google returns the built-in Google OIDC provider configured with the given
+// OAuth client credentials — the convenience form of an authprovider.Provider
+// for IdentityConfig.Providers (#143). Override fields on the result for custom
+// scopes/mapping.
+func Google(clientID, clientSecret string) Provider {
+	return builtInWithCredentials("google", clientID, clientSecret)
+}
+
+// Apple returns the built-in Apple OIDC provider configured with the given OAuth
+// client credentials. For the Apple "client secret JWT" strategy, set
+// ClientSecret.Strategy / ClientSecret.AppleJWT on the returned provider.
+func Apple(clientID, clientSecret string) Provider {
+	return builtInWithCredentials("apple", clientID, clientSecret)
+}
+
+// Discord returns the built-in Discord OAuth2 provider configured with the given
+// OAuth client credentials.
+func Discord(clientID, clientSecret string) Provider {
+	return builtInWithCredentials("discord", clientID, clientSecret)
+}
+
+// GitHub returns the built-in GitHub OAuth2 provider configured with the given
+// OAuth client credentials.
+func GitHub(clientID, clientSecret string) Provider {
+	return builtInWithCredentials("github", clientID, clientSecret)
+}
+
+// builtInWithCredentials clones a built-in template and sets static client
+// credentials. The named built-in always exists (compile-time-known keys).
+func builtInWithCredentials(name, clientID, clientSecret string) Provider {
+	p, _ := BuiltIn(name)
+	p.ClientID = clientID
+	p.ClientSecret = ClientSecret{Value: clientSecret}
+	return p
+}

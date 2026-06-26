@@ -242,7 +242,6 @@ func devserverCoreConfig(cfg *config, keySource jwtkit.KeySource) embedded.Confi
 		Environment:  cfg.Environment,
 		Registration: embedded.RegistrationConfig{Verification: cfg.RegistrationVerification},
 		APIKeys:      embedded.APIKeysConfig{Prefix: cfg.APIKeyPrefix},
-		RBAC:         embedded.RBACConfig{Permissions: toPermissionDefs(cfg.PermissionCatalog)},
 	}
 }
 
@@ -341,19 +340,6 @@ func (p staticDevEntitlements) ListEntitlements(context.Context, string) ([]stri
 	return append([]string(nil), p.names...), nil
 }
 
-func toPermissionDefs(names []string) []embedded.PermissionDef {
-	if len(names) == 0 {
-		return nil
-	}
-	defs := make([]embedded.PermissionDef, 0, len(names))
-	for _, n := range names {
-		if n = strings.TrimSpace(n); n != "" {
-			defs = append(defs, embedded.PermissionDef{Name: n})
-		}
-	}
-	return defs
-}
-
 // devWhoamiHandler reflects the authenticated principal as resolved by the real
 // verifier (JWT user OR branded API key), behind the standard auth middleware.
 // Dev-only; used by the RBAC E2E suite to assert API-key resolution.
@@ -366,7 +352,7 @@ func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"permissions": cl.Permissions,
-			"is_api_key":  cl.IsAPIKey(),
+			"is_api_key":  cl.PrincipalKind() == authkit.PrincipalKindAPIKey,
 			"user_id":     cl.UserID,
 		})
 	})

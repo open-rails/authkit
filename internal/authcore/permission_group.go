@@ -128,26 +128,16 @@ type RoleDef struct {
 	RequiresMFA bool
 }
 
-// ManagementProfile chooses which group-management operations authkit exposes as
-// AUTO-GENERATED routes for a persona's groups (the `api-routes.*` block). Each flag
-// gates ROUTE GENERATION, not the capability: the host can always do the op via
-// core even with the route off (false ⇒ no public route / 404, not "impossible").
-type ManagementProfile struct {
-	MemberAssignment      bool // api-routes.member-assignment
-	CustomRoleCreation    bool // api-routes.custom-role-creation (requires AllowCustomRoles)
-	APIKeyMinting         bool // api-routes.api-key-minting
-	RemoteAppRegistration bool // api-routes.remote-app-registration
-	InviteLinks           bool // api-routes.invite-links
-}
+type PersonaCapabilities = authkit.PersonaCapabilities
 
 // PersonaDef declares one permission-group persona, which is also the first
 // permission segment. `Name == RootPersona` is the parentless singleton.
 type PersonaDef struct {
-	Name             string
-	Roles            []RoleDef // app-declared; owner (=<persona>:*) is injected if absent
-	AllowedParents   []string  // declared personas; empty ⇒ root (parentless). Non-root needs >=1.
-	AllowCustomRoles bool      // may a group owner define ADDITIONAL custom roles?
-	Routes           ManagementProfile
+	Name         string
+	Roles        []RoleDef // app-declared; owner (=<persona>:*) is injected if absent
+	Parent       string    // declared persona; empty only for root. Non-root must name exactly one parent.
+	Capabilities PersonaCapabilities
+	Catalog      []string
 }
 
 // GroupSchema is the validated, immutable set of declared group personas — the
@@ -162,8 +152,8 @@ type GroupSchema struct {
 // an error describing the first problem. It enforces: a single root persona
 // (named RootPersona, parentless); every persona has an `owner` role ==
 // `<persona>:*`; every role grant is a valid pattern in the persona's own
-// namespace; allowed-parent edges reference declared personas and form an acyclic tree rooted
-// at root; and CustomRoleCreation routes imply AllowCustomRoles.
+// namespace; and parent edges reference declared personas and form an acyclic tree rooted
+// at root.
 func NewGroupSchema(types ...PersonaDef) (*GroupSchema, error) {
 	s := &GroupSchema{types: make(map[string]PersonaDef, len(types))}
 	for _, t := range types {
@@ -200,8 +190,17 @@ func NewGroupSchema(types ...PersonaDef) (*GroupSchema, error) {
 // normalizePersona validates a declared persona and injects the seeded owner
 // role, returning the effective definition stored in the schema.
 func normalizePersona(t PersonaDef) (PersonaDef, error) {
-	if t.Routes.CustomRoleCreation && !t.AllowCustomRoles {
-		return t, fmt.Errorf("group persona %q: api-routes.custom-role-creation requires AllowCustomRoles", t.Name)
+	catalog := map[string]struct{}{}
+	if t.Capabilities.CustomRoles {
+		for _, g := range t.Catalog {
+			if err := ValidateGrantPattern(g); err != nil {
+				return t, fmt.Errorf("group persona %q catalog: %w", t.Name, err)
+			}
+			if PermissionPersona(g) != t.Name {
+				return t, fmt.Errorf("group persona %q catalog: grant %q is cross-persona", t.Name, g)
+			}
+			catalog[g] = struct{}{}
+		}
 	}
 
 	byName := make(map[string]RoleDef, len(t.Roles)+1)
@@ -226,6 +225,11 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 			}
 			if PermissionPersona(g) != t.Name {
 				return t, fmt.Errorf("group persona %q role %q: grant %q is cross-persona — a %q role may hold only %q: perms", t.Name, r.Name, g, t.Name, t.Name)
+			}
+			if len(catalog) > 0 {
+				if _, ok := catalog[g]; !ok {
+					return t, fmt.Errorf("group persona %q role %q: grant %q is outside catalog", t.Name, r.Name, g)
+				}
 			}
 		}
 		add(r)
@@ -253,7 +257,7 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 func (s *GroupSchema) validateRoot() (string, error) {
 	var roots []string
 	for name, t := range s.types {
-		if len(t.AllowedParents) == 0 {
+		if strings.TrimSpace(t.Parent) == "" {
 			roots = append(roots, name)
 		}
 	}
@@ -271,25 +275,25 @@ func (s *GroupSchema) validateRoot() (string, error) {
 	}
 }
 
-// validateContainment checks every allowed-parent edge references a declared
+// validateContainment checks every parent edge references a declared
 // persona and that the child→parent graph is acyclic (so every persona reaches root).
 func (s *GroupSchema) validateContainment() error {
 	for name, t := range s.types {
 		if name == RootPersona {
 			continue
 		}
-		seen := map[string]bool{}
-		for _, p := range t.AllowedParents {
-			if _, ok := s.types[p]; !ok {
-				return fmt.Errorf("group persona %q: allowed parent %q is not a declared persona", name, p)
-			}
-			if seen[p] {
-				return fmt.Errorf("group persona %q: allowed parent %q listed twice", name, p)
-			}
-			seen[p] = true
+		parent := strings.TrimSpace(t.Parent)
+		if parent == "" {
+			return fmt.Errorf("group persona %q: parent is required", name)
+		}
+		if parent == name {
+			return fmt.Errorf("group persona %q: parent may not be itself", name)
+		}
+		if _, ok := s.types[parent]; !ok {
+			return fmt.Errorf("group persona %q: parent %q is not a declared persona", name, parent)
 		}
 	}
-	// Cycle detection over child → allowedParents edges (root is the only sink).
+	// Cycle detection over child → parent edges (root is the only sink).
 	const (
 		white = 0
 		grey  = 1
@@ -299,7 +303,7 @@ func (s *GroupSchema) validateContainment() error {
 	var visit func(string, []string) error
 	visit = func(n string, stack []string) error {
 		color[n] = grey
-		for _, p := range s.types[n].AllowedParents {
+		if p := strings.TrimSpace(s.types[n].Parent); p != "" {
 			switch color[p] {
 			case grey:
 				return fmt.Errorf("containment cycle: %s -> %s", strings.Join(append(stack, n, p), " -> "), p)
@@ -349,6 +353,41 @@ func (s *GroupSchema) Roles(persona string) ([]RoleDef, bool) {
 	return out, true
 }
 
+func (s *GroupSchema) GrantableUniverse(persona string) ([]string, bool) {
+	t, ok := s.types[persona]
+	if !ok {
+		return nil, false
+	}
+	seen := map[string]struct{}{}
+	add := func(g string) {
+		if g != "" && g != OwnerGrant(persona) {
+			seen[g] = struct{}{}
+		}
+	}
+	if t.Capabilities.CustomRoles && len(t.Catalog) > 0 {
+		for _, g := range t.Catalog {
+			add(g)
+		}
+	} else {
+		for _, r := range t.Roles {
+			for _, g := range r.Permissions {
+				add(g)
+			}
+		}
+	}
+	if persona == RootPersona {
+		for _, g := range IntrinsicRootPermissions() {
+			add(g)
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for g := range seen {
+		out = append(out, g)
+	}
+	sort.Strings(out)
+	return out, true
+}
+
 // Role returns a single role from a persona's catalog.
 func (s *GroupSchema) Role(persona, roleName string) (RoleDef, bool) {
 	t, ok := s.types[persona]
@@ -365,7 +404,7 @@ func (s *GroupSchema) Role(persona, roleName string) (RoleDef, bool) {
 
 // ValidateParent enforces the containment schema at INSTANCE-create time: a
 // proposed (childPersona, parentPersona) edge. root is parentless; every non-root
-// group needs a parent whose persona is in the child persona's AllowedParents — so
+// group needs the parent persona declared by the child persona's Parent — so
 // e.g. `root -> repo` is structurally impossible, not merely discouraged.
 func (s *GroupSchema) ValidateParent(childPersona, parentPersona string) error {
 	ct, ok := s.types[childPersona]
@@ -379,15 +418,13 @@ func (s *GroupSchema) ValidateParent(childPersona, parentPersona string) error {
 		return nil
 	}
 	if parentPersona == "" {
-		return fmt.Errorf("a %q group requires a parent persona of %v", childPersona, ct.AllowedParents)
+		return fmt.Errorf("a %q group requires parent persona %q", childPersona, ct.Parent)
 	}
 	if _, ok := s.types[parentPersona]; !ok {
 		return fmt.Errorf("unknown parent group persona %q", parentPersona)
 	}
-	for _, ap := range ct.AllowedParents {
-		if ap == parentPersona {
-			return nil
-		}
+	if ct.Parent == parentPersona {
+		return nil
 	}
-	return fmt.Errorf("a %q group must have a parent persona of %v, got %q", childPersona, ct.AllowedParents, parentPersona)
+	return fmt.Errorf("a %q group must have parent persona %q, got %q", childPersona, ct.Parent, parentPersona)
 }

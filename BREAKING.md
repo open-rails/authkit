@@ -89,7 +89,13 @@ The old org-shaped fields are gone from AuthKit-owned credentials.
 
 - `RBACConfig.DefaultRoles` was removed.
 - `RBACConfig.OwnerOwnsAppResources` was removed.
-- `RBACConfig.Groups []GroupTypeDef` -> `RBACConfig.Groups []PersonaDef`
+- `Config.RBAC` is now `[]PersonaDef`; the `RBACConfig` wrapper and separate
+  permission catalog were removed.
+- `PersonaDef.AllowedParents []string` -> `PersonaDef.Parent string`. Each
+  non-root persona has exactly one parent; root has no parent.
+- `PersonaDef` now uses `Capabilities authkit.PersonaCapabilities` for optional
+  API-key, remote-application, and custom-role management routes. Role grants
+  remain the permission source and use `persona:resource:action` strings.
 - `FrontendConfig` added:
   - `VerifyPath`
   - `PasswordResetPath`
@@ -297,9 +303,11 @@ Host apps using passkeys must configure `Config.Passkeys`.
 
 ### Route groups changed
 
-New route group:
+New route groups:
 
-- `RoutePasskeys`
+- `RouteAuth`
+- `RouteRegistration`
+- `RouteAccount`
 
 Permission-group routes are config-derived and exposed through:
 
@@ -309,7 +317,7 @@ Permission-group routes are config-derived and exposed through:
 ### Permission-group HTTP routes use persona/instance slugs
 
 Generated group-management routes are derived from configured `PersonaDef`
-management profiles. Disabled capabilities emit no route.
+capabilities. Disabled capabilities emit no route.
 
 Route shape:
 

@@ -166,19 +166,14 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
 	require.NoError(t, err)
 
-	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"email"}`, setupToken)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	phone := "+15555550123"
-	_, err = srv.svc.Enable2FA(ctx, user.ID, "sms", &phone)
-	require.NoError(t, err)
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
+	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var enrollment struct {
 		Secret string `json:"secret"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &enrollment))
 	code := testTOTPCode(t, enrollment.Secret, time.Now().Unix()/30)
-	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp","code":"`+code+`"}`, setupToken)
+	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp","code":"`+code+`","default":true}`, setupToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, setupToken)
@@ -189,7 +184,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &me))
 	require.Contains(t, me.StepUpMethods, "2fa")
-	requireStepUp2FAOptions(t, me.StepUp2FA, []string{"email", "sms", "totp"}, "email")
+	requireStepUp2FAOptions(t, me.StepUp2FA, []string{"totp"}, "totp")
 
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour', auth_methods = ARRAY['pwd','otp','mfa']::text[] WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
@@ -210,7 +205,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &stepUpRequired))
 	require.Equal(t, "step_up_required", stepUpRequired.Error.Code)
 	require.Contains(t, stepUpRequired.Error.Metadata.StepUpMethods, "2fa")
-	requireStepUp2FAOptions(t, stepUpRequired.Error.Metadata.StepUp2FA, []string{"email", "sms", "totp"}, "email")
+	requireStepUp2FAOptions(t, stepUpRequired.Error.Metadata.StepUp2FA, []string{"totp"}, "totp")
 
 	w = serveAuthJSON(srv, http.MethodPost, "/step-up/2fa", `{"method":"totp"}`, staleToken)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

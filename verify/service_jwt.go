@@ -2,42 +2,13 @@ package verify
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
 	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	authkit "github.com/open-rails/authkit"
 )
-
-// ServiceJWTPrincipal is the verified machine principal in a service JWT. The
-// receiving host still owns authorization: intersect Permissions with its own
-// server-side grants before allowing an action.
-type ServiceJWTPrincipal struct {
-	Issuer                string
-	Subject               string
-	RemoteApplicationSlug string
-	Audiences             []string
-	Permissions           []string
-	Resources             []authkit.APIKeyResource
-	JTI                   string
-	ExpiresAt             time.Time
-}
-
-type serviceJWTPrincipalCtxKey struct{}
-
-// ServiceJWTPrincipalFromContext returns the verified service-JWT principal
-// attached by RequiredServiceJWT.
-func ServiceJWTPrincipalFromContext(ctx context.Context) (ServiceJWTPrincipal, bool) {
-	v, ok := ctx.Value(serviceJWTPrincipalCtxKey{}).(ServiceJWTPrincipal)
-	return v, ok
-}
-
-func setServiceJWTPrincipal(ctx context.Context, p ServiceJWTPrincipal) context.Context {
-	return context.WithValue(ctx, serviceJWTPrincipalCtxKey{}, p)
-}
 
 // ServiceJWTReplayChecker lets hosts reject already-seen jti values.
 type ServiceJWTReplayChecker func(ctx context.Context, claims authkit.ServiceJWTClaims) error
@@ -61,32 +32,11 @@ func WithServiceJWTReplayChecker(fn ServiceJWTReplayChecker) ServiceJWTVerifyOpt
 	return func(c *serviceJWTVerifyConfig) { c.replay = fn }
 }
 
-// RequiredServiceJWT verifies a Bearer service JWT and attaches its principal.
-// It is intentionally separate from Required so service JWTs do not become valid
-// on ordinary user/delegated-token routes by accident.
-func RequiredServiceJWT(v *Verifier, opts ...ServiceJWTVerifyOption) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tokenStr := bearerToken(r.Header.Get("Authorization"))
-			if tokenStr == "" {
-				unauthorized(w, "missing_token")
-				return
-			}
-			_, principal, err := v.VerifyServiceJWT(r.Context(), tokenStr, opts...)
-			if err != nil {
-				unauthorized(w, err.Error())
-				return
-			}
-			next.ServeHTTP(w, r.WithContext(setServiceJWTPrincipal(r.Context(), principal)))
-		})
-	}
-}
-
 // VerifyServiceJWT verifies a first-party OIDC service JWT through the
 // verifier's registered issuer/JWKS store and returns the requested
-// permissions/resources. AuthKit does not grant those permissions; the host must
+// permissions. AuthKit does not grant those permissions; the host must
 // intersect them with server-side grants for the issuer/subject/resource.
-func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts ...ServiceJWTVerifyOption) (authkit.ServiceJWTClaims, ServiceJWTPrincipal, error) {
+func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts ...ServiceJWTVerifyOption) (authkit.ServiceJWTClaims, error) {
 	cfg := serviceJWTVerifyConfig{maxLifetime: authkit.DefaultServiceJWTLifetime}
 	for _, opt := range opts {
 		if opt != nil {
@@ -99,81 +49,72 @@ func (v *Verifier) VerifyServiceJWT(ctx context.Context, tokenStr string, opts .
 
 	mc, err := v.VerifyClaims(tokenStr)
 	if err != nil {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+		return authkit.ServiceJWTClaims{}, err
 	}
-	claims, principal, err := v.serviceJWTClaimsFromMap(mc, cfg.maxLifetime)
+	claims, err := v.serviceJWTClaimsFromMap(mc, cfg.maxLifetime)
 	if err != nil {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+		return authkit.ServiceJWTClaims{}, err
 	}
 	if cfg.replay != nil {
 		if err := cfg.replay(ctx, claims); err != nil {
-			return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+			return authkit.ServiceJWTClaims{}, err
 		}
 	}
-	return claims, principal, nil
+	return claims, nil
 }
 
-func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Duration) (authkit.ServiceJWTClaims, ServiceJWTPrincipal, error) {
+func (v *Verifier) serviceJWTClaimsFromMap(mc jwt.MapClaims, maxLifetime time.Duration) (authkit.ServiceJWTClaims, error) {
 	issuer := strings.TrimSpace(strClaim(mc, "iss"))
 	subject := strings.TrimSpace(strClaim(mc, "sub"))
 	tokenUse := strings.TrimSpace(strClaim(mc, "token_use"))
 	jti := strings.TrimSpace(strClaim(mc, "jti"))
 	if issuer == "" || subject == "" || tokenUse != authkit.ServiceJWTTokenUse || jti == "" {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, authkit.ErrInvalidServiceJWT
+		return authkit.ServiceJWTClaims{}, authkit.ErrInvalidServiceJWT
 	}
 	if strings.TrimSpace(strClaim(mc, "delegated_sub")) != "" {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, authkit.ErrInvalidServiceJWT
+		return authkit.ServiceJWTClaims{}, authkit.ErrInvalidServiceJWT
 	}
 	iatUnix, ok := toUnix(mc["iat"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_iat")
+		return authkit.ServiceJWTClaims{}, errors.New("missing_iat")
 	}
 	nbfUnix, ok := toUnix(mc["nbf"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_nbf")
+		return authkit.ServiceJWTClaims{}, errors.New("missing_nbf")
 	}
 	expUnix, ok := toUnix(mc["exp"])
 	if !ok {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_exp")
+		return authkit.ServiceJWTClaims{}, errors.New("missing_exp")
 	}
 	iat := time.Unix(iatUnix, 0).UTC()
 	nbf := time.Unix(nbfUnix, 0).UTC()
 	exp := time.Unix(expUnix, 0).UTC()
 	if exp.Sub(iat) > maxLifetime {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("service_jwt_lifetime_exceeded")
+		return authkit.ServiceJWTClaims{}, errors.New("service_jwt_lifetime_exceeded")
 	}
 	audiences := audSlice(mc["aud"])
 	if len(audiences) == 0 {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("missing_audience")
+		return authkit.ServiceJWTClaims{}, errors.New("missing_audience")
 	}
 	permissions, err := stringArrayClaim(mc, "permissions")
 	if err != nil {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
+		return authkit.ServiceJWTClaims{}, err
 	}
 	if len(permissions) == 0 {
 		permissions = scopeSlice(mc["scope"])
 	}
-	resources, err := serviceJWTResources(mc["resources"])
-	if err != nil {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, err
-	}
 
 	match := v.matchIssuer(issuer)
 	if match == nil {
-		return authkit.ServiceJWTClaims{}, ServiceJWTPrincipal{}, errors.New("bad_issuer")
+		return authkit.ServiceJWTClaims{}, errors.New("bad_issuer")
 	}
 	claims := authkit.ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
 		IssuedAt: iat, NotBefore: nbf, ExpiresAt: exp, JTI: jti,
-		TokenUse: tokenUse, Permissions: permissions, Resources: resources,
+		TokenUse: tokenUse, Permissions: permissions,
 		Scope: scopeSlice(mc["scope"]),
 	}
-	principal := ServiceJWTPrincipal{
-		Issuer: issuer, Subject: subject, RemoteApplicationSlug: match.remoteApplicationSlug,
-		Audiences: audiences, Permissions: permissions, Resources: resources,
-		JTI: jti, ExpiresAt: exp,
-	}
-	return claims, principal, nil
+	return claims, nil
 }
 
 func audSlice(v any) []string {
@@ -256,24 +197,4 @@ func stringArrayClaim(mc jwt.MapClaims, key string) ([]string, error) {
 	default:
 		return nil, errors.New("malformed_permissions")
 	}
-}
-
-func serviceJWTResources(v any) ([]authkit.APIKeyResource, error) {
-	if v == nil {
-		return nil, nil
-	}
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	var resources []authkit.APIKeyResource
-	if err := json.Unmarshal(raw, &resources); err != nil {
-		return nil, err
-	}
-	for _, r := range resources {
-		if strings.TrimSpace(r.Persona) == "" || strings.TrimSpace(r.ID) == "" {
-			return nil, errors.New("invalid_resource")
-		}
-	}
-	return resources, nil
 }

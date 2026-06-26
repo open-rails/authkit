@@ -8,30 +8,26 @@ import (
 	authlang "github.com/open-rails/authkit/lang"
 )
 
+// LanguageConfig declares the supported UI languages and default. The query
+// parameter and cookie name are NOT configurable — both are hardcoded to
+// langSelector ("lang") (#143). No language config means English-only
+// (Supported ["en"], default "en").
 type LanguageConfig struct {
-	Supported  []string
-	Default    string
-	QueryParam string
-	CookieName string
+	Supported []string
+	Default   string
 }
+
+// langSelector is the fixed query-parameter and cookie name AuthKit reads for
+// request language. Not host-configurable (#143).
+const langSelector = "lang"
 
 func (c *LanguageConfig) defaulted() LanguageConfig {
 	if c == nil {
-		return LanguageConfig{
-			Default:    "en",
-			QueryParam: "lang",
-			CookieName: "lang",
-		}
+		return LanguageConfig{Supported: []string{"en"}, Default: "en"}
 	}
 	out := *c
 	if strings.TrimSpace(out.Default) == "" {
 		out.Default = "en"
-	}
-	if strings.TrimSpace(out.QueryParam) == "" {
-		out.QueryParam = "lang"
-	}
-	if strings.TrimSpace(out.CookieName) == "" {
-		out.CookieName = "lang"
 	}
 	return out
 }
@@ -121,7 +117,7 @@ func resolveRequestLanguage(r *http.Request, cfg LanguageConfig) string {
 	supported := supportedSet(cfg.Supported)
 
 	if r != nil {
-		if qp := normalizeLangCode(r.URL.Query().Get(cfg.QueryParam)); qp != "" {
+		if qp := normalizeLangCode(r.URL.Query().Get(langSelector)); qp != "" {
 			if supported == nil {
 				return qp
 			}
@@ -134,8 +130,8 @@ func resolveRequestLanguage(r *http.Request, cfg LanguageConfig) string {
 			return lp
 		}
 
-		if cfg.CookieName != "" {
-			if c, err := r.Cookie(cfg.CookieName); err == nil && c != nil {
+		{
+			if c, err := r.Cookie(langSelector); err == nil && c != nil {
 				if ck := normalizeLangCode(c.Value); ck != "" {
 					if supported == nil {
 						return ck

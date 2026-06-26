@@ -7,13 +7,12 @@ func TestGeneratedRoutes_SurfaceMirrorsProfile(t *testing.T) {
 	// repo: members only.
 	s, err := BuildSchema(
 		PersonaDef{
-			Name: "merchant", AllowedParents: []string{RootPersona},
-			Routes: ManagementProfile{MemberAssignment: true, APIKeyMinting: true},
-			Roles:  []RoleDef{{Name: "support", Permissions: []string{"merchant:payments:refund"}}},
+			Name: "merchant", Parent: RootPersona,
+			Capabilities: PersonaCapabilities{APIKeys: true},
+			Roles:        []RoleDef{{Name: "support", Permissions: []string{"merchant:payments:refund"}}},
 		},
 		PersonaDef{
-			Name: "repo", AllowedParents: []string{RootPersona},
-			Routes: ManagementProfile{MemberAssignment: true},
+			Name: "repo", Parent: RootPersona,
 		},
 	)
 	if err != nil {
@@ -43,12 +42,12 @@ func TestGeneratedRoutes_SurfaceMirrorsProfile(t *testing.T) {
 	if !has("merchant", "GET", "/merchant/:instance_slug/roles") {
 		t.Errorf("listing the role catalog should always be available")
 	}
-	// merchant: remote-apps + invites OFF -> absent.
+	// merchant: remote-apps OFF; invite links are standard for non-root personas.
 	if has("merchant", "POST", "/merchant/:instance_slug/remote-applications") {
 		t.Errorf("remote-apps OFF must not be generated")
 	}
-	if has("merchant", "POST", "/merchant/:instance_slug/invites/links") {
-		t.Errorf("invites OFF must not be generated")
+	if !has("merchant", "POST", "/merchant/:instance_slug/invites/links") {
+		t.Errorf("non-root invite links should be generated")
 	}
 
 	// repo: members present, api-keys absent.
@@ -60,10 +59,23 @@ func TestGeneratedRoutes_SurfaceMirrorsProfile(t *testing.T) {
 	}
 }
 
+func TestGeneratedRoutes_RootWithoutCapabilitiesEmitsNoPublicRoutes(t *testing.T) {
+	s, err := BuildSchema(PersonaDef{
+		Name: RootPersona,
+	})
+	if err != nil {
+		t.Fatalf("BuildSchema: %v", err)
+	}
+	for _, r := range s.GeneratedRoutes() {
+		t.Fatalf("root without capabilities emitted route: %+v", r)
+	}
+}
+
 func TestGeneratedRoutes_GatesAreCorrect(t *testing.T) {
 	s, _ := BuildSchema(PersonaDef{
-		Name: "org", AllowedParents: []string{RootPersona}, AllowCustomRoles: true,
-		Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
+		Name:         "org",
+		Parent:       RootPersona,
+		Capabilities: PersonaCapabilities{CustomRoles: true, APIKeys: true, RemoteApplications: true},
 	})
 	want := map[string]string{ // "METHOD path" -> gate perm
 		"POST /org/:instance_slug/members":                    "org:members:manage",

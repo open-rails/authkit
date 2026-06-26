@@ -9,9 +9,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	authkit "github.com/open-rails/authkit"
+	"log/slog"
 	"strings"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -39,7 +40,17 @@ func (s *Service) groupStore() *PermissionGroupStore {
 // group_persona_parents so the DB trigger can enforce tree shape. Idempotent; call
 // once at bootstrap.
 func (s *Service) SeedPermissionGroupContainment(ctx context.Context) error {
-	return s.groupStore().SeedContainment(ctx, s.groupSchemaOrDefault())
+	if err := s.groupStore().SeedContainment(ctx, s.groupSchemaOrDefault()); err != nil {
+		return err
+	}
+	if report, err := s.RBACDriftReport(ctx); err == nil && report.Total() > 0 {
+		slog.Default().Warn("authkit: rbac drift detected",
+			"group_user_roles", report.GroupUserRoles,
+			"group_custom_roles", report.CustomRoles,
+			"api_keys", report.APIKeys,
+		)
+	}
+	return nil
 }
 
 // EnsureRootGroup creates the singleton root group if absent (idempotent) and
@@ -79,8 +90,8 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 		return "", err
 	}
 	parentPersona := req.ParentPersona
-	if req.Persona != RootPersona && parentPersona == "" && len(td.AllowedParents) == 1 {
-		parentPersona = td.AllowedParents[0] // unambiguous
+	if req.Persona != RootPersona && parentPersona == "" && td.Parent != "" {
+		parentPersona = td.Parent
 	}
 	if err := sch.ValidateParent(req.Persona, parentPersona); err != nil {
 		return "", err
@@ -163,7 +174,7 @@ func (s *Service) validRoleForPersona(sch *GroupSchema, persona, role string) bo
 		return true
 	}
 	td, ok := sch.Persona(persona)
-	return ok && td.AllowCustomRoles
+	return ok && td.Capabilities.CustomRoles
 }
 
 // AssignGroupRole grants a subject a role in the group addressed by (persona,
@@ -271,7 +282,7 @@ func (s *Service) DefineGroupCustomRole(ctx context.Context, persona, instanceSl
 	if !ok {
 		return fmt.Errorf("unknown group persona %q", persona)
 	}
-	if !td.AllowCustomRoles {
+	if !td.Capabilities.CustomRoles {
 		return fmt.Errorf("group persona %q does not allow custom roles", persona)
 	}
 	if !segmentRe.MatchString(role) {
@@ -286,6 +297,19 @@ func (s *Service) DefineGroupCustomRole(ctx context.Context, persona, instanceSl
 		}
 		if PermissionPersona(p) != persona {
 			return fmt.Errorf("custom role grant %q is cross-persona — a %q role may hold only %q: perms", p, persona, persona)
+		}
+	}
+	universe, ok := sch.GrantableUniverse(persona)
+	if !ok {
+		return fmt.Errorf("unknown group persona %q", persona)
+	}
+	allowed := make(map[string]struct{}, len(universe))
+	for _, p := range universe {
+		allowed[p] = struct{}{}
+	}
+	for _, p := range permissions {
+		if _, ok := allowed[p]; !ok {
+			return fmt.Errorf("custom role grant %q is outside catalog", p)
 		}
 	}
 	st := s.groupStore()

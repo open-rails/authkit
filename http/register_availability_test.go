@@ -49,7 +49,7 @@ func TestRegisterAvailability_InvalidPhoneDoesNotRequireDatabase(t *testing.T) {
 // requested field (username/email/phone) as unavailable with a stable reason —
 // no DB lookup happens.
 func TestRegisterAvailability_DisabledIncludesAllFields(t *testing.T) {
-	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -64,10 +64,9 @@ func TestRegisterAvailability_DisabledIncludesAllFields(t *testing.T) {
 	}`, w.Body.String())
 }
 
-// When native-user registration is disabled, the public /register POST is
-// short-circuited with registration_disabled before any body parsing or DB use.
+// When native-user registration is closed, the public /register POST is not mounted.
 func TestRegisterPost_DisabledShortCircuits(t *testing.T) {
-	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	h := s.APIHandler()
 
 	w := httptest.NewRecorder()
@@ -75,7 +74,7 @@ func TestRegisterPost_DisabledShortCircuits(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(w, r)
 
-	require.Contains(t, w.Body.String(), "registration_disabled")
+	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
 // With the default (open) registration mode, /register is NOT short-circuited:

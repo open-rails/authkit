@@ -20,7 +20,7 @@ func TestCreateEmailRegistrationUserAtomic(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	username := "reg-email-" + suffix
+	username := "regemail" + suffix
 	email := username + "@example.com"
 	passwordHash := "testhash-" + suffix
 
@@ -49,7 +49,7 @@ func TestCreatePhoneRegistrationUserAtomic(t *testing.T) {
 	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	username := "reg-phone-" + suffix
+	username := "regphone" + suffix
 	phone := "+15550001" + suffix[len(suffix)-4:]
 	passwordHash := "testhash-phone-" + suffix
 

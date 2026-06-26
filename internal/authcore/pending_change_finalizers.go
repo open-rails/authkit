@@ -30,6 +30,9 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 	if err != nil {
 		return "", err
 	}
+	if err := s.consumeAccountRegistrationInvite(ctx, email, uid); err != nil {
+		return "", err
+	}
 	if rec.PreferredLanguage != "" {
 		if err := s.SetPreferredLanguage(ctx, uid, rec.PreferredLanguage); err != nil {
 			return "", err

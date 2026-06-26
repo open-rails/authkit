@@ -31,10 +31,13 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Per-kind default link lifetimes (overridable per-link via ExpiresIn).
+// Per-kind default link lifetimes (overridable per-link via ExpiresIn). #147:
+// the identity-proven (email-bound) invite outlives the anyone-with-the-link
+// shareable one, never the reverse — a stranger holding a shareable link gets a
+// shorter window than a named recipient who proved their email.
 const (
-	defaultEmailInviteTTL     = 7 * 24 * time.Hour // "email a specific person"
-	defaultShareableInviteTTL = 24 * time.Hour     // "post the link in a channel"
+	defaultEmailInviteTTL     = 7 * 24 * time.Hour // email-bound: "email a specific person"
+	defaultShareableInviteTTL = 72 * time.Hour     // shareable: "post the link in a channel"
 )
 
 var (
@@ -91,10 +94,9 @@ type GroupInviteLinkCreated = authkit.GroupInviteLinkCreated
 
 // externalInvitesEnabled reports whether invite LINKS may be minted. They make
 // sense only when AuthKit permits invited self-registration: open (anyone may
-// sign up) or invite_only (sign up ONLY via an invite). Under
-// admin_only/admin_bootstrap_only/manifest_only/closed an invited stranger has no
-// way to obtain an account, so the capability is OFF (an admin assigns roles
-// directly via the members endpoint instead).
+// sign up) or invite_only (sign up ONLY via an invite). Under closed an invited
+// stranger has no way to obtain an account, so the capability is OFF (an admin
+// assigns roles directly via the members endpoint instead).
 func (o Options) externalInvitesEnabled() bool {
 	mode, err := normalizeRegistrationMode(o.NativeUserRegistrationMode)
 	if err != nil {

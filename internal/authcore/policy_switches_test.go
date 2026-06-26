@@ -44,13 +44,13 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 
 func TestPolicySwitches_Plumbed(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.Registration.NativeUserMode = RegistrationModeAdminBootstrapOnly
+	cfg.Registration.NativeUserMode = RegistrationModeClosed
 	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
 	opts := svc.Options()
-	if opts.NativeUserRegistrationMode != RegistrationModeAdminBootstrapOnly {
+	if opts.NativeUserRegistrationMode != RegistrationModeClosed {
 		t.Fatalf("NativeUserRegistrationMode not plumbed through NewFromConfig")
 	}
 	if opts.PublicNativeUserRegistrationEnabled() {
@@ -63,7 +63,7 @@ func TestPolicySwitches_Plumbed(t *testing.T) {
 // the switch is on, before touching storage.
 func TestPolicySwitches_CoreRegistrationGate(t *testing.T) {
 	cfg := baseTestConfig(t)
-	cfg.Registration.NativeUserMode = RegistrationModeAdminBootstrapOnly
+	cfg.Registration.NativeUserMode = RegistrationModeClosed
 	svc, err := NewFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
@@ -79,9 +79,6 @@ func TestPolicySwitches_CoreRegistrationGate(t *testing.T) {
 func TestPolicySwitches_RegistrationModes(t *testing.T) {
 	for _, mode := range []RegistrationMode{
 		RegistrationModeInviteOnly,
-		RegistrationModeAdminOnly,
-		RegistrationModeAdminBootstrapOnly,
-		RegistrationModeManifestOnly,
 		RegistrationModeClosed,
 	} {
 		t.Run(string(mode), func(t *testing.T) {
@@ -107,7 +104,7 @@ func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 		},
 		{
 			name:       "tensorhub-b2b-admin-created",
-			nativeMode: RegistrationModeAdminOnly,
+			nativeMode: RegistrationModeClosed,
 		},
 		{
 			name:       "openrails-relying-party-closed",

@@ -3,6 +3,7 @@ package authhttp
 import (
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"strings"
 	"time"
@@ -26,7 +27,15 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)
 	if err != nil {
 		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
-			send2FAEnrollmentRequiredError(w)
+			// #148 note b: hand back a usable enrollment token (like the login
+			// path) so a refresh-gated user can reach the enroll routes instead of
+			// a dead-end token-less 403.
+			var ee *authcore.TwoFAEnrollmentRequiredError
+			if errors.As(err, &ee) && ee.UserID != "" {
+				s.write2FAEnrollmentRequired(w, r, ee.UserID)
+				return
+			}
+			s.send2FAEnrollmentRequiredError(w)
 			return
 		}
 		if errors.Is(err, authkit.ErrUserBanned) {
@@ -44,10 +53,10 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func send2FAEnrollmentRequiredError(w http.ResponseWriter) {
+func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {
 	sendErrData(w, http.StatusForbidden, ErrTwoFAEnrollmentRequired, map[string]any{
 		"requires_2fa_enrollment": true,
-		"allowed_methods":         []string{"email", "sms", "totp"},
+		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
 	})
 }
 
@@ -60,7 +69,7 @@ func (s *Service) write2FAEnrollmentRequired(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{
 		"error":                   ErrTwoFAEnrollmentRequired,
 		"requires_2fa_enrollment": true,
-		"allowed_methods":         []string{"email", "sms", "totp"},
+		"allowed_methods":         s.svc.TwoFactorAllowedMethods(),
 		"access_token":            token,
 		"token_type":              "Bearer",
 		"expires_in":              int64(time.Until(exp).Seconds()),

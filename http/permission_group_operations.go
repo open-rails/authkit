@@ -8,17 +8,19 @@ package authhttp
 
 import (
 	"errors"
-	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 )
 
 // memberRequest is the body for POST /<persona>/<instance_slug>/members.
 type memberRequest struct {
 	UserID string `json:"user_id"`
+	Email  string `json:"email,omitempty"`
 	Role   string `json:"role"`
 }
 
@@ -26,7 +28,13 @@ type memberRequest struct {
 // store layer.
 func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
 	var body memberRequest
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.UserID) == "" {
+	if err := decodeJSON(r, &body); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	userID := strings.TrimSpace(body.UserID)
+	email := embedded.NormalizeEmail(body.Email)
+	if (userID == "") == (email == "") {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -35,13 +43,77 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
+	if email != "" {
+		if err := embedded.ValidateEmail(email); err != nil {
+			badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
+			return
+		}
+	}
 	actor, ok := ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
 		forbidden(w, ErrForbidden)
 		return
 	}
+	if email != "" {
+		u, err := s.svc.GetUserByEmail(r.Context(), email)
+		if errors.Is(err, pgx.ErrNoRows) {
+			u = nil
+		} else if err != nil {
+			s.logInternalError(r, "permission_group_member_add", "lookup_email", "database_error", err)
+			serverErr(w, ErrDatabaseError)
+			return
+		}
+		if u == nil {
+			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
+				return
+			}
+			groupInvite, err := s.svc.CreateGroupInviteLink(r.Context(), authkit.CreateGroupInviteLinkRequest{
+				Persona:      persona,
+				InstanceSlug: instanceSlug,
+				Role:         role,
+				Email:        email,
+				InvitedBy:    actor.UserID,
+			})
+			if err != nil {
+				s.writeGroupOpError(w, err)
+				return
+			}
+			resp := map[string]any{
+				"ok":            true,
+				"persona":       persona,
+				"instance_slug": instanceSlug,
+				"email":         email,
+				"role":          role,
+				"invited":       true,
+				"group_invite": map[string]any{
+					"id":   groupInvite.ID,
+					"code": groupInvite.Code,
+					"url":  groupInvite.URL,
+				},
+			}
+			if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly {
+				accountInvite, err := s.svc.CreateAccountRegistrationInviteForGroupInvite(r.Context(), authkit.CreateAccountRegistrationInviteRequest{
+					Email:     email,
+					InvitedBy: actor.UserID,
+				})
+				if err != nil {
+					s.writeGroupOpError(w, err)
+					return
+				}
+				resp["account_registration_invite"] = map[string]any{
+					"id":         accountInvite.ID,
+					"code":       accountInvite.Code,
+					"url":        accountInvite.URL,
+					"expires_at": accountInvite.ExpiresAt,
+				}
+			}
+			writeJSON(w, http.StatusAccepted, resp)
+			return
+		}
+		userID = u.ID
+	}
 	// #136: actor-aware assignment enforces capability + no-escalation in embedded.
-	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, persona, instanceSlug, strings.TrimSpace(body.UserID), embedded.SubjectKindUser, role); err != nil {
+	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, persona, instanceSlug, userID, embedded.SubjectKindUser, role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}
@@ -49,7 +121,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 		"ok":            true,
 		"persona":       persona,
 		"instance_slug": instanceSlug,
-		"user_id":       strings.TrimSpace(body.UserID),
+		"user_id":       userID,
 		"role":          role,
 	})
 }
@@ -208,13 +280,12 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 // --- api-keys ---------------------------------------------------------------
 
 // apiKeyMintRequest is the body for POST /<persona>/<instance_slug>/api-keys. Role
-// is required (the single group role the key holds); resources are optional,
-// opaque host-defined scopes.
+// is required (the single group role the key holds); the key's scope is the
+// addressed permission-group instance plus that role's permissions.
 type apiKeyMintRequest struct {
-	Name      string                   `json:"name"`
-	Role      string                   `json:"role"`
-	Resources []authkit.APIKeyResource `json:"resources"`
-	ExpiresAt *time.Time               `json:"expires_at"`
+	Name      string     `json:"name"`
+	Role      string     `json:"role"`
+	ExpiresAt *time.Time `json:"expires_at"`
 }
 
 // groupAPIKeyMint mints a new API key for the group, returning the plaintext
@@ -229,7 +300,6 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, person
 	key, secret, err := s.svc.MintAPIKeyWithOptions(r.Context(), persona, instanceSlug, authkit.APIKeyMintOptions{
 		Name:      strings.TrimSpace(body.Name),
 		Role:      strings.TrimSpace(body.Role),
-		Resources: body.Resources,
 		CreatedBy: createdBy,
 		ExpiresAt: body.ExpiresAt,
 	})
@@ -243,7 +313,6 @@ func (s *Service) groupAPIKeyMint(w http.ResponseWriter, r *http.Request, person
 		"name":        key.Name,
 		"role":        key.Role,
 		"permissions": key.Permissions,
-		"resources":   apiKeyResourcesJSON(key.Resources),
 		"secret":      secret, // shown ONCE
 	})
 }
@@ -264,7 +333,6 @@ func (s *Service) groupAPIKeyList(w http.ResponseWriter, r *http.Request, person
 			"name":        k.Name,
 			"role":        k.Role,
 			"permissions": k.Permissions,
-			"resources":   apiKeyResourcesJSON(k.Resources),
 			"created_at":  k.CreatedAt,
 		}
 		if k.LastUsedAt != nil {
@@ -305,14 +373,6 @@ func (s *Service) groupAPIKeyRevoke(w http.ResponseWriter, r *http.Request, pers
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": tokenID})
 }
 
-func apiKeyResourcesJSON(rs []authkit.APIKeyResource) []map[string]any {
-	out := make([]map[string]any, 0, len(rs))
-	for _, r := range rs {
-		out = append(out, map[string]any{"persona": r.Persona, "id": r.ID})
-	}
-	return out
-}
-
 // --- remote-applications ----------------------------------------------------
 
 // remoteAppRegisterRequest is the body for POST
@@ -320,12 +380,11 @@ func apiKeyResourcesJSON(rs []authkit.APIKeyResource) []map[string]any {
 // permission_group_id is the addressed group (never request-supplied), so the
 // body carries only the issuer/trust-source fields.
 type remoteAppRegisterRequest struct {
-	Slug           string                 `json:"slug"`
-	Issuer         string                 `json:"issuer"`
-	JWKSURI        string                 `json:"jwks_uri"`
-	Mode           string                 `json:"mode"`
-	PublicKeys     []authkit.RemoteAppKey `json:"public_keys"`
-	AllowedOrigins []string               `json:"allowed_origins"`
+	Slug       string                 `json:"slug"`
+	Issuer     string                 `json:"issuer"`
+	JWKSURI    string                 `json:"jwks_uri"`
+	Mode       string                 `json:"mode"`
+	PublicKeys []authkit.RemoteAppKey `json:"public_keys"`
 	// Enabled is a pointer so an omitted field ("enabled" absent) is
 	// distinguishable from an explicit false. Omitted defaults to true on this
 	// register/upsert endpoint; an explicit false still disables the issuer.
@@ -360,7 +419,6 @@ func (s *Service) groupRemoteAppRegister(w http.ResponseWriter, r *http.Request,
 		JWKSURI:           strings.TrimSpace(body.JWKSURI),
 		Mode:              strings.TrimSpace(body.Mode),
 		PublicKeys:        body.PublicKeys,
-		AllowedOrigins:    body.AllowedOrigins,
 		Enabled:           enabled,
 	})
 	if err != nil {
@@ -422,13 +480,12 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, p
 
 func remoteAppJSON(ra *authkit.RemoteApplication) map[string]any {
 	return map[string]any{
-		"id":              ra.ID,
-		"slug":            ra.Slug,
-		"issuer":          ra.Issuer,
-		"jwks_uri":        ra.JWKSURI,
-		"mode":            ra.Mode,
-		"allowed_origins": ra.AllowedOrigins,
-		"enabled":         ra.Enabled,
+		"id":       ra.ID,
+		"slug":     ra.Slug,
+		"issuer":   ra.Issuer,
+		"jwks_uri": ra.JWKSURI,
+		"mode":     ra.Mode,
+		"enabled":  ra.Enabled,
 	}
 }
 
@@ -447,9 +504,15 @@ type inviteLinkCreateRequest struct {
 
 // groupInviteLinkMint mints an invite link; the plaintext code is returned ONCE.
 func (s *Service) groupInviteLinkMint(w http.ResponseWriter, r *http.Request, persona, instanceSlug, invitedBy string) {
+	if s.rateLimited(w, r, RLInviteCreate) {
+		return
+	}
 	var body inviteLinkCreateRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
 		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if strings.TrimSpace(body.Email) != "" && s.rateLimitedByIdentifier(w, r, RLInviteCreate, body.Email) {
 		return
 	}
 	req := authkit.CreateGroupInviteLinkRequest{
@@ -564,7 +627,7 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, authkit.ErrTwoFAEnrollmentRequired):
-		send2FAEnrollmentRequiredError(w)
+		s.send2FAEnrollmentRequiredError(w)
 		return
 	case errors.Is(err, authkit.ErrGroupNotFound),
 		errors.Is(err, authkit.ErrRemoteApplicationNotFound),
@@ -573,13 +636,8 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, authkit.ErrInviteEmailMismatch),
 		errors.Is(err, authkit.ErrExternalInvitesDisabled),
-		errors.Is(err, authkit.ErrResourceScopeDenied),
 		errors.Is(err, authkit.ErrInsufficientRoleAuthority),
 		errors.Is(err, authkit.ErrRoleAssignmentEscalation):
-		if errors.Is(err, authkit.ErrResourceScopeDenied) {
-			forbidden(w, ErrResourceScopeDenied)
-			return
-		}
 		forbidden(w, ErrForbidden)
 		return
 	case errors.Is(err, authkit.ErrInvalidRemoteApplication),
@@ -597,8 +655,6 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		strings.Contains(msg, "unknown_role"),
 		strings.Contains(msg, "missing_name"),
 		strings.Contains(msg, "invalid_invite"),
-		strings.Contains(msg, "invalid_resource"),
-		strings.Contains(msg, "duplicate_resource"),
 		strings.Contains(msg, "invalid_expiry"):
 		badRequest(w, ErrInvalidRequest)
 	case strings.Contains(msg, "not found"):

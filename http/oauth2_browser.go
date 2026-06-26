@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/embedded"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
 
@@ -118,16 +119,17 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 	if err := s.stateCache().Put(r.Context(), state, oidckit.StateData{
-		Provider:        cfg.Name,
-		Verifier:        verifier,
-		RedirectURI:     redirectURI,
-		LinkUserID:      linkUserID,
-		ReturnTo:        returnTo,
-		StepUpUserID:    stepUpUserID,
-		StepUpSessionID: sessionID,
-		StepUpReturnTo:  stepUpReturnTo,
-		UI:              ui,
-		PopupNonce:      popupNonce,
+		Provider:           cfg.Name,
+		Verifier:           verifier,
+		RedirectURI:        redirectURI,
+		LinkUserID:         linkUserID,
+		ReturnTo:           returnTo,
+		AccountInviteToken: strings.TrimSpace(r.URL.Query().Get("account_invite_token")),
+		StepUpUserID:       stepUpUserID,
+		StepUpSessionID:    sessionID,
+		StepUpReturnTo:     stepUpReturnTo,
+		UI:                 ui,
+		PopupNonce:         popupNonce,
 	}); err != nil {
 		serverErr(w, ErrStateStoreFailed)
 		return
@@ -412,9 +414,20 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 		}
 	}
 	// No existing account for this provider identity or email. Auto-creating a
-	// new account is a public registration path, blocked when public registration
-	// is disabled (existing-user login above still works).
-	if s.publicRegistrationDisabled() {
+	// new account is a public registration path. InviteOnly requires an email-bound
+	// account invite token carried from flow start.
+	if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly {
+		if strings.TrimSpace(info.Email) == "" {
+			return "", false, authkit.ErrRegistrationDisabled
+		}
+		allowed, err := s.svc.RegistrationAllowedForEmailWithInvite(r.Context(), info.Email, sd.AccountInviteToken)
+		if err != nil {
+			return "", false, err
+		}
+		if !allowed {
+			return "", false, authkit.ErrRegistrationDisabled
+		}
+	} else if s.publicRegistrationDisabled() {
 		return "", false, authkit.ErrRegistrationDisabled
 	}
 	username := s.svc.DeriveUsernameForOAuth(r.Context(), cfg.Name, info.Preferred, info.Email, info.Display)
@@ -435,6 +448,9 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 		if err := s.svc.SetEmailVerified(r.Context(), u.ID, true); err != nil {
 			stdlog.Printf("[authkit/security] warning: SetEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
 		}
+	}
+	if err := s.svc.ConsumeAccountRegistrationInvite(r.Context(), info.Email, u.ID, sd.AccountInviteToken); err != nil {
+		return "", false, err
 	}
 	if strings.TrimSpace(info.Preferred) != "" {
 		if err := s.svc.SetProviderUsername(r.Context(), u.ID, cfg.Issuer, info.Subject, info.Preferred); err != nil {

@@ -90,19 +90,17 @@ func tensorhubSchema(t *testing.T) *GroupSchema {
 			},
 		},
 		PersonaDef{
-			Name:             "org",
-			AllowedParents:   []string{RootPersona},
-			AllowCustomRoles: true,
-			Routes:           ManagementProfile{MemberAssignment: true, CustomRoleCreation: true, APIKeyMinting: true},
+			Name:         "org",
+			Parent:       RootPersona,
+			Capabilities: PersonaCapabilities{CustomRoles: true, APIKeys: true},
 			Roles: []RoleDef{
 				{Name: "member", Permissions: []string{"org:repo:read"}},
 				{Name: "billing", Permissions: []string{"org:billing:read", "org:billing:update"}},
 			},
 		},
 		PersonaDef{
-			Name:           "repo",
-			AllowedParents: []string{"org"},
-			Routes:         ManagementProfile{MemberAssignment: true},
+			Name:   "repo",
+			Parent: "org",
 			Roles: []RoleDef{
 				{Name: "writer", Permissions: []string{"repo:repo:read", "repo:repo:write"}},
 			},
@@ -141,7 +139,7 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 	}{
 		{
 			name:  "no root",
-			types: []PersonaDef{{Name: "org", AllowedParents: []string{"root"}}},
+			types: []PersonaDef{{Name: "org", Parent: "root"}},
 			want:  "no root persona declared",
 		},
 		{
@@ -163,7 +161,7 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 			name: "cross-persona grant",
 			types: []PersonaDef{
 				{Name: "root"},
-				{Name: "org", AllowedParents: []string{"root"}, Roles: []RoleDef{
+				{Name: "org", Parent: "root", Roles: []RoleDef{
 					{Name: "x", Permissions: []string{"repo:repo:read"}}, // repo: in an org role
 				}},
 			},
@@ -173,7 +171,7 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 			name: "owner override wrong perms",
 			types: []PersonaDef{
 				{Name: "root"},
-				{Name: "org", AllowedParents: []string{"root"}, Roles: []RoleDef{
+				{Name: "org", Parent: "root", Roles: []RoleDef{
 					{Name: "owner", Permissions: []string{"org:billing:read"}}, // not org:*
 				}},
 			},
@@ -183,24 +181,16 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 			name: "undeclared parent",
 			types: []PersonaDef{
 				{Name: "root"},
-				{Name: "repo", AllowedParents: []string{"org"}}, // org not declared
+				{Name: "repo", Parent: "org"}, // org not declared
 			},
 			want: "not a declared persona",
-		},
-		{
-			name: "custom-role route without capability",
-			types: []PersonaDef{
-				{Name: "root"},
-				{Name: "org", AllowedParents: []string{"root"}, Routes: ManagementProfile{CustomRoleCreation: true}},
-			},
-			want: "requires AllowCustomRoles",
 		},
 		{
 			name: "containment cycle",
 			types: []PersonaDef{
 				{Name: "root"},
-				{Name: "a", AllowedParents: []string{"root", "b"}},
-				{Name: "b", AllowedParents: []string{"a"}},
+				{Name: "a", Parent: "b"},
+				{Name: "b", Parent: "a"},
 			},
 			want: "cycle",
 		},
@@ -208,7 +198,7 @@ func TestNewGroupSchema_Rejections(t *testing.T) {
 			name: "bad persona name",
 			types: []PersonaDef{
 				{Name: "root"},
-				{Name: "Merchant", AllowedParents: []string{"root"}},
+				{Name: "Merchant", Parent: "root"},
 			},
 			want: "name must match",
 		},

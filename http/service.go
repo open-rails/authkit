@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
-	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/open-rails/authkit/ratelimit"
@@ -26,14 +25,11 @@ type Service struct {
 	rlExplicit          bool // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
 	clientIP            ClientIPFunc
 	trustedProxyErr     error // deferred WithTrustedProxies CIDR parse error, surfaced by NewServer
-	oidcProviders       map[string]oidckit.RPConfig
-	providers           map[string]authprovider.Provider
 	authProvidersByName map[string]authprovider.Provider
 	oidcMgr             *oidckit.Manager
 	oidcMgrOnce         sync.Once
 	memStateCache       oidckit.StateCache
 	langCfg             *LanguageConfig
-	authlogr            embedded.AuthEventLogReader
 
 	// groupCanFn is a package-internal test hook for the auto-generated
 	// group-management routes' authorization predicate (#111): handler/wiring tests

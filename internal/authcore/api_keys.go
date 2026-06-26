@@ -22,9 +22,8 @@ import (
 // API key holds exactly ONE role of its group's PERSONA catalog (or a group custom
 // role); its effective permissions are resolved FROM that role (the GroupSchema
 // catalog / group_custom_roles) at use time, so editing the role updates every
-// key that holds it. Resource-scope ({Kind,ID}) stays a SEPARATE, orthogonal
-// binding. Permissions are app-defined strings, opaque to authkit. See agents
-// #43 (lifecycle) and #111 (permission-groups).
+// key that holds it. Permissions are app-defined strings, opaque to authkit. See
+// agents #43 (lifecycle) and #111 (permission-groups).
 
 // Token sentinel errors are defined in authkit and re-exported here for
 // backward compatibility (so core.X callers and errors.Is checks are unaffected).
@@ -35,9 +34,8 @@ var (
 )
 
 const (
-	apiKeyKeyIDLen       = 16  // base62 chars; non-secret public lookup id
-	apiKeySecretLen      = 43  // base62 chars ~= 256 bits of entropy
-	apiKeyResourceMaxLen = 128 // DB check constraint; resource strings are host-defined.
+	apiKeyKeyIDLen  = 16 // base62 chars; non-secret public lookup id
+	apiKeySecretLen = 43 // base62 chars ~= 256 bits of entropy
 )
 
 const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -76,83 +74,13 @@ func sha256Raw(s string) []byte {
 // the key).
 type APIKey = authkit.APIKey
 
-// APIKeyResource is one opaque, host-defined resource scope carried by an API
-// key. Defined in authkit (core-free) and re-exported here.
-type APIKeyResource = authkit.APIKeyResource
-
 // ResolvedAPIKey is defined in authkit (core-free) and re-exported here.
 type ResolvedAPIKey = authkit.ResolvedAPIKey
 
-// ErrResourceScopeDenied means the configured API-key resource authorizer did
-// not allow the requested resource scope. A missing authorizer denies non-empty
-// resource scopes by default.
-var ErrResourceScopeDenied = authkit.ErrResourceScopeDenied
-
-// APIKeyResourceAuthorizationRequest is passed to the host-owned authorizer
-// before AuthKit persists resource scopes on a newly minted API key.
-type APIKeyResourceAuthorizationRequest struct {
-	ActorUserID       string
-	Persona           string
-	InstanceSlug      string
-	PermissionGroupID string
-	Role              string
-	Resources         []APIKeyResource
-}
-
-// APIKeyResourceAuthorizer decides whether the actor may bind the requested
-// host-defined resource scopes to a new API key. AuthKit stores resource scopes
-// opaquely, so the host must provide the resource-domain no-escalation rule.
-type APIKeyResourceAuthorizer interface {
-	AuthorizeAPIKeyResources(context.Context, APIKeyResourceAuthorizationRequest) error
-}
-
-// APIKeyResourceAuthorizerFunc adapts a function to APIKeyResourceAuthorizer.
-type APIKeyResourceAuthorizerFunc func(context.Context, APIKeyResourceAuthorizationRequest) error
-
-func (f APIKeyResourceAuthorizerFunc) AuthorizeAPIKeyResources(ctx context.Context, req APIKeyResourceAuthorizationRequest) error {
-	return f(ctx, req)
-}
-
-// APIKeyMintOptions is the resource-aware API-key mint request. The key
-// references exactly ONE role (Role) that must be valid for the owning group's
-// persona catalog (or a group custom role); its permissions are resolved from that
-// role at use time. Resource-scope is a separate binding.
+// APIKeyMintOptions is the API-key mint request. The key references exactly ONE
+// role (Role) that must be valid for the owning group's persona catalog (or a
+// group custom role); its permissions are resolved from that role at use time.
 type APIKeyMintOptions = authkit.APIKeyMintOptions
-
-func normalizeAPIKeyResources(in []APIKeyResource) ([]APIKeyResource, error) {
-	if in == nil {
-		return []APIKeyResource{}, nil
-	}
-	seen := make(map[string]bool, len(in))
-	out := make([]APIKeyResource, 0, len(in))
-	for _, r := range in {
-		kind := strings.TrimSpace(r.Persona)
-		id := strings.TrimSpace(r.ID)
-		if kind == "" || id == "" || len(kind) > apiKeyResourceMaxLen || len(id) > apiKeyResourceMaxLen {
-			return nil, errors.New("invalid_resource")
-		}
-		key := kind + "\x00" + id
-		if seen[key] {
-			return nil, errors.New("duplicate_resource")
-		}
-		seen[key] = true
-		out = append(out, APIKeyResource{Persona: kind, ID: id})
-	}
-	return out, nil
-}
-
-func (s *Service) authorizeAPIKeyResources(ctx context.Context, req APIKeyResourceAuthorizationRequest) error {
-	if len(req.Resources) == 0 {
-		return nil
-	}
-	if s.apiKeyResource == nil {
-		return ErrResourceScopeDenied
-	}
-	if err := s.apiKeyResource.AuthorizeAPIKeyResources(ctx, req); err != nil {
-		return err
-	}
-	return nil
-}
 
 func (s *Service) authorizeAPIKeyRoleGrant(ctx context.Context, st *PermissionGroupStore, persona, gid, actorUserID, role string) error {
 	return s.authorizeRoleGrant(ctx, st, s.groupSchemaOrDefault(), persona, gid, actorUserID, PermCredentialsManage(persona), role)
@@ -193,11 +121,9 @@ func (s *Service) MintAPIKey(ctx context.Context, persona, instanceSlug, name, r
 	})
 }
 
-// MintAPIKeyWithOptions inserts a new API key using the resource-aware mint
-// contract. The key references exactly ONE role (opts.Role) valid for the owning
-// group's persona; its effective permissions are resolved from the role at use
-// time. Non-empty resource scopes must be allowed by the configured
-// APIKeyResourceAuthorizer.
+// MintAPIKeyWithOptions inserts a new API key. The key references exactly ONE
+// role (opts.Role) valid for the owning group's persona; its effective
+// permissions are resolved from the role at use time.
 func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSlug string, opts APIKeyMintOptions) (APIKey, string, error) {
 	if err := s.requirePG(); err != nil {
 		return APIKey{}, "", err
@@ -234,21 +160,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 	if permissions == nil {
 		permissions = []string{}
 	}
-	resources, err := normalizeAPIKeyResources(opts.Resources)
-	if err != nil {
-		return APIKey{}, "", err
-	}
 	if err := s.authorizeAPIKeyRoleGrant(ctx, st, persona, gid, strings.TrimSpace(opts.CreatedBy), role); err != nil {
-		return APIKey{}, "", err
-	}
-	if err := s.authorizeAPIKeyResources(ctx, APIKeyResourceAuthorizationRequest{
-		ActorUserID:       strings.TrimSpace(opts.CreatedBy),
-		Persona:           persona,
-		InstanceSlug:      instanceSlug,
-		PermissionGroupID: gid,
-		Role:              role,
-		Resources:         resources,
-	}); err != nil {
 		return APIKey{}, "", err
 	}
 
@@ -304,14 +216,6 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 			}
 			return APIKey{}, "", err
 		}
-		for _, r := range resources {
-			if _, err := q.Exec(ctx,
-				`INSERT INTO profiles.api_key_resources (api_key_id, kind, resource_id)
-				 VALUES ($1::uuid, $2, $3)`, id, r.Persona, r.ID); err != nil {
-				_ = tx.Rollback(ctx)
-				return APIKey{}, "", err
-			}
-		}
 		if err := tx.Commit(ctx); err != nil {
 			return APIKey{}, "", err
 		}
@@ -321,7 +225,6 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 			Name:        name,
 			Role:        role,
 			Permissions: permissions,
-			Resources:   resources,
 			CreatedBy:   strings.TrimSpace(opts.CreatedBy),
 			CreatedAt:   createdAt,
 			ExpiresAt:   expiresAt,
@@ -379,9 +282,6 @@ func (s *Service) ListAPIKeys(ctx context.Context, persona, instanceSlug string)
 	if err := s.loadAPIKeyPermissions(ctx, gid, persona, out); err != nil {
 		return nil, err
 	}
-	if err := s.loadAPIKeyResources(ctx, out); err != nil {
-		return nil, err
-	}
 	return out, nil
 }
 
@@ -412,16 +312,17 @@ func (s *Service) RevokeAPIKey(ctx context.Context, persona, instanceSlug, token
 // effective permissions resolved from its role at verify time (a role edit is
 // reflected immediately — perms are never frozen into the key).
 func (s *Service) ResolveAPIKey(ctx context.Context, keyID, secret string) (groupRef string, permissions []string, err error) {
-	resolved, err := s.ResolveAPIKeyWithResources(ctx, keyID, secret)
+	resolved, err := s.ResolveAPIKeyDetailed(ctx, keyID, secret)
 	if err != nil {
 		return "", nil, err
 	}
 	return resolved.PermissionGroupID, resolved.Permissions, nil
 }
 
-// ResolveAPIKeyWithResources validates a presented API key and returns the full
-// resource-aware result.
-func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
+// ResolveAPIKeyDetailed validates a presented API key and returns the full
+// resolution result (id, key_id, owning group, role, and role-resolved
+// permissions).
+func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error) {
 	if err := s.requirePG(); err != nil {
 		return ResolvedAPIKey{}, err
 	}
@@ -473,17 +374,12 @@ func (s *Service) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret 
 	if gotPerms == nil {
 		gotPerms = []string{}
 	}
-	resources, err := s.listAPIKeyResources(ctx, id)
-	if err != nil {
-		return ResolvedAPIKey{}, err
-	}
 	return ResolvedAPIKey{
 		APIKeyID:          id,
 		KeyID:             keyID,
 		PermissionGroupID: groupID,
 		Role:              role,
 		Permissions:       gotPerms,
-		Resources:         resources,
 	}, nil
 }
 
@@ -522,55 +418,4 @@ func (s *Service) loadAPIKeyPermissions(ctx context.Context, groupID, persona st
 		tokens[i].Permissions = perms
 	}
 	return nil
-}
-
-func (s *Service) loadAPIKeyResources(ctx context.Context, tokens []APIKey) error {
-	if len(tokens) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(tokens))
-	byID := make(map[string]int, len(tokens))
-	for i := range tokens {
-		tokens[i].Resources = []APIKeyResource{}
-		ids = append(ids, tokens[i].ID)
-		byID[tokens[i].ID] = i
-	}
-	q := db.ForSchema(s.pg, s.dbSchema())
-	rows, err := q.Query(ctx,
-		`SELECT api_key_id::text, kind, resource_id FROM profiles.api_key_resources
-		 WHERE api_key_id = ANY($1::uuid[])`, ids)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var tokenID, kind, resourceID string
-		if err := rows.Scan(&tokenID, &kind, &resourceID); err != nil {
-			return err
-		}
-		if i, ok := byID[tokenID]; ok {
-			tokens[i].Resources = append(tokens[i].Resources, APIKeyResource{Persona: kind, ID: resourceID})
-		}
-	}
-	return rows.Err()
-}
-
-func (s *Service) listAPIKeyResources(ctx context.Context, tokenID string) ([]APIKeyResource, error) {
-	q := db.ForSchema(s.pg, s.dbSchema())
-	rows, err := q.Query(ctx,
-		`SELECT kind, resource_id FROM profiles.api_key_resources WHERE api_key_id = $1::uuid`,
-		strings.TrimSpace(tokenID))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]APIKeyResource, 0)
-	for rows.Next() {
-		var kind, resourceID string
-		if err := rows.Scan(&kind, &resourceID); err != nil {
-			return nil, err
-		}
-		out = append(out, APIKeyResource{Persona: kind, ID: resourceID})
-	}
-	return out, rows.Err()
 }

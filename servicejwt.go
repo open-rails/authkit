@@ -29,6 +29,5 @@ type ServiceJWTClaims struct {
 	JTI         string
 	TokenUse    string
 	Permissions []string
-	Resources   []APIKeyResource
 	Scope       []string
 }
