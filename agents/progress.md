@@ -107,6 +107,23 @@ through the internal option). Remaining slice-A culls: `WithRateLimiter`/
 `WithPermissionGroupAuthorizer`; `WithSolanaSNSResolver` → AuthKit-owned default;
 `WithAuthLogger`/`WithAuthLogReader` → `WithClickHouse`.
 
+STATUS 2026-06-26 (Claude): three more slice-A culls landed (authkit-side, breaking).
+(1) Rate limiter is now AUTO-OWNED — `NewServer` creates it after options: Redis-backed
+when `authhttp.WithRedis` is supplied (shared cross-instance), in-memory otherwise. The
+`WithRateLimiter`/`WithoutRateLimiter` seams are kept but advanced/test-only (set an
+`rlExplicit` flag) and dropped from the SEMVER inventory. (2) `WithClientIPFunc` →
+`WithTrustedProxies(cidrs ...string)` as the normal proxy knob (wraps
+`ClientIPFromForwardedHeaders`; an invalid CIDR fails `NewServer`); RemoteAddr default
+unchanged; raw `WithClientIPFunc` kept advanced/test-only. (3) Deleted public
+`WithPermissionGroupAuthorizer` + `PermissionGroupAuthorizer` (the per-request authz
+override footgun) — generated group routes authorize through `embedded.Client.Can`;
+`groupCanFn` survives only as an UNEXPORTED package-internal test hook, so the
+declared-perm wiring tests still run DB-free. openrails must move lazy merchant-group
+materialization to provision time (accepted break). New tests: rate-limiter auto-wiring
+(mem/redis/disabled) + trusted-proxy trust/ignore/bad-CIDR. build + vet + DB-free suite
+green. Remaining slice-A are NET-NEW builds, not culls: `WithSolanaSNSResolver` → default
+SNS resolver, and `WithAuthLogger`/`WithAuthLogReader` → `WithClickHouse` adapter.
+
 REVIEW (Claude, 2026-06-26): strong core, trim the edges.
 - KEEP (the real win): client-first construction — `authhttp.NewServer(client, httpOpts)`,
   drop `.Client()`, split embedded-vs-http options, pare `Server` to adapter methods.
