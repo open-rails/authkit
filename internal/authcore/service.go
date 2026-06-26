@@ -2667,23 +2667,30 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 	email = NormalizeEmail(email)
 	username = strings.TrimSpace(username)
 
-	u, err := s.createUser(ctx, email, username)
+	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
-	if u == nil {
-		return "", fmt.Errorf("failed to create user")
-	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.qtx(tx)
 
-	if err := s.q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: u.ID, PasswordHash: passwordHash}); err != nil {
+	userID, err := newUUIDV7String()
+	if err != nil {
 		return "", err
 	}
-
-	if err := s.setEmailVerified(ctx, u.ID, emailVerified); err != nil {
+	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username}); err != nil {
 		return "", err
 	}
-
-	return u.ID, nil
+	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {
+		return "", err
+	}
+	if err := q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: userID, EmailVerified: emailVerified}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return userID, nil
 }
 
 func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, username, passwordHash string, phoneVerified bool) (string, error) {
@@ -2699,23 +2706,30 @@ func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, userna
 	phone = NormalizePhone(phone)
 	username = strings.TrimSpace(username)
 
-	u, err := s.createUser(ctx, "", username)
+	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
-	if u == nil {
-		return "", fmt.Errorf("failed to create user")
-	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.qtx(tx)
 
-	if err := s.q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: u.ID, PasswordHash: passwordHash}); err != nil {
+	userID, err := newUUIDV7String()
+	if err != nil {
 		return "", err
 	}
-
-	if err := s.q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: u.ID, PhoneNumber: &phone, PhoneVerified: phoneVerified}); err != nil {
+	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: "", Username: &username}); err != nil {
 		return "", err
 	}
-
-	return u.ID, nil
+	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {
+		return "", err
+	}
+	if err := q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: userID, PhoneNumber: &phone, PhoneVerified: phoneVerified}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return userID, nil
 }
 
 func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) error {
@@ -3910,19 +3924,32 @@ func (s *Service) GetProviderLinkByIssuer(ctx context.Context, issuer, subject s
 }
 
 func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
-	// Store provider slug for UI, enforce uniqueness on (issuer, subject) and (user_id, issuer)
-	// Remove any existing provider link for this user+issuer with different subject (allows switching Discord accounts)
+	// Store provider slug for UI, enforce uniqueness on (issuer, subject) and (user_id, issuer).
+	// The delete-other-subjects (allows switching e.g. Discord accounts) and the upsert run in
+	// ONE transaction: a failure can't leave the user's old link deleted and the new one missing.
 	if s.pg == nil {
 		return nil
 	}
-	// First delete old Discord link if user is switching to a different Discord account
-	_ = s.q.UserProviderDeleteOtherSubjects(ctx, db.UserProviderDeleteOtherSubjectsParams{UserID: userID, Issuer: issuer, Subject: subject})
-	// Then insert/update the new link
 	providerID, err := newUUIDV7String()
 	if err != nil {
 		return err
 	}
-	if err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+
+	// First delete any old link for this user+issuer with a different subject.
+	if err := qtx.UserProviderDeleteOtherSubjects(ctx, db.UserProviderDeleteOtherSubjectsParams{UserID: userID, Issuer: issuer, Subject: subject}); err != nil {
+		return err
+	}
+	// The upsert's ON CONFLICT (issuer, subject) DO UPDATE is constrained to the same user_id,
+	// so a subject already owned by a DIFFERENT user yields zero affected rows (no cross-user
+	// write) and RETURNING produces pgx.ErrNoRows — surfaced as a 409-class conflict.
+	if _, err := qtx.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
 		ID:              providerID,
 		UserID:          userID,
 		Issuer:          issuer,
@@ -3930,8 +3957,15 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 		Subject:         subject,
 		EmailAtProvider: email,
 	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return authkit.ErrProviderAlreadyLinked
+		}
 		return err
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
 	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() {
 		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
 	}
