@@ -405,6 +405,17 @@ var generatedMethods = map[string]MethodFunc{
 		r0, r1, err := c.IssueAccessToken(ctx, a.A0, a.A1, a.A2)
 		return map[string]any{"r0": r0, "r1": r1}, err
 	},
+	"LeaveGroup": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 string `json:"userID"`
+			A1 string `json:"persona"`
+			A2 string `json:"instanceSlug"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		return nil, c.LeaveGroup(ctx, a.A0, a.A1, a.A2)
+	},
 	"LinkProvider": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string  `json:"userID"`

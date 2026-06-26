@@ -138,6 +138,12 @@ type PersonaDef struct {
 	Parent       string    // declared persona; empty only for root. Non-root must name exactly one parent.
 	Capabilities PersonaCapabilities
 	Catalog      []string
+	// RequireConsent makes admitting a NEW member to a group of this persona require
+	// the invitee's acceptance (#193): an owner/manager cannot silently direct-add an
+	// existing user — the add always routes through a consent invite the user accepts.
+	// Default false (instant direct-add allowed; what root uses). This is a JOIN-time
+	// policy only — it does NOT affect changing or removing an existing member's role.
+	RequireConsent bool
 }
 
 // GroupSchema is the validated, immutable set of declared group personas — the
@@ -330,6 +336,13 @@ func (s *GroupSchema) validateContainment() error {
 func (s *GroupSchema) Persona(name string) (PersonaDef, bool) {
 	t, ok := s.types[name]
 	return t, ok
+}
+
+// RequireConsent reports whether admitting a new member to a group of this persona
+// requires the invitee's acceptance (#193). Unknown personas default to false.
+func (s *GroupSchema) RequireConsent(persona string) bool {
+	t, ok := s.types[persona]
+	return ok && t.RequireConsent
 }
 
 // Personas returns the declared persona names, sorted.

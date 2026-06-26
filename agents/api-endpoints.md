@@ -215,9 +215,9 @@ that persona's management profile:
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/:persona/:instance_slug/members` | PERM | List members |
-| POST | `/:persona/:instance_slug/members` | PERM | Add member role |
-| DELETE | `/:persona/:instance_slug/members/:user` | PERM | Remove member from group |
-| PUT | `/:persona/:instance_slug/members/:user/roles/:role` | PERM | Assign or replace the member's role |
+| POST | `/:persona/:instance_slug/members` | PERM | Add member (`{user_id\|email, role, invite?}`). Direct-add for known users unless `invite:true` OR the persona declares `RequireConsent` (#193) — then it returns a pending consent invite the user accepts. Unknown email → a shareable invite link. |
+| DELETE | `/:persona/:instance_slug/members/:user` | PERM | Remove member from group (admin, immediate, no consent; 409 `cannot_remove_last_owner` if they are the sole owner) |
+| PUT | `/:persona/:instance_slug/members/:user/roles/:role` | PERM | Assign or replace the member's role (admin, immediate, no consent) |
 | GET | `/:persona/:instance_slug/roles` | PERM | List role catalog |
 | POST | `/:persona/:instance_slug/roles` | PERM | Define custom role |
 | DELETE | `/:persona/:instance_slug/roles/:role` | PERM | Delete custom role |
@@ -232,6 +232,21 @@ that persona's management profile:
 | DELETE | `/:persona/:instance_slug/invites/links/:link` | PERM | Revoke invite link |
 
 Built-in `root` emits member-management plus role-list routes by default.
+
+Self-service membership (the caller's OWN auth, not `members:manage`):
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/me/group-invites` | AUTH | List the caller's pending consent invites |
+| POST | `/me/group-invites/:id/accept` | AUTH | Accept a pending invite (grants the role) |
+| POST | `/me/group-invites/:id/decline` | AUTH | Decline a pending invite |
+| DELETE | `/me/groups/:persona/:instance_slug` | AUTH | Leave a group — remove the caller's own roles (#193). 409 `cannot_remove_last_owner` if they are the sole owner; no-op if not a member. |
+
+Persona join policy: a persona declared with `RequireConsent: true` (in `Config.RBAC`)
+can never be silently direct-added into — every join routes through a consent invite the
+invitee accepts. Default is `false` (instant direct-add), which is what `root` uses.
+`RequireConsent` gates the JOIN only; changing or removing an existing member's role is
+admin authority and stays immediate.
 
 ---
 

@@ -182,7 +182,71 @@ func (s *Service) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona
 			return err
 		}
 	}
+	if err := s.refuseIfLastOwner(ctx, st, gid, roles); err != nil {
+		return err
+	}
 	return st.UnassignSubject(ctx, gid, strings.TrimSpace(subjectID), subjectKind)
+}
+
+// refuseIfLastOwner returns ErrCannotRemoveLastAdminRole when stripping these roles
+// from a subject would leave the group instance with zero owners (#193) — so neither
+// an admin removal nor a self-leave can orphan a group. Pure ownership-safety, not an
+// acceptance/consent concern.
+func (s *Service) refuseIfLastOwner(ctx context.Context, st *PermissionGroupStore, gid string, roles []string) error {
+	holdsOwner := false
+	for _, r := range roles {
+		if r == OwnerRoleName {
+			holdsOwner = true
+			break
+		}
+	}
+	if !holdsOwner {
+		return nil
+	}
+	n, err := st.OwnerCount(ctx, gid)
+	if err != nil {
+		return err
+	}
+	if n <= 1 {
+		return ErrCannotRemoveLastAdminRole
+	}
+	return nil
+}
+
+// LeaveGroup removes the CALLER's own direct role assignments from a group instance
+// (#193 self-service leave). It is authorized by being the subject — no
+// <persona>:members:manage is required, because you are acting only on yourself. It
+// refuses (ErrCannotRemoveLastAdminRole) if you are the group's sole owner, so a group
+// is never orphaned — add or transfer another owner first. Leaving a group you are not a
+// direct member of is a no-op.
+func (s *Service) LeaveGroup(ctx context.Context, userID, persona, instanceSlug string) error {
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	if err != nil {
+		return err
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil
+	}
+	asg, err := st.WalkAssignments(ctx, gid, userID, SubjectKindUser)
+	if err != nil {
+		return err
+	}
+	var roles []string
+	for _, a := range asg {
+		if a.PermissionGroupID == gid {
+			roles = a.Roles
+			break
+		}
+	}
+	if len(roles) == 0 {
+		return nil // not a direct member of this group — nothing to leave
+	}
+	if err := s.refuseIfLastOwner(ctx, st, gid, roles); err != nil {
+		return err
+	}
+	return st.UnassignSubject(ctx, gid, userID, SubjectKindUser)
 }
 
 // AssignRoleBySlugAs is the actor-aware root-group convenience (the runtime

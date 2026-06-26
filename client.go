@@ -94,6 +94,7 @@ type Groups interface {
 	AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
 	UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
 	RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error
+	LeaveGroup(ctx context.Context, userID, persona, instanceSlug string) error
 	ListGroupMembers(ctx context.Context, persona, instanceSlug string) ([]GroupMember, error)
 	ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error)
 	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)

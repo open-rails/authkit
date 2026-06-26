@@ -74,6 +74,10 @@ func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona,
 	return s.impl.RemoveGroupSubjectAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind)
 }
 
+func (s *Client) LeaveGroup(ctx context.Context, userID, persona, instanceSlug string) error {
+	return s.impl.LeaveGroup(ctx, userID, persona, instanceSlug)
+}
+
 // ListRoleSlugsByUserErr is the error-propagating ListRoleSlugsByUser (#136):
 // role-resolution failures are returned (not swallowed into an empty slice) so
 // authz callers can fail closed.

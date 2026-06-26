@@ -265,6 +265,21 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID, su
 	return err
 }
 
+// OwnerCount returns how many subjects (users + remote applications) currently
+// hold the owner role in a group — the last-owner guard (#193) refuses to remove
+// the final owner so a group can never be orphaned.
+func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) (int, error) {
+	var n int
+	err := st.q.QueryRow(ctx,
+		`SELECT
+		   (SELECT count(*) FROM profiles.group_user_roles
+		      WHERE permission_group_id = $1::uuid AND role = $2 AND deleted_at IS NULL)
+		 + (SELECT count(*) FROM profiles.group_remote_application_roles
+		      WHERE permission_group_id = $1::uuid AND role = $2 AND deleted_at IS NULL)`,
+		groupID, OwnerRoleName).Scan(&n)
+	return n, err
+}
+
 // UpsertCustomRole defines/updates a per-group custom role's permission set.
 // Only meaningful for personas whose CustomRoles capability is set; the caller
 // enforces that + validates each grant pattern against the group's persona.

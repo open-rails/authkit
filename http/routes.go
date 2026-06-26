@@ -136,6 +136,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/me/group-invites", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInvitesGET))},
 		{Method: http.MethodPost, Path: "/me/group-invites/{id}/accept", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInviteAccept))},
 		{Method: http.MethodPost, Path: "/me/group-invites/{id}/decline", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInviteDecline))},
+		// #193 self-service leave: a user removes themself from a group with their own auth.
+		{Method: http.MethodDelete, Path: "/me/groups/{persona}/{instance_slug}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupLeave))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},

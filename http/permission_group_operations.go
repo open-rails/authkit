@@ -104,9 +104,14 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 		}
 		userID = u.ID
 	}
-	// #147 known-user consent invite: when invite=true, record a pending invite the
-	// existing user accepts/denies with their own auth instead of a silent add.
-	if body.Invite {
+	// #147/#193 consent invite: record a pending invite the existing user
+	// accepts/denies with their own auth instead of a silent add. The caller may
+	// opt in per-request (invite=true), OR the persona policy may MANDATE it
+	// (RequireConsent) — a persona with RequireConsent can never be silently
+	// direct-added into, so a requested direct-add is transparently upgraded to an
+	// invite. The persona policy is a floor: a request can ask for consent where it
+	// isn't required, never bypass it where it is.
+	if body.Invite || s.svc.PermissionGroupSchema().RequireConsent(persona) {
 		inv, err := s.svc.CreateGroupMembershipInvite(r.Context(), actor.UserID, persona, instanceSlug, userID, role)
 		if err != nil {
 			s.writeGroupOpError(w, err)
@@ -629,6 +634,11 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		errors.Is(err, authkit.ErrRemoteApplicationNotFound),
 		errors.Is(err, authkit.ErrInviteLinkNotFound):
 		notFound(w, ErrNotFound)
+		return
+	case errors.Is(err, authkit.ErrCannotRemoveLastAdminRole):
+		// #193: removing the final owner would orphan the group — the actor has the
+		// authority, the operation is just unsafe, so 409 not 403.
+		sendErr(w, http.StatusConflict, ErrCannotRemoveLastOwner)
 		return
 	case errors.Is(err, authkit.ErrExternalInvitesDisabled),
 		errors.Is(err, authkit.ErrInsufficientRoleAuthority),

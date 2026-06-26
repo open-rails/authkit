@@ -278,6 +278,11 @@ func (c *Client) IssueAccessToken(ctx context.Context, userID string, email stri
 	return out.R0, out.R1, err
 }
 
+func (c *Client) LeaveGroup(ctx context.Context, userID string, persona string, instanceSlug string) error {
+	args := map[string]any{"userID": userID, "persona": persona, "instanceSlug": instanceSlug}
+	return c.call(ctx, "LeaveGroup", args, nil)
+}
+
 func (c *Client) LinkProvider(ctx context.Context, userID string, provider string, subject string, email *string) error {
 	args := map[string]any{"userID": userID, "provider": provider, "subject": subject, "email": email}
 	return c.call(ctx, "LinkProvider", args, nil)
