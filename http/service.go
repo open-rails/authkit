@@ -218,7 +218,7 @@ func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 
 // Client returns the embedder-facing AuthKit client (the authkit.Client contract)
 // backing this server — for provisioning, minting, and management (e.g.
-// CreateUser, MintServiceJWT, ApplyBootstrapManifestFile). It wraps the same
+// CreateUser, MintServiceJWT, ApplyBootstrapManifest). It wraps the same
 // engine the server runs; code against authkit.Client to stay backend-agnostic
 // across the embedded↔standalone swap (#138).
 func (s *Service) Client() authkit.Client { return embedded.Wrap(s.svc) }

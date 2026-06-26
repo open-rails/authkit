@@ -247,7 +247,11 @@ func applyBootstrapManifest(ctx context.Context, svc authkit.Client, path string
 	if path == "" {
 		path = embedded.DefaultBootstrapManifestPath
 	}
-	return svc.ApplyBootstrapManifestFile(ctx, path, opts)
+	manifest, err := embedded.LoadBootstrapManifestFile(path)
+	if err != nil {
+		return authkit.BootstrapManifestResult{}, fmt.Errorf("read bootstrap manifest: %w", err)
+	}
+	return svc.ApplyBootstrapManifest(ctx, manifest, opts)
 }
 
 func applyBootstrapManifestData(ctx context.Context, svc authkit.Client, manifest authkit.BootstrapManifest, opts authkit.BootstrapReconcileOptions) (authkit.BootstrapManifestResult, error) {

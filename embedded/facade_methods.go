@@ -338,10 +338,6 @@ func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest authkit.Bo
 	return s.impl.ApplyBootstrapManifest(ctx, manifest, opts)
 }
 
-func (s *Client) ApplyBootstrapManifestFile(ctx context.Context, path string, opts authkit.BootstrapReconcileOptions) (authkit.BootstrapManifestResult, error) {
-	return s.impl.ApplyBootstrapManifestFile(ctx, path, opts)
-}
-
 func (s *Client) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {
 	return s.impl.RemoveRoleBySlug(ctx, userID, slug)
 }

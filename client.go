@@ -82,8 +82,11 @@ type Client interface {
 	ConfirmPasswordlessToken(ctx context.Context, token string) (PasswordlessConfirmResult, error)
 	RecordFailedPasswordlessCode(ctx context.Context, identifier string)
 	ClearPasswordlessCodeAttempts(ctx context.Context, identifier string)
+	// ApplyBootstrapManifest applies a parsed manifest. There is deliberately no
+	// ApplyBootstrapManifestFile on the contract: a file path is the SERVER's
+	// filesystem, meaningless over a remote transport (#142). Hosts with a file
+	// load it themselves (e.g. embedded.LoadBootstrapManifestFile) then call this.
 	ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error)
-	ApplyBootstrapManifestFile(ctx context.Context, path string, opts BootstrapReconcileOptions) (BootstrapManifestResult, error)
 	RemoveRoleBySlug(ctx context.Context, userID, slug string) error
 	ResolveAPIKey(ctx context.Context, keyID, secret string) (string, []string, error)
 	ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error)
