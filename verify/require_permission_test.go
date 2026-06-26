@@ -96,3 +96,41 @@ func TestRequirePermission_NilChecker_Forbidden(t *testing.T) {
 		t.Fatalf("nil checker should 403: code=%d next=%v", code, next)
 	}
 }
+
+func TestAllow(t *testing.T) {
+	ctx := context.Background()
+
+	// Token-carried perm: allowed without consulting the checker.
+	chk := &fakeChecker{allow: false}
+	ok, err := Allow(ctx, chk, Claims{Permissions: []string{"root:users:ban"}}, "root:users:ban", PermissionScope{Persona: "root"})
+	if err != nil || !ok {
+		t.Fatalf("token-carried: ok=%v err=%v", ok, err)
+	}
+	if chk.called {
+		t.Fatal("checker must not be consulted when the token carries the perm")
+	}
+
+	// Glob token grant covers a concrete perm (same matching as the gate).
+	ok, _ = Allow(ctx, &fakeChecker{}, Claims{Permissions: []string{"root:*"}}, "root:users:ban", PermissionScope{Persona: "root"})
+	if !ok {
+		t.Fatal("glob grant root:* must cover root:users:ban")
+	}
+
+	// Human user: resolved via Can in the given scope.
+	chk = &fakeChecker{allow: true}
+	ok, err = Allow(ctx, chk, Claims{UserID: "u1"}, "root:users:ban", PermissionScope{Persona: "root"})
+	if err != nil || !ok || !chk.called || chk.gotPersona != "root" || chk.gotKind != subjectKindUser {
+		t.Fatalf("human allow: ok=%v err=%v chk=%+v", ok, err, chk)
+	}
+	if ok, _ := Allow(ctx, &fakeChecker{allow: false}, Claims{UserID: "u1"}, "p", PermissionScope{}); ok {
+		t.Fatal("human deny must be false")
+	}
+
+	// Fail-closed: nil checker or empty principal.
+	if ok, _ := Allow(ctx, nil, Claims{UserID: "u1"}, "p", PermissionScope{}); ok {
+		t.Fatal("nil checker must deny")
+	}
+	if ok, _ := Allow(ctx, &fakeChecker{allow: true}, Claims{}, "p", PermissionScope{}); ok {
+		t.Fatal("empty principal (no token perm, no UserID) must deny")
+	}
+}

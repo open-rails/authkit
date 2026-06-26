@@ -27,17 +27,32 @@ type PermissionScope struct {
 // principals are handled by the token-carried branch below), so it is fixed here.
 const subjectKindUser = "user"
 
-// RequirePermission gates a handler on `perm`, evaluated server-side via the
-// PermissionChecker in the scope `resolve` derives from the request — so one gate
-// serves a singleton persona (`root`) AND resource-scoped personas
-// (`/v1/merchants/{id}/...` → {Persona: "merchant", Instance: id}). It must run
-// after Required so the verified Claims are in context.
-//
+// Allow reports whether cl holds perm — the programmatic authorization predicate
+// behind RequirePermission, for non-HTTP gates (e.g. a host's billing-admin check).
 // Two authority paths, matching how authkit carries it:
 //   - API-key / delegated-access principals carry their permission strings ON the
 //     token; those are checked directly (no group lookup).
 //   - Human users carry only identity; their authority is resolved against the
-//     registered permission-group schema via Can.
+//     registered permission-group schema via the checker's Can in `scope`.
+//
+// Fail-closed: a token without the perm, a nil checker, or an empty UserID yields
+// false; a Can error is returned (the caller must deny on a non-nil error).
+func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm string, scope PermissionScope) (bool, error) {
+	if cl.HasPermission(perm) {
+		return true, nil
+	}
+	if checker == nil || cl.UserID == "" {
+		return false, nil
+	}
+	return checker.Can(ctx, cl.UserID, subjectKindUser, scope.Persona, scope.Instance, perm)
+}
+
+// RequirePermission gates a handler on `perm`, evaluated server-side via the
+// PermissionChecker in the scope `resolve` derives from the request — so one gate
+// serves a singleton persona (`root`) AND resource-scoped personas
+// (`/v1/merchants/{id}/...` → {Persona: "merchant", Instance: id}). It must run
+// after Required so the verified Claims are in context. The authority decision is
+// Allow; this is the HTTP wrapper.
 //
 // Fail-closed: missing claims, no resolver, an unknown group, or a Can error all
 // deny (403).
@@ -49,19 +64,17 @@ func RequirePermission(checker PermissionChecker, perm string, resolve func(*htt
 				forbidden(w, "forbidden")
 				return
 			}
-			// Token-carried authority (API keys, delegated access): the perm is on
-			// the token; no subject/group lookup.
+			// Token-carried authority short-circuits without a scope (API keys /
+			// delegated access carry the perm on the token).
 			if cl.HasPermission(perm) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Human user: evaluate against the group schema.
-			if checker == nil || resolve == nil || cl.UserID == "" {
+			if resolve == nil {
 				forbidden(w, "forbidden")
 				return
 			}
-			scope := resolve(r)
-			ok, err := checker.Can(r.Context(), cl.UserID, subjectKindUser, scope.Persona, scope.Instance, perm)
+			ok, err := Allow(r.Context(), checker, cl, perm, resolve(r))
 			if err != nil || !ok {
 				forbidden(w, "forbidden")
 				return
