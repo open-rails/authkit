@@ -131,7 +131,12 @@ func TestGroupMembersListUsesSnakeCaseJSON_HTTP(t *testing.T) {
 	require.NotContains(t, listed.Data[0], "subject-kind")
 }
 
-func TestGroupMemberAddUnknownEmailInviteOnlyMintsSeparateInvites_HTTP(t *testing.T) {
+// #147 FINAL: adding an unknown email under invite-only mints ONLY the group
+// invite link (members:manage). It does NOT mint an account-registration invite —
+// that is a SEPARATE permission (root:users:invite), and a member-manager does not
+// implicitly gain it. The rare stranger-into-group-while-invite-only case is two
+// separate links from two authorities.
+func TestGroupMemberAddUnknownEmailMintsOnlyGroupInvite_HTTP(t *testing.T) {
 	s, pool, caller := newInviteOnlyCredTestService(t)
 	ctx := context.Background()
 
@@ -150,11 +155,12 @@ func TestGroupMemberAddUnknownEmailInviteOnlyMintsSeparateInvites_HTTP(t *testin
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, true, resp["invited"])
 	require.NotNil(t, resp["group_invite"])
-	require.NotNil(t, resp["account_registration_invite"])
+	require.NotContains(t, resp, "account_registration_invite")
 
+	// A members:manage caller without root:users:invite mints NO registration invite.
 	var accountInvites int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.account_registration_invites WHERE email=$1`, email).Scan(&accountInvites))
-	require.Equal(t, 1, accountInvites)
+	require.Equal(t, 0, accountInvites)
 }
 
 // TestGroupAPIKeyLifecycle_HTTP: mint -> list (no secret) -> revoke, over the

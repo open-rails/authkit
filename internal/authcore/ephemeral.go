@@ -110,4 +110,3 @@ func (s *Service) ephemDel(ctx context.Context, key string) error {
 	}
 	return s.ephemeralStore.Del(ctx, key)
 }
-

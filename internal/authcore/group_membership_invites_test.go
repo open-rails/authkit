@@ -69,33 +69,3 @@ func TestGroupMembershipInvite_RequiresAuthority(t *testing.T) {
 		t.Fatal("a non-authorized actor must not be able to invite")
 	}
 }
-
-// #147 stranger code carrying a group grant: redeeming the unbound single-use code
-// as a signed-in user joins the group in one step.
-func TestAccountRegistrationInvite_GroupGrantOnRedeem(t *testing.T) {
-	svc, pool, ctx := setupInviteLinkTest(t, RegistrationModeOpen)
-	owner := acmeOwner(t, svc, ctx, pool)
-	joiner := insertBareUser(t, pool)
-
-	created, err := svc.CreateAccountRegistrationInvite(ctx, CreateAccountRegistrationInviteRequest{
-		Email:             "stranger@example.com",
-		InvitedBy:         owner,
-		GroupPersona:      "org",
-		GroupInstanceSlug: "acme",
-		GroupRole:         "member",
-	})
-	if err != nil {
-		t.Fatalf("CreateAccountRegistrationInvite with grant: %v", err)
-	}
-
-	if err := svc.RedeemAccountRegistrationInvite(ctx, created.Code, joiner); err != nil {
-		t.Fatalf("RedeemAccountRegistrationInvite: %v", err)
-	}
-	mustHoldMember(t, svc, ctx, joiner)
-
-	// Single-use: the code is spent.
-	other := insertBareUser(t, pool)
-	if err := svc.RedeemAccountRegistrationInvite(ctx, created.Code, other); !errors.Is(err, ErrAccountRegistrationInviteNotFound) {
-		t.Fatalf("reuse of spent code = %v, want ErrAccountRegistrationInviteNotFound", err)
-	}
-}

@@ -447,18 +447,8 @@ CREATE TABLE IF NOT EXISTS profiles.account_registration_invites (
   revoked_at timestamptz,
   consumed_at timestamptz,
   consumed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
-  -- #147: an account-registration code MAY also carry a permission-group grant, so
-  -- ONE unbound single-use link registers a stranger AND joins them to a group on
-  -- consume. All three are set together or all NULL (a pure registration invite).
-  grant_persona text,
-  grant_instance_slug text,
-  grant_role text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT account_reg_invite_grant_all_or_none_chk CHECK (
-    (grant_persona IS NULL AND grant_instance_slug IS NULL AND grant_role IS NULL)
-    OR (grant_persona IS NOT NULL AND grant_role IS NOT NULL)
-  )
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS account_registration_invites_email_idx
   ON profiles.account_registration_invites (email, expires_at)

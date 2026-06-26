@@ -132,6 +132,10 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodDelete, Path: "/user/sessions/{id}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserSessionDELETE))},
 		{Method: http.MethodDelete, Path: "/user/sessions", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserSessionsDELETE))},
 		{Method: http.MethodGet, Path: "/me", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserMeGET))},
+		// #147 known-user permission-group invites: accepted/declined with the caller's own auth.
+		{Method: http.MethodGet, Path: "/me/group-invites", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInvitesGET))},
+		{Method: http.MethodPost, Path: "/me/group-invites/{id}/accept", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInviteAccept))},
+		{Method: http.MethodPost, Path: "/me/group-invites/{id}/decline", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInviteDecline))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},

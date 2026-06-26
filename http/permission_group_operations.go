@@ -22,6 +22,10 @@ type memberRequest struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email,omitempty"`
 	Role   string `json:"role"`
+	// Invite, when true and the subject is an EXISTING user, records a consent
+	// invite the user must accept/deny (#147 known-user path) instead of a silent
+	// direct add. Ignored for the unknown-email path (always a link invite).
+	Invite bool `json:"invite,omitempty"`
 }
 
 // groupMemberAdd assigns a subject (user) a role in the group. Idempotent at the
@@ -77,7 +81,13 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 				s.writeGroupOpError(w, err)
 				return
 			}
-			resp := map[string]any{
+			// #147: the unknown-email path mints ONLY the group invite link
+			// (authorized by this group's members:manage). Registration authority is a
+			// SEPARATE permission (root:users:invite) — a member-manager does not
+			// implicitly gain it. Under invite-only registration a brand-new stranger
+			// additionally needs an account-registration invite from a root:users:invite
+			// holder; that rare combined case is simply two separate links.
+			writeJSON(w, http.StatusAccepted, map[string]any{
 				"ok":            true,
 				"persona":       persona,
 				"instance_slug": instanceSlug,
@@ -89,27 +99,29 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 					"code": groupInvite.Code,
 					"url":  groupInvite.URL,
 				},
-			}
-			if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly {
-				accountInvite, err := s.svc.CreateAccountRegistrationInviteForGroupInvite(r.Context(), authkit.CreateAccountRegistrationInviteRequest{
-					Email:     email,
-					InvitedBy: actor.UserID,
-				})
-				if err != nil {
-					s.writeGroupOpError(w, err)
-					return
-				}
-				resp["account_registration_invite"] = map[string]any{
-					"id":         accountInvite.ID,
-					"code":       accountInvite.Code,
-					"url":        accountInvite.URL,
-					"expires_at": accountInvite.ExpiresAt,
-				}
-			}
-			writeJSON(w, http.StatusAccepted, resp)
+			})
 			return
 		}
 		userID = u.ID
+	}
+	// #147 known-user consent invite: when invite=true, record a pending invite the
+	// existing user accepts/denies with their own auth instead of a silent add.
+	if body.Invite {
+		inv, err := s.svc.CreateGroupMembershipInvite(r.Context(), actor.UserID, persona, instanceSlug, userID, role)
+		if err != nil {
+			s.writeGroupOpError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"ok":            true,
+			"persona":       persona,
+			"instance_slug": instanceSlug,
+			"user_id":       userID,
+			"role":          role,
+			"invited":       true,
+			"invite_id":     inv.ID,
+		})
+		return
 	}
 	// #136: actor-aware assignment enforces capability + no-escalation in embedded.
 	if err := s.svc.AssignGroupRoleAs(r.Context(), actor.UserID, persona, instanceSlug, userID, embedded.SubjectKindUser, role); err != nil {

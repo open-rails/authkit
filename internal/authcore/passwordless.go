@@ -42,6 +42,10 @@ type passwordlessChallenge struct {
 	PreferredLanguage string   `json:"preferred_language,omitempty"`
 	ReturnTo          string   `json:"return_to,omitempty"`
 	TokenHashes       []string `json:"token_hashes,omitempty"`
+	// AccountInviteToken carries the unbound single-use account-registration code
+	// from start to confirm (#147): the code is the credential, so it must be
+	// present at consume time, which happens at confirm (when the user id exists).
+	AccountInviteToken string `json:"account_invite_token,omitempty"`
 }
 
 func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRequest) (PasswordlessStartResult, error) {
@@ -77,10 +81,11 @@ func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRe
 	}
 
 	rec := passwordlessChallenge{
-		Channel:           channel,
-		Identifier:        identifier,
-		PreferredLanguage: language,
-		ReturnTo:          sanitizePasswordlessReturnTo(req.ReturnTo),
+		Channel:            channel,
+		Identifier:         identifier,
+		PreferredLanguage:  language,
+		ReturnTo:           sanitizePasswordlessReturnTo(req.ReturnTo),
+		AccountInviteToken: strings.TrimSpace(req.AccountInviteToken),
 	}
 	if user != nil {
 		rec.UserID = user.ID
@@ -304,7 +309,9 @@ func (s *Service) createPasswordlessUser(ctx context.Context, rec passwordlessCh
 		if err := s.setEmailVerified(ctx, u.ID, true); err != nil {
 			return "", err
 		}
-		if err := s.consumeAccountRegistrationInvite(ctx, rec.Identifier, u.ID); err != nil {
+		// #147: re-attach the invite code captured at start so the unbound consume
+		// (keyed on the code, not the email) can run at confirm.
+		if err := s.consumeAccountRegistrationInvite(contextWithAccountRegistrationInviteToken(ctx, rec.AccountInviteToken), rec.Identifier, u.ID); err != nil {
 			return "", err
 		}
 		if rec.PreferredLanguage != "" {
