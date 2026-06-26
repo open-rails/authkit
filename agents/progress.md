@@ -226,6 +226,25 @@ Host mental model:
 - [ ] Update docs/examples to show `persona:resource:action` permissions inside
       persona roles, e.g. `root:users:ban`, `merchant:subscriptions:cancel`,
       `endpoint:deployments:restart`.
+- [x] DECISION: each persona, including the intrinsic root persona, should expose
+      only three optional management capabilities, all off by default: allow API
+      keys, allow remote applications, and allow custom role definitions. Custom
+      role definitions mean a specific permission-group instance may define
+      additional local roles; when off, only the application-declared/hardcoded
+      persona roles exist.
+- [ ] Replace the current split public shape
+      (`AllowCustomRoles` plus `Routes.CustomRoleCreation`, `Routes.APIKeyMinting`,
+      `Routes.RemoteAppRegistration`) with one clearer persona capability block,
+      e.g. `Capabilities: authkit.PersonaCapabilities{APIKeys: true,
+      RemoteApplications: true, CustomRoles: true}`. Keep member assignment and
+      invite acceptance as standard permission-group behavior, not part of this
+      optional capability list.
+- [ ] Allow host config to override root persona capabilities without requiring
+      the host to redefine the whole intrinsic root persona. Root uses the same
+      capability names and route-generation rules as every other persona.
+- [ ] Route generation should derive API-key, remote-application, and custom-role
+      management routes directly from those three capabilities. Disabled means
+      no generated public route.
 - [x] DECISION: simplify identity-provider config. Do not expose separate
       built-in vs custom-provider fields; a provider is a provider.
 - [ ] Delete `IdentityConfig.ProviderDescriptors`.
@@ -382,10 +401,75 @@ Host mental model:
       should not handle private keys for routine embedding.
 - [ ] Move advanced engine hooks out of the first README constructor example:
       `WithEntitlements` (host billing/product entitlements projected into access
-      tokens/admin views), `WithAPIKeyResourceAuthorizer` (host no-escalation check
-      for resource-scoped API keys), and `WithAuthLogger` (external auth/session
-      audit sink such as ClickHouse). Keep them documented only in advanced/support
-      sections.
+      tokens plus admin user detail/list enrichment and entitlement filtering),
+      and `WithAuthLogger` (external auth/session audit sink such as ClickHouse).
+      Keep them documented only in advanced/support sections.
+- [x] DECISION: delete API-key resource scopes entirely. API keys should be
+      scoped by their permission group plus one role; if a host needs narrower
+      scope, it should mint the key on a narrower permission group such as
+      `repo` under `org`, not attach a second opaque resource list to the key.
+- [x] DECISION: API-key verification is built in, not a host constructor option.
+      AuthKit verifies key ID/secret, revocation/expiry, permission group state,
+      and role permissions through the verifier's client-backed enricher.
+- [ ] Remove `WithAPIKeyResourceAuthorizer`,
+      `APIKeyResourceAuthorizer(Func)`, `APIKeyResourceAuthorizationRequest`,
+      `APIKeyResource`, `ErrResourceScopeDenied`, and API-key `Resources` fields
+      from public/core/http contracts.
+- [ ] Remove the `resources` field from `POST /<persona>/<instance_slug>/api-keys`
+      request/response/list payloads; API-key minting remains governed by
+      `<persona>:credentials:manage` plus the existing no-step-up role-grant
+      check.
+- [ ] Preserve built-in credential-management permissions: root operators use
+      intrinsic `root:credentials:manage`; host personas use generated
+      `<persona>:credentials:manage`. Group owners may mint/revoke API keys for
+      permission groups they own, but still cannot grant an API-key role above
+      their own effective permissions.
+- [ ] Drop `profiles.api_key_resources` from the hard-cut Postgres schema and
+      delete resource-scope normalization/load/list/authorization code and tests.
+- [x] DECISION: first-run embedded constructor options should be only normal
+      runtime dependencies: `WithRedis`, `WithEmailSender`, and `WithSMSSender`.
+      Everything else is either config, automatic default, advanced/support, or
+      test/internal plumbing.
+- [x] DECISION: `authhttp.LanguageConfig` should expose only `Supported` and
+      `Default`. Do not make the query parameter or cookie name configurable;
+      hardcode both to `lang`.
+- [ ] Delete public `LanguageConfig.QueryParam` and `LanguageConfig.CookieName`.
+      No language config should mean English-only: supported languages `["en"]`,
+      default `"en"`.
+- [x] DECISION: remove public SMS `DeliveryConfirmTimeout` configuration. The
+      Twilio sender should use a fixed internal delivery-confirm timeout around
+      10-15 seconds; hosts should not tune this in normal AuthKit setup.
+- [ ] Delete `DeliveryConfirmTimeout` from public SMS sender config and docs; keep
+      one package-private constant for the internal default.
+- [x] DECISION: delete `WithDBTXWrapper` entirely. It was only a sqlc/pgx
+      query-decorator seam for hypothetical counting/spy queriers, and current
+      source has no test/user call sites. If a future test needs query spying,
+      add that locally in the test instead of preserving a public option.
+- [ ] Remove `WithDBTXWrapper` from `internal/authcore/options.go`,
+      `embedded/aliases.go`, and any public surface inventory/docs.
+- [x] DECISION: do not expose `WithSolanaSNSResolver` as a normal client option.
+      AuthKit should provide the standard Solana Name Service resolver itself
+      when Solana/SIWS is enabled; hosts should not wire a resolver.
+- [ ] Replace host-provided SNS resolver wiring with an AuthKit-owned default
+      resolver. Keep timeout/cache TTL as fixed internal defaults unless a real
+      host need appears.
+- [ ] Remove `WithSolanaSNSResolver` from first-run docs and public examples; if a
+      custom resolver remains for tests, keep it out of the normal host API.
+- [x] DECISION: do not expose generic auth-event logger/reader wiring in the
+      normal host-facing API. AuthKit supports ClickHouse for auth/session event
+      history; call the option `WithClickHouse(...)` (or `WithClickHouseAuthLog`
+      if the name must be narrower) and wire both write and read sides there.
+- [ ] Add a first-party ClickHouse auth-event adapter that implements both
+      `AuthEventLogger` and `AuthEventLogReader` against the bundled ClickHouse
+      migration schema. This is the standard implementation for admin sign-in
+      history / user login history views.
+- [ ] Replace `embedded.WithAuthLogger(...)` and `authhttp.WithAuthLogReader(...)`
+      in public examples/API with one ClickHouse option. Passing no ClickHouse
+      means no external auth-event history and admin sign-in history routes should
+      report auth log unavailable.
+- [ ] Keep low-level `AuthEventLogger` / `AuthEventLogReader` interfaces internal
+      or advanced-only only if needed for tests; do not document custom file/stdout
+      loggers until there is a real host need.
 - [x] DECISION: remove public `WithEphemeralStore` from the host-facing API. It is
       jargon and unnecessary: AuthKit should always create and use an in-memory
       auth-state store when Redis is not supplied.
@@ -529,29 +613,49 @@ as a separate issue = two migrations of the same construction surface):
 - [ ] KEEP the broad `authkit.Client` seam (per #143 review) — small capability
       interfaces from #143 coexist with it, they don't replace it.
 
+STATUS 2026-06-26 (Claude): track B (standalone server + remote SDK) BUILT & proven
+end-to-end (Paul greenlit "finish your 142"). The key decision — instead of 93
+hand-written REST endpoints (the drift trap #138 warns about), a CODE GENERATOR
+(`internal/genremote`, stdlib go/ast only) parses the `authkit.Client` interface and
+emits BOTH sides into `*_gen.go` (`go generate ./...`, directive on client.go). One
+source of truth → the transports cannot drift. Live smoke test: the binary created a
+user over the management API and read it back; no-token call → 401.
+
 ## Tasks
-- [ ] **Interface portability audit.** Some `authkit.Client` methods are awkward over
-      the wire — `ApplyBootstrapManifestFile(path)` reads a LOCAL file (whose fs? the
-      server's), `CleanupExpiredAuthState` is a maintenance op, raw `Keyfunc`/`JWKS`
-      aren't on the interface but check the rest. Decide per method: keep / drop from
-      the remote surface / reshape (e.g. `ApplyBootstrapManifest(bytes)` only).
-- [ ] **Management HTTP API contract** — versioned REST/JSON covering the portable
-      Client methods (CreateUser, MintServiceJWT, Can, UsersByIDs, BanUser, API-key
-      mgmt, …). The frozen wire contract for non-Go clients + the remote SDK.
-- [ ] **App→server auth** — how a calling app authenticates to the management API
-      (service credential / signed service JWT / mTLS); least-privilege scoping.
-- [ ] **`authkit/server`** — standalone binary logic (engine + authhttp routes + mgmt
-      API + own config/DB/Redis); thin `main` in `cmd/authkit-server`.
-- [ ] **`authkit/remote`** — HTTP-transport SDK; `remote.New` returns a client
-      satisfying `authkit.Client`; per-method marshal + error mapping that preserves
-      `errors.Is(err, authkit.ErrX)` (shared identity #138 already provides).
-- [ ] **Transport seam** — embedded uses an in-process direct-call adapter over the
-      SAME management handlers (not a parallel impl), per etcd `v3client`.
-- [ ] **Config unification** — one server config struct, mutated by the library and
-      filled-from-flags/file by the binary (etcd `embed.Config`/`etcdmain`).
-- [ ] **Tests** — `remote.Client` against an in-process `httptest` server; assert
-      parity with `embedded.Client` over the shared `authkit.Client` interface.
-- [ ] **Docs** — deploy guide; the embedded↔remote one-line swap; non-Go REST examples.
+- [x] **Interface portability audit.** `ApplyBootstrapManifestFile` already dropped from
+      the contract (v0.67.0). The remaining maintenance/infra methods stay on the
+      interface and are exposed verbatim through the generic dispatch (no per-method
+      reshaping needed — the wire is method-name + JSON args).
+- [x] **Management HTTP API contract** — generic dispatch `POST /v1/call/{Method}`:
+      args = JSON object keyed by param name; success `{"result":…}`; failure
+      `{"error":{"code":…}}` with the sentinel code. Covers the FULL `authkit.Client`
+      (93 methods), generated. (`server/management.go` + generated `server/methods_gen.go`.)
+- [x] **App→server auth** — static bearer token (`AUTHKIT_MGMT_TOKEN`). Fail-closed:
+      outside dev the management API is NOT mounted without a token. (mTLS / signed
+      service-JWT / least-privilege scoping are future hardening, not blocking.)
+- [x] **`authkit/server`** — `server.NewHandler(client, token)` over any `authkit.Client`;
+      thin `cmd/authkit-server` main (engine + authhttp browser routes + JWKS + mgmt API
+      + env config). README at `cmd/authkit-server/README.md`.
+- [x] **`authkit/remote`** — `remote.New(url, token)` returns a `*Client` satisfying the
+      FULL `authkit.Client` (compile-time conformance in `remote/conformance.go`). All 93
+      methods generated; error mapping re-derives `errors.Is(err, authkit.ErrX)` via the
+      shared `authkit.ErrorForCode`.
+- [~] **Transport seam** — SOLVED differently from etcd's `v3client`: the management
+      handlers operate on the `authkit.Client` interface, which `embedded.Client` already
+      IS (direct in-process calls — no adapter needed), and `remote.Client` is GENERATED
+      from that same interface. So the two transports are derived from one contract and
+      cannot drift — without routing embedded through HTTP handlers (which would be pure
+      overhead in-process). The literal in-process-HTTP adapter is YAGNI.
+- [~] **Config unification** — the binary builds `embedded.Config` from env (DB/issuer/
+      keys/schema/redis/registration-verification). A shared flag/file-driven config
+      struct is polish, not blocking.
+- [x] **Tests** — `remote/remote_test.go`: fake-`authkit.Client`-backed parity over
+      `httptest` (bool/[]string/pointer-struct/multi-return/no-ctx round-trips + error
+      identity + auth seam). `remote/parity_db_test.go`: REAL embedded engine — write via
+      remote, read via both transports, ban via remote visible to the embedded client.
+- [x] **Docs** — `cmd/authkit-server/README.md` (deploy guide, wire contract, env table,
+      the embedded↔remote one-line swap, non-Go curl examples). Package docs on
+      `server`/`remote`/`genremote` explain the transport + codegen.
 
 ## Open questions
 - Management API home: a new `authkit/server` handler, or extend `authkit/http`?

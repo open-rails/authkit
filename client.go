@@ -1,5 +1,10 @@
 package authkit
 
+// The remote SDK (authkit/remote) and the management-API registry (authkit/server)
+// are GENERATED from the Client interface below — regenerate after changing it:
+//
+//go:generate go run ./internal/genremote
+
 import (
 	"context"
 	"net"

@@ -1,12 +1,20 @@
-// Package remote is the AuthKit remote SDK: a client that talks to a standalone
-// AuthKit server's management API over HTTP, satisfying the same AuthKit
-// capability interfaces an in-process embedded.Client does (#142). Lean — net/http
-// + encoding/json only, no engine, no pgx.
+// Package remote is the AuthKit remote SDK: a Go client that talks to a standalone
+// AuthKit server's management API over HTTP and satisfies the SAME
+// authkit.Client contract an in-process embedded.Client does (#142), so a host
+// swaps embedded↔remote with one construction line:
 //
-// FIRST slice: authkit.Authorizer. remote.Client marshals each Authorizer call to
-// the management API and re-derives AuthKit sentinel errors from the wire so
-// errors.Is(err, authkit.ErrX) works across the network. The remaining
-// authkit.Client methods grow the same way; this proves the transport.
+//	var c authkit.Client
+//	c, _ = embedded.New(cfg, pg)        // in-process
+//	c, _ = remote.New(baseURL, token)   // standalone, over HTTP
+//	c.CreateUser(ctx, "a@b.com", "alice")
+//
+// Transport: every method marshals its arguments to the management API's generic
+// POST /v1/call/{Method} contract (see authkit/server) and decodes {"result": ...}.
+// Argument/result structs are shared with the server package (etcd's api/v3 model),
+// so the two transports cannot drift. AuthKit sentinel errors are re-derived from
+// the wire via authkit.ErrorForCode, so errors.Is(err, authkit.ErrX) holds across
+// the network. Lean: net/http + encoding/json + the authkit contract only — no
+// engine, no pgx.
 package remote
 
 import (
@@ -23,7 +31,8 @@ import (
 	authkit "github.com/open-rails/authkit"
 )
 
-// Client is a remote-backed AuthKit client.
+// Client is a remote-backed AuthKit client. It satisfies authkit.Client; the
+// compile-time assertion lives in conformance.go.
 type Client struct {
 	baseURL string
 	token   string
@@ -33,57 +42,35 @@ type Client struct {
 // New builds a remote client for the management API at baseURL, authenticating
 // with a static bearer token (the app→server credential; "" = none).
 func New(baseURL, token string) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, hc: &http.Client{Timeout: 30 * time.Second}}
+	return &Client{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		token:   token,
+		hc:      &http.Client{Timeout: 30 * time.Second},
+	}
 }
 
-// remote.Client satisfies the Authorizer slice today; the broad authkit.Client
-// comes as the rest of the management API lands.
-var _ authkit.Authorizer = (*Client)(nil)
-
-func (c *Client) Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error) {
-	var out struct {
-		Allowed bool `json:"allowed"`
+// WithHTTPClient overrides the underlying *http.Client (timeouts, transport, mTLS).
+func (c *Client) WithHTTPClient(hc *http.Client) *Client {
+	if hc != nil {
+		c.hc = hc
 	}
-	err := c.post(ctx, "/v1/authz/can", map[string]string{
-		"subject_id": subjectID, "subject_kind": subjectKind,
-		"persona": persona, "instance_slug": instanceSlug, "perm": perm,
-	}, &out)
-	return out.Allowed, err
+	return c
 }
 
-func (c *Client) ListEffectivePermissions(ctx context.Context, subjectID, subjectKind, persona, instanceSlug string) ([]string, error) {
-	var out struct {
-		Values []string `json:"values"`
+// call invokes a management method: POST /v1/call/{method} with args as the JSON
+// body, decoding {"result": <out>} into out (out may be nil for void methods).
+// A non-2xx response is mapped back to an AuthKit sentinel via errorForCode so
+// errors.Is identity survives the wire.
+func (c *Client) call(ctx context.Context, method string, args, out any) error {
+	var body io.Reader
+	if args != nil {
+		b, err := json.Marshal(args)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(b)
 	}
-	err := c.post(ctx, "/v1/authz/effective-permissions", map[string]string{
-		"subject_id": subjectID, "subject_kind": subjectKind,
-		"persona": persona, "instance_slug": instanceSlug,
-	}, &out)
-	return out.Values, err
-}
-
-func (c *Client) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
-	var out struct {
-		Allowed bool `json:"allowed"`
-	}
-	err := c.post(ctx, "/v1/authz/user-allowed", map[string]string{"user_id": userID}, &out)
-	return out.Allowed, err
-}
-
-func (c *Client) ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error) {
-	var out struct {
-		Values []string `json:"values"`
-	}
-	err := c.post(ctx, "/v1/authz/role-slugs", map[string]string{"user_id": userID}, &out)
-	return out.Values, err
-}
-
-func (c *Client) post(ctx context.Context, path string, body, out any) error {
-	b, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/call/"+method, body)
 	if err != nil {
 		return err
 	}
@@ -108,13 +95,21 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	if out == nil {
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	var env struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		return err
+	}
+	if len(env.Result) == 0 || string(env.Result) == "null" {
+		return nil
+	}
+	return json.Unmarshal(env.Result, out)
 }
 
-// errorForCode re-derives an AuthKit sentinel from a wire error code so
-// errors.Is(err, authkit.ErrX) holds across the network, via the shared
-// authkit.ErrorForCode registry (one source of truth for client + server). Codes
-// outside the contract surface as an opaque remote error.
+// errorForCode re-derives an AuthKit sentinel from a wire error code via the
+// shared authkit.ErrorForCode registry (one source of truth for client+server).
+// Codes outside the contract surface as an opaque remote error.
 func errorForCode(code string) error {
 	if code == "" {
 		return errors.New("remote: unknown error")
