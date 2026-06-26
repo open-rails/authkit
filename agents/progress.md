@@ -1490,6 +1490,14 @@ requireHeader=false fallback), `delegated.go`, `remote_application_token.go`, `c
 (`opts.Type`, empty→plain Sign), `authtest/issuer.go`, `cmd/authkit-devserver/main.go`. No
 `.(jwtkit.HeaderSigner)` asserts remain outside `jwt/`.
 
+STATUS 2026-06-26 (Claude): TIER 3 clean batch DONE + green (build+vet; jwt tests): #175 shared
+`signWithHeaders(method,key,kid,claims,headers)` — RSA/ECDSA/Ed25519 `Sign`/`SignWithHeaders` are now
+1-liners over it; #183 deleted `http/oauth2_http_client.go`, OAuth2 callers use
+`defaultOutboundHTTPClient` (test repointed to it + `DefaultOutboundTimeout`); #181 added
+`firstTrimmedNonEmpty` (`http/util.go`), migrated the 4 inline identifier coalesces
+(email_verify/register/passkeys/password_login) + reduced `passwordlessIdentifier` to it. Remaining
+clean Tier-3: #177 (step-up tail), #178 (SIWS decode), #180 (writeAccessTokenJSON), #182 (role-grants).
+
 Remove dead code, redundant no-op wrappers, pure-duplicate helpers, and same-logic /
 different-name functions across the module. Every item is grounded in code (file:line) and
 checked against its call sites + the public re-export layer (`embedded/aliases.go`,
