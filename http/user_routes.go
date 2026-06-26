@@ -155,7 +155,10 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, body.Password); !ok {
 		return
 	}
-	_ = s.svc.SoftDeleteUser(r.Context(), claims.UserID)
+	if err := s.svc.SoftDeleteUser(r.Context(), claims.UserID); err != nil {
+		serverErr(w, ErrFailedToDelete)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -183,13 +186,13 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 		badRequest(w, ErrInvalidProvider)
 		return
 	}
-	hasPwd, links := s.svc.HasPassword(r.Context(), claims.UserID), s.svc.CountProviderLinks(r.Context(), claims.UserID)
-	if !hasPwd && links <= 1 {
-		badRequest(w, ErrCannotUnlinkLastLoginMethod)
+	removed, err := s.svc.UnlinkProviderUnlessLast(r.Context(), claims.UserID, provider)
+	if err != nil {
+		serverErr(w, ErrFailedToUnlink)
 		return
 	}
-	if err := s.svc.UnlinkProvider(r.Context(), claims.UserID, provider); err != nil {
-		serverErr(w, ErrFailedToUnlink)
+	if !removed {
+		badRequest(w, ErrCannotUnlinkLastLoginMethod)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

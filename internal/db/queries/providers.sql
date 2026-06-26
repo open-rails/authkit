@@ -3,6 +3,14 @@
 -- name: UserProvidersCount :one
 SELECT count(*) FROM profiles.user_providers WHERE user_id = $1;
 
+-- name: UserProviderCountForUpdate :one
+-- Locks the user's provider rows (FOR UPDATE in the inner query) and returns the
+-- count, so a concurrent unlink for the same user serializes behind this lock —
+-- closing the last-credential TOCTOU. Must run inside a transaction.
+SELECT count(*)::int AS n FROM (
+  SELECT 1 FROM profiles.user_providers WHERE user_id = sqlc.arg(user_id)::uuid FOR UPDATE
+) locked;
+
 -- name: UserHasPassword :one
 SELECT EXISTS(SELECT 1 FROM profiles.user_passwords WHERE user_id = $1);
 

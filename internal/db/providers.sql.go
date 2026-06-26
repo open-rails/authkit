@@ -63,6 +63,22 @@ func (q *Queries) UserHasPassword(ctx context.Context, userID string) (bool, err
 	return exists, err
 }
 
+const userProviderCountForUpdate = `-- name: UserProviderCountForUpdate :one
+SELECT count(*)::int AS n FROM (
+  SELECT 1 FROM profiles.user_providers WHERE user_id = $1::uuid FOR UPDATE
+) locked
+`
+
+// Locks the user's provider rows (FOR UPDATE in the inner query) and returns the
+// count, so a concurrent unlink for the same user serializes behind this lock —
+// closing the last-credential TOCTOU. Must run inside a transaction.
+func (q *Queries) UserProviderCountForUpdate(ctx context.Context, userID string) (int32, error) {
+	row := q.db.QueryRow(ctx, userProviderCountForUpdate, userID)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
+}
+
 const userProviderDeleteBySlug = `-- name: UserProviderDeleteBySlug :exec
 DELETE FROM profiles.user_providers WHERE user_id = $1 AND provider_slug = $2
 `

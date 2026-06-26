@@ -3842,6 +3842,44 @@ func (s *Service) UnlinkProvider(ctx context.Context, userID, provider string) e
 	return s.unlinkProvider(ctx, userID, provider)
 }
 
+// UnlinkProviderUnlessLast atomically removes the provider link only if the user
+// retains a login method afterward (a password, or another provider). Returns
+// (false, nil) when removal would strip the last login method. The check and the
+// delete run in one transaction, and UserProviderCountForUpdate locks the user's
+// provider rows so two concurrent unlinks of different providers cannot both pass
+// the "not last" check and leave the user with zero login methods.
+func (s *Service) UnlinkProviderUnlessLast(ctx context.Context, userID, provider string) (bool, error) {
+	if s.pg == nil {
+		return false, nil
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.qtx(tx)
+	links, err := q.UserProviderCountForUpdate(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	hasPwd, err := q.UserHasPassword(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	// Mirror the prior guard semantics (no password AND ≤1 provider ⇒ this is the
+	// last login method), now evaluated under the row lock.
+	if !hasPwd && links <= 1 {
+		return false, nil
+	}
+	if err := q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Issuer-based provider link helpers (preferred)
 func (s *Service) GetProviderLinkByIssuer(ctx context.Context, issuer, subject string) (string, *string, error) {
 	return s.getProviderLinkByIssuerInternal(ctx, issuer, subject)
