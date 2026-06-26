@@ -119,6 +119,13 @@ func (c *Client) ConfirmPasswordlessToken(ctx context.Context, token string) (au
 	return out, err
 }
 
+func (c *Client) CreateAccountRegistrationInvite(ctx context.Context, req authkit.CreateAccountRegistrationInviteRequest) (authkit.AccountRegistrationInviteCreated, error) {
+	args := map[string]any{"req": req}
+	var out authkit.AccountRegistrationInviteCreated
+	err := c.call(ctx, "CreateAccountRegistrationInvite", args, &out)
+	return out, err
+}
+
 func (c *Client) CreateGroupInviteLink(ctx context.Context, req authkit.CreateGroupInviteLinkRequest) (authkit.GroupInviteLinkCreated, error) {
 	args := map[string]any{"req": req}
 	var out authkit.GroupInviteLinkCreated
@@ -453,10 +460,10 @@ func (c *Client) ResolveAPIKey(ctx context.Context, keyID string, secret string)
 	return out.R0, out.R1, err
 }
 
-func (c *Client) ResolveAPIKeyWithResources(ctx context.Context, keyID string, secret string) (authkit.ResolvedAPIKey, error) {
+func (c *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID string, secret string) (authkit.ResolvedAPIKey, error) {
 	args := map[string]any{"keyID": keyID, "secret": secret}
 	var out authkit.ResolvedAPIKey
-	err := c.call(ctx, "ResolveAPIKeyWithResources", args, &out)
+	err := c.call(ctx, "ResolveAPIKeyDetailed", args, &out)
 	return out, err
 }
 
@@ -491,6 +498,11 @@ func (c *Client) RevokeAPIKey(ctx context.Context, persona string, instanceSlug 
 	var out bool
 	err := c.call(ctx, "RevokeAPIKey", args, &out)
 	return out, err
+}
+
+func (c *Client) RevokeAccountRegistrationInvite(ctx context.Context, inviteID string, actorUserID string) error {
+	args := map[string]any{"inviteID": inviteID, "actorUserID": actorUserID}
+	return c.call(ctx, "RevokeAccountRegistrationInvite", args, nil)
 }
 
 func (c *Client) RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error {

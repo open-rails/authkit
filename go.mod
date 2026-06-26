@@ -3,6 +3,7 @@ module github.com/open-rails/authkit
 go 1.26.4
 
 require (
+	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
 	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/gin-gonic/gin v1.11.0
 	github.com/go-chi/chi/v5 v5.2.5
@@ -24,7 +25,6 @@ require (
 
 require (
 	github.com/ClickHouse/ch-go v0.68.0 // indirect
-	github.com/ClickHouse/clickhouse-go/v2 v2.40.3 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/bytedance/sonic v1.14.0 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect

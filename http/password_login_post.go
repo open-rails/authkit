@@ -305,7 +305,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 
 	if finalUserID != "" {
 		twoFASettings, twoFAErr := s.svc.Get2FASettings(r.Context(), finalUserID)
-		if twoFAErr == nil && twoFASettings != nil && twoFASettings.Enabled {
+		if twoFAErr == nil && twoFASettings != nil && twoFASettings.Enabled && s.svc.TwoFactorEnabled() {
 			verificationID, method, factor, err := s.svc.Require2FAForLoginFactor(r.Context(), finalUserID, "")
 			if err != nil {
 				if s.handleDeliveryError(w, r, "password_login", "send_2fa_code", err) {

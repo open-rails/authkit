@@ -82,13 +82,11 @@ func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 	ver.WithService(coreSvc)
 	s.verifier = ver
 
-	authProvidersByName, err := buildAuthProvidersMap(cfg.Identity.Providers, cfg.Identity.ProviderDescriptors)
+	authProvidersByName, err := buildAuthProvidersMap(cfg.Identity.Providers)
 	if err != nil {
 		return nil, err
 	}
 	s.authProvidersByName = authProvidersByName
-	s.oidcProviders = cfg.Identity.Providers
-	s.providers = cfg.Identity.ProviderDescriptors
 	s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
 
 	if err := s.validate(cfg); err != nil {
@@ -170,13 +168,7 @@ func WithClientIPFunc(fn ClientIPFunc) Option {
 	}
 }
 
-// WithAuthLogReader supplies the session-event reader (admin sign-in views).
-func WithAuthLogReader(r embedded.AuthEventLogReader) Option {
-	return func(s *Server) { s.authlogr = r }
-}
-
 // WithLanguageConfig sets the i18n language configuration.
 func WithLanguageConfig(cfg LanguageConfig) Option {
 	return func(s *Server) { s.langCfg = &cfg }
 }
-

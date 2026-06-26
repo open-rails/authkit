@@ -88,6 +88,8 @@ type Groups interface {
 	EnsureRootGroup(ctx context.Context) (string, error)
 	SeedPermissionGroupContainment(ctx context.Context) error
 	ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error)
+	CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error)
+	RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error
 	AssignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string) error
 	AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
 	UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
@@ -120,7 +122,7 @@ type APIKeys interface {
 	ListAPIKeys(ctx context.Context, persona, instanceSlug string) ([]APIKey, error)
 	RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error)
 	ResolveAPIKey(ctx context.Context, keyID, secret string) (string, []string, error)
-	ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error)
+	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error)
 }
 
 // Sessions is the refresh-session surface: refresh-token exchange, list, and

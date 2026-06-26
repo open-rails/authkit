@@ -1,6 +1,7 @@
 package authcore
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/internal/db"
@@ -37,23 +38,18 @@ func WithEphemeralStore(store EphemeralStore, mode EphemeralMode) Option {
 // WithEntitlements sets the entitlements provider.
 func WithEntitlements(p EntitlementsProvider) Option { return func(s *Service) { s.entitlements = p } }
 
-// WithAPIKeyResourceAuthorizer authorizes non-empty resource scopes on API-key
-// minting. Without this hook, resource-scoped API-key minting fails closed.
-func WithAPIKeyResourceAuthorizer(a APIKeyResourceAuthorizer) Option {
-	return func(s *Service) { s.apiKeyResource = a }
+// WithClickHouse wires a ClickHouse connection AuthKit uses directly to record
+// and read auth/session-history events (the user_auth_session_events table; see
+// migrations/clickhouse). No ClickHouse means no session-event history and the
+// admin sign-in routes report it unavailable.
+func WithClickHouse(conn clickhouse.Conn) Option {
+	return func(s *Service) {
+		s.authlog = newClickHouseAuthLog(conn)
+	}
 }
-
-// WithAuthLogger sets the session-event audit sink.
-func WithAuthLogger(l AuthEventLogger) Option { return func(s *Service) { s.authlog = l } }
 
 // WithEmailSender sets the email provider.
 func WithEmailSender(sender EmailSender) Option { return func(s *Service) { s.email = sender } }
 
 // WithSMSSender sets the SMS provider.
 func WithSMSSender(sender SMSSender) Option { return func(s *Service) { s.sms = sender } }
-
-// WithSolanaSNSResolver turns on Solana Name Service resolution using the
-// host-provided resolver (SNS is off when no resolver is supplied).
-func WithSolanaSNSResolver(r SolanaSNSResolver) Option {
-	return func(s *Service) { s.opts.SolanaSNSResolver = r }
-}

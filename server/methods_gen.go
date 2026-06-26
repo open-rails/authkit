@@ -208,6 +208,16 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.ConfirmPasswordlessToken(ctx, a.A0)
 		return r0, err
 	},
+	"CreateAccountRegistrationInvite": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 authkit.CreateAccountRegistrationInviteRequest `json:"req"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.CreateAccountRegistrationInvite(ctx, a.A0)
+		return r0, err
+	},
 	"CreateGroupInviteLink": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 authkit.CreateGroupInviteLinkRequest `json:"req"`
@@ -679,7 +689,7 @@ var generatedMethods = map[string]MethodFunc{
 		r0, r1, err := c.ResolveAPIKey(ctx, a.A0, a.A1)
 		return map[string]any{"r0": r0, "r1": r1}, err
 	},
-	"ResolveAPIKeyWithResources": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+	"ResolveAPIKeyDetailed": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"keyID"`
 			A1 string `json:"secret"`
@@ -687,7 +697,7 @@ var generatedMethods = map[string]MethodFunc{
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		r0, err := c.ResolveAPIKeyWithResources(ctx, a.A0, a.A1)
+		r0, err := c.ResolveAPIKeyDetailed(ctx, a.A0, a.A1)
 		return r0, err
 	},
 	"ResolveGroupIDForSlug": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
@@ -743,6 +753,16 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		r0, err := c.RevokeAPIKey(ctx, a.A0, a.A1, a.A2)
 		return r0, err
+	},
+	"RevokeAccountRegistrationInvite": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 string `json:"inviteID"`
+			A1 string `json:"actorUserID"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		return nil, c.RevokeAccountRegistrationInvite(ctx, a.A0, a.A1)
 	},
 	"RevokeAllSessions": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {

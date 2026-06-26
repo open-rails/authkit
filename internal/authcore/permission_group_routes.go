@@ -1,7 +1,7 @@
 package authcore
 
 // Route-surface generation (#111): the auto-generated management routes are
-// DERIVED from each configured group persona's management profile. Public routes
+// DERIVED from each configured group persona. Public routes
 // and permission strings call that configured name the persona: a `merchant` persona
 // emits `/merchant/:instance_slug/...` routes gated by `merchant:<area>:<action>`.
 // A disabled capability emits NO route, so calling it 404s, which is stronger
@@ -27,17 +27,18 @@ type GeneratedRoute struct {
 }
 
 // GeneratedRoutes returns the full management surface implied by the schema's
-// per-persona management profiles. The HTTP layer mounts exactly these; anything
-// a profile disables is simply absent (→ 404). Reads gate on <area>:read;
+// per-persona definition. The HTTP layer mounts exactly these; disabled
+// capabilities are simply absent (→ 404). Reads gate on <area>:read;
 // mutations on the matching <area>:manage built-in.
 func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 	var out []GeneratedRoute
 	for _, persona := range s.Personas() {
 		td, _ := s.Persona(persona)
 		base := "/" + persona + "/:instance_slug"
-		p := td.Routes
+		caps := td.Capabilities
+		memberRoutes := persona != RootPersona
 
-		if p.MemberAssignment {
+		if memberRoutes {
 			rd, mg := PermMembersRead(persona), PermMembersManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/members", rd},
@@ -46,16 +47,19 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 				GeneratedRoute{persona, "PUT", base + "/members/:user/roles/:role", mg},
 			)
 		}
-		// Listing the catalog is always available; defining custom roles only when on.
-		out = append(out, GeneratedRoute{persona, "GET", base + "/roles", PermRolesRead(persona)})
-		if p.CustomRoleCreation {
+		// Listing the role catalog is part of visible role/member management;
+		// personas with every management capability off emit no public routes.
+		if memberRoutes || caps.CustomRoles {
+			out = append(out, GeneratedRoute{persona, "GET", base + "/roles", PermRolesRead(persona)})
+		}
+		if caps.CustomRoles {
 			mg := PermRolesManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "POST", base + "/roles", mg},
 				GeneratedRoute{persona, "DELETE", base + "/roles/:role", mg},
 			)
 		}
-		if p.APIKeyMinting {
+		if caps.APIKeys {
 			rd, mg := PermCredentialsRead(persona), PermCredentialsManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/api-keys", rd},
@@ -63,7 +67,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 				GeneratedRoute{persona, "DELETE", base + "/api-keys/:key", mg},
 			)
 		}
-		if p.RemoteAppRegistration {
+		if caps.RemoteApplications {
 			rd, mg := PermCredentialsRead(persona), PermCredentialsManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "GET", base + "/remote-applications", rd},
@@ -74,7 +78,7 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 		// Invite-LINK routes (#134): mint / list / revoke a high-entropy invite
 		// link. Redemption is NOT here — it is the persona-agnostic POST
 		// /invites/redeem (any authenticated user), mounted as a fixed route.
-		if p.InviteLinks {
+		if memberRoutes {
 			rd, mg := PermMembersRead(persona), PermMembersManage(persona)
 			out = append(out,
 				GeneratedRoute{persona, "POST", base + "/invites/links", mg},

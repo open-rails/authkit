@@ -158,7 +158,6 @@ type ProfilesRemoteApplication struct {
 	DeletedAt  *time.Time
 	// Required controlling permission-group. Authority comes from group_remote_application_roles and the parent walk.
 	PermissionGroupID string
-	AllowedOrigins    []string
 }
 
 // Reference-mode attribute definitions: opaque JSON by remote application, key, and version.

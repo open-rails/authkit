@@ -60,3 +60,50 @@ func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminListUsers_MarksRemovedRootRoles(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))
+	if err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	svc.groupSchema = gs
+	rootGID, err := svc.EnsureRootGroup(ctx)
+	if err != nil {
+		t.Fatalf("ensure root group: %v", err)
+	}
+
+	username := fmt.Sprintf("removedrole-%d", time.Now().UnixNano())
+	var userID string
+	if err := pool.QueryRow(ctx, `INSERT INTO profiles.users (username) VALUES ($1) RETURNING id::text`, username).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, userID) })
+	if _, err := pool.Exec(ctx, `INSERT INTO profiles.group_user_roles (permission_group_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'retired')`, rootGID, userID); err != nil {
+		t.Fatalf("insert orphaned role: %v", err)
+	}
+
+	res, err := svc.AdminListUsers(ctx, AdminUserListOptions{Search: username, PageSize: 10})
+	if err != nil {
+		t.Fatalf("AdminListUsers: %v", err)
+	}
+	if len(res.Users) != 1 {
+		t.Fatalf("expected one user, got %d", len(res.Users))
+	}
+	if len(res.Users[0].Roles) != 0 {
+		t.Fatalf("live roles = %v, want none", res.Users[0].Roles)
+	}
+	if fmt.Sprint(res.Users[0].RemovedRoles) != "[retired]" {
+		t.Fatalf("removed roles = %v, want [retired]", res.Users[0].RemovedRoles)
+	}
+
+	got, err := svc.AdminGetUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("AdminGetUser: %v", err)
+	}
+	if len(got.Roles) != 0 || fmt.Sprint(got.RemovedRoles) != "[retired]" {
+		t.Fatalf("AdminGetUser roles = live %v removed %v, want live [] removed [retired]", got.Roles, got.RemovedRoles)
+	}
+}

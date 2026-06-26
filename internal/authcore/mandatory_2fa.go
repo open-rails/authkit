@@ -14,6 +14,16 @@ import (
 
 var ErrTwoFAEnrollmentRequired = authkit.ErrTwoFAEnrollmentRequired
 
+// TwoFAEnrollmentRequiredError wraps ErrTwoFAEnrollmentRequired with the userID
+// of the gated account, so the refresh-token path can mint a usable enrollment
+// token instead of stranding the user (#148, grounding note b — a 403 with no
+// token at refresh is a lockout). errors.Is(err, ErrTwoFAEnrollmentRequired)
+// still matches.
+type TwoFAEnrollmentRequiredError struct{ UserID string }
+
+func (e *TwoFAEnrollmentRequiredError) Error() string { return ErrTwoFAEnrollmentRequired.Error() }
+func (e *TwoFAEnrollmentRequiredError) Unwrap() error { return ErrTwoFAEnrollmentRequired }
+
 type RemovedMFARoleAssignment struct {
 	PermissionGroupID string
 	Persona           string
@@ -23,6 +33,24 @@ type RemovedMFARoleAssignment struct {
 }
 
 type MFAStatus = authkit.MFAStatus
+
+// Two-factor policy vocabulary is defined in authkit (core-free) and re-exported
+// here (#148).
+type TwoFactorMode = authkit.TwoFactorMode
+
+const (
+	TwoFactorDisabled = authkit.TwoFactorDisabled
+	TwoFactorOptional = authkit.TwoFactorOptional
+	TwoFactorRequired = authkit.TwoFactorRequired
+)
+
+type TwoFactorMethod = authkit.TwoFactorMethod
+
+const (
+	TwoFactorEmail = authkit.TwoFactorEmail
+	TwoFactorSMS   = authkit.TwoFactorSMS
+	TwoFactorTOTP  = authkit.TwoFactorTOTP
+)
 
 func (s *Service) MFAStatus(ctx context.Context, userID string) (MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
@@ -35,11 +63,18 @@ func (s *Service) MFAStatus(ctx context.Context, userID string) (MFAStatus, erro
 	return MFAStatus{
 		Enabled:        settings.Enabled,
 		Satisfied:      settings.Enabled && len(settings.Factors) > 0,
-		AllowedMethods: []string{"email", "sms", "totp"},
+		AllowedMethods: s.TwoFactorAllowedMethods(),
 	}, nil
 }
 
 func (s *Service) requireSessionMFAState(ctx context.Context, userID string, authMethods []string) error {
+	// #148: when 2FA is Disabled, the whole flow is off — neither forced
+	// enrollment nor an enrolled user's challenge applies. (Guards against
+	// stranding a user who enrolled while Optional after the host flips to
+	// Disabled.)
+	if !s.TwoFactorEnabled() {
+		return nil
+	}
 	status, err := s.MFAStatus(ctx, userID)
 	if err != nil {
 		return err

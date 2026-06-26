@@ -21,14 +21,14 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 
 	gs, err := BuildSchema(
 		PersonaDef{
-			Name: "org", AllowedParents: []string{RootPersona}, AllowCustomRoles: true,
-			Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true},
-			Roles:  []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
+			Name:         "org",
+			Parent:       RootPersona,
+			Capabilities: PersonaCapabilities{CustomRoles: true},
+			Roles:        []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
 		},
 		PersonaDef{
-			Name: "repo", AllowedParents: []string{"org"},
-			Routes: ManagementProfile{MemberAssignment: true},
-			Roles:  []RoleDef{{Name: "writer", Permissions: []string{"repo:repo:read", "repo:repo:write"}}},
+			Name: "repo", Parent: "org",
+			Roles: []RoleDef{{Name: "writer", Permissions: []string{"repo:repo:read", "repo:repo:write"}}},
 		},
 	)
 	if err != nil {
@@ -143,8 +143,10 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	t.Cleanup(clean)
 
 	gs, err := BuildSchema(PersonaDef{
-		Name: "org", AllowedParents: []string{RootPersona}, AllowCustomRoles: true,
-		Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true},
+		Name:         "org",
+		Parent:       RootPersona,
+		Capabilities: PersonaCapabilities{CustomRoles: true},
+		Catalog:      []string{"org:billing:read"},
 	})
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
@@ -188,6 +190,9 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	// cross-persona custom perm is rejected (namespace purity).
 	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "bad", []string{"repo:repo:read"}); err == nil {
 		t.Errorf("a cross-persona custom-role grant must be rejected")
+	}
+	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "bad", []string{"org:billing:write"}); err == nil {
+		t.Errorf("an outside-catalog custom-role grant must be rejected")
 	}
 	// delete -> the grant is gone.
 	if err := svc.DeleteGroupCustomRole(ctx, "org", "acme", "auditor"); err != nil {

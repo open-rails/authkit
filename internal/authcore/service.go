@@ -94,13 +94,16 @@ type Options struct {
 	APIKeyMaxTTL time.Duration
 	// TOTPSecretKey encrypts persisted authenticator-app shared secrets.
 	TOTPSecretKey []byte
+	// TwoFactorMode is the account-wide 2FA policy (Disabled/Optional/Required).
+	// Empty is treated as Optional. Mapped from TwoFactorConfig.Mode.
+	TwoFactorMode TwoFactorMode
+	// TwoFactorMethods is the set of enabled second-factor channels. Empty means
+	// all (email/sms/totp). Mapped from TwoFactorConfig.Methods.
+	TwoFactorMethods []TwoFactorMethod
 	// RequireMFAEnrollment forces every user to enroll a second factor: without
 	// usable 2FA, a user cannot establish or refresh a session (returns
-	// ErrTwoFAEnrollmentRequired). Mapped from TwoFactorConfig.RequireEnrollment.
+	// ErrTwoFAEnrollmentRequired). Derived from TwoFactorMode == Required.
 	RequireMFAEnrollment bool
-	// Permissions is the app's permission vocabulary (merged with authkit's
-	// base permission-group permissions).
-	Permissions []PermissionDef
 }
 
 // Keyset holds the active signer and the public keys exposed via JWKS.
@@ -200,8 +203,7 @@ type Service struct {
 	schema         string       // validated Postgres schema name; db.DefaultSchema when unset
 	groupSchema    *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
 	entitlements   EntitlementsProvider
-	apiKeyResource APIKeyResourceAuthorizer
-	authlog        AuthEventLogger
+	authlog        *clickHouseAuthLog // session-event sink/reader; nil unless WithClickHouse
 	ephemeralStore EphemeralStore
 	ephemeralMode  EphemeralMode
 	// cfg is the host Config this Service was built from, retained so the HTTP
@@ -256,6 +258,9 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 		if o != nil {
 			o(s)
 		}
+	}
+	if s.opts.SolanaSNSEnabled && s.opts.SolanaSNSResolver == nil {
+		s.opts.SolanaSNSResolver = newDefaultSolanaSNSResolver()
 	}
 	return s
 }
@@ -360,7 +365,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	}
 	nativeUserRegistrationMode, err := normalizeRegistrationMode(cfg.Registration.NativeUserMode)
 	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, admin_only, admin_bootstrap_only, closed)", cfg.Registration.NativeUserMode)
+		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, closed)", cfg.Registration.NativeUserMode)
 	}
 	tokenPrefix := strings.TrimSpace(cfg.APIKeys.Prefix)
 	if !validAPIKeyPrefix(tokenPrefix) {
@@ -404,8 +409,9 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		APIKeyPrefix:                        tokenPrefix,
 		APIKeyMaxTTL:                        maxTTL,
 		TOTPSecretKey:                       append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),
-		RequireMFAEnrollment:                cfg.TwoFactor.RequireEnrollment,
-		Permissions:                         cfg.RBAC.Permissions,
+		TwoFactorMode:                       normalizeTwoFactorMode(cfg.TwoFactor.Mode),
+		TwoFactorMethods:                    append([]TwoFactorMethod(nil), cfg.TwoFactor.Methods...),
+		RequireMFAEnrollment:                normalizeTwoFactorMode(cfg.TwoFactor.Mode) == TwoFactorRequired,
 	}
 	// pg is positional but MAY be nil at the core layer (verify-only construction
 	// or config-only unit tests need no store); WithPostgres(nil) is a no-op, so a
@@ -415,7 +421,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	svc := NewService(opts, ks, coreOpts...)
 	// #111: build + validate the permission-group schema (intrinsic root injected
 	// when the app declares none). A bad catalog/containment fails construction.
-	gs, gerr := BuildSchema(cfg.RBAC.Groups...)
+	gs, gerr := BuildSchema(cfg.RBAC...)
 	if gerr != nil {
 		return nil, fmt.Errorf("permission-group schema: %w", gerr)
 	}
@@ -462,9 +468,6 @@ func normalizeRegistrationMode(v RegistrationMode) (RegistrationMode, error) {
 	switch value {
 	case RegistrationModeOpen,
 		RegistrationModeInviteOnly,
-		RegistrationModeAdminOnly,
-		RegistrationModeAdminBootstrapOnly,
-		RegistrationModeManifestOnly,
 		RegistrationModeClosed:
 		return value, nil
 	default:
@@ -1768,7 +1771,11 @@ func (s *Service) CreatePendingRegistration(ctx context.Context, email, username
 }
 
 func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
-	if !s.opts.PublicNativeUserRegistrationEnabled() {
+	allowed, err := s.registrationAllowedForEmail(ctx, email)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
 		return "", ErrRegistrationDisabled
 	}
 	language, err := NormalizePreferredLanguage(preferredLanguage)
@@ -1787,6 +1794,9 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 				return "", err
 			}
 		}
+		if err := s.consumeAccountRegistrationInvite(ctx, email, userID); err != nil {
+			return "", err
+		}
 		return "", nil
 	case RegistrationVerificationOptional:
 		verified := s.email == nil
@@ -1800,6 +1810,9 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 			}
 		}
 		if verified {
+			if err := s.consumeAccountRegistrationInvite(ctx, email, userID); err != nil {
+				return "", err
+			}
 			return "", nil
 		}
 		if ttl <= 0 {
@@ -3155,26 +3168,74 @@ func normalizeRootRoleSlug(slug string) string {
 	return strings.ToLower(strings.TrimSpace(slug))
 }
 
-// listRoleSlugsByUser returns a user's root permission-group roles. Operator
-// authority is a root-group assignment.
-func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
+func (s *Service) splitConfiguredRootRoles(roles []string) (live []string, removed []string) {
+	if len(roles) == 0 {
+		return nil, nil
+	}
+	valid := map[string]struct{}{}
+	if s.groupSchema != nil {
+		if root, ok := s.groupSchema.types[RootPersona]; ok {
+			for _, r := range root.Roles {
+				valid[normalizeRootRoleSlug(r.Name)] = struct{}{}
+			}
+		}
+	}
+	if len(valid) == 0 {
+		live = append([]string(nil), roles...)
+		sort.Strings(live)
+		return live, nil
+	}
+	liveSeen := map[string]struct{}{}
+	removedSeen := map[string]struct{}{}
+	for _, raw := range roles {
+		role := normalizeRootRoleSlug(raw)
+		if role == "" {
+			continue
+		}
+		if _, ok := valid[role]; ok {
+			liveSeen[role] = struct{}{}
+			continue
+		}
+		removedSeen[role] = struct{}{}
+	}
+	for role := range liveSeen {
+		live = append(live, role)
+	}
+	for role := range removedSeen {
+		removed = append(removed, role)
+	}
+	sort.Strings(live)
+	sort.Strings(removed)
+	return live, removed
+}
+
+// rootRoleSlugsByUser returns a user's configured root permission-group roles
+// and any stored roles removed from the current schema.
+func (s *Service) rootRoleSlugsByUser(ctx context.Context, userID string) ([]string, []string) {
 	if s.pg == nil {
-		return nil
+		return nil, nil
 	}
 	st := s.groupStore()
 	gid, err := st.RootGroupID(ctx)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(userID), SubjectKindUser)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	var out []string
+	var roles []string
 	for _, a := range asg {
-		out = append(out, a.Roles...)
+		roles = append(roles, a.Roles...)
 	}
-	return out
+	return s.splitConfiguredRootRoles(roles)
+}
+
+// listRoleSlugsByUser returns a user's configured root permission-group roles.
+// Operator authority is a root-group assignment.
+func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []string {
+	live, _ := s.rootRoleSlugsByUser(ctx, userID)
+	return live
 }
 
 var ErrUserRoleNotFound = authkit.ErrUserRoleNotFound
@@ -3500,7 +3561,7 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 			}
 			if rolesByUser, rErr := st.RootRolesForUsers(ctx, gid, ids); rErr == nil {
 				for i := range out {
-					out[i].Roles = rolesByUser[out[i].ID]
+					out[i].Roles, out[i].RemovedRoles = s.splitConfiguredRootRoles(rolesByUser[out[i].ID])
 				}
 			}
 		}
@@ -3547,7 +3608,7 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 		BannedAt: u.BannedAt, BannedUntil: u.BannedUntil, BanReason: u.BanReason, BannedBy: u.BannedBy, DeletedAt: u.DeletedAt,
 		Biography: u.Biography, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLogin: u.LastLogin,
 	}
-	a.Roles = s.listRoleSlugsByUser(ctx, id)
+	a.Roles, a.RemovedRoles = s.rootRoleSlugsByUser(ctx, id)
 	a.Entitlements = s.ListEntitlements(ctx, id)
 	return a, nil
 }
@@ -3708,7 +3769,20 @@ func (s *Service) UpsertPasswordHash(ctx context.Context, userID, hash, algo str
 
 func (s *Service) DeriveUsername(email string) string { return deriveUsername(email) }
 
-// LogSessionCreated records a session creation event via the configured AuthEventLogger (best-effort).
+// SessionEventHistoryEnabled reports whether ClickHouse session-event history is
+// wired (WithClickHouse). The admin sign-in routes report unavailable when false.
+func (s *Service) SessionEventHistoryEnabled() bool { return s.authlog != nil }
+
+// ListSessionEvents returns a user's recent session events from ClickHouse, most
+// recent first. Empty when ClickHouse is not configured.
+func (s *Service) ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error) {
+	if s.authlog == nil {
+		return nil, nil
+	}
+	return s.authlog.ListSessionEvents(ctx, userID, eventTypes...)
+}
+
+// LogSessionCreated records a session creation event to ClickHouse (best-effort).
 func (s *Service) LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
 	if s.authlog == nil {
 		return

@@ -10,9 +10,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authhttp "github.com/open-rails/authkit/http"
 	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/verify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,6 +52,45 @@ func TestRegisterOIDCMountPath(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"code":"invalid_request"`)
 }
 
+func TestUsePropagatesContextAndShortCircuits(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	attachUser := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cl := verify.Claims{UserID: "user-1", Email: "u@example.com"}
+			next.ServeHTTP(w, r.WithContext(verify.SetClaims(r.Context(), cl)))
+		})
+	}
+	router.GET("/ok", Use(attachUser), func(c *gin.Context) {
+		p, ok := Principal(c)
+		require.True(t, ok)
+		require.Equal(t, "user-1", p.Subject)
+		u, ok := UserClaims(c)
+		require.True(t, ok)
+		_, _ = c.Writer.Write([]byte(u.UserID))
+	})
+
+	stop := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "stop", http.StatusUnauthorized)
+		})
+	}
+	router.GET("/stop", Use(stop), func(c *gin.Context) {
+		t.Fatal("handler should not run")
+	})
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "user-1", rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stop", nil))
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Contains(t, rec.Body.String(), "stop")
+}
+
 func newTestService(t *testing.T) *authhttp.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
@@ -62,6 +103,11 @@ func newTestService(t *testing.T) *authhttp.Service {
 			AccessTokenDuration: time.Hour,
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		Identity: embedded.IdentityConfig{
+			Providers: []authprovider.Provider{
+				authprovider.Google("google-client", "google-secret"),
+			},
+		},
 		Keys: embedded.KeysConfig{Source: jwtkit.StaticKeySource{
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{"test-kid": signer.PublicKey()},

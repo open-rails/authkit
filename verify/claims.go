@@ -83,11 +83,6 @@ type Claims struct {
 	// treats permission strings as opaque.
 	Permissions []string
 
-	// Resources are opaque host-defined resource scopes carried by an
-	// API key. Empty means the API-key principal has no AuthKit-stored
-	// resource constraints; resource-aware hosts decide whether to require them.
-	Resources []authkit.APIKeyResource
-
 	// RemoteApplicationID / RemoteApplicationSlug identify the remote_application
 	// authenticated by a remote application access token. Populated ONLY for
 	// RemoteApplicationTokenType claims, resolved server-side from the validated
@@ -107,15 +102,47 @@ const APIKeyPrincipalType = "api-key"
 // the live-user enrichment/ban gate is skipped (there is no user).
 const RemoteApplicationTokenType = "remote_application"
 
-// IsAPIKey reports whether these claims represent an API-key principal, as
-// opposed to a human user or delegated subject.
-func (c Claims) IsAPIKey() bool {
+// PrincipalKind reports the broad credential class represented by these claims.
+func (c Claims) PrincipalKind() authkit.PrincipalKind {
+	switch {
+	case c.isAPIKey():
+		return authkit.PrincipalKindAPIKey
+	case c.isRemoteApplication():
+		return authkit.PrincipalKindRemoteApplication
+	case c.isDelegated():
+		return authkit.PrincipalKindDelegated
+	case strings.TrimSpace(c.UserID) != "":
+		return authkit.PrincipalKindUser
+	default:
+		return ""
+	}
+}
+
+// Principal returns the small generic-auth shape for host adapters.
+func (c Claims) Principal() authkit.Principal {
+	subject := strings.TrimSpace(c.UserID)
+	if c.isDelegated() {
+		subject = strings.TrimSpace(c.DelegatedSubject)
+	}
+	if c.isAPIKey() || c.isRemoteApplication() {
+		subject = strings.TrimSpace(c.RemoteApplicationSlug)
+		if subject == "" {
+			subject = strings.TrimSpace(c.RemoteApplicationID)
+		}
+	}
+	return authkit.Principal{Kind: c.PrincipalKind(), Issuer: strings.TrimSpace(c.Issuer), Subject: subject}
+}
+
+// IsUser reports whether these claims represent a native human user.
+func (c Claims) IsUser() bool {
+	return c.PrincipalKind() == authkit.PrincipalKindUser
+}
+
+func (c Claims) isAPIKey() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), APIKeyPrincipalType)
 }
 
-// IsRemoteApplication reports whether these claims represent a remote
-// application authenticated via a remote application access token.
-func (c Claims) IsRemoteApplication() bool {
+func (c Claims) isRemoteApplication() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenType), RemoteApplicationTokenType)
 }
 
@@ -147,9 +174,7 @@ type DelegatedPrincipal struct {
 	Roles []string
 }
 
-// IsDelegated reports whether these claims represent a delegated principal
-// (i.e. carry `delegated_sub` rather than a local `sub`).
-func (c Claims) IsDelegated() bool {
+func (c Claims) isDelegated() bool {
 	return strings.TrimSpace(c.DelegatedSubject) != ""
 }
 
@@ -159,12 +184,12 @@ func (c Claims) IsDelegated() bool {
 func (c Claims) IsDelegatedAccessToken() bool {
 	return strings.EqualFold(strings.TrimSpace(c.TokenTyp), DelegatedAccessTokenType) &&
 		strings.TrimSpace(c.UserID) == "" &&
-		c.IsDelegated()
+		c.isDelegated()
 }
 
 // Delegated returns the typed DelegatedPrincipal when the claims are delegated.
 func (c Claims) Delegated() (DelegatedPrincipal, bool) {
-	if !c.IsDelegated() {
+	if !c.isDelegated() {
 		return DelegatedPrincipal{}, false
 	}
 	return DelegatedPrincipal{

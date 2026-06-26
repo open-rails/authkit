@@ -62,7 +62,7 @@ func (s *Service) requirePermission(persona, instanceSlug, perm string, next htt
 			return
 		}
 		switch {
-		case claims.IsAPIKey() || claims.IsDelegated() || claims.IsRemoteApplication():
+		case claims.PrincipalKind() != authkit.PrincipalKindUser:
 			if claims.HasPermission(perm) {
 				next.ServeHTTP(w, r)
 				return

@@ -63,20 +63,20 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")
+	require.Contains(t, w.Body.String(), "access_token")
 }
 
 func mandatory2FATestConfig() embedded.Config {
 	cfg := newServerTestConfig()
-	cfg.RBAC.Groups = []embedded.PersonaDef{{
+	cfg.RBAC = []embedded.PersonaDef{{
 		Name: embedded.RootPersona,
 		Roles: []embedded.RoleDef{{
 			Name:        "admin",
 			Permissions: []string{"root:*"},
 			RequiresMFA: true,
 		}},
-		Routes: embedded.ManagementProfile{MemberAssignment: true},
 	}}
 	return cfg
 }

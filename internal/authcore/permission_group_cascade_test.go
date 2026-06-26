@@ -37,8 +37,8 @@ func TestPermissionGroups_ParentDeleteCascadesSubtree(t *testing.T) {
 	st := NewPermissionGroupStore(tx)
 
 	schema, err := BuildSchema(
-		PersonaDef{Name: "org", AllowedParents: []string{RootPersona}, Roles: []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}}},
-		PersonaDef{Name: "repo", AllowedParents: []string{"org"}, Roles: []RoleDef{{Name: "writer", Permissions: []string{"repo:repo:write"}}}},
+		PersonaDef{Name: "org", Parent: RootPersona, Roles: []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}}},
+		PersonaDef{Name: "repo", Parent: "org", Roles: []RoleDef{{Name: "writer", Permissions: []string{"repo:repo:write"}}}},
 	)
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)

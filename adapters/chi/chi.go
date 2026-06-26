@@ -9,8 +9,10 @@ import (
 )
 
 type APIOptions struct {
-	Routes []authhttp.RouteSpec
-	Wrap   func(authhttp.RouteSpec, http.Handler) http.Handler
+	Routes    []authhttp.RouteSpec
+	Groups    []authhttp.RouteGroup
+	Wrap      func(authhttp.RouteSpec, http.Handler) http.Handler
+	routesSet bool
 }
 
 type APIOption func(*APIOptions)
@@ -18,6 +20,13 @@ type APIOption func(*APIOptions)
 func WithRoutes(routes []authhttp.RouteSpec) APIOption {
 	return func(opts *APIOptions) {
 		opts.Routes = routes
+		opts.routesSet = true
+	}
+}
+
+func WithGroups(groups ...authhttp.RouteGroup) APIOption {
+	return func(opts *APIOptions) {
+		opts.Groups = append([]authhttp.RouteGroup(nil), groups...)
 	}
 }
 
@@ -31,10 +40,17 @@ func RegisterAPI(r chi.Router, svc *authhttp.Service, options ...APIOption) {
 	if r == nil || svc == nil {
 		return
 	}
-	opts := APIOptions{Routes: svc.Routes().DefaultAPI()}
+	opts := APIOptions{}
 	for _, option := range options {
 		if option != nil {
 			option(&opts)
+		}
+	}
+	if !opts.routesSet {
+		if opts.Groups != nil {
+			opts.Routes = svc.Routes().Groups(opts.Groups...)
+		} else {
+			opts.Routes = svc.Routes().DefaultAPI()
 		}
 	}
 	registerRoutes(r, "", opts.Routes, opts.Wrap)

@@ -50,25 +50,32 @@ func NewPermissionGroupStore(q db.DBTX) *PermissionGroupStore {
 	return &PermissionGroupStore{q: q}
 }
 
-// SeedContainment upserts the containment schema (group_persona_parents) from a
+// SeedContainment reconciles the containment schema (group_persona_parents) from a
 // validated GroupSchema. Idempotent; call once at bootstrap so the DB trigger
 // can enforce the declared tree shape. root has no rows (parentless).
 func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *GroupSchema) error {
+	live := make([]string, 0, len(schema.Personas()))
 	for _, persona := range schema.Personas() {
 		if schema.IsRoot(persona) {
 			continue
 		}
 		td, _ := schema.Persona(persona)
-		for _, parent := range td.AllowedParents {
-			if _, err := st.q.Exec(ctx,
-				`INSERT INTO profiles.group_persona_parents (persona, allowed_parent_persona)
-				 VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-				persona, parent); err != nil {
-				return fmt.Errorf("seed containment %s<-%s: %w", persona, parent, err)
-			}
+		parent := td.Parent
+		if _, err := st.q.Exec(ctx,
+			`INSERT INTO profiles.group_persona_parents (persona, parent_persona)
+			 VALUES ($1, $2)
+			 ON CONFLICT (persona) DO UPDATE SET parent_persona = EXCLUDED.parent_persona`,
+			persona, parent); err != nil {
+			return fmt.Errorf("seed containment %s<-%s: %w", persona, parent, err)
 		}
+		live = append(live, persona)
 	}
-	return nil
+	if len(live) == 0 {
+		_, err := st.q.Exec(ctx, `DELETE FROM profiles.group_persona_parents`)
+		return err
+	}
+	_, err := st.q.Exec(ctx, `DELETE FROM profiles.group_persona_parents WHERE NOT (persona = ANY($1))`, live)
+	return err
 }
 
 // CreateGroup inserts a permission-group and returns its internal id. parentID/
@@ -259,7 +266,7 @@ func (st *PermissionGroupStore) UnassignSubject(ctx context.Context, groupID, su
 }
 
 // UpsertCustomRole defines/updates a per-group custom role's permission set.
-// Only meaningful for personas whose AllowCustomRoles is set; the caller
+// Only meaningful for personas whose CustomRoles capability is set; the caller
 // enforces that + validates each grant pattern against the group's persona.
 func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID, role string, permissions []string) error {
 	_, err := st.q.Exec(ctx,

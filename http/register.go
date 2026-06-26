@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/authcore"
 	authlang "github.com/open-rails/authkit/lang"
 	pwhash "github.com/open-rails/authkit/password"
 )
@@ -62,7 +63,7 @@ func preferredLanguageFromRequest(r *http.Request) string {
 }
 
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
-	if s.publicRegistrationDisabled() {
+	if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeClosed {
 		registrationDisabled(w)
 		return
 	}
@@ -71,9 +72,10 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req struct {
-		Identifier string `json:"identifier"`
-		Username   string `json:"username"`
-		Password   string `json:"password"`
+		Identifier         string `json:"identifier"`
+		Username           string `json:"username"`
+		Password           string `json:"password"`
+		AccountInviteToken string `json:"account_invite_token,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
@@ -159,6 +161,10 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 				badRequest(w, code)
 				return
 			}
+			if errors.Is(err, authkit.ErrRegistrationDisabled) {
+				registrationDisabled(w)
+				return
+			}
 			serverErr(w, ErrRegistrationFailed)
 			return
 		}
@@ -208,13 +214,18 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		badRequest(w, ErrUsernameInUse)
 		return
 	}
-	_, err = s.svc.CreatePendingRegistrationWithLanguage(r.Context(), identifier, username, phc, 0, preferredLanguage)
+	ctx := authcore.WithAccountRegistrationInviteToken(r.Context(), req.AccountInviteToken)
+	_, err = s.svc.CreatePendingRegistrationWithLanguage(ctx, identifier, username, phc, 0, preferredLanguage)
 	if err != nil {
 		if s.handleDeliveryError(w, r, "register", "send_email_verification", err) {
 			return
 		}
 		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
 			badRequest(w, code)
+			return
+		}
+		if errors.Is(err, authkit.ErrRegistrationDisabled) {
+			registrationDisabled(w)
 			return
 		}
 		serverErr(w, ErrRegistrationFailed)

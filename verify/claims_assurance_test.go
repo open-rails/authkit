@@ -34,23 +34,6 @@ func TestExtractClaimsAssurance(t *testing.T) {
 	}
 }
 
-func TestRequireFreshAuth(t *testing.T) {
-	h := assuranceProtected(RequireFreshAuth(15 * time.Minute))
-
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Minute)}); w.Code != http.StatusOK {
-		t.Fatalf("fresh user status = %d", w.Code)
-	}
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(-time.Hour)}); w.Code != http.StatusForbidden {
-		t.Fatalf("stale user status = %d", w.Code)
-	}
-	if w := serveVerifyClaims(h, Claims{UserID: "u1", AuthTime: time.Now().Add(time.Minute)}); w.Code != http.StatusForbidden {
-		t.Fatalf("future auth_time status = %d", w.Code)
-	}
-	if w := serveVerifyClaims(h, Claims{TokenType: APIKeyPrincipalType, AuthTime: time.Now()}); w.Code != http.StatusForbidden {
-		t.Fatalf("api-key principal status = %d", w.Code)
-	}
-}
-
 func TestSensitiveDefaults(t *testing.T) {
 	h := assuranceProtected(Sensitive())
 

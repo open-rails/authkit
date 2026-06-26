@@ -228,16 +228,16 @@ CREATE INDEX IF NOT EXISTS user_renames_user_idx
 
 CREATE TABLE IF NOT EXISTS profiles.group_persona_parents (
   persona text NOT NULL,
-  allowed_parent_persona text NOT NULL,
+  parent_persona text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (persona, allowed_parent_persona),
+  PRIMARY KEY (persona),
   CONSTRAINT gpp_persona_format_chk CHECK (persona ~ '^[a-z][a-z0-9-]*$'),
-  CONSTRAINT gpp_parent_format_chk CHECK (allowed_parent_persona ~ '^[a-z][a-z0-9-]*$'),
-  CONSTRAINT gpp_not_self_chk CHECK (persona <> allowed_parent_persona),
+  CONSTRAINT gpp_parent_format_chk CHECK (parent_persona ~ '^[a-z][a-z0-9-]*$'),
+  CONSTRAINT gpp_not_self_chk CHECK (persona <> parent_persona),
   CONSTRAINT gpp_root_has_no_parent_chk CHECK (persona <> 'root')
 );
 COMMENT ON TABLE profiles.group_persona_parents IS
-  'Declared containment schema: which parent persona each permission-group persona allows. root is absent.';
+  'Declared containment schema: the single parent persona for each permission-group persona. root is absent.';
 
 CREATE TABLE IF NOT EXISTS profiles.permission_groups (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -296,7 +296,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM profiles.group_persona_parents
-    WHERE persona = NEW.persona AND allowed_parent_persona = NEW.parent_persona
+    WHERE persona = NEW.persona AND parent_persona = NEW.parent_persona
   ) THEN
     RAISE EXCEPTION 'a % group may not have a % parent',
       NEW.persona, NEW.parent_persona USING ERRCODE = 'check_violation';
@@ -322,7 +322,6 @@ CREATE TABLE IF NOT EXISTS profiles.remote_applications (
   deleted_at timestamptz,
   -- #125: ON DELETE CASCADE — a remote-app belongs to its group (uniform with api_keys).
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
-  allowed_origins text[] NOT NULL DEFAULT '{}',
   CONSTRAINT remote_applications_slug_format_chk CHECK (
     char_length(slug) BETWEEN 1 AND 63
     AND slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
@@ -438,6 +437,26 @@ CREATE INDEX IF NOT EXISTS group_invite_links_group_idx
   ON profiles.group_invite_links (permission_group_id)
   WHERE revoked_at IS NULL;
 
+-- Account-registration invites (#147): a standalone high-entropy token that
+-- allows one email address to create an account while NativeUserRegistrationMode
+-- is invite_only. These are deliberately separate from permission-group invite
+-- links; creating an account never auto-redeems a group invite.
+CREATE TABLE IF NOT EXISTS profiles.account_registration_invites (
+  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  email public.citext NOT NULL,
+  invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+  code_hash text NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  consumed_at timestamptz,
+  consumed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS account_registration_invites_email_idx
+  ON profiles.account_registration_invites (email, expires_at)
+  WHERE revoked_at IS NULL AND consumed_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS profiles.api_keys (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
@@ -461,16 +480,4 @@ CREATE INDEX IF NOT EXISTS api_keys_group_idx
 -- #125: api_keys_group_role_idx (permission_group_id, role) removed —
 -- no query filters by role; api_keys_group_idx covers every access.
 COMMENT ON COLUMN profiles.api_keys.role IS
-  'The single catalog/custom role this API key holds within its permission-group. Resource-scope is a separate binding.';
-
-CREATE TABLE IF NOT EXISTS profiles.api_key_resources (
-  api_key_id uuid NOT NULL REFERENCES profiles.api_keys(id) ON DELETE CASCADE,
-  kind text NOT NULL,
-  resource_id text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (api_key_id, kind, resource_id),
-  CONSTRAINT api_key_resources_kind_len_chk CHECK (char_length(kind) BETWEEN 1 AND 128),
-  CONSTRAINT api_key_resources_resource_id_len_chk CHECK (char_length(resource_id) BETWEEN 1 AND 128)
-);
-CREATE INDEX IF NOT EXISTS api_key_resources_key_idx
-  ON profiles.api_key_resources (api_key_id);
+  'The single catalog/custom role this API key holds within its permission-group.';

@@ -47,6 +47,10 @@ type Verifier struct {
 
 	enrich Enricher
 
+	// requireMFAEnrollment, when set, turns on the per-request forced-2FA-enrollment
+	// gate in VerifyRequest (#148). Set from TwoFactor.Mode == Required.
+	requireMFAEnrollment bool
+
 	// Remote-application lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*authkit.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded
@@ -146,6 +150,17 @@ func WithAPIKeyPrefix(prefix string) VerifierOption {
 	return func(v *Verifier) { v.tokenPrefix = strings.TrimSpace(prefix) }
 }
 
+// WithRequireMFAEnrollment enables the per-request forced-enrollment gate (#148):
+// when 2FA policy is Required, a native-user request whose token shows the user
+// is not yet enrolled (mfa_enrolled absent) is rejected with 2fa_enrollment_required
+// unless it targets a 2FA enroll/challenge route. This makes Required gate the
+// SESSION — every existing un-enrolled user is challenged on their next request,
+// not just new signups. Set by the AuthKit server from TwoFactor.Mode; verify-only
+// resource servers leave it off.
+func WithRequireMFAEnrollment(require bool) VerifierOption {
+	return func(v *Verifier) { v.requireMFAEnrollment = require }
+}
+
 // PermissionValidator validates a delegated access token's `permissions`
 // against the receiving service's own permissions. Return an error to
 // reject the token. Called only for delegated access tokens.
@@ -209,7 +224,7 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	if !ok {
 		return Claims{}, true, errors.New("invalid_token")
 	}
-	resolved, rerr := v.enrich.ResolveAPIKeyWithResources(ctx, keyID, secret)
+	resolved, rerr := v.enrich.ResolveAPIKeyDetailed(ctx, keyID, secret)
 	if rerr != nil {
 		switch {
 		case errors.Is(rerr, authkit.ErrAccessTokenRevoked):
@@ -225,7 +240,6 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	}
 	return Claims{
 		Permissions: resolved.Permissions,
-		Resources:   resolved.Resources,
 		TokenType:   APIKeyPrincipalType,
 	}, true, nil
 }
@@ -494,7 +508,7 @@ func (v *Verifier) RemoveIssuer(issuerID string) {
 // dependency on core's storage stack — a verify-only consumer can leave it nil
 // or supply a lightweight implementation (#110).
 type Enricher interface {
-	ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error)
+	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authkit.RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error)
@@ -1004,7 +1018,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	// decoding. `attributes.tier` is the canonical home for the tier label.
 	cl.Attributes = rawAttributesClaim(mc, "attributes")
 
-	if cl.IsDelegated() {
+	if cl.isDelegated() {
 		// Canonical delegated access tokens carry tier under attributes.tier.
 		if tier := rawStringAttribute(cl.Attributes, "tier"); tier != "" {
 			cl.UserTier = tier

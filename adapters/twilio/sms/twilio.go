@@ -36,16 +36,16 @@ type Config struct {
 	PasswordResetBuilder PasswordResetBuilder
 	LoginCodeBuilder     LoginCodeBuilder
 
-	// DeliveryConfirmTimeout, when > 0, turns sending into a synchronous
-	// operation: after the message is accepted, the sender polls the message
-	// status until it reaches a terminal state (or this timeout elapses) and
-	// returns an error if delivery failed (e.g. Twilio error 30032 for an
-	// unverified toll-free sender). Zero keeps the legacy enqueue-only
-	// behavior (return as soon as Twilio accepts the message). No webhooks.
-	DeliveryConfirmTimeout time.Duration
 	// DeliveryPollInterval is the gap between status polls (default 750ms).
 	DeliveryPollInterval time.Duration
 }
+
+// deliveryConfirmTimeout is the FIXED internal synchronous delivery-confirm
+// window: after Twilio accepts a message, the sender polls its status until a
+// terminal state (or this elapses) so delivery failures (e.g. error 30032 for an
+// unverified toll-free sender) surface as errors instead of silent enqueues. Not
+// host-configurable (#143).
+const deliveryConfirmTimeout = 12 * time.Second
 
 // Sender sends SMS messages via Twilio Messaging API.
 type Sender struct {
@@ -59,8 +59,7 @@ type Sender struct {
 	PasswordResetBuilder PasswordResetBuilder
 	LoginCodeBuilder     LoginCodeBuilder
 
-	DeliveryConfirmTimeout time.Duration
-	DeliveryPollInterval   time.Duration
+	DeliveryPollInterval time.Duration
 }
 
 // New creates a validated Twilio Messaging sender.
@@ -78,16 +77,15 @@ func New(cfg Config) (*Sender, error) {
 		return nil, fmt.Errorf("twilio messaging service SID is required")
 	}
 	return &Sender{
-		AccountSID:             accountSID,
-		AuthToken:              authToken,
-		MessagingServiceSID:    messagingServiceSID,
-		AppName:                strings.TrimSpace(cfg.AppName),
-		Client:                 cfg.Client,
-		VerificationBuilder:    cfg.VerificationBuilder,
-		PasswordResetBuilder:   cfg.PasswordResetBuilder,
-		LoginCodeBuilder:       cfg.LoginCodeBuilder,
-		DeliveryConfirmTimeout: cfg.DeliveryConfirmTimeout,
-		DeliveryPollInterval:   cfg.DeliveryPollInterval,
+		AccountSID:           accountSID,
+		AuthToken:            authToken,
+		MessagingServiceSID:  messagingServiceSID,
+		AppName:              strings.TrimSpace(cfg.AppName),
+		Client:               cfg.Client,
+		VerificationBuilder:  cfg.VerificationBuilder,
+		PasswordResetBuilder: cfg.PasswordResetBuilder,
+		LoginCodeBuilder:     cfg.LoginCodeBuilder,
+		DeliveryPollInterval: cfg.DeliveryPollInterval,
 	}, nil
 }
 
@@ -236,9 +234,6 @@ func (s *Sender) sendMessage(ctx context.Context, to, body string) error {
 		// synchronously instead of trusting the "accepted" enqueue response.
 		var created messageResource
 		_ = json.NewDecoder(resp.Body).Decode(&created)
-		if s.DeliveryConfirmTimeout <= 0 {
-			return nil
-		}
 		return s.confirmDelivery(ctx, created)
 	}
 
@@ -326,7 +321,7 @@ func (s *Sender) confirmDelivery(ctx context.Context, created messageResource) e
 	if interval <= 0 {
 		interval = 750 * time.Millisecond
 	}
-	deadline := time.Now().Add(s.DeliveryConfirmTimeout)
+	deadline := time.Now().Add(deliveryConfirmTimeout)
 
 	for {
 		select {

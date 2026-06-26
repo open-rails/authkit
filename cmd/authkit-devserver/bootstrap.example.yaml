@@ -10,12 +10,10 @@ remote_applications:
   - slug: tensorhub-runtime
     issuer: https://tensorhub.example
     jwks_uri: https://tensorhub.example/.well-known/jwks.json
-    allowed_origins:
-      - https://tensorhub.example
     enabled: true
 
 # These groups and roles must already exist from the host application's
-# Config.RBAC.Groups and permission-group creation flow.
+# Config.RBAC and permission-group creation flow.
 group_roles:
   - username: operator
     persona: org

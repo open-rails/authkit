@@ -63,6 +63,40 @@ func TestPasswordlessEmailOTPCreateIfMissingNoPasswordRow(t *testing.T) {
 	require.Zero(t, passwordRows)
 }
 
+func TestPasswordlessInviteOnlyRequiresAndConsumesAccountInvite(t *testing.T) {
+	ctx := context.Background()
+	pool := newServerTestPool(t)
+	cfg := newServerTestConfig()
+	cfg.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
+	cfg.Registration.PasswordlessLogin = true
+	cfg.Registration.PasswordlessAutoRegistration = true
+	emailSender := &captureEmailSender{}
+	srv, err := NewServer(newServerClient(t, cfg, pool, embedded.WithEmailSender(emailSender)), WithoutRateLimiter())
+	require.NoError(t, err)
+
+	email := uniqueEmail("pwless-invite")
+	w := serveJSON(srv, http.MethodPost, "/passwordless/start", `{"identifier":"`+email+`","mode":"code"}`)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"code":"registration_disabled"`)
+
+	inviter, invite := createAccountInvite(t, srv, pool, email)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, inviter)
+	})
+
+	w = serveJSON(srv, http.MethodPost, "/passwordless/start", `{"identifier":"`+email+`","mode":"code","account_invite_token":"`+invite.Code+`"}`)
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	code := emailSender.verificationCode(t)
+
+	w = serveJSON(srv, http.MethodPost, "/passwordless/confirm", `{"identifier":"`+email+`","code":"`+code+`"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	u, err := srv.svc.GetUserByEmail(ctx, email)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, u.ID) })
+	require.True(t, u.EmailVerified)
+	requireAccountInviteConsumed(t, pool, invite.ID, u.ID)
+}
+
 func TestPasswordlessRealHTTPServerEmailOTP(t *testing.T) {
 	ctx := context.Background()
 	srv, emailSender, _ := passwordlessTestServer(t, true)
@@ -178,7 +212,7 @@ func TestPasswordlessDisabledAntiEnumerationAndCodeAttemptCap(t *testing.T) {
 	disabledSrv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(&captureEmailSender{})), WithoutRateLimiter())
 	require.NoError(t, err)
 	w := serveJSON(disabledSrv, http.MethodPost, "/passwordless/start", `{"identifier":"`+uniqueEmail("pwless-disabled")+`"}`)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
 
 	cfg := newServerTestConfig()
 	cfg.Registration.PasswordlessLogin = true

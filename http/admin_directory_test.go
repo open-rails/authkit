@@ -47,9 +47,9 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 			Active: signer,
 			Pubs:   map[string]crypto.PublicKey{"admin-dir-kid": signer.PublicKey()},
 		}},
-		RBAC: authcore.RBACConfig{Groups: []authcore.PersonaDef{
+		RBAC: []authcore.PersonaDef{
 			authcore.IntrinsicRootPersona(authcore.RoleDef{Name: "no-access"}),
-		}},
+		},
 	}, pool)
 	require.NoError(t, err)
 	// Seed the permission-group containment + root group so AssignGroupRole(root,...)

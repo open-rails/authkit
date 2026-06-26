@@ -31,14 +31,15 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 
 	schema, err := BuildSchema(
 		PersonaDef{
-			Name: "org", AllowedParents: []string{RootPersona}, AllowCustomRoles: true,
-			Routes: ManagementProfile{MemberAssignment: true, CustomRoleCreation: true},
-			Roles:  []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
+			Name:         "org",
+			Parent:       RootPersona,
+			Capabilities: PersonaCapabilities{CustomRoles: true},
+			Catalog:      []string{"org:billing:read", "org:repo:read"},
+			Roles:        []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
 		},
 		PersonaDef{
-			Name: "repo", AllowedParents: []string{"org"},
-			Routes: ManagementProfile{MemberAssignment: true},
-			Roles:  []RoleDef{{Name: "writer", Permissions: []string{"repo:repo:read", "repo:repo:write"}}},
+			Name: "repo", Parent: "org",
+			Roles: []RoleDef{{Name: "writer", Permissions: []string{"repo:repo:read", "repo:repo:write"}}},
 		},
 	)
 	if err != nil {
@@ -107,7 +108,7 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 		t.Errorf("GroupByInstanceSlug(org,acme) = %q,%v; want %q", got, err, orgID)
 	}
 
-	// Custom role (org opted into AllowCustomRoles): define it, then assign it to
+	// Custom role (org opted into CustomRoles): define it, then assign it to
 	// a SECOND user who is NOT the owner — so the grant comes solely from the
 	// custom role (the owner's org:* would otherwise mask the test).
 	var uid2 string

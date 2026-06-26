@@ -231,9 +231,6 @@ const (
 	// ErrInvalidAddress is the invalid_address AuthKit HTTP wire error code.
 	ErrInvalidAddress ErrorCode = "invalid_address"
 
-	// ErrInvalidAllowedOrigins is the invalid_allowed_origins AuthKit HTTP wire error code.
-	ErrInvalidAllowedOrigins ErrorCode = "invalid_allowed_origins"
-
 	// ErrInvalidBaseURL is the invalid_base_url AuthKit HTTP wire error code.
 	ErrInvalidBaseURL ErrorCode = "invalid_base_url"
 
@@ -534,9 +531,6 @@ const (
 
 	// ErrReservedAccountNotFound is the reserved_account_not_found AuthKit HTTP wire error code.
 	ErrReservedAccountNotFound ErrorCode = "reserved_account_not_found"
-
-	// ErrResourceScopeDenied is the resource_scope_denied AuthKit HTTP wire error code.
-	ErrResourceScopeDenied ErrorCode = "resource_scope_denied"
 
 	// ErrRoleExceedsGrantor is the role_exceeds_grantor AuthKit HTTP wire error code.
 	ErrRoleExceedsGrantor ErrorCode = "role_exceeds_grantor"

@@ -3,6 +3,8 @@ package authcore
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -66,6 +68,38 @@ func TestNormalizeSolanaSNSName(t *testing.T) {
 		if _, err := normalizeSolanaSNSName(in); err == nil {
 			t.Fatalf("normalizeSolanaSNSName(%q) expected error", in)
 		}
+	}
+}
+
+func TestDefaultSolanaSNSResolverUsesFavoriteDomainProxy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/favorite-domain/wallet-address" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"s":"ok","result":{"domain":"raw","reverse":"Example","stale":false}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	resolver := defaultSolanaSNSResolver{client: server.Client(), baseURL: server.URL}
+	name, err := resolver.ResolvePrimaryName(context.Background(), "wallet-address")
+	if err != nil {
+		t.Fatalf("ResolvePrimaryName: %v", err)
+	}
+	if name != "Example.sol" {
+		t.Fatalf("ResolvePrimaryName = %q, want Example.sol", name)
+	}
+}
+
+func TestNewServiceInstallsDefaultSolanaSNSResolver(t *testing.T) {
+	svc := NewService(Options{SolanaSNSEnabled: true}, Keyset{})
+	if _, ok := svc.opts.SolanaSNSResolver.(defaultSolanaSNSResolver); !ok {
+		t.Fatalf("NewService did not install default SNS resolver: %T", svc.opts.SolanaSNSResolver)
+	}
+
+	custom := fakeSolanaSNSResolver{}
+	customSvc := NewService(Options{SolanaSNSEnabled: true, SolanaSNSResolver: custom}, Keyset{})
+	if _, ok := customSvc.opts.SolanaSNSResolver.(fakeSolanaSNSResolver); !ok {
+		t.Fatalf("custom SolanaSNSResolver did not override default: %T", customSvc.opts.SolanaSNSResolver)
 	}
 }
 

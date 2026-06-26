@@ -1,9 +1,6 @@
 package authcore
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
 // SessionEventType identifies a session lifecycle event.
 type SessionEventType string
@@ -35,12 +32,10 @@ const (
 	SessionRevokeReasonRefreshReuseDetected SessionRevokeReason = "refresh_reuse_detected"
 )
 
-// AuthSessionEvent is a best-effort, append-only session lifecycle record intended for external sinks.
-//
-// ClickHouse schema expectation (see migrations/clickhouse):
-// - issuer, user_id, session_id, event are required
-// - method is typically set for SessionEventCreated
-// - reason is typically set for SessionEventRevoked
+// AuthSessionEvent is a best-effort, append-only session lifecycle record written
+// to ClickHouse (see migrations/clickhouse) when WithClickHouse is configured.
+// issuer/user_id/session_id/event are required; method is typically set for
+// SessionEventCreated and reason for SessionEventRevoked.
 type AuthSessionEvent struct {
 	OccurredAt time.Time
 	Issuer     string
@@ -51,18 +46,4 @@ type AuthSessionEvent struct {
 	Reason     *string
 	IPAddr     *string
 	UserAgent  *string
-}
-
-// AuthEventLogger records authentication session lifecycle events to an external sink (e.g., ClickHouse).
-// Implementations should be non-blocking and best-effort.
-
-type AuthEventLogger interface {
-	LogSessionEvent(ctx context.Context, e AuthSessionEvent) error
-}
-
-// AuthEventLogReader allows listing session events filtered by event types and optional userID.
-type AuthEventLogReader interface {
-	// ListSessionEvents returns session events matching any of the given event types.
-	// If userID is empty, returns events for all users.
-	ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error)
 }

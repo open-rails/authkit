@@ -300,12 +300,11 @@ func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 	})
 
 	manifest := BootstrapManifest{RemoteApplications: []BootstrapManifestRemoteApplication{{
-		Slug:           slug,
-		Issuer:         issuer,
-		JWKSURI:        issuer + "/.well-known/jwks.json",
-		AllowedOrigins: []string{issuer},
-		Enabled:        &enabled,
-		RootRole:       OwnerRoleName,
+		Slug:     slug,
+		Issuer:   issuer,
+		JWKSURI:  issuer + "/.well-known/jwks.json",
+		Enabled:  &enabled,
+		RootRole: OwnerRoleName,
 	}}}
 
 	result, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
@@ -396,9 +395,9 @@ func TestApplyBootstrapManifestAssignsGroupRolesByStableSubjects(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	cfg := schemaTestConfig("")
-	cfg.RBAC.Groups = []PersonaDef{{
-		Name:           "merchant",
-		AllowedParents: []string{RootPersona},
+	cfg.RBAC = []PersonaDef{{
+		Name:   "merchant",
+		Parent: RootPersona,
 		Roles: []RoleDef{
 			{Name: "admin", Permissions: []string{"merchant:payments:refund"}},
 			{Name: "worker", Permissions: []string{"merchant:jobs:run"}},
@@ -438,11 +437,10 @@ func TestApplyBootstrapManifestAssignsGroupRolesByStableSubjects(t *testing.T) {
 			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
 		}},
 		RemoteApplications: []BootstrapManifestRemoteApplication{{
-			Slug:           appSlug,
-			Issuer:         issuer,
-			JWKSURI:        issuer + "/.well-known/jwks.json",
-			AllowedOrigins: []string{issuer},
-			Enabled:        boolPtr(true),
+			Slug:    appSlug,
+			Issuer:  issuer,
+			JWKSURI: issuer + "/.well-known/jwks.json",
+			Enabled: boolPtr(true),
 		}},
 		GroupRoles: []BootstrapManifestGroupRole{
 			{

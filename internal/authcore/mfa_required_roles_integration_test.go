@@ -23,9 +23,8 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	gs, err := BuildSchema(
 		IntrinsicRootPersona(RoleDef{Name: "admin", Permissions: []string{PermRootResourcesRead}, RequiresMFA: true}),
 		PersonaDef{
-			Name: "org", AllowedParents: []string{RootPersona},
-			Routes: ManagementProfile{MemberAssignment: true},
-			Roles:  []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
+			Name: "org", Parent: RootPersona,
+			Roles: []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}}},
 		},
 	)
 	if err != nil {
@@ -86,9 +85,8 @@ func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
 	t.Cleanup(clean)
 
 	gs, err := BuildSchema(PersonaDef{
-		Name: "org", AllowedParents: []string{RootPersona},
-		Routes: ManagementProfile{MemberAssignment: true, InviteLinks: true},
-		Roles:  []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}, RequiresMFA: true}},
+		Name: "org", Parent: RootPersona,
+		Roles: []RoleDef{{Name: "member", Permissions: []string{"org:repo:read"}, RequiresMFA: true}},
 	})
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)

@@ -16,8 +16,8 @@ func TestIntrinsicRootPermissionsAreValid3Segment(t *testing.T) {
 func TestBuildSchema_InjectsRootAndValidates(t *testing.T) {
 	// An app declaring no root persona gets the intrinsic root injected.
 	s, err := BuildSchema(
-		PersonaDef{Name: "merchant", AllowedParents: []string{RootPersona},
-			Routes: ManagementProfile{MemberAssignment: true, APIKeyMinting: true},
+		PersonaDef{Name: "merchant", Parent: RootPersona,
+			Capabilities: PersonaCapabilities{APIKeys: true},
 			Roles: []RoleDef{
 				{Name: "support", Permissions: []string{"merchant:payments:refund"}},
 			}},
@@ -64,5 +64,63 @@ func TestBuildSchema_AppExtendsRootCatalog(t *testing.T) {
 	// A cross-persona perm in a root role must be rejected at declaration.
 	if _, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "bad", Permissions: []string{"merchant:catalog:update"}})); err == nil {
 		t.Errorf("a root role holding merchant: should be rejected (namespace purity)")
+	}
+}
+
+func TestBuildSchema_MergesHostRootIntoIntrinsicRoot(t *testing.T) {
+	s, err := BuildSchema(
+		PersonaDef{
+			Name: RootPersona,
+			Roles: []RoleDef{
+				{Name: "operator", Permissions: []string{"root:users:review"}},
+			},
+			Capabilities: PersonaCapabilities{CustomRoles: true, APIKeys: true},
+			Catalog:      []string{"root:users:review"},
+		},
+		PersonaDef{
+			Name: RootPersona,
+			Roles: []RoleDef{
+				{Name: "auditor", Permissions: []string{"root:resources:read"}},
+			},
+			Catalog: []string{"root:resources:read"},
+		},
+		PersonaDef{Name: "merchant", Parent: RootPersona},
+	)
+	if err != nil {
+		t.Fatalf("BuildSchema: %v", err)
+	}
+	root, ok := s.Persona(RootPersona)
+	if !ok {
+		t.Fatalf("root persona missing")
+	}
+	if !root.Capabilities.CustomRoles || !root.Capabilities.APIKeys {
+		t.Fatalf("root capabilities = %+v, want custom roles and API keys", root.Capabilities)
+	}
+	if len(root.Catalog) != 2 || root.Catalog[0] != "root:users:review" || root.Catalog[1] != "root:resources:read" {
+		t.Fatalf("root catalog = %v, want [root:users:review root:resources:read]", root.Catalog)
+	}
+	if _, ok := s.Role(RootPersona, "operator"); !ok {
+		t.Fatalf("merged root operator role missing")
+	}
+	if _, ok := s.Role(RootPersona, "auditor"); !ok {
+		t.Fatalf("merged root auditor role missing")
+	}
+	if _, ok := s.Role(RootPersona, OwnerRoleName); !ok {
+		t.Fatalf("intrinsic root owner role missing")
+	}
+}
+
+func TestBuildSchema_RejectsMultipleRootCapabilityProviders(t *testing.T) {
+	if _, err := BuildSchema(
+		PersonaDef{Name: RootPersona, Capabilities: PersonaCapabilities{CustomRoles: true}},
+		PersonaDef{Name: RootPersona, Capabilities: PersonaCapabilities{APIKeys: true}},
+	); err == nil {
+		t.Fatalf("BuildSchema accepted multiple root capability providers")
+	}
+}
+
+func TestBuildSchema_RejectsRootParentOverride(t *testing.T) {
+	if _, err := BuildSchema(PersonaDef{Name: RootPersona, Parent: "merchant"}); err == nil {
+		t.Fatalf("BuildSchema accepted a parented root persona")
 	}
 }

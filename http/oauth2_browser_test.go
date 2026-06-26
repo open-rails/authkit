@@ -165,7 +165,7 @@ func TestFetchOAuthUserInfoUsesCustomDescriptorMapping(t *testing.T) {
 // registration is disabled. No DB: the disabled gate fires after the (empty)
 // provider-link + email lookups.
 func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
-	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	cfg := authprovider.Provider{
 		Name:   "github",
 		Kind:   authprovider.KindOAuth2,
@@ -189,7 +189,7 @@ func TestResolveOAuthUser_RegistrationDisabled_BlocksAutoCreate(t *testing.T) {
 // The explicit link flow (StateData.LinkUserID set) is NOT a registration path,
 // so it is unaffected by the registration-disabled gate.
 func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
-	s := newRegistrationModeService(t, embedded.RegistrationModeAdminBootstrapOnly)
+	s := newRegistrationModeService(t, embedded.RegistrationModeClosed)
 	cfg := authprovider.Provider{
 		Name:   "github",
 		Kind:   authprovider.KindOAuth2,
@@ -213,11 +213,10 @@ func TestOAuthCallback_MissingStateOrCode(t *testing.T) {
 	s := newTestService(t)
 	// Register a github OAuth2 provider so the callback resolves past the
 	// unknown-provider check and reaches the state/code validation.
-	s.oidcProviders = map[string]oidckit.RPConfig{
-		"github": {ClientID: "github-client", ClientSecret: "github-secret"},
-	}
 	var err error
-	s.authProvidersByName, err = buildAuthProvidersMap(s.oidcProviders, s.providers)
+	s.authProvidersByName, err = buildAuthProvidersMap([]authprovider.Provider{
+		authprovider.GitHub("github-client", "github-secret"),
+	})
 	require.NoError(t, err)
 	s.resetOIDCManagerForTest()
 	h := s.OIDCHandler()

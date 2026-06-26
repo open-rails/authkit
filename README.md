@@ -4,7 +4,7 @@ Embedded auth library for Go applications. (Standalone server coming later.)
 
 ## Construction
 
-(Example of entire surface area)
+(Basic embedded setup)
 
 ```go
 package main
@@ -16,19 +16,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
-	emailtwilio "github.com/open-rails/authkit/adapters/twilio/email"
-	smstwilio "github.com/open-rails/authkit/adapters/twilio/sms"
-	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authhttp "github.com/open-rails/authkit/http"
-	oidckit "github.com/open-rails/authkit/oidc"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -40,45 +34,6 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 		return nil, nil, nil, err
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     os.Getenv("REDIS_ADDR"),
-		Password: os.Getenv("REDIS_PASSWORD"),
-		DB:       0,
-	})
-
-	emailSender, err := emailtwilio.New(emailtwilio.Config{
-		APIKey:    os.Getenv("TWILIO_SENDGRID_API_KEY"),
-		FromEmail: "auth@app.example.com",
-		FromName:  "My App",
-		AppName:   "My App",
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	smsSender, err := smstwilio.New(smstwilio.Config{
-		AccountSID:          os.Getenv("TWILIO_ACCOUNT_SID"),
-		AuthToken:           os.Getenv("TWILIO_AUTH_TOKEN"),
-		MessagingServiceSID: os.Getenv("TWILIO_MESSAGING_SERVICE_SID"),
-		AppName:             "My App",
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	ch, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{os.Getenv("CLICKHOUSE_ADDR")},
-		Auth: clickhouse.Auth{
-			Database: os.Getenv("CLICKHOUSE_DATABASE"),
-			Username: os.Getenv("CLICKHOUSE_USERNAME"),
-			Password: os.Getenv("CLICKHOUSE_PASSWORD"),
-		},
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	entitlements := NewEntitlementsProvider(pg) // host-owned billing/product provider
 	// Trust only infrastructure that overwrites/appends forwarded headers.
 	trustedProxies := []netip.Prefix{
 		netip.MustParsePrefix("10.0.0.0/8"),
@@ -104,46 +59,30 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 			InvitePath:        "/accept-invite",
 		},
 		Registration: embedded.RegistrationConfig{
-			Verification:                 embedded.RegistrationVerificationRequired,
-			NativeUserMode:               embedded.RegistrationModeOpen,
+			Verification:                 authkit.RegistrationVerificationRequired,
+			NativeUserMode:               authkit.RegistrationModeOpen,
 			PasswordlessLogin:            true,
 			PasswordlessAutoRegistration: false,
 		},
 		Keys: embedded.KeysConfig{
+			// Vault-mounted key directory. AuthKit reads the JWT signing keys from
+			// <Path>/keys.json and the TOTP secret-encryption key (#148) from
+			// <Path>/totp.key — a base64/hex-encoded 16/24/32-byte AES key, perms
+			// 0600/0400. Hosts never load these secrets manually.
 			Path: "/vault/auth",
 		},
-		Identity: embedded.IdentityConfig{
-			Providers: map[string]oidckit.RPConfig{
-				"google": {
-					ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-					ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-					Scopes:       []string{"openid", "email", "profile"},
-				},
-			},
-			ProviderDescriptors: map[string]authprovider.Provider{
-				"custom": {
-					Name:         "custom",
-					Kind:         authprovider.KindOIDC,
-					Issuer:       "https://identity.example.com",
-					ClientID:     os.Getenv("CUSTOM_OIDC_CLIENT_ID"),
-					ClientSecret: authprovider.ClientSecret{Env: "CUSTOM_OIDC_CLIENT_SECRET"},
-					Scopes:       []string{"openid", "email", "profile"},
-					UserMapping: authprovider.UserMapping{
-						Subject:           authprovider.FieldMapping{Path: "sub"},
-						Email:             authprovider.FieldMapping{Path: "email", Transforms: []string{"trim", "lowercase"}},
-						EmailVerified:     authprovider.FieldMapping{Path: "email_verified"},
-						PreferredUsername: authprovider.FieldMapping{Path: "email", Transforms: []string{"trim", "lowercase"}},
-						DisplayName:       authprovider.FieldMapping{Path: "name"},
-					},
-				},
-			},
-		},
+		Identity: embedded.IdentityConfig{},
 		APIKeys: embedded.APIKeysConfig{
 			Prefix: "myapp",
 			MaxTTL: 90 * 24 * time.Hour,
 		},
 		TwoFactor: embedded.TwoFactorConfig{
-			RequireEnrollment: false,
+			// Mode: Disabled | Optional | Required. Required gates the SESSION —
+			// existing un-enrolled users are challenged on their next request.
+			Mode:    authkit.TwoFactorOptional,
+			Methods: []authkit.TwoFactorMethod{authkit.TwoFactorEmail, authkit.TwoFactorTOTP},
+			// TOTPSecretKey is an override for tests; the normal path loads
+			// <Keys.Path>/totp.key (see Keys above).
 		},
 		Passkeys: embedded.PasskeyConfig{
 			RPID:             "app.example.com",
@@ -151,37 +90,51 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 			Origins:          []string{"https://app.example.com"},
 			UserVerification: "preferred",
 		},
-		RBAC: embedded.RBACConfig{
-			Permissions: []authkit.PermissionDef{
-				{Name: "org:members:read", Description: "Read organization members"},
-				{Name: "org:members:invite", Description: "Invite organization members"},
-				{Name: "repo:models:read", Description: "Read repo models"},
-				{Name: "repo:models:deploy", Description: "Deploy repo models"},
-			},
-			Groups: []authkit.PersonaDef{
-				{
-					Name:   "org",
-					Parent: authkit.RootPersona,
-					Roles: []authkit.RoleDef{
-						{
-							Name: "admin",
-							Permissions: []string{
-								"org:members:read",
-								"org:members:invite",
-							},
+		RBAC: []authkit.PersonaDef{
+			{
+				Name: authkit.RootPersona,
+				Roles: []authkit.RoleDef{
+					{
+						Name: "support",
+						Permissions: []string{
+							"root:users:ban",
+							"root:users:recover",
 						},
 					},
 				},
-				{
-					Name:   "repo",
-					Parent: "org",
-					Roles: []authkit.RoleDef{
-						{
-							Name: "developer",
-							Permissions: []string{
-								"repo:models:read",
-								"repo:models:deploy",
-							},
+				// Optional. Root capabilities are off unless the host enables them.
+				Capabilities: authkit.PersonaCapabilities{CustomRoles: true},
+				Catalog: []string{
+					"root:users:ban",
+					"root:users:recover",
+				},
+			},
+			{
+				Name:   "org",
+				Parent: authkit.RootPersona,
+				Roles: []authkit.RoleDef{
+					{
+						Name: "admin",
+						Permissions: []string{
+							"org:members:read",
+							"org:members:invite",
+						},
+					},
+				},
+			},
+			{
+				Name:   "repo",
+				Parent: "org",
+				Capabilities: authkit.PersonaCapabilities{
+					APIKeys:            true,
+					RemoteApplications: true,
+				},
+				Roles: []authkit.RoleDef{
+					{
+						Name: "developer",
+						Permissions: []string{
+							"repo:models:read",
+							"repo:models:deploy",
 						},
 					},
 				},
@@ -192,13 +145,7 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 		SolanaNetwork: "mainnet",
 	}
 
-	client, err := embedded.NewClient(cfg, pg,
-		embedded.WithRedis(rdb),
-		embedded.WithEmailSender(emailSender),
-		embedded.WithSMSSender(smsSender),
-		embedded.WithEntitlements(entitlements),
-		embedded.WithClickHouse(ch),
-	)
+	client, err := embedded.New(cfg, pg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -376,15 +323,44 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 This exposes AuthKit routes such as `/api/v1/token`, `/api/v1/me`, and
 `/.well-known/jwks.json`.
 
+Use `embedded.New` for in-process AuthKit operations and `authhttp.NewServer`
+for mounted HTTP routes. The future standalone server will use `remote.New` for
+the same `authkit.Client` contract.
+
 `RegisterAPI(v1, srv)` registers every enabled JSON API route. Use
 `WithGroups(...)` only when the host wants to mount selected surfaces:
 `auth`, `registration`, `account`, `admin`, and `permission_groups`. Browser
 OIDC redirects are mounted separately with `RegisterOIDC`; JWKS is mounted with
 `RegisterJWKS`.
 
+### RBAC config and durability
+
+`Config.RBAC` is a single `[]authkit.PersonaDef` slice. Each persona is a
+permission namespace and declares roles with `persona:resource:action` grants.
+`root` is configured with the same shape as any other persona: `Parent` is empty,
+capabilities default off, and any host root entry is merged with AuthKit's
+intrinsic root owner and built-in `root:` permissions.
+
+Role definitions and per-persona `Catalog` entries are in-memory config. Editing
+a role's grants changes what every holder of that role can do after the new
+schema is loaded. The containment shape and runtime rows are durable:
+`group_persona_parents` is reconciled from config, while `group_user_roles`,
+`group_custom_roles`, and `api_keys` keep name references to personas and roles.
+
+Treat persona names and role names as durable identifiers. Do not rename in
+place; create a new name, migrate assignments, then retire the old one. Removing
+a role, catalog grant, or persona fails closed: unresolved names grant nothing,
+but AuthKit does not auto-delete those rows because a typo in config must not
+erase operator intent. Review and clean up drifted rows deliberately, and do not
+reuse a retired name for a different meaning until old assignments are cleared.
+
 ---
 
 ## Advanced Host Flows
+
+For session history, run `migrations/clickhouse` and pass a
+`clickhouse.Conn` to `embedded.New` with `embedded.WithClickHouse(ch)`.
+`authhttp.NewServer(client)` uses that same client as the admin sign-in reader.
 
 ```go
 func mountAdvancedAuthExamples(

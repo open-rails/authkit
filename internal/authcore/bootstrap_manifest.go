@@ -321,9 +321,6 @@ func validateBootstrapManifest(manifest BootstrapManifest) error {
 		if _, err := NormalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys); err != nil {
 			return err
 		}
-		if _, err := NormalizeAllowedOrigins(app.AllowedOrigins); err != nil {
-			return err
-		}
 	}
 	for _, role := range manifest.GroupRoles {
 		username := strings.TrimSpace(role.Username)
@@ -352,7 +349,6 @@ func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app Boots
 		Issuer:            strings.TrimSpace(app.Issuer),
 		JWKSURI:           strings.TrimSpace(app.JWKSURI),
 		PublicKeys:        app.PublicKeys,
-		AllowedOrigins:    app.AllowedOrigins,
 		Enabled:           *app.Enabled,
 	})
 	if err != nil {

@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 const (
 	defaultSolanaSNSLookupTimeout = 3 * time.Second
 	defaultSolanaSNSCacheTTL      = 24 * time.Hour
+	defaultSolanaSNSProxyURL      = "https://sdk-proxy.sns.id"
 
 	SolanaSNSStatusDisabled = "disabled"
 	SolanaSNSStatusPending  = "pending"
@@ -31,6 +35,70 @@ const (
 // SolanaSNSResolver resolves a verified Solana wallet address to its primary .sol name.
 type SolanaSNSResolver interface {
 	ResolvePrimaryName(ctx context.Context, address string) (string, error)
+}
+
+type defaultSolanaSNSResolver struct {
+	client  *http.Client
+	baseURL string
+}
+
+func newDefaultSolanaSNSResolver() SolanaSNSResolver {
+	return defaultSolanaSNSResolver{
+		client:  http.DefaultClient,
+		baseURL: defaultSolanaSNSProxyURL,
+	}
+}
+
+func (r defaultSolanaSNSResolver) ResolvePrimaryName(ctx context.Context, address string) (string, error) {
+	baseURL := strings.TrimRight(r.baseURL, "/")
+	if baseURL == "" {
+		baseURL = defaultSolanaSNSProxyURL
+	}
+	endpoint := baseURL + "/favorite-domain/" + url.PathEscape(strings.TrimSpace(address))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	client := r.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("sns proxy status %d", resp.StatusCode)
+	}
+	var body struct {
+		Status string `json:"s"`
+		Result struct {
+			Reverse string `json:"reverse"`
+			Domain  string `json:"domain"`
+			Stale   bool   `json:"stale"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", err
+	}
+	if body.Status != "ok" {
+		return "", fmt.Errorf("sns proxy status %q", body.Status)
+	}
+	// stale=true means the wallet set this as its favorite/primary domain but has
+	// since transferred or sold it — it no longer owns the name. Treat as no
+	// primary name so AuthKit never displays a .sol name the user gave up.
+	if body.Result.Stale {
+		return "", nil
+	}
+	name := strings.TrimSpace(body.Result.Reverse)
+	if name == "" {
+		return "", nil
+	}
+	if !strings.HasSuffix(strings.ToLower(name), ".sol") {
+		name += ".sol"
+	}
+	return name, nil
 }
 
 // SolanaLinkedAccount is the AuthKit-owned normalized metadata for a SIWS-linked wallet.

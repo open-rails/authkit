@@ -16,6 +16,7 @@ const (
 	RLAuthRegisterResendEmail  = "auth_register_resend_email"
 	RLAuthRegisterResendPhone  = "auth_register_resend_phone"
 	RLAuthRegisterAbandon      = "auth_register_abandon"
+	RLInviteCreate             = "auth_invite_create"
 	RLPasswordLogin            = "auth_password_login"
 	RLPasswordlessStart        = "auth_passwordless_start"
 	RLPasswordlessConfirm      = "auth_passwordless_confirm"

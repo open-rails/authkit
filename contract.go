@@ -11,7 +11,6 @@ type APIKey struct {
 	Name        string
 	Role        string
 	Permissions []string
-	Resources   []APIKeyResource
 	CreatedBy   string
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
@@ -22,7 +21,6 @@ type APIKey struct {
 type APIKeyMintOptions struct {
 	Name      string
 	Role      string
-	Resources []APIKeyResource
 	CreatedBy string
 	ExpiresAt *time.Time
 }
@@ -53,13 +51,12 @@ type BootstrapManifestUser struct {
 }
 
 type BootstrapManifestRemoteApplication struct {
-	Slug           string         `json:"slug" yaml:"slug"`
-	Issuer         string         `json:"issuer" yaml:"issuer"`
-	JWKSURI        string         `json:"jwks_uri" yaml:"jwks_uri"`
-	PublicKeys     []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
-	AllowedOrigins []string       `json:"allowed_origins" yaml:"allowed_origins"`
-	Enabled        *bool          `json:"enabled" yaml:"enabled"`
-	RootRole       string         `json:"root_role" yaml:"root_role"`
+	Slug       string         `json:"slug" yaml:"slug"`
+	Issuer     string         `json:"issuer" yaml:"issuer"`
+	JWKSURI    string         `json:"jwks_uri" yaml:"jwks_uri"`
+	PublicKeys []RemoteAppKey `json:"public_keys" yaml:"public_keys"`
+	Enabled    *bool          `json:"enabled" yaml:"enabled"`
+	RootRole   string         `json:"root_role" yaml:"root_role"`
 }
 
 type BootstrapManifestGroupRole struct {
@@ -181,7 +178,7 @@ type GroupInviteLink struct {
 	PermissionGroupID string
 	Role              string
 	InvitedBy         string
-	Email             string // "" = shareable (anyone may redeem)
+	Email             string // "" = permission-group shareable link; set = permission-group email-bound invite
 	MaxUses           *int   // nil = unlimited
 	Uses              int
 	ExpiresAt         *time.Time
@@ -194,7 +191,7 @@ type CreateGroupInviteLinkRequest struct {
 	Persona      string
 	InstanceSlug string
 	Role         string
-	Email        string
+	Email        string // empty => permission-group shareable link; set => permission-group email-bound invite
 	MaxUses      *int
 	ExpiresIn    time.Duration
 	InvitedBy    string
@@ -210,6 +207,32 @@ type RedeemGroupInviteLinkResult struct {
 	Persona      string
 	InstanceSlug string
 	Role         string
+}
+
+type AccountRegistrationInvite struct {
+	ID         string
+	Email      string
+	InvitedBy  string
+	ExpiresAt  time.Time
+	RevokedAt  *time.Time
+	ConsumedAt *time.Time
+	ConsumedBy *string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type CreateAccountRegistrationInviteRequest struct {
+	Email     string
+	InvitedBy string
+	ExpiresIn time.Duration
+}
+
+type AccountRegistrationInviteCreated struct {
+	ID        string
+	Code      string
+	URL       string
+	Email     string
+	ExpiresAt time.Time
 }
 
 type ImportUserStatus string
@@ -235,10 +258,11 @@ type MFAStatus struct {
 }
 
 type PasswordlessStartRequest struct {
-	Identifier        string
-	Mode              string
-	ReturnTo          string
-	PreferredLanguage string
+	Identifier         string
+	Mode               string
+	ReturnTo           string
+	PreferredLanguage  string
+	AccountInviteToken string
 }
 
 type PasswordlessStartResult struct {
@@ -343,6 +367,7 @@ type AdminUser struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 	LastLogin       *time.Time `json:"last_login"`
 	Roles           []string   `json:"roles"`
+	RemovedRoles    []string   `json:"removed_roles,omitempty"`
 	Entitlements    []string   `json:"entitlements"`
 }
 
@@ -351,6 +376,16 @@ type AdminListUsersResult struct {
 	Total  int64       `json:"total"`
 	Limit  int         `json:"limit"`
 	Offset int         `json:"offset"`
+}
+
+type RBACDriftReport struct {
+	GroupUserRoles int `json:"group_user_roles"`
+	CustomRoles    int `json:"group_custom_roles"`
+	APIKeys        int `json:"api_keys"`
+}
+
+func (r RBACDriftReport) Total() int {
+	return r.GroupUserRoles + r.CustomRoles + r.APIKeys
 }
 
 type AdminUserStatus string
@@ -372,7 +407,6 @@ type ServiceJWTMintOptions struct {
 	Subject     string
 	Audiences   []string
 	Permissions []string
-	Resources   []APIKeyResource
 	Lifetime    time.Duration
 	NotBefore   time.Time
 	IssuedAt    time.Time

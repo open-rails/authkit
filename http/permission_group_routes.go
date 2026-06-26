@@ -20,17 +20,7 @@ import (
 	"github.com/open-rails/authkit/embedded"
 )
 
-// RoutePermissionGroups is the route group for the auto-generated per-persona
-// group-management surface plus the cross-persona /me/groups discovery route.
-const RoutePermissionGroups RouteGroup = "permission_groups"
-
-// groupCan is the authorization predicate the generated handlers gate on. It
-// defaults to embedded.Client.Can; it is a field only so handler tests can stub the
-// decision without a database (production never reassigns it).
 func (s *Service) groupCan(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error) {
-	if s.groupCanFn != nil {
-		return s.groupCanFn(r, subjectID, persona, instanceSlug, perm)
-	}
 	return s.svc.Can(r.Context(), subjectID, embedded.SubjectKindUser, persona, instanceSlug, perm)
 }
 
@@ -52,30 +42,31 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 
 	specs := s.permissionGroupRouteSpecs()
-	// Cross-persona discovery endpoint (not schema-derived; always present).
-	specs = append(specs, RouteSpec{
-		Method:  http.MethodGet,
-		Path:    "/me/groups",
-		Group:   RoutePermissionGroups,
-		Handler: http.HandlerFunc(s.handleMeGroupsGET),
-	})
+	if s.hasUserVisibleMemberships() {
+		specs = append(specs, RouteSpec{
+			Method:  http.MethodGet,
+			Path:    "/me/groups",
+			Group:   RouteAccount,
+			Handler: http.HandlerFunc(s.handleMeGroupsGET),
+		})
+	}
 	// Permission-introspection (#421): the caller's effective grants in one group
 	// instance (?persona=, ?instance=; defaults to the singleton root group), so a
 	// client gates UI on permission strings instead of expanding role slugs.
 	specs = append(specs, RouteSpec{
 		Method:  http.MethodGet,
 		Path:    "/me/permissions",
-		Group:   RoutePermissionGroups,
+		Group:   RouteAccount,
 		Handler: http.HandlerFunc(s.handleMePermissionsGET),
 	})
-	// Invite-link redemption (#134): persona-agnostic, any authenticated user.
-	// Gets the same auth + language middleware wrapping as the rest below.
-	specs = append(specs, RouteSpec{
-		Method:  http.MethodPost,
-		Path:    "/invites/redeem",
-		Group:   RoutePermissionGroups,
-		Handler: http.HandlerFunc(s.handleInviteRedeemPOST),
-	})
+	if s.hasInviteLinkSupport() {
+		specs = append(specs, RouteSpec{
+			Method:  http.MethodPost,
+			Path:    "/invites/redeem",
+			Group:   RoutePermissionGroups,
+			Handler: http.HandlerFunc(s.handleInviteRedeemPOST),
+		})
+	}
 
 	out := make([]RouteSpec, 0, len(specs))
 	for _, spec := range specs {
@@ -90,6 +81,32 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 // TABLE is unit-testable against a schema profile with no middleware/DB.
 func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
 	return generatedRouteSpecs(s, s.svc.PermissionGroupSchema().GeneratedRoutes())
+}
+
+func (s *Service) hasUserVisibleMemberships() bool {
+	if s == nil || s.svc == nil {
+		return false
+	}
+	schema := s.svc.PermissionGroupSchema()
+	for _, persona := range schema.Personas() {
+		if persona != embedded.RootPersona {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) hasInviteLinkSupport() bool {
+	if s == nil || s.svc == nil {
+		return false
+	}
+	schema := s.svc.PermissionGroupSchema()
+	for _, persona := range schema.Personas() {
+		if persona != embedded.RootPersona {
+			return true
+		}
+	}
+	return false
 }
 
 // generatedRouteSpecs translates core GeneratedRoutes into authhttp RouteSpecs,

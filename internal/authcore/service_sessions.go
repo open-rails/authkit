@@ -161,6 +161,11 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", err
 	}
 	if err := s.requireSessionMFAState(ctx, uid, cur.AuthMethods); err != nil {
+		// Carry the userID so the refresh handler can hand back a usable
+		// enrollment token instead of a dead-end 403 (#148, note b).
+		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
+			return "", time.Time{}, "", &TwoFAEnrollmentRequiredError{UserID: uid}
+		}
 		return "", time.Time{}, "", err
 	}
 

@@ -36,17 +36,14 @@ func TestVerifyServiceJWTValidToken(t *testing.T) {
 		Subject:     "service:hentai0-runtime",
 		Audiences:   []string{"openrails"},
 		Permissions: []string{"openrails:entitlements:read"},
-		Resources:   []authkit.APIKeyResource{{Persona: "openrails.merchant", ID: "hentai0"}},
 		JTI:         "jti-1",
 	})
 	require.NoError(t, err)
 
-	claims, principal, err := v.VerifyServiceJWT(context.Background(), token)
+	claims, err := v.VerifyServiceJWT(context.Background(), token)
 	require.NoError(t, err)
 	require.Equal(t, "service:hentai0-runtime", claims.Subject)
-	require.Equal(t, "hentai0", principal.RemoteApplicationSlug)
-	require.Equal(t, []string{"openrails:entitlements:read"}, principal.Permissions)
-	require.Equal(t, []authkit.APIKeyResource{{Persona: "openrails.merchant", ID: "hentai0"}}, principal.Resources)
+	require.Equal(t, []string{"openrails:entitlements:read"}, claims.Permissions)
 }
 
 func TestVerifyServiceJWTRejections(t *testing.T) {
@@ -61,7 +58,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			Subject: "service:hentai0-runtime", Audiences: []string{"tensorhub"},
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.EqualError(t, err, "bad_audience")
 	})
 
@@ -72,7 +69,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			"jti": "expired", "token_use": authkit.ServiceJWTTokenUse, "permissions": []string{"openrails:entitlements:read"},
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.EqualError(t, err, "token_expired")
 	})
 
@@ -83,7 +80,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			"jti": "too-long", "token_use": authkit.ServiceJWTTokenUse, "permissions": []string{"openrails:entitlements:read"},
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.EqualError(t, err, "service_jwt_lifetime_exceeded")
 	})
 
@@ -94,7 +91,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			"permissions": []string{"openrails:entitlements:read"},
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.ErrorIs(t, err, authkit.ErrInvalidServiceJWT)
 	})
 
@@ -105,7 +102,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			"token_use": "access", "permissions": []string{"openrails:entitlements:read"},
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.ErrorIs(t, err, authkit.ErrInvalidServiceJWT)
 	})
 
@@ -116,7 +113,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			"token_use": authkit.ServiceJWTTokenUse, "permissions": "openrails:entitlements:read",
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.EqualError(t, err, "malformed_permissions")
 	})
 
@@ -127,7 +124,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			Subject: "service:hentai0-runtime", Audiences: []string{"openrails"},
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.EqualError(t, err, "invalid_token")
 	})
 
@@ -136,7 +133,7 @@ func TestVerifyServiceJWTRejections(t *testing.T) {
 			Subject: "service:hentai0-runtime", Audiences: []string{"openrails"},
 		})
 		require.NoError(t, err)
-		_, _, err = v.VerifyServiceJWT(context.Background(), token)
+		_, err = v.VerifyServiceJWT(context.Background(), token)
 		require.EqualError(t, err, "invalid_token")
 	})
 }
@@ -155,39 +152,16 @@ func TestVerifyServiceJWTScopeCompatibilityAndReplayHook(t *testing.T) {
 		"scope": "openrails:entitlements:read openrails:credits:reserve",
 	})
 	require.NoError(t, err)
-	claims, principal, err := v.VerifyServiceJWT(context.Background(), token)
+	claims, err := v.VerifyServiceJWT(context.Background(), token)
 	require.NoError(t, err)
-	require.Equal(t, []string{"openrails:entitlements:read", "openrails:credits:reserve"}, principal.Permissions)
-	require.Equal(t, principal.Permissions, claims.Scope)
+	require.Equal(t, []string{"openrails:entitlements:read", "openrails:credits:reserve"}, claims.Permissions)
+	require.Equal(t, claims.Permissions, claims.Scope)
 
 	replayErr := errors.New("replay")
-	_, _, err = v.VerifyServiceJWT(context.Background(), token, WithServiceJWTReplayChecker(func(context.Context, authkit.ServiceJWTClaims) error {
+	_, err = v.VerifyServiceJWT(context.Background(), token, WithServiceJWTReplayChecker(func(context.Context, authkit.ServiceJWTClaims) error {
 		return replayErr
 	}))
 	require.ErrorIs(t, err, replayErr)
-}
-
-func TestRequiredServiceJWTMiddleware(t *testing.T) {
-	signer, err := jwtkit.NewRSASigner(2048, "kid")
-	require.NoError(t, err)
-	issuer := "https://auth.hentai0.example"
-	v := newServiceJWTVerifier(t, signer, issuer, []string{"openrails"})
-	token, _, err := embedded.MintServiceJWT(context.Background(), signer, issuer, authkit.ServiceJWTMintOptions{
-		Subject: "service:hentai0-runtime", Audiences: []string{"openrails"},
-	})
-	require.NoError(t, err)
-
-	protected := RequiredServiceJWT(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		principal, ok := ServiceJWTPrincipalFromContext(r.Context())
-		require.True(t, ok)
-		require.Equal(t, "service:hentai0-runtime", principal.Subject)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	protected.ServeHTTP(rec, req)
-	require.Equal(t, 204, rec.Code)
 }
 
 func TestWrongTokenTypeDenials(t *testing.T) {
@@ -230,33 +204,19 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 		requireErrorCode(t, rec.Body.String(), "access_token_wrong_typ")
 	})
 
-	t.Run("service required rejects user jwt", func(t *testing.T) {
-		protected := RequiredServiceJWT(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			t.Fatal("user JWT must not reach service-JWT route")
-		}))
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+userToken)
-		rec := httptest.NewRecorder()
-		protected.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusUnauthorized, rec.Code)
-		requireErrorCode(t, rec.Body.String(), "invalid_service_jwt")
-	})
-
-	t.Run("service required rejects delegated jwt", func(t *testing.T) {
-		protected := RequiredServiceJWT(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			t.Fatal("delegated JWT must not reach service-JWT route")
-		}))
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+delegatedToken)
-		rec := httptest.NewRecorder()
-		protected.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusUnauthorized, rec.Code)
-		requireErrorCode(t, rec.Body.String(), "invalid_service_jwt")
-	})
-
 	t.Run("delegated verifier rejects service jwt", func(t *testing.T) {
 		_, _, err := v.VerifyDelegatedAccess(serviceToken)
 		require.EqualError(t, err, "access_token_wrong_typ")
+	})
+
+	t.Run("service verifier rejects user jwt", func(t *testing.T) {
+		_, err := v.VerifyServiceJWT(context.Background(), userToken)
+		require.ErrorIs(t, err, authkit.ErrInvalidServiceJWT)
+	})
+
+	t.Run("service verifier rejects delegated jwt", func(t *testing.T) {
+		_, err := v.VerifyServiceJWT(context.Background(), delegatedToken)
+		require.ErrorIs(t, err, authkit.ErrInvalidServiceJWT)
 	})
 }
 
@@ -274,7 +234,7 @@ func TestVerifyServiceJWTDisabledRemoteApplicationIssuerFailsClosed(t *testing.T
 		Slug: "hentai0", Issuer: issuer, JWKSURI: "https://disabled-issuer.example/jwks", Enabled: false,
 	}}
 	require.NoError(t, v.LoadRemoteApplications(context.Background(), src, []string{"openrails"}))
-	_, _, err = v.VerifyServiceJWT(context.Background(), token)
+	_, err = v.VerifyServiceJWT(context.Background(), token)
 	require.EqualError(t, err, "invalid_token")
 }
 

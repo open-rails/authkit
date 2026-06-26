@@ -1,5 +1,7 @@
 package authcore
 
+import "fmt"
+
 // The intrinsic `root` catalog (#111): the authkit-OWNED permissions present in
 // EVERY deployment — the former `platform:` namespace, renamed `root:` so the
 // node and its namespace match (a one-time greenfield rename). These gate
@@ -20,6 +22,11 @@ const (
 	PermRootUsersBan     = "root:users:ban"     // ban / unban an account
 	PermRootUsersRecover = "root:users:recover" // recover a compromised account
 	PermRootUsersDelete  = "root:users:delete"  // soft-delete / restore an account
+	// PermRootUsersInvite authorizes minting a STANDALONE account-registration
+	// invite (#147): inviting someone to create an account, independent of any
+	// permission-group invite. owner holds it via root:*; hosts may grant it to a
+	// bounded operator role so non-owner staff can invite new accounts.
+	PermRootUsersInvite = "root:users:invite" // invite someone to create an account
 
 	// Operator management of roles/credentials.
 	PermRootRolesManage       = "root:roles:manage"       // define/inspect platform-operator roles
@@ -32,7 +39,7 @@ const (
 func IntrinsicRootPermissions() []string {
 	return []string{
 		PermRootResourcesRead,
-		PermRootUsersBan, PermRootUsersRecover, PermRootUsersDelete,
+		PermRootUsersBan, PermRootUsersRecover, PermRootUsersDelete, PermRootUsersInvite,
 		PermRootRolesManage, PermRootCredentialsManage,
 	}
 }
@@ -49,28 +56,41 @@ func IntrinsicRootPersona(extraRootRoles ...RoleDef) PersonaDef {
 	return PersonaDef{
 		Name:  RootPersona,
 		Roles: extraRootRoles, // owner (root:*) is auto-injected by normalizePersona
-		// AllowedParents empty ⇒ parentless singleton (the only such persona).
-		Routes: ManagementProfile{MemberAssignment: true}, // operators are assigned root roles via API
+		// Parent empty ⇒ parentless singleton (the only such persona).
 	}
 }
 
 // BuildSchema assembles the deployment's GroupSchema from authkit's intrinsic
-// root persona plus the app's declared personas, and validates the whole. If the app
-// passes its OWN root persona (to add moderation roles) it is used as-is; otherwise
-// the bare IntrinsicRootPersona() is injected. This is the consumer entry point:
-// an app declares only its non-root personas (+ optional extra root roles) and gets
-// a validated schema, or a clear error.
+// root persona plus the app's declared personas, and validates the whole. Root
+// declarations are additive: apps may pass root roles, catalog entries, or
+// capabilities without redefining authkit's intrinsic root. Non-root persona
+// names remain globally unique and are rejected by NewGroupSchema.
 func BuildSchema(appTypes ...PersonaDef) (*GroupSchema, error) {
-	hasRoot := false
+	root := IntrinsicRootPersona()
+	rootCapabilitySet := false
+	types := make([]PersonaDef, 0, len(appTypes)+1)
 	for _, t := range appTypes {
 		if t.Name == RootPersona {
-			hasRoot = true
-			break
+			if t.Parent != "" {
+				return nil, fmt.Errorf("group persona %q: root persona must not declare a parent", RootPersona)
+			}
+			root.Roles = append(root.Roles, t.Roles...)
+			root.Catalog = append(root.Catalog, t.Catalog...)
+			if !personaCapabilitiesZero(t.Capabilities) {
+				if rootCapabilitySet {
+					return nil, fmt.Errorf("group persona %q: capabilities may be set by only one root declaration", RootPersona)
+				}
+				root.Capabilities = t.Capabilities
+				rootCapabilitySet = true
+			}
+			continue
 		}
+		types = append(types, t)
 	}
-	types := appTypes
-	if !hasRoot {
-		types = append([]PersonaDef{IntrinsicRootPersona()}, appTypes...)
-	}
+	types = append([]PersonaDef{root}, types...)
 	return NewGroupSchema(types...)
+}
+
+func personaCapabilitiesZero(c PersonaCapabilities) bool {
+	return !c.APIKeys && !c.RemoteApplications && !c.CustomRoles
 }

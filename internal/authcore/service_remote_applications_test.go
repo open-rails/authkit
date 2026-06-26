@@ -71,7 +71,6 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 		PermissionGroupID: groupID,
 		Issuer:            iss,
 		JWKSURI:           "https://cozy.example/.well-known/jwks.json",
-		AllowedOrigins:    []string{"https://Cozy.example", "https://cozy.example"},
 		Enabled:           true,
 	})
 	if err != nil {
@@ -79,9 +78,6 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	}
 	if !ra.Enabled || ra.Slug != "cozy-art" {
 		t.Fatalf("unexpected row: %+v", ra)
-	}
-	if got, want := ra.AllowedOrigins, []string{"https://cozy.example"}; len(got) != len(want) || got[0] != want[0] {
-		t.Fatalf("allowed origins = %#v, want %#v", got, want)
 	}
 
 	// Get.
@@ -91,9 +87,6 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	}
 	if got.Issuer != iss || got.JWKSURI != ra.JWKSURI {
 		t.Fatalf("get mismatch: %+v", got)
-	}
-	if got.AllowedOrigins[0] != "https://cozy.example" {
-		t.Fatalf("get allowed origins = %#v", got.AllowedOrigins)
 	}
 
 	// GetBySlug.
@@ -108,7 +101,6 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 		PermissionGroupID: groupID,
 		Issuer:            iss,
 		JWKSURI:           "https://cozy.example/v2/jwks.json",
-		AllowedOrigins:    []string{"https://billing.cozy.example"},
 		Enabled:           false,
 	})
 	if err != nil {
@@ -116,9 +108,6 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 	}
 	if upd.JWKSURI != "https://cozy.example/v2/jwks.json" || upd.Enabled {
 		t.Fatalf("update did not apply: %+v", upd)
-	}
-	if upd.AllowedOrigins[0] != "https://billing.cozy.example" {
-		t.Fatalf("update allowed origins = %#v", upd.AllowedOrigins)
 	}
 
 	// List enabledOnly should exclude the now-disabled principal.
@@ -182,35 +171,6 @@ func TestUpsertRemoteApplicationValidation(t *testing.T) {
 	_, err := svc.UpsertRemoteApplication(context.Background(), RemoteApplication{})
 	if err == nil {
 		t.Fatal("expected error without PG / with empty fields")
-	}
-}
-
-func TestNormalizeAllowedOrigins(t *testing.T) {
-	got, err := NormalizeAllowedOrigins([]string{
-		" https://Doujins.com ",
-		"https://doujins.com",
-		"http://localhost:5173",
-		"",
-	})
-	if err != nil {
-		t.Fatalf("NormalizeAllowedOrigins: %v", err)
-	}
-	want := []string{"https://doujins.com", "http://localhost:5173"}
-	if len(got) != len(want) {
-		t.Fatalf("origins = %#v, want %#v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("origins = %#v, want %#v", got, want)
-		}
-	}
-	if !OriginAllowed("https://DOUJINS.com", got) {
-		t.Fatal("expected exact normalized origin to be allowed")
-	}
-	for _, bad := range []string{"null", "https://doujins.com/path", "https://*.doujins.com", "ftp://doujins.com"} {
-		if _, err := NormalizeAllowedOrigins([]string{bad}); !errors.Is(err, ErrInvalidRemoteApplication) {
-			t.Fatalf("origin %q error = %v, want ErrInvalidRemoteApplication", bad, err)
-		}
 	}
 }
 

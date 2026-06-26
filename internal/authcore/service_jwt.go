@@ -57,10 +57,6 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 		return "", ServiceJWTClaims{}, ErrInvalidServiceJWT
 	}
 	permissions := dedupeStrings(opts.Permissions)
-	resources, err := normalizeAPIKeyResources(opts.Resources)
-	if err != nil {
-		return "", ServiceJWTClaims{}, err
-	}
 	now := opts.IssuedAt.UTC()
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -97,11 +93,9 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 		"token_use":   ServiceJWTTokenUse,
 		"permissions": permissions,
 	}
-	if len(resources) > 0 {
-		claims["resources"] = resources
-	}
 	var (
 		token string
+		err   error
 	)
 	if hs, ok := signer.(jwtkit.HeaderSigner); ok {
 		token, err = hs.SignWithHeaders(ctx, claims, map[string]any{"typ": ServiceJWTType})
@@ -114,7 +108,7 @@ func MintServiceJWT(ctx context.Context, signer jwtkit.Signer, issuer string, op
 	return token, ServiceJWTClaims{
 		Issuer: issuer, Subject: subject, Audiences: audiences,
 		IssuedAt: now, NotBefore: nbf, ExpiresAt: exp, JTI: jti,
-		TokenUse: ServiceJWTTokenUse, Permissions: permissions, Resources: resources,
+		TokenUse: ServiceJWTTokenUse, Permissions: permissions,
 	}, nil
 }
 

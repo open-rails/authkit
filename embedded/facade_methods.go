@@ -88,6 +88,14 @@ func (s *Client) CreateGroupInviteLink(ctx context.Context, req authkit.CreateGr
 	return s.impl.CreateGroupInviteLink(ctx, req)
 }
 
+func (s *Client) CreateAccountRegistrationInvite(ctx context.Context, req authkit.CreateAccountRegistrationInviteRequest) (authkit.AccountRegistrationInviteCreated, error) {
+	return s.impl.CreateAccountRegistrationInvite(ctx, req)
+}
+
+func (s *Client) RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error {
+	return s.impl.RevokeAccountRegistrationInvite(ctx, inviteID, actorUserID)
+}
+
 // ListGroupInviteLinks lists a group's invite links (never returns the code).
 func (s *Client) ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]authkit.GroupInviteLink, error) {
 	return s.impl.ListGroupInviteLinks(ctx, persona, instanceSlug)
@@ -342,12 +350,16 @@ func (s *Client) RemoveRoleBySlug(ctx context.Context, userID, slug string) erro
 	return s.impl.RemoveRoleBySlug(ctx, userID, slug)
 }
 
+func (s *Client) RBACDriftReport(ctx context.Context) (authkit.RBACDriftReport, error) {
+	return s.impl.RBACDriftReport(ctx)
+}
+
 func (s *Client) ResolveAPIKey(ctx context.Context, keyID, secret string) (string, []string, error) {
 	return s.impl.ResolveAPIKey(ctx, keyID, secret)
 }
 
-func (s *Client) ResolveAPIKeyWithResources(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error) {
-	return s.impl.ResolveAPIKeyWithResources(ctx, keyID, secret)
+func (s *Client) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error) {
+	return s.impl.ResolveAPIKeyDetailed(ctx, keyID, secret)
 }
 
 func (s *Client) ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error) {

@@ -3,14 +3,13 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
-	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
@@ -19,18 +18,18 @@ import (
 // credTestConfig enables the credential/invite management capabilities under
 // test: a "merchant" persona with api-key minting, remote-app registration, and
 // invitations, plus a role catalog the keys/invites can reference. Passed via
-// RBAC.Groups so authcore.NewFromConfig builds + installs the schema.
+// RBAC so authcore.NewFromConfig builds + installs the schema.
 func credTestConfig() embedded.Config {
 	return embedded.Config{
 		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
-		RBAC: embedded.RBACConfig{Groups: []embedded.PersonaDef{{
-			Name: "merchant", AllowedParents: []string{embedded.RootPersona},
-			Routes: embedded.ManagementProfile{MemberAssignment: true, APIKeyMinting: true, RemoteAppRegistration: true, InviteLinks: true},
+		RBAC: []embedded.PersonaDef{{
+			Name: "merchant", Parent: embedded.RootPersona,
+			Capabilities: embedded.PersonaCapabilities{APIKeys: true, RemoteApplications: true},
 			Roles: []embedded.RoleDef{
 				{Name: "member", Permissions: []string{"merchant:catalog:read"}},
 				{Name: "credential-manager", Permissions: []string{"merchant:credentials:manage"}},
 			},
-		}}},
+		}},
 	}
 }
 
@@ -44,13 +43,7 @@ func newCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
 
 func newCredTestServiceWithOptions(t *testing.T, opts ...authcore.Option) (*Service, *pgxpool.Pool, string) {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
+	pool := newServerTestPool(t)
 	ctx := context.Background()
 
 	coreSvc, err := authcore.NewFromConfig(credTestConfig(), pool, opts...)
@@ -63,9 +56,27 @@ func newCredTestServiceWithOptions(t *testing.T, opts ...authcore.Option) (*Serv
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&caller))
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, caller) })
 
-	s := &Service{svc: coreSvc}
-	s.groupCanFn = func(_ *http.Request, _, _, _, _ string) (bool, error) { return true, nil }
-	return s, pool, caller
+	return &Service{svc: coreSvc}, pool, caller
+}
+
+func newInviteOnlyCredTestService(t *testing.T) (*Service, *pgxpool.Pool, string) {
+	t.Helper()
+	pool := newServerTestPool(t)
+	ctx := context.Background()
+
+	cfg := credTestConfig()
+	cfg.Registration.NativeUserMode = embedded.RegistrationModeInviteOnly
+	coreSvc, err := authcore.NewFromConfig(cfg, pool)
+	require.NoError(t, err)
+	require.NoError(t, coreSvc.SeedPermissionGroupContainment(ctx))
+	_, err = coreSvc.EnsureRootGroup(ctx)
+	require.NoError(t, err)
+
+	var caller string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&caller))
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1::uuid`, caller) })
+
+	return &Service{svc: coreSvc}, pool, caller
 }
 
 // drive runs one generated route handler at a concrete (no sub-resource) path,
@@ -120,6 +131,32 @@ func TestGroupMembersListUsesSnakeCaseJSON_HTTP(t *testing.T) {
 	require.NotContains(t, listed.Data[0], "subject-kind")
 }
 
+func TestGroupMemberAddUnknownEmailInviteOnlyMintsSeparateInvites_HTTP(t *testing.T) {
+	s, pool, caller := newInviteOnlyCredTestService(t)
+	ctx := context.Background()
+
+	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-invites", OwnerSubjectID: caller})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-invites'`)
+	})
+
+	email := uniqueEmail("member-invite")
+	addGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/members", Perm: "merchant:members:manage"}
+	w := s.drive(t, addGR, "m-invites", caller, `{"email":"`+email+`","role":"member"}`)
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, true, resp["invited"])
+	require.NotNil(t, resp["group_invite"])
+	require.NotNil(t, resp["account_registration_invite"])
+
+	var accountInvites int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.account_registration_invites WHERE email=$1`, email).Scan(&accountInvites))
+	require.Equal(t, 1, accountInvites)
+}
+
 // TestGroupAPIKeyLifecycle_HTTP: mint -> list (no secret) -> revoke, over the
 // real DB through the generated HTTP handlers.
 func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {
@@ -162,92 +199,6 @@ func TestGroupAPIKeyLifecycle_HTTP(t *testing.T) {
 
 	// Second revoke => 404 (already revoked).
 	require.Equal(t, http.StatusNotFound, s.driveSub(t, revGR, repl, caller).Code)
-}
-
-func TestGroupAPIKeyResourceScopesFailClosedWithoutAuthorizer_HTTP(t *testing.T) {
-	s, pool, caller := newCredTestService(t)
-	ctx := context.Background()
-
-	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-resource-denied", OwnerSubjectID: caller})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-resource-denied'`)
-	})
-
-	mintGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:credentials:manage"}
-	w := s.drive(t, mintGR, "m-resource-denied", caller, `{"name":"scoped","role":"member","resources":[{"persona":"merchant","id":"m-resource-denied"}]}`)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrResourceScopeDenied))
-
-	listGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:credentials:read"}
-	w = s.drive(t, listGR, "m-resource-denied", caller, "")
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var listed struct {
-		Data []map[string]any `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Len(t, listed.Data, 0, "denied resource scope must not leave a minted key behind")
-}
-
-func TestGroupAPIKeyResourceScopeAuthorizerBlocksEscalation_HTTP(t *testing.T) {
-	var s *Service
-	var pool *pgxpool.Pool
-	var caller string
-	var authorized []embedded.APIKeyResourceAuthorizationRequest
-	s, pool, caller = newCredTestServiceWithOptions(t, authcore.WithAPIKeyResourceAuthorizer(authcore.APIKeyResourceAuthorizerFunc(
-		func(_ context.Context, req authcore.APIKeyResourceAuthorizationRequest) error {
-			authorized = append(authorized, embedded.APIKeyResourceAuthorizationRequest(req))
-			if req.ActorUserID == "" || req.PermissionGroupID == "" || req.Persona != "merchant" || req.Role != "member" {
-				return authcore.ErrResourceScopeDenied
-			}
-			for _, r := range req.Resources {
-				if r.Persona != req.Persona || r.ID != req.InstanceSlug {
-					return authcore.ErrResourceScopeDenied
-				}
-			}
-			return nil
-		},
-	)))
-	ctx := context.Background()
-
-	_, err := s.svc.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "m-resource-ok", OwnerSubjectID: caller})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug='m-resource-ok'`)
-	})
-
-	mintGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodPost, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:credentials:manage"}
-	w := s.drive(t, mintGR, "m-resource-ok", caller, `{"name":"scoped","role":"member","resources":[{"persona":"merchant","id":"m-resource-ok"}]}`)
-	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	var minted map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &minted))
-	require.Equal(t, "member", minted["role"])
-	require.NotEmpty(t, minted["secret"])
-	require.Len(t, authorized, 1)
-	require.Equal(t, caller, authorized[0].ActorUserID)
-	require.Equal(t, "m-resource-ok", authorized[0].InstanceSlug)
-
-	keyID, keySecret, ok := authkit.ParseAPIKey("", minted["secret"].(string))
-	require.True(t, ok)
-	resolved, err := s.svc.ResolveAPIKeyWithResources(ctx, keyID, keySecret)
-	require.NoError(t, err)
-	require.Equal(t, []authkit.APIKeyResource{{Persona: "merchant", ID: "m-resource-ok"}}, resolved.Resources)
-	require.Equal(t, []string{"merchant:catalog:read"}, resolved.Permissions)
-
-	w = s.drive(t, mintGR, "m-resource-ok", caller, `{"name":"escalate","role":"member","resources":[{"persona":"merchant","id":"other-merchant"}]}`)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), string(ErrResourceScopeDenied))
-	require.Len(t, authorized, 2)
-
-	listGR := embedded.GeneratedRoute{Persona: "merchant", Method: http.MethodGet, Path: "/merchant/:instance_slug/api-keys", Perm: "merchant:credentials:read"}
-	w = s.drive(t, listGR, "m-resource-ok", caller, "")
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var listed struct {
-		Data []map[string]any `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listed))
-	require.Len(t, listed.Data, 1, "denied escalation must not mint an extra key")
-	require.Equal(t, []any{map[string]any{"id": "m-resource-ok", "persona": "merchant"}}, listed.Data[0]["resources"])
 }
 
 func TestGroupAPIKeyMintRejectsRoleEscalation_HTTP(t *testing.T) {

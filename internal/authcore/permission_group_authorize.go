@@ -21,7 +21,7 @@ type GroupAssignment struct {
 
 // CustomRoleResolver returns the grant tokens of a per-group custom role, or
 // (nil, false) if no such custom role exists. Consulted only for personas whose
-// AllowCustomRoles is set; pass nil when the deployment defines no custom roles.
+// CustomRoles is set; pass nil when the deployment defines no custom roles.
 type CustomRoleResolver func(groupID, role string) ([]string, bool)
 
 // ResolveGrants computes the additive, de-duplicated UNION of grant tokens a
@@ -51,7 +51,7 @@ func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom Custom
 				}
 				continue
 			}
-			if td.AllowCustomRoles && custom != nil {
+			if td.Capabilities.CustomRoles && custom != nil {
 				if grants, ok := custom(a.PermissionGroupID, role); ok {
 					for _, g := range grants {
 						add(g)
