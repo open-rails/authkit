@@ -51,13 +51,71 @@ Today (non-breaking, safe to stop after any one):
   `errOrUnauthorized`). Move to `passwords.go`. Review: VerifyUserPassword vs
   CheckUserPassword, and the two login entry points.
 
-Tomorrow (stage 4+):
+Remaining stages. Each says what MOVES (relocate within the package, no
+signature change) and what to REFACTOR/challenge (a behavior-preserving cleanup
+the review justified). Same non-breaking rule until the last stage.
 
-- Registration and pending-registration flows.
-- Email and phone verification flows.
-- The constructor area in authcore (NewService / NewFromConfig). The
-  NewServer(client) shape fix is already done; this is auditing what's left here.
-  Highest value and most likely to be breaking, so it gets its own careful stage.
+- Stage 4: Access-token issuance -> token_issue.go.
+  MOVE: IssueAccessToken, issueAccessToken, Issue2FAEnrollmentToken.
+  REFACTOR: is the public IssueAccessToken just a default-TTL wrapper over the
+  private issueAccessToken; does Issue2FAEnrollmentToken need to be separate or
+  is it issueAccessToken with a short TTL + one claim.
+
+- Stage 5: Password reset -> password_reset.go.
+  MOVE: RequestPasswordReset, BeginPasswordReset, ConfirmPasswordReset,
+  ConfirmPasswordResetWithSession, finishPasswordReset, RequestPhonePasswordReset.
+  REFACTOR: ConfirmPasswordReset vs ConfirmPasswordResetWithSession (is one a thin
+  wrapper, like the login pair was).
+
+- Stage 6: Email + phone verification -> verification.go.
+  MOVE: RequestEmailVerification, sendEmailVerificationToUser,
+  ConfirmEmailVerification(+ByToken), RequestPhoneVerification,
+  SendPhoneVerificationToUser, ConfirmPhoneVerification(+UserID/+ByToken/
+  +ByTokenUserID), GetUserByPhone, getUserByPhone, setPhoneVerified.
+  REFACTOR: the four ConfirmPhoneVerification* variants look like a wrapper family
+  to collapse; email and phone verify are near-symmetric.
+
+- Stage 7: Pending registration -> fold into the existing registration.go.
+  MOVE: CreatePendingRegistration(+WithLanguage), ConfirmPendingRegistration
+  (+ByToken), CheckPendingRegistrationConflict and the phone equivalents, plus
+  createEmail/PhoneRegistrationUser, createVerifiedRegistrationUser.
+  REFACTOR: the non-WithLanguage funcs look like thin wrappers over the
+  WithLanguage ones (dup); email vs phone pending-registration is near-symmetric.
+
+- Stage 8: Account changes -> account_changes.go.
+  MOVE: the email-change family (RequestEmailChange, ConfirmEmailChange(+ByToken),
+  ResendEmailChangeCode, GetPendingEmailChange, CancelEmailChange) and the
+  phone-change family (RequestPhoneChange, ConfirmPhoneChange(+ByToken),
+  ResendPhoneChangeCode, CancelPhoneChange), SendPhone2FASetupCode,
+  VerifyPhone2FASetupCode.
+  REFACTOR: email-change and phone-change are near-identical request/confirm/
+  resend/cancel state machines; biggest dup to challenge.
+
+- Stage 9: User directory + lifecycle -> users.go.
+  MOVE: getUserByEmail/Username/ID, ensureUserAccess(+ByID), autoUnbanIfExpired,
+  isUserBanned, createUser, normalizeImportUserInput, ImportUser,
+  UpdateImportedUser, setEmailVerified, setLastLogin, clearUserBan, BanUser,
+  UnbanUser, SoftDeleteUser, RestoreUser, HostDeleteUser,
+  updateUsername(+Force/Impl), updateEmail, updateBiography, the userFrom*Row
+  mappers. REFACTOR: none expected, mostly a move.
+
+- Stage 10: Small leftovers -> a few tiny files.
+  MOVE: rand/hash helpers (randB64, randInt, randAlphanumeric, sha256Hex) ->
+  rand.go; preferred-language (NormalizePreferredLanguage, Set/GetPreferredLanguage,
+  context helpers) -> language.go; service accessors (JWKS, Options, Config,
+  Postgres, Schema, dbSchema, qtx, Keyfunc, PublicKeysByKID, EntitlementsProvider,
+  SetEntitlementsProvider, AdminSetPassword, isDevEnvironment) -> accessors.go;
+  token storage (getPasswordHash, upsertPasswordHash, useEmailVerifyToken,
+  useResetToken, createResetToken) -> token_store.go; root-role helpers
+  (normalizeRootRoleSlug, splitConfiguredRootRoles, rootRoleSlugsByUser) ->
+  roles.go.
+
+- Stage 11 (LAST, may be breaking): the constructor.
+  MOVE: NewService, NewFromConfig, the normalize* validators, isWellFormattedURL,
+  validAPIKeyPrefix, the Options.* policy methods -> constructor.go.
+  REFACTOR/CHALLENGE: this is the real audit of construction (the NewServer fix
+  lived here). Done last, on its own, with full review, because it is the most
+  likely to touch the public surface.
 
 ## Progress
 
