@@ -67,15 +67,26 @@ func (s *Service) handleEmailPasswordResetConfirmPOST(w http.ResponseWriter, r *
 		return
 	}
 
-	_, err := s.svc.ConfirmPasswordReset(r.Context(), strings.TrimSpace(req.Token), req.NewPassword)
-	if err != nil {
-		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-			badRequest(w, code)
-			return
-		}
-		badRequest(w, ErrInvalidOrExpiredToken)
+	if _, ok := s.confirmPasswordReset(w, r, strings.TrimSpace(req.Token), req.NewPassword); !ok {
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// confirmPasswordReset runs the shared password-reset confirm + error mapping for
+// both the email and phone channels (#179). On failure it writes the response and
+// returns ok=false; on success it returns the user ID for the channel-specific
+// success payload. The request halves (anti-enumeration vs explicit) stay separate.
+func (s *Service) confirmPasswordReset(w http.ResponseWriter, r *http.Request, token, newPassword string) (string, bool) {
+	userID, err := s.svc.ConfirmPasswordReset(r.Context(), token, newPassword)
+	if err != nil {
+		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
+			badRequest(w, code)
+			return "", false
+		}
+		badRequest(w, ErrInvalidOrExpiredToken)
+		return "", false
+	}
+	return userID, true
 }

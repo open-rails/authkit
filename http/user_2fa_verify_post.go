@@ -5,7 +5,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"strings"
-	"time"
 )
 
 func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request) {
@@ -99,12 +98,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  token,
-		"token_type":    "Bearer",
-		"expires_in":    int64(time.Until(exp).Seconds()),
-		"refresh_token": rt,
-	})
+	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(token, rt, exp), nil)
 }
 
 func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {

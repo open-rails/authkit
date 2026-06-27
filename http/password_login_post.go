@@ -368,15 +368,12 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"access_token":  token,
-			"token_type":    "Bearer",
-			"expires_in":    int64(time.Until(exp).Seconds()),
-			"refresh_token": rt,
-		})
+		writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(token, rt, exp), nil)
 		return
 	}
 
+	// Distinct 3-field shape (no refresh_token) for the already-fresh re-issue path;
+	// intentionally not the full token-pair envelope.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token": token,
 		"token_type":   "Bearer",

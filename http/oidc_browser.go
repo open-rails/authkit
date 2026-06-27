@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	authkit "github.com/open-rails/authkit"
+	stdlog "log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -148,7 +149,15 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		userID = sd.LinkUserID
-		_ = s.svc.LinkProviderByIssuer(r.Context(), userID, issuer, provider, claims.Subject, claims.Email)
+		// The provider link is the load-bearing write: if it fails we must NOT report
+		// success, or the next login won't find the link and will diverge (duplicate
+		// account / link-required dead-end). Fail the callback (#176 Part B — this error
+		// was previously swallowed; failing closed matches the OAuth2 path).
+		if err := s.svc.LinkProviderByIssuer(r.Context(), userID, issuer, provider, claims.Subject, claims.Email); err != nil {
+			stdlog.Printf("[authkit/security] error: provider link write failed (user=%s issuer=%s); failing OIDC callback: %v", userID, issuer, err)
+			serverErr(w, ErrProviderLinkFailed)
+			return
+		}
 		if strings.TrimSpace(provUsername) != "" {
 			_ = s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername)
 		}
@@ -219,14 +228,31 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			serverErr(w, ErrUserCreationFailed)
 			return
 		}
-		_ = s.svc.LinkProviderByIssuer(r.Context(), u.ID, issuer, provider, claims.Subject, claims.Email)
+		// Load-bearing link write (see explicit-link branch above): fail closed rather
+		// than leave the just-created user unlinked while reporting success (#176 Part B).
+		// NOTE: without a create+link transaction this leaves an orphan user row on
+		// failure (logged CRITICAL); atomic create+link is the proper follow-up.
+		if err := s.svc.LinkProviderByIssuer(r.Context(), u.ID, issuer, provider, claims.Subject, claims.Email); err != nil {
+			stdlog.Printf("[authkit/security] CRITICAL: provider link write failed after user creation (orphan user=%s issuer=%s subject=%s); failing OIDC callback — manual cleanup may be required: %v", u.ID, issuer, claims.Subject, err)
+			serverErr(w, ErrProviderLinkFailed)
+			return
+		}
 		if strings.TrimSpace(provUsername) != "" {
 			_ = s.svc.SetProviderUsername(r.Context(), u.ID, issuer, claims.Subject, provUsername)
 		}
 		created = true
 	}
 
-	extra := map[string]any{"provider": provider}
+	s.finishBrowserLogin(w, r, userID, email, provider, "oidc_login", created, sd)
+}
+
+// finishBrowserLogin is the shared post-resolve tail of the OIDC and OAuth2 browser
+// callbacks (#176 Part A): issue session + access token (with the same 2FA-enrollment
+// / banned / failure handling), log the session, send a welcome on first creation,
+// and emit the result as a popup postMessage, a JSON body, or a fragment redirect.
+// providerName and sessionEvent are the only per-flow parameters.
+func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, userID, email, providerName, sessionEvent string, created bool, sd oidckit.StateData) {
+	extra := map[string]any{"provider": providerName}
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
 		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
@@ -254,7 +280,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	ua := r.UserAgent()
 	ip := remoteIP(r)
 	uaPtr, ipPtr := &ua, &ip
-	s.svc.LogSessionCreated(r.Context(), userID, "oidc_login", sid, ipPtr, uaPtr)
+	s.svc.LogSessionCreated(r.Context(), userID, sessionEvent, sid, ipPtr, uaPtr)
 
 	if created {
 		s.svc.SendWelcome(r.Context(), userID)
@@ -271,7 +297,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			"access_token":  token,
 			"refresh_token": rt,
 			"expires_in":    int64(time.Until(exp).Seconds()),
-			"provider":      provider,
+			"provider":      providerName,
 			"nonce":         sd.PopupNonce,
 		}
 		b, _ := json.Marshal(payload)
@@ -284,12 +310,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"access_token":  token,
-			"token_type":    "Bearer",
-			"expires_in":    int64(time.Until(exp).Seconds()),
-			"refresh_token": rt,
-			"user":          map[string]any{"id": userID, "email": email},
+		writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(token, rt, exp), map[string]any{
+			"user": map[string]any{"id": userID, "email": email},
 		})
 		return
 	}
@@ -298,7 +320,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	if base == "" {
 		base = "/"
 	}
-	frag := buildAuthResultFragment(token, rt, int64(time.Until(exp).Seconds()), provider, state, sd.ReturnTo)
+	state := r.URL.Query().Get("state")
+	frag := buildAuthResultFragment(token, rt, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.svc.Options().OIDCReturnPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
 }

@@ -60,15 +60,7 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 				badRequest(w, code)
 				return
 			}
-			msg := err.Error()
-			switch {
-			case strings.Contains(msg, "same as current"):
-				badRequest(w, ErrEmailUnchanged)
-			case strings.Contains(msg, "already in use"):
-				badRequest(w, ErrEmailInUse)
-			default:
-				badRequest(w, ErrFailedToRequestEmailChange)
-			}
+			mapContactChangeError(w, err, ErrEmailUnchanged, ErrEmailInUse, ErrFailedToRequestEmailChange)
 			return
 		}
 		resp := map[string]any{"ok": true, "message": "Verification sent to new email address"}
@@ -202,12 +194,40 @@ func (s *Service) createTokensForUser(r *http.Request, userID string, method str
 		return authTokensResponse{}, err
 	}
 
+	return newAuthTokens(accessToken, rt, exp), nil
+}
+
+// newAuthTokens builds the canonical OAuth-style token-pair envelope from a
+// freshly issued access token: token_type is always "Bearer" and expires_in is
+// derived from the access token's expiry.
+func newAuthTokens(access, refresh string, exp time.Time) authTokensResponse {
 	return authTokensResponse{
-		AccessToken:  accessToken,
+		AccessToken:  access,
 		TokenType:    "Bearer",
 		ExpiresIn:    int64(time.Until(exp).Seconds()),
-		RefreshToken: rt,
-	}, nil
+		RefreshToken: refresh,
+	}
+}
+
+// writeAccessTokenJSON marshals the token-pair envelope (the four §6.3 fields)
+// plus any extra top-level fields (e.g. return_to, created, user) at the given
+// status — replacing the hand-built map[string]any literals scattered across the
+// session-establishing handlers.
+func writeAccessTokenJSON(w http.ResponseWriter, status int, tokens authTokensResponse, extra map[string]any) {
+	if len(extra) == 0 {
+		writeJSON(w, status, tokens)
+		return
+	}
+	body := map[string]any{
+		"access_token":  tokens.AccessToken,
+		"token_type":    tokens.TokenType,
+		"expires_in":    tokens.ExpiresIn,
+		"refresh_token": tokens.RefreshToken,
+	}
+	for k, v := range extra {
+		body[k] = v
+	}
+	writeJSON(w, status, body)
 }
 
 func authMethodsForSessionMethod(method string) []string {

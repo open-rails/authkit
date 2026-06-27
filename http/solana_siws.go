@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/siws"
@@ -133,12 +132,8 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		go s.svc.SendWelcome(context.Background(), userID)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  accessToken,
-		"token_type":    "Bearer",
-		"expires_in":    int64(time.Until(expiresAt).Seconds()),
-		"refresh_token": refreshToken,
-		"created":       created,
+	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(accessToken, refreshToken, expiresAt), map[string]any{
+		"created": created,
 		"user": map[string]any{
 			"id":             userID,
 			"solana_address": output.Account.Address,

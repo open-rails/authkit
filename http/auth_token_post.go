@@ -46,11 +46,9 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  accessToken,
-		"expires_in":    int(time.Until(exp).Seconds()),
-		"refresh_token": newRT,
-	})
+	// #180: the /token refresh response now emits the full §6.3 token-pair envelope
+	// (previously omitted token_type) — an additive, contract-conforming change.
+	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(accessToken, newRT, exp), nil)
 }
 
 func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {

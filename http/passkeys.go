@@ -6,7 +6,6 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"io"
 	"net/http"
-	"time"
 )
 
 func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -98,12 +97,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	ua := r.UserAgent()
 	ip := remoteIP(r)
 	s.svc.LogSessionCreated(r.Context(), result.UserID, "passkey_login", result.SessionID, &ip, &ua)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  result.AccessToken,
-		"token_type":    "Bearer",
-		"expires_in":    int64(time.Until(result.ExpiresAt).Seconds()),
-		"refresh_token": result.RefreshToken,
-	})
+	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(result.AccessToken, result.RefreshToken, result.ExpiresAt), nil)
 }
 
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {

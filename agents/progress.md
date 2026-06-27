@@ -1622,7 +1622,7 @@ sliding-window storage itself (in-mem slice vs Redis ZSET) genuinely differs and
 
 # #176: Extract `resolveBrowserUser` + `finishBrowserLogin` (OIDC/OAuth)
 
-**Completed:** no
+**Completed:** yes. PART A done: extracted `finishBrowserLogin(w, r, userID, email, providerName, sessionEvent, created, sd)` (oidc_browser.go) covering the shared post-resolve tail; both callbacks delegate; behaviour-preserving (JSON branch now routes through #180's `writeAccessTokenJSON`). PART B done via the TARGETED fail-closed fix rather than the full resolver-merge: the two OIDC `_ = LinkProviderByIssuer(...)` swallow sites now fail the callback with `ErrProviderLinkFailed` (matching OAuth2's code + logging). Chose this over rewiring OIDC onto `resolveOAuthUser` because the merge's ONLY behavioural payload is the fail-closed handling, and the targeted fix preserves the OIDC-only quirks the issue said to keep (the `provider != "discord"` carve-out + provider-email backfill) at far lower risk. Build + existing OIDC happy-path tests green (regression for "successful login still completes"). NOTE: the forced-link-failure pinning test isn't constructible in this env (no DB, `s.svc` is concrete `*authcore.Service` with no fault-injection seam) — needs a DB-level fault or a service seam; flag for CI/follow-up.
 
 Parent #150 (Tier 3). The post-resolve TAIL extract is a safe, behaviour-preserving dedup; the
 resolver merge is NOT — keep it out of scope (or do it as a separate, deliberate behaviour-change step).
@@ -1680,7 +1680,7 @@ PART B — resolver unification, GREENLIT, FAIL-CLOSED (this is a deliberate, co
 
 # #179: Parameterize verify/confirm/password-reset handler twins
 
-**Completed:** no
+**Completed:** yes. (a) Extracted a `verifyChannel` descriptor + shared `confirmVerificationToken`/`handleVerifyLinkFailure`/`issueVerifiedTokens` (new `http/verify_confirm_link.go`); the email/phone confirm-link files are now thin wrappers. ASYMMETRY FIXED: a banned user confirming a PHONE link now gets 401 (was 500), matching email — pinned by `TestPhoneVerifyConfirm_BannedUserGets401` (verified by code path: `ConfirmPhoneVerificationByTokenUserID` has no ban check → `issueVerifiedTokens` → `ensureUserAccess` → `ErrUserBanned` → 401; test skips here, no DB). (b) Extracted `mapContactChangeError` (shared change-flow substring switch; matching kept fragile per plans 008/009/011). (c) Extracted `confirmPasswordReset` (shared confirm+error-mapping; request halves kept separate). Build + http tests green.
 
 Parent #150 (Tier 3, internal-only; mostly behaviour-preserving — one asymmetry fix flagged).
 COORDINATE with #146 Account-group rework (this is the body-sharing angle, not the route reshape).
@@ -1715,7 +1715,7 @@ only in success payload. Request halves differ (email anti-enumeration silent, p
 
 # #180: Add `writeAccessTokenJSON`; migrate inline token envelopes
 
-**Completed:** no
+**Completed:** yes — added `newAuthTokens(access, refresh, exp)` (kills the `time.Until`/`"Bearer"` dup, incl. inside `createTokensForUser`) + `writeAccessTokenJSON(w, status, authTokensResponse, extra)` (marshals the struct + merged extras). Migrated the full-envelope sites: passwordless (+return_to), solana (+created/user), passkeys, user_2fa_verify, password_login (the 4-field branch only), auth_token_post (`/token` refresh). CONFIRMED change: `/token` now emits `token_type` (was absent) — additive + §6.3-conforming. Left untouched the distinct shapes: password_login's 3-field no-refresh re-issue, the 2FA-enrollment token, and step-up (no refresh_token). All http tests green.
 
 Parent #150 (Tier 3, internal-only; ONE additive wire change flagged).
 

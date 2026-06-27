@@ -51,15 +51,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 				badRequest(w, code)
 				return
 			}
-			msg := err.Error()
-			switch {
-			case strings.Contains(msg, "same as current"):
-				badRequest(w, ErrPhoneUnchanged)
-			case strings.Contains(msg, "already in use"):
-				badRequest(w, ErrPhoneInUse)
-			default:
-				badRequest(w, ErrFailedToRequestPhoneChange)
-			}
+			mapContactChangeError(w, err, ErrPhoneUnchanged, ErrPhoneInUse, ErrFailedToRequestPhoneChange)
 			return
 		}
 		resp := map[string]any{"ok": true, "message": "Verification sent to new phone"}

@@ -128,16 +128,11 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		serverErr(w, ErrAccessTokenCreateFailed)
 		return
 	}
-	resp := map[string]any{
-		"access_token":  tokens.AccessToken,
-		"token_type":    tokens.TokenType,
-		"expires_in":    tokens.ExpiresIn,
-		"refresh_token": tokens.RefreshToken,
-	}
+	var extra map[string]any
 	if strings.TrimSpace(result.ReturnTo) != "" {
-		resp["return_to"] = result.ReturnTo
+		extra = map[string]any{"return_to": result.ReturnTo}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeAccessTokenJSON(w, http.StatusOK, tokens, extra)
 }
 
 func passwordlessIdentifier(identifier, email, phone string) string {

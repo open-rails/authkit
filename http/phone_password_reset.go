@@ -77,13 +77,8 @@ func (s *Service) handlePhonePasswordResetConfirmPOST(w http.ResponseWriter, r *
 		return
 	}
 
-	userID, err := s.svc.ConfirmPasswordReset(r.Context(), token, newPass)
-	if err != nil {
-		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-			badRequest(w, code)
-			return
-		}
-		badRequest(w, ErrInvalidOrExpiredToken)
+	userID, ok := s.confirmPasswordReset(w, r, token, newPass)
+	if !ok {
 		return
 	}
 

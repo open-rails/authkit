@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
@@ -235,81 +234,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 		serverErr(w, ErrUserCreationFailed)
 		return
 	}
-	email := info.Email
-	extra := map[string]any{"provider": cfg.Name}
-	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
-	if err != nil {
-		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
-			s.write2FAEnrollmentRequired(w, r, userID)
-			return
-		}
-		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
-			return
-		}
-		serverErr(w, ErrSessionIssueFailed)
-		return
-	}
-	extra["sid"] = sid
-	accessToken, exp, err := s.svc.IssueAccessToken(r.Context(), userID, email, extra)
-	if err != nil {
-		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
-			return
-		}
-		serverErr(w, ErrTokenIssueFailed)
-		return
-	}
-
-	ua := r.UserAgent()
-	ip := remoteIP(r)
-	uaPtr, ipPtr := &ua, &ip
-	s.svc.LogSessionCreated(r.Context(), userID, "oauth_login:"+cfg.Name, sid, ipPtr, uaPtr)
-	if created {
-		s.svc.SendWelcome(r.Context(), userID)
-	}
-
-	if sd.UI == "popup" {
-		targetOrigin, ok := originFromBaseURL(s.svc.Options().BaseURL)
-		if !ok {
-			serverErr(w, ErrInvalidBaseURL)
-			return
-		}
-		payload := map[string]any{
-			"type":          "AUTHKIT_OIDC_RESULT",
-			"access_token":  accessToken,
-			"refresh_token": rt,
-			"expires_in":    int64(time.Until(exp).Seconds()),
-			"provider":      cfg.Name,
-			"nonce":         sd.PopupNonce,
-		}
-		b, _ := json.Marshal(payload)
-		html := buildPopupHTML(b, targetOrigin)
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(html)
-		return
-	}
-
-	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"access_token":  accessToken,
-			"token_type":    "Bearer",
-			"expires_in":    int64(time.Until(exp).Seconds()),
-			"refresh_token": rt,
-			"user":          map[string]any{"id": userID, "email": email},
-		})
-		return
-	}
-
-	base := s.svc.Options().BaseURL
-	if base == "" {
-		base = "/"
-	}
-	frag := buildAuthResultFragment(accessToken, rt, int64(time.Until(exp).Seconds()), cfg.Name, state, sd.ReturnTo)
-	target := buildFrontendCallbackURL(base, s.svc.Options().OIDCReturnPath, frag)
-	http.Redirect(w, r, target, http.StatusFound)
+	s.finishBrowserLogin(w, r, userID, info.Email, cfg.Name, "oauth_login:"+cfg.Name, created, sd)
 }
 
 func (s *Service) exchangeOAuthCode(r *http.Request, cfg authprovider.Provider, clientID, clientSecret, code, redirectURI, verifier string) (oauth2TokenResp, error) {
