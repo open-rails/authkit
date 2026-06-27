@@ -164,25 +164,3 @@ func TestSendPhoneVerificationStoreFailureSurfaces(t *testing.T) {
 		t.Fatal("expected non-nil error when ephemeral store write fails, got nil")
 	}
 }
-
-func TestPasswordResetSessionOneTimeConsume(t *testing.T) {
-	svc := NewService(Options{}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
-
-	ctx := context.Background()
-	sessionHash := sha256Hex("session-token")
-	if err := svc.storePasswordResetSession(ctx, sessionHash, "user-1", 15*time.Minute); err != nil {
-		t.Fatalf("storePasswordResetSession failed: %v", err)
-	}
-
-	userID, err := svc.consumePasswordResetSession(ctx, sessionHash)
-	if err != nil {
-		t.Fatalf("consumePasswordResetSession failed: %v", err)
-	}
-	if userID != "user-1" {
-		t.Fatalf("unexpected user id: %q", userID)
-	}
-
-	if _, err := svc.consumePasswordResetSession(ctx, sessionHash); err == nil {
-		t.Fatal("expected second consume to fail for one-time reset session")
-	}
-}

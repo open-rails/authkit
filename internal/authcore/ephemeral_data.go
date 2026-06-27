@@ -26,16 +26,15 @@ const (
 	maxPhoneVerifyCodeAttempts = 5
 	keyPhoneVerifyCodeAttempts = "auth:phone_verify:attempts:"
 
-	keyPhoneVerifyToken     = "auth:phone_verify:token:"
-	keyPhoneVerifyIndex     = "auth:phone_verify:index:"
-	keyEmailVerifyToken     = "auth:email_verify:token:"
-	keyEmailVerifyUser      = "auth:email_verify:user:"
-	keyPasswordReset        = "auth:password_reset:token:"
-	keyPasswordResetSession = "auth:password_reset:session:"
-	keyTwoFactor            = "auth:2fa:code:"
-	keyTwoFactorStepUp      = "auth:2fa:step-up:"
-	keyTwoFactorChallenge   = "auth:2fa:challenge:"
-	keyPasskeyCeremony      = "auth:passkey:"
+	keyPhoneVerifyToken   = "auth:phone_verify:token:"
+	keyPhoneVerifyIndex   = "auth:phone_verify:index:"
+	keyEmailVerifyToken   = "auth:email_verify:token:"
+	keyEmailVerifyUser    = "auth:email_verify:user:"
+	keyPasswordReset      = "auth:password_reset:token:"
+	keyTwoFactor          = "auth:2fa:code:"
+	keyTwoFactorStepUp    = "auth:2fa:step-up:"
+	keyTwoFactorChallenge = "auth:2fa:challenge:"
+	keyPasskeyCeremony    = "auth:passkey:"
 )
 
 type phoneVerificationData struct {
@@ -52,10 +51,6 @@ type emailVerifyData struct {
 }
 
 type passwordResetData struct {
-	UserID string `json:"user_id"`
-}
-
-type passwordResetSessionData struct {
 	UserID string `json:"user_id"`
 }
 
@@ -454,22 +449,6 @@ func (s *Service) consumePasswordReset(ctx context.Context, tokenHash string) (s
 	// atomically (same class as AK2-PK-001) so a reset token can't be redeemed
 	// twice by concurrent requests racing a Get+Del.
 	ok, err := s.ephemConsumeJSON(ctx, keyPasswordReset+tokenHash, &data)
-	if err != nil || !ok {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	return data.UserID, nil
-}
-
-func (s *Service) storePasswordResetSession(ctx context.Context, sessionHash, userID string, ttl time.Duration) error {
-	data := passwordResetSessionData{UserID: userID}
-	return s.ephemSetJSON(ctx, keyPasswordResetSession+sessionHash, data, ttl)
-}
-
-func (s *Service) consumePasswordResetSession(ctx context.Context, sessionHash string) (string, error) {
-	var data passwordResetSessionData
-	// Single-use: the session hash IS the key. Consume atomically (same class as
-	// AK2-PK-001) so concurrent requests can't redeem one reset session twice.
-	ok, err := s.ephemConsumeJSON(ctx, keyPasswordResetSession+sessionHash, &data)
 	if err != nil || !ok {
 		return "", jwt.ErrTokenUnverifiable
 	}

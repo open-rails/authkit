@@ -119,6 +119,23 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Stage 5 (done): moved the LIVE password-reset funcs (RequestPasswordReset,
+  ConfirmPasswordReset, finishPasswordReset, RequestPhonePasswordReset) to
+  password_reset.go. The planned refactor question ("ConfirmPasswordReset vs
+  ConfirmPasswordResetWithSession — is one a thin wrapper, like the login pair")
+  resolved differently than expected: the browser-session-handoff pair
+  (BeginPasswordReset + ConfirmPasswordResetWithSession) is DEAD CODE, not a
+  wrapper. Zero live callers — no HTTP route, not in the embedded facade, not on
+  authkit.Client, only a doc-comment mention in a test. The shared tail was
+  already extracted into finishPasswordReset, so the live ConfirmPasswordReset
+  wraps nothing. Per decision to delete the full dead chain, removed:
+  BeginPasswordReset + ConfirmPasswordResetWithSession (service.go); their only
+  helpers storePasswordResetSession/consumePasswordResetSession plus the
+  now-orphaned passwordResetSessionData type and keyPasswordResetSession const
+  (ephemeral_data.go); and the unit test TestPasswordResetSessionOneTimeConsume
+  (verification_tokens_test.go). Fixed a stale doc-comment ref in
+  password_reset_required_test.go. service.go 4306 -> 4154. Build, vet, http
+  tests pass; only the pre-existing TOTP test fails.
 - Stage 4 (done): moved access-token issuance (IssueAccessToken,
   Issue2FAEnrollmentToken, issueAccessToken, reservedAccessTokenClaims) to
   token_issue.go. Review: the two public funcs are clean named wrappers over the

@@ -70,7 +70,7 @@ func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
 	}
 
 	// A completed password reset overwrites the row with argon2id (same upsert
-	// ConfirmPasswordResetWithSession performs) and clears the condition.
+	// finishPasswordReset performs) and clears the condition.
 	phc, err := password.HashArgon2id("brand-new-password-1")
 	if err != nil {
 		t.Fatalf("hash: %v", err)
