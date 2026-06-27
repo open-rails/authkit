@@ -61,6 +61,15 @@ Tomorrow (stage 4+):
 
 ## Progress
 
+- Stage 3 (done): moved the password block (PasswordLogin, PasswordLoginByUserID,
+  VerifyUserPassword, CheckUserPassword, ChangePassword, SetPasswordAfterFreshAuth,
+  errOrUnauthorized) to passwords.go. Review finding and fix: PasswordLogin and
+  PasswordLoginByUserID duplicated ~30 lines of verify/rehash/issue logic that
+  differed only in how they fetch the user; extracted a shared loginVerifiedUser
+  helper (behavior-preserving, login tests pass). VerifyUserPassword vs
+  CheckUserPassword are not redundant: bool form vs error form for reset-routing.
+  service.go 4696 -> 4446. Build, vet, http tests pass; only the pre-existing TOTP
+  test fails.
 - Stage 2 (done): moved the senders block (VerificationMessage + Validate,
   EmailSender/SMSSender/SMSHealthChecker, the With/Has wiring, CheckSMSHealth and
   the SMS-health surface, delivery-error helpers, ValidateVerificationConfiguration)
