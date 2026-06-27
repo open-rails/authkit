@@ -61,6 +61,21 @@ Tomorrow (stage 4+):
 
 ## Progress
 
+- Stage 2 (done): moved the senders block (VerificationMessage + Validate,
+  EmailSender/SMSSender/SMSHealthChecker, the With/Has wiring, CheckSMSHealth and
+  the SMS-health surface, delivery-error helpers, ValidateVerificationConfiguration)
+  to senders.go. Also moved PasskeysEnabled to passkeys.go: it was mis-filed in
+  the senders block but is a passkey capability, not a sender.
+  Review finding: the SMS-health surface (CheckSMSHealth/SMSHealthy/
+  SMSHealthReason/SMSAvailable) looked redundant but is not. They are distinct
+  (run probe / read cached bool / read cached reason / composite gate), and
+  SMSHealthy+SMSHealthReason are exposed through authhttp.Service, so they stay.
+  I tried removing them as "dead" and the build caught it immediately. authcore
+  builds and vets clean.
+  Note (pre-existing, not from this change): the repo does not build whole because
+  the last merge left adapters/clickhouse and http/server.go referencing dropped
+  symbols (AuthEventLogger/WithAuthLogger, #143). TestResolveTOTPSecretKey also
+  still fails. Both predate this stage.
 - Stage 1 (done): moved the 7 URL builders (authkitURL, verificationURL, and the
   email/phone verify+reset wrappers, passwordlessURL) to links.go. Reviewed
   first: every thin wrapper is actually used (no dead code), so they stayed.

@@ -20,6 +20,13 @@ import (
 
 const passkeyCeremonyTTL = 10 * time.Minute
 
+// PasskeysEnabled reports whether passkey (WebAuthn) support is configured.
+// Passkeys require a Relying Party ID (PasskeyConfig.RPID); without it every
+// WebAuthn ceremony fails closed (the origin must match the RPID). The HTTP
+// transport uses this to skip mounting the /passkeys/* routes entirely rather
+// than exposing endpoints that can only error.
+func (s *Service) PasskeysEnabled() bool { return strings.TrimSpace(s.opts.PasskeyRPID) != "" }
+
 var (
 	ErrPasskeyNotFound                 = authkit.ErrPasskeyNotFound
 	ErrPasskeyUserVerificationRequired = authkit.ErrPasskeyUserVerificationRequired
