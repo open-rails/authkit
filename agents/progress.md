@@ -1519,7 +1519,7 @@ spawns a cleanup goroutine with no `Close()` (leak); `ratelimit/redis/limiter.go
 
 # #155: Delete dead exported `http.AllowNamed` (BREAKING)
 
-**Completed:** yes — done (Paul-approved): deleted the dead pkg-level `AllowNamed` from `http/ratelimit.go`; the 2-arg `RateLimiter.AllowNamed` interface method stays. SEMVER §4.5 drop pending the bump.
+**Completed:** yes — done (Paul-approved): deleted the dead pkg-level `AllowNamed` from `http/ratelimit.go`; the 2-arg `RateLimiter.AllowNamed` interface method stays. SEMVER §4.5 drop APPLIED.
 
 Parent #150 (BREAKING, but signed off — breaking an unused exported symbol is acceptable).
 
@@ -1762,7 +1762,7 @@ so the type is covered-but-orphaned. Removal is BREAKING (public `embedded.Solan
 
 # #186: Delete dead `oidc/defaults.go` builder cluster (BREAKING)
 
-**Completed:** no
+**Completed:** yes — done: deleted `DefaultsFor`, `NewManagerFromMinimal`, `applyMinimalConfig`, `mergeScopes` (`oidc/defaults.go`) + `AppleWithKey` (`oidc/apple.go`); kept the live chain (`NewManagerFromProviders`/`RPClientFromProvider`/`cloneStringMap`/`ensureOpenID`/`RPConfig`). The 3 dead tests removed (their openid-gating coverage is preserved by the `FromProviders` descriptor tests). SEMVER §4.4 drops `AppleWithKey`. MAJOR — rides #143.
 
 Parent #150 (BREAKING — `AppleWithKey` is in SEMVER §4.4).
 
@@ -1783,7 +1783,7 @@ and `AppleWithKey`. `RPConfig` and the live mapping are out of scope here (their
 
 # #187: Collapse `PermissionTokenCovers` → `PermMatches` (BREAKING)
 
-**Completed:** no
+**Completed:** yes — done: deleted `PermissionTokenCovers` (`permission.go`); repointed `verify/claims.go` + `verify/verifier.go` to `PermMatches` (which already trims, so behaviour-identical). SEMVER §4.3 drops `PermissionTokenCovers` (and the stale `authbase`→root `authkit` location is fixed in the same pass). MAJOR — rides #143.
 
 Parent #150 (Tier 4, BREAKING).
 
@@ -1805,7 +1805,7 @@ redundant double-trim. Both exported, same package. In-repo callers: `verify/cla
 
 # #188: Hoist one `ratelimit.Limit`; delete dup structs + converters (BREAKING)
 
-**Completed:** yes — done: one `ratelimit.Limit`; deleted the 3 dup structs + `ToMemoryLimits`/`ToRedisLimits`; `DefaultRateLimits` returns `map[string]ratelimit.Limit` and `server.go` passes it straight to `New`. SEMVER §4.4/§4.5 drop pending the bump.
+**Completed:** yes — done: one `ratelimit.Limit`; deleted the 3 dup structs + `ToMemoryLimits`/`ToRedisLimits`; `DefaultRateLimits` returns `map[string]ratelimit.Limit` and `server.go` passes it straight to `New`. SEMVER §4.4/§4.5 APPLIED.
 
 Parent #150 (Tier 4, BREAKING; "Provided"/advanced pkgs, small blast radius — pairs with #143's
 auto-owned limiter). Unblocks #171's `get` move.
@@ -1829,7 +1829,7 @@ in THREE places — `memorylimiter` (`ratelimit/memory/limiter.go:13`), `redisli
 
 # #189: Collapse limiter interface 3-tier → 2; drop `AllowNamedWithRetryAfter` (BREAKING)
 
-**Completed:** yes — done: dropped `RateLimiterWithRetryAfter` + the unreachable type-switch branches + both backend `AllowNamedWithRetryAfter` methods; the memory cooldown/window tests preserved via an `allowRetry` helper over `AllowNamedResult`. SEMVER §4.5 drop pending the bump.
+**Completed:** yes — done: dropped `RateLimiterWithRetryAfter` + the unreachable type-switch branches + both backend `AllowNamedWithRetryAfter` methods; the memory cooldown/window tests preserved via an `allowRetry` helper over `AllowNamedResult`. SEMVER §4.5 drop APPLIED.
 
 Parent #150 (Tier 4, BREAKING; pairs with #143's auto-owned limiter — custom injection becomes
 advanced/internal-only).
@@ -1880,7 +1880,7 @@ composition lives in the devserver (`LoadBootstrapManifestFile` + `ApplyBootstra
 
 # #191: Remove dead exported helpers
 
-**Completed:** no
+**Completed:** yes — done: removed `verify.RemoteAppOptions` (kept unexported `remoteAppOptions`), `jwt.NewStaticKeySourceFromRing`, `jwt.RSAPublicToJWK`, `authprovider.BuiltIns`, `http.MintDelegatedAccessToken`+`http.DelegatedAccessParams` (the ~12 http test sites migrated to `embedded.MintDelegatedAccessToken`+`authkit.DelegatedAccessParams`), and the `embedded.ParseBootstrapManifestYAML` alias (underlying `authcore.ParseBootstrapManifestYAML` + `LoadBootstrapManifestFile` stay). SEMVER §4.3 drops the `(+RemoteAppOptions)` note; §4.4 drops `BuiltIns`; §4.2 drops `ParseBootstrapManifestYAML` (and §6.6 ref). MAJOR — rides #143.
 
 Parent #150 (Tier 4, BREAKING — unused/test-only exported helpers, removed on merits). Each verified
 by a repo-wide caller sweep (2026-06-26):

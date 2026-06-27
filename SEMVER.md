@@ -91,53 +91,59 @@ appears in consumer code. Renaming either is breaking.
 
 | Import path | Package name | Tier | Role |
 |---|---|---|---|
-| `…/core` | `core` | Stable | Service, config, domain types, mint APIs |
+| `github.com/open-rails/authkit` (root) | `authkit` | Stable | The contract: the `Client` interface, domain/result types, config, sentinel errors, mint params, and the permission/API-key primitives |
+| `…/embedded` | `embedded` | Stable | In-process embedding facade — `New(cfg, pg, …) (*Client, …)` plus type/func aliases re-exporting the internal service surface |
 | `…/http` | `authhttp` | Stable | HTTP transport, middleware, routes, error codes |
+| `…/server` | `server` | Stable | Management JSON handler (`NewHandler`) over an `authkit.Client` |
+| `…/remote` | `remote` | Stable | Remote `authkit.Client` implementation over HTTP |
 | `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
-| `…/authbase` | `authbase` | Stable (verify-only) | Shared primitives: error envelope, opaque-key parsing, sentinels |
 | `…/jwt` | `jwtkit` | Advanced | Key management, signers, JWKS |
-| `…/identity` | `identity` | Stable | Slug/identity store |
 | `…/authprovider` | `authprovider` | Stable | Provider descriptors / claim mapping |
 | `…/oidc` | `oidckit` | Stable | OIDC RP client manager |
 | `…/password` | `password` | Stable | argon2id/bcrypt hash + verify |
 | `…/siws` | `siws` | Stable | Sign In With Solana |
-| `…/roles` | `roles` | Stable | Deterministic role-ID derivation |
 | `…/lang` | `lang` | Stable | Language context helpers |
-| `…/riverjobs` | `riverjobs` | Provided | River background workers |
-| `…/testing` | `testing` | Stable | Test issuer for consumers |
-| `…/ratelimit` | `ratelimit` | Stable | Rate-limit result types |
+| `…/authtest` | `authtest` | Stable | Test issuer for consumers |
+| `…/ratelimit` | `ratelimit` | Stable | Rate-limit result + `Limit` types and helpers |
 | `…/ratelimit/memory` | `memorylimiter` | Provided | In-memory limiter |
 | `…/ratelimit/redis` | `redislimiter` | Provided | Redis limiter |
 | `…/storage/memory` | `memorystore` | Provided | In-memory ephemeral stores |
 | `…/storage/redis` | `redisstore` | Provided | Redis ephemeral stores |
 | `…/adapters/gin` | `authkitgin` | Provided | Gin route registration |
 | `…/adapters/chi` | `authkitchi` | Provided | Chi route registration |
-| `…/providers/email/twilio` | `twilio` | Provided | SendGrid/Twilio email sender |
-| `…/providers/sms/twilio` | `twilio` | Provided | Twilio SMS sender |
+| `…/adapters/twilio/email` | `twilio` | Provided | Twilio/SendGrid email sender |
+| `…/adapters/twilio/sms` | `twilio` | Provided | Twilio SMS sender |
+| `…/adapters/riverjobs` | `riverjobs` | Provided | River background workers |
 | `…/migrations/postgres` | `migrations` | Stable | Embedded Postgres migrations (`FS`, `FSForSchema`) |
 | `…/migrations/clickhouse` | `migrations` | Stable | Embedded ClickHouse migrations (`FS`) |
-| `…/internal/db` | `db` | **Out of contract** | sqlc-generated; never import |
+| `…/internal/*` | (various) | **Out of contract** | `internal/db` (sqlc-generated), `internal/authcore` (service impl); never import |
 
 **Adding a package** is MINOR. **Removing or renaming** a package, or changing its
 package name, is MAJOR.
 
-### 4.2 `core` — exported surface
+### 4.2 Root `authkit` & `embedded` — exported surface
 
-`core` is the public, embedder-facing package. The full service implementation lives in
-**`internal/authcore`** (driven by the `authkit/http` transport) and is **out of
-contract** (§9). `core` re-exports the public data types, config, constants, sentinel
-errors, and helper functions, and exposes a deliberately small **`Service` facade**: a
-curated ~66-method surface (down from the former ~230 flat methods, #126) covering
-provisioning, minting, management, and queries. Auth-flow plumbing that exists only to
-serve the HTTP handlers stays internal and is **not** covered.
+The root **`authkit`** package is the contract. It defines the **`Client` interface** —
+composed (#143) from cohesive topic interfaces (`Users`, `Passwords`, `Admin`, `Roles`,
+`Groups`, `Tokens`, `APIKeys`, `Sessions`, `Providers`, `RemoteApps`, `Passwordless`,
+`Bootstrap`, `Senders`, `Entitlements`, `Maintenance`) so a host can depend on the slice
+it needs — plus the public data/result types, config, constants, sentinel errors, and the
+permission/API-key primitives. The concrete in-process implementation is the **`embedded`**
+facade: `embedded.New(cfg, pg, …) (*embedded.Client, error)` returns a `*Client` that
+satisfies `authkit.Client`, and `embedded` re-exports (via aliases) the service-side
+constructors, options, and types hosts need. The full service implementation lives in
+**`internal/authcore`** (driven by the `authkit/http` transport) and is **out of contract**
+(§9). The `authkit/remote` (remote SDK) and `authkit/server` (management API) packages are
+**generated method-for-method** from the `Client` interface, so they track it exactly.
+Adding a method to `Client` (or any embedded topic interface) is MAJOR — consumers and the
+generated transports implement it.
 
-**Constructors & options**
+**Constructors & options** (`embedded`; `Config`/`Options`/`Keyset`/`Option` are aliases
+to the internal service types):
 ```
-func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service, error)
-func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service
-type Option func(*Service)
-  WithClickHouse, WithEmailSender, WithEntitlements,
-  WithEphemeralStore, WithPostgres, WithSMSSender
+func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error)
+type Option ; WithRedis, WithClickHouse, WithEmailSender, WithEntitlements,
+  WithPostgres, WithSMSSender, WithSessionRevokeReason
 ```
 
 **Config types** (every field is covered; see [§7.3](#73-config-surface)):
@@ -156,14 +162,15 @@ with params `ServiceJWTMintOptions`, `DelegatedAccessParams`, `RemoteApplication
 ceremony methods (`BeginPasskeyRegistration`/`Finish…`, `BeginPasskeyLogin`/`Finish…`,
 `ListPasskeys`, `RenamePasskey`, `DeletePasskey`) live on `internal/authcore` and are
 exercised through the `RoutePasskeys` HTTP routes ([§5.3](#53-static-api-route-table-covered)),
-not the `core.Service` facade. The covered passkey **library** surface is therefore the
+not the `authkit.Client` interface. The covered passkey **library** surface is therefore the
 `PasskeyConfig` ([§7.3](#73-config-surface)), the `Passkey` / `PasskeyLoginResult` types,
 and the `ErrPasskey*` sentinels below; the ceremony request/response JSON bodies follow the
 W3C WebAuthn standard (`navigator.credentials.create`/`get`) and are exercised via the routes.
 
-**Service facade methods** (covered) — the curated ~71-method embedder surface, reached
-via `svc.Core()` from the HTTP service or directly from `core.NewFromConfig`. Grouped by
-concern: user lifecycle/admin (`CreateUser`, `ImportUser`, `UpdateImportedUser`,
+**`Client` interface methods** (covered) — the curated embedder surface, defined on
+`authkit.Client` (and its topic interfaces) and implemented by `*embedded.Client`. Adding
+a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`CreateUser`,
+`ImportUsers`, `UpdateImportedUser`,
 `GetUserBy{Email,Username,Phone,SolanaAddress}`, `BanUser`/`UnbanUser`,
 `{Soft,Hard}DeleteUser`, `RestoreUser`, `AdminListUsers`/`AdminGetUser`/…); tokens
 (`Mint*`, `IssueAccessToken`); passwords (`VerifyUserPassword`, `ChangePassword`,
@@ -175,8 +182,9 @@ links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
 apps; identity linking; sessions; bootstrap; passwordless (`StartPasswordless`,
 `ConfirmPasswordlessCode`, `ConfirmPasswordlessToken`, `RecordFailedPasswordlessCode`,
 `ClearPasswordlessCodeAttempts`); and accessors (`JWKS`, `Postgres`, `Schema`,
-`Options`, `PublicKeysByKID`, `Keyfunc`, …). Every method on the facade is covered; the
-229 implementation methods on `internal/authcore.Service` are **not**.
+`Options`, `PublicKeysByKID`, `Keyfunc`, …). Every method on the `Client` interface is
+covered; the implementation methods on `internal/authcore.Service` (beyond what `Client`
+exposes) are **not**. (Method names above are illustrative; `client.go` is authoritative.)
 
 **Domain & result types** (covered): `User`, `AdminUser`, `AdminUserStatus`,
 `AdminUserSort`, `AdminListUsersResult`, `AdminUserListOptions`, `AdminRecoverUserInput`,
@@ -206,7 +214,7 @@ password-reset senders receive the final reset URL, not a raw token.
 
 **Bootstrap types** (covered): `BootstrapManifest`, `BootstrapManifestUser`,
 `BootstrapManifestGlobalRole`, `BootstrapManifestResult`, `BootstrapReconcileOptions`,
-`BootstrapUserPassword`, `LoadBootstrapManifestFile`, `ParseBootstrapManifestYAML`,
+`BootstrapUserPassword`, `LoadBootstrapManifestFile`,
 `DefaultBootstrapManifestPath`. The **YAML manifest schema** is itself a wire contract
 (see [§6.6](#66-bootstrap-manifest-yaml)).
 
@@ -224,46 +232,50 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `ErrInviteLinkRevoked`, `ErrExternalInvitesDisabled` (#134/#147), `ErrUserRoleNotFound`,
 `ErrCannotRemoveLastAdminRole`, `ErrEntitlementFilterUnavailable`,
 `ErrInvalidBootstrapManifest`, `ErrEmptyCustomClaims`, `ErrRemoteApplicationNotFound`,
-`ErrPasswordlessDisabled`, `ErrAttributeDefNotFound`, and the `ErrInvalid*` re-exports from `authbase`.
+`ErrPasswordlessDisabled`, `ErrAttributeDefNotFound`, and the `ErrInvalid*` verify-only sentinels (§4.3).
 `HashAlgoLegacyResetRequired = "legacy-reset-required"` is a covered stored value.
 
-> **Done (#126):** the former dual API (a ~230-method flat `*core.Service` plus an unused
-> 166-method facet mirror) has been collapsed. The facet layer is deleted; the
-> implementation moved to `internal/authcore`; the public `core.Service` is now the
-> curated ~66-method facade above. This *is* the Stable core.
+> **Done (#126 → #143):** the former dual API (a ~230-method flat `*core.Service` plus an
+> unused 166-method facet mirror) was collapsed (#126), then the public surface was
+> re-shaped (#143) into the **`authkit.Client` interface** (composed of topic interfaces)
+> with the concrete implementation behind `embedded.New`. The old `core` package is gone;
+> the implementation lives in `internal/authcore`. This *is* the Stable core.
 
-### 4.3 `verify` & `authbase` — the verify-only surface
+### 4.3 `verify` & the verify-only primitives in root `authkit`
 
-These import **no** Postgres/Redis/storage. A pure resource server depends on them
-directly to keep `pgx`/`redis` out of its build graph. `authhttp` re-exports every name
-below, so token-issuing apps need no change.
+`verify` imports **no** Postgres/Redis/storage. A pure resource server depends on it plus
+the dependency-light primitives in root `authkit` (formerly the separate `authbase`
+package, now folded into root) to keep `pgx`/`redis` out of its build graph. `authhttp`
+re-exports every name below, so token-issuing apps need no change.
 
 **`verify`** (Stable, verify-only):
 ```
 type Verifier; NewVerifier(opts ...VerifierOption) *Verifier
   WithAPIKeyPrefix, WithAlgorithms, WithAttributeHydration, WithAttributesPolicy,
-  WithHTTPClient, WithPermissions, WithSSRFGuard, WithSkew
+  WithHTTPClient, WithPermissions, WithRequireMFAEnrollment, WithSSRFGuard, WithSkew
+(*Verifier).WithService(Enricher) attaches DB-backed enrichment
 type Claims (see §6.4); ClaimsFromContext, GetClaims, SetClaims
 Middleware: Required, Optional, RequiredServiceJWT, RequireACR, RequireAMR, RequireMFA,
   RequireFreshAuth, RequireEntitlement, RequireAnyEntitlement, RequireDelegatedOrigin,
   RemoteApplicationCORS, Sensitive
 Helpers: SensitiveClaims, SensitiveOptions, NewSSRFGuardedClient, SetRequestContextHook
 Principals: DelegatedPrincipal, ServiceJWTPrincipal (+FromContext), Enricher,
-  RemoteApplicationSource, IssuerKey, IssuerOptions (+RemoteAppOptions)
+  RemoteApplicationSource, IssuerKey, IssuerOptions
 Service-JWT verify: ServiceJWTVerifyOption (WithServiceJWTMaxLifetime,
   WithServiceJWTReplayChecker), ServiceJWTReplayChecker
 Policy callbacks: AttributeDefResolver, AttributesValidator, PermissionValidator
 Consts: AccessTokenType, ServicePrincipalType="service", RemoteApplicationTokenType,
   DefaultSensitiveMaxAge=15m, DefaultOutboundTimeout=30s
 ```
-`Enricher` is satisfied by `*core.Service`; attaching DB-backed enrichment is opt-in via
-`verifier.WithService(coreSvc)`.
+`Enricher` is satisfied by the embedding service (the `*embedded.Client`'s underlying
+service); attaching DB-backed enrichment is opt-in via `(*Verifier).WithService(...)`.
 
-**`authbase`** (Stable, verify-only): `ErrorEnvelope`, `ErrorObject`, `NewErrorEnvelope`
+**Root `authkit` verify-only primitives** (Stable, verify-only; formerly package
+`authbase`): `ErrorEnvelope`, `ErrorObject`, `NewErrorEnvelope`
 (see [§6.1](#61-error-envelope)); `APIKeyResource`, `RemoteApplication`,
 `RemoteAppKey`, `RemoteAppAttributeDef`, `ResolvedAPIKey`, `ServiceJWTClaims`; opaque-key
 funcs `APIKeyMarker`, `FormatAPIKey`, `ParseAPIKey`, `HasAPIKeyPrefix`; permission match
-funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
+funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 `NormalizeAllowedOrigin(s)`, `OriginAllowed`; error helpers `ErrorMessage`,
 `ErrorTypeForStatus`, `ErrorTypeInvalidRequest…` consts; mode consts `RemoteAppModeJWKS`,
 `ServiceJWTTokenUse="service"`; sentinels `ErrInvalidAccessToken="invalid_token"`,
@@ -279,12 +291,11 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
   `DefaultAuthKeysPath="/vault/auth"`, `DefaultGeneratedKeysDir=".runtime/authkit"`;
   `BaseRegisteredClaims`, `AlgorithmForPublicKey`, `SetLogger`, `ErrUnsupportedJWK`.
   **No API returns a private key or PEM** — that absence is a deliberate, covered invariant.
-- **`identity`**: `Store`, `NewStore`, `NewStoreInSchema`, `User`, `ErrSlugNotFound`.
 - **`authprovider`**: `Provider`, `Kind` (`KindOIDC`/`KindOAuth2`), `ClientSecret`,
   `AppleJWTSecret`, `UserMapping`, `FieldMapping`, `Identity`, `FallbackLookup`,
-  `BuiltIns`, `BuiltIn`, `Clone`, `MapIdentity`, `MapFallbackEmail`, `ErrClientSecretEnvEmpty`.
+  `BuiltIn`, `Clone`, `MapIdentity`, `MapFallbackEmail`, `ErrClientSecretEnvEmpty`.
 - **`oidckit`**: `Manager` (+`NewManager*`), `RPClient`, `RPConfig`, `Claims`,
-  `StateCache`, `StateData`, `AppleSecretConfig`, `AppleWithKey`,
+  `StateCache`, `StateData`, `AppleSecretConfig`,
   `NewAppleClientSecretProvider`, `GeneratePKCE`, `DefaultExchanger`, TTL consts.
 - **`password`**: `HashArgon2id`, `VerifyArgon2id`, `VerifyBcrypt`, `IsBcryptHash`,
   `Validate`, `Params`, `DefaultParams`. **Accepted hash formats (argon2id, bcrypt) are a
@@ -293,13 +304,11 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
   `ConstructMessage`, `Verify`, `VerifySignature`, `ValidateAddress`, `ValidateDomain`,
   `ValidateTimestamps`, `GenerateNonce`, base58 funcs, `ChallengeCache`, `ChallengeData`,
   `AccountInfo`, `InputOption` (+`With*`).
-- **`roles`**: `IDFromSlug(slug) uuid.UUID`, `NamespaceRoleIDs`. **Role IDs are
-  deterministic UUIDv5 from slug** — the derivation is a covered invariant (rows must stay
-  stable across environments).
 - **`lang`**: `LanguageFromContext`, `WithLanguage`.
-- **`testing`**: `TestIssuer`, `NewTestIssuer(WithAudience|WithSigner)`.
-- **`ratelimit`**: `Result`, `Reason*` consts. **`memorylimiter`/`redislimiter`**: `Limit`,
-  `Limiter`, `New`. **`memorystore`/`redisstore`**: `KV`, `SIWSCache`, `StateCache` + `New*`.
+- **`authtest`**: `TestIssuer`, `NewTestIssuer(WithAudience|WithSigner)`.
+- **`ratelimit`**: `Result`, `Reason*` consts, `Limit` (the single hoisted limit type, #188),
+  `LookupLimit`, `Remaining`. **`memorylimiter`/`redislimiter`**: `Limiter`, `New` (both consume
+  `ratelimit.Limit`). **`memorystore`/`redisstore`**: `KV`, `SIWSCache`, `StateCache` + `New*`.
 - **`authkitgin`/`authkitchi`**: `RegisterAPI`, `RegisterJWKS`, `RegisterOIDC`,
   `RegisterRoutes`, `APIOption` (`WithRoutes`, `WithRouteWrapper`), `APIOptions`.
 - **`twilio` (email/sms)**: `Sender`, `New`, `Config`, and the builder func types.
@@ -310,17 +319,20 @@ funcs `PermMatches`, `PermissionTokenCovers`, `PermWildcard="*"`; origin funcs
 
 `authhttp` is the integration entry point. Covered:
 ```
-type Server = Service; NewServer(cfg core.Config, pg *pgxpool.Pool, opts ...Option) (*Server, error)
-Option: WithRedis, WithTrustedProxies, WithLanguageConfig
+type Server = Service; NewServer(client *embedded.Client, opts ...Option) (*Server, error)
+  (the host builds the *embedded.Client via embedded.New(cfg, pg, …) and uses it directly
+   as the authkit.Client surface — there is no svc.Core() accessor)
+Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
+  WithClientIPFunc, WithLanguageConfig
 Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
-  svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups), svc.Core()
+  svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)
 Re-exports from verify: Verifier, NewVerifier, Claims, Enricher, IssuerOptions, IssuerKey,
   DelegatedPrincipal, ServiceJWTPrincipal, SensitiveOptions, the policy/validator aliases,
   Required/Optional/RequiredServiceJWT/Sensitive/Require* middleware
   (admin authorization is permission-based via the root permission group — there is no
    bespoke RequireAdmin gate; the /admin/* routes gate on root:* perms — see §5.3)
-Rate limiting: RateLimiter, RateLimiterWithResult, RateLimiterWithRetryAfter, Limit,
-  RateLimitResult, DefaultRateLimits(), AllowNamed, ToMemoryLimits, ToRedisLimits, RL* consts
+Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,
+  DefaultRateLimits() (returns map[string]ratelimit.Limit), RL* consts
 Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders, PublicRemoteAddrClientIP
 Language: LanguageConfig, LanguageMiddleware
 Routing: RouteGroup (+consts), RouteSpec, Routes
@@ -566,8 +578,7 @@ from that role at verify time. The format and resolution semantics are covered.
 
 The bootstrap manifest schema (`users`, `remote_applications`, `group_roles`, and
 the three password modes: `plaintext`, `hash`+`hash_algo`, `reset_required`) is a
-covered wire contract parsed by `LoadBootstrapManifestFile` /
-`ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR. Per-user
+covered wire contract parsed by `LoadBootstrapManifestFile`. Removing/renaming a field is MAJOR. Per-user
 `root_role: owner` seeds the apex owner SEED-IF-ABSENT — owner is the built-in
 apex of every group, never defined here, only assigned. Group role assignments
 address existing groups by `persona` + `instance_slug`.
@@ -613,7 +624,8 @@ covered compatibility alias.)
 - **PostgreSQL 18+ is required** (native `uuidv7()` defaults). Raising the floor is MAJOR.
 - Tables/columns are *operationally* observable but the **canonical interface is the Go
   API + routes**, not direct SQL. Stable, externally-relied-upon invariants that ARE
-  covered: deterministic UUIDv5 role IDs (`roles.IDFromSlug`), the `legacy-reset-required`
+  covered: deterministic UUIDv5 role IDs (derived from the role slug; the derivation is now
+  internal but the resulting IDs must stay stable across environments), the `legacy-reset-required`
   hash-algo value, the owner-namespace states (`restricted_name`/`parked_org`/
   `registered_org`), and seeded restricted names (`admin`, `superuser`, `root`, `sudo`).
 
@@ -631,7 +643,8 @@ are covered. AuthKit reads **no** provider env vars directly — hosts inject se
 
 ### 7.3 Config surface (covered, field by field)
 
-`core.Config` carries data/policy only (deps are injected via options). Every field below
+The service `Config` (`embedded.Config`, aliasing the internal config type) carries
+data/policy only (deps are injected via options). Every field below
 is covered; removing/renaming a field, or changing a documented default, is MAJOR. Adding
 an optional field with a backward-compatible zero-value default is MINOR.
 
@@ -746,9 +759,9 @@ items are advisory — resolve before tagging v1.0.0:
    `Require2FAForLogin`/`…Factor`, etc.). DEFERRED in #126 (overlapped #125's live 2FA
    rewrite); now *internal* to `authcore`, so **no longer a public-contract risk** — tidy
    at leisure.
-6. **Curate the facade further (or add facets).** The ~66-method facade is the floor for
-   what embedders need today; trim any that prove unused, or add a grouped accessor layer
-   (`svc.Core().Users().…`) if the flat list grows unwieldy. Cheap to do on the small
-   surface.
+6. ~~Curate the facade further (or add facets).~~ **DONE (#143):** the surface is now the
+   `authkit.Client` interface, composed of cohesive topic interfaces (`Users`, `Tokens`,
+   `Groups`, …); the remote SDK and management API are generated from it. Trim any topic
+   method that proves unused before tagging v1.0.0.
 7. **Advanced `jwtkit` surface.** Confirm which signer/key-source types are meant for
    consumers vs. internal-only, and consider moving the latter behind `internal/`.

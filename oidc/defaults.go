@@ -20,35 +20,6 @@ type RPConfig struct {
 	Scopes []string
 }
 
-// DefaultsFor returns an internal RPClient for a known provider name.
-func DefaultsFor(name string) (RPClient, bool) {
-	provider, ok := authprovider.BuiltIn(name)
-	if !ok {
-		return RPClient{}, false
-	}
-	client, err := RPClientFromProvider(provider)
-	if err != nil {
-		return RPClient{}, false
-	}
-	return client, true
-}
-
-// NewManagerFromMinimal builds a Manager from minimal provider settings.
-func NewManagerFromMinimal(min map[string]RPConfig) *Manager {
-	cfgs := make(map[string]RPClient, len(min))
-	for name, m := range min {
-		if provider, ok := authprovider.BuiltIn(name); ok {
-			applyMinimalConfig(&provider, m)
-			base, err := RPClientFromProvider(provider)
-			if err != nil {
-				continue
-			}
-			cfgs[name] = base
-		}
-	}
-	return NewManager(cfgs)
-}
-
 func NewManagerFromProviders(providers map[string]authprovider.Provider) *Manager {
 	cfgs := make(map[string]RPClient, len(providers))
 	for name, provider := range providers {
@@ -91,15 +62,6 @@ func RPClientFromProvider(provider authprovider.Provider) (RPClient, error) {
 	return client, nil
 }
 
-func applyMinimalConfig(provider *authprovider.Provider, cfg RPConfig) {
-	provider.ClientID = cfg.ClientID
-	provider.ClientSecret.Value = cfg.ClientSecret
-	provider.SecretProvider = cfg.SecretProvider
-	if len(cfg.Scopes) > 0 {
-		provider.Scopes = mergeScopes(provider.Scopes, cfg.Scopes)
-	}
-}
-
 func appleJWTSecretProvider(provider authprovider.Provider) (func(context.Context) (string, error), error) {
 	spec := provider.ClientSecret.AppleJWT
 	if spec == nil {
@@ -136,24 +98,4 @@ func ensureOpenID(scopes []string) []string {
 		}
 	}
 	return append(scopes, "openid")
-}
-
-func mergeScopes(base, extra []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(base)+len(extra))
-	for _, s := range base {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	for _, s := range extra {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
 }

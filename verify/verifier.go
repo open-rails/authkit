@@ -280,7 +280,7 @@ func permissionsWithinAuthority(claimedPerms, authorityPerms []string) ([]string
 		}
 		ok := false
 		for _, grant := range authorityPerms {
-			if authkit.PermissionTokenCovers(grant, p) {
+			if authkit.PermMatches(grant, p) {
 				ok = true
 				break
 			}

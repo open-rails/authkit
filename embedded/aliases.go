@@ -156,7 +156,6 @@ var NormalizePhone = authcore.NormalizePhone
 var NormalizePreferredLanguage = authcore.NormalizePreferredLanguage
 var NormalizeRemoteAppTrustSource = authcore.NormalizeRemoteAppTrustSource
 var OwnerGrant = authcore.OwnerGrant
-var ParseBootstrapManifestYAML = authcore.ParseBootstrapManifestYAML
 var PermCredentialsManage = authcore.PermCredentialsManage
 var PermCredentialsRead = authcore.PermCredentialsRead
 var PermMembersManage = authcore.PermMembersManage

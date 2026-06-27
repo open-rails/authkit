@@ -114,14 +114,6 @@ func BuiltIn(name string) (Provider, bool) {
 	return Clone(p), true
 }
 
-func BuiltIns() map[string]Provider {
-	out := make(map[string]Provider, len(builtIns))
-	for name, provider := range builtIns {
-		out[name] = Clone(provider)
-	}
-	return out
-}
-
 func Clone(in Provider) Provider {
 	out := in
 	out.Scopes = append([]string(nil), in.Scopes...)

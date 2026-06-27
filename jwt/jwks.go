@@ -36,11 +36,6 @@ type JWKS struct {
 	Keys []JWK `json:"keys"`
 }
 
-// RSAPublicToJWK converts an RSA public key to a JWK.
-func RSAPublicToJWK(pub *rsa.PublicKey, kid, alg string) JWK {
-	return PublicToJWK(pub, kid, alg)
-}
-
 // PublicToJWK converts a supported public key to a JWK.
 func PublicToJWK(pub crypto.PublicKey, kid, alg string) JWK {
 	if strings.TrimSpace(alg) == "" {

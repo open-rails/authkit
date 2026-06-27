@@ -181,7 +181,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	}, map[string]any{"typ": AccessTokenType})
 	require.NoError(t, err)
 
-	delegatedToken, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+	delegatedToken, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: issuer, Audiences: []string{"openrails"},
 		DelegatedSubject: "external-user-1", TTL: time.Minute,
 	})

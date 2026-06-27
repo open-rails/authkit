@@ -37,9 +37,3 @@ func (k *KeyRing) ActiveSigner() Signer { return k.active }
 func (k *KeyRing) PublicKeys() map[string]crypto.PublicKey {
 	return clonePublicKeyMap(k.pubs)
 }
-
-// NewStaticKeySourceFromRing is a convenience alias for NewKeyRing(...).StaticKeySource().
-func NewStaticKeySourceFromRing(active Signer, verificationKeys map[string]crypto.PublicKey) StaticKeySource {
-	r := NewKeyRing(active, verificationKeys)
-	return StaticKeySource{Active: r.active, Pubs: r.pubs}
-}

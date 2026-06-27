@@ -11,6 +11,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/embedded"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
@@ -68,7 +69,7 @@ func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 	}
 	iss := "https://cozy.example"
 	aud := []string{"tensorhub"}
-	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
@@ -121,7 +122,7 @@ func TestVerifyRejectsBothSubAndDelegatedSub(t *testing.T) {
 
 func TestMintRequiresDelegatedSubject(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	if _, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{Issuer: "x"}); err == nil {
+	if _, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{Issuer: "x"}); err == nil {
 		t.Fatal("expected error for missing delegated_sub")
 	}
 }
@@ -191,7 +192,7 @@ func TestIssuerOnlyDelegatedToken(t *testing.T) {
 	}
 	iss := "https://doujins.example"
 	aud := []string{"openrails"}
-	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
@@ -222,7 +223,7 @@ func TestDelegatedAccessRolesFromAttributes(t *testing.T) {
 	u1 := "11111111-1111-1111-1111-111111111111"
 	u2 := "22222222-2222-2222-2222-222222222222"
 
-	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
@@ -289,7 +290,7 @@ func TestDelegatedAccessRolesCapped(t *testing.T) {
 	for i := 0; i < maxDelegatedRoles+10; i++ {
 		roles = append(roles, delegatedUUIDForIndex(i))
 	}
-	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+	tok, _ := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
 		Roles: roles, TTL: time.Minute,
 	})
@@ -316,7 +317,7 @@ func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
 	v := NewVerifier()
 	v.SetRemoteApplicationSource(&memRemoteAppSource{}) // empty store
-	tok, _ := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+	tok, _ := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: "https://rogue.example", Audiences: []string{"tensorhub"},
 		DelegatedSubject: "x", TTL: time.Minute,
 	})
@@ -394,7 +395,7 @@ func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
 	}
 
 	t.Run("within ceiling passes", func(t *testing.T) {
-		tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 			Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
 			Permissions: []string{"openrails:self:billing:read"},
 			TTL:         time.Minute,
@@ -412,7 +413,7 @@ func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
 	})
 
 	t.Run("out of ceiling rejected", func(t *testing.T) {
-		tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+		tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 			Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
 			// Not within the app's stored authority -> privilege escalation attempt.
 			Permissions: []string{"openrails:platform:orgs:recover"},

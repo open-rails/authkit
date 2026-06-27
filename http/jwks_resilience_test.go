@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/embedded"
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
@@ -39,7 +41,7 @@ func TestVerifierJWKSFetchResilience(t *testing.T) {
 	if err := ver.AddIssuer(iss, aud, IssuerOptions{JWKSURI: srv.URL + "/.well-known/jwks.json"}); err != nil {
 		t.Fatal(err)
 	}
-	tok, err := MintDelegatedAccessToken(context.Background(), signer, DelegatedAccessParams{
+	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	if err != nil {
@@ -87,7 +89,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 	}
 
 	// Prime the cache with the OLD key (verify a token it signed).
-	t1, _ := MintDelegatedAccessToken(context.Background(), oldSigner, DelegatedAccessParams{
+	t1, _ := embedded.MintDelegatedAccessToken(context.Background(), oldSigner, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(t1); err != nil {
@@ -96,7 +98,7 @@ func TestVerifierRefetchesOnVerifyFailure(t *testing.T) {
 
 	// Rotate the signing key (same kid), cache still fresh, mint with the NEW key.
 	current.Store(newSigner)
-	t2, _ := MintDelegatedAccessToken(context.Background(), newSigner, DelegatedAccessParams{
+	t2, _ := embedded.MintDelegatedAccessToken(context.Background(), newSigner, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u2", TTL: time.Minute,
 	})
 	if _, err := ver.Verify(t2); err != nil {

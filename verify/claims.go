@@ -252,7 +252,7 @@ func (c Claims) AttributeIsReference(key string) bool {
 // the requested concrete permission.
 func (c Claims) HasPermission(perm string) bool {
 	for _, p := range c.Permissions {
-		if authkit.PermissionTokenCovers(p, perm) {
+		if authkit.PermMatches(p, perm) {
 			return true
 		}
 	}

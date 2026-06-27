@@ -8,47 +8,11 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
 )
-
-func TestNewManagerFromMinimalDoesNotForceOpenIDForOAuth2Providers(t *testing.T) {
-	for _, provider := range []string{"discord", "github"} {
-		t.Run(provider, func(t *testing.T) {
-			m := NewManagerFromMinimal(map[string]RPConfig{
-				provider: {ClientID: provider + "-client"},
-			})
-			rp, ok := m.Provider(provider)
-			if !ok {
-				t.Fatalf("expected %s provider", provider)
-			}
-			for _, scope := range rp.Scopes {
-				if scope == "openid" {
-					t.Fatalf("%s is OAuth2, not OIDC; scopes must not force openid: %v", provider, rp.Scopes)
-				}
-			}
-		})
-	}
-}
-
-func TestNewManagerFromMinimalKeepsOpenIDForOIDCProviders(t *testing.T) {
-	m := NewManagerFromMinimal(map[string]RPConfig{
-		"google": {ClientID: "google-client", Scopes: []string{"email"}},
-	})
-	rp, ok := m.Provider("google")
-	if !ok {
-		t.Fatalf("expected google provider")
-	}
-	for _, scope := range rp.Scopes {
-		if scope == "openid" {
-			return
-		}
-	}
-	t.Fatalf("google is OIDC; scopes must include openid: %v", rp.Scopes)
-}
 
 func TestNewManagerFromProvidersAcceptsCustomOIDCDescriptor(t *testing.T) {
 	m := NewManagerFromProviders(map[string]authprovider.Provider{
@@ -99,14 +63,6 @@ func TestNewManagerFromProvidersAcceptsCustomOAuth2Descriptor(t *testing.T) {
 		if scope == "openid" {
 			t.Fatalf("custom OAuth2 provider must not force openid: %v", rp.Scopes)
 		}
-	}
-}
-
-func TestMergeScopesPreservesBaseOrder(t *testing.T) {
-	got := mergeScopes([]string{"openid", "email", "profile"}, []string{"email", "offline_access"})
-	want := []string{"openid", "email", "profile", "offline_access"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mergeScopes() = %v, want %v", got, want)
 	}
 }
 

@@ -11,13 +11,6 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// RemoteAppOptions builds the verifier IssuerOptions for a remote_application
-// (issuer/JWKS or static keys + allowed origins). Exported so authhttp handlers
-// that register issuers from stored remote_applications can reuse it.
-func RemoteAppOptions(ra authkit.RemoteApplication) IssuerOptions {
-	return remoteAppOptions(ra)
-}
-
 // DefaultOutboundTimeout bounds the verify layer's outbound HTTP calls (JWKS
 // fetches). Mirrors authhttp's constant of the same name.
 const DefaultOutboundTimeout = 30 * time.Second

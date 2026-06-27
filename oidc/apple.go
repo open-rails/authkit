@@ -61,25 +61,3 @@ func NewAppleClientSecretProvider(cfg AppleSecretConfig) (func(ctx context.Conte
 		return token.SignedString(ecKey)
 	}, nil
 }
-
-// AppleWithKey constructs an RPConfig for Apple that mints a short‑lived
-// ES256 client_secret per request using the given developer key. Scopes default
-// to openid,email,name; callers may override cfg.Scopes after use if needed.
-func AppleWithKey(teamID, keyID string, privateKeyPEM []byte, clientID string, ttl time.Duration) RPConfig {
-	prov, err := NewAppleClientSecretProvider(AppleSecretConfig{
-		TeamID:        teamID,
-		KeyID:         keyID,
-		ClientID:      clientID,
-		PrivateKeyPEM: privateKeyPEM,
-		TTL:           ttl,
-	})
-	var sp func(ctx context.Context) (string, error)
-	if err == nil {
-		sp = prov
-	}
-	return RPConfig{
-		ClientID:       clientID,
-		SecretProvider: sp,
-		Scopes:         []string{"openid", "email", "name"},
-	}
-}

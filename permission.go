@@ -46,9 +46,3 @@ func PermMatches(grant, concrete string) bool {
 	}
 	return true
 }
-
-// PermissionTokenCovers reports whether a stored grant token covers a requested
-// permission token using AuthKit's namespace-anchored glob semantics.
-func PermissionTokenCovers(grant, requested string) bool {
-	return PermMatches(strings.TrimSpace(grant), strings.TrimSpace(requested))
-}
