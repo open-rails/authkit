@@ -262,7 +262,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	}
 
 	ua := r.UserAgent()
-	ip := clientIP(r)
+	ip := remoteIP(r)
 	uaPtr, ipPtr := &ua, &ip
 	s.svc.LogSessionCreated(r.Context(), userID, "oauth_login:"+cfg.Name, sid, ipPtr, uaPtr)
 	if created {

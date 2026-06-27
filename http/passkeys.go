@@ -96,7 +96,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 	ua := r.UserAgent()
-	ip := clientIP(r)
+	ip := remoteIP(r)
 	s.svc.LogSessionCreated(r.Context(), result.UserID, "passkey_login", result.SessionID, &ip, &ua)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token":  result.AccessToken,

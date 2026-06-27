@@ -187,13 +187,13 @@ func (s *Service) issueTokensForUser(w http.ResponseWriter, r *http.Request, use
 
 func (s *Service) createTokensForUser(r *http.Request, userID string, method string) (authTokensResponse, error) {
 	ua := r.UserAgent()
-	ip := parseIP(clientIP(r))
+	ip := parseIP(remoteIP(r))
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, ua, ip, authMethodsForSessionMethod(method))
 	if err != nil {
 		return authTokensResponse{}, err
 	}
 
-	ipStr := clientIP(r)
+	ipStr := remoteIP(r)
 	uaPtr, ipPtr := &ua, &ipStr
 	s.svc.LogSessionCreated(r.Context(), userID, method, sid, ipPtr, uaPtr)
 

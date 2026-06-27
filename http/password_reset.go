@@ -37,7 +37,7 @@ func (s *Service) handleEmailPasswordResetRequestPOST(w http.ResponseWriter, r *
 		return
 	}
 	ua := r.UserAgent()
-	ip := clientIP(r)
+	ip := remoteIP(r)
 	if err := s.svc.RequestPasswordReset(r.Context(), email, 0, &ip, &ua); err != nil {
 		if s.handleDeliveryError(w, r, "password_reset_request", "send_email_password_reset", err) {
 			return

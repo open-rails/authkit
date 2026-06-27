@@ -321,7 +321,7 @@ func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 	if got.Slug != slug || got.Mode != RemoteAppModeJWKS || got.JWKSURI != issuer+"/.well-known/jwks.json" || !got.Enabled {
 		t.Fatalf("remote application=%+v", got)
 	}
-	roles, err := svc.RemoteApplicationRoles(ctx, got.ID)
+	roles, err := svc.remoteApplicationRoles(ctx, got.ID)
 	if err != nil {
 		t.Fatalf("remote application roles: %v", err)
 	}

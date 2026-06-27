@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/adapters/twilio/internal/twiliocommon"
 	"github.com/open-rails/authkit/embedded"
-	authlang "github.com/open-rails/authkit/lang"
 )
 
 const messagesURLFormat = "https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json"
@@ -90,10 +90,7 @@ func New(cfg Config) (*Sender, error) {
 }
 
 func (s *Sender) httpClient() *http.Client {
-	if s.Client != nil {
-		return s.Client
-	}
-	return &http.Client{Timeout: 10 * time.Second}
+	return twiliocommon.DefaultHTTPClient(s.Client)
 }
 
 func (s *Sender) SendVerification(ctx context.Context, phone string, msg embedded.VerificationMessage) error {
@@ -125,30 +122,11 @@ func (s *Sender) SendLoginCode(ctx context.Context, phone, code string) error {
 }
 
 func (s *Sender) appLabel() string {
-	if strings.TrimSpace(s.AppName) != "" {
-		return strings.TrimSpace(s.AppName)
-	}
-	return "Auth"
+	return twiliocommon.AppLabel(s.AppName)
 }
 
 func contextLanguage(ctx context.Context) string {
-	language, ok := authlang.LanguageFromContext(ctx)
-	if !ok {
-		return "en"
-	}
-	language = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(language, "_", "-")))
-	if language == "" {
-		return "en"
-	}
-	if i := strings.Index(language, "-"); i > 0 {
-		language = language[:i]
-	}
-	switch language {
-	case "es":
-		return "es"
-	default:
-		return "en"
-	}
+	return twiliocommon.ContextLanguage(ctx)
 }
 
 func defaultVerificationBody(ctx context.Context, app string, msg embedded.VerificationMessage) string {

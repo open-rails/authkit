@@ -1538,7 +1538,7 @@ wrong — `clientIP` has 16+ callers, so removal won't orphan #162.)
 
 # #162: Collapse `http.clientIP` → `remoteIP`
 
-**Completed:** no
+**Completed:** yes — done: deleted `clientIP`; the 11 handler callers (audit/email_verify/password_reset/passkeys/oidc_browser/oauth2_browser/user_2fa_verify_post/phone_password_reset/auth_token_post/password_login_post) now call `remoteIP`. Internal-only → no SEMVER change. The trusted-proxy audit-vs-ratelimit behaviour split below stays out of scope.
 
 Parent #150 (Tier 2, internal-only).
 
@@ -1566,7 +1566,7 @@ values, so it needs a deliberate decision — out of scope for this removal.
 
 # #168: Extract shared twilio helper (contextLanguage/appLabel/httpClient)
 
-**Completed:** no
+**Completed:** yes — done: added `adapters/twilio/internal/twiliocommon` (`ContextLanguage`/`AppLabel`/`DefaultHTTPClient`); email + sms repoint, keeping `appLabel`/`httpClient` as 1-line delegating methods (each Sender's field + its 10s default preserved). Internal-only → no SEMVER change.
 
 Parent #150 (Tier 2, internal-only; advanced "Provided" adapter, low priority).
 
@@ -1899,7 +1899,7 @@ by a repo-wide caller sweep (2026-06-26):
 
 # #192: Demote/remove test-only exported Service methods
 
-**Completed:** no
+**Completed:** yes — done: unexported `RemoteApplicationRoles` → `remoteApplicationRoles` (preserves the two authcore tests, which call it same-package); off-contract, so no SEMVER change. `RemoveGroupSubject` stays (out of scope below — it's the intentional genesis twin).
 
 Parent #150 (listed under Tier 4, but NON-BREAKING — not re-exported to consumers).
 

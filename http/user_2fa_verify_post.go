@@ -79,7 +79,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	}
 
 	ua := r.UserAgent()
-	ip := clientIP(r)
+	ip := remoteIP(r)
 	uaPtr, ipPtr := &ua, &ip
 	s.svc.LogSessionCreated(r.Context(), userID, "password_login_2fa", sid, ipPtr, uaPtr)
 

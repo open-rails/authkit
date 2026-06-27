@@ -40,7 +40,7 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 		t.Fatalf("add owner member to remote_application: %v", err)
 	}
 
-	roles, err := svc.RemoteApplicationRoles(ctx, ra.ID)
+	roles, err := svc.remoteApplicationRoles(ctx, ra.ID)
 	if err != nil {
 		t.Fatalf("remote_application roles: %v", err)
 	}

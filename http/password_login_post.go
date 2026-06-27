@@ -345,7 +345,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			return
 		}
 		ua := r.UserAgent()
-		ip := clientIP(r)
+		ip := remoteIP(r)
 		uaPtr, ipPtr := &ua, &ip
 		s.svc.LogSessionCreated(r.Context(), finalUserID, "password_login", sid, ipPtr, uaPtr)
 

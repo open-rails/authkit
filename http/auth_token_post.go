@@ -23,7 +23,7 @@ func (s *Service) handleAuthTokenPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ua := r.UserAgent()
-	ip := parseIP(clientIP(r))
+	ip := parseIP(remoteIP(r))
 	accessToken, exp, newRT, err := s.svc.ExchangeRefreshToken(r.Context(), body.RefreshToken, ua, ip)
 	if err != nil {
 		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {

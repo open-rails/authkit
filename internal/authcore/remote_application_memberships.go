@@ -64,9 +64,10 @@ func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role st
 	return s.groupStore().AssignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
 }
 
-// RemoteApplicationRoles returns the roles a remote_application holds in its
+// remoteApplicationRoles returns the roles a remote_application holds in its
 // controlling permission-group, or ErrNotGroupMember when it holds none.
-func (s *Service) RemoteApplicationRoles(ctx context.Context, appID string) ([]string, error) {
+// Unexported: not on the public contract; only authcore tests use it.
+func (s *Service) remoteApplicationRoles(ctx context.Context, appID string) ([]string, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
