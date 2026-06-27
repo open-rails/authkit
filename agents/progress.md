@@ -1056,7 +1056,11 @@ of the #143 release train (shared consumer bump tracked in #143).
 
 # #147: Registration modes + first-class invites
 
-**Completed:** no — design FINALIZED 2026-06-26. The discriminator is STRANGER (no account yet)
+**Completed:** yes — IMPLEMENTED 2026-06-27 (Claude). Resolved the contradiction in favor of Paul's FINAL unified token (the shipped code had deliberately gone two-separate-tokens; user ruled for unification). Both halves now done: (b) known-user own-auth invites shipped earlier (`group_membership_invites.go` + `/me/group-invites/{id}/accept|decline`); (a) the register+join unified STRANGER token is now implemented — see "REGISTER+JOIN" note below. Build+vet green; DB-backed tests skip locally (no Postgres).
+
+REGISTER+JOIN (a), done 2026-06-27: `account_registration_invites` gained nullable `permission_group_id`+`role` (migration 001). `CreateAccountRegistrationInviteRequest`/`…Created`/`AccountRegistrationInvite` (root `authkit/contract.go`) gained optional `Persona`/`InstanceSlug`/`Role`. `createAccountRegistrationInvite` branches: role-carrying → authorized by the group's `members:manage` no-escalation (reusing `validRoleForPersona`+`resolveGroupID`+`authorizeRoleChange`, NOT root:users:invite) + `externalInvitesEnabled`; plain → root:users:invite as before. `consumeAccountRegistrationInvite` now claims the code + grants any carried role in ONE tx (FOR UPDATE + `requireMFAForRoleAssignment` + `AssignRole`, mirroring RedeemGroupInviteLink); it no longer early-returns under non-InviteOnly so a role-carrying code grants under Open too. `groupMemberAdd` unknown-email path mints ONE role-carrying account invite (response key `group_invite`→`invite`) instead of two separate tokens. Test: `TestAccountRegistrationInvite_RegisterPlusJoin`. NOTE: `group_invite_links` stays for the existing redeem flow (not folded away — out of (a)'s scope).
+
+DESIGN CONTEXT (FINALIZED 2026-06-26): the discriminator is STRANGER (no account yet)
 vs KNOWN USER (has an account): a stranger gets a single-use token LINK; a known user accepts via
 their OWN auth (no token). Codex's tokened account-reg subsystem is the right shape for the
 stranger half; the known-user half + the unification below are the rework.
@@ -1100,8 +1104,8 @@ REWORK 2026-06-26 (Claude): converge the shipped subsystem to the decision above
       PARTIALLY DONE (Claude): account-registration code is now UNBOUND — `hasValidAccountRegistration-
       Invite` + `consume…` key on the code alone (email ignored, single-use enforced);
       `TestAccountRegistrationInvite_UnboundByEmail` proves a different email registers with the same
-      code. STILL TODO: optional (persona,instance,role) on the code so it ALSO grants a group role
-      on consume (the register+join unification).
+      code. DONE 2026-06-27: optional (persona,instance,role) on the code now ALSO grants a group role
+      on consume (the register+join unification) — see the REGISTER+JOIN note at the top of this issue.
   (b) Known-user group invite — ADD a UserID-keyed pending-membership table + accept/deny routes that
       authorize via the caller's OWN auth token (no code). Notify by email/text with an SPA link.
   (c) `groupMemberAdd` — target is an existing user -> known-user pending invite (consent) or direct

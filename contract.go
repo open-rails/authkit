@@ -213,14 +213,27 @@ type AccountRegistrationInvite struct {
 	RevokedAt  *time.Time
 	ConsumedAt *time.Time
 	ConsumedBy *string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// Persona/InstanceSlug/Role describe an OPTIONAL group role the code also grants
+	// on consume (#147 register+join). Empty for a plain registration invite.
+	Persona      string
+	InstanceSlug string
+	Role         string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type CreateAccountRegistrationInviteRequest struct {
 	Email     string
 	InvitedBy string
 	ExpiresIn time.Duration
+	// Persona/InstanceSlug/Role, when all set, make this a register+join invite: the
+	// minted code ALSO grants the given role in that permission group on consume
+	// (#147). The minting actor must hold that group's members:manage (no-escalation);
+	// a role-carrying invite does NOT require general root:users:invite. Leave empty
+	// for a plain registration invite (root:users:invite gated).
+	Persona      string
+	InstanceSlug string
+	Role         string
 }
 
 type AccountRegistrationInviteCreated struct {
@@ -229,6 +242,10 @@ type AccountRegistrationInviteCreated struct {
 	URL       string
 	Email     string
 	ExpiresAt time.Time
+	// Persona/InstanceSlug/Role echo the optional group grant carried by the code.
+	Persona      string
+	InstanceSlug string
+	Role         string
 }
 
 type ImportUserStatus string

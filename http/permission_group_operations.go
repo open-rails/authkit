@@ -71,22 +71,22 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 			if s.rateLimited(w, r, RLInviteCreate) || s.rateLimitedByIdentifier(w, r, RLInviteCreate, email) {
 				return
 			}
-			groupInvite, err := s.svc.CreateGroupInviteLink(r.Context(), authkit.CreateGroupInviteLinkRequest{
+			// #147 register+join: mint ONE role-carrying account-registration invite.
+			// Consuming the code authorizes the stranger's registration AND grants this
+			// role on consume — one link covers register + join. Authorized by THIS
+			// group's members:manage (the role-carrying create path), which does not
+			// grant general root:users:invite authority.
+			invite, err := s.svc.CreateAccountRegistrationInvite(r.Context(), authkit.CreateAccountRegistrationInviteRequest{
+				Email:        email,
+				InvitedBy:    actor.UserID,
 				Persona:      persona,
 				InstanceSlug: instanceSlug,
 				Role:         role,
-				InvitedBy:    actor.UserID,
 			})
 			if err != nil {
 				s.writeGroupOpError(w, err)
 				return
 			}
-			// #147: the unknown-email path mints ONLY the group invite link
-			// (authorized by this group's members:manage). Registration authority is a
-			// SEPARATE permission (root:users:invite) — a member-manager does not
-			// implicitly gain it. Under invite-only registration a brand-new stranger
-			// additionally needs an account-registration invite from a root:users:invite
-			// holder; that rare combined case is simply two separate links.
 			writeJSON(w, http.StatusAccepted, map[string]any{
 				"ok":            true,
 				"persona":       persona,
@@ -94,10 +94,10 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 				"email":         email,
 				"role":          role,
 				"invited":       true,
-				"group_invite": map[string]any{
-					"id":   groupInvite.ID,
-					"code": groupInvite.Code,
-					"url":  groupInvite.URL,
+				"invite": map[string]any{
+					"id":   invite.ID,
+					"code": invite.Code,
+					"url":  invite.URL,
 				},
 			})
 			return

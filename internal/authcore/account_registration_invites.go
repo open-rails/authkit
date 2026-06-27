@@ -3,9 +3,12 @@ package authcore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
@@ -83,11 +86,40 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	if invitedBy == "" {
 		return AccountRegistrationInviteCreated{}, errors.New("invalid_invite")
 	}
-	// A registration invite is PURELY about registration authority (#147): it is
-	// gated on root:users:invite and carries no group grant — joining a group is a
-	// SEPARATE invite under members:manage. (The rare stranger-into-group-while-
-	// invite-only case is just two separate links.)
-	if requireRootInvitePermission {
+
+	// #147 register+join: an invite OPTIONALLY carries a group role it ALSO grants on
+	// consume. The two halves authorize differently:
+	//   - plain registration invite (no role) -> root:users:invite (general onboarding).
+	//   - role-carrying invite -> that group's members:manage no-escalation ONLY (the
+	//     same mint gate as CreateGroupInviteLink). A member-manager may attach a
+	//     registration credential scoped to THIS invite without gaining general
+	//     root:users:invite authority.
+	persona := strings.TrimSpace(req.Persona)
+	instanceSlug := strings.TrimSpace(req.InstanceSlug)
+	role := strings.ToLower(strings.TrimSpace(req.Role))
+	carriesRole := persona != "" && role != ""
+
+	var groupID *string
+	if carriesRole {
+		if !s.opts.externalInvitesEnabled() {
+			return AccountRegistrationInviteCreated{}, ErrExternalInvitesDisabled
+		}
+		st := s.groupStore()
+		sch := s.groupSchemaOrDefault()
+		if !s.validRoleForPersona(sch, persona, role) {
+			return AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group", role, persona)
+		}
+		gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+		if err != nil {
+			return AccountRegistrationInviteCreated{}, err
+		}
+		// AK2-AUTHZ-1: a deferred role grant must pass the same no-escalation check
+		// every grant surface uses (mirrors CreateGroupInviteLink's mint gate).
+		if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, invitedBy, role); err != nil {
+			return AccountRegistrationInviteCreated{}, err
+		}
+		groupID = &gid
+	} else if requireRootInvitePermission {
 		ok, err := s.Can(ctx, invitedBy, SubjectKindUser, RootPersona, "", PermRootUsersInvite)
 		if err != nil {
 			return AccountRegistrationInviteCreated{}, err
@@ -96,6 +128,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 			return AccountRegistrationInviteCreated{}, ErrInsufficientRoleAuthority
 		}
 	}
+
 	ttl := req.ExpiresIn
 	if ttl <= 0 {
 		ttl = defaultAccountRegistrationInviteTTL
@@ -103,13 +136,17 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	expiresAt := time.Now().UTC().Add(ttl)
 	code := randB64(32)
 	codeHash := sha256Hex(code)
+	var roleParam *string
+	if carriesRole {
+		roleParam = &role
+	}
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var id string
 	err := q.QueryRow(ctx,
-		`INSERT INTO profiles.account_registration_invites (email, invited_by, code_hash, expires_at)
-		 VALUES ($1, $2::uuid, $3, $4)
+		`INSERT INTO profiles.account_registration_invites (email, invited_by, code_hash, expires_at, permission_group_id, role)
+		 VALUES ($1, $2::uuid, $3, $4, $5, $6)
 		 RETURNING id::text`,
-		email, invitedBy, codeHash, expiresAt).Scan(&id)
+		email, invitedBy, codeHash, expiresAt, groupID, roleParam).Scan(&id)
 	if err != nil {
 		return AccountRegistrationInviteCreated{}, err
 	}
@@ -119,6 +156,11 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 		URL:       s.accountRegistrationInviteURL(code),
 		Email:     email,
 		ExpiresAt: expiresAt,
+	}
+	if carriesRole {
+		created.Persona = persona
+		created.InstanceSlug = instanceSlug
+		created.Role = role
 	}
 	s.sendAccountRegistrationInviteEmail(ctx, email, created.URL)
 	return created, nil
@@ -192,38 +234,70 @@ func (s *Service) hasValidAccountRegistrationInvite(ctx context.Context, email s
 }
 
 func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, userID string) error {
-	mode, err := normalizeRegistrationMode(s.opts.NativeUserRegistrationMode)
-	if err != nil || mode != RegistrationModeInviteOnly {
-		return nil
-	}
 	_ = email // #147 FINAL: unbound — consumed by code, not by address.
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return errors.New("invalid_user")
 	}
 	token := accountRegistrationInviteTokenFromContext(ctx)
-	if token == "" {
-		// Unbound consumption is keyed solely on the code; with none presented
-		// there is nothing to consume (registration only reached here under a valid
-		// code via hasValidAccountRegistrationInvite).
+	if token == "" || s.pg == nil {
+		// No code presented. Under InviteOnly the registration gate
+		// (hasValidAccountRegistrationInvite) already ran; there is nothing to consume.
 		return nil
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
-	tag, err := q.Exec(ctx,
-		`UPDATE profiles.account_registration_invites
-		 SET consumed_at = now(), consumed_by = $2::uuid, updated_at = now()
-		 WHERE id = (
-		   SELECT id FROM profiles.account_registration_invites
-		   WHERE code_hash = $1 AND revoked_at IS NULL
-		     AND consumed_at IS NULL AND expires_at > now()
-		   LIMIT 1
-		 )`,
-		sha256Hex(token), userID)
+	mode, _ := normalizeRegistrationMode(s.opts.NativeUserRegistrationMode)
+
+	// Claim the code and apply any carried group grant in ONE transaction, so a
+	// register+join can never mark the code used without also assigning the role
+	// (#147). Mirrors RedeemGroupInviteLink's FOR UPDATE + assign-then-mark pattern.
+	tx, err := s.pg.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrAccountRegistrationInviteNotFound
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.ForSchema(tx, s.dbSchema())
+
+	var inviteID string
+	var groupID, role, persona *string // group/role NULL for a plain registration invite
+	err = q.QueryRow(ctx,
+		`SELECT i.id::text, i.permission_group_id::text, i.role, g.persona
+		   FROM profiles.account_registration_invites i
+		   LEFT JOIN profiles.permission_groups g
+		     ON g.id = i.permission_group_id AND g.deleted_at IS NULL
+		  WHERE i.code_hash = $1 AND i.revoked_at IS NULL
+		    AND i.consumed_at IS NULL AND i.expires_at > now()
+		  FOR UPDATE OF i`,
+		sha256Hex(token)).Scan(&inviteID, &groupID, &role, &persona)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No live code matched. Under InviteOnly the code WAS the registration
+		// authority, so its absence is an error; otherwise the token was optional.
+		if mode == RegistrationModeInviteOnly {
+			return ErrAccountRegistrationInviteNotFound
+		}
+		return nil
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	if _, err := q.Exec(ctx,
+		`UPDATE profiles.account_registration_invites
+		 SET consumed_at = now(), consumed_by = $2::uuid, updated_at = now()
+		 WHERE id = $1::uuid`,
+		inviteID, userID); err != nil {
+		return err
+	}
+	// register+join: grant the carried group role to the freshly-registered user.
+	if groupID != nil && role != nil && strings.TrimSpace(*groupID) != "" && strings.TrimSpace(*role) != "" {
+		p := ""
+		if persona != nil {
+			p = *persona
+		}
+		if err := s.requireMFAForRoleAssignment(ctx, q, p, userID, SubjectKindUser, *role); err != nil {
+			return err
+		}
+		if err := NewPermissionGroupStore(q).AssignRole(ctx, *groupID, userID, SubjectKindUser, *role); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }

@@ -447,6 +447,11 @@ CREATE TABLE IF NOT EXISTS profiles.account_registration_invites (
   revoked_at timestamptz,
   consumed_at timestamptz,
   consumed_by uuid REFERENCES profiles.users(id) ON DELETE SET NULL,
+  -- #147 register+join: an optional group role the stranger code ALSO grants on
+  -- consume. NULL => a plain registration invite (no group grant). When set, the
+  -- minting actor was authorized by that group's members:manage (NOT root:users:invite).
+  permission_group_id uuid REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
+  role text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

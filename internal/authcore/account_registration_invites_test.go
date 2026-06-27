@@ -80,6 +80,50 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 	}
 }
 
+// #147 register+join: a role-carrying account-registration invite lets a STRANGER
+// register and receive the group role in ONE consume — no separate group invite.
+func TestAccountRegistrationInvite_RegisterPlusJoin(t *testing.T) {
+	svc, pool, ctx := setupInviteLinkTest(t, RegistrationModeInviteOnly)
+	owner := acmeOwner(t, svc, ctx, pool)
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano()%1e10)
+	email := "joiner-" + suffix + "@example.com"
+	username := "joiner" + suffix
+
+	// The org owner mints a role-carrying invite (authorized by org members:manage,
+	// NOT root:users:invite).
+	created, err := svc.CreateAccountRegistrationInvite(ctx, CreateAccountRegistrationInviteRequest{
+		Email:        email,
+		InvitedBy:    owner,
+		Persona:      "org",
+		InstanceSlug: "acme",
+		Role:         "member",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccountRegistrationInvite (register+join): %v", err)
+	}
+	if created.Persona != "org" || created.Role != "member" {
+		t.Fatalf("created invite did not echo the carried role: %+v", created)
+	}
+
+	phc, err := password.HashArgon2id("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	inviteCtx := contextWithAccountRegistrationInviteToken(ctx, created.Code)
+	if _, err := svc.CreatePendingRegistration(inviteCtx, email, username, phc, 0); err != nil {
+		t.Fatalf("register+join registration: %v", err)
+	}
+	u, err := svc.GetUserByEmail(ctx, email)
+	if err != nil || u == nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	// The single consume both registered the user AND granted the org/acme role.
+	if ok, _ := svc.Can(ctx, u.ID, SubjectKindUser, "org", "acme", "org:repo:read"); !ok {
+		t.Fatal("register+join did not grant the carried role on consume")
+	}
+}
+
 // #147 FINAL: the stranger invite is UNBOUND — a valid single-use code lets the
 // holder register under ANY email, not only the address it was delivered to.
 func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
