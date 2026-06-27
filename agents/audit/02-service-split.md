@@ -119,6 +119,26 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Stage 6 (done): moved the 11 LIVE email+phone verification funcs to
+  verification.go: getUserByPhone, setPhoneVerified, RequestEmailVerification,
+  sendEmailVerificationToUser, ConfirmEmailVerification, ConfirmEmailVerificationByToken,
+  GetUserByPhone, RequestPhoneVerification, SendPhoneVerificationToUser,
+  ConfirmPhoneVerificationUserID, ConfirmPhoneVerificationByTokenUserID. The
+  planned refactor ("the four ConfirmPhoneVerification* variants look like a
+  wrapper family to collapse") resolved the same way as stage 5: the two
+  error-only wrappers ConfirmPhoneVerification and ConfirmPhoneVerificationByToken
+  are DEAD (zero callers — the HTTP handlers call the *UserID variants directly).
+  Per decision, deleted both wrappers (self-contained, no helper/test cascade).
+  email vs phone confirm are NOT collapsible: email does a non-consuming peek +
+  address re-scope + getUserByID; phone consumes atomically then writes — left
+  as-is; deleting the wrappers already improves symmetry (both channels now
+  expose only (userID, error)). Noted but untouched: getUserByPhone (unexported,
+  full row) and GetUserByPhone (exported, nils ban fields, on the facade/Client)
+  are near-duplicates but both live and the exported one is public API, so
+  collapsing would change behavior/surface. Imports for verification.go:
+  context, errors, fmt, strings, time, jwt, pgx, db; none orphaned in service.go.
+  service.go 4154 -> 3854. Build, vet, http tests pass; only the pre-existing
+  TOTP test fails.
 - Stage 5 (done): moved the LIVE password-reset funcs (RequestPasswordReset,
   ConfirmPasswordReset, finishPasswordReset, RequestPhonePasswordReset) to
   password_reset.go. The planned refactor question ("ConfirmPasswordReset vs
