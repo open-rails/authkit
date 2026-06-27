@@ -119,6 +119,12 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Stage 4 (done): moved access-token issuance (IssueAccessToken,
+  Issue2FAEnrollmentToken, issueAccessToken, reservedAccessTokenClaims) to
+  token_issue.go. Review: the two public funcs are clean named wrappers over the
+  private issueAccessToken (default TTL; 10-min + 2fa_enrollment claim), not
+  redundancy, so pure move, no refactor. service.go 4446 -> 4306. Build, vet,
+  http tests pass; only the pre-existing TOTP test fails.
 - Stage 3 (done): moved the password block (PasswordLogin, PasswordLoginByUserID,
   VerifyUserPassword, CheckUserPassword, ChangePassword, SetPasswordAfterFreshAuth,
   errOrUnauthorized) to passwords.go. Review finding and fix: PasswordLogin and
