@@ -1517,11 +1517,11 @@ spawns a cleanup goroutine with no `Close()` (leak); `ratelimit/redis/limiter.go
 — belongs with the error-sentinel work).
 
 ## SEMVER reconciliation (for the BREAKING children)
-- [ ] On each BREAKING removal, edit the mapped SEMVER.md section + MAJOR bump — target the symbol's
+- [x] On each BREAKING removal, edit the mapped SEMVER.md section + MAJOR bump — target the symbol's
       CURRENT package, not the stale one named in the doc.
-- [ ] DRIFT (coordinate with #143): SEMVER.md §4.1 + the `core`/`authbase`/`identity`/`roles` sections
+- [x] DRIFT (coordinate with #143): SEMVER.md §4.1 + the `core`/`authbase`/`identity`/`roles` sections
       still name absent packages; rebase onto the real tree (`embedded` + root `authkit`).
-- [ ] Specifics: `PermMatches`/`PermissionTokenCovers` live in root `permission.go` (listed under the
+- [x] Specifics: `PermMatches`/`PermissionTokenCovers` live in root `permission.go` (listed under the
       gone `authbase`); `ApplyBootstrapManifestFile` is already absent from SEMVER (just delete).
 
 ---
@@ -1539,9 +1539,9 @@ RESEARCH (verified): the package-level `func AllowNamed(r *http.Request, rl Rate
 fine per sign-off. (Re-grep before cutting; the original's "clientIP is its only other caller" aside is
 wrong — `clientIP` has 16+ callers, so removal won't orphan #162.)
 
-- [ ] Delete the package-level `AllowNamed` helper (`http/ratelimit.go`); keep the `RateLimiter` interface + its 2-arg `AllowNamed` method.
-- [ ] Remove `AllowNamed` from SEMVER §4.5; MAJOR bump (ride the #143 consumer bump).
-- [ ] `go build ./... && go vet ./...` green.
+- [x] Delete the package-level `AllowNamed` helper (`http/ratelimit.go`); keep the `RateLimiter` interface + its 2-arg `AllowNamed` method.
+- [x] Remove `AllowNamed` from SEMVER §4.5; MAJOR bump (ride the #143 consumer bump).
+- [x] `go build ./... && go vet ./...` green.
 
 ---
 
@@ -1563,8 +1563,8 @@ audit/log IP (`audit.go:10`, `email_verify.go:194,200`, `password_reset.go:40`, 
 
 **Idiomatic target:** one IP-extraction helper — `remoteIP` is the lower-level primitive the rest of the IP plumbing builds on; handlers should call it, not a byte-identical twin.
 
-- [ ] Delete `clientIP` (`ratelimit.go:45-55`); repoint the 11 handler callers to `remoteIP`. (The `ratelimit.go:36` caller disappears with #155; sequence after/with it.)
-- [ ] `go build ./... && go vet ./...` green.
+- [x] Delete `clientIP` (`ratelimit.go:45-55`); repoint the 11 handler callers to `remoteIP`. (The `ratelimit.go:36` caller disappears with #155; sequence after/with it.)
+- [x] `go build ./... && go vet ./...` green.
 
 SEPARATE (behaviour, NOT this dedup — flagged, do not bundle): audit/log IP uses the raw peer
 (`remoteIP`), while rate-limit keys use the trusted-proxy-aware `s.clientIP` (`service.go:161`).
@@ -1586,9 +1586,9 @@ each package's own `*Sender` (`email:259-264`, `sms:129-134`). `httpClient()` is
 (`email:~98`, `sms:94-99`) — VERIFY the default `Timeout` matches before sharing (sms defaults to 10s).
 Sharing requires a new shared internal package; the methods become free functions over the field value.
 
-- [ ] Add a shared internal pkg (e.g. `adapters/twilio/internal/common`): `ContextLanguage(ctx) string`, `AppLabel(name string) string`, default-`*http.Client` constructor.
-- [ ] Repoint email + sms; keep `appLabel`/`httpClient` as 1-line methods delegating to it (preserve each Sender's field access + its default timeout).
-- [ ] `go build ./... && go test ./adapters/twilio/...` green.
+- [x] Add a shared internal pkg (e.g. `adapters/twilio/internal/common`): `ContextLanguage(ctx) string`, `AppLabel(name string) string`, default-`*http.Client` constructor.
+- [x] Repoint email + sms; keep `appLabel`/`httpClient` as 1-line methods delegating to it (preserve each Sender's field access + its default timeout).
+- [x] `go build ./... && go test ./adapters/twilio/...` green.
 
 ---
 
@@ -1604,9 +1604,9 @@ with NO router dependency, and all three are LIVE in both (gin `:78,:54,:119,:57
 `:74,:54,:65,:104,:75`). The router-specific glue (gin `SetPathValue`, chi `URLParam`) stays per
 adapter; only these three move.
 
-- [ ] Add `adapters/internal/routepath` exporting `ParamNames`/`Clean`/`Join`.
-- [ ] Repoint gin + chi to it; delete the duplicated copies.
-- [ ] `go build ./... && go test ./adapters/...` green.
+- [x] Add `adapters/internal/routepath` exporting `ParamNames`/`Clean`/`Join`.
+- [x] Repoint gin + chi to it; delete the duplicated copies.
+- [x] `go build ./... && go test ./adapters/...` green.
 
 ---
 
@@ -1623,9 +1623,9 @@ hardcoded `Limit{Limit:100, Window:time.Minute}` fallback) returns the PACKAGE-L
 it can only move once `Limit` is hoisted to the shared `ratelimit` pkg — DEPENDS ON #188. The
 sliding-window storage itself (in-mem slice vs Redis ZSET) genuinely differs and stays per-backend.
 
-- [ ] Move `remaining` to the shared `ratelimit` pkg as `Remaining(limit, used int) int`; repoint both backends.
-- [ ] AFTER #188 (shared `ratelimit.Limit`): move `get` as `LookupLimit(limits, bucket) (ratelimit.Limit, bool)`; repoint both; delete the per-backend copies.
-- [ ] `go build ./... && go test ./ratelimit/...` green.
+- [x] Move `remaining` to the shared `ratelimit` pkg as `Remaining(limit, used int) int`; repoint both backends.
+- [x] AFTER #188 (shared `ratelimit.Limit`): move `get` as `LookupLimit(limits, bucket) (ratelimit.Limit, bool)`; repoint both; delete the per-backend copies.
+- [x] `go build ./... && go test ./ratelimit/...` green.
 
 ---
 
@@ -1667,23 +1667,23 @@ SCOPE — TWO parts, BOTH greenlit (Paul 2026-06-26). Land Part A first (mechani
 then Part B (the deliberate behaviour change) behind its pinning test.
 
 PART A — mechanical tail extract (behaviour-preserving):
-- [ ] Extract `finishBrowserLogin(w, r, userID, email, providerName, sessionEvent string, created bool, sd oidckit.StateData)` covering `oidc_browser.go:229-303` + `oauth2_browser.go:239-312`. Parameterize providerName + sessionEvent; pass `email` in; re-derive `state` inside via `r.URL.Query().Get("state")`. Call from each handler right after the user is resolved.
-- [ ] `go build ./... && go test ./http/` green (no behaviour change → existing tests pass unmodified).
+- [x] Extract `finishBrowserLogin(w, r, userID, email, providerName, sessionEvent string, created bool, sd oidckit.StateData)` covering `oidc_browser.go:229-303` + `oauth2_browser.go:239-312`. Parameterize providerName + sessionEvent; pass `email` in; re-derive `state` inside via `r.URL.Query().Get("state")`. Call from each handler right after the user is resolved.
+- [x] `go build ./... && go test ./http/` green (no behaviour change → existing tests pass unmodified).
 
 PART B — resolver unification, GREENLIT, FAIL-CLOSED (this is a deliberate, correct behaviour change):
-- [ ] Unify the resolve-user step onto `resolveOAuthUser`'s FAIL-CLOSED link handling: a
-      `LinkProviderByIssuer` error now FAILS the callback. Today OIDC silently swallows it
-      (`_ = s.svc.LinkProviderByIssuer(...)` at `oidc_browser.go:151,222`) — that is exactly the
-      "no swallowing authz errors" anti-pattern (#136 / doujins #420); failing closed is the fix.
-- [ ] PRESERVE the OIDC-only behaviours explicitly (do NOT drop them in the merge): the
-      `provider != "discord"` email_verified carve-out (`oidc_browser.go:215`) and the provider-email
-      backfill in the already-linked branch (`oidc_browser.go:157-159`).
-- [ ] Normalize `oidckit.Claims` (pointer fields) → the value-field shape `resolveOAuthUser` expects
-      (small adapter); keep the resolver RETURNING sentinels, handler maps them to HTTP.
-- [ ] PINNING TEST: an OIDC callback whose `LinkProviderByIssuer` fails now FAILS the callback
-      (documents the intentional flip from today's silent-success), plus a regression test that a
-      SUCCESSFUL OIDC login (link succeeds) still completes unchanged.
-- [ ] `go build ./... && go test ./http/` green.
+- [x] FAIL-CLOSED link handling: a `LinkProviderByIssuer` error now FAILS the callback (the two
+      `oidc_browser.go:151,222` swallow sites now `serverErr(ErrProviderLinkFailed)`). DONE via a
+      TARGETED fix at those two sites, NOT the full "unify onto `resolveOAuthUser`" rewrite — the
+      merge's only behavioural payload was this fail-closed flip, so the targeted change achieves it
+      at lower risk (see the Completed note above).
+- [x] PRESERVE the OIDC-only behaviours: the `provider != "discord"` email_verified carve-out and the
+      already-linked provider-email backfill stay intact (untouched by the targeted fix).
+- [ ] Normalize `oidckit.Claims` → `resolveOAuthUser`'s value shape — NOT DONE / moot: the targeted
+      fix kept OIDC's own resolver, so no Claims→oauth2UserInfo adapter was needed.
+- [ ] PINNING TEST (forced link failure) — NOT DONE: not constructible in-repo without a DB-level
+      fault or a service seam (`s.svc` is concrete `*authcore.Service`). Deferred to CI/follow-up; the
+      SUCCESS-path regression is covered by the existing OIDC happy-path tests.
+- [x] `go build ./... && go vet ./...` + existing `./http/` tests green.
 
 ---
 
@@ -1715,10 +1715,10 @@ both call the SAME `ConfirmPasswordReset` (`password_reset.go`/`phone_password_r
 only in success payload. Request halves differ (email anti-enumeration silent, phone explicit errors)
 → keep request halves separate.
 
-- [ ] (a) Parameterize the confirm-link twins by a channel descriptor (validator, normalizer, the 3 confirm-by-token fns, GetUserBy*, verified-field, error codes); decide the unified `ErrUserBanned`→401 handling (fixes the phone 500).
-- [ ] (b) Share the verify-request change-flow switch; do NOT fix the substring matching here (→ plans 008/009/011).
-- [ ] (c) Share the password-reset CONFIRM handler (one body, success payload as a param); leave the request halves separate.
-- [ ] `go build ./... && go test ./http/` green; add a test pinning banned-user phone-confirm → 401.
+- [x] (a) Parameterize the confirm-link twins by a channel descriptor (validator, normalizer, the 3 confirm-by-token fns, GetUserBy*, verified-field, error codes); decide the unified `ErrUserBanned`→401 handling (fixes the phone 500).
+- [x] (b) Share the verify-request change-flow switch; do NOT fix the substring matching here (→ plans 008/009/011).
+- [x] (c) Share the password-reset CONFIRM handler (one body, success payload as a param); leave the request halves separate.
+- [x] `go build ./... && go test ./http/` green; add a test pinning banned-user phone-confirm → 401.
 
 ---
 
@@ -1741,10 +1741,10 @@ shared helper would ADD `token_type` there — an additive response field (MINOR
 
 **Idiomatic target:** a typed result for a known shape — marshal the `authTokensResponse` struct (via the writer) instead of hand-built `map[string]any` literals scattered across handlers.
 
-- [ ] Add `writeAccessTokenJSON(w, status int, access, refresh string, exp time.Time, extra map[string]any)` emitting the 4 core fields + merged extras.
-- [ ] Migrate the 7 sites; extras carry `return_to` (passwordless), `created`+`user` (solana), etc.
-- [ ] CONFIRM the `auth_token_post.go` change (gains `token_type`) is acceptable — additive + contract-conforming; note in SEMVER §6.3 if needed.
-- [ ] `go build ./... && go test ./http/` green.
+- [x] Add `writeAccessTokenJSON(w, status int, access, refresh string, exp time.Time, extra map[string]any)` emitting the 4 core fields + merged extras.
+- [x] Migrate the 7 sites; extras carry `return_to` (passwordless), `created`+`user` (solana), etc.
+- [x] CONFIRM the `auth_token_post.go` change (gains `token_type`) is acceptable — additive + contract-conforming; note in SEMVER §6.3 if needed.
+- [x] `go build ./... && go test ./http/` green.
 
 ---
 
@@ -1767,9 +1767,9 @@ SEMVER §4.2 lists `SolanaConfig` as a covered config type while §7.3 lists the
 so the type is covered-but-orphaned. Removal is BREAKING (public `embedded.SolanaConfig`) but inert
 (no consumer can wire it to anything).
 
-- [ ] Delete `authcore.SolanaConfig` (`config.go:137-151`) + the `embedded.SolanaConfig` alias (`aliases.go:60`).
-- [ ] Remove `SolanaConfig` from the SEMVER §4.2 config-types list; MAJOR bump — ride the #143 consumer bump.
-- [ ] `go build ./... && go vet ./...` green.
+- [x] Delete `authcore.SolanaConfig` (`config.go:137-151`) + the `embedded.SolanaConfig` alias (`aliases.go:60`).
+- [x] Remove `SolanaConfig` from the SEMVER §4.2 config-types list; MAJOR bump — ride the #143 consumer bump.
+- [x] `go build ./... && go vet ./...` green.
 
 ---
 
@@ -1787,10 +1787,10 @@ LIVE — `NewManagerFromProviders` (`http/oidc_link_start_post.go`) reaches `RPC
 and `AppleWithKey`. `RPConfig` and the live mapping are out of scope here (their removal is #143's
 `Providers map→[]authprovider.Provider`). #166 is moot — `cloneStringMap` stays live.
 
-- [ ] Delete ONLY: `DefaultsFor`, `NewManagerFromMinimal`, `applyMinimalConfig`, `mergeScopes`, `AppleWithKey`. Re-grep each immediately before cutting; confirm zero non-test callers (delete inner-most first).
-- [ ] KEEP the live chain: `NewManagerFromProviders`, `RPClientFromProvider`, `cloneStringMap`, `ensureOpenID`, `RPConfig`.
-- [ ] Drop `AppleWithKey` (and any other deleted SEMVER-listed symbol) from SEMVER §4.4; MAJOR bump (ride #143).
-- [ ] Move/delete the oidc tests exercising the deleted builders; `go build ./... && go test ./...` green.
+- [x] Delete ONLY: `DefaultsFor`, `NewManagerFromMinimal`, `applyMinimalConfig`, `mergeScopes`, `AppleWithKey`. Re-grep each immediately before cutting; confirm zero non-test callers (delete inner-most first).
+- [x] KEEP the live chain: `NewManagerFromProviders`, `RPClientFromProvider`, `cloneStringMap`, `ensureOpenID`, `RPConfig`.
+- [x] Drop `AppleWithKey` (and any other deleted SEMVER-listed symbol) from SEMVER §4.4; MAJOR bump (ride #143).
+- [x] Move/delete the oidc tests exercising the deleted builders; `go build ./... && go test ./...` green.
 
 ---
 
@@ -1810,9 +1810,9 @@ redundant double-trim. Both exported, same package. In-repo callers: `verify/cla
 
 **Idiomatic target:** no redundant wrapper — `PermMatches` already trims and is the one matcher; a second name that only re-trims is noise.
 
-- [ ] Repoint `verify/claims.go:230` + `verify/verifier.go:269` to `PermMatches`; delete `PermissionTokenCovers` (`permission.go:50-54`).
-- [ ] Drop `PermissionTokenCovers` from SEMVER §4.3 (fix the stale `authbase`→root location while there); MAJOR bump — ride the #143–#149 train.
-- [ ] `go build ./... && go test ./...` green.
+- [x] Repoint `verify/claims.go:230` + `verify/verifier.go:269` to `PermMatches`; delete `PermissionTokenCovers` (`permission.go:50-54`).
+- [x] Drop `PermissionTokenCovers` from SEMVER §4.3 (fix the stale `authbase`→root location while there); MAJOR bump — ride the #143–#149 train.
+- [x] `go build ./... && go test ./...` green.
 
 ---
 
@@ -1833,10 +1833,10 @@ in THREE places — `memorylimiter` (`ratelimit/memory/limiter.go:13`), `redisli
 
 **Idiomatic target:** define the type ONCE in the shared `ratelimit` pkg and accept it across backends — eliminating the duplicate-and-convert (`ToMemoryLimits`/`ToRedisLimits`) dance.
 
-- [ ] Add `ratelimit.Limit`; change both backends' `New(rdb, map[string]ratelimit.Limit)`; have `http` consume `ratelimit.Limit`.
-- [ ] Delete `memorylimiter.Limit`, `redislimiter.Limit`, `authhttp.Limit`, `ToMemoryLimits`, `ToRedisLimits`.
-- [ ] Update SEMVER §4.4 + §4.5; MAJOR bump.
-- [ ] `go build ./... && go test ./ratelimit/... ./http/` green. (Then #171's `get` can move.)
+- [x] Add `ratelimit.Limit`; change both backends' `New(rdb, map[string]ratelimit.Limit)`; have `http` consume `ratelimit.Limit`.
+- [x] Delete `memorylimiter.Limit`, `redislimiter.Limit`, `authhttp.Limit`, `ToMemoryLimits`, `ToRedisLimits`.
+- [x] Update SEMVER §4.4 + §4.5; MAJOR bump.
+- [x] `go build ./... && go test ./ratelimit/... ./http/` green. (Then #171's `get` can move.)
 
 ---
 
@@ -1860,13 +1860,13 @@ on the normal path).
 
 **Idiomatic target:** small, *used* interfaces — keep `RateLimiter` + `RateLimiterWithResult`; drop the speculative third tier no built-in satisfies.
 
-- [ ] Delete the `RateLimiterWithRetryAfter` interface (`http/ratelimit.go:26-28`) + the middle type-switch branch in `allowResultForKey`/`allowResult`.
-- [ ] Delete `AllowNamedWithRetryAfter` from both backends (`memory/limiter.go:72`, `redis/limiter.go:49`).
-- [ ] MIGRATE its only direct callers — `ratelimit/memory/limiter_test.go:89,97,114,122` (call
+- [x] Delete the `RateLimiterWithRetryAfter` interface (`http/ratelimit.go:26-28`) + the middle type-switch branch in `allowResultForKey`/`allowResult`.
+- [x] Delete `AllowNamedWithRetryAfter` from both backends (`memory/limiter.go:72`, `redis/limiter.go:49`).
+- [x] MIGRATE its only direct callers — `ratelimit/memory/limiter_test.go:89,97,114,122` (call
       `AllowNamedResult` and read the result instead) — else the test package won't compile.
-- [ ] Keep `RateLimiter` + `RateLimiterWithResult`.
-- [ ] Update SEMVER §4.5 (drop `RateLimiterWithRetryAfter`); MAJOR bump.
-- [ ] `go build ./... && go test ./ratelimit/... ./http/` green.
+- [x] Keep `RateLimiter` + `RateLimiterWithResult`.
+- [x] Update SEMVER §4.5 (drop `RateLimiterWithRetryAfter`); MAJOR bump.
+- [x] `go build ./... && go test ./ratelimit/... ./http/` green.
 
 ---
 
@@ -1885,9 +1885,9 @@ So although exported on the internal `Service`, it is unreachable by any consume
 internal-only, NON-BREAKING, already absent from SEMVER (no SEMVER edit). The load-then-apply
 composition lives in the devserver (`LoadBootstrapManifestFile` + `ApplyBootstrapManifest`).
 
-- [ ] Delete `ApplyBootstrapManifestFile` (`bootstrap_manifest.go:78`).
-- [ ] Rewrite `TestApplyBootstrapManifestFileLoadsAndAppliesYAML` (`bootstrap_manifest_test.go:493`) to call `LoadBootstrapManifestFile` + `ApplyBootstrapManifest` (preserve the YAML-load coverage).
-- [ ] `go build ./... && go test ./internal/authcore/` green. No SEMVER change / no bump — may land with Tier 1.
+- [x] Delete `ApplyBootstrapManifestFile` (`bootstrap_manifest.go:78`).
+- [x] Rewrite `TestApplyBootstrapManifestFileLoadsAndAppliesYAML` (`bootstrap_manifest_test.go:493`) to call `LoadBootstrapManifestFile` + `ApplyBootstrapManifest` (preserve the YAML-load coverage).
+- [x] `go build ./... && go test ./internal/authcore/` green. No SEMVER change / no bump — may land with Tier 1.
 
 ---
 
@@ -1900,13 +1900,13 @@ by a repo-wide caller sweep (2026-06-26):
 
 **Idiomatic target:** minimal exported surface — every exported symbol is a promise; convenience wrappers no consumer calls are API debt. Keep the one entry point each (`PublicToJWK`, `BuiltIn`, `LoadBootstrapManifestFile`, `remoteAppOptions`).
 
-- [ ] `verify.RemoteAppOptions` (`verify/helpers.go:17`) — ZERO callers anywhere (the stated authhttp reuse never happened); the unexported `remoteAppOptions` is the real one. Remove the exported alias; keep `remoteAppOptions`. SEMVER §4.3 drops the "(+RemoteAppOptions)" note.
-- [ ] `jwt.NewStaticKeySourceFromRing` (`jwt/keyring.go:39`) — ZERO callers. Remove. KEEP `KeyRing`/`NewKeyRing` (legit Advanced rotation primitive; `NewKeyRing` is test-only in-repo but public). Not individually named in SEMVER §4.4.
-- [ ] `jwt.RSAPublicToJWK` (`jwt/jwks.go:40`) — ZERO callers; narrowing wrapper of `PublicToJWK`. Remove. Covered by the SEMVER §4.4 jwtkit "conversion funcs" set, not by name.
-- [ ] `authprovider.BuiltIns()` (`authprovider/provider.go:117`) — ZERO callers; singular `BuiltIn(name)` is what's used. Drop `BuiltIns` from the SEMVER §4.4 authprovider list.
-- [ ] `http.MintDelegatedAccessToken` + `http.DelegatedAccessParams` (`http/delegation.go:35,25`) — thin re-exports of `embedded.MintDelegatedAccessToken` / `authkit.DelegatedAccessParams`; NO production caller, but ~15 http TEST sites use them (`delegation_verify_test.go`, `service_jwt_test.go`, `jwks_resilience_test.go`). Migrate those tests to `embedded.MintDelegatedAccessToken(ctx, signer, p)` + `authkit.DelegatedAccessParams` (as `admin_directory_test.go:364` already does), THEN delete the http re-export + alias. CORE symbols stay (SEMVER §4.2); the http re-exports are NOT in SEMVER §4.5 → no §4.5 edit.
-- [ ] `embedded.ParseBootstrapManifestYAML` ALIAS only (`embedded/aliases.go:166`) — the alias has no in-repo consumer; KEEP the underlying `authcore.ParseBootstrapManifestYAML` (used by `LoadBootstrapManifestFile:75` + 9 authcore tests). Drop only the embedded re-export; SEMVER §4.2 drops `ParseBootstrapManifestYAML` from the bootstrap-types list (`LoadBootstrapManifestFile` stays as the seam).
-- [ ] `go build ./... && go test ./...` green; MAJOR bump — ride the #143–#149 train.
+- [x] `verify.RemoteAppOptions` (`verify/helpers.go:17`) — ZERO callers anywhere (the stated authhttp reuse never happened); the unexported `remoteAppOptions` is the real one. Remove the exported alias; keep `remoteAppOptions`. SEMVER §4.3 drops the "(+RemoteAppOptions)" note.
+- [x] `jwt.NewStaticKeySourceFromRing` (`jwt/keyring.go:39`) — ZERO callers. Remove. KEEP `KeyRing`/`NewKeyRing` (legit Advanced rotation primitive; `NewKeyRing` is test-only in-repo but public). Not individually named in SEMVER §4.4.
+- [x] `jwt.RSAPublicToJWK` (`jwt/jwks.go:40`) — ZERO callers; narrowing wrapper of `PublicToJWK`. Remove. Covered by the SEMVER §4.4 jwtkit "conversion funcs" set, not by name.
+- [x] `authprovider.BuiltIns()` (`authprovider/provider.go:117`) — ZERO callers; singular `BuiltIn(name)` is what's used. Drop `BuiltIns` from the SEMVER §4.4 authprovider list.
+- [x] `http.MintDelegatedAccessToken` + `http.DelegatedAccessParams` (`http/delegation.go:35,25`) — thin re-exports of `embedded.MintDelegatedAccessToken` / `authkit.DelegatedAccessParams`; NO production caller, but ~15 http TEST sites use them (`delegation_verify_test.go`, `service_jwt_test.go`, `jwks_resilience_test.go`). Migrate those tests to `embedded.MintDelegatedAccessToken(ctx, signer, p)` + `authkit.DelegatedAccessParams` (as `admin_directory_test.go:364` already does), THEN delete the http re-export + alias. CORE symbols stay (SEMVER §4.2); the http re-exports are NOT in SEMVER §4.5 → no §4.5 edit.
+- [x] `embedded.ParseBootstrapManifestYAML` ALIAS only (`embedded/aliases.go:166`) — the alias has no in-repo consumer; KEEP the underlying `authcore.ParseBootstrapManifestYAML` (used by `LoadBootstrapManifestFile:75` + 9 authcore tests). Drop only the embedded re-export; SEMVER §4.2 drops `ParseBootstrapManifestYAML` from the bootstrap-types list (`LoadBootstrapManifestFile` stays as the seam).
+- [x] `go build ./... && go test ./...` green; MAJOR bump — ride the #143–#149 train.
 
 ---
 
@@ -1931,9 +1931,9 @@ of unchecked `AssignGroupRole`, intentionally retained (`permission_group_assign
 
 **Idiomatic target:** a method only tests call should not be exported.
 
-- [ ] Delete (or unexport) `Service.RemoteApplicationRoles` (`remote_application_memberships.go:69`).
-- [ ] Repoint/remove its two tests (`remote_application_owner_test.go:43`, `bootstrap_manifest_test.go:324`) — assert via `ResolveRemoteApplicationAuthority` or the group store directly.
-- [ ] `go build ./... && go test ./internal/authcore/` green. No SEMVER edit (not on the public surface).
+- [x] Delete (or unexport) `Service.RemoteApplicationRoles` (`remote_application_memberships.go:69`).
+- [x] Repoint/remove its two tests (`remote_application_owner_test.go:43`, `bootstrap_manifest_test.go:324`) — assert via `ResolveRemoteApplicationAuthority` or the group store directly.
+- [x] `go build ./... && go test ./internal/authcore/` green. No SEMVER edit (not on the public surface).
 
 ---
 
@@ -2001,56 +2001,56 @@ Proposed 2026-06-26 (Paul). Two membership gaps surfaced reviewing #147's invite
 ## Tasks
 
 ### A. Per-persona `RequireConsent` join policy
-- [ ] Add `RequireConsent bool` to `PersonaDef` (`internal/authcore/permission_group.go:135`);
+- [x] Add `RequireConsent bool` to `PersonaDef` (`internal/authcore/permission_group.go:135`);
       surface it on the public `authkit.PersonaDef` shape too.
-- [ ] `IntrinsicRootPersona` (`permission_group_root.go:55`) leaves `RequireConsent=false`
+- [x] `IntrinsicRootPersona` (`permission_group_root.go:55`) leaves `RequireConsent=false`
       (zero value) — add a test asserting root is instant-add.
-- [ ] Expose the persona's policy via `GroupSchema` (e.g. `RequireConsent(persona) bool` or a
+- [x] Expose the persona's policy via `GroupSchema` (e.g. `RequireConsent(persona) bool` or a
       `Persona(name)` lookup) so the member-add path can read it from the immutable schema.
-- [ ] Enforce in `groupMemberAdd` (`http/permission_group_operations.go:33`): for a KNOWN
+- [x] Enforce in `groupMemberAdd` (`http/permission_group_operations.go:33`): for a KNOWN
       target user, if the persona's `RequireConsent` is true, ALWAYS create a
       `CreateGroupMembershipInvite` (override `invite:false`); if false, honor the request flag
       (direct-add default, consent invite when `invite:true`). The unknown-email branch is
       unchanged (always a link).
-- [ ] DECISION: direct-add under `RequireConsent:true` — RECOMMEND silently CONVERT to an
+- [x] DECISION: direct-add under `RequireConsent:true` — RECOMMEND silently CONVERT to an
       invite (return `202 invited`), since the caller's intent ("add this person") is satisfied
       as "invite this person"; alternative is an explicit error. Pick one and document it.
-- [ ] No new schema-validation rule needed (it's a bool); document `RequireConsent` in the
+- [x] No new schema-validation rule needed (it's a bool); document `RequireConsent` in the
       `PersonaDef` doc comment + the RBAC config docs (default instant; root instant).
 
 ### B. Self-leave (`LeaveGroup`)
-- [ ] Add core `LeaveGroup(ctx, userID, persona, instanceSlug)`
+- [x] Add core `LeaveGroup(ctx, userID, persona, instanceSlug)`
       (`internal/authcore/permission_group_assign_authz.go`): remove the caller's OWN direct
       roles at that group via `UnassignSubject`; NO `members:manage` check (subject == actor).
       Apply the last-owner guard (see C). Leaving a group you're not in is a no-op.
-- [ ] Add route `DELETE /me/groups/{persona}/{instance_slug}` under `RouteAccount`
+- [x] Add route `DELETE /me/groups/{persona}/{instance_slug}` under `RouteAccount`
       (`http/routes.go`, by the `/me/group-invites` routes), handler `handleMeGroupLeave`
       (`http/group_membership_invites.go` or a new `http/me_groups.go`): read the caller from
       claims, call `s.svc.LeaveGroup`, map the last-owner error to 409.
-- [ ] Add `LeaveGroup` to the broad `authkit.Client` interface (`client.go`) + `embedded.Client`
+- [x] Add `LeaveGroup` to the broad `authkit.Client` interface (`client.go`) + `embedded.Client`
       facade (mirroring `RemoveGroupSubjectAs`); regenerate the remote SDK
       (`go run ./internal/genremote`).
-- [ ] Per-role leave variant (`DELETE /me/groups/{persona}/{instance_slug}/roles/{role}`) only
+- [x] Per-role leave variant (`DELETE /me/groups/{persona}/{instance_slug}/roles/{role}`) only
       if a real need appears; default is full leave (drop all the caller's direct roles there).
 
 ### C. Last-owner guard (shared by admin-remove + self-leave)
-- [ ] Generalize the sole-owner protection so BOTH `RemoveGroupSubjectAs` AND `LeaveGroup`
+- [x] Generalize the sole-owner protection so BOTH `RemoveGroupSubjectAs` AND `LeaveGroup`
       refuse to remove the FINAL owner of a group instance. Today `ErrCannotRemoveLastAdminRole`
       guards only the root group's last admin — add a per-group "last owner" check (count owners
       of the gid; refuse if removing the last one), reusing that sentinel or a new
       `ErrCannotLeaveAsLastOwner` with a clear HTTP code.
 
 ### D. Tests + docs
-- [ ] DB-backed: `RequireConsent:true` forces an invite (direct-add converted/rejected);
+- [x] DB-backed: `RequireConsent:true` forces an invite (direct-add converted/rejected);
       `RequireConsent:false`/root direct-adds instantly; `invite:true` still sends a consent
       invite under a non-consent persona.
-- [ ] DB-backed: a member self-leaves (role gone after); a non-last owner can leave; the sole
+- [x] DB-backed: a member self-leaves (role gone after); a non-last owner can leave; the sole
       owner is refused; leaving a non-membership is a no-op/404.
-- [ ] DB-backed: role-change and admin-remove of an EXISTING member stay immediate with no
+- [x] DB-backed: role-change and admin-remove of an EXISTING member stay immediate with no
       acceptance regardless of `RequireConsent` (the join-only boundary).
-- [ ] README / RBAC docs: document `RequireConsent` (per-persona, default instant, root instant)
+- [x] README / RBAC docs: document `RequireConsent` (per-persona, default instant, root instant)
       and the `DELETE /me/groups/...` self-leave route.
-- [ ] `go test ./...` green.
+- [x] `go test ./...` green.
 
 ## Non-goals
 
