@@ -76,14 +76,9 @@ type Options struct {
 
 	// Environment is host-provided runtime mode used for dev/prod behavior checks.
 	Environment string
-	// SolanaNetwork is host-provided chain selector for SIWS flows.
+	// SolanaNetwork is host-provided chain selector for SIWS flows. SNS resolution is
+	// AuthKit-owned and always-on with a fixed timeout/cache — there is no host override.
 	SolanaNetwork string
-	// SolanaSNSEnabled enables AuthKit-owned Solana Name Service resolution for SIWS-linked wallets.
-	SolanaSNSEnabled bool
-	// SolanaSNSLookupTimeout bounds resolver calls. Empty defaults to 3 seconds.
-	SolanaSNSLookupTimeout time.Duration
-	// SolanaSNSCacheTTL controls when cached SNS metadata is considered stale. Empty defaults to 24 hours.
-	SolanaSNSCacheTTL time.Duration
 
 	// APIKeyPrefix is the issuing application's brand prefix for generated API
 	// keys (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
@@ -203,7 +198,10 @@ type Service struct {
 	entitlements      EntitlementsProvider
 	authlog           *clickHouseAuthLog // session-event sink/reader; nil unless WithClickHouse
 	solanaSNSResolver defaultSolanaSNSResolver
-	ephemeralStore    EphemeralStore
+	// snsCacheTTLOverride is a test-only seam for forcing SNS cache staleness; 0 in
+	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
+	snsCacheTTLOverride time.Duration
+	ephemeralStore      EphemeralStore
 	ephemeralMode     EphemeralMode
 	// cfg is the host Config this Service was built from, retained so the HTTP
 	// transport (client-first NewServer) can read HTTP-layer config that rides in
@@ -399,9 +397,6 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		PasswordlessAutoRegistrationEnabled: cfg.Registration.PasswordlessAutoRegistration,
 		Environment:                         strings.TrimSpace(cfg.Environment),
 		SolanaNetwork:                       strings.TrimSpace(cfg.SolanaNetwork),
-		SolanaSNSEnabled:                    true,
-		SolanaSNSLookupTimeout:              3 * time.Second,
-		SolanaSNSCacheTTL:                   24 * time.Hour,
 		APIKeyPrefix:                        tokenPrefix,
 		APIKeyMaxTTL:                        maxTTL,
 		TOTPSecretKey:                       append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),

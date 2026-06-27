@@ -88,10 +88,8 @@ func TestDefaultSolanaSNSResolverIgnoresStaleFavorite(t *testing.T) {
 }
 
 func TestNewServiceUsesAuthKitDefaultSolanaSNSResolver(t *testing.T) {
-	svc := NewService(Options{SolanaSNSEnabled: true}, Keyset{})
-	if !svc.solanaSNSEnabled() {
-		t.Fatalf("NewService did not enable AuthKit-owned SNS resolution")
-	}
+	// SNS is always-on; NewService must wire the built-in keyless resolver.
+	svc := NewService(Options{}, Keyset{})
 	if svc.solanaSNSResolver.baseURL != defaultSolanaSNSProxyURL {
 		t.Fatalf("resolver baseURL = %q, want %q", svc.solanaSNSResolver.baseURL, defaultSolanaSNSProxyURL)
 	}
@@ -111,9 +109,6 @@ func TestSolanaSNSResolveAndStore(t *testing.T) {
 
 	svc := NewService(Options{
 		Issuer:                     "https://test",
-		SolanaSNSEnabled:           true,
-		SolanaSNSLookupTimeout:     time.Second,
-		SolanaSNSCacheTTL:          time.Hour,
 		NativeUserRegistrationMode: RegistrationModeOpen,
 	}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "resolved")
@@ -150,9 +145,6 @@ func TestSolanaSNSUsesFreshCache(t *testing.T) {
 
 	svc := NewService(Options{
 		Issuer:                 "https://test",
-		SolanaSNSEnabled:       true,
-		SolanaSNSLookupTimeout: time.Second,
-		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))
 	user := importSNSUser(t, ctx, svc, pool, "cache")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
@@ -196,11 +188,11 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 	})
 
 	svc := NewService(Options{
-		Issuer:                 "https://test",
-		SolanaSNSEnabled:       true,
-		SolanaSNSLookupTimeout: time.Second,
-		SolanaSNSCacheTTL:      time.Nanosecond,
+		Issuer: "https://test",
 	}, Keyset{}, WithPostgres(pool))
+	// Force every cached entry to read as stale (test-only seam; production uses the
+	// fixed 24h TTL) so the stale-refresh + ownership-change path is exercised.
+	svc.snsCacheTTLOverride = time.Nanosecond
 	user := importSNSUser(t, ctx, svc, pool, "stale")
 	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
 		t.Fatalf("LinkProviderByIssuer: %v", err)
@@ -219,9 +211,6 @@ func TestSolanaSNSStaleRefreshAndOwnershipChangeInvalidation(t *testing.T) {
 	setName("")
 	freshSvc := NewService(Options{
 		Issuer:                 "https://test",
-		SolanaSNSEnabled:       true,
-		SolanaSNSLookupTimeout: time.Second,
-		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))
 	if _, err := freshSvc.ResolveAndStoreSolanaSNS(ctx, user.ID, address); err != nil {
 		t.Fatalf("ResolveAndStoreSolanaSNS clear: %v", err)
@@ -246,9 +235,6 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 
 	notFoundSvc := NewService(Options{
 		Issuer:                 "https://test",
-		SolanaSNSEnabled:       true,
-		SolanaSNSLookupTimeout: time.Second,
-		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))
 	notFoundUser := importSNSUser(t, ctx, notFoundSvc, pool, "notfound")
 	if err := notFoundSvc.LinkProviderByIssuer(ctx, notFoundUser.ID, notFoundSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
@@ -268,9 +254,6 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 	errorSvc := NewService(Options{
 		Issuer:                 "https://test",
 		SolanaNetwork:          "devnet",
-		SolanaSNSEnabled:       true,
-		SolanaSNSLookupTimeout: time.Second,
-		SolanaSNSCacheTTL:      time.Hour,
 	}, Keyset{}, WithPostgres(pool))
 	errorUser := importSNSUser(t, ctx, errorSvc, pool, "error")
 	if err := errorSvc.LinkProviderByIssuer(ctx, errorUser.ID, errorSvc.solanaIssuer(), SolanaProviderSlug, address, nil); err != nil {
@@ -282,26 +265,6 @@ func TestSolanaSNSNotFoundAndResolverError(t *testing.T) {
 	}
 	if errorAccount.SNSResolutionStatus != SolanaSNSStatusError || errorAccount.SNSError == nil || *errorAccount.SNSError != solanaSNSProviderError {
 		t.Fatalf("unexpected resolver-error account: %+v", errorAccount)
-	}
-}
-
-func TestSolanaSNSDisabledMetadata(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	_, _, output := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
-
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
-	user := importSNSUser(t, ctx, svc, pool, "disabled")
-	if err := svc.LinkProviderByIssuer(ctx, user.ID, svc.solanaIssuer(), SolanaProviderSlug, output.Account.Address, nil); err != nil {
-		t.Fatalf("LinkProviderByIssuer: %v", err)
-	}
-
-	account, err := svc.GetSolanaLinkedAccount(ctx, user.ID)
-	if err != nil {
-		t.Fatalf("GetSolanaLinkedAccount: %v", err)
-	}
-	if account == nil || account.SNSResolutionStatus != SolanaSNSStatusDisabled || account.PrimarySNSName != nil {
-		t.Fatalf("unexpected disabled account: %+v", account)
 	}
 }
 

@@ -122,7 +122,6 @@ const SessionRevokeReasonUserDisabled = authcore.SessionRevokeReasonUserDisabled
 const SessionRevokeReasonUserRevoke = authcore.SessionRevokeReasonUserRevoke
 const SessionRevokeReasonUserRevokeAll = authcore.SessionRevokeReasonUserRevokeAll
 const SolanaProviderSlug = authcore.SolanaProviderSlug
-const SolanaSNSStatusDisabled = authcore.SolanaSNSStatusDisabled
 const SolanaSNSStatusError = authcore.SolanaSNSStatusError
 const SolanaSNSStatusNotFound = authcore.SolanaSNSStatusNotFound
 const SolanaSNSStatusPending = authcore.SolanaSNSStatusPending

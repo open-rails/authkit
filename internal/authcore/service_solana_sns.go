@@ -19,7 +19,6 @@ const (
 	defaultSolanaSNSLookupTimeout = 3 * time.Second
 	defaultSolanaSNSCacheTTL      = 24 * time.Hour
 
-	SolanaSNSStatusDisabled = "disabled"
 	SolanaSNSStatusPending  = "pending"
 	SolanaSNSStatusResolved = "resolved"
 	SolanaSNSStatusNotFound = "not_found"
@@ -118,20 +117,13 @@ type solanaSNSProfile struct {
 	Error            *string    `json:"sns_error"`
 }
 
-func (s *Service) solanaSNSEnabled() bool {
-	return s != nil && s.opts.SolanaSNSEnabled
-}
-
-func (s *Service) solanaSNSLookupTimeout() time.Duration {
-	if s != nil && s.opts.SolanaSNSLookupTimeout > 0 {
-		return s.opts.SolanaSNSLookupTimeout
-	}
-	return defaultSolanaSNSLookupTimeout
-}
-
+// SNS resolution is AuthKit-owned and always-on with fixed timeout/cache — there is
+// no host toggle or override (the only prerequisite is a Postgres store to read/write).
 func (s *Service) solanaSNSCacheTTL() time.Duration {
-	if s != nil && s.opts.SolanaSNSCacheTTL > 0 {
-		return s.opts.SolanaSNSCacheTTL
+	// snsCacheTTLOverride is a test-only seam (see service_solana_sns_test.go) for
+	// forcing cache staleness deterministically; production always uses the constant.
+	if s != nil && s.snsCacheTTLOverride > 0 {
+		return s.snsCacheTTLOverride
 	}
 	return defaultSolanaSNSCacheTTL
 }
@@ -148,7 +140,7 @@ func normalizeSolanaSNSName(name string) (string, error) {
 }
 
 func (s *Service) maybeResolveSolanaSNSAfterLink(ctx context.Context, userID, address string) {
-	if !s.solanaSNSEnabled() || s.pg == nil {
+	if s.pg == nil {
 		return
 	}
 	_, _ = s.ResolveAndStoreSolanaSNS(ctx, userID, address)
@@ -162,16 +154,13 @@ func (s *Service) ResolveAndStoreSolanaSNS(ctx context.Context, userID, address 
 		Issuer:              s.solanaIssuer(),
 		Address:             address,
 		Verified:            true,
-		SNSResolutionStatus: SolanaSNSStatusDisabled,
+		SNSResolutionStatus: SolanaSNSStatusPending,
 	}
 	if s.pg == nil {
 		return account, nil
 	}
-	if !s.solanaSNSEnabled() {
-		return account, nil
-	}
 
-	resolveCtx, cancel := context.WithTimeout(ctx, s.solanaSNSLookupTimeout())
+	resolveCtx, cancel := context.WithTimeout(ctx, defaultSolanaSNSLookupTimeout)
 	defer cancel()
 
 	status := SolanaSNSStatusResolved
@@ -237,25 +226,21 @@ func (s *Service) GetSolanaLinkedAccount(ctx context.Context, userID string) (*S
 
 	verifiedAt := row.CreatedAt.UTC()
 	status := strings.TrimSpace(profile.ResolutionStatus)
-	if !s.solanaSNSEnabled() {
-		status = SolanaSNSStatusDisabled
-	} else if status == "" {
+	if status == "" {
 		status = SolanaSNSStatusPending
 	}
 
 	stale := false
-	if s.solanaSNSEnabled() {
-		if profile.ResolvedAt == nil {
-			stale = true
-		} else if time.Since(profile.ResolvedAt.UTC()) > s.solanaSNSCacheTTL() {
-			stale = true
-		}
-		if stale {
-			status = SolanaSNSStatusStale
-			go func() {
-				_, _ = s.ResolveAndStoreSolanaSNS(context.Background(), userID, address)
-			}()
-		}
+	if profile.ResolvedAt == nil {
+		stale = true
+	} else if time.Since(profile.ResolvedAt.UTC()) > s.solanaSNSCacheTTL() {
+		stale = true
+	}
+	if stale {
+		status = SolanaSNSStatusStale
+		go func() {
+			_, _ = s.ResolveAndStoreSolanaSNS(context.Background(), userID, address)
+		}()
 	}
 
 	return &SolanaLinkedAccount{
