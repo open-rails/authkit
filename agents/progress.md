@@ -1458,9 +1458,14 @@ ordinary CORS for their own browser APIs.
 
 # #150: Dead / duplicate / unnecessary code removal
 
-**Completed:** no — reviewed + pruned 2026-06-26 (Claude). The done / wrong / low-value children were
-DELETED; only the actionable ones remain below. CAVEAT: every file:line in the child research has
-DRIFTED a few lines (code moved) — re-grep the symbol before cutting.
+**Completed:** yes — ALL children landed (2026-06-26/27): #155,#162,#168,#169,#171,#176,#179,#180,#184,
+#186,#187,#188,#189,#190,#191,#192 are each `Completed: yes` below. The umbrella is closed. Two
+non-blocking carryovers flagged for CI/follow-up: the #176 Part B forced-link-failure pinning test
+needs a DB-backed run (no fault-injection seam locally), and the #176 targeted fail-closed was taken
+over the full resolver-merge (recorded in #176). Ready to archive the done children to completed.md.
+
+Reviewed + pruned 2026-06-26 (Claude): the done / wrong / low-value children were DELETED; only the
+actionable ones remained. CAVEAT (historical): child research file:lines DRIFTED — they were re-grepped before each cut.
 
 Remaining dead code / duplicate helpers / same-logic-different-name functions to remove, each its own
 child section below. Per-item evidence is in `agents/audits/dead-duplicate-code.md`. Already-tracked
