@@ -149,7 +149,8 @@ type Option ; WithRedis, WithClickHouse, WithEmailSender, WithEntitlements,
 **Config types** (every field is covered; see [§7.3](#73-config-surface)):
 `Config`, `TokenConfig`, `FrontendConfig`, `RegistrationConfig`, `KeysConfig`,
 `IdentityConfig`, `APIKeysConfig`, `TwoFactorConfig`, `PasskeyConfig`, `RBACConfig`,
-`SolanaConfig`, `Options`, `Keyset`.
+`Options`, `Keyset`. (Solana chain selection is the flat `Config.SolanaNetwork string`; SNS
+is always-on with fixed timeout/cache — there is no `SolanaConfig`.)
 
 **Mint APIs** (free functions + `*Service` facade methods — wire-shape owners):
 ```

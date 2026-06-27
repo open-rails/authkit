@@ -48,7 +48,6 @@ type SMSSender = authcore.SMSSender
 type SessionEventType = authcore.SessionEventType
 type SessionFreshness = authcore.SessionFreshness
 type SessionRevokeReason = authcore.SessionRevokeReason
-type SolanaConfig = authcore.SolanaConfig
 type SolanaLinkedAccount = authcore.SolanaLinkedAccount
 type TokenConfig = authcore.TokenConfig
 type TwoFactorConfig = authcore.TwoFactorConfig

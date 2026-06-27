@@ -1741,7 +1741,7 @@ shared helper would ADD `token_type` there — an additive response field (MINOR
 
 # #184: Drop orphaned `SolanaConfig` type (BREAKING)
 
-**Completed:** no
+**Completed:** yes — UNBLOCKED + done (Paul 2026-06-27: "for solana config just network is sufficient, rest can be hardcoded"). Deleted `authcore.SolanaConfig` (`config.go`) + the `embedded.SolanaConfig` alias; SEMVER §4.2 drops it. Live Solana config stays the flat `Config.SolanaNetwork string`. MAJOR — rides #143. FOLLOW-ON (#194): Paul also wants the SNS knobs (`Options.SolanaSNSEnabled/LookupTimeout/CacheTTL`) gone — SNS always-on, fixed 3s/24h.
 
 Parent #150 (Tier 4, BREAKING → rides #143's Solana cull).
 

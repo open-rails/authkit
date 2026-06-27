@@ -133,21 +133,6 @@ type KeysConfig struct {
 	VerifyOnly bool
 }
 
-// SolanaConfig controls SIWS chain selection and optional SNS resolution.
-type SolanaConfig struct {
-	// Network is a host-provided chain selector ("mainnet"/"testnet"/"devnet").
-	// If empty, AuthKit derives a default from Environment.
-	Network string
-	// SNSEnabled enables AuthKit-owned Solana Name Service resolution for
-	// SIWS-linked wallets. The resolver itself is AuthKit-owned (keyless,
-	// built-in) — there is no host override.
-	SNSEnabled bool
-	// SNSLookupTimeout bounds resolver calls. Empty defaults to 3 seconds.
-	SNSLookupTimeout time.Duration
-	// SNSCacheTTL controls when cached SNS metadata is stale. Empty defaults to 24h.
-	SNSCacheTTL time.Duration
-}
-
 // IdentityConfig declares external OAuth2/OIDC identity providers.
 type IdentityConfig struct {
 	// Providers is the list of external identity providers — a provider is a
