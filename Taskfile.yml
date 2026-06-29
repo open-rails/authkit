@@ -17,8 +17,24 @@ env:
   SQLC_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
 
 tasks:
+  test-db-up:
+    desc: Start the shared Postgres integration-test dependency
+    cmds:
+      - |
+        docker compose up -d postgres
+        until docker compose exec -T postgres pg_isready -U admin -d authkit_db >/dev/null 2>&1; do
+          sleep 1
+        done
+
+  test-db-ready:
+    desc: Start Postgres and apply AuthKit migrations for integration/sqlc tasks
+    deps: [test-db-up]
+    cmds:
+      - DB_URL='{{.SQLC_DATABASE_URL}}' go run ./cmd/authkit-server migrate
+
   sqlc:
     desc: Regenerate type-safe query code and lint queries (generate + vet, always as a pair)
+    deps: [test-db-ready]
     cmds:
       - '{{.SQLC}} generate'
       - '{{.SQLC}} vet'
@@ -42,3 +58,20 @@ tasks:
       AUTHKIT_TEST_DATABASE_URL: ''
     cmds:
       - go test -race ./...
+
+  test-query-contracts:
+    desc: Run semantic query-contract tests against a migrated scratch Postgres
+    deps: [test-db-up]
+    cmds:
+      - |
+        QUERY_TEST_DATABASE_URL="${QUERY_TEST_DATABASE_URL:-{{.SQLC_DATABASE_URL}}}" \
+          go test -count=1 ./internal/db/querytest -run '^TestQueryContracts$'
+
+  test-query-perf:
+    desc: Run query plan/performance tests against a migrated scratch Postgres
+    deps: [test-db-up]
+    cmds:
+      - |
+        QUERY_TEST_DATABASE_URL="${QUERY_TEST_DATABASE_URL:-{{.SQLC_DATABASE_URL}}}" \
+        QUERY_PERF_SCALE="${QUERY_PERF_SCALE:-100000}" \
+          go test -count=1 ./internal/db/querytest -run '^TestQueryPerformance$'

@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+type ProfilesAccountRegistrationInvite struct {
+	ID                string
+	Email             string
+	InvitedBy         string
+	CodeHash          string
+	ExpiresAt         time.Time
+	RevokedAt         *time.Time
+	ConsumedAt        *time.Time
+	ConsumedBy        *string
+	PermissionGroupID *string
+	Role              *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 type ProfilesApiKey struct {
 	ID                string
 	PermissionGroupID string
@@ -19,15 +34,8 @@ type ProfilesApiKey struct {
 	LastUsedAt        *time.Time
 	ExpiresAt         *time.Time
 	RevokedAt         *time.Time
-	// The single catalog/custom role this API key holds within its permission-group. Resource-scope is a separate binding.
+	// The single catalog/custom role this API key holds within its permission-group.
 	Role string
-}
-
-type ProfilesApiKeyResource struct {
-	ApiKeyID   string
-	Kind       string
-	ResourceID string
-	CreatedAt  time.Time
 }
 
 type ProfilesBootstrapApply struct {
@@ -56,11 +64,25 @@ type ProfilesGroupInviteLink struct {
 	UpdatedAt         time.Time
 }
 
-// Declared containment schema: which parent persona each permission-group persona allows. root is absent.
+type ProfilesGroupMembershipInvite struct {
+	ID                string
+	PermissionGroupID string
+	UserID            string
+	Role              string
+	InvitedBy         string
+	ExpiresAt         time.Time
+	AcceptedAt        *time.Time
+	DeclinedAt        *time.Time
+	RevokedAt         *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// Declared containment schema: the single parent persona for each permission-group persona. root is absent.
 type ProfilesGroupPersonaParent struct {
-	Persona              string
-	AllowedParentPersona string
-	CreatedAt            time.Time
+	Persona       string
+	ParentPersona string
+	CreatedAt     time.Time
 }
 
 type ProfilesGroupRemoteApplicationRole struct {

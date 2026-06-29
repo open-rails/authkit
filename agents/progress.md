@@ -9,7 +9,7 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 195
+next_id: 196
 
 ---
 
@@ -2204,3 +2204,143 @@ file a follow-up to retire it onto `MintCustomJWT` once we confirm no test asser
 
 - #142 (standalone server + remote SDK): `authkit-server` and `MintCustomJWT` are the consolidation target.
 - #190 (delete `ApplyBootstrapManifestFile`): the devserver holds the `LoadBootstrapManifestFile` + `ApplyBootstrapManifest` composition #190 references; keep that composition reachable (server subcommand or test helper) when deleting the devserver.
+
+---
+
+# #195: query-contract-and-performance-harness
+
+**Completed:** yes
+**Status:** DONE 2026-06-29 (Codex). Added the shared compose-backed
+`internal/testdb` scratch Postgres harness, semantic query-contract tests,
+100k-row query perf/plan tests, budget/report docs, raw SQL inventory, and
+Taskfile entrypoints. `task sqlc-check` now starts/migrates the shared Postgres
+before sqlc generate/vet, so the prepare gate is self-contained. Validation:
+`task sqlc-check`; `task test-query-contracts`; `QUERY_PERF_REPORT=/tmp/authkit-query-perf.json task test-query-perf`;
+`AUTHKIT_TEST_DATABASE_URL=postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable go test -count=1 ./internal/authcore ./http ./adapters/riverjobs ./remote`.
+
+**Status:** PLANNED 2026-06-29. Build the shared AuthKit/OpenRails query testing
+system: migrated Postgres, deterministic seed data, semantic query-contract tests,
+large-scale query-performance checks, and raw-SQL pruning.
+
+## Goal
+
+`task sqlc-check` already proves sqlc queries PREPARE against the migrated schema.
+This issue adds the next layer: execute important queries against real seeded data,
+assert the results/mutations, and run heavyweight plan/performance tests against
+large tables so missing indexes and bad query shapes are caught before production.
+
+The command surface must match OpenRails exactly:
+
+- `task test-query-contracts`
+- `task test-query-perf`
+
+## Metadata
+
+- Category: test-infra
+- Status: planned
+- Passes: false
+- Paired OpenRails issue: OpenRails #628
+
+## Design
+
+### A. Shared command contract
+
+- Add `task test-query-contracts`: starts/uses a real Postgres, runs migrations,
+  seeds small deterministic fixtures, and runs query-contract Go tests.
+- Add `task test-query-perf`: starts/uses a real Postgres, runs migrations, bulk
+  seeds large deterministic fixtures, runs `ANALYZE`, then executes hot queries
+  through `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` with explicit budgets.
+- Use identical env names in both repos:
+  - `QUERY_TEST_DATABASE_URL` — optional existing DB override.
+  - `QUERY_TEST_KEEP_DB` — keep the scratch DB for debugging.
+  - `QUERY_PERF_SCALE` — default row scale for perf seeds.
+  - `QUERY_PERF_REPORT` — optional JSON report path.
+- Keep `task sqlc-check` as the cheap universal schema/query drift gate; do not
+  fold perf tests into it.
+
+### B. Query-contract tests
+
+- Add a small harness under `internal/db/querytest` (or nearest existing test
+  helper package) for:
+  - scratch DB creation
+  - migration application
+  - deterministic fixture helpers
+  - sqlc query wrapper access
+  - transaction cleanup helpers where useful
+- Add contract tests by query domain, not one giant generated-method runner.
+- Cover the important sqlc groups first:
+  - users / identity / owner namespace
+  - sessions / refresh-session rotation
+  - MFA / twofactor
+  - provider links
+  - remote applications
+  - permission groups, roles, memberships, invites
+  - API keys and reserved-account cleanup
+- Each contract test should prove:
+  - query executes
+  - returned rows match seeded data
+  - mutations change only intended rows
+  - missing-row / duplicate / constraint edge cases return the expected behavior
+
+### C. Query-performance tests
+
+- Seed large datasets with `pgx.CopyFrom` / `COPY`, never row-by-row loops.
+- Start with representative scales, then allow override:
+  - default `QUERY_PERF_SCALE=100000`
+  - manual/nightly target `QUERY_PERF_SCALE=1000000`
+- Build reusable `Explain` helpers that parse JSON plans and fail on:
+  - sequential scan over large identity/session/RBAC tables unless allowlisted
+  - unexpected sort/hash spill or temp blocks
+  - excessive shared read blocks
+  - bad row-estimate skew for hot queries
+  - execution time over query-specific budget
+- Store query budgets in a small checked-in manifest, e.g.
+  `internal/db/querytest/perf_budgets.yaml`.
+- Keep wall-clock thresholds loose; prefer plan shape and buffer budgets because CI
+  machines vary.
+
+### D. Raw SQL inventory and pruning
+
+- Add an inventory step for handwritten SQL outside `internal/db/queries`.
+- Classify each raw query:
+  - convert to sqlc
+  - keep raw because it is dynamic SQL / DDL / advisory lock / session setup
+  - delete because unused or duplicated
+- Require every kept raw SQL path to have either:
+  - a query-contract test, or
+  - an explicit allowlist reason in the inventory.
+- Prefer moving static raw queries into sqlc as domains are covered.
+
+### E. CI policy
+
+- PR/default CI:
+  - `task sqlc-check`
+  - `task test-query-contracts`
+- Nightly/manual CI:
+  - `task test-query-perf`
+- Add docs explaining that `PREPARE` validates schema compatibility, while
+  query-contract/perf tests validate behavior and scaling.
+
+## Acceptance
+
+- `task test-query-contracts` exists and runs against a migrated scratch Postgres.
+- `task test-query-perf` exists with the same name/env contract as OpenRails.
+- At least the first high-value AuthKit query domains have semantic contract
+  coverage: users/identity, sessions, MFA, remote applications, permission groups.
+- Perf harness can seed at least 100k users/sessions/memberships and emit JSON
+  plan/budget reports.
+- Raw SQL inventory exists; obvious duplicated/static raw queries are converted or
+  deleted.
+- `task sqlc-check`, `task test-query-contracts`, and focused normal Go tests pass.
+
+## Non-goals
+
+- Do not blindly auto-execute every generated sqlc method with fake arguments.
+  Query args and seed state must be meaningful.
+- Do not make million-row perf tests part of every local `task test` run.
+- Do not add an ORM or a new query abstraction.
+
+## Notes
+
+- Pair implementation with OpenRails #628 so helpers, command names, env vars, and
+  report shape stay identical.

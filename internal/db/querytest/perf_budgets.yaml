@@ -1,0 +1,23 @@
+# Budgets enforced by query_perf_test.go. Keep these loose enough for CI hosts;
+# plan shape and buffers matter more than exact wall-clock timing.
+queries:
+  user_by_email:
+    max_execution_ms: 50
+    max_shared_read_blocks: 16
+    forbid_seq_scan:
+      - users
+  session_by_current_hash:
+    max_execution_ms: 50
+    max_shared_read_blocks: 16
+    forbid_seq_scan:
+      - refresh_sessions
+  sessions_by_user:
+    max_execution_ms: 75
+    max_shared_read_blocks: 32
+    forbid_seq_scan:
+      - refresh_sessions
+  root_roles_for_page:
+    max_execution_ms: 100
+    max_shared_read_blocks: 64
+    forbid_seq_scan:
+      - group_user_roles
