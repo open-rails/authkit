@@ -46,12 +46,30 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `AUTHKIT_REDIS_ADDR` | no | — | Redis address (ephemeral store + OIDC/SIWS state) |
 | `AUTHKIT_REGISTRATION_VERIFICATION` | no | `none` | `none`/`optional`/`required` (`required` needs a configured sender) |
 | `AUTHKIT_API_PREFIX` | no | `/api/v1` | Mount prefix for browser routes |
+| `AUTHKIT_MIGRATE_ON_START` | no | `false` | Apply the schema before serving. Prefer the one-shot `migrate` command in prod. |
+| `AUTHKIT_API_KEY_PREFIX` | no | — | Branded prefix for issued API keys |
+
+### Dev-only (honored only when `AUTHKIT_ENV` is a dev env)
+
+The server folds in the integration-test affordances that used to live in the
+separate `authkit-devserver` (#194). They are mounted **only** in a dev env and
+are never reachable in production (fail-closed).
+
+| Var | Default | Meaning |
+|---|---|---|
+| `AUTHKIT_DEV_MINT_SECRET` | — | Enables `POST {prefix}/dev/mint` (mint arbitrary access tokens) when set; shared-secret gated |
+| `AUTHKIT_STATIC_ENTITLEMENTS` | — | Comma-separated entitlements seeded into every access token (billing/entitlement E2E) |
+
+`GET {prefix}/dev/whoami` (reflect the resolved principal) is served whenever the
+env is dev. In dev with no `AUTHKIT_MGMT_TOKEN`, the management API is also exposed
+unauthenticated — `POST /v1/call/MintCustomJWT` is the production-grade way to mint
+arbitrary-claim (non-`access`) tokens.
 
 ## Run
 
 ```sh
-# Migrate the database first (the devserver's migrate command shares the runner):
-DEVSERVER_ISSUER=x DB_URL=postgres://... go run ./cmd/authkit-devserver migrate
+# Apply the schema (one-shot; needs only DB_URL):
+DB_URL=postgres://... go run ./cmd/authkit-server migrate
 
 # Then serve:
 AUTHKIT_ISSUER=https://auth.example.com \

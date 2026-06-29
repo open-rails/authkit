@@ -98,33 +98,32 @@ users:
 	}
 }
 
-func TestParseBootstrapManifestYAMLRejectsAmbiguousGroupRoleSubject(t *testing.T) {
+func TestParseBootstrapManifestYAMLRejectsGroupRoleFields(t *testing.T) {
 	for name, raw := range map[string]string{
-		"none": `
+		"group_roles": `
 group_roles:
-  - persona: merchant
+  - username: operator
+    persona: merchant
     instance_slug: tensorhub
     role: admin
 `,
-		"both": `
-group_roles:
-  - username: operator
-    remote_application_slug: cozy-creator
-    persona: merchant
-    instance_slug: tensorhub
+		"assigned_roles": `
+assigned_roles:
+  - user: operator
+    group: root
     role: admin
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseBootstrapManifestYAML([]byte(raw)); err == nil {
-				t.Fatal("expected invalid group role subject error")
+				t.Fatal("expected unknown field error")
 			}
 		})
 	}
 }
 
 func TestParseBootstrapManifestExample(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "cmd", "authkit-devserver", "bootstrap.example.yaml"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "bootstrap.example.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,103 +387,6 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 		t.Fatalf("list recovery roles after reseed: %v", err)
 	} else if !containsString(roles, OwnerRoleName) {
 		t.Fatalf("bootstrap should recover zero-owner state; roles=%v", roles)
-	}
-}
-
-func TestApplyBootstrapManifestAssignsGroupRolesByStableSubjects(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	cfg := schemaTestConfig("")
-	cfg.RBAC = []PersonaDef{{
-		Name:   "merchant",
-		Parent: RootPersona,
-		Roles: []RoleDef{
-			{Name: "admin", Permissions: []string{"merchant:payments:refund"}},
-			{Name: "worker", Permissions: []string{"merchant:jobs:run"}},
-		},
-	}}
-	svc, err := NewFromConfig(cfg, pool)
-	if err != nil {
-		t.Fatalf("new service: %v", err)
-	}
-
-	suffix := time.Now().UnixNano()
-	username := fmt.Sprintf("bootstrap-group-role-%d", suffix)
-	appSlug := fmt.Sprintf("bootstrap-app-%d", suffix)
-	issuer := fmt.Sprintf("https://bootstrap-app-%d.example", suffix)
-	merchantSlug := fmt.Sprintf("merchant-%d", suffix)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.remote_applications WHERE slug=$1`, appSlug)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE persona='merchant' AND instance_slug=$1`, merchantSlug)
-	})
-
-	if _, err := svc.EnsureRootGroup(ctx); err != nil {
-		t.Fatalf("ensure root group: %v", err)
-	}
-	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
-		t.Fatalf("seed containment: %v", err)
-	}
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: merchantSlug, ParentPersona: RootPersona}); err != nil {
-		t.Fatalf("create merchant group: %v", err)
-	}
-
-	manifest := BootstrapManifest{
-		Users: []BootstrapManifestUser{{
-			Email:         username + "@example.com",
-			Username:      username,
-			EmailVerified: true,
-			Password:      &BootstrapUserPassword{Plaintext: "bootstrap-password-1"},
-		}},
-		RemoteApplications: []BootstrapManifestRemoteApplication{{
-			Slug:    appSlug,
-			Issuer:  issuer,
-			JWKSURI: issuer + "/.well-known/jwks.json",
-			Enabled: boolPtr(true),
-		}},
-		GroupRoles: []BootstrapManifestGroupRole{
-			{
-				Username:     username,
-				Persona:      "merchant",
-				InstanceSlug: merchantSlug,
-				Role:         "admin",
-			},
-			{
-				RemoteApplicationSlug: appSlug,
-				Persona:               "merchant",
-				InstanceSlug:          merchantSlug,
-				Role:                  "worker",
-			},
-		},
-	}
-	result, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{})
-	if err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	if result.GroupRoleAssignments != 2 {
-		t.Fatalf("group role assignments=%d, want 2", result.GroupRoleAssignments)
-	}
-	user, err := svc.getUserByUsername(ctx, username)
-	if err != nil {
-		t.Fatalf("lookup user: %v", err)
-	}
-	perms, err := svc.ListEffectivePermissions(ctx, user.ID, SubjectKindUser, "merchant", merchantSlug)
-	if err != nil {
-		t.Fatalf("effective permissions: %v", err)
-	}
-	if !containsString(perms, "merchant:payments:refund") {
-		t.Fatalf("permissions=%v, want merchant:payments:refund", perms)
-	}
-	app, err := svc.GetRemoteApplicationBySlug(ctx, appSlug)
-	if err != nil {
-		t.Fatalf("lookup remote app: %v", err)
-	}
-	appPerms, err := svc.ListEffectivePermissions(ctx, app.ID, SubjectKindRemoteApp, "merchant", merchantSlug)
-	if err != nil {
-		t.Fatalf("remote app effective permissions: %v", err)
-	}
-	if !containsString(appPerms, "merchant:jobs:run") {
-		t.Fatalf("remote app permissions=%v, want merchant:jobs:run", appPerms)
 	}
 }
 

@@ -30,7 +30,7 @@ tasks:
       - git diff --exit-code -- internal/db
 
   test:
-    desc: Run the full test suite against the devserver Postgres
+    desc: Run the full test suite against the compose Postgres (the `issuer` service)
     env:
       AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
     cmds:

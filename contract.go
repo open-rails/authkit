@@ -28,7 +28,6 @@ type APIKeyMintOptions struct {
 type BootstrapManifest struct {
 	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
 	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
-	GroupRoles         []BootstrapManifestGroupRole         `json:"group_roles" yaml:"group_roles"`
 }
 
 type BootstrapManifestUser struct {
@@ -59,14 +58,6 @@ type BootstrapManifestRemoteApplication struct {
 	RootRole   string         `json:"root_role" yaml:"root_role"`
 }
 
-type BootstrapManifestGroupRole struct {
-	Username              string `json:"username" yaml:"username"`
-	RemoteApplicationSlug string `json:"remote_application_slug" yaml:"remote_application_slug"`
-	Persona               string `json:"persona" yaml:"persona"`
-	InstanceSlug          string `json:"instance_slug" yaml:"instance_slug"`
-	Role                  string `json:"role" yaml:"role"`
-}
-
 type BootstrapUserPassword struct {
 	Plaintext     string         `json:"plaintext" yaml:"plaintext"`
 	Hash          string         `json:"hash" yaml:"hash"`
@@ -92,16 +83,15 @@ type BootstrapReconcileOptions struct {
 }
 
 type BootstrapManifestResult struct {
-	DryRun               bool `json:"dry_run"`
-	AlreadyApplied       bool `json:"already_applied"`
-	UsersCreated         int  `json:"users_created"`
-	UsersUpdated         int  `json:"users_updated"`
-	PasswordsSet         int  `json:"passwords_set"`
-	PasswordsKept        int  `json:"passwords_kept"`
-	RootRoleAssignments  int  `json:"root_role_assignments"`
-	GroupRoleAssignments int  `json:"group_role_assignments"`
-	RemoteApplications   int  `json:"remote_applications"`
-	RemoteAppRootRoles   int  `json:"remote_application_root_roles"`
+	DryRun              bool `json:"dry_run"`
+	AlreadyApplied      bool `json:"already_applied"`
+	UsersCreated        int  `json:"users_created"`
+	UsersUpdated        int  `json:"users_updated"`
+	PasswordsSet        int  `json:"passwords_set"`
+	PasswordsKept       int  `json:"passwords_kept"`
+	RootRoleAssignments int  `json:"root_role_assignments"`
+	RemoteApplications  int  `json:"remote_applications"`
+	RemoteAppRootRoles  int  `json:"remote_application_root_roles"`
 }
 
 type CustomJWTMintOptions struct {

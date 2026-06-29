@@ -31,15 +31,12 @@ const defaultBootstrapApplyName = "default"
 // `root_role` seeds one root-group role ASSIGNMENT: "owner" (the built-in apex,
 // root:*, present by default on every group) is seeded SEED-IF-ABSENT via the
 // genesis path; any other name must be a catalog role of the root persona
-// (declared in core.Config, e.g. an app's bounded "admin"). Group role
-// assignments address groups by stable (persona, instance_slug), never UUID.
+// (declared in core.Config, e.g. an app's bounded "admin").
 type BootstrapManifest = authkit.BootstrapManifest
 
 type BootstrapManifestUser = authkit.BootstrapManifestUser
 
 type BootstrapManifestRemoteApplication = authkit.BootstrapManifestRemoteApplication
-
-type BootstrapManifestGroupRole = authkit.BootstrapManifestGroupRole
 
 type BootstrapUserPassword = authkit.BootstrapUserPassword
 
@@ -54,7 +51,7 @@ func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	if err := dec.Decode(&manifest); err != nil {
 		return BootstrapManifest{}, err
 	}
-	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 && len(manifest.GroupRoles) == 0 {
+	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 {
 		return BootstrapManifest{}, ErrInvalidBootstrapManifest
 	}
 	if err := validateBootstrapManifest(manifest); err != nil {
@@ -94,7 +91,6 @@ func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest Bootstrap
 		for _, app := range manifest.RemoteApplications {
 			result.RemoteAppRootRoles += boolToInt(strings.TrimSpace(app.RootRole) != "")
 		}
-		result.GroupRoleAssignments = len(manifest.GroupRoles)
 		return result, nil
 	}
 	claimed := false
@@ -187,13 +183,6 @@ func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest Bootstrap
 			return result, err
 		}
 		result.RootRoleAssignments++
-	}
-
-	for _, role := range manifest.GroupRoles {
-		if err := s.applyBootstrapGroupRole(ctx, role); err != nil {
-			return result, err
-		}
-		result.GroupRoleAssignments++
 	}
 
 	claimed = false
@@ -314,19 +303,6 @@ func validateBootstrapManifest(manifest BootstrapManifest) error {
 			return err
 		}
 	}
-	for _, role := range manifest.GroupRoles {
-		username := strings.TrimSpace(role.Username)
-		remoteAppSlug := strings.TrimSpace(role.RemoteApplicationSlug)
-		if (username == "") == (remoteAppSlug == "") {
-			return ErrInvalidBootstrapManifest
-		}
-		if strings.TrimSpace(role.Persona) == "" || strings.TrimSpace(role.Role) == "" {
-			return ErrInvalidBootstrapManifest
-		}
-		if strings.TrimSpace(role.Persona) != RootPersona && strings.TrimSpace(role.InstanceSlug) == "" {
-			return ErrInvalidBootstrapManifest
-		}
-	}
 	return nil
 }
 
@@ -351,35 +327,6 @@ func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app Boots
 		return nil
 	}
 	return s.AddRemoteApplicationMember(ctx, ra.ID, role)
-}
-
-func (s *Service) applyBootstrapGroupRole(ctx context.Context, role BootstrapManifestGroupRole) error {
-	subjectID, subjectKind, err := s.bootstrapGroupRoleSubject(ctx, role)
-	if err != nil {
-		return err
-	}
-	return s.AssignGroupRole(ctx, strings.TrimSpace(role.Persona), strings.TrimSpace(role.InstanceSlug), subjectID, subjectKind, strings.TrimSpace(role.Role))
-}
-
-func (s *Service) bootstrapGroupRoleSubject(ctx context.Context, role BootstrapManifestGroupRole) (string, string, error) {
-	if username := strings.TrimSpace(role.Username); username != "" {
-		user, err := s.getUserByUsername(ctx, username)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", "", ErrInvalidBootstrapManifest
-		}
-		if err != nil {
-			return "", "", err
-		}
-		return user.ID, SubjectKindUser, nil
-	}
-	app, err := s.GetRemoteApplicationBySlug(ctx, strings.TrimSpace(role.RemoteApplicationSlug))
-	if errors.Is(err, ErrRemoteApplicationNotFound) {
-		return "", "", ErrInvalidBootstrapManifest
-	}
-	if err != nil {
-		return "", "", err
-	}
-	return app.ID, SubjectKindRemoteApp, nil
 }
 
 func validateBootstrapUserPassword(p BootstrapUserPassword) error {

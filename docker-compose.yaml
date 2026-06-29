@@ -18,25 +18,27 @@ services:
   issuer:
     build:
       context: .
-      dockerfile: cmd/authkit-devserver/Dockerfile
+      dockerfile: cmd/authkit-server/Dockerfile
       network: host
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      # Ensure we are not in production so authkit can auto-generate dev keys.
-      ENV: dev
+      # Dev env: auto-generate signing keys + serve the /dev/* test endpoints.
+      AUTHKIT_ENV: dev
 
-      DEVSERVER_LISTEN_ADDR: ":8080"
-      DEVSERVER_ISSUER: "http://issuer:8080"
-      DEVSERVER_ISSUED_AUDIENCES: "billing-app"
-      DEVSERVER_EXPECTED_AUDIENCES: "billing-app"
+      AUTHKIT_LISTEN_ADDR: ":8080"
+      AUTHKIT_ISSUER: "http://issuer:8080"
+      AUTHKIT_AUDIENCES: "billing-app"
 
       DB_URL: "postgres://admin:admin_password@postgres:5432/authkit_db?sslmode=disable"
 
-      # Dev-only minting endpoint:
-      DEVSERVER_DEV_MODE: "true"
-      DEVSERVER_DEV_MINT_SECRET: "change-me"
+      # Apply the schema on boot — this service doubles as the migration runner
+      # the test suite waits on (CI waits for /healthz after migrations).
+      AUTHKIT_MIGRATE_ON_START: "true"
+
+      # Dev-only minting endpoint (gated on dev env + this secret):
+      AUTHKIT_DEV_MINT_SECRET: "change-me"
     ports:
       - "127.0.0.1:38080:8080"
     volumes:

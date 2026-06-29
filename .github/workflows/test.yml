@@ -24,10 +24,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Start migrated devserver database
+      - name: Start migrated authkit-server database
         run: docker compose up -d --build issuer
 
-      - name: Wait for devserver migrations
+      - name: Wait for authkit-server migrations
         run: |
           for i in {1..60}; do
             if curl -fsS http://127.0.0.1:38080/healthz >/dev/null; then

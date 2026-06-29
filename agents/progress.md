@@ -9,7 +9,7 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 194
+next_id: 195
 
 ---
 
@@ -2065,3 +2065,106 @@ Proposed 2026-06-26 (Paul). Two membership gaps surfaced reviewing #147's invite
   schema build/validation there.
 - #147 (invites): the consent-invite mechanism (`CreateGroupMembershipInvite` +
   `/me/group-invites` accept/decline) is what the `RequireConsent` join policy routes into.
+
+---
+
+# #194: Consolidate authkit-devserver into authkit-server (one binary; migrate integration tests)
+
+**Completed:** no
+
+Proposed 2026-06-28 (Paul). `cmd/authkit-devserver` (525 LOC) and `cmd/authkit-server`
+(208 LOC, #142) now overlap ~80%: both wire the identical core surface — `/healthz`,
+`/.well-known/jwks.json`, and the auth-flow mux (register/login/OIDC/JWKS) under
+`/api/v1`. That mux block is a near-copy (`cmd/authkit-server/main.go:137-145` ≈
+`cmd/authkit-devserver/main.go:168-188`) and WILL drift. The devserver predates #142,
+when authkit was embedded-only and needed a throwaway issuer to test against; now that
+`authkit-server` IS the real standalone product, the devserver should fold into it and
+become the integration-test target.
+
+The devserver is a TEST harness, not a product — some of what it carries must NOT ship
+reachable in a production server. Consolidation must keep those affordances dev-gated,
+fail-closed, exactly as `authkit-server` already does for the unauthenticated management
+API (`main.go:154`, `isDevEnv()`).
+
+## Current-state research (2026-06-28, verified)
+
+What only `authkit-server` has: management API `/v1/call/` (`server.NewHandler`, the
+remote-SDK target), Redis wiring, fail-closed mgmt-auth posture. Env prefix `AUTHKIT_`.
+
+What only `authkit-devserver` has (all test-only):
+1. `/dev/mint` (`main.go:362`) — mints ARBITRARY JWTs (any sub/aud/roles/entitlements) of
+   authkit's real first-party `access` class, shared-secret gated (`DEVSERVER_DEV_MINT_SECRET`).
+   Used by downstream-service E2E (billing-app) to test their verifier.
+2. `/dev/whoami` (`main.go:346`) — reflects the principal as resolved by the REAL verifier
+   (JWT user OR branded API key). Used by RBAC / API-key E2E.
+3. `bootstrap apply` CLI subcommand (`main.go:203`) — `LoadBootstrapManifestFile` +
+   `ApplyBootstrapManifest`; plus `ApplyBootstrapOnStart`.
+4. Test seeding knobs: `staticDevEntitlements` via `embedded.WithEntitlements`
+   (`main.go:137`), `DEVSERVER_PERMISSION_CATALOG`, `DEVSERVER_STATIC_ENTITLEMENTS`.
+
+KEY FINDING — most of `/dev/mint` is already covered: the management API exposes
+`MintCustomJWT` (`server/methods_gen.go:587`, `contract.go:107`) with arbitrary
+`Claims`/`Subject`/`Audiences`/`Issuer`. So `/v1/call/MintCustomJWT` replaces `/dev/mint`
+for downstream tokens — EXCEPT it refuses authkit's own `access` type
+(`ErrCustomJWTReservedType`). `/dev/whoami` has NO mgmt-API equivalent (the mgmt API
+provisions/mints; it does not reflect how a given bearer resolved).
+
+CI shape: docker-compose `issuer` (the devserver) is used by `.github/workflows/test.yml`
+as a migration-runner + DB + `/healthz` only; `task test` runs `go test ./...` against
+Postgres DIRECTLY and never touches the HTTP dev endpoints. Those endpoints are consumed
+by the EXTERNAL downstream e2e via `docker-compose.yaml`. So the contract to preserve is
+the HTTP surface + env vars that docker-compose and the downstream suite drive.
+
+Refs to update on delete: `docker-compose.yaml` (builds `cmd/authkit-devserver/Dockerfile`,
+`DEVSERVER_*` env), `.github/workflows/test.yml`, `Taskfile.yml` (desc only),
+`cmd/authkit-server/README.md`, `SEMVER.md`, `.gitignore`, `agents/*.md`.
+`internal/authcore/bootstrap_manifest_test.go` uses the `LoadBootstrapManifestFile`
+composition (not the binary) — unaffected.
+
+## Design — fold dev affordances into authkit-server behind the existing dev gate
+
+APPROACH A (recommended): one binary. Port `/dev/mint` + `/dev/whoami` (and, if kept,
+`bootstrap` + the seeding knobs) into `cmd/authkit-server`, mounted ONLY when
+`isDevEnv(cfg.env)` AND an explicit `AUTHKIT_DEV_MINT_SECRET` is set (mint stays
+double-gated: dev env + secret, fail-closed — unreachable in prod even if the code ships).
+Mirrors how the unauthenticated mgmt API is already dev-gated. Then delete
+`cmd/authkit-devserver`. Least drift; one binary to explain.
+
+APPROACH B (rejected unless zero dev code in the shipped artifact is required): keep dev
+endpoints out of `authkit-server` entirely; put them in a thin test-only harness that
+imports `server` and adds the routes. Purer prod binary, but reintroduces the second
+binary this issue exists to delete.
+
+OPEN DECISION (resolve before porting `/dev/mint`): does downstream E2E need real
+`access`-class tokens, or can it move to `/v1/call/MintCustomJWT`?
+- If access-class is required → port `/dev/mint` as-is behind the dev gate (it stays).
+- If not → DROP `/dev/mint`; migrate downstream tests to `MintCustomJWT` over the mgmt API
+  (fewer dev-only endpoints in the shipped binary — preferred if it holds).
+Recommendation: port `/dev/mint` for now (smallest migration: downstream suite unchanged),
+file a follow-up to retire it onto `MintCustomJWT` once we confirm no test asserts on the
+`access` `typ`. `/dev/whoami` has no replacement → port it (dev-gated) regardless.
+
+## Tasks
+
+- [ ] DECIDE the OPEN DECISION above (access-class mint required?) — gates whether `/dev/mint` is ported or dropped.
+- [ ] Add a dev-routes block to `cmd/authkit-server/main.go`, mounted only when `isDevEnv(cfg.env)`; reuse the existing `isDevEnv` helper. Move `/dev/whoami` (`devWhoamiHandler`) and, per the decision, `/dev/mint` (`devMintHandler` + `mintRequest`/`mintResponse`/`devSecretOK`) verbatim from the devserver.
+- [ ] Gate `/dev/mint` on BOTH dev env AND a non-empty `AUTHKIT_DEV_MINT_SECRET` (rename from `DEVSERVER_DEV_MINT_SECRET`); never mount it otherwise. Fail-closed: prod env or missing secret ⇒ route absent.
+- [ ] Decide `bootstrap apply` CLI: keep as an `authkit-server bootstrap apply` subcommand (port `runBootstrapApply` + `--file/--dry-run/--startup-only/--name` flag parsing) OR drop if nothing scripts it (sweep first — only docs + `agents/*` reference it today). Same for `ApplyBootstrapOnStart` (`AUTHKIT_BOOTSTRAP_ON_START`).
+- [ ] Decide the test-seeding knobs: port `WithEntitlements(staticDevEntitlements)` + `AUTHKIT_STATIC_ENTITLEMENTS` and `AUTHKIT_PERMISSION_CATALOG` behind the dev gate if the integration suite needs them; otherwise drop. (devserver `DEVSERVER_PERMISSION_CATALOG`/`DEVSERVER_STATIC_ENTITLEMENTS`.)
+- [ ] Point `docker-compose.yaml` `issuer` service at `cmd/authkit-server/Dockerfile` (create if absent); rename env `DEVSERVER_*` → `AUTHKIT_*` (`AUTHKIT_LISTEN_ADDR`/`AUTHKIT_ISSUER`/`AUTHKIT_AUDIENCES`/`DB_URL`/`AUTHKIT_ENV=dev`/`AUTHKIT_DEV_MINT_SECRET`). `authkit-server` migrates via `embedded.New`, so the CI "migration runner + healthz" role is preserved. (Note: devserver had `MIGRATE_ON_START` default true — confirm `authkit-server` runs migrations on boot, or add a `migrate` step.)
+- [ ] Update `.github/workflows/test.yml` step names + any `DEVSERVER_*` references; `task test` itself is unchanged (hits Postgres directly).
+- [ ] MIGRATE INTEGRATION TESTS off the devserver: repoint the external downstream (billing-app) E2E at `authkit-server` — new env var names, same HTTP surface (`/api/v1`, `/.well-known/jwks.json`, `/dev/mint`, `/dev/whoami`). Verify the downstream suite green against the consolidated server BEFORE deleting the devserver.
+- [ ] `rm -rf cmd/authkit-devserver` (incl its Dockerfile) once the downstream suite is green on `authkit-server`.
+- [ ] Update `SEMVER.md`, `cmd/authkit-server/README.md`, `Taskfile.yml` desc, `.gitignore`, and `agents/*.md` to drop devserver references.
+- [ ] Validate: `go build ./... && go vet ./...`; `task test` green on a fresh-migrated DB; `docker compose up -d --build issuer` + `/healthz` green; downstream E2E green against the consolidated server.
+
+## Non-goals
+
+- Do NOT move the management API or Redis into a separate binary — they stay on `authkit-server`.
+- Do NOT expose any `/dev/*` route outside dev env — dev affordances are double-gated and fail-closed, never reachable in production.
+- Do NOT rewrite the downstream E2E logic — this is a target swap + env rename, not a test rewrite (the `MintCustomJWT` migration, if chosen, is a separate follow-up).
+
+## Depends on / coordinates with
+
+- #142 (standalone server + remote SDK): `authkit-server` and `MintCustomJWT` are the consolidation target.
+- #190 (delete `ApplyBootstrapManifestFile`): the devserver holds the `LoadBootstrapManifestFile` + `ApplyBootstrapManifest` composition #190 references; keep that composition reachable (server subcommand or test helper) when deleting the devserver.

@@ -48,7 +48,7 @@ changed.
 
 ### 1.2 What is explicitly NOT covered
 
-See [§9](#9-explicitly-out-of-contract). In short: `internal/`, the devserver binary,
+See [§9](#9-explicitly-out-of-contract). In short: `internal/`, the standalone-server binary,
 `*_test.go` helpers (except package `testing`), unexported behavior, log lines, exact
 error *messages* (the `message` field), wall-clock timing, and any symbol/field marked
 *Experimental* or *Deprecated*.
@@ -577,12 +577,13 @@ from that role at verify time. The format and resolution semantics are covered.
 
 ### 6.6 Bootstrap manifest YAML
 
-The bootstrap manifest schema (`users`, `remote_applications`, `group_roles`, and
-the three password modes: `plaintext`, `hash`+`hash_algo`, `reset_required`) is a
-covered wire contract parsed by `LoadBootstrapManifestFile`. Removing/renaming a field is MAJOR. Per-user
+The bootstrap manifest schema (`users`, `remote_applications`, and the three
+password modes: `plaintext`, `hash`+`hash_algo`, `reset_required`) is a
+covered wire contract parsed by `LoadBootstrapManifestFile` /
+`ParseBootstrapManifestYAML`. Removing/renaming a field is MAJOR. Per-user
 `root_role: owner` seeds the apex owner SEED-IF-ABSENT — owner is the built-in
-apex of every group, never defined here, only assigned. Group role assignments
-address existing groups by `persona` + `instance_slug`.
+apex of every group, never defined here, only assigned. Per-remote-application
+`root_role` assigns root authority to that trusted issuer.
 
 ### 6.7 Password hash policy (covered)
 
@@ -710,9 +711,10 @@ preserving fixes.
 ## 9. Explicitly out of contract
 
 - `internal/db` and anything under `internal/` (sqlc-generated; may change any release).
-- The devserver (`cmd/authkit-devserver/` — its `Dockerfile`/`README.md` — and the
-  root `docker-compose.yaml`) and its env vars (`DEVSERVER_*`, `AUTHKIT_BOOTSTRAP_*`)
-  — an operational tool, not a library contract.
+- The standalone server (`cmd/authkit-server/` — its `Dockerfile`/`README.md` — and the
+  root `docker-compose.yaml`), its operational env vars, and its dev-only test endpoints
+  (`{prefix}/dev/mint`, `{prefix}/dev/whoami`, gated on a dev env) — an operational tool,
+  not a library contract.
 - `*_test.go` files and test-only helpers (the `authtest` package IS covered).
 - Error `message` strings (the human-readable `error.message`); log lines; metrics names.
 - Exact DB table/column layout beyond the invariants pinned in [§7.1](#71-database-schema--migrations).
