@@ -424,8 +424,6 @@ users:
 	}
 }
 
-func boolPtr(v bool) *bool { return &v }
-
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

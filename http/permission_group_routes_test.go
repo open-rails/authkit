@@ -10,24 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// merchantSchema is the profile under test: merchant has member-assignment +
-// api-key minting, but NO custom-role creation, NO remote-apps, NO invites.
-// repo has members only. Mirrors core's TestGeneratedRoutes_SurfaceMirrorsProfile.
-func merchantSchema(t *testing.T) *embedded.GroupSchema {
-	t.Helper()
-	s, err := embedded.BuildSchema(
-		embedded.PersonaDef{
-			Name: "merchant", Parent: embedded.RootPersona,
-			Capabilities: embedded.PersonaCapabilities{APIKeys: true},
-		},
-		embedded.PersonaDef{
-			Name: "repo", Parent: embedded.RootPersona,
-		},
-	)
-	require.NoError(t, err)
-	return s
-}
-
 // TestGeneratedMembersRoute_Requires401WithoutClaims: no claims => 401, gate is
 // never consulted.
 func TestGeneratedMembersRoute_Requires401WithoutClaims(t *testing.T) {
