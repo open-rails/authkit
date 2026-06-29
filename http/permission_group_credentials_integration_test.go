@@ -131,12 +131,12 @@ func TestGroupMembersListUsesSnakeCaseJSON_HTTP(t *testing.T) {
 	require.NotContains(t, listed.Data[0], "subject-kind")
 }
 
-// #147 FINAL: adding an unknown email under invite-only mints ONLY the group
-// invite link (members:manage). It does NOT mint an account-registration invite —
-// that is a SEPARATE permission (root:users:invite), and a member-manager does not
-// implicitly gain it. The rare stranger-into-group-while-invite-only case is two
-// separate links from two authorities.
-func TestGroupMemberAddUnknownEmailMintsOnlyGroupInvite_HTTP(t *testing.T) {
+// #147 register+join: adding an UNKNOWN email under a group's members:manage mints
+// ONE role-carrying account-registration invite (not two separate tokens). Consuming
+// the code registers the stranger AND grants the carried role on consume. The handler
+// returns it under "invite" (the legacy "group_invite" key is gone), and the stored
+// row references the permission group + role it will grant.
+func TestGroupMemberAddUnknownEmailMintsRoleCarryingAccountInvite_HTTP(t *testing.T) {
 	s, pool, caller := newInviteOnlyCredTestService(t)
 	ctx := context.Background()
 
@@ -154,13 +154,23 @@ func TestGroupMemberAddUnknownEmailMintsOnlyGroupInvite_HTTP(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, true, resp["invited"])
-	require.NotNil(t, resp["group_invite"])
-	require.NotContains(t, resp, "account_registration_invite")
+	// One role-carrying account-registration invite, returned under "invite".
+	invite, ok := resp["invite"].(map[string]any)
+	require.True(t, ok, "expected an invite object, got: %s", w.Body.String())
+	require.NotEmpty(t, invite["code"])
+	require.NotContains(t, resp, "group_invite") // legacy two-token key is gone
 
-	// A members:manage caller without root:users:invite mints NO registration invite.
-	var accountInvites int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.account_registration_invites WHERE email=$1`, email).Scan(&accountInvites))
-	require.Equal(t, 0, accountInvites)
+	// Exactly one account-registration invite, carrying the group + role to grant
+	// on consume (register+join), minted under members:manage (not root:users:invite).
+	var count int
+	var role string
+	var hasGroup bool
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*), coalesce(max(role), ''), coalesce(bool_or(permission_group_id IS NOT NULL), false)
+		   FROM profiles.account_registration_invites WHERE email=$1`, email).Scan(&count, &role, &hasGroup))
+	require.Equal(t, 1, count)
+	require.Equal(t, "member", role)
+	require.True(t, hasGroup, "register+join invite must reference the permission group")
 }
 
 // TestGroupAPIKeyLifecycle_HTTP: mint -> list (no secret) -> revoke, over the

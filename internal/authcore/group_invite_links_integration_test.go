@@ -34,7 +34,11 @@ func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpoo
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test", NativeUserRegistrationMode: mode}, Keyset{}, WithPostgres(pool))
+	// Verification defaults to Required (secure default), which routes registration
+	// through the ephemeral store + an email sender — neither is wired in this DB-only
+	// harness. These tests exercise invite/registration flows directly, so pin None:
+	// users register immediately, matching the register+join assertions below.
+	svc := NewService(Options{Issuer: "https://test", NativeUserRegistrationMode: mode, RegistrationVerification: RegistrationVerificationNone}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)

@@ -2070,7 +2070,43 @@ Proposed 2026-06-26 (Paul). Two membership gaps surfaced reviewing #147's invite
 
 # #194: Consolidate authkit-devserver into authkit-server (one binary; migrate integration tests)
 
-**Completed:** no
+**Completed:** yes
+
+IMPLEMENTED 2026-06-28 (Claude). One binary now. Decision on the OPEN fork: PORTED
+`/dev/mint` as-is (smallest migration — downstream suite unchanged; the `MintCustomJWT`
+retirement stays a future follow-up). Folded into `cmd/authkit-server` behind the
+existing `isDevEnv()` gate: `GET {prefix}/dev/whoami` (dev env) and `POST {prefix}/dev/mint`
+(dev env + `AUTHKIT_DEV_MINT_SECRET`, double-gated/fail-closed). `/dev/mint` builds an
+explicit `NewAutoKeySourceWithPath` so JWKS and the mint signer share one active key; the
+prod path keeps `Keys.Path` auto-discovery untouched. Also ported `AUTHKIT_STATIC_ENTITLEMENTS`
+(dev-gated `WithEntitlements`) and `AUTHKIT_API_KEY_PREFIX` (normal config). Added a `migrate`
+subcommand + `AUTHKIT_MIGRATE_ON_START` (default false; compose sets true) — the README/CI no
+longer depend on the devserver's migrate runner. DROPPED (deliberate): the `bootstrap apply`
+CLI + `ApplyBootstrapOnStart` (nothing in the integration path scripts them; the
+`LoadBootstrapManifestFile`+`ApplyBootstrapManifest` composition stays in `embedded`) and the
+already-DEAD `DEVSERVER_PERMISSION_CATALOG`. Repointed `docker-compose.yaml` `issuer` at a new
+`cmd/authkit-server/Dockerfile` with `AUTHKIT_*` env; updated CI step names, README, SEMVER §1.2/§9,
+Taskfile desc, `.gitignore`. Deleted `cmd/authkit-devserver/`.
+
+VALIDATION: `go build ./...` + `go vet ./...` + `gofmt` green. Live end-to-end against a fresh
+compose Postgres: migrate-on-start applied the schema (healthz green), JWKS served, `/dev/mint`
+rejected a wrong secret (401) and minted a valid `access+jwt`, `/dev/whoami` ran the REAL verifier
+(401 for unknown user; 200 reflecting `user_id` after provisioning a real user via the dev mgmt
+API + minting for its ID), and the host `migrate` command created `permission_group_id` on a clean
+DB. NOTE: two register+join tests (`TestAccountRegistrationInvite_RegisterPlusJoin`,
+`TestGroupMemberAddUnknownEmailMintsOnlyGroupInvite_HTTP`) fail on `task test`, but they ALSO fail
+at parent `f96a489` (before this work) — pre-existing on master, unrelated to this consolidation
+(both packages are `internal/authcore`/`http`, neither imports `cmd/`). The `internal/authcore`
+one is `CreatePendingRegistration` hitting "ephemeral store not configured" — likely #143 fallout
+where the in-memory store moved to `embedded.New` and a direct-`authcore.NewService` test harness
+must re-inject it. Flagged separately; out of scope here. UPDATE 2026-06-28: both fixed (they were
+stale test slop, not code bugs) — `task test` is now FULLY GREEN. (1) `setupInviteLinkTest` omitted
+`RegistrationVerification`, getting the secure Required default → no store/sender in the DB-only
+harness; pinned `RegistrationVerificationNone` (matches the passing sibling test). (2)
+`...MintsOnlyGroupInvite_HTTP` asserted the SUPERSEDED two-token design (response key `group_invite`,
+"no account-registration invite") — the shipped #147 register+join mints ONE role-carrying account
+invite under key `invite`; rewrote+renamed it to `...MintsRoleCarryingAccountInvite_HTTP` asserting
+current behavior. Both unrelated to the #194 consolidation.
 
 Proposed 2026-06-28 (Paul). `cmd/authkit-devserver` (525 LOC) and `cmd/authkit-server`
 (208 LOC, #142) now overlap ~80%: both wire the identical core surface — `/healthz`,
@@ -2146,17 +2182,17 @@ file a follow-up to retire it onto `MintCustomJWT` once we confirm no test asser
 
 ## Tasks
 
-- [ ] DECIDE the OPEN DECISION above (access-class mint required?) — gates whether `/dev/mint` is ported or dropped.
-- [ ] Add a dev-routes block to `cmd/authkit-server/main.go`, mounted only when `isDevEnv(cfg.env)`; reuse the existing `isDevEnv` helper. Move `/dev/whoami` (`devWhoamiHandler`) and, per the decision, `/dev/mint` (`devMintHandler` + `mintRequest`/`mintResponse`/`devSecretOK`) verbatim from the devserver.
-- [ ] Gate `/dev/mint` on BOTH dev env AND a non-empty `AUTHKIT_DEV_MINT_SECRET` (rename from `DEVSERVER_DEV_MINT_SECRET`); never mount it otherwise. Fail-closed: prod env or missing secret ⇒ route absent.
-- [ ] Decide `bootstrap apply` CLI: keep as an `authkit-server bootstrap apply` subcommand (port `runBootstrapApply` + `--file/--dry-run/--startup-only/--name` flag parsing) OR drop if nothing scripts it (sweep first — only docs + `agents/*` reference it today). Same for `ApplyBootstrapOnStart` (`AUTHKIT_BOOTSTRAP_ON_START`).
-- [ ] Decide the test-seeding knobs: port `WithEntitlements(staticDevEntitlements)` + `AUTHKIT_STATIC_ENTITLEMENTS` and `AUTHKIT_PERMISSION_CATALOG` behind the dev gate if the integration suite needs them; otherwise drop. (devserver `DEVSERVER_PERMISSION_CATALOG`/`DEVSERVER_STATIC_ENTITLEMENTS`.)
-- [ ] Point `docker-compose.yaml` `issuer` service at `cmd/authkit-server/Dockerfile` (create if absent); rename env `DEVSERVER_*` → `AUTHKIT_*` (`AUTHKIT_LISTEN_ADDR`/`AUTHKIT_ISSUER`/`AUTHKIT_AUDIENCES`/`DB_URL`/`AUTHKIT_ENV=dev`/`AUTHKIT_DEV_MINT_SECRET`). `authkit-server` migrates via `embedded.New`, so the CI "migration runner + healthz" role is preserved. (Note: devserver had `MIGRATE_ON_START` default true — confirm `authkit-server` runs migrations on boot, or add a `migrate` step.)
-- [ ] Update `.github/workflows/test.yml` step names + any `DEVSERVER_*` references; `task test` itself is unchanged (hits Postgres directly).
-- [ ] MIGRATE INTEGRATION TESTS off the devserver: repoint the external downstream (billing-app) E2E at `authkit-server` — new env var names, same HTTP surface (`/api/v1`, `/.well-known/jwks.json`, `/dev/mint`, `/dev/whoami`). Verify the downstream suite green against the consolidated server BEFORE deleting the devserver.
-- [ ] `rm -rf cmd/authkit-devserver` (incl its Dockerfile) once the downstream suite is green on `authkit-server`.
-- [ ] Update `SEMVER.md`, `cmd/authkit-server/README.md`, `Taskfile.yml` desc, `.gitignore`, and `agents/*.md` to drop devserver references.
-- [ ] Validate: `go build ./... && go vet ./...`; `task test` green on a fresh-migrated DB; `docker compose up -d --build issuer` + `/healthz` green; downstream E2E green against the consolidated server.
+- [x] DECIDED: port `/dev/mint` as-is (access-class mint preserved; smallest migration — downstream suite unchanged). `MintCustomJWT` retirement is a future follow-up.
+- [x] Added the dev-routes block to `cmd/authkit-server/main.go`, mounted only when `isDevEnv(cfg.env)`; `/dev/whoami` + `/dev/mint` (`devMintHandler`/`devWhoamiHandler`/`mintRequest`/`mintResponse`/`staticDevEntitlements`/`devSecretOK`) ported intercepting inside the `{prefix}/` handler.
+- [x] `/dev/mint` double-gated: dev env AND non-empty `AUTHKIT_DEV_MINT_SECRET` (renamed from `DEVSERVER_DEV_MINT_SECRET`); fail-closed (prod or no secret ⇒ route absent). Live-verified: wrong secret → 401, no token → 401.
+- [x] DROPPED `bootstrap apply` CLI + `ApplyBootstrapOnStart` — nothing in the integration path scripts them; the `LoadBootstrapManifestFile`+`ApplyBootstrapManifest` composition stays in `embedded`. Avoids adding subcommand surface for an unused entrypoint.
+- [x] Test-seeding knobs: PORTED `AUTHKIT_STATIC_ENTITLEMENTS` (dev-gated `WithEntitlements`) + `AUTHKIT_API_KEY_PREFIX` (normal config). DROPPED `DEVSERVER_PERMISSION_CATALOG` — it was already DEAD in the devserver (loaded from env, never wired).
+- [x] Pointed `docker-compose.yaml` `issuer` at the new `cmd/authkit-server/Dockerfile`; renamed env `DEVSERVER_*` → `AUTHKIT_*`. RESOLVED the migration note: `authkit-server` did NOT migrate on boot, so added `AUTHKIT_MIGRATE_ON_START` (compose sets `true`) + a `migrate` subcommand.
+- [x] Updated `.github/workflows/test.yml` step names (devserver → authkit-server); `task test` unchanged.
+- [~] INTEGRATION TESTS: the in-repo contract is preserved and live-verified — same HTTP surface (`/api/v1`, `/.well-known/jwks.json`, `/dev/mint`, `/dev/whoami`) under `AUTHKIT_*` env, exercised end-to-end against the compose server. Repointing the EXTERNAL downstream (billing-app) repo's env-var names is the downstream's one-line step (separate repo, not in this tree).
+- [x] Deleted `cmd/authkit-devserver/` (incl Dockerfile + README).
+- [x] Updated `SEMVER.md` (§1.2/§9), `cmd/authkit-server/README.md` (config table + dev section + `migrate`), `Taskfile.yml` desc, `.gitignore` (`/authkit-devserver` → `/authkit-server`).
+- [x] Validated: `go build ./... && go vet ./... && gofmt` green; live `docker compose up issuer` → migrate-on-start + `/healthz` green, JWKS + `/dev/mint` + `/dev/whoami` round-trip (incl real provisioned user → 200). `task test` FULLY GREEN (the two pre-existing register+join failures turned out to be stale test slop, now fixed — see status head).
 
 ## Non-goals
 
