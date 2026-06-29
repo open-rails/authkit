@@ -213,15 +213,15 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 	// Authenticated user host route: reads token claims and loads profile data only when needed.
 	router.GET("/api/v1/account/debug", requireUser, func(c *gin.Context) {
 		userClaims, _ := authkitgin.UserClaims(c)
-		email, err := client.GetEmailByUserID(c.Request.Context(), userClaims.UserID)
-		if err != nil {
+		users, err := client.UsersByIDs(c.Request.Context(), []string{userClaims.UserID})
+		if err != nil || len(users) == 0 {
 			c.JSON(http.StatusInternalServerError, map[string]any{"error": "user_lookup_failed"})
 			return
 		}
 
 		c.JSON(http.StatusOK, map[string]any{
 			"user_id":        userClaims.UserID,
-			"email":          email,
+			"email":          users[0].Email,
 			"token_email":    userClaims.Email,
 			"email_verified": userClaims.EmailVerified,
 			"session_id":     userClaims.SessionID,

@@ -76,8 +76,8 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 			}
 		}
 		if cl.Email == "" {
-			if e, err := v.enrich.GetEmailByUserID(r.Context(), cl.UserID); err == nil && strings.TrimSpace(e) != "" {
-				cl.Email = e
+			if users, err := v.enrich.UsersByIDs(r.Context(), []string{cl.UserID}); err == nil && len(users) > 0 && strings.TrimSpace(users[0].Email) != "" {
+				cl.Email = users[0].Email
 			}
 		}
 		// Live user gate (ban/deleted).

@@ -2243,17 +2243,6 @@ func (s *Service) ListRoleSlugsByUser(ctx context.Context, userID string) []stri
 	return s.listRoleSlugsByUser(ctx, userID)
 }
 
-func (s *Service) GetEmailByUserID(ctx context.Context, id string) (string, error) {
-	u, err := s.getUserByID(ctx, id)
-	if err != nil || u == nil {
-		return "", err
-	}
-	if u.Email == nil {
-		return "", nil
-	}
-	return *u.Email, nil
-}
-
 func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {
 	return s.updateUsername(ctx, id, username)
 }

@@ -171,8 +171,8 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 
 	// Load email for ID token payload (best-effort)
 	var email string
-	if e, eErr := s.q.UserEmailByID(ctx, uid); eErr == nil && e != nil {
-		email = *e
+	if u, eErr := s.q.UserByID(ctx, uid); eErr == nil && u.Email != nil {
+		email = *u.Email
 	}
 	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
 		if rErr := s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil); rErr != nil {

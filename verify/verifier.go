@@ -515,7 +515,7 @@ type Enricher interface {
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authkit.RemoteAppAttributeDef, error)
 	GetProviderUsername(ctx context.Context, userID, provider string) (string, error)
 	ListRoleSlugsByUser(ctx context.Context, userID string) []string
-	GetEmailByUserID(ctx context.Context, id string) (string, error)
+	UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error)
 	IsUserAllowed(ctx context.Context, userID string) (bool, error)
 }
 

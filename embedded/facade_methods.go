@@ -178,10 +178,6 @@ func (s *Client) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	return s.impl.ExchangeRefreshToken(ctx, refreshToken, ua, ip)
 }
 
-func (s *Client) GetEmailByUserID(ctx context.Context, id string) (string, error) {
-	return s.impl.GetEmailByUserID(ctx, id)
-}
-
 func (s *Client) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error) {
 	return s.impl.UsersByIDs(ctx, ids)
 }

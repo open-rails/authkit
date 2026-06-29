@@ -362,8 +362,8 @@ func (e *ceilingEnricher) GetProviderUsername(context.Context, string, string) (
 	return "", nil
 }
 func (e *ceilingEnricher) ListRoleSlugsByUser(context.Context, string) []string { return nil }
-func (e *ceilingEnricher) GetEmailByUserID(context.Context, string) (string, error) {
-	return "", nil
+func (e *ceilingEnricher) UsersByIDs(context.Context, []string) ([]authkit.UserRef, error) {
+	return nil, nil
 }
 func (e *ceilingEnricher) IsUserAllowed(context.Context, string) (bool, error) { return true, nil }
 

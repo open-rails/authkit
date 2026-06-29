@@ -22,7 +22,6 @@ import (
 // bulk import/read.
 type Users interface {
 	CreateUser(ctx context.Context, email, username string) (*User, error)
-	GetEmailByUserID(ctx context.Context, id string) (string, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByPhone(ctx context.Context, phone string) (*User, error)
 	GetUserBySolanaAddress(ctx context.Context, address string) (*User, error)

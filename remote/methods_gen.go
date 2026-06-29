@@ -177,13 +177,6 @@ func (c *Client) ExternalInvitesEnabled() bool {
 	return out
 }
 
-func (c *Client) GetEmailByUserID(ctx context.Context, id string) (string, error) {
-	args := map[string]any{"id": id}
-	var out string
-	err := c.call(ctx, "GetEmailByUserID", args, &out)
-	return out, err
-}
-
 func (c *Client) GetProviderUsername(ctx context.Context, userID string, provider string) (string, error) {
 	args := map[string]any{"userID": userID, "provider": provider}
 	var out string

@@ -1,8 +1,5 @@
 -- User-row queries (core/service.go).
 
--- name: UserEmailByID :one
-SELECT email FROM profiles.users WHERE id = $1;
-
 -- name: UserByID :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
 FROM profiles.users WHERE id = $1;

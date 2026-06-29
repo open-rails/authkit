@@ -277,16 +277,6 @@ var generatedMethods = map[string]MethodFunc{
 	"ExternalInvitesEnabled": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		return c.ExternalInvitesEnabled(), nil
 	},
-	"GetEmailByUserID": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"id"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.GetEmailByUserID(ctx, a.A0)
-		return r0, err
-	},
 	"GetProviderUsername": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"userID"`
