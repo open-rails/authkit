@@ -119,6 +119,24 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Stage 8 (done): moved the email-change family (RequestEmailChange,
+  ConfirmEmailChange, ConfirmEmailChangeByToken, ResendEmailChangeCode,
+  GetPendingEmailChange, CancelEmailChange) and the phone-change family
+  (RequestPhoneChange, ConfirmPhoneChange, ConfirmPhoneChangeByToken,
+  ResendPhoneChangeCode, CancelPhoneChange) to account_changes.go. Faithful move,
+  build + vet + http tests green; only the pre-existing TOTP test fails.
+  service.go 3405 -> 3048.
+  Review findings (NOT acted on here, on purpose):
+  * The email and phone families are near-identical request/confirm/resend/cancel
+    state machines on the same unified pending-change store. The dup is real but
+    STRUCTURAL not verbatim (email vs SMS sender signatures differ, plus URL
+    builder/error wrapper/TTL/kind/old-email-notification). A clean dedup needs a
+    contact-channel abstraction, so it gets its own reviewed commit (stage 8b),
+    not bundled into a move of security-sensitive code.
+  * CancelPhoneChange takes a `phone` param it never uses (CancelEmailChange does
+    not); a signature change is breaking, so left for the same follow-up.
+  * SendPhone2FASetupCode / VerifyPhone2FASetupCode were left in service.go: they
+    are 2FA setup, not contact changes, and belong with the 2FA files.
 - Stage 7 (done): folded pending-registration into the existing registration.go.
   Moved 11 LIVE funcs: CreatePendingRegistrationWithLanguage, ConfirmPendingRegistration,
   ConfirmPendingRegistrationByToken, CheckPendingRegistrationConflict,
