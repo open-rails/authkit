@@ -157,18 +157,6 @@ UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND i
 DELETE FROM profiles.group_user_roles
 WHERE user_id = sqlc.arg(user_id)::uuid;
 
--- name: UserEmailOrUsernameExists :one
-SELECT EXISTS(
-  SELECT 1 FROM profiles.users
-  WHERE email = lower(sqlc.arg(email)::text)::citext OR username = sqlc.arg(username)::text::citext
-);
-
--- name: UserPhoneOrUsernameExists :one
-SELECT EXISTS(
-  SELECT 1 FROM profiles.users
-  WHERE phone_number = sqlc.arg(phone)::text OR username = sqlc.arg(username)::text::citext
-);
-
 -- name: UserApplyEmailChange :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = true, updated_at = NOW() WHERE id = $1;
 

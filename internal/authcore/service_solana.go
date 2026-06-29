@@ -264,12 +264,11 @@ func (s *Service) GetSolanaAddress(ctx context.Context, userID string) (string, 
 		return "", nil
 	}
 
-	var address string
-	address, err := s.q.UserProviderSubjectByIssuer(ctx, db.UserProviderSubjectByIssuerParams{UserID: userID, Issuer: s.solanaIssuer()})
+	row, err := s.q.UserProviderSubjectProfileByIssuer(ctx, db.UserProviderSubjectProfileByIssuerParams{UserID: userID, Issuer: s.solanaIssuer()})
 	if err != nil {
 		return "", nil // No wallet linked
 	}
-	return address, nil
+	return row.Subject, nil
 }
 
 // verifySIWSChallenge performs the stateless verification of a SIWS sign-in

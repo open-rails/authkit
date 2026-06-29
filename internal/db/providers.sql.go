@@ -257,23 +257,6 @@ func (q *Queries) UserProviderSlugsDistinct(ctx context.Context, userID string) 
 	return items, nil
 }
 
-const userProviderSubjectByIssuer = `-- name: UserProviderSubjectByIssuer :one
-SELECT subject FROM profiles.user_providers
-WHERE user_id = $1 AND issuer = $2
-`
-
-type UserProviderSubjectByIssuerParams struct {
-	UserID string
-	Issuer string
-}
-
-func (q *Queries) UserProviderSubjectByIssuer(ctx context.Context, arg UserProviderSubjectByIssuerParams) (string, error) {
-	row := q.db.QueryRow(ctx, userProviderSubjectByIssuer, arg.UserID, arg.Issuer)
-	var subject string
-	err := row.Scan(&subject)
-	return subject, err
-}
-
 const userProviderSubjectProfileByIssuer = `-- name: UserProviderSubjectProfileByIssuer :one
 SELECT subject, created_at, COALESCE(profile, '{}'::jsonb)::text AS profile
 FROM profiles.user_providers

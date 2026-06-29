@@ -48,18 +48,6 @@ FROM profiles.mfa_factors
 WHERE user_id = $1
 ORDER BY is_default DESC, created_at ASC, id ASC;
 
--- name: MFADefaultFactorByUser :one
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
-FROM profiles.mfa_factors
-WHERE user_id = $1
-ORDER BY is_default DESC, created_at ASC, id ASC
-LIMIT 1;
-
--- name: MFAFactorByUserMethod :one
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
-FROM profiles.mfa_factors
-WHERE user_id = sqlc.arg(user_id) AND method = sqlc.arg(method);
-
 -- name: MFAClearDefaultFactors :exec
 UPDATE profiles.mfa_factors
 SET is_default = false, updated_at = NOW()

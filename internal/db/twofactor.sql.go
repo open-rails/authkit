@@ -68,31 +68,6 @@ func (q *Queries) MFAConsumeFactorTOTPStep(ctx context.Context, arg MFAConsumeFa
 	return result.RowsAffected(), nil
 }
 
-const mFADefaultFactorByUser = `-- name: MFADefaultFactorByUser :one
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
-FROM profiles.mfa_factors
-WHERE user_id = $1
-ORDER BY is_default DESC, created_at ASC, id ASC
-LIMIT 1
-`
-
-func (q *Queries) MFADefaultFactorByUser(ctx context.Context, userID string) (ProfilesMfaFactor, error) {
-	row := q.db.QueryRow(ctx, mFADefaultFactorByUser, userID)
-	var i ProfilesMfaFactor
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.Method,
-		&i.PhoneNumber,
-		&i.TotpSecret,
-		&i.LastTotpStep,
-		&i.IsDefault,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const mFADelete = `-- name: MFADelete :exec
 DELETE FROM profiles.mfa_settings
 WHERE user_id = $1
@@ -146,34 +121,6 @@ WHERE user_id = $1
 func (q *Queries) MFADisable(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, mFADisable, userID)
 	return err
-}
-
-const mFAFactorByUserMethod = `-- name: MFAFactorByUserMethod :one
-SELECT id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at
-FROM profiles.mfa_factors
-WHERE user_id = $1 AND method = $2
-`
-
-type MFAFactorByUserMethodParams struct {
-	UserID string
-	Method string
-}
-
-func (q *Queries) MFAFactorByUserMethod(ctx context.Context, arg MFAFactorByUserMethodParams) (ProfilesMfaFactor, error) {
-	row := q.db.QueryRow(ctx, mFAFactorByUserMethod, arg.UserID, arg.Method)
-	var i ProfilesMfaFactor
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.Method,
-		&i.PhoneNumber,
-		&i.TotpSecret,
-		&i.LastTotpStep,
-		&i.IsDefault,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }
 
 const mFAListFactorsByUser = `-- name: MFAListFactorsByUser :many

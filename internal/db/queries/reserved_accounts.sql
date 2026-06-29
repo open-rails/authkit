@@ -24,14 +24,3 @@ UPDATE profiles.users
 SET metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(patch)::jsonb,
     updated_at = now()
 WHERE id = sqlc.arg(id)::uuid;
-
--- name: UserIDReservedByUsername :one
-SELECT id::text,
-       (CASE
-         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-         ELSE false
-       END)::boolean AS reserved
-FROM profiles.users
-WHERE username = $1
-  AND deleted_at IS NULL;

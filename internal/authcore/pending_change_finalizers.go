@@ -16,11 +16,11 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 	email := rec.Target
 	username := rec.Username
 
-	exists, err := s.q.UserEmailOrUsernameExists(ctx, db.UserEmailOrUsernameExistsParams{Email: email, Username: username})
+	taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username})
 	if err != nil {
 		return "", err
 	}
-	if exists {
+	if taken.EmailTaken || taken.UsernameTaken {
 		// Someone else got there first — drop this pending registration.
 		s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
 		return "", fmt.Errorf("email or username already taken")
@@ -48,11 +48,11 @@ func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) 
 	phone := rec.Target
 	username := rec.Username
 
-	exists, err := s.q.UserPhoneOrUsernameExists(ctx, db.UserPhoneOrUsernameExistsParams{Phone: phone, Username: username})
+	taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{Phone: phone, Username: username})
 	if err != nil {
 		return "", err
 	}
-	if exists {
+	if taken.PhoneTaken || taken.UsernameTaken {
 		s.deletePendingChangeByTarget(ctx, KindRegisterPhone, phone)
 		return "", fmt.Errorf("phone or username already taken")
 	}

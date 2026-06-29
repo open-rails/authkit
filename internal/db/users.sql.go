@@ -297,25 +297,6 @@ func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 	return err
 }
 
-const userEmailOrUsernameExists = `-- name: UserEmailOrUsernameExists :one
-SELECT EXISTS(
-  SELECT 1 FROM profiles.users
-  WHERE email = lower($1::text)::citext OR username = $2::text::citext
-)
-`
-
-type UserEmailOrUsernameExistsParams struct {
-	Email    string
-	Username string
-}
-
-func (q *Queries) UserEmailOrUsernameExists(ctx context.Context, arg UserEmailOrUsernameExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, userEmailOrUsernameExists, arg.Email, arg.Username)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text)::citext)::boolean AS email_taken,
@@ -544,25 +525,6 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 		arg.HashParams,
 	)
 	return err
-}
-
-const userPhoneOrUsernameExists = `-- name: UserPhoneOrUsernameExists :one
-SELECT EXISTS(
-  SELECT 1 FROM profiles.users
-  WHERE phone_number = $1::text OR username = $2::text::citext
-)
-`
-
-type UserPhoneOrUsernameExistsParams struct {
-	Phone    string
-	Username string
-}
-
-func (q *Queries) UserPhoneOrUsernameExists(ctx context.Context, arg UserPhoneOrUsernameExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, userPhoneOrUsernameExists, arg.Phone, arg.Username)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
 }
 
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one

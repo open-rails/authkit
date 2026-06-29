@@ -9,22 +9,8 @@ import (
 	"context"
 )
 
-const identityCurrentUsername = `-- name: IdentityCurrentUsername :one
-
-SELECT username FROM profiles.users
-WHERE username = $1 AND deleted_at IS NULL
-LIMIT 1
-`
-
-// Rename-history forwarding (identity/renames.go).
-func (q *Queries) IdentityCurrentUsername(ctx context.Context, username *string) (*string, error) {
-	row := q.db.QueryRow(ctx, identityCurrentUsername, username)
-	var username_2 *string
-	err := row.Scan(&username_2)
-	return username_2, err
-}
-
 const identityForwardUsername = `-- name: IdentityForwardUsername :one
+
 SELECT u.username
 FROM profiles.user_renames r
 JOIN profiles.users u ON u.id = r.user_id AND u.deleted_at IS NULL
@@ -33,25 +19,12 @@ ORDER BY r.renamed_at DESC
 LIMIT 1
 `
 
+// Rename-history forwarding (identity/renames.go).
 func (q *Queries) IdentityForwardUsername(ctx context.Context, fromSlug string) (*string, error) {
 	row := q.db.QueryRow(ctx, identityForwardUsername, fromSlug)
 	var username *string
 	err := row.Scan(&username)
 	return username, err
-}
-
-const identityUpdateUserEmail = `-- name: IdentityUpdateUserEmail :exec
-UPDATE profiles.users SET email = $2, updated_at = now() WHERE id = $1
-`
-
-type IdentityUpdateUserEmailParams struct {
-	ID    string
-	Email *string
-}
-
-func (q *Queries) IdentityUpdateUserEmail(ctx context.Context, arg IdentityUpdateUserEmailParams) error {
-	_, err := q.db.Exec(ctx, identityUpdateUserEmail, arg.ID, arg.Email)
-	return err
 }
 
 const identityUpdateUserUsername = `-- name: IdentityUpdateUserUsername :exec
@@ -92,17 +65,6 @@ func (q *Queries) IdentityUserByID(ctx context.Context, id string) (IdentityUser
 		&i.EmailVerified,
 	)
 	return i, err
-}
-
-const identityUserIDByUsername = `-- name: IdentityUserIDByUsername :one
-SELECT id FROM profiles.users WHERE username = $1 LIMIT 1
-`
-
-func (q *Queries) IdentityUserIDByUsername(ctx context.Context, username *string) (string, error) {
-	row := q.db.QueryRow(ctx, identityUserIDByUsername, username)
-	var id string
-	err := row.Scan(&id)
-	return id, err
 }
 
 const identityUsersByIDs = `-- name: IdentityUsersByIDs :many

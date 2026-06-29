@@ -60,10 +60,6 @@ SELECT subject, created_at, COALESCE(profile, '{}'::jsonb)::text AS profile
 FROM profiles.user_providers
 WHERE user_id = $1 AND issuer = $2;
 
--- name: UserProviderSubjectByIssuer :one
-SELECT subject FROM profiles.user_providers
-WHERE user_id = $1 AND issuer = $2;
-
 -- HTTP-layer provider lookups (http/step_up.go, http/user_me_get.go).
 
 -- name: UserProviderLinkExists :one

@@ -7,71 +7,7 @@ package db
 
 import (
 	"context"
-	"time"
 )
-
-const namespaceUserBySlug = `-- name: NamespaceUserBySlug :one
-
-SELECT id::text,
-       username::text,
-       (deleted_at IS NOT NULL)::boolean AS deleted,
-       (CASE
-         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-         ELSE false
-       END)::boolean AS reserved
-FROM profiles.users
-WHERE username = $1
-`
-
-type NamespaceUserBySlugRow struct {
-	ID       string
-	Username string
-	Deleted  bool
-	Reserved bool
-}
-
-// Namespace lookup probes (core/owner_namespace_lookup.go). These read soft-
-// deleted rows on purpose (deleted_at IS NOT NULL surfaces as a flag).
-func (q *Queries) NamespaceUserBySlug(ctx context.Context, username *string) (NamespaceUserBySlugRow, error) {
-	row := q.db.QueryRow(ctx, namespaceUserBySlug, username)
-	var i NamespaceUserBySlugRow
-	err := row.Scan(
-		&i.ID,
-		&i.Username,
-		&i.Deleted,
-		&i.Reserved,
-	)
-	return i, err
-}
-
-const namespaceUserRenameBySlug = `-- name: NamespaceUserRenameBySlug :one
-SELECT u.id::text AS id, u.username::text AS username, (u.deleted_at IS NOT NULL)::boolean AS deleted, r.renamed_at
-FROM profiles.user_renames r
-JOIN profiles.users u ON u.id = r.user_id
-WHERE r.from_slug = $1
-ORDER BY r.renamed_at DESC
-LIMIT 1
-`
-
-type NamespaceUserRenameBySlugRow struct {
-	ID        string
-	Username  string
-	Deleted   bool
-	RenamedAt time.Time
-}
-
-func (q *Queries) NamespaceUserRenameBySlug(ctx context.Context, fromSlug string) (NamespaceUserRenameBySlugRow, error) {
-	row := q.db.QueryRow(ctx, namespaceUserRenameBySlug, fromSlug)
-	var i NamespaceUserRenameBySlugRow
-	err := row.Scan(
-		&i.ID,
-		&i.Username,
-		&i.Deleted,
-		&i.RenamedAt,
-	)
-	return i, err
-}
 
 const ownerReservedNameDelete = `-- name: OwnerReservedNameDelete :execrows
 DELETE FROM profiles.owner_reserved_names WHERE slug = $1
@@ -114,53 +50,6 @@ func (q *Queries) OwnerReservedNameUpsert(ctx context.Context, slug string) erro
 	return err
 }
 
-const ownerSlugUserExists = `-- name: OwnerSlugUserExists :one
-
-SELECT EXISTS (
-  SELECT 1
-  FROM profiles.users u
-  WHERE u.username = $1::text::citext
-    AND ($2::text = '' OR u.id::text <> $2::text)
-)
-`
-
-type OwnerSlugUserExistsParams struct {
-	Slug          string
-	ExcludeUserID string
-}
-
-// Slug-availability probes (core/service_owner_namespace.go ownerSlugAvailable).
-func (q *Queries) OwnerSlugUserExists(ctx context.Context, arg OwnerSlugUserExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, ownerSlugUserExists, arg.Slug, arg.ExcludeUserID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
-const ownerSlugUserRenameHeld = `-- name: OwnerSlugUserRenameHeld :one
-SELECT EXISTS (
-  SELECT 1
-  FROM profiles.user_renames r
-  JOIN profiles.users u ON u.id = r.user_id
-  WHERE r.from_slug = $1::text
-    AND r.renamed_at >= $2::timestamptz
-    AND ($3::text = '' OR r.user_id::text <> $3::text)
-)
-`
-
-type OwnerSlugUserRenameHeldParams struct {
-	Slug          string
-	ReuseCutoff   time.Time
-	ExcludeUserID string
-}
-
-func (q *Queries) OwnerSlugUserRenameHeld(ctx context.Context, arg OwnerSlugUserRenameHeldParams) (bool, error) {
-	row := q.db.QueryRow(ctx, ownerSlugUserRenameHeld, arg.Slug, arg.ReuseCutoff, arg.ExcludeUserID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const userBySlug = `-- name: UserBySlug :one
 SELECT id::text, username::text
 FROM profiles.users
@@ -175,30 +64,6 @@ type UserBySlugRow struct {
 func (q *Queries) UserBySlug(ctx context.Context, username *string) (UserBySlugRow, error) {
 	row := q.db.QueryRow(ctx, userBySlug, username)
 	var i UserBySlugRow
-	err := row.Scan(&i.ID, &i.Username)
-	return i, err
-}
-
-const userBySlugViaRename = `-- name: UserBySlugViaRename :one
-SELECT u.id::text AS id, u.username::text AS username
-FROM profiles.user_renames r
-JOIN profiles.users u ON u.id = r.user_id AND u.deleted_at IS NULL
-WHERE r.from_slug = $1
-ORDER BY r.renamed_at DESC
-LIMIT 1
-`
-
-type UserBySlugViaRenameRow struct {
-	ID       string
-	Username string
-}
-
-// Fallback to renames table (issue #58). Most-recent rename wins when a slug
-// has been used by multiple users at different times (only possible after
-// hard-delete + reuse).
-func (q *Queries) UserBySlugViaRename(ctx context.Context, fromSlug string) (UserBySlugViaRenameRow, error) {
-	row := q.db.QueryRow(ctx, userBySlugViaRename, fromSlug)
-	var i UserBySlugViaRenameRow
 	err := row.Scan(&i.ID, &i.Username)
 	return i, err
 }

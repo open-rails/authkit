@@ -24,30 +24,6 @@ func (q *Queries) UserClearLoginIdentifiers(ctx context.Context, id string) erro
 	return err
 }
 
-const userIDReservedByUsername = `-- name: UserIDReservedByUsername :one
-SELECT id::text,
-       (CASE
-         WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
-         THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
-         ELSE false
-       END)::boolean AS reserved
-FROM profiles.users
-WHERE username = $1
-  AND deleted_at IS NULL
-`
-
-type UserIDReservedByUsernameRow struct {
-	ID       string
-	Reserved bool
-}
-
-func (q *Queries) UserIDReservedByUsername(ctx context.Context, username *string) (UserIDReservedByUsernameRow, error) {
-	row := q.db.QueryRow(ctx, userIDReservedByUsername, username)
-	var i UserIDReservedByUsernameRow
-	err := row.Scan(&i.ID, &i.Reserved)
-	return i, err
-}
-
 const userMetadata = `-- name: UserMetadata :one
 SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
 FROM profiles.users WHERE id = $1::uuid
