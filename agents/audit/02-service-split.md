@@ -119,6 +119,29 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Stage 7 (done): folded pending-registration into the existing registration.go.
+  Moved 11 LIVE funcs: CreatePendingRegistrationWithLanguage, ConfirmPendingRegistration,
+  ConfirmPendingRegistrationByToken, CheckPendingRegistrationConflict,
+  CreatePendingPhoneRegistrationWithLanguage, ConfirmPendingPhoneRegistration,
+  ConfirmPendingPhoneRegistrationByToken, CheckPhoneRegistrationConflict (the phone
+  equivalent of the conflict check; it is named CheckPhoneRegistrationConflict, NOT
+  CheckPendingPhoneRegistrationConflict — that name does not exist), plus the internal
+  createVerifiedRegistrationUser, createEmailRegistrationUser, createPhoneRegistrationUser.
+  Refactor outcome (the planned "non-WithLanguage funcs look like thin wrappers"):
+  CreatePendingRegistration and CreatePendingPhoneRegistration are production-DEAD
+  one-line delegations (zero non-test callers; every production path calls the
+  *WithLanguage variant directly, verified by a non-test grep). Per decision, DELETED
+  both wrappers and rewrote all 24 test call sites (across 9 files: ephemeral_test,
+  policy_switches_test, account_registration_invites_test, phone_verify_cap_test,
+  registration_optional_no_sender_test, email_verify_scope_test, pending_change_cancel_test,
+  pending_abandon_test, verification_tokens_test, http/register_response_test) to call
+  *WithLanguage(..., "") — behavior-identical by construction (that was the wrapper body).
+  ConfirmPending* code vs byToken are distinct live entry points (kept, like the verify
+  split); email vs phone are parallel but not mergeable (different policy gates + token
+  stores), kept. Imports added to registration.go: context, fmt, strings, time, jwt, db
+  (kept authkit); none orphaned in service.go. service.go 3854 -> 3416; registration.go
+  23 -> 460. gofmt/build/vet clean; authcore 138 pass / 1 pre-existing TOTP fail / 76
+  DB-gated skips; http tests pass.
 - Stage 6 (done): moved the 11 LIVE email+phone verification funcs to
   verification.go: getUserByPhone, setPhoneVerified, RequestEmailVerification,
   sendEmailVerificationToUser, ConfirmEmailVerification, ConfirmEmailVerificationByToken,

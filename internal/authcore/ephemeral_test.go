@@ -14,7 +14,7 @@ func TestPendingRegistrationMemoryStore(t *testing.T) {
 	username := "tester"
 	hash := "argon2id$hash"
 
-	if _, err := svc.CreatePendingRegistration(context.Background(), email, username, hash, 0); err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(context.Background(), email, username, hash, 0, ""); err != nil {
 		t.Fatalf("CreatePendingRegistration failed: %v", err)
 	}
 
