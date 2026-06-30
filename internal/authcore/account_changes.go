@@ -12,9 +12,54 @@ import (
 
 // Account contact-change flows (email + phone). Each is a request / confirm /
 // resend / cancel state machine over the unified pending-change store; the new
-// value is applied to the profile only on confirmation. NOTE: the email and
-// phone families are near-identical and are a candidate for a shared channel
-// abstraction (see agents/audit/02-service-split.md, stage 8).
+// value is applied to the profile only on confirmation, so cancellation is a
+// clean delete with nothing to roll back.
+//
+// The email and phone families share two helpers (newPendingContactChange,
+// sendContactChangeVerification) for the parts that are byte-identical across
+// channels. The remaining per-channel differences (validation, lookup, sender
+// signature, finalize) are small enough to read inline; a fuller channel
+// abstraction was considered and rejected as heavier than the duplication it
+// would remove.
+
+// newPendingContactChange generates a fresh manual code + high-entropy link
+// token for a pending contact change, stores both (hashed) in the unified
+// pending-change store under kind/target/userID with ttl, and returns the
+// plaintext code and link token for delivery. Re-storing supersedes any prior
+// record for the same user/kind.
+func (s *Service) newPendingContactChange(ctx context.Context, kind PendingChangeKind, target, userID string, ttl time.Duration) (code, linkToken string, err error) {
+	code = randAlphanumeric(6)
+	linkToken = randB64(32)
+	if err := s.storePendingChange(ctx, pendingChange{
+		Kind:   kind,
+		Target: target,
+		UserID: userID,
+	}, map[string]time.Duration{
+		sha256Hex(code):      ttl,
+		sha256Hex(linkToken): ttl,
+	}); err != nil {
+		return "", "", err
+	}
+	return code, linkToken, nil
+}
+
+// sendContactChangeVerification delivers a contact-change verification message
+// through the channel's sender, enriching the context with the user's preferred
+// language and bounding it with the send timeout. When no sender is configured
+// it is a no-op in development and returns unavailable otherwise.
+func (s *Service) sendContactChangeVerification(ctx context.Context, userID string, senderConfigured bool, send func(context.Context) error, wrapErr func(error) error, unavailable error) error {
+	if senderConfigured {
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
+		if err := s.withSendTimeout(sendCtx, send); err != nil {
+			return wrapErr(err)
+		}
+		return nil
+	}
+	if !s.isDevEnvironment() {
+		return unavailable
+	}
+	return nil
+}
 
 // RequestPhoneChange initiates a phone number change by sending a verification code to the new phone.
 // The current phone is NOT changed until the user confirms via ConfirmPhoneChange.
@@ -22,13 +67,11 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
-
 	if err := ValidatePhone(newPhone); err != nil {
 		return err
 	}
 	trimmed := NormalizePhone(newPhone)
 
-	// Get user
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -36,57 +79,28 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 	if u == nil {
 		return fmt.Errorf("user not found")
 	}
-
 	if u.PhoneNumber != nil && strings.EqualFold(*u.PhoneNumber, trimmed) {
 		if u.PhoneVerified {
 			return ErrPhoneAlreadyVerified
 		}
 		return s.SendPhoneVerificationToUser(ctx, trimmed, userID, 0)
 	}
-
-	// Check if new phone is already in use by another user
+	// Check if new phone is already in use by another user.
 	existing, _ := s.getUserByPhone(ctx, trimmed)
 	if existing != nil && existing.ID != userID {
 		return fmt.Errorf("phone already in use")
 	}
 
-	// Generate manual code + link token.
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := randB64(32)
-	linkHash := sha256Hex(linkToken)
-
-	// Hold the new phone in the unified pending-change store with split TTLs. The
-	// new phone is applied to the profile only on confirmation — we do not
-	// optimistically pre-apply it. That keeps the user's current phone intact if
-	// the change is never confirmed (or is cancelled), so cancellation is a clean
-	// delete of this record with nothing to roll back.
-	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:   KindChangePhone,
-		Target: trimmed,
-		UserID: userID,
-	}, map[string]time.Duration{
-		codeHash: defaultPhoneVerificationTTL,
-		linkHash: defaultPhoneVerificationTTL,
-	}); err != nil {
+	code, linkToken, err := s.newPendingContactChange(ctx, KindChangePhone, trimmed, userID, defaultPhoneVerificationTTL)
+	if err != nil {
 		return err
 	}
-
 	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
-
-	// Send verification message to new phone
-	if s.sms != nil {
-		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, trimmed, msg) }); err != nil {
-			return smsDeliveryError(err)
-		}
-	} else if !s.isDevEnvironment() {
-		return fmt.Errorf("phone change verification unavailable: SMS sender not configured")
-	}
-
-	// Optionally: notify old phone (not implemented)
-
-	return nil
+	// Optionally: notify old phone (not implemented).
+	return s.sendContactChangeVerification(ctx, userID, s.sms != nil,
+		func(c context.Context) error { return s.sms.SendVerification(c, trimmed, msg) },
+		smsDeliveryError,
+		fmt.Errorf("phone change verification unavailable: SMS sender not configured"))
 }
 
 // ConfirmPhoneChange verifies the code and updates the user's phone number.
@@ -124,7 +138,6 @@ func (s *Service) ConfirmPhoneChangeByToken(ctx context.Context, token string) (
 
 // ResendPhoneChangeCode resends the verification code for a pending phone change.
 func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone string) error {
-	// Get current user
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -141,34 +154,15 @@ func (s *Service) ResendPhoneChangeCode(ctx context.Context, userID, phone strin
 	}
 	pendingPhone := rec.Target
 
-	// Generate new verification credentials; storePendingChange supersedes the old record.
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := randB64(32)
-	linkHash := sha256Hex(linkToken)
-	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:   KindChangePhone,
-		Target: pendingPhone,
-		UserID: userID,
-	}, map[string]time.Duration{
-		codeHash: defaultPhoneVerificationTTL,
-		linkHash: defaultPhoneVerificationTTL,
-	}); err != nil {
+	code, linkToken, err := s.newPendingContactChange(ctx, KindChangePhone, pendingPhone, userID, defaultPhoneVerificationTTL)
+	if err != nil {
 		return err
 	}
-
 	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_change"}
-	// Send new credentials.
-	if s.sms != nil {
-		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, pendingPhone, msg) }); err != nil {
-			return smsDeliveryError(err)
-		}
-	} else if !s.isDevEnvironment() {
-		return fmt.Errorf("phone change verification unavailable: SMS sender not configured")
-	}
-
-	return nil
+	return s.sendContactChangeVerification(ctx, userID, s.sms != nil,
+		func(c context.Context) error { return s.sms.SendVerification(c, pendingPhone, msg) },
+		smsDeliveryError,
+		fmt.Errorf("phone change verification unavailable: SMS sender not configured"))
 }
 
 // CancelPhoneChange aborts a pending phone-change for the user, clearing the
@@ -190,13 +184,11 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
 	}
-
 	if err := ValidateEmail(newEmail); err != nil {
 		return err
 	}
 	trimmed := NormalizeEmail(newEmail)
 
-	// Get user
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -204,69 +196,46 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 	if u == nil {
 		return fmt.Errorf("user not found")
 	}
-
 	if u.Email != nil && strings.EqualFold(*u.Email, trimmed) {
 		if u.EmailVerified {
 			return ErrEmailAlreadyVerified
 		}
 		return s.sendEmailVerificationToUser(ctx, u, 0)
 	}
-
-	// Check if new email is already in use by another user
+	// Check if new email is already in use by another user.
 	existing, _ := s.getUserByEmail(ctx, trimmed)
 	if existing != nil && existing.ID != userID {
 		return fmt.Errorf("email already in use")
 	}
 
-	// Generate manual code + link token.
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := randB64(32)
-	linkHash := sha256Hex(linkToken)
-
-	// Hold the new email in the unified pending-change store (applied to the
-	// profile only on confirmation). Split TTLs: code + link token.
-	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:   KindChangeEmail,
-		Target: trimmed,
-		UserID: userID,
-	}, map[string]time.Duration{
-		codeHash: defaultEmailVerificationTTL,
-		linkHash: defaultEmailVerificationTTL,
-	}); err != nil {
+	code, linkToken, err := s.newPendingContactChange(ctx, KindChangeEmail, trimmed, userID, defaultEmailVerificationTTL)
+	if err != nil {
 		return err
 	}
-
 	username := ""
 	if u.Username != nil {
 		username = *u.Username
 	}
-
-	// Send verification message to NEW email
 	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
-	if s.email != nil {
-		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.email.SendVerification(sendCtx, trimmed, username, msg) }); err != nil {
-			return emailDeliveryError(err)
-		}
-	} else if !s.isDevEnvironment() {
-		return fmt.Errorf("email change verification unavailable: email sender not configured")
+	if err := s.sendContactChangeVerification(ctx, userID, s.email != nil,
+		func(c context.Context) error { return s.email.SendVerification(c, trimmed, username, msg) },
+		emailDeliveryError,
+		fmt.Errorf("email change verification unavailable: email sender not configured")); err != nil {
+		return err
 	}
 
-	// Send notification to OLD email about the change request
+	// Notify the OLD email about the change request.
 	if u.Email != nil && s.email != nil {
 		// Host applications can implement dedicated change-notification messages if needed.
-		// In production, you'd want a dedicated SendEmailChangeNotification method
 		stdlog.Printf("[authkit/security] Email change requested for user %s from %s to %s", userID, *u.Email, trimmed)
 	}
-
 	return nil
 }
 
 // ConfirmEmailChange verifies the code and updates the user's email address.
 // This is called when the user enters the verification code sent to their new email.
 func (s *Service) ConfirmEmailChange(ctx context.Context, userID, email, code string) error {
-	if s.pg == nil {
+	if s.pg == nil || !s.useEphemeralStore() {
 		return jwt.ErrTokenUnverifiable
 	}
 
@@ -311,41 +280,19 @@ func (s *Service) ResendEmailChangeCode(ctx context.Context, userID string) erro
 	}
 	pendingEmail := rec.Target
 
-	// Generate new verification credentials; storePendingChange supersedes the old record.
-	code := randAlphanumeric(6)
-	codeHash := sha256Hex(code)
-	linkToken := randB64(32)
-	linkHash := sha256Hex(linkToken)
-	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:   KindChangeEmail,
-		Target: pendingEmail,
-		UserID: userID,
-	}, map[string]time.Duration{
-		codeHash: defaultEmailVerificationTTL,
-		linkHash: defaultEmailVerificationTTL,
-	}); err != nil {
+	code, linkToken, err := s.newPendingContactChange(ctx, KindChangeEmail, pendingEmail, userID, defaultEmailVerificationTTL)
+	if err != nil {
 		return err
 	}
-
 	username := ""
 	if u.Username != nil {
 		username = *u.Username
 	}
-
 	msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "contact_change"}
-	// Send new credentials.
-	if s.email != nil {
-		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
-		if err := s.withSendTimeout(sendCtx, func(sendCtx context.Context) error {
-			return s.email.SendVerification(sendCtx, pendingEmail, username, msg)
-		}); err != nil {
-			return emailDeliveryError(err)
-		}
-	} else if !s.isDevEnvironment() {
-		return fmt.Errorf("email change verification unavailable: email sender not configured")
-	}
-
-	return nil
+	return s.sendContactChangeVerification(ctx, userID, s.email != nil,
+		func(c context.Context) error { return s.email.SendVerification(c, pendingEmail, username, msg) },
+		emailDeliveryError,
+		fmt.Errorf("email change verification unavailable: email sender not configured"))
 }
 
 // GetPendingEmailChange retrieves the pending email change for a user, if any.

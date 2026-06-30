@@ -119,6 +119,26 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Bug fix (done, follow-up to 8b): ConfirmEmailChange was missing the
+  `!useEphemeralStore()` guard that ConfirmPhoneChange and the cancel/get
+  siblings have. Pending changes live only in the ephemeral store, so email
+  confirm was relying on the loader to no-op instead of failing closed itself.
+  Added the one-line guard + a regression test
+  (TestConfirmContactChange_RequiresEphemeralStore) asserting both confirms
+  return ErrTokenUnverifiable when no ephemeral store is configured.
+- Stage 8b (done): deduped the email/phone contact-change families in
+  account_changes.go. Extracted two byte-identical-across-channel helpers:
+  newPendingContactChange (code+link-token generation + store, was copy-pasted in
+  all 4 Request/Resend funcs) and sendContactChangeVerification (the send-or-
+  unavailable tail, also 4x). The 4 Request/Resend funcs now share them.
+  account_changes.go 375 -> 321. Build, vet, http tests green (those cover the
+  email/phone change flows); only the pre-existing TOTP test fails.
+  Deliberately NOT done, flagged instead: the Confirm funcs were left separate
+  because ConfirmPhoneChange has an extra `!useEphemeralStore()` guard that
+  ConfirmEmailChange lacks; collapsing them would silently change email-confirm
+  behavior, so that inconsistency should be resolved as its own decision. The
+  unused `phone` params on CancelPhoneChange and ResendPhoneChangeCode are
+  signature changes (breaking), also left.
 - Stage 8 (done): moved the email-change family (RequestEmailChange,
   ConfirmEmailChange, ConfirmEmailChangeByToken, ResendEmailChangeCode,
   GetPendingEmailChange, CancelEmailChange) and the phone-change family
