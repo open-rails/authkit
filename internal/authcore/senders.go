@@ -5,6 +5,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"strings"
+	"time"
 
 	authkit "github.com/open-rails/authkit"
 )
@@ -160,4 +161,25 @@ func (s *Service) ValidateVerificationConfiguration() error {
 		})
 	}
 	return nil
+}
+
+// verificationSendTimeout is the per-send deadline for in-line email/SMS
+// provider calls. Configurable via Options.VerificationSendTimeout; defaults to
+// 15s when unset.
+func (s *Service) verificationSendTimeout() time.Duration {
+	if s != nil && s.opts.VerificationSendTimeout > 0 {
+		return s.opts.VerificationSendTimeout
+	}
+	return 15 * time.Second
+}
+
+// withSendTimeout runs a single email/SMS provider send under a bounded context
+// so a configured-but-misconfigured/unreachable provider cannot hang the
+// request that triggered it (e.g. registration verification). It is loop-safe:
+// the deadline is cancelled as soon as the send returns, not at the end of the
+// calling function.
+func (s *Service) withSendTimeout(ctx context.Context, send func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, s.verificationSendTimeout())
+	defer cancel()
+	return send(ctx)
 }

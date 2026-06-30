@@ -119,6 +119,42 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Stage 10 (done): moved the small leftovers into topic files. rand/hash helpers
+  (randB64, randInt, randAlphanumeric, sha256Hex, randAlphanumericUppercase) ->
+  rand.go; preferred-language (NormalizePreferredLanguage, Set/GetPreferredLanguage,
+  the context helpers, the PreferredLanguage alias) -> language.go; service accessors
+  (JWKS, AdminSetPassword, EntitlementsProvider, Options, Config, PublicKeysByKID,
+  isDevEnvironment method + free func, Postgres, Schema, dbSchema, qtx,
+  SetEntitlementsProvider, Keyfunc) -> accessors.go; password-hash + short-lived
+  token storage (getPasswordHash, upsertPasswordHash + the UpsertPasswordHash wrapper,
+  useEmailVerifyToken, useResetToken, createResetToken, emailVerifyToken type) ->
+  token_store.go; the root-role cluster -> roles.go; the verificationSendTimeout/
+  withSendTimeout pair -> senders.go (next to the send code it guards). Also moved
+  SendPhone2FASetupCode/VerifyPhone2FASetupCode to totp.go (flagged in stage 8: they
+  are 2FA setup, not contact changes).
+  Re-review (the "you missed some things" pass) caught and fixed:
+  * roles.go was half-done. The first cut moved only normalizeRootRoleSlug,
+    splitConfiguredRootRoles, rootRoleSlugsByUser. The rest of the cluster was still
+    in service.go after line 902: listRoleSlugsByUser, assignRoleBySlug,
+    upsertRoleBySlug, removeRoleBySlug, the four exported wrappers (AssignRoleBySlug,
+    UpsertRoleBySlug, RemoveRoleBySlug, ListRoleSlugsByUser), and the
+    ErrUserRoleNotFound/ErrCannotRemoveLastAdminRole vars. All now in roles.go.
+  * upsertRoleBySlug was genuinely redundant, not just misplaced: it computed `role`
+    twice with the identical strings.ToLower(strings.TrimSpace(slug)) op (the second
+    via normalizeRootRoleSlug), and carried two dead `_ = name`/`_ = description`
+    lines (unused func params compile fine in Go). Cleaned, behavior identical.
+  * Stage 9 had stranded public wrappers in service.go while their impls were in
+    users.go: UpdateUsername, UpdateEmail, UpdateBiography, IsUserAllowed,
+    GetUserByEmail, GetUserByUsername, CreateUser, SetEmailVerified. The tell was
+    UpdateUsernameForce already sitting in users.go without its siblings. Moved all
+    eight next to their impls.
+  Deliberately left (decisions, not misses): the provider wrappers (LinkProvider,
+  SetProviderUsername, GetProviderUsername, GetDiscordUsername, GetProviderLink) and
+  deriveUsername/DeriveUsername stay because their impls are still in service.go; they
+  belong to a future provider/username extraction. generateBackupCodes stays (2FA, not
+  generic rand); dedupeStrings/requirePG stay as generic service helpers.
+  service.go 2627 -> 2053. gofmt/build/vet clean; authcore + http + remote tests pass,
+  only the pre-existing TOTP test fails.
 - Stage 9 (done): moved user directory + lifecycle to users.go: the 4 userFrom*Row
   mappers, getUserByEmail/Username/ID, ensureUserAccess(+ByID), autoUnbanIfExpired,
   isUserBanned, createUser, normalizeImportUserInput, ImportUser, UpdateImportedUser,

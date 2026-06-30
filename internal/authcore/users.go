@@ -18,6 +18,8 @@ import (
 // User directory and lifecycle: lookups, access/ban checks, create, import,
 // update (email/username/biography), ban/unban, soft/host delete.
 
+// User is defined in the lean authkit contract package (#138 inversion); aliased
+// here so engine code keeps using the bare name.
 type User = authkit.User
 
 func userFromByIDRow(r db.UserByIDRow) *User {
@@ -49,6 +51,11 @@ func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, erro
 	return userFromByEmailRow(r), nil
 }
 
+// GetUserByEmail looks up a user by email.
+func (s *Service) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	return s.getUserByEmail(ctx, email)
+}
+
 func (s *Service) getUserByUsername(ctx context.Context, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
@@ -58,6 +65,11 @@ func (s *Service) getUserByUsername(ctx context.Context, username string) (*User
 		return nil, err
 	}
 	return userFromByUsernameRow(r), nil
+}
+
+// GetUserByUsername looks up a user by username.
+func (s *Service) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	return s.getUserByUsername(ctx, username)
 }
 
 func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
@@ -139,6 +151,11 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	}
 	u := User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 	return &u, nil
+}
+
+// CreateUser inserts a new user with the given email and username.
+func (s *Service) CreateUser(ctx context.Context, email, username string) (*User, error) {
+	return s.createUser(ctx, email, username)
 }
 
 func normalizeImportUserInput(input ImportUserInput) (email *string, phone *string, username string, bannedBy *string, metadata string, createdAt time.Time, updatedAt time.Time, err error) {
@@ -260,6 +277,11 @@ func (s *Service) setEmailVerified(ctx context.Context, id string, v bool) error
 	return s.q.UserSetEmailVerified(ctx, db.UserSetEmailVerifiedParams{ID: id, EmailVerified: v})
 }
 
+// SetEmailVerified sets a user's email-verified flag.
+func (s *Service) SetEmailVerified(ctx context.Context, id string, v bool) error {
+	return s.setEmailVerified(ctx, id, v)
+}
+
 func (s *Service) setLastLogin(ctx context.Context, id string, t time.Time) error {
 	if s.pg == nil {
 		return nil
@@ -351,6 +373,11 @@ func (s *Service) updateUsername(ctx context.Context, id, username string) error
 	return s.updateUsernameImpl(ctx, id, username, false)
 }
 
+// UpdateUsername updates a user's username, subject to the rename cooldown.
+func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {
+	return s.updateUsername(ctx, id, username)
+}
+
 // UpdateUsernameForce is the admin override that skips the 72h cooldown
 // check. Otherwise identical to UpdateUsername. Caller is responsible
 // for gating this behind admin scope upstream.
@@ -431,9 +458,37 @@ func (s *Service) updateEmail(ctx context.Context, id, email string) error {
 	return s.RequestEmailVerification(ctx, trimmed, 0)
 }
 
+// UpdateEmail updates a user's email and re-triggers email verification.
+func (s *Service) UpdateEmail(ctx context.Context, id, email string) error {
+	return s.updateEmail(ctx, id, email)
+}
+
 func (s *Service) updateBiography(ctx context.Context, id string, bio *string) error {
 	if s.pg == nil {
 		return nil
 	}
 	return s.q.UserSetBiography(ctx, db.UserSetBiographyParams{ID: id, Biography: bio})
+}
+
+// UpdateBiography sets a user's biography.
+func (s *Service) UpdateBiography(ctx context.Context, id string, bio *string) error {
+	return s.updateBiography(ctx, id, bio)
+}
+
+// IsUserAllowed reports whether a user exists and passes access/ban checks.
+func (s *Service) IsUserAllowed(ctx context.Context, userID string) (bool, error) {
+	if s.pg == nil {
+		return true, nil
+	}
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil {
+		return false, err
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		if errors.Is(err, ErrUserBanned) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
