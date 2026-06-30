@@ -110,15 +110,98 @@ the review justified). Same non-breaking rule until the last stage.
   (normalizeRootRoleSlug, splitConfiguredRootRoles, rootRoleSlugsByUser) ->
   roles.go.
 
-- Stage 11 (LAST, may be breaking): the constructor.
+- Stage 11 (may be breaking): the constructor.
   MOVE: NewService, NewFromConfig, the normalize* validators, isWellFormattedURL,
   validAPIKeyPrefix, the Options.* policy methods -> constructor.go.
   REFACTOR/CHALLENGE: this is the real audit of construction (the NewServer fix
-  lived here). Done last, on its own, with full review, because it is the most
-  likely to touch the public surface.
+  lived here). Done on its own, with full review, because it is the most likely to
+  touch the public surface.
+
+Added after stage 11 (the original plan ended at the constructor, but service.go
+still held three large topic clusters it never enumerated). Same non-breaking,
+review-led method: read the cluster, challenge its shape, then extract.
+
+- Stage 12: Admin user directory -> admin_users.go.
+  MOVE: the AdminUser/AdminListUsersResult/AdminUserStatus/AdminUserSort/
+  AdminUserListOptions aliases + their consts, normalizeAdminUserListOptions,
+  adminUserDirectoryQuery, adminUserOrderBy, AdminCountUsers, AdminListUsers,
+  enrichEntitlements, AdminGetUser, AdminRecoverUserInput, AdminRecoverUser,
+  AdminDeleteUser.
+  REFACTOR/CHALLENGE: adminUserDirectoryQuery builds raw SQL from the list options;
+  re-check the filter/sort whitelisting is airtight (injection surface), and whether
+  AdminCountUsers and AdminListUsers share enough of that query construction to pull
+  a common builder. enrichEntitlements vs the batch provider: is the per-call path
+  still needed.
+
+- Stage 13: Provider links -> providers.go.
+  MOVE: the exported GetProviderLink, LinkProvider, SetProviderUsername,
+  GetProviderUsername, GetDiscordUsername, GetProviderLinkByIssuer,
+  LinkProviderByIssuer, UnlinkProvider, UnlinkProviderUnlessLast, CountProviderLinks,
+  UserProfileLinks and their unexported impls (getProviderLinkByIssuerInternal,
+  getProviderLinkBySlug, linkProvider, setProviderUsername, getProviderUsername,
+  unlinkProvider, countProviderLinks), plus deriveUsername/DeriveUsername. Pull the
+  provider wrappers and deriveUsername that stage 10 deliberately left in service.go
+  for exactly this stage.
+  REFACTOR/CHALLENGE: the exported/unexported pairs are thin pass-throughs (same
+  pattern as the role wrappers); confirm each unexported impl has a real second
+  caller, otherwise collapse. GetDiscordUsername is a provider-specific special-case
+  over GetProviderUsername; check it earns its own method.
+
+- Stage 14: Two-factor -> twofactor.go (joining the existing totp.go).
+  MOVE: the 2FA settings/factor types (TwoFactorSettings, TwoFactorFactor,
+  twoFactorFactorFromFields), Enable2FA(+Default/+impl), Disable2FA(+Factor/
+  +WithRemovedRoles variants), SetDefault2FAFactor, Get2FASettings, List2FAFactors,
+  the Require2FAForLogin/StepUp family, Verify2FA* family, Create/Verify/Clear2FA-
+  Challenge, VerifyBackupCode, RegenerateBackupCodes, send2FACodeForFactor,
+  verifyTOTPFactorCode, twoFactorFactor(+ByMethod), generateBackupCodes.
+  REFACTOR/CHALLENGE: the biggest cluster and the most wrapper-dense. The
+  Require2FAForLogin/StepUp/StepUpFactor/StepUpMethod and Verify2FAStepUpCode/
+  FactorCode/MethodCode families look like wrapper fans over one factor-resolve +
+  one send/verify core; challenge whether the by-default / by-factor / by-method
+  entry points can share a resolver instead of each re-deriving the factor. Confirm
+  which public variants actually have callers before keeping all of them.
+
+After 14, service.go should be ~300 lines: the Service struct, the Options/Keyset/
+EntitlementsProvider type decls, the package error catalog, and the few generic
+helpers (requirePG, dedupeStrings). That is the natural floor; the constructor and
+every topic now live in their own file.
 
 ## Progress
 
+- Stage 11 (done): moved construction + Options/Config validation to constructor.go:
+  NewService, NewFromConfig, validAPIKeyPrefix, normalizeRegistrationVerification,
+  normalizeRegistrationMode, normalizeFrontendPath, the four Options registration-
+  policy reads (RegistrationVerificationPolicy/Required/Enabled,
+  PublicNativeUserRegistrationEnabled), isWellFormattedURL, and the default-path
+  const block (defaultOIDCReturnPath etc., construction-only). The Service struct,
+  Options/Keyset/EntitlementsProvider type decls, and the package error catalog
+  stay in service.go as the package's core type surface.
+  Review of construction (the planned "real audit") produced three behavior-
+  preserving cleanups, all justified:
+  * Both constructors duplicated the schema trim/default/ValidSchemaName guard, and
+    NewFromConfig validated the schema then NewService validated it a second time.
+    Extracted normalizeSchemaName(raw) (string, error) so the SQL-injection guard
+    has ONE source; NewService panics on its error (the Options path, as before),
+    NewFromConfig returns it. Panic message text unchanged (test only asserts that
+    it panics, TestNewServicePanicsOnInvalidSchema).
+  * NewFromConfig computed normalizeTwoFactorMode(cfg.TwoFactor.Mode) twice in the
+    same Options literal (TwoFactorMode and RequireMFAEnrollment). Computed once
+    into a local.
+  * normalizeOIDCReturnPath was a single-use wrapper over normalizeFrontendPath and
+    the only one of the five frontend-path normalizations with a wrapper. Inlined it
+    so all five go through normalizeFrontendPath identically; deleted the wrapper.
+  Public surface UNCHANGED despite this stage being allowed to touch it: NewService
+  and NewFromConfig keep their signatures; no Client/facade/route change. service.go
+  2053 -> 1731. gofmt/build/vet clean; authcore + http tests pass, only the
+  pre-existing TOTP test fails.
+  Not done (out of original plan scope, flagged for a decision): the plan enumerated
+  stages through "the constructor" as the last, but service.go (1731) still holds
+  three sizable topic clusters it never listed as stages: the admin user directory
+  (normalizeAdminUserListOptions, adminUserDirectoryQuery, adminUserOrderBy,
+  AdminCountUsers, AdminListUsers, enrichEntitlements, AdminGetUser, AdminRecoverUser,
+  AdminDeleteUser, ~370 lines), the provider-link methods (~400 lines), and the whole
+  2FA machine (Enable/Disable/StepUp/Challenge/backup-codes, ~650 lines). Finishing
+  the god-file split cleanly wants stages 12-14 for those; left as a call to make.
 - Stage 10 (done): moved the small leftovers into topic files. rand/hash helpers
   (randB64, randInt, randAlphanumeric, sha256Hex, randAlphanumericUppercase) ->
   rand.go; preferred-language (NormalizePreferredLanguage, Set/GetPreferredLanguage,
