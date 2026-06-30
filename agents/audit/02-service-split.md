@@ -119,6 +119,19 @@ the review justified). Same non-breaking rule until the last stage.
 
 ## Progress
 
+- Stage 9 (done): moved user directory + lifecycle to users.go: the 4 userFrom*Row
+  mappers, getUserByEmail/Username/ID, ensureUserAccess(+ByID), autoUnbanIfExpired,
+  isUserBanned, createUser, normalizeImportUserInput, ImportUser, UpdateImportedUser,
+  setEmailVerified, setLastLogin, clearUserBan, BanUser, UnbanUser, SoftDeleteUser,
+  RestoreUser, HostDeleteUser, updateUsername(+Force/Impl), updateEmail,
+  updateBiography, plus the User/ImportUserInput type aliases that sat right above
+  the block. Review: no dup found (updateUsername/UpdateUsernameForce already
+  correctly delegate to updateUsernameImpl(bypassCooldown), same pattern as the
+  login dedup). Confirmed HardDeleteUser (the public Client method, in
+  user_purge.go) is unrelated to HostDeleteUser (this file's internal soft/hard
+  dispatcher) - a naming near-collision worth a rename later but out of scope here.
+  Faithful move. service.go 3048 -> 2627. Build, vet, http tests green; only the
+  pre-existing TOTP test fails.
 - Bug fix (done, follow-up to 8b): ConfirmEmailChange was missing the
   `!useEphemeralStore()` guard that ConfirmPhoneChange and the cancel/get
   siblings have. Pending changes live only in the ephemeral store, so email
