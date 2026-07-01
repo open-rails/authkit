@@ -70,10 +70,15 @@ func TestResolveTOTPSecretKey(t *testing.T) {
 		t.Fatalf("missing key file = %v, %v; want nil, nil", k, err)
 	}
 
-	// Group/world-writable file is refused.
+	// Group/world-writable file is refused. WriteFile's perm is masked by the
+	// umask (typically 022, which would strip the write bits and land at 0644), so
+	// Chmod explicitly to actually make the file group/world-writable.
 	bad := t.TempDir()
 	p := filepath.Join(bad, totpKeyFilename)
-	if err := os.WriteFile(p, []byte(hex.EncodeToString(key)), 0o666); err != nil {
+	if err := os.WriteFile(p, []byte(hex.EncodeToString(key)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o666); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := resolveTOTPSecretKey(Config{Keys: KeysConfig{Path: bad}}); err == nil {
