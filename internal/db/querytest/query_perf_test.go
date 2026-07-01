@@ -24,7 +24,9 @@ const (
 )
 
 // TestQueryPerformance is the scaling gate: it bulk-seeds the growable tables,
-// ANALYZEs, then EXPLAIN (ANALYZE, BUFFERS)es the REAL generated query text
+// VACUUM ANALYZEs (so the visibility map is set and covering indexes serve
+// index-only scans, as on a live autovacuumed DB), then EXPLAIN (ANALYZE,
+// BUFFERS)es the REAL generated query text
 // (sourced from db.QueryText, never hand-copied) for each distinct hot access
 // pattern, asserting no sequential scan / no Sort on the big table plus loose
 // time and buffer budgets. Every case runs inside a rolled-back transaction so
@@ -306,8 +308,14 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 		"profiles.users", "profiles.refresh_sessions", "profiles.group_user_roles",
 		"profiles.user_providers", "profiles.user_renames",
 	} {
-		if _, err := pool.Exec(ctx, "ANALYZE "+table); err != nil {
-			t.Fatalf("analyze %s: %v", table, err)
+		// VACUUM, not just ANALYZE, so the visibility map is set: covering indexes
+		// like users_deleted_at_idx (deleted_at, id) then serve true index-only
+		// scans, the way they do on a live autovacuumed table. Without it an
+		// index-only-eligible scan still does one heap visibility fetch per row,
+		// inflating the buffer counts this test budgets against (e.g. the 100
+		// purge candidates are scattered ~one per 50 heap rows).
+		if _, err := pool.Exec(ctx, "VACUUM (ANALYZE) "+table); err != nil {
+			t.Fatalf("vacuum analyze %s: %v", table, err)
 		}
 	}
 }
