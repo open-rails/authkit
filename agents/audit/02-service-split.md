@@ -168,6 +168,29 @@ every topic now live in their own file.
 
 ## Progress
 
+- Stage 12 (done): moved the admin user directory to admin_users.go: the
+  AdminUser/AdminListUsersResult/AdminUserStatus/AdminUserSort/AdminUserListOptions
+  aliases + their status/sort const blocks, ErrEntitlementFilterUnavailable,
+  normalizeAdminUserListOptions, adminUserDirectoryQuery, adminUserOrderBy,
+  AdminCountUsers, AdminListUsers, enrichEntitlements, AdminGetUser,
+  AdminRecoverUserInput, AdminRecoverUser, AdminDeleteUser.
+  Review of the planned injection surface: airtight. adminUserDirectoryQuery
+  parameterizes every user-supplied value as a $N bind (role slug, search term,
+  entitlement subject set); the list query binds OFFSET/LIMIT the same way; only
+  static SQL fragments and the integer argIdx are ever concatenated. adminUserOrderBy
+  picks the column from a closed enum (default u.created_at) and direction from a
+  bool, so no user string reaches ORDER BY.
+  Refactor applied (justified dedup): the count query
+  `SELECT COUNT(DISTINCT u.id) FROM <from> WHERE <where>` + its RewriteSQL/QueryRow/
+  Scan was byte-identical in AdminCountUsers and AdminListUsers. Extracted
+  s.adminUserCount(ctx, from, where, args) as the single definition. AdminListUsers
+  still calls adminUserDirectoryQuery ITSELF (not AdminCountUsers) so the entitlement
+  filter provider is hit once per call, as its doc-comment promises; only the count
+  execution is shared. Behavior identical.
+  enrichEntitlements' per-user loop was challenged (the plan's "is the per-call path
+  still needed") and kept: it is the fallback for providers that don't implement
+  BatchEntitlementsProvider, not dead. service.go 1729 -> 1357. gofmt/build/vet
+  clean; authcore + http tests pass, only the pre-existing TOTP test fails.
 - Stage 11 (done): moved construction + Options/Config validation to constructor.go:
   NewService, NewFromConfig, validAPIKeyPrefix, normalizeRegistrationVerification,
   normalizeRegistrationMode, normalizeFrontendPath, the four Options registration-
