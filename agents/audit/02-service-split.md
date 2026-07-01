@@ -168,6 +168,37 @@ every topic now live in their own file.
 
 ## Progress
 
+- Stage 13 (done): moved the provider-link cluster to providers.go. Exported
+  wrappers (GetProviderLink, LinkProvider, SetProviderUsername, GetProviderUsername,
+  GetDiscordUsername, DeriveUsername, CountProviderLinks, UnlinkProvider,
+  UnlinkProviderUnlessLast, GetProviderLinkByIssuer, LinkProviderByIssuer,
+  UserProfileLinks) + their unexported impls (countProviderLinks, unlinkProvider,
+  getProviderLinkByIssuerInternal, getProviderLinkBySlug, linkProvider,
+  setProviderUsername, getProviderUsername) + the deriveUsername free func. Pure
+  move, no signature changes; the public surface is untouched (facade/remote/server
+  re-export LinkProvider/GetProviderUsername/UnlinkProvider/LinkProviderByIssuer, and
+  http handlers call the rest). Left in service.go ON PURPOSE because they were only
+  physically interleaved in the old provider block, not provider-link code:
+  hasPassword/HasPassword (password-domain; live callers in passwords.go + http) and
+  ListEntitlements (entitlements).
+  Review of the planned challenges ("confirm each unexported impl has a real second
+  caller; does GetDiscordUsername earn its own method"): every moved unexported impl
+  still has a live caller, so none were collapsed. THREE exported methods are DEAD
+  (zero callers repo-wide — verified across authkit, h0, openrails; none are in the
+  client.go Providers interface): GetDiscordUsername (a one-liner over
+  getProviderUsername(...,"discord")), DeriveUsername (superseded by
+  DeriveUsernameForOAuth), and GetProviderLink. DELETED all three plus their
+  now-orphaned sole-caller impls getProviderLinkBySlug and deriveUsername (the
+  latter freed the strings import too). getProviderUsername stays (still used by
+  GetProviderUsername); the usernameMinLen/MaxLen consts stay (still used by
+  identity_validation.go + username.go).
+  Separately, removed one UNRELATED pre-existing dead field to restore green
+  staticcheck: http/service.go groupCanFn — an unwired test hook (groupCan never
+  reads it, no test sets it), dead since eaae65b/#111 and failing U1000 at HEAD
+  independent of this stage.
+  service.go 1357 -> 1114; providers.go 207. gofmt/build/vet/staticcheck ./... all
+  clean; http tests pass, authcore tests pass except the pre-existing TOTP env test
+  (TestResolveTOTPSecretKey).
 - Stage 12 (done): moved the admin user directory to admin_users.go: the
   AdminUser/AdminListUsersResult/AdminUserStatus/AdminUserSort/AdminUserListOptions
   aliases + their status/sort const blocks, ErrEntitlementFilterUnavailable,

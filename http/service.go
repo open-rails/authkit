@@ -29,13 +29,6 @@ type Service struct {
 	oidcMgrOnce         sync.Once
 	memStateCache       oidckit.StateCache
 	langCfg             *LanguageConfig
-
-	// groupCanFn is a package-internal test hook for the auto-generated
-	// group-management routes' authorization predicate (#111): handler/wiring tests
-	// set it to assert which perm a route gates on without a database. Production
-	// never sets it (there is no public option) — nil delegates to
-	// embedded.Client.Can. See groupCan.
-	groupCanFn func(r *http.Request, subjectID, persona, instanceSlug, perm string) (bool, error)
 }
 
 // failClosedBuckets are the credential-VERIFICATION endpoints where the secret
