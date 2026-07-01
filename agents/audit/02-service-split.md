@@ -168,6 +168,37 @@ every topic now live in their own file.
 
 ## Progress
 
+- Stage 14 (done): moved the two-factor machine to twofactor.go (joining totp.go):
+  the TwoFactorSettings/TwoFactorFactor types, Enable2FA(+Default/+enable2FA),
+  Disable2FA(+Factor and both WithRemovedRoles variants), SetDefault2FAFactor,
+  Get2FASettings, List2FAFactors, Require2FAForLogin(+Factor), send2FACodeForFactor,
+  Require2FAForStepUp(+Factor/+Method), Verify2FAStepUp(Code/FactorCode/MethodCode),
+  Create/Verify/Clear2FAChallenge, Verify2FACode(+FactorCode), verifyTOTPFactorCode,
+  VerifyBackupCode, RegenerateBackupCodes, twoFactorFactor(+ByMethod),
+  twoFactorFactorFromFields, generateBackupCodes.
+  Review of the planned "wrapper-fan" families produced two behavior-preserving
+  dedups, both verbatim duplication:
+  * RegenerateBackupCodes re-inlined the exact 10-code generate loop that
+    generateBackupCodes already is (and that Enable2FA already calls). Replaced the
+    inline loop with generateBackupCodes(). Pure function, identical result.
+  * Verify2FAStepUpFactorCode and Verify2FAStepUpMethodCode were identical except
+    the one factor-resolve line (by id vs by method): same session guard, same TOTP
+    branch, same ephemeral guard, same consumeMFAStepUpCode. Extracted the shared
+    tail into verifyStepUpForFactor(ctx, userID, sessionID, code, factor). Each caller
+    still guards the session and resolves its own factor, then calls the shared tail.
+  Challenged and deliberately kept: the thin one-line public wrappers
+  (Require2FAForLogin/StepUp, Verify2FACode/StepUpCode) are real overloads with
+  different return arities on the Client surface, not dead; twoFactorFactorByMethod
+  already delegates to twoFactorFactor for the empty-method case; the Require-step-up
+  pair's post-resolve tail is two lines, below the bar for a helper. No public method
+  removed. service.go 1114 -> 462. gofmt/build/vet clean; authcore + http tests pass,
+  only the pre-existing TOTP test fails.
+  This finishes the split. service.go (462) now holds only the package's core
+  surface: the Options/Keyset/entitlement-provider type decls, the error catalog, the
+  Service struct, the session-event audit-log methods, hasPassword/ListEntitlements,
+  the pending-registration peek helpers, and requirePG/dedupeStrings. The session-log
+  and pending-peek blocks were never enumerated as stages; they could be their own
+  files later, but that is optional tidy, not part of this plan.
 - Stage 13 (done): moved the provider-link cluster to providers.go. Exported
   wrappers (GetProviderLink, LinkProvider, SetProviderUsername, GetProviderUsername,
   GetDiscordUsername, DeriveUsername, CountProviderLinks, UnlinkProvider,
