@@ -18,34 +18,19 @@ jobs:
   # sqlc generate must produce no diff against the committed code in
   # internal/db, and sqlc vet (including the db-prepare rule, which PREPAREs
   # every query against a real Postgres with the migrations applied) must pass.
+  #
+  # The Postgres is owned by the Taskfile: `task sqlc-check` brings up the compose
+  # `postgres` service and applies migrations via `authkit-server migrate` — the
+  # exact path used locally — so there is one DB definition (docker-compose.yaml)
+  # instead of a second copy duplicated here as a GitHub `services:` container.
   sqlc-check:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_DB: authkit_db
-          POSTGRES_USER: admin
-          POSTGRES_PASSWORD: admin_password
-        ports:
-          - 35432:5432
-        options: >-
-          --health-cmd "pg_isready -U admin -d authkit_db"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Apply migrations
-        run: |
-          for f in migrations/postgres/*.up.sql; do
-            PGPASSWORD=admin_password psql -h 127.0.0.1 -p 35432 -U admin -d authkit_db -v ON_ERROR_STOP=1 -f "$f"
-          done
 
       - name: Install Task
         uses: arduino/setup-task@v2
