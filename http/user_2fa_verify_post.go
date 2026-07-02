@@ -66,7 +66,11 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	}
 	_ = s.svc.Clear2FAChallenge(r.Context(), userID)
 
-	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"pwd", "otp", "mfa"})
+	// Create the refresh session AND mint its access token from a single user load +
+	// MFA read (#227), recording the verified second factor via authMethods. The
+	// banned gate still fires with ErrUserBanned; the ID-token email the old path
+	// fetched (AdminGetUser) was ignored by IssueAccessToken, so it's gone.
+	sid, rt, token, exp, _, err := s.svc.IssueAuthenticatedSession(r.Context(), userID, r.UserAgent(), nil, []string{"pwd", "otp", "mfa"}, nil)
 	if err != nil {
 		if errors.Is(err, authkit.ErrUserBanned) {
 			logLoginFailed(s, r, userID, "user_banned")
@@ -81,22 +85,6 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	ip := remoteIP(r)
 	uaPtr, ipPtr := &ua, &ip
 	s.svc.LogSessionCreated(r.Context(), userID, "password_login_2fa", sid, ipPtr, uaPtr)
-
-	usr, _ := s.svc.AdminGetUser(r.Context(), userID)
-	emailForToken := ""
-	if usr != nil && usr.Email != nil {
-		emailForToken = *usr.Email
-	}
-
-	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, emailForToken, map[string]any{"sid": sid})
-	if err != nil {
-		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
-			return
-		}
-		serverErr(w, ErrTokenCreationFailed)
-		return
-	}
 
 	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(token, rt, exp), nil)
 }

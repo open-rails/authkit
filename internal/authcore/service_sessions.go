@@ -66,6 +66,20 @@ func (s *Service) IssueRefreshSessionWithAuthMethods(ctx context.Context, userID
 	if err := s.requireSessionMFAState(ctx, userID, authMethods); err != nil {
 		return "", "", nil, err
 	}
+	return s.insertRefreshSession(ctx, userID, userAgent, ip, authMethods)
+}
+
+// insertRefreshSession generates a refresh token and inserts the session row,
+// enforcing the per-user cap in one advisory-locked transaction. It performs NO
+// live-user gate and NO MFA check — callers MUST have already loaded + gated the
+// user (ensureUserAccess) and satisfied requireSessionMFAState. Split out of
+// IssueRefreshSessionWithAuthMethods (#227) so the authenticated login / 2FA-verify
+// paths (IssueAuthenticatedSession) can create the session and mint its access token
+// from a SINGLE user load instead of re-reading + re-gating for each step.
+func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string) (sessionID, refreshToken string, expiresAt *time.Time, err error) {
+	if s.pg == nil {
+		return "", "", nil, errors.New("postgres not configured")
+	}
 	// Generate token
 	rt := randB64(32)
 	hash := s.hashRefresh(rt)
@@ -157,10 +171,33 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", errors.New("invalid refresh token")
 	}
 	sid, uid := cur.ID, cur.UserID
-	if err := s.ensureUserAccessByID(ctx, uid); err != nil {
+
+	// Load + gate the user row ONCE for the whole issue path (#227). Previously the
+	// banned/deleted/reserved gate, the ID-token email, the "still allowed" recheck,
+	// and the access-token mint each independently re-read profiles.users (and
+	// recomputed MFAStatus), so a single refresh read the user row 3×+ and MFA 2×.
+	// Here we read the row once, gate it once, compute MFA once, and thread both
+	// through the rest of the flow.
+	//
+	// ensureUserAccess still rejects banned/deleted/reserved users with ErrUserBanned
+	// at this exact point — the security invariant is unchanged (and BanUser already
+	// revokes a banned user's sessions, so their refresh token usually fails the
+	// session lookup above first; this gate is the backstop). This single gate
+	// subsumes the former trailing IsUserAllowed recheck, which applied identical
+	// allow/deny logic to a SECOND read of the same row: with the row loaded once it
+	// could only diverge on a concurrent ban landing mid-refresh (already handled by
+	// BanUser's revoke) or a transient error on the redundant re-read — the latter
+	// would have wrongly revoked every session on a DB blip.
+	u, err := s.getUserByID(ctx, uid)
+	if err != nil || u == nil {
+		return "", time.Time{}, "", errOrUnauthorized(err)
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
 		return "", time.Time{}, "", err
 	}
-	if err := s.requireSessionMFAState(ctx, uid, cur.AuthMethods); err != nil {
+
+	mfa, mfaErr := s.MFAStatus(ctx, uid)
+	if err := s.requireSessionMFAStateWith(cur.AuthMethods, mfa, mfaErr); err != nil {
 		// Carry the userID so the refresh handler can hand back a usable
 		// enrollment token instead of a dead-end 403 (#148, note b).
 		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
@@ -169,17 +206,9 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", err
 	}
 
-	// Load email for ID token payload (best-effort)
-	var email string
-	if u, eErr := s.q.UserByID(ctx, uid); eErr == nil && u.Email != nil {
-		email = *u.Email
-	}
-	if ok, e := s.IsUserAllowed(ctx, uid); e != nil || !ok {
-		if rErr := s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonUserDisabled), uid, nil); rErr != nil {
-			stdlog.Printf("[authkit/security] error: failed to revoke sessions for disabled user %s; in-flight access tokens stay valid until expiry (≤access TTL): %v", uid, rErr)
-		}
-		return "", time.Time{}, "", errors.New("user_disabled")
-	}
+	// (The former separate UserByID read here existed only to source an ID-token
+	// email that IssueAccessToken then ignored — profile claims no longer ride in the
+	// access token — so it is dropped entirely; u already holds u.Email if ever needed.)
 
 	// Mint the new access token BEFORE rotating the refresh session. Minting reads
 	// only pre-rotation state (identity, session freshness via sid, entitlements), so
@@ -188,7 +217,11 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	// still valid (a retry succeeds), instead of stranding them on the now-"previous"
 	// token and tripping reuse-detection (family revoke) on the next attempt.
 	claims := map[string]any{"sid": sid}
-	accessToken, exp, err := s.IssueAccessToken(ctx, uid, email, claims)
+	var mfaForToken *MFAStatus
+	if mfaErr == nil {
+		mfaForToken = &mfa
+	}
+	accessToken, exp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.opts.AccessTokenDuration)
 	if err != nil {
 		return "", time.Time{}, "", err
 	}
@@ -215,6 +248,57 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	}
 
 	return accessToken, exp, newTok, nil
+}
+
+// IssueAuthenticatedSession creates a refresh session AND mints its paired access
+// token for an ALREADY-AUTHENTICATED user in one shot (#227). It loads + gates the
+// user row (ensureUserAccess) and computes MFAStatus ONCE, threading both through the
+// session-creation gate and the access-token mint — instead of the 2× user-read /
+// 2× MFA-read that the separate IssueRefreshSession* + IssueAccessToken calls incurred
+// on the password-login and 2FA-verify paths.
+//
+// authMethods records how the session was established (e.g. []string{"pwd"} for
+// password login, []string{"pwd","otp","mfa"} after a verified second factor). extra
+// is merged into the access token; the freshly-created session id is added as "sid".
+// The banned/deleted/reserved gate and the MFA gate behave exactly as they do for the
+// separate calls (same ErrUserBanned / ErrTwoFAEnrollmentRequired at the same point).
+// Returns the session id so the caller can emit its own session-created audit log.
+func (s *Service) IssueAuthenticatedSession(ctx context.Context, userID, userAgent string, ip net.IP, authMethods []string, extra map[string]any) (sessionID, refreshToken, accessToken string, accessExpiresAt time.Time, refreshExpiresAt *time.Time, err error) {
+	if s.pg == nil {
+		return "", "", "", time.Time{}, nil, errors.New("postgres not configured")
+	}
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil {
+		return "", "", "", time.Time{}, nil, errOrUnauthorized(err)
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		return "", "", "", time.Time{}, nil, err
+	}
+	mfa, mfaErr := s.MFAStatus(ctx, userID)
+	if err := s.requireSessionMFAStateWith(authMethods, mfa, mfaErr); err != nil {
+		return "", "", "", time.Time{}, nil, err
+	}
+
+	sid, rt, refreshExp, err := s.insertRefreshSession(ctx, userID, userAgent, ip, authMethods)
+	if err != nil {
+		return "", "", "", time.Time{}, nil, err
+	}
+
+	// Copy caller extra so we never mutate their map, then stamp the new session id.
+	claims := make(map[string]any, len(extra)+1)
+	for k, v := range extra {
+		claims[k] = v
+	}
+	claims["sid"] = sid
+	var mfaForToken *MFAStatus
+	if mfaErr == nil {
+		mfaForToken = &mfa
+	}
+	accessToken, accessExp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.opts.AccessTokenDuration)
+	if err != nil {
+		return "", "", "", time.Time{}, nil, err
+	}
+	return sid, rt, accessToken, accessExp, refreshExp, nil
 }
 
 // Logout via refresh token was removed; use DELETE /auth/logout with sid claim instead.

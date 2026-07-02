@@ -60,8 +60,47 @@ var reservedAccessTokenClaims = map[string]struct{}{
 	"mfa_enrolled":     {},
 }
 
+// issueAccessToken is the ID-only entry point: it loads + gates the live-user row
+// and computes MFAStatus, then delegates to issueAccessTokenForUser. Callers that
+// already hold a loaded+gated *User (and its MFAStatus) — the hot login / refresh /
+// 2FA paths — should call issueAccessTokenForUser directly to avoid the re-read (#227).
 func (s *Service) issueAccessToken(ctx context.Context, userID, email string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
+	// Keep the live-user gate even though profile fields no longer ride in the
+	// token: banned/deleted users must not receive fresh access tokens.
+	if s.pg != nil {
+		u, uErr := s.getUserByID(ctx, userID)
+		if uErr != nil {
+			return "", time.Time{}, uErr
+		}
+		if u == nil {
+			return "", time.Time{}, jwt.ErrTokenInvalidClaims
+		}
+		if err := s.ensureUserAccess(ctx, u); err != nil {
+			return "", time.Time{}, err
+		}
+		var mfa *MFAStatus
+		if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil {
+			mfa = &status
+		}
+		return s.issueAccessTokenForUser(ctx, u, mfa, extra, ttl)
+	}
+	// Verify-only / pg-less Service: no live-user gate, no MFA lookup — mint from
+	// the userID alone (matches the historical s.pg == nil behavior). The synthetic
+	// row carries only the ID; issueAccessTokenForUser reads no other user field and
+	// its sid/freshness + mfa branches are already guarded by s.pg != nil / mfa != nil.
+	return s.issueAccessTokenForUser(ctx, &User{ID: userID}, nil, extra, ttl)
+}
+
+// issueAccessTokenForUser mints an access token for an ALREADY-LOADED, ALREADY-GATED
+// user (#227). It SKIPS the getUserByID + ensureUserAccess "live-user gate" that
+// issueAccessToken performs — the caller has already loaded the row and rejected
+// banned/deleted/reserved users — and reuses a precomputed MFAStatus for the
+// mfa_enrolled claim instead of recomputing it. Pass mfa == nil to omit mfa_enrolled
+// (matches the swallow-on-error / absent-when-not-satisfied behavior of the ID-only
+// path). u must be non-nil.
+func (s *Service) issueAccessTokenForUser(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
+	userID := u.ID
 	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
 	// Group/role authority is no longer carried as a token claim: the legacy
@@ -80,20 +119,6 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 			// until the next refresh.
 			stdlog.Printf("authkit: error: entitlements provider failed during access-token issuance for user %s; token issued WITHOUT entitlement claims: %v", userID, entErr)
 			ents = nil
-		}
-	}
-	// Keep the live-user gate even though profile fields no longer ride in the
-	// token: banned/deleted users must not receive fresh access tokens.
-	if s.pg != nil {
-		u, uErr := s.getUserByID(ctx, userID)
-		if uErr != nil {
-			return "", time.Time{}, uErr
-		}
-		if u == nil {
-			return "", time.Time{}, jwt.ErrTokenInvalidClaims
-		}
-		if err := s.ensureUserAccess(ctx, u); err != nil {
-			return "", time.Time{}, err
 		}
 	}
 
@@ -117,10 +142,8 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 	// have a usable second factor, without a DB call at gate time. Emitted only
 	// when true (absent ⇒ false). Reflects state at mint, so it's at most one
 	// token-TTL stale after enroll/disable.
-	if s.pg != nil {
-		if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil && status.Satisfied {
-			claims["mfa_enrolled"] = true
-		}
+	if mfa != nil && mfa.Satisfied {
+		claims["mfa_enrolled"] = true
 	}
 	// Caller-supplied claims fill gaps but never override an AuthKit-owned claim
 	// (sub/iss/aud/iat/exp/entitlements always; auth_time/amr/acr/mfa_enrolled when
