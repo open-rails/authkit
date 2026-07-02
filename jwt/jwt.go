@@ -22,12 +22,6 @@ const (
 	RemoteApplicationAccessTokenType = "remote-application-access+jwt"
 )
 
-// ClaimsBuilder builds custom claims layered on top of RegisteredClaims.
-type ClaimsBuilder interface {
-	// Build returns application-specific claims to embed.
-	Build(ctx context.Context, userID string, base jwt.RegisteredClaims) (map[string]any, error)
-}
-
 // Signer issues and verifies asymmetric JWTs.
 type Signer interface {
 	// Algorithm returns the JWS algorithm (e.g., RS256, EdDSA).

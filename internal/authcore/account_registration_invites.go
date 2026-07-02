@@ -54,16 +54,6 @@ type AccountRegistrationInvite = authkit.AccountRegistrationInvite
 type CreateAccountRegistrationInviteRequest = authkit.CreateAccountRegistrationInviteRequest
 type AccountRegistrationInviteCreated = authkit.AccountRegistrationInviteCreated
 
-type AccountRegistrationInviteMessage struct {
-	InviteURL string
-	Email     string
-	Purpose   string
-}
-
-type AccountRegistrationInviteEmailSender interface {
-	SendAccountRegistrationInvite(ctx context.Context, email string, msg AccountRegistrationInviteMessage) error
-}
-
 func (s *Service) accountRegistrationInviteURL(code string) string {
 	q := url.Values{}
 	q.Set("account_invite_token", code)
@@ -170,13 +160,8 @@ func (s *Service) sendAccountRegistrationInviteEmail(ctx context.Context, email,
 	if s.email == nil {
 		return
 	}
-	sender, ok := s.email.(AccountRegistrationInviteEmailSender)
-	if !ok {
-		return
-	}
-	msg := AccountRegistrationInviteMessage{InviteURL: inviteURL, Email: email, Purpose: "account_registration_invite"}
 	_ = s.withSendTimeout(ctx, func(sendCtx context.Context) error {
-		return sender.SendAccountRegistrationInvite(sendCtx, email, msg)
+		return s.email.SendAccountRegistrationInvite(sendCtx, email, inviteURL)
 	})
 }
 

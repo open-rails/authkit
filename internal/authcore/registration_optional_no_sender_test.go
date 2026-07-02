@@ -22,6 +22,10 @@ func (s *spyEmailSender) SendPasswordResetLink(ctx context.Context, email, usern
 	return nil
 }
 
+func (s *spyEmailSender) SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error {
+	return nil
+}
+
 func (s *spyEmailSender) SendLoginCode(ctx context.Context, email, username, code string) error {
 	return nil
 }

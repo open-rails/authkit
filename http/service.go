@@ -131,10 +131,7 @@ func (s *Service) allowResultForKey(bucket, key string) RateLimitResult {
 }
 
 func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
-	if s == nil {
-		return RateLimitResult{Allowed: true}
-	}
-	if s.rl == nil {
+	if s == nil || s.rl == nil {
 		return RateLimitResult{Allowed: true}
 	}
 	ipFn := s.clientIP
@@ -145,20 +142,7 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if strings.TrimSpace(ip) == "" {
 		return RateLimitResult{Allowed: true}
 	}
-	key := "auth:" + bucket + ":ip:" + ip
-	if rl, ok := s.rl.(RateLimiterWithResult); ok {
-		result, err := rl.AllowNamedResult(bucket, key)
-		if err != nil {
-			return limiterErrorResult(bucket)
-		}
-		availability := availabilityFromRateLimit(bucket, result, time.Now())
-		return RateLimitResult{Allowed: result.Allowed, RetryAfter: result.RetryAfter, Availability: &availability}
-	}
-	ok, err := s.rl.AllowNamed(bucket, key)
-	if err != nil {
-		return limiterErrorResult(bucket)
-	}
-	return RateLimitResult{Allowed: ok}
+	return s.allowResultForKey(bucket, "auth:"+bucket+":ip:"+ip)
 }
 
 // CheckSMSHealth probes (without sending an SMS) whether the configured sender

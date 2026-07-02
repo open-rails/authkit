@@ -27,6 +27,9 @@ func (testEmailSender) SendVerification(context.Context, string, string, embedde
 func (testEmailSender) SendPasswordResetLink(context.Context, string, string, string) error {
 	return nil
 }
+func (testEmailSender) SendAccountRegistrationInvite(context.Context, string, string) error {
+	return nil
+}
 func (testEmailSender) SendLoginCode(context.Context, string, string, string) error {
 	return nil
 }

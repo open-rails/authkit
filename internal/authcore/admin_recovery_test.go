@@ -27,6 +27,10 @@ func (s *recoverEmailSender) SendPasswordResetLink(_ context.Context, email, _ s
 	return nil
 }
 
+func (s *recoverEmailSender) SendAccountRegistrationInvite(context.Context, string, string) error {
+	return nil
+}
+
 func (s *recoverEmailSender) SendLoginCode(context.Context, string, string, string) error { return nil }
 func (s *recoverEmailSender) SendWelcome(context.Context, string, string) error           { return nil }
 

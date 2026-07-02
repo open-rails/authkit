@@ -36,6 +36,7 @@ var (
 type EmailSender interface {
 	SendVerification(ctx context.Context, email, username string, msg VerificationMessage) error
 	SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error
+	SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error
 	SendLoginCode(ctx context.Context, email, username, code string) error
 	SendWelcome(ctx context.Context, email, username string) error
 }

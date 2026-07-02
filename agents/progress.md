@@ -9,7 +9,21 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 196
+next_id: 227
+
+<!-- AUDIT IMPL STATUS (2026-07-02, Claude) — resume here
+DONE (in working tree, build green): #200 closed (non-goal); #223 (invite-email sender fixed:
+SendAccountRegistrationInvite added to EmailSender base iface + twilio + fakes); wave-1 simplifications
+#224 (deleted ClaimsBuilder), #225 (inlined credentialScanner→pgx.Rows), #226 (allowResult delegates to
+allowResultForKey), #218 partial (SIWS headerRegex hoist still TODO — verify), and jwt/passkeys/http/service edits.
+NEXT, in order: contained bugs #196 (memoize SIWS memory cache in a Service field like memStateCache; test Put→Consume no-Redis),
+#197 (add authkit.CodeForError walking the chain; use in server/management.go writeErr+statusFor; test wrapped sentinel 422+errors.Is),
+#198 (guard `lim.Limit>0 && len(ts)>=lim.Limit` in ratelimit/memory/limiter.go; test Limit=0 no panic).
+Then perf #215/#216/#217; then breaking surface #201–#208 + batch-native #219–#222; then DX #209–#214.
+RULES: reduce API/SEMVER surface + total LOC; keep `go build ./... && go vet ./...` green after each change;
+cover new behavior with integration tests (AUTHKIT_TEST_DATABASE_URL set → `task test`). Tick each issue's tasks as done.
+-->
+
 
 ---
 
@@ -2344,3 +2358,609 @@ The command surface must match OpenRails exactly:
 
 - Pair implementation with OpenRails #628 so helpers, command names, env vars, and
   report shape stay identical.
+
+---
+
+# #196: [BUG] SIWS in-memory challenge cache re-created per request (Solana login broken without Redis)
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `http/siws_cache.go:11-16` returns a **fresh**
+`memorystore.NewSIWSCache(...)` on every call in the no-Redis branch. `GenerateSIWSChallenge`
+does `Put` on instance A; the follow-up login/link does `Consume` on a **new empty** instance B
+→ always `ErrSIWSChallengeNotFound` → 401. Its sibling `stateCache()` (`http/service.go:195`)
+memoizes into `s.memStateCache`; `siwsCache()` has no equivalent field. Secondary defect: each
+`NewSIWSCache` starts an unstoppable `cleanupLoop` goroutine (`storage/memory/siws_cache.go:33`),
+so every Solana request permanently leaks one goroutine + map.
+
+Blast radius: no-Redis / single-instance deploys (prod requires Redis; no current consumer uses
+SIWS) — but it's a shipped feature that is 100% broken in a supported config. Root-cause fix, not
+per-caller.
+
+## Tasks
+- [ ] Add a `memSIWSCache siws.ChallengeCache` field to `authhttp.Service`; create once in `NewServer` (mirror `memStateCache` at `http/server.go:90`).
+- [ ] Return `s.memSIWSCache` from `siwsCache()` in the `s.rd == nil` branch.
+- [ ] Regression test: Put via challenge handler, then Consume via login handler on the same `Service`, no Redis → succeeds.
+- [ ] (Optional) Give `memorystore.SIWSCache` a `Close()`/`closed` channel so the cleanup loop can stop, matching `StateCache`.
+
+---
+
+# #197: [BUG] Remote wire-error round-trip breaks `errors.Is` for WRAPPED sentinels
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `server/management.go:56` emits `err.Error()` verbatim
+as the wire code and `statusFor` (`:80`) keys off `authkit.ErrorForCode(err.Error())`. The registry
+(`errors.go:72` `ErrorForCode` / `errorsByCode`) + its test only guarantee the round-trip for **bare**
+sentinels (`err.Error() == code`). Exposed `Client` methods return **wrapped** sentinels — e.g.
+`StartPasswordless` → `emailDeliveryError(err)` = `fmt.Errorf("%w: %w", ErrEmailDeliveryFailed, err)`
+(`internal/authcore/senders.go`). Result on the wire: `err.Error()` = `"email_delivery_failed: <detail>"`
+→ not a registry key → **500 instead of 422**, and the remote client's
+`errors.Is(err, authkit.ErrEmailDeliveryFailed)` returns **false**, silently breaking the documented
+cross-transport error identity (#138/#142). Same for `ErrSMSDeliveryFailed` and any wrapped SIWS errors.
+
+## Tasks
+- [ ] Add `authkit.CodeForError(err) string` to `errors.go`: iterate the registry with `errors.Is(err, sentinel)` (chain-aware), return the matching sentinel's `.Error()` (else "").
+- [ ] Use `CodeForError` in both `server/management.go` `writeErr` and `statusFor`.
+- [ ] Extend `errors_test.go`: a wrapped sentinel round-trips (`errors.Is` survives) and maps to 422.
+
+---
+
+# #198: [BUG] In-memory rate limiter panics (index out of range) on bucket `Limit <= 0`
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `ratelimit/memory/limiter.go:98` — `len(ts) >= lim.Limit`
+is true for an empty slice when `Limit == 0`, then `ts[0]` (`:99`) panics on the empty slice. Not
+reachable via `DefaultRateLimits()` (all ≥ 1), but a host passing a custom `WithRateLimiter` limit of
+`0` (incl. a `"default": {Limit: 0}`) crashes the request goroutine.
+
+## Tasks
+- [ ] Guard: `if lim.Limit > 0 && len(ts) >= lim.Limit {`, or clamp `Limit` to a minimum of 1 in `LookupLimit`/`New`.
+- [ ] Test: a bucket with `Limit: 0`, first request → no panic (defined allow/deny, not a crash).
+
+---
+
+# #199: [SECURITY][v1 GATE] Ship the already-tracked pre-v1 security backlog before v1.0.0
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Two independent security passes found NO new high/medium
+vuln — the core is well-hardened. The residual real risk is a set of items **already analyzed** in
+`agents/audits/auth-login.md` but **not yet shipped**. This issue is the v1 gate so they don't slip:
+
+- **F1 / plan 014** — OIDC browser callback swallows load-bearing writes with `_ =` (OAuth2 sibling
+  fails closed). `http/oidc_browser.go:149,201`.
+- **F8 / plan 020** — `finishPasswordReset` discards the `RevokeAllSessions` error
+  (`internal/authcore/password_reset.go:84`) and rotates non-atomically; reset can "succeed" while an
+  attacker's sessions survive. `ChangePassword`/`SetPasswordAfterFreshAuth` already `return err`.
+  NOTE: the one-line error-propagation is a strict improvement shippable NOW, independent of the
+  atomic-rotation half.
+- **F2 / plan 015** — email/SMS 2FA + step-up codes use non-atomic get-then-del
+  (`internal/authcore/ephemeral_data.go`), so the same code can authenticate two concurrent requests
+  within the TTL. Every sibling uses the atomic `ephemConsumeJSON`.
+
+## Tasks
+- [ ] Ship plan 020: propagate `RevokeAllSessions` error in `finishPasswordReset` (do the one-liner now); complete the atomic-rotation half.
+- [ ] Ship plan 014 (OIDC swallowed writes) and plan 015 (atomic code consume).
+- [ ] Confirm all three are green + covered before tagging v1.0.0.
+
+---
+
+# #200: [SECURITY] CLOSED — audience-required + timing-oracle both rejected as non-goals
+
+**Completed:** yes (WONTFIX — no code; decision record only)
+
+Closed 2026-07-02 (Paul). Both items originally proposed here are deliberate NON-GOALS. Do not re-audit.
+
+**1. Audience-required posture — REJECTED as over-engineering (Paul).** The conditional check at
+`verify/verifier.go:754` (`if len(match.audiences) > 0 && ...`) stays as-is — it's harmless and active
+when an issuer is configured with audiences. We will NOT add a `WithRequireAudience()` / fail-closed-at-
+registration hardening: the openrails ecosystem's cross-service trust is deliberately broad, the local
+issuer already binds `aud` at construction, and forcing an audience posture on federated issuers is
+complexity we don't want.
+
+**2. Login timing-oracle / account enumeration — REJECTED (Paul).** `PasswordLogin` timing differs
+(fast not-found ~1ms vs ~50ms Argon2id for a real user, `internal/authcore/passwords.go:18-21`), but
+account existence is INTENTIONALLY discoverable: the product surfaces "email/username already taken" and
+a public `/register/availability` endpoint for login/registration ergonomics. Enumeration resistance is
+explicitly not a goal, so equalizing timing defends nothing the front door already exposes, while a
+dummy-hash equalizer would add ~50ms of memory-hard Argon2id to EVERY failed login.
+
+(Archive to completed.md at next sweep.)
+
+---
+
+# #201: [v1 SURFACE] Define the "Client interface membership" rule; relocate browser-flow methods to HTTP-only
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). The `authkit.Client` interface has 95 methods; 43 have zero
+downstream calls. IMPORTANT CORRECTION (Paul): unused ≠ useless — a general-purpose auth library's API
+is defined by what a coherent embeddable toolkit should offer, not by what three in-house apps call.
+Do NOT bulk-delete by adoption count. Instead adopt a written membership rule and apply it:
+
+- **Layer test** — the Go `Client` is the *backend embedder's* capability surface. Keep a method if a
+  server calls it in-process; a browser/end-user request-flow belongs on the HTTP layer only (Passkeys
+  precedent, SEMVER §4.2).
+- **Completeness/symmetry** — keep lifecycle-completing methods even if unused (`MintAPIKey` needs
+  `RevokeAPIKey`; `SoftDeleteUser` implies `Restore`/`HardDelete`). Removing one arm is a footgun.
+- **Commitment** — only WHOLE speculative features are YAGNI cuts. Verified: invite-links / api-key /
+  remote-app management are all route-wired committed features → NOT cut candidates.
+
+Defensible relocations to HTTP-only under the layer test: **Passwordless** (`StartPasswordless`/`Confirm*`;
+the user completes it in a browser via `/passwordless/*`) and **`ExchangeRefreshToken`** (the `/token`
+endpoint's job). KEEP APIKeys mint/list/revoke, `RevokeAllSessions`/`ListUserSessions`, RemoteApps CRUD,
+user hard-delete/restore, `IsUserAllowed`, invite-links, `MintCustomJWT`.
+
+## Tasks
+- [ ] Write the 3-test membership rule into SEMVER.md (it governs future additions too, not just this trim).
+- [ ] Relocate `Passwordless` (5) + `ExchangeRefreshToken` off `Client` to HTTP-only; keep the routes + the impl on `internal/authcore.Service`.
+- [ ] Re-audit each remaining "unused" method against the rule; keep backend-capability + lifecycle methods.
+- [ ] Regenerate remote/server; confirm authkit's own routes unaffected (`http` holds `embedded.Unwrap → *authcore.Service`, not the interface).
+
+---
+
+# #202: [v1 SURFACE] Move zero-external packages behind `internal/`
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Seven §4.1 "stable" packages are imported by zero consumers
+(verified). Criterion here IS semantic (consumers only reach them *through* an option, never by naming
+the type), so internalizing is non-breaking for real consumers:
+
+- **`storage/memory`, `storage/redis`, `ratelimit/memory`, `ratelimit/redis`, `siws`** → `internal/`.
+  Reached only via `embedded.WithRedis`/`authhttp.WithRedis` / internal wiring.
+- **`remote`, `server`** → `internal/` OR mark Experimental. Generated Phase-2 transport, zero consumers
+  — the real point is DON'T freeze them into the v1 contract while unproven.
+- Guardrail: core **`ratelimit`** package (`Limit`/`Result`/`Reason*`) stays public — `DefaultRateLimits()`
+  returns `map[string]ratelimit.Limit`.
+- **`adapters/chi`** — keep as a Provided adapter but note it's speculative (all 3 apps use gin).
+- **`authtest`** — different case: it exists to be a *consumer* test helper, so internalizing defeats it.
+  It's unused even inside authkit's own tests → confirm the consumer-test story is real, else DELETE.
+
+## Tasks
+- [ ] Move storage/{memory,redis}, ratelimit/{memory,redis}, siws under `internal/`.
+- [ ] Internalize or mark Experimental: remote, server. Keep core `ratelimit` public.
+- [ ] Decide authtest: keep (with a real consumer-test example) or delete.
+- [ ] Update SEMVER §4.1 package table.
+
+---
+
+# #203: [v1 SURFACE] #143 topic interfaces — fix godoc, riverjobs takes the interface, make it the held type (do NOT delete)
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Only the composite `authkit.Client` is referenced as a type,
+and only by doujins; cozy-art/tensorhub hold the concrete `*embedded.Client`; no consumer types against a
+narrow slice. CORRECTION: this is NOT evidence the split is useless — the split shipped in v0.72, all three
+consumers integrated long before that and don't refactor working code to adopt a new seam. The seam's real
+audience (new integrations + test fakes) isn't in this sample. So keep the interfaces; fix the real bugs:
+
+- `authkit.Authorizer` godoc (`interfaces.go:9`) claims "doujins's request gate depends on it" — **false**:
+  doujins' `RequirePermission` takes the fat `authkit.Client` and calls `verify.Allow(...)`. Doc bug.
+- `adapters/riverjobs` forces a downcast to `*embedded.Client` (doujins `registry.go:50`) — authkit's own
+  adapter defeating its own seam. Make it accept `authkit.Client`.
+
+## Tasks
+- [ ] Fix / delete the fictional `Authorizer` godoc claim.
+- [ ] Change `adapters/riverjobs` (`RegisterPurgeDeletedUsersWorker`) to accept `authkit.Client`.
+- [ ] Document `authkit.Client` (interface) as the recommended held type (SEMVER §4.2 example).
+
+---
+
+# #204: [v1 SURFACE] Cover `ErrInsufficientRoleAuthority` + `ErrRoleAssignmentEscalation` in the contract
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Both sentinels exist at HEAD (`errors.go:25,47`) and doujins
+does `errors.Is` against both, but SEMVER.md references them **zero** times — a consumer depends on
+uncovered surface, so a "non-breaking" change to them would silently break doujins.
+
+## Tasks
+- [ ] Add both sentinels to SEMVER §4's covered error list (or unexport them if they're not meant for consumers).
+
+---
+
+# #205: [v1 SURFACE][BREAKING] Package/path rename: `http`→`authhttp`, `oidc`→`oidckit`, `jwt`→`jwtkit`
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Folder name ≠ package name for three packages, so consumers
+carry the path in the import and a different identifier in code (doujins imports `embedded` three ways).
+It's a MAJOR/breaking rename → the pre-1.0 window is now-or-never. Paul: prefer doing all such breaking
+renames while still on v0.x.
+
+## Tasks
+- [ ] Rename directories to match packages (or vice-versa): `http`↔`authhttp`, `oidc`↔`oidckit`, `jwt`↔`jwtkit`.
+- [ ] Update SEMVER §4.1, README, api-endpoints, examples.
+- [ ] Coordinate the consumer import migration with the #143 bump.
+
+---
+
+# #206: [v1 SURFACE][BREAKING] Strip legacy backcompat aliasing pre-1.0
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Paul: remove old aliasing / legacy names / backcompat while on
+v0.x. KEY DISTINCTION — two kinds of "alias," only one is cruft:
+
+- **Backcompat re-exports that duplicate a canonical PUBLIC home → DELETE:**
+  - `http/verify_aliases.go` — re-exports the public `verify.*` (Verifier/Claims/Required/Optional, ~40
+    symbols) under `authhttp` "so existing embedders keep compiling" after the #110 split. A second public
+    path for symbols that already live in `verify`. Delete; consumers import `verify.X`.
+  - `Service` ≡ `Server` type alias (`http/server.go:22`, #109 collision) — pick one name.
+  - Duplicate mint entry point: `MintDelegatedAccessToken` as a `Client` method AND free func
+    `authhttp.MintDelegatedAccessToken` — collapse to one.
+  - Dead-param-for-compat: `internal/authcore/token_issue.go:64` `_ = email // kept for API compatibility` — drop the param.
+  - Legacy `code`-carries-token acceptance in reset/verify confirm (#10) — require `token`, drop legacy field.
+- **Facade re-exports that only LOOK like aliases → KEEP:** `embedded/aliases.go` (~50 `type X = authcore.X`)
+  is the mechanism keeping `internal/authcore` internal while its types stay public. No canonical public
+  alternative (alternative = export `internal/` — worse). Architecture, not debt.
+
+Tell for the difference: if dropping the alias leaves the symbol reachable at a canonical public path, it's
+droppable duplication; if it forces exporting `internal/` or a mass type-move, it's load-bearing facade.
+
+## Tasks
+- [ ] Delete `http/verify_aliases.go`; migrate the three consumers `authhttp.X` → `verify.X`.
+- [ ] Collapse `Service`/`Server` to one name.
+- [ ] Dedupe `MintDelegatedAccessToken` (one public entry point).
+- [ ] Drop the dead `email` param in `token_issue.go`; remove the legacy `code`-as-token field.
+- [ ] Explicitly KEEP `embedded/aliases.go`.
+
+---
+
+# #207: [v1 SURFACE][BREAKING] Delete the `authprovider` Transforms DSL; use `IdentityMapper` + standard OIDC claims
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit) — actions audit.md #3. The declarative field-mapping mini-language
+(`UserMapping`, `FieldMapping` with `Transforms []string`, `FallbackLookup`, `MapIdentity`, `MapFallbackEmail`,
+`ErrProviderInvalidTransform`) has zero downstream use, and its replacement ALREADY exists and is ALREADY
+preferred: `Provider.IdentityMapper func(any)(Identity,error)` (`authprovider/provider.go:52`), used at
+`http/oauth2_provider.go:43` when set. Refactor so OIDC providers (Google/Apple) read standard ID-token
+claims via `oidckit` and OAuth2-only providers (Discord/GitHub) use an `IdentityMapper`; delete the DSL.
+
+## Tasks
+- [ ] Migrate built-ins (`authprovider/builtins.go`) off the DSL to standard-claims / `IdentityMapper`.
+- [ ] Delete the DSL types + `MapIdentity`/`MapFallbackEmail` + `ErrProviderInvalidTransform`.
+- [ ] Keep `Provider`, `ClientSecret`, `Identity`, `BuiltIn`, `Clone`, `AppleJWTSecret`.
+
+---
+
+# #208: [v1 SURFACE] Leaf surface cleanups
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Small, mostly non-breaking public-surface trims:
+
+- Move `AuthCapabilities` + 6 sub-types (`capabilities.go:4-48`) into `authhttp` — built only by
+  `http/providers_get.go`, a JSON response shape living in the root package.
+- Drop the `RBACDriftReport` facade method (`embedded/facade_methods.go:353`, 0 callers); keep the engine
+  impl, move the struct to `internal/authcore`.
+- `jwtkit` export-only trims (SEMVER §11 #7): unexport advanced key sources with zero external use
+  (`KeyRing`, `EnvKeySource`, `FileKeySource`, `ReloadableKeySource`, `NewAutoKeySource`,
+  `NewGeneratedKeySource`, `ECDSASigner`, `Ed25519Signer`) — most are internally load-bearing, so unexport
+  rather than delete; expose only the `KeySource`/`Signer` facade. Verify `KeyRing`.
+- Delete the stale `var _ = time.Second // keep import` fragment in `contract.go` (`time` is genuinely used).
+
+## Tasks
+- [ ] Relocate `AuthCapabilities` types to `authhttp`.
+- [ ] Drop `embedded.Client.RBACDriftReport`; move struct internal.
+- [ ] Unexport the jwtkit advanced key sources; keep the facade.
+- [ ] Delete the `contract.go` dead-comment fragment.
+
+---
+
+# #209: [DX] Ship gin-native `Optional`/`Required`; fix the discoverability gap
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). All three apps hand-write the identical `net/http`→`gin.HandlerFunc`
+shim around `authhttp.Optional/Required` (doujins `authkit_http.go:15`, cozy-art `provider_authkit.go:56`,
+tensorhub `service.go:750`). The shipped `authkitgin.Use/RequirePermission/UserClaims/Principal` helpers are
+used **0 times** — they're documented but unreachable from the packages consumers actually import. Highest-
+value ergonomic gap.
+
+## Tasks
+- [ ] Expose gin-native `Optional(v)`/`Required(v)` from where people import (e.g. methods on the returned server, or a clearly-surfaced `authkitgin`).
+- [ ] Add a one-line godoc pointer from `verify.Optional/Required` to the gin adapter.
+
+---
+
+# #210: [DX] Take Redis once — fix the dual `WithRedis` split-brain footgun
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `embedded.WithRedis` and `authhttp.WithRedis` are separate; all
+three apps wire both and each left a warning comment. The prod validation (`http/server.go:106`) only checks
+the HTTP side, so a missing engine Redis passes and yields silent split-brain state across replicas.
+
+## Tasks
+- [ ] Have `NewServer` reuse the engine's configured Redis by default (single source); make a second `WithRedis` an override, not a requirement.
+
+---
+
+# #211: [DX] One construction entrypoint + a `RegisterAll` route helper
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Every app copy-pastes ~150 lines of `Config`→`embedded.New`→
+`authhttp.NewServer` glue (doujins `di/authkit.go:66-195`, cozy-art `api.go:199-249`, tensorhub
+`service.go:365-432`) plus the same `/oidc`→`/oidc/` redirect trio. The `Client`/`Service`/`Server` naming
+triad is confusing (see #206 for the alias half).
+
+## Tasks
+- [ ] Offer `authhttp.New(cfg, pg, ...opts)` that builds both layers and routes options internally (keep the two-step path for advanced users).
+- [ ] Ship a `RegisterAll(engine, svc, opts)` that mounts JWKS/OIDC/API (+ the /oidc redirect) in one call.
+
+---
+
+# #212: [DX] Return an error instead of panicking on `Registration.Verification=Required` without a sender
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). authkit panics at handler-mount when verification is Required but
+no email/SMS sender is wired. cozy-art works around it by silently downgrading to Optional (`api.go:191-197`);
+doujins pre-validates (`di/authkit.go:216-225`) — two workarounds for one footgun.
+
+## Tasks
+- [ ] Return a construction error from `NewServer`/`New` instead of panicking; document the requirement.
+
+---
+
+# #213: [DX] Consolidate the two error-code registries + one `HTTPStatus(err)` mapper
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Two parallel registries carry the same string values in different
+types: `authkit.ErrX` sentinels (`errors.go`, ~60) and `authhttp.ErrorCode` (`http/error_codes.go`, ~210
+consts), mapped to HTTP status by hand-written `errors.Is` chains in ~20 handlers. A consumer calling a
+`Client` method directly must re-implement the mapping authkit already encodes. (Related: #197's `CodeForError`.)
+
+## Tasks
+- [ ] Expose one `authkit.HTTPStatus(err) (int, code)` mapper the handlers and consumers both use.
+- [ ] Generate `authhttp.ErrorCode` from the sentinel set instead of a hand-maintained parallel list.
+
+---
+
+# #214: [DX] Consistent token verbs (`Mint*`) + a first-class `Principal`/`Source` classifier
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). The token surface uses arbitrary verbs for the same act of signing
+a JWT (`IssueAccessToken` vs `MintCustomJWT`/`MintDelegated…`/`MintService…`), and tensorhub maintains a large
+hand-written principal-disambiguation layer (`internal/api/principal.go`, ~20 fields; `auth_any.go:78-118`)
+to tell delegated / remote-app / service-JWT / api-key apart at verify time.
+
+## Tasks
+- [ ] Standardize on `Mint{Access,Service,Delegated,RemoteApp,Custom}Token`.
+- [ ] Ship a `verify.Principal`/`Source` classifier so consumers don't hand-roll the disambiguation.
+
+---
+
+# #215: [PERF][BREAKING] Make the authenticated-request path stateless (0 DB lookups) — realign with the #90 TTL-bound design
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit); redesigned 2026-07-02 (Paul). `verify/middleware.go:69-88` does up
+to FOUR DB round-trips on every authenticated native-user request in stateful mode: hardcoded
+`GetProviderUsername(…, "discord")`, `ListRoleSlugsByUser` (when the token has no roles), `UsersByIDs` (when
+email absent), and the `IsUserAllowed` ban gate (which itself reads `profiles.users` TWICE — `UserByID` +
+`UserIsReserved`). Target: 0 DB lookups on the common path.
+
+**KEY FINDING — the per-request ban gate contradicts authkit's own design (#90).** `service.go:348-352`: the
+15-min default access TTL "bounds revocation lag to one TTL window ... we deliberately rely on this bound
+INSTEAD OF a per-request jti/liveness lookup." The middleware `IsUserAllowed` IS that per-request liveness
+lookup #90 says to avoid. Ban/deleted is already enforced where new tokens are minted: login
+(`ensureUserAccess`) and refresh (`ExchangeRefreshToken` → `ensureUserAccessByID` + `IsUserAllowed`, and
+`RevokeAllSessions` on disable — verified `service_sessions.go:140`). So a banned/deleted user CANNOT get a
+new access token; the existing one expires in ≤15min. Paul: that residual window is acceptable — drop the
+live per-request check; never fetch more than the request needs.
+
+## Tasks
+- [ ] Remove the per-request `IsUserAllowed` ban gate from `verify/middleware.go` (ban enforced at login + refresh; ≤15min residual per #90).
+- [ ] Remove the hardcoded `GetProviderUsername(…, "discord")` lookup.
+- [ ] Drop per-request role/email enrichment: roles resolve lazily via `Can()` on permission-gated routes only (already DB-live there); email rides in the token. Common authenticated request → ZERO DB lookups.
+- [ ] Keep a live ban/deleted check available ONLY for admin/sensitive routes where instant lockout matters (opt-in, not the global path).
+- [ ] Integration tests: banned user keeps access until token expiry (≤15min), is rejected at refresh + can't mint a new token; assert the normal authenticated request path issues no DB query.
+
+## Rejected (2026-07-02, Paul): a short-TTL ban-gate cache — over-engineering + security cost
+A per-user cache on the ban/deleted gate would let a banned/deleted user keep authenticating for up to
+the TTL — a soft fail-OPEN on a security gate (cuts against fail-closed-on-authz). It adds invalidation +
+memory-growth + staleness concerns to buy an UNPROFILED speedup. Instant, uncached ban enforcement is the
+correct default. Revisit ONLY if profiling later proves the ban gate is a real bottleneck. The two tasks
+above (drop the hardcoded Discord lookup; merge the double users-row read) remove work AND code with zero
+downside — those are the whole of #215 now.
+
+---
+
+# #216: [PERF] Kill the double JWT parse on every non-API-key request
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `verify/verifier.go:977` (`verifyClaimsWithHeader`) fully parses
+via `VerifyClaims`, then re-parses with `ParseUnverified` (`:986`) solely to read the `typ` header — a second
+base64-decode + JSON-unmarshal per request.
+
+## Tasks
+- [ ] Return `typ` from `VerifyClaims`'s single parse (internal variant), drop the `ParseUnverified` re-parse.
+
+---
+
+# #217: [PERF] Redis limiter: single Lua script (pipeline writes + fix TOCTOU over-admit)
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `ratelimit/redis/limiter.go:99-102`: the allowed path adds two
+extra round-trips after the pipelined read (`ZAdd` + a redundant `Expire` that duplicates line 50). Login
+endpoints call this twice (IP + identifier) → up to 6 round-trips/attempt. The count-check and `ZAdd` are also
+non-atomic → concurrent requests over-admit.
+
+## Tasks
+- [ ] Replace the read-then-write sequence with one atomic Lua script (fixes round-trips AND the TOCTOU).
+- [ ] Drop the redundant line-102 `Expire`.
+
+---
+
+# #218: [PERF] Minor hot-path allocation/write cleanups
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit).
+
+## Tasks
+- [ ] Hoist `headerRegex` (`siws/parse.go:21`) to a package-level `var` (compiled per call today; every other regex in the tree is already package-level).
+- [ ] Throttle `touchAccessTokenAsync` (`internal/authcore/api_keys.go:388`) — only update `last_used_at` if older than N minutes, to cut the goroutine + write per API-key request.
+
+---
+
+# #219: [v1 SURFACE][DESIGN] Batch-native operation contract — collapse single↔batch duplication
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). Make batch the DEFAULT and ONLY shape for collection-oriented
+operations: a single-item call is just the batch with a one-element slice. Removes batch+single handler
+duplication, lets consumers act on many records in one round-trip (kills the N+1 flagged in #215 and
+doujins #738), and shrinks the surface. The codebase already leans this way (`UsersByIDs`,
+`RootRolesForUsers`, `ListEntitlementsBatch`) — this regularizes it and deletes the single-variants.
+
+**Read contract:** `(ctx, []ID) (map[ID]T, error)` — missing IDs are simply absent; single-item is
+`m[id]`. Trivial partial-result semantics.
+
+**Write/mutation contract:** return PER-ITEM results — `[]OpResult{ID string; Err error}` (or
+`map[ID]error`) — so partial failure is expressible; OR be explicitly all-or-nothing transactional where
+that's the right semantic. Chosen + documented per op. A bare `([]T) error` single-error is the
+ANTI-PATTERN to avoid (caller can't tell which item failed).
+
+**EXCLUSIONS — do NOT batch (Rule 1).** Request-scoped single-subject auth primitives stay single:
+`VerifyRequest`/`Verify`, `PasswordLogin`, `MintAccessToken`, `Can(subject,…)`, `ResolveAPIKey`, refresh
+exchange. They're inherently one-principal / one-request; batching breaks their semantics and puts
+partial-failure ambiguity on the auth path. Batch-native = collection ops, NOT per-request primitives.
+
+## Tasks
+- [ ] Write the read + write contract + the exclusion list into SEMVER.md as the operation-shape rule (governs future methods too).
+- [ ] Apply via #220 (reads), #221 (entitlements), #222 (mutations).
+
+---
+
+# #220: [v1 SURFACE][BREAKING] Collapse single-item reads into batch reads
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit) — applies #219 to reads. Today `UsersByIDs` (batch, `client.go:48`)
+coexists with single `GetUserByEmail/Phone/Username/SolanaAddress`; `ListRoleSlugsByUser`/`…Err`
+(`client.go:78-79`) are single (doujins #738 runs one role query per user, `user_service.go:117`);
+`GetProviderUsername` (`client.go:141`) is single AND is the unconditional per-request Discord lookup
+called out in #215.
+
+## Tasks
+- [ ] Keep `UsersByIDs`; return `map[id]UserRef` for O(1) single-item access.
+- [ ] Collapse `ListRoleSlugsByUser`/`ListRoleSlugsByUserErr` → `RoleSlugsByUsers(ctx, []userID) (map[string][]string, error)` (fixes doujins #738).
+- [ ] Collapse `GetProviderUsername` → `ProviderUsernames(ctx, []userID, provider) (map[string]string, error)` (lets #215 enrichment batch instead of one lookup/request).
+- [ ] Add `UsersByEmails`/`UsersByUsernames` batch lookups where admin/import paths resolve many by unique key; drop the single variants not needed by an auth primitive.
+
+---
+
+# #221: [v1 SURFACE][BREAKING] Collapse the entitlements provider trio to batch-only
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit) — applies #219; supersedes the audit's earlier "trio is justified"
+note. Today three interfaces (`internal/authcore/service.go:114-137`): `EntitlementsProvider` (single),
+`BatchEntitlementsProvider` (optional upgrade detected by type assertion), `EntitlementFilterProvider`
+(reverse: entitlement → subjects). doujins already implements the batch one
+(`openrailsembed/entitlements.go:53`). The single+batch optionality existed ONLY to avoid forcing batch on
+providers — batch-native removes that reason.
+
+## Tasks
+- [ ] Merge single+batch into ONE `EntitlementsProvider{ ListEntitlements(ctx, []userID) (map[string][]string, error) }`; delete `BatchEntitlementsProvider` and the type-assertion upgrade dance in `service.go:2499`.
+- [ ] Keep `EntitlementFilterProvider` (distinct reverse operation). Trio → 2.
+- [ ] Update `WithEntitlements` + the doujins provider to the batch-only signature.
+
+---
+
+# #222: [v1 SURFACE][BREAKING] Batch-native bulk mutations with per-item results
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit) — applies #219 to writes. Today single-row mutations:
+`SetEmailVerified`, `SoftDeleteUser`, `RestoreUser`, `HardDeleteUser`, `UpdateEmail`/`UpdateUsername`,
+`AssignRoleBySlug`/`RemoveRoleBySlug` (+ `…As` actor-checked variants). Admin flows that touch many rows
+(ban-many, purge, bulk role grant) currently loop one call per row.
+
+## Tasks
+- [ ] Convert bulk-capable mutations to batch-native returning per-item results (`[]OpResult{ID, Err}`); single-item = one-element slice.
+- [ ] Preserve the per-item `…As` actor-authority check (no-escalation) inside the batch.
+- [ ] Keep single-subject auth primitives OUT of batching per #219 (login/verify/mint/Can/ResolveAPIKey).
+- [ ] Decide per op: per-item best-effort vs all-or-nothing transactional; document each.
+
+---
+
+# #223: [BUG] Group-invite email sender is dead code — FIX it to actually send (align with `SendPasswordResetLink`)
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit); refined 2026-07-02 (Paul: confirm group-invite-by-email still works).
+
+**SCOPE GUARDRAIL — the invite FEATURE is fine and stays.** `CreateAccountRegistrationInvite` (`client.go:90`)
+creates the invite, assigns the carried persona+role, and returns `AccountRegistrationInviteCreated{Code, URL,
+Persona, Role, ...}` with the invite URL/token. Inviting an unknown email to a permission group with a role is
+a live, tested flow (`TestGroupMemberAddUnknownEmailMintsRoleCarryingAccountInvite_HTTP`). This issue is ONLY
+about the email-SEND helper, NOT invite creation.
+
+**THE BUG.** `sendAccountRegistrationInviteEmail` (`internal/authcore/account_registration_invites.go:169-181`,
+called at `:165`) type-asserts the host sender to `AccountRegistrationInviteEmailSender` (`:63`), whose method
+takes `AccountRegistrationInviteMessage` — an `internal/authcore` struct NOT re-exported (verified). No consumer
+can name that type, so the assertion ALWAYS fails and authkit NEVER sends the invite email. Today the invite is
+delivered only if the host emails `created.URL` itself.
+
+**ROOT CAUSE + FIX.** The sibling optional sender `SendPasswordResetLink(ctx, email, username, resetURL string)`
+(`senders.go:38`) works precisely because it uses PLAIN STRING args, not an internal struct. Align the invite
+sender the same way so authkit actually sends the invite email through the host's `EmailSender` — consistent
+with how it already sends verification + password-reset-link emails.
+
+## Tasks
+- [ ] RECOMMENDED: change `SendAccountRegistrationInvite` to plain-string args (e.g. `(ctx, email, inviteURL, persona, role string)`) matching `SendPasswordResetLink`; delete the internal `AccountRegistrationInviteMessage` struct. Now a host sender CAN implement it and authkit sends the invite email.
+- [ ] Test: a host `EmailSender` implementing the optional interface receives the invite send (assertion now succeeds).
+- [ ] ALTERNATIVE (only if host-delivers-URL is explicitly preferred): delete the sender interface + method + call at `:165`; document that emailing `created.URL` is the host's job. Do NOT touch `CreateAccountRegistrationInvite`.
+
+---
+
+# #224: [OVER-ENG] Delete the unused `ClaimsBuilder` interface
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `jwt/jwt.go:26` — exported interface with **zero** references
+(verified: only the 2 definition lines across authkit + all three consumers; no implementer, no
+`WithClaimsBuilder`, no field, no caller). Speculative extension point nobody wired up.
+
+## Tasks
+- [ ] Delete the `ClaimsBuilder` interface (one-line reintroduction if custom-claim layering is ever actually needed).
+
+---
+
+# #225: [OVER-ENG] Inline the single-use `credentialScanner` interface
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `internal/authcore/passkeys.go:402-404` — the
+`{ Scan(dest ...any) error }` "accept both pgx.Row and pgx.Rows" abstraction has exactly one consumer,
+`scanWebAuthnCredential` (`:406`), whose only caller (`passkeyCredentialsByUser`, `:384`) always passes a
+`pgx.Rows` from a `rows.Next()` loop. Only `pgx.Rows` is ever passed.
+
+## Tasks
+- [ ] Change `scanWebAuthnCredential` to take `pgx.Rows` (or `pgx.CollectableRow`) directly; delete the interface.
+
+---
+
+# #226: [OVER-ENG] Collapse `allowResult` into `allowResultForKey` (dedup limiter dispatch)
+
+**Completed:** no
+
+Proposed 2026-07-02 (Paul + Claude audit). `http/service.go:133` (`allowResult`) derives
+`key := "auth:"+bucket+":ip:"+ip` then runs the IDENTICAL `RateLimiterWithResult` type-assert-else-`AllowNamed`
+block (`:149-161`) that `allowResultForKey` already contains (`:118-130`).
+
+## Tasks
+- [ ] Have `allowResult` do its nil/IP checks, compute `key`, then `return s.allowResultForKey(bucket, key)` (~10 duplicated lines gone).

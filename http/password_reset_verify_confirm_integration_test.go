@@ -47,6 +47,10 @@ func (s *captureEmailSender) SendPasswordResetLink(_ context.Context, _, _, rese
 	return nil
 }
 
+func (s *captureEmailSender) SendAccountRegistrationInvite(context.Context, string, string) error {
+	return nil
+}
+
 func (s *captureEmailSender) SendLoginCode(context.Context, string, string, string) error { return nil }
 func (s *captureEmailSender) SendWelcome(context.Context, string, string) error           { return nil }
 

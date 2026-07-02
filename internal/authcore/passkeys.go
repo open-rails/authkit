@@ -399,11 +399,7 @@ FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`
 	return out, rows.Err()
 }
 
-type credentialScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanWebAuthnCredential(row credentialScanner) (webauthn.Credential, error) {
+func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 	var (
 		credentialID, publicKey, aaguid, flags []byte
 		transports                             []string

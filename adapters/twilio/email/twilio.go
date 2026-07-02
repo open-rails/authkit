@@ -199,6 +199,16 @@ func (s *Sender) SendPasswordResetLink(ctx context.Context, email, username, res
 	return s.sendEmail(ctx, email, Message{Subject: copy.resetSubject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "password-reset"}})
 }
 
+func (s *Sender) SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error {
+	app := s.appLabel()
+	inviteURL = strings.TrimSpace(inviteURL)
+	subject := fmt.Sprintf("You're invited to %s", app)
+	intro := fmt.Sprintf("You've been invited to join %s. Follow the link to create your account:", app)
+	text := fmt.Sprintf("%s\n%s", intro, inviteURL)
+	html := fmt.Sprintf("<p>%s</p><p>%s</p>", escapeHTML(intro), escapeHTML(inviteURL))
+	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: text, HTMLBody: html, Categories: []string{"auth", "invite"}})
+}
+
 func (s *Sender) SendLoginCode(ctx context.Context, email, username, code string) error {
 	if s.LoginCodeBuilder != nil {
 		return s.sendEmail(ctx, email, s.LoginCodeBuilder(ctx, email, username, code))
