@@ -7,7 +7,6 @@ package authkit
 
 import (
 	"context"
-	"net"
 	"time"
 )
 
@@ -125,10 +124,12 @@ type APIKeys interface {
 	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (ResolvedAPIKey, error)
 }
 
-// Sessions is the refresh-session surface: refresh-token exchange, list, and
-// revoke-all.
+// Sessions is the backend session surface: list and revoke-all. Refresh-token
+// EXCHANGE is deliberately NOT here — it is a browser/end-user request flow served
+// by the /token endpoint, so it lives on the HTTP layer only (layer test, SEMVER
+// §4.2). The engine impl stays on *authcore.Service; authkit's own /token handler
+// calls it there via embedded.Unwrap.
 type Sessions interface {
-	ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (string, time.Time, string, error)
 	ListUserSessions(ctx context.Context, userID string) ([]Session, error)
 	RevokeAllSessions(ctx context.Context, userID string, keepSessionID *string) error
 }
@@ -152,14 +153,11 @@ type RemoteApps interface {
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error)
 }
 
-// Passwordless drives the email/SMS code/link login flow.
-type Passwordless interface {
-	StartPasswordless(ctx context.Context, req PasswordlessStartRequest) (PasswordlessStartResult, error)
-	ConfirmPasswordlessCode(ctx context.Context, identifier, code string) (PasswordlessConfirmResult, error)
-	ConfirmPasswordlessToken(ctx context.Context, token string) (PasswordlessConfirmResult, error)
-	RecordFailedPasswordlessCode(ctx context.Context, identifier string)
-	ClearPasswordlessCodeAttempts(ctx context.Context, identifier string)
-}
+// Passwordless (email/SMS code/link login) is deliberately NOT on the Client
+// contract: the end user completes it in a browser via the /passwordless/* routes,
+// so it is an HTTP-layer flow (layer test, SEMVER §4.2), not a backend embedder
+// capability. The engine impl stays on *authcore.Service; the routes call it there.
+// The Passwordless{Start,Confirm}* DTOs remain public for the HTTP request/response.
 
 // Bootstrap applies a parsed bootstrap manifest (operator/deploy seeding).
 type Bootstrap interface {
@@ -212,7 +210,6 @@ type Client interface {
 	Sessions
 	Providers
 	RemoteApps
-	Passwordless
 	Bootstrap
 	Senders
 	Entitlements

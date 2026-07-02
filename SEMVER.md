@@ -177,6 +177,24 @@ not the `authkit.Client` interface. The covered passkey **library** surface is t
 and the `ErrPasskey*` sentinels below; the ceremony request/response JSON bodies follow the
 W3C WebAuthn standard (`navigator.credentials.create`/`get`) and are exercised via the routes.
 
+**Passwordless & refresh-token exchange are HTTP-transport-driven (relocated off `Client`, #201).**
+Like Passkeys, these are browser/end-user request flows, not backend-embedder capabilities, so the
+methods live on `internal/authcore` and are exercised through routes only — `StartPasswordless`/
+`ConfirmPasswordless{Code,Token}`/`RecordFailedPasswordlessCode`/`ClearPasswordlessCodeAttempts` via the
+passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the `/token` endpoint. The
+`Passwordless{Start,Confirm}*` request/response types stay covered (below); the methods are NOT on
+`authkit.Client`.
+
+**`Client` interface membership rule (#201) — governs what may be ADDED to the contract too:**
+1. **Layer test.** The Go `Client` is the *backend embedder's* capability surface. A method belongs on
+   it only if a server calls it in-process; a browser/end-user request flow (passkeys, passwordless,
+   refresh exchange) belongs on the HTTP layer only.
+2. **Completeness/symmetry.** Keep lifecycle-completing methods even if currently unused (`MintAPIKey`
+   ⇒ `RevokeAPIKey`; `SoftDeleteUser` ⇒ `Restore`/`HardDelete`) — removing one arm is a footgun.
+3. **Commitment.** Only a WHOLE speculative feature is a YAGNI cut; a route-wired committed feature
+   (invite links, api-key / remote-app management) is kept even at low adoption.
+Adoption count alone is NOT a criterion for adding or removing a method.
+
 **`Client` interface methods** (covered) — the curated embedder surface, defined on
 `authkit.Client` (and its topic interfaces) and implemented by `*embedded.Client`. Adding
 a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`CreateUser`,
@@ -189,9 +207,8 @@ a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`Crea
 links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
 `RedeemGroupInviteLink`/`ExternalInvitesEnabled`); API keys
 (`MintAPIKey`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey[WithResources]`); remote
-apps; identity linking; sessions; bootstrap; passwordless (`StartPasswordless`,
-`ConfirmPasswordlessCode`, `ConfirmPasswordlessToken`, `RecordFailedPasswordlessCode`,
-`ClearPasswordlessCodeAttempts`); and accessors (`JWKS`, `Postgres`, `Schema`,
+apps; identity linking; sessions (`ListUserSessions`, `RevokeAllSessions` — NOT refresh
+exchange, which is HTTP-only per the note above); bootstrap; and accessors (`JWKS`, `Postgres`, `Schema`,
 `Options`, `PublicKeysByKID`, `Keyfunc`, …). Every method on the `Client` interface is
 covered; the implementation methods on `internal/authcore.Service` (beyond what `Client`
 exposes) are **not**. (Method names above are illustrative; `client.go` is authoritative.)

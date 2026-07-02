@@ -177,37 +177,6 @@ var generatedMethods = map[string]MethodFunc{
 	"CleanupExpiredAuthState": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		return nil, c.CleanupExpiredAuthState(ctx)
 	},
-	"ClearPasswordlessCodeAttempts": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"identifier"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		c.ClearPasswordlessCodeAttempts(ctx, a.A0)
-		return nil, nil
-	},
-	"ConfirmPasswordlessCode": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"identifier"`
-			A1 string `json:"code"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.ConfirmPasswordlessCode(ctx, a.A0, a.A1)
-		return r0, err
-	},
-	"ConfirmPasswordlessToken": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"token"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.ConfirmPasswordlessToken(ctx, a.A0)
-		return r0, err
-	},
 	"CreateAccountRegistrationInvite": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 authkit.CreateAccountRegistrationInviteRequest `json:"req"`
@@ -261,18 +230,6 @@ var generatedMethods = map[string]MethodFunc{
 	"EnsureRootGroup": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		r0, err := c.EnsureRootGroup(ctx)
 		return r0, err
-	},
-	"ExchangeRefreshToken": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"refreshToken"`
-			A1 string `json:"ua"`
-			A2 net.IP `json:"ip"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, r1, r2, err := c.ExchangeRefreshToken(ctx, a.A0, a.A1, a.A2)
-		return map[string]any{"r0": r0, "r1": r1, "r2": r2}, err
 	},
 	"ExternalInvitesEnabled": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		return c.ExternalInvitesEnabled(), nil
@@ -624,16 +581,6 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.PatchUserMetadata(ctx, a.A0, a.A1)
 	},
-	"RecordFailedPasswordlessCode": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"identifier"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		c.RecordFailedPasswordlessCode(ctx, a.A0)
-		return nil, nil
-	},
 	"RedeemGroupInviteLink": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"code"`
@@ -810,16 +757,6 @@ var generatedMethods = map[string]MethodFunc{
 			return nil, err
 		}
 		return nil, c.SoftDeleteUser(ctx, a.A0)
-	},
-	"StartPasswordless": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 authkit.PasswordlessStartRequest `json:"req"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.StartPasswordless(ctx, a.A0)
-		return r0, err
 	},
 	"TimeUntilUsernameRenameAvailable": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {

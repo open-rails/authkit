@@ -100,25 +100,6 @@ func (c *Client) CleanupExpiredAuthState(ctx context.Context) error {
 	return c.call(ctx, "CleanupExpiredAuthState", nil, nil)
 }
 
-func (c *Client) ClearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
-	args := map[string]any{"identifier": identifier}
-	_ = c.call(ctx, "ClearPasswordlessCodeAttempts", args, nil)
-}
-
-func (c *Client) ConfirmPasswordlessCode(ctx context.Context, identifier string, code string) (authkit.PasswordlessConfirmResult, error) {
-	args := map[string]any{"identifier": identifier, "code": code}
-	var out authkit.PasswordlessConfirmResult
-	err := c.call(ctx, "ConfirmPasswordlessCode", args, &out)
-	return out, err
-}
-
-func (c *Client) ConfirmPasswordlessToken(ctx context.Context, token string) (authkit.PasswordlessConfirmResult, error) {
-	args := map[string]any{"token": token}
-	var out authkit.PasswordlessConfirmResult
-	err := c.call(ctx, "ConfirmPasswordlessToken", args, &out)
-	return out, err
-}
-
 func (c *Client) CreateAccountRegistrationInvite(ctx context.Context, req authkit.CreateAccountRegistrationInviteRequest) (authkit.AccountRegistrationInviteCreated, error) {
 	args := map[string]any{"req": req}
 	var out authkit.AccountRegistrationInviteCreated
@@ -156,17 +137,6 @@ func (c *Client) EnsureRootGroup(ctx context.Context) (string, error) {
 	var out string
 	err := c.call(ctx, "EnsureRootGroup", nil, &out)
 	return out, err
-}
-
-func (c *Client) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (string, time.Time, string, error) {
-	args := map[string]any{"refreshToken": refreshToken, "ua": ua, "ip": ip}
-	var out struct {
-		R0 string    `json:"r0"`
-		R1 time.Time `json:"r1"`
-		R2 string    `json:"r2"`
-	}
-	err := c.call(ctx, "ExchangeRefreshToken", args, &out)
-	return out.R0, out.R1, out.R2, err
 }
 
 func (c *Client) ExternalInvitesEnabled() bool {
@@ -421,11 +391,6 @@ func (c *Client) PatchUserMetadata(ctx context.Context, userID string, patch map
 	return c.call(ctx, "PatchUserMetadata", args, nil)
 }
 
-func (c *Client) RecordFailedPasswordlessCode(ctx context.Context, identifier string) {
-	args := map[string]any{"identifier": identifier}
-	_ = c.call(ctx, "RecordFailedPasswordlessCode", args, nil)
-}
-
 func (c *Client) RedeemGroupInviteLink(ctx context.Context, code string, redeemerUserID string) (authkit.RedeemGroupInviteLinkResult, error) {
 	args := map[string]any{"code": code, "redeemerUserID": redeemerUserID}
 	var out authkit.RedeemGroupInviteLinkResult
@@ -535,13 +500,6 @@ func (c *Client) SoftDeleteUser(ctx context.Context, id string) error {
 	return c.call(ctx, "SoftDeleteUser", args, nil)
 }
 
-func (c *Client) StartPasswordless(ctx context.Context, req authkit.PasswordlessStartRequest) (authkit.PasswordlessStartResult, error) {
-	args := map[string]any{"req": req}
-	var out authkit.PasswordlessStartResult
-	err := c.call(ctx, "StartPasswordless", args, &out)
-	return out, err
-}
-
 func (c *Client) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {
 	args := map[string]any{"userID": userID, "now": now}
 	var out int64
@@ -622,3 +580,9 @@ func (c *Client) VerifyUserPassword(ctx context.Context, userID string, pass str
 	_ = err
 	return out
 }
+
+// pin imports used only by some signatures.
+var (
+	_ net.IP
+	_ time.Time
+)

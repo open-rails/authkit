@@ -274,6 +274,7 @@ import (
 		}
 		b.WriteString("}\n")
 	}
+	b.WriteString("\n// pin imports used only by some signatures.\nvar (\n\t_ net.IP\n\t_ time.Time\n)\n")
 	return b.Bytes()
 }
 

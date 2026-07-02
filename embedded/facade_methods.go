@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	jwtkit "github.com/open-rails/authkit/jwt"
-	"net"
 	"time"
 )
 
@@ -174,10 +173,6 @@ func (s *Client) EphemeralMode() EphemeralMode {
 	return s.impl.EphemeralMode()
 }
 
-func (s *Client) ExchangeRefreshToken(ctx context.Context, refreshToken string, ua string, ip net.IP) (string, time.Time, string, error) {
-	return s.impl.ExchangeRefreshToken(ctx, refreshToken, ua, ip)
-}
-
 func (s *Client) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error) {
 	return s.impl.UsersByIDs(ctx, ids)
 }
@@ -316,26 +311,6 @@ func (s *Client) Postgres() *pgxpool.Pool {
 
 func (s *Client) PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error {
 	return s.impl.PatchUserMetadata(ctx, userID, patch)
-}
-
-func (s *Client) StartPasswordless(ctx context.Context, req authkit.PasswordlessStartRequest) (authkit.PasswordlessStartResult, error) {
-	return s.impl.StartPasswordless(ctx, req)
-}
-
-func (s *Client) ConfirmPasswordlessCode(ctx context.Context, identifier, code string) (authkit.PasswordlessConfirmResult, error) {
-	return s.impl.ConfirmPasswordlessCode(ctx, identifier, code)
-}
-
-func (s *Client) ConfirmPasswordlessToken(ctx context.Context, token string) (authkit.PasswordlessConfirmResult, error) {
-	return s.impl.ConfirmPasswordlessToken(ctx, token)
-}
-
-func (s *Client) RecordFailedPasswordlessCode(ctx context.Context, identifier string) {
-	s.impl.RecordFailedPasswordlessCode(ctx, identifier)
-}
-
-func (s *Client) ClearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
-	s.impl.ClearPasswordlessCodeAttempts(ctx, identifier)
 }
 
 func (s *Client) PublicKeysByKID() map[string]crypto.PublicKey {
