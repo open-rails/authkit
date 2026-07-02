@@ -43,8 +43,19 @@ ALSO MERGED (2026-07-02, breaking phase): #199 (security backlog — password-re
   the Client interface → HTTP-only; regenerated mirrors 95→89; membership rule in SEMVER); #203 (riverjobs takes
   authkit.Client + Authorizer godoc); #204 (SEMVER error coverage); #207 (deleted authprovider Transforms DSL →
   IdentityMapper); #210 (NewServer reuses engine Redis); #212 (construction error, no panic). Build+vet green.
-PLAN (Paul, 2026-07-02): finish ALL authkit breaking changes, then COMMIT+PUSH+TAG a new version (push now
-  authorized). Then migrate consumers one at a time starting with ~/openrails.
+#206 REALITY CHECK (2026-07-02): the audit spec was partly inaccurate. DONE: collapsed the Service/Server
+  alias → single canonical `Service` type (kept Service; NewServer returns *Service). NOT REAL / skip: there is
+  NO free-func `authhttp.MintDelegatedAccessToken` dupe (only the Client method); no obvious legacy "code-as-token"
+  field in reset/verify confirm (only legitimate verification `code`). REMAINING #206: (a) drop the dead `email`
+  param on IssueAccessToken/issueAccessToken (breaking Tokens-iface signature + regen mirrors); (b) remove the ~35
+  EXPORTED verify re-export aliases from http/verify_aliases.go — HIGH churn (every unqualified Verifier/Claims/
+  Required in the http package must become verify.X) + debatable (it's an embedder convenience), and the file's
+  UNEXPORTED helpers setClaims/getClaims/maxDelegatedRoles are load-bearing and MUST stay. Recommend deciding (b)
+  with Paul (convenience vs surface purity) rather than grinding it blind.
+PLAN (Paul, 2026-07-02): finish authkit breaking changes, then COMMIT+PUSH+TAG a new version (push now
+  authorized). Then migrate consumers one at a time starting with ~/openrails. STRATEGY QUESTION ASKED (tag-now-
+  phase2 vs finish-all-then-tag vs pause-before-batch-native) — awaiting Paul. HOLDING: push+tag (irreversible,
+  needs version/scope confirmation) and the batch-native redesign #219–#222 (design-sensitive) until he answers.
 NEXT (remaining, serial — shared files client.go/interfaces.go/SEMVER/generated, do in-tree not via worktree
   agents which branch from master): #206 (strip aliasing: delete http/verify_aliases.go, collapse Service/Server,
   dedupe MintDelegatedAccessToken, drop dead email param, legacy code-as-token), #202 (move storage/ratelimit/siws
