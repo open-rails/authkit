@@ -38,20 +38,17 @@ func (s *Service) fetchOAuthUserInfo(r *http.Request, cfg authprovider.Provider,
 	if err := oauth2GetJSON(r, cfg.UserInfoURL, token, cfg.UserInfoAccept, &root); err != nil {
 		return oauth2UserInfo{}, err
 	}
-	var identity authprovider.Identity
-	var err error
-	if cfg.IdentityMapper != nil {
-		identity, err = cfg.IdentityMapper(root)
-	} else {
-		identity, err = authprovider.MapIdentity(root, cfg.UserMapping)
+	if cfg.IdentityMapper == nil {
+		return oauth2UserInfo{}, errors.New("userinfo_failed")
 	}
+	identity, err := cfg.IdentityMapper(root)
 	if err != nil {
 		return oauth2UserInfo{}, errors.New("userinfo_failed")
 	}
-	if strings.TrimSpace(identity.Email) == "" && cfg.EmailFallback != nil {
+	if strings.TrimSpace(identity.Email) == "" && strings.TrimSpace(cfg.EmailFallbackURL) != "" {
 		var fallbackRoot any
-		if err := oauth2GetJSON(r, cfg.EmailFallback.URL, token, cfg.EmailFallback.Accept, &fallbackRoot); err == nil {
-			email, verified := authprovider.MapFallbackEmail(fallbackRoot, *cfg.EmailFallback)
+		if err := oauth2GetJSON(r, cfg.EmailFallbackURL, token, cfg.EmailFallbackAccept, &fallbackRoot); err == nil {
+			email, verified := selectPrimaryVerifiedEmail(fallbackRoot)
 			identity.Email = email
 			identity.EmailVerified = verified
 		}
@@ -63,6 +60,30 @@ func (s *Service) fetchOAuthUserInfo(r *http.Request, cfg authprovider.Provider,
 		Preferred:     identity.PreferredUsername,
 		Display:       identity.DisplayName,
 	}, nil
+}
+
+// selectPrimaryVerifiedEmail picks the primary, verified address from a GitHub
+// /user/emails-style JSON array of {email, primary, verified} entries. It returns
+// verified=true only for a selected entry, so an unverified primary can never be
+// promoted to verified (AK security audit F4).
+func selectPrimaryVerifiedEmail(root any) (string, bool) {
+	items, ok := root.([]any)
+	if !ok {
+		return "", false
+	}
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		primary, _ := m["primary"].(bool)
+		verified, _ := m["verified"].(bool)
+		if primary && verified {
+			email, _ := m["email"].(string)
+			return strings.TrimSpace(email), verified
+		}
+	}
+	return "", false
 }
 
 func oauth2GetJSON(r *http.Request, url string, token oauth2TokenResp, accept string, out any) error {

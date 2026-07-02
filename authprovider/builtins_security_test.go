@@ -7,47 +7,31 @@ import (
 )
 
 // AK security audit F4: the GitHub provider must not assume an email is verified.
-// GitHub's /user.email is a public profile field with no verification guarantee,
-// and the /user/emails fallback must reflect the real per-address `verified` flag.
+// GitHub's /user.email is a public profile field with no verification guarantee;
+// a verified address is sourced only from the /user/emails fallback, whose
+// primary+verified selection lives in the http callback wiring.
 
 func TestGitHubProvider_PrimaryEmailNotAssumedVerified(t *testing.T) {
 	p, ok := BuiltIn("github")
 	require.True(t, ok)
+	require.NotNil(t, p.IdentityMapper)
 
-	// A typical /user response: carries an email but NO email_verified field.
-	root := map[string]any{
+	// A typical /user response: carries an email but NO verification signal.
+	id, err := p.IdentityMapper(map[string]any{
 		"id":    float64(123),
 		"email": "user@example.com",
 		"login": "octocat",
 		"name":  "Octo Cat",
-	}
-	id, err := MapIdentity(root, p.UserMapping)
+	})
 	require.NoError(t, err)
 	require.Equal(t, "user@example.com", id.Email)
 	require.False(t, id.EmailVerified, "GitHub /user.email must NOT be assumed verified (AK F4)")
 }
 
-func TestGitHubProvider_FallbackReflectsRealVerifiedFlag(t *testing.T) {
+func TestGitHubProvider_UsesEmailFallbackEndpoint(t *testing.T) {
 	p, ok := BuiltIn("github")
 	require.True(t, ok)
-	require.NotNil(t, p.EmailFallback)
-
-	// /user/emails: only a primary AND verified entry is selected, and the mapped
-	// verified flag comes from the real per-address field.
-	emails := []any{
-		map[string]any{"email": "secondary@example.com", "primary": false, "verified": true},
-		map[string]any{"email": "primary@example.com", "primary": true, "verified": true},
-	}
-	email, verified := MapFallbackEmail(emails, *p.EmailFallback)
-	require.Equal(t, "primary@example.com", email)
-	require.True(t, verified)
-
-	// An unverified primary address is not selected (Select requires verified=true),
-	// so no email is returned — it can never be promoted to "verified".
-	unverified := []any{
-		map[string]any{"email": "primary@example.com", "primary": true, "verified": false},
-	}
-	email2, verified2 := MapFallbackEmail(unverified, *p.EmailFallback)
-	require.Equal(t, "", email2)
-	require.False(t, verified2)
+	// The verified-email source is the /user/emails fallback endpoint.
+	require.Equal(t, "https://api.github.com/user/emails", p.EmailFallbackURL)
+	require.Equal(t, "application/vnd.github+json", p.EmailFallbackAccept)
 }

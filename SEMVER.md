@@ -320,9 +320,10 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
   `DefaultAuthKeysPath="/vault/auth"`, `DefaultGeneratedKeysDir=".runtime/authkit"`;
   `BaseRegisteredClaims`, `AlgorithmForPublicKey`, `SetLogger`, `ErrUnsupportedJWK`.
   **No API returns a private key or PEM** — that absence is a deliberate, covered invariant.
-- **`authprovider`**: `Provider`, `Kind` (`KindOIDC`/`KindOAuth2`), `ClientSecret`,
-  `AppleJWTSecret`, `UserMapping`, `FieldMapping`, `Identity`, `FallbackLookup`,
-  `BuiltIn`, `Clone`, `MapIdentity`, `MapFallbackEmail`, `ErrClientSecretEnvEmpty`.
+- **`authprovider`**: `Provider` (OAuth2 providers extract identity via the
+  `IdentityMapper func(any) (Identity, error)` field; OIDC providers read standard
+  ID-token claims), `Kind` (`KindOIDC`/`KindOAuth2`), `ClientSecret`,
+  `AppleJWTSecret`, `Identity`, `BuiltIn`, `Clone`, `ErrClientSecretEnvEmpty`.
 - **`oidckit`**: `Manager` (+`NewManager*`), `RPClient`, `RPConfig`, `Claims`,
   `StateCache`, `StateData`, `AppleSecretConfig`,
   `NewAppleClientSecretProvider`, `GeneratePKCE`, `DefaultExchanger`, TTL consts.

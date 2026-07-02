@@ -5,47 +5,6 @@ import (
 	"testing"
 )
 
-func TestMapIdentityConvertsAndTransformsFields(t *testing.T) {
-	root := map[string]any{
-		"id":       float64(12345),
-		"email":    " Person@Example.COM ",
-		"verified": true,
-		"profile": map[string]any{
-			"login": " OctoCat ",
-			"name":  " Mona Lisa ",
-		},
-	}
-	got, err := MapIdentity(root, UserMapping{
-		Subject:           FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
-		Email:             FieldMapping{Path: "email", Transforms: []string{"trim", "lowercase"}},
-		EmailVerified:     FieldMapping{Path: "verified"},
-		PreferredUsername: FieldMapping{Path: "profile.login", Transforms: []string{"trim"}},
-		DisplayName:       FieldMapping{Path: "profile.name", Transforms: []string{"trim"}},
-	})
-	if err != nil {
-		t.Fatalf("MapIdentity returned error: %v", err)
-	}
-	if got.Subject != "12345" || got.Email != "person@example.com" || !got.EmailVerified || got.PreferredUsername != "OctoCat" || got.DisplayName != "Mona Lisa" {
-		t.Fatalf("unexpected identity: %+v", got)
-	}
-}
-
-func TestMapFallbackEmailSelectsVerifiedPrimary(t *testing.T) {
-	root := []any{
-		map[string]any{"email": "secondary@example.com", "primary": false, "verified": true},
-		map[string]any{"email": "primary@example.com", "primary": true, "verified": true},
-	}
-	email, verified := MapFallbackEmail(root, FallbackLookup{
-		Array:         true,
-		Select:        map[string]any{"primary": true, "verified": true},
-		Email:         FieldMapping{Path: "email"},
-		EmailVerified: FieldMapping{Value: true},
-	})
-	if email != "primary@example.com" || !verified {
-		t.Fatalf("unexpected fallback email: %q %v", email, verified)
-	}
-}
-
 func TestResolveStatic(t *testing.T) {
 	t.Run("static value", func(t *testing.T) {
 		got, err := (ClientSecret{Value: " secret "}).ResolveStatic()
@@ -87,49 +46,26 @@ func TestResolveStatic(t *testing.T) {
 	})
 }
 
-func TestMapBoolNumericValues(t *testing.T) {
-	cases := []struct {
-		value any
-		want  bool
-	}{
-		{value: 1, want: true},
-		{value: int64(0), want: false},
-		{value: float64(2), want: true},
-		{value: uint(0), want: false},
-	}
-	for _, tc := range cases {
-		got, err := mapBool(map[string]any{"v": tc.value}, FieldMapping{Path: "v"})
-		if err != nil {
-			t.Fatalf("mapBool returned error: %v", err)
-		}
-		if got != tc.want {
-			t.Fatalf("value %v: got %v want %v", tc.value, got, tc.want)
-		}
-	}
-}
-
-func TestProviderValidateRejectsUnknownTransform(t *testing.T) {
-	err := (Provider{
-		Name: "custom",
-		Kind: KindOAuth2,
-		UserMapping: UserMapping{
-			Subject: FieldMapping{Path: "id", Transforms: []string{"rot13"}},
-		},
-	}).Validate()
-	if !errors.Is(err, ErrProviderInvalidTransform) {
-		t.Fatalf("expected ErrProviderInvalidTransform, got %v", err)
-	}
-}
-
 func TestProviderValidateRejectsNonHTTPSOAuthURLs(t *testing.T) {
 	err := (Provider{
 		Name:        "custom",
 		Kind:        KindOAuth2,
 		TokenURL:    "http://token.example/oauth/token",
 		UserInfoURL: "https://userinfo.example/me",
-		UserMapping: UserMapping{
-			Subject: FieldMapping{Path: "id"},
-		},
+	}).Validate()
+	if !errors.Is(err, ErrProviderNonHTTPSURL) {
+		t.Fatalf("expected ErrProviderNonHTTPSURL, got %v", err)
+	}
+}
+
+func TestProviderValidateRejectsNonHTTPSEmailFallbackURL(t *testing.T) {
+	err := (Provider{
+		Name:             "custom",
+		Kind:             KindOAuth2,
+		AuthorizeURL:     "https://oauth.example/authorize",
+		TokenURL:         "https://token.example/oauth/token",
+		UserInfoURL:      "https://userinfo.example/me",
+		EmailFallbackURL: "http://userinfo.example/emails",
 	}).Validate()
 	if !errors.Is(err, ErrProviderNonHTTPSURL) {
 		t.Fatalf("expected ErrProviderNonHTTPSURL, got %v", err)
@@ -143,11 +79,79 @@ func TestProviderValidateAcceptsHTTPSOAuthURLs(t *testing.T) {
 		AuthorizeURL: "https://oauth.example/authorize",
 		TokenURL:     "https://token.example/oauth/token",
 		UserInfoURL:  "https://userinfo.example/me",
-		UserMapping: UserMapping{
-			Subject: FieldMapping{Path: "id"},
-		},
 	}).Validate(); err != nil {
 		t.Fatalf("unexpected validate error: %v", err)
+	}
+}
+
+func TestBuiltInOAuth2ProvidersHaveIdentityMapper(t *testing.T) {
+	for _, name := range []string{"discord", "github"} {
+		p, ok := BuiltIn(name)
+		if !ok {
+			t.Fatalf("missing built-in provider %s", name)
+		}
+		if p.IdentityMapper == nil {
+			t.Fatalf("%s: expected an IdentityMapper", name)
+		}
+	}
+}
+
+func TestBuiltInOIDCProvidersHaveNoIdentityMapper(t *testing.T) {
+	for _, name := range []string{"google", "apple"} {
+		p, ok := BuiltIn(name)
+		if !ok {
+			t.Fatalf("missing built-in provider %s", name)
+		}
+		if p.IdentityMapper != nil {
+			t.Fatalf("%s: OIDC providers read standard ID-token claims, want no IdentityMapper", name)
+		}
+	}
+}
+
+func TestDiscordIdentityMapperExtractsFields(t *testing.T) {
+	p, _ := BuiltIn("discord")
+	id, err := p.IdentityMapper(map[string]any{
+		"id":          "123456789",
+		"email":       " user@example.com ",
+		"verified":    true,
+		"username":    " octo ",
+		"global_name": " Octo Cat ",
+	})
+	if err != nil {
+		t.Fatalf("discord mapper error: %v", err)
+	}
+	if id.Subject != "123456789" || id.Email != "user@example.com" || !id.EmailVerified ||
+		id.PreferredUsername != "octo" || id.DisplayName != "Octo Cat" {
+		t.Fatalf("unexpected discord identity: %+v", id)
+	}
+}
+
+// AK security audit F4: GitHub's /user.email is a public profile field with no
+// verification guarantee, so the identity mapper must NOT assume it is verified.
+func TestGitHubIdentityMapperUsesNumericIDAndNeverAssumesVerified(t *testing.T) {
+	p, _ := BuiltIn("github")
+	id, err := p.IdentityMapper(map[string]any{
+		"id":    float64(12345),
+		"email": "user@example.com",
+		"login": "octocat",
+		"name":  "Mona Lisa",
+	})
+	if err != nil {
+		t.Fatalf("github mapper error: %v", err)
+	}
+	if id.Subject != "12345" || id.Email != "user@example.com" ||
+		id.PreferredUsername != "octocat" || id.DisplayName != "Mona Lisa" {
+		t.Fatalf("unexpected github identity: %+v", id)
+	}
+	if id.EmailVerified {
+		t.Fatalf("GitHub /user.email must NOT be assumed verified (AK F4)")
+	}
+}
+
+func TestIdentityMapperRejectsMissingSubject(t *testing.T) {
+	p, _ := BuiltIn("github")
+	if _, err := p.IdentityMapper(map[string]any{"email": "user@example.com"}); err == nil {
+		t.Fatalf("expected error when subject is missing")
 	}
 }
 

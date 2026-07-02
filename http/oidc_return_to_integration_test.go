@@ -67,12 +67,20 @@ func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 			AuthorizeURL: provider.URL + "/authorize",
 			TokenURL:     provider.URL + "/token",
 			UserInfoURL:  provider.URL + "/me",
-			UserMapping: authprovider.UserMapping{
-				Subject:           authprovider.FieldMapping{Path: "id"},
-				Email:             authprovider.FieldMapping{Path: "email"},
-				EmailVerified:     authprovider.FieldMapping{Path: "email_verified"},
-				PreferredUsername: authprovider.FieldMapping{Path: "login"},
-				DisplayName:       authprovider.FieldMapping{Path: "name"},
+			IdentityMapper: func(root any) (authprovider.Identity, error) {
+				m, _ := root.(map[string]any)
+				id, _ := m["id"].(string)
+				email, _ := m["email"].(string)
+				verified, _ := m["email_verified"].(bool)
+				login, _ := m["login"].(string)
+				name, _ := m["name"].(string)
+				return authprovider.Identity{
+					Subject:           id,
+					Email:             email,
+					EmailVerified:     verified,
+					PreferredUsername: login,
+					DisplayName:       name,
+				}, nil
 			},
 		},
 	}
