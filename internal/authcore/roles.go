@@ -14,11 +14,9 @@ import (
 // not the DB, so upsert is validation-only. The unexported helpers are the
 // genesis/bootstrap path; the exported wrappers are what admin/HTTP adapters call.
 
-var ErrUserRoleNotFound = authkit.ErrUserRoleNotFound
-
-// ErrCannotRemoveLastAdminRole is retained for the admin HTTP adapter's error
-// mapping. The root layer has no "last admin" lock, so core no longer returns
-// it, but the exported symbol stays so dependents keep compiling.
+// ErrCannotRemoveLastAdminRole is returned by the permission-group last-owner
+// guard (refuseIfLastOwner) and mapped to a stable HTTP code by the admin
+// adapter. Aliased from the root package so core can return it unqualified.
 var ErrCannotRemoveLastAdminRole = authkit.ErrCannotRemoveLastAdminRole
 
 // normalizeRootRoleSlug canonicalises a root role slug. "admin" is not special:
