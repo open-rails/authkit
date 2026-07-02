@@ -3,7 +3,7 @@ package authkit
 import "time"
 
 // Contract DTOs relocated from internal/authcore (#138 inversion): plain data,
-// stdlib-only. The engine aliases these back. var _ = time.Second // keep import
+// stdlib-only. The engine aliases these back.
 
 type APIKey struct {
 	ID          string
@@ -379,16 +379,6 @@ type AdminListUsersResult struct {
 	Total  int64       `json:"total"`
 	Limit  int         `json:"limit"`
 	Offset int         `json:"offset"`
-}
-
-type RBACDriftReport struct {
-	GroupUserRoles int `json:"group_user_roles"`
-	CustomRoles    int `json:"group_custom_roles"`
-	APIKeys        int `json:"api_keys"`
-}
-
-func (r RBACDriftReport) Total() int {
-	return r.GroupUserRoles + r.CustomRoles + r.APIKeys
 }
 
 type AdminUserStatus string

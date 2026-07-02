@@ -11,14 +11,14 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-// ECDSASigner signs JWTs with ES256, ES384, or ES512 based on the private key curve.
-type ECDSASigner struct {
+// ecdsaSigner signs JWTs with ES256, ES384, or ES512 based on the private key curve.
+type ecdsaSigner struct {
 	key *ecdsa.PrivateKey
 	kid string
 	alg string
 }
 
-func newECDSASigner(kid string, key *ecdsa.PrivateKey) (*ECDSASigner, error) {
+func newECDSASigner(kid string, key *ecdsa.PrivateKey) (*ecdsaSigner, error) {
 	if key == nil {
 		return nil, errors.New("nil ecdsa private key")
 	}
@@ -26,7 +26,7 @@ func newECDSASigner(kid string, key *ecdsa.PrivateKey) (*ECDSASigner, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ECDSASigner{key: key, kid: kid, alg: alg}, nil
+	return &ecdsaSigner{key: key, kid: kid, alg: alg}, nil
 }
 
 func ecdsaAlgorithm(key *ecdsa.PrivateKey) (string, error) {
@@ -42,7 +42,7 @@ func ecdsaAlgorithm(key *ecdsa.PrivateKey) (string, error) {
 	}
 }
 
-func (s *ECDSASigner) signingMethod() jwt.SigningMethod {
+func (s *ecdsaSigner) signingMethod() jwt.SigningMethod {
 	switch s.alg {
 	case jwt.SigningMethodES384.Alg():
 		return jwt.SigningMethodES384
@@ -53,16 +53,16 @@ func (s *ECDSASigner) signingMethod() jwt.SigningMethod {
 	}
 }
 
-func (s *ECDSASigner) Algorithm() string { return s.alg }
-func (s *ECDSASigner) KID() string       { return s.kid }
-func (s *ECDSASigner) PublicKey() crypto.PublicKey {
+func (s *ecdsaSigner) Algorithm() string { return s.alg }
+func (s *ecdsaSigner) KID() string       { return s.kid }
+func (s *ecdsaSigner) PublicKey() crypto.PublicKey {
 	return &s.key.PublicKey
 }
 
-func (s *ECDSASigner) Sign(_ context.Context, claims jwt.MapClaims) (string, error) {
+func (s *ecdsaSigner) Sign(_ context.Context, claims jwt.MapClaims) (string, error) {
 	return signWithHeaders(s.signingMethod(), s.key, s.kid, claims, nil)
 }
 
-func (s *ECDSASigner) SignWithHeaders(_ context.Context, claims jwt.MapClaims, headers map[string]any) (string, error) {
+func (s *ecdsaSigner) SignWithHeaders(_ context.Context, claims jwt.MapClaims, headers map[string]any) (string, error) {
 	return signWithHeaders(s.signingMethod(), s.key, s.kid, claims, headers)
 }

@@ -62,7 +62,7 @@ func TestNewAutoKeySourceWithPathResolvesFile(t *testing.T) {
 
 func TestFileKeySourceMissingReturnsNil(t *testing.T) {
 	clearKeyEnv(t)
-	ks, err := FileKeySource(filepath.Join(t.TempDir(), "does-not-exist"))
+	ks, err := fileKeySource(filepath.Join(t.TempDir(), "does-not-exist"))
 	if err != nil {
 		t.Fatalf("missing dir should not error: %v", err)
 	}

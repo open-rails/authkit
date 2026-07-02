@@ -3,11 +3,20 @@ package authcore
 import (
 	"context"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
-type RBACDriftReport = authkit.RBACDriftReport
+// RBACDriftReport counts orphaned authority rows — assigned group roles, custom
+// roles, and API keys whose role definitions no longer exist.
+type RBACDriftReport struct {
+	GroupUserRoles int `json:"group_user_roles"`
+	CustomRoles    int `json:"group_custom_roles"`
+	APIKeys        int `json:"api_keys"`
+}
+
+func (r RBACDriftReport) Total() int {
+	return r.GroupUserRoles + r.CustomRoles + r.APIKeys
+}
 
 func (s *Service) RBACDriftReport(ctx context.Context) (RBACDriftReport, error) {
 	if s == nil || s.pg == nil {
