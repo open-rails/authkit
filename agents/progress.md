@@ -9,19 +9,30 @@
 > still has pending CROSS-REPO consumer work to track (e.g. #111).
 
 
-next_id: 227
+next_id: 231
 
 <!-- AUDIT IMPL STATUS (2026-07-02, Claude) — resume here
-DONE (in working tree, build green): #200 closed (non-goal); #223 (invite-email sender fixed:
-SendAccountRegistrationInvite added to EmailSender base iface + twilio + fakes); wave-1 simplifications
-#224 (deleted ClaimsBuilder), #225 (inlined credentialScanner→pgx.Rows), #226 (allowResult delegates to
-allowResultForKey), #218 partial (SIWS headerRegex hoist still TODO — verify), and jwt/passkeys/http/service edits.
-NEXT, in order: contained bugs #196 (memoize SIWS memory cache in a Service field like memStateCache; test Put→Consume no-Redis),
-#197 (add authkit.CodeForError walking the chain; use in server/management.go writeErr+statusFor; test wrapped sentinel 422+errors.Is),
-#198 (guard `lim.Limit>0 && len(ts)>=lim.Limit` in ratelimit/memory/limiter.go; test Limit=0 no panic).
-Then perf #215/#216/#217; then breaking surface #201–#208 + batch-native #219–#222; then DX #209–#214.
-RULES: reduce API/SEMVER surface + total LOC; keep `go build ./... && go vet ./...` green after each change;
-cover new behavior with integration tests (AUTHKIT_TEST_DATABASE_URL set → `task test`). Tick each issue's tasks as done.
+Branch: audit-impl (LOCAL only, not pushed). Merged + `go build ./... && go vet ./...` green:
+  #200 closed (non-goal); #223 (invite-email sender); #224 (ClaimsBuilder deleted); #225 (credentialScanner
+  inlined); #226 (allowResult delegates); #196 (SIWS mem cache memoized + test); #197 (CodeForError walks the
+  chain + test); #198 (memory limiter Limit<=0 guard + test); #217 (redis limiter atomic Lua, TOCTOU fixed);
+  #215 (authenticated request path now STATELESS — removed per-request ban gate + discord/role/email enrichment,
+  0 DB lookups, realigns with #90); #216 (single JWT parse).
+#215 SAFETY NOTE: token carries neither email nor roles (token_issue.go:64/67 — profile claims + role authority
+  deliberately not in the token). Removing the middleware enrichment is safe because NOTHING reads the enriched
+  fields: doujins resolves roles via its own RoleSlugsForUser(ctx, UserID) + EffectivePermissions (reads only
+  claims.UserID/Entitlements/Permissions), cozy-art/tensorhub don't read native roles/email off claims, and
+  authkit's own handlers re-fetch via AdminGetUser. Ban stays enforced at login + refresh (≤15min residual).
+PENDING MERGE: #208 + #218 (surface trims: AuthCapabilities→authhttp, drop RBACDriftReport facade, unexport
+  unused jwtkit sources; SIWS regexp hoist) — worktree agent still running.
+NEW from handler over-fetch audit: #227 (thread user+MFAStatus through token-issue path — user row read 3×,
+  MFA 2-3× on refresh/login/2fa-verify), #228 (GET /me ~15 round-trips), #229 (register/availability double
+  query), #230 (narrow UserBy* projections). These are the high-value perf work per Paul's "0-1 DB lookups".
+NEXT, in order: (1) land #208; (2) run full `task test` centrally (AUTHKIT_TEST_DATABASE_URL set); (3) perf
+  #227–#230 (serial, hot token path — careful); (4) breaking surface #201–#207 + batch-native #219–#222 (need
+  consumer migration); (5) DX #209–#214; (6) security backlog #199.
+RULES: reduce API/SEMVER surface + total LOC; keep build+vet green after each change; integration-test new
+  behavior; do NOT push/commit to REMOTE. Tick each issue's tasks as done.
 -->
 
 
@@ -2964,3 +2975,78 @@ block (`:149-161`) that `allowResultForKey` already contains (`:118-130`).
 
 ## Tasks
 - [ ] Have `allowResult` do its nil/IP checks, compute `key`, then `return s.allowResultForKey(bucket, key)` (~10 duplicated lines gone).
+
+---
+
+# #227: [PERF] Thread the user row + MFAStatus through the token-issue path (root fix — 3× user-read / 2-3× MFA per request)
+
+**Completed:** no
+
+Proposed 2026-07-02 (handler over-fetch audit). The token-issue helpers each RE-READ the full 15-col
+`profiles.users` row and RE-COMPUTE `Get2FASettings` (2 queries) internally, so every caller pays the same
+reads 2-3×. Verified on the two hottest write paths:
+- **Refresh** (`internal/authcore/service_sessions.go:140-218`): `UserByID` runs 3× (`ensureUserAccessByID`
+  L160, a full-row read at L174 used only for `email`, and again inside `IssueAccessToken`→`token_issue.go:88`),
+  `IsUserReserved` 2×, `MFAStatus`/`Get2FASettings` 2× (`requireSessionMFAState` + `issueAccessToken`).
+- **Password login** (`http/password_login_post.go`) and **2FA verify** (`http/user_2fa_verify_post.go:69-91`):
+  same shape — the account row is read 3-5× and `MFAStatus` computed ~3× across `IssueRefreshSession*` +
+  `AdminGetUser`-for-email + `IssueAccessToken`.
+
+Root cause: `IssueAccessToken`/`IssueRefreshSession*`/`ensureUserAccessByID` take only a userID and re-fetch.
+(The per-request MIDDLEWARE half of this waste is #215.)
+
+## Tasks
+- [ ] Add internal variants that accept an already-loaded `*User` + a precomputed `MFAStatus` (or a small `issueContext` struct) so the issue path adds ZERO extra user-row reads / MFA computations.
+- [ ] Refresh: load the user row + MFAStatus ONCE at the top of `ExchangeRefreshToken`; thread through ensureUserAccess / email / IsUserAllowed / issueAccessToken. Target ~9-10 → ~3-4 round-trips.
+- [ ] Login + 2FA-verify: carry the row/MFA already resolved into the issue path; drop the `AdminGetUser`-for-email calls (email is already on the row).
+- [ ] Integration tests asserting the refresh / login / 2fa-verify paths read `profiles.users` at most once and compute 2FA settings once (query-counting stub or pg statement counter).
+
+---
+
+# #228: [PERF] GET /me — collapse ~15 round-trips (Get2FASettings 3×, HasPassword 2×, AdminGetUser 2×, provider slugs 2×)
+
+**Completed:** no
+
+Proposed 2026-07-02 (handler over-fetch audit). `http/user_me_get.go:40-173` (very hot — app boot / page loads)
+issues ~15 queries with heavy duplication: `Get2FASettings` (2 queries) runs **3×** (`MFAStatus` L139 +
+`stepUpMethods` L167 + `stepUpTwoFactorOptions` L168), `HasPassword` **2×** (L75 + L167), provider slugs
+fetched twice (`UserProviderSlugs` L92 + `UserProviderSlugsDistinct` L167), `AdminGetUser`'s full
+user+roles+entitlements pipeline runs **2×** (L50 + `step_up.go:380`), and a separate `UserPreferredLanguage`
+read (L68) for one column the user row already loaded twice could carry.
+
+## Tasks
+- [ ] Compute `Get2FASettings` once; pass it into `MFAStatus`/`stepUpMethods`/`stepUpTwoFactorOptions`.
+- [ ] Reuse the single `AdminGetUser` result (has email/roles/entitlements) instead of re-running it; fetch provider slugs once; `HasPassword` once.
+- [ ] Add `preferred_language` to the `UserByID` projection so `GetPreferredLanguage` disappears. Target ~15 → ~5.
+- [ ] Integration test asserting the `/me` handler's query count dropped to the target.
+
+---
+
+# #229: [PERF] GET /register/availability — one combined taken-check query, not one per field
+
+**Completed:** no
+
+Proposed 2026-07-02 (handler over-fetch audit). `http/register_availability.go:52-78` calls
+`registrationUsernameAvailability` and `registrationEmailAvailability` separately, each invoking
+`CheckPendingRegistrationConflict` → `UserEmailOrUsernameTaken`, a SINGLE query that already returns BOTH
+`email_taken` and `username_taken`. Checking username+email together runs that two-`EXISTS` query TWICE
+(email+"", then ""+username) instead of once. Warm path (typeahead can be hot).
+
+## Tasks
+- [ ] One `CheckPendingRegistrationConflict(email, username)` covering all provided fields; the query already supports both args.
+
+---
+
+# #230: [PERF] Narrow the `UserBy*` projections + drop unused over-fetched columns
+
+**Completed:** no
+
+Proposed 2026-07-02 (handler over-fetch audit). `UserByEmail/ByID/ByPhone/ByUsername` (`internal/db/users.sql.go`)
+always SELECT the full 15-col row; hot callers use a slice (refresh needs only `email`; the liveness gate needs
+only `deleted_at`/`banned_*`). Compounds with the repeated reads (#227). Also `SessionsListByUser`
+(`sessions.sql.go:346`) selects `last_authenticated_at` + `revoked_at` that the handler never maps
+(`revoked_at` is guaranteed NULL by the WHERE clause). Never fetch more than the request needs.
+
+## Tasks
+- [ ] Add narrow projections (or a merged single-row read per #227) for the hot liveness/email uses; keep the full row only where genuinely needed.
+- [ ] Drop the unused `last_authenticated_at`/`revoked_at` columns from `SessionsListByUser`.
