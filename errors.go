@@ -71,32 +71,53 @@ var (
 // the wire-error contract has ONE source of truth (#142).
 func ErrorForCode(code string) error { return errorsByCode[code] }
 
-// errorsByCode is built once from every sentinel. ponytail: hand-listed because Go
-// can't enumerate package vars — a new sentinel needs a line here too; the
-// uniqueness check in errors_test.go fails loudly if two share a code.
-var errorsByCode = func() map[string]error {
-	all := []error{
-		ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
-		ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
-		ErrAccountRegistrationInviteRevoked, ErrCustomClaimsReserved,
-		ErrCustomJWTReservedType, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
-		ErrEmailSenderUnavailable, ErrEmptyCustomClaims, ErrEntitlementFilterUnavailable,
-		ErrExternalInvitesDisabled, ErrGroupNotFound, ErrInsufficientRoleAuthority,
-		ErrInvalidAttributeDef, ErrInvalidBootstrapManifest, ErrInvalidUntil,
-		ErrInviteLinkExpired, ErrInviteLinkNotFound, ErrInviteLinkRevoked,
-		ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
-		ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled,
-		ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
-		ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
-		ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
-		ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
-		ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
-		ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
-		ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked,
-		ErrProviderAlreadyLinked,
+// CodeForError resolves an error to its wire code by walking the error chain: it
+// returns the first sentinel's .Error() for which errors.Is(err, sentinel) holds,
+// or "" if none match. Unlike keying off err.Error() directly, this handles WRAPPED
+// sentinels (e.g. fmt.Errorf("%w: %w", ErrEmailDeliveryFailed, cause)) — the server
+// emits that code so the remote client re-derives errors.Is(err, ErrX) identity and
+// the status classification stays correct across the wire (#197).
+func CodeForError(err error) string {
+	if err == nil {
+		return ""
 	}
-	m := make(map[string]error, len(all))
-	for _, e := range all {
+	for _, sentinel := range errorSentinels {
+		if errors.Is(err, sentinel) {
+			return sentinel.Error()
+		}
+	}
+	return ""
+}
+
+// errorSentinels is the single hand-listed source of truth for both errorsByCode
+// and CodeForError. ponytail: hand-listed because Go can't enumerate package vars —
+// a new sentinel needs a line here too; the uniqueness check in errors_test.go
+// fails loudly if two share a code.
+var errorSentinels = []error{
+	ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
+	ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
+	ErrAccountRegistrationInviteRevoked, ErrCustomClaimsReserved,
+	ErrCustomJWTReservedType, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
+	ErrEmailSenderUnavailable, ErrEmptyCustomClaims, ErrEntitlementFilterUnavailable,
+	ErrExternalInvitesDisabled, ErrGroupNotFound, ErrInsufficientRoleAuthority,
+	ErrInvalidAttributeDef, ErrInvalidBootstrapManifest, ErrInvalidUntil,
+	ErrInviteLinkExpired, ErrInviteLinkNotFound, ErrInviteLinkRevoked,
+	ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
+	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled,
+	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
+	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
+	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
+	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
+	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
+	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
+	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked,
+	ErrProviderAlreadyLinked,
+}
+
+// errorsByCode is built once from every sentinel in errorSentinels.
+var errorsByCode = func() map[string]error {
+	m := make(map[string]error, len(errorSentinels))
+	for _, e := range errorSentinels {
 		m[e.Error()] = e
 	}
 	return m
