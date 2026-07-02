@@ -20,10 +20,17 @@ Branch: audit-impl (LOCAL only, not pushed). Merged + `go build ./... && go vet 
   0 DB lookups, realigns with #90); #216 (single JWT parse); #208 (surface trims: AuthCapabilities→authhttp,
   drop RBACDriftReport facade, unexport unused jwtkit sources); #218 (SIWS regexp hoist + touchAccessToken
   in-query throttle); #227 (thread loaded user + MFAStatus through the token-issue path — refresh/login/2fa-verify
-  now read profiles.users ONCE, compute MFA ONCE; was 3× / 2-3×). FULL `task test` GREEN except one pre-existing
-  flake: internal/db/querytest TestQueryPerformance `users_purge_candidates shared read blocks >64` — fails on
-  clean master too (68>64 there, 76>64 here; varies per run). Untouched query; not ours. Candidate: loosen the
-  threshold or ANALYZE before measuring.
+  now read profiles.users ONCE, compute MFA ONCE; was 3× / 2-3×); #228 (GET /me: Get2FASettings 3×→1,
+  UserPreferredLanguage read dropped via preferred_language on UserByID, provider slugs/HasPassword once —
+  ~15→~5-6 round-trips + count test); #229 (register/availability: one combined CheckPendingRegistrationConflict
+  instead of two + test); #230-safe (dropped unused last_authenticated_at/revoked_at from SessionsListByUser).
+  FULL `task test` GREEN (exit 0). Pre-existing flake to watch: internal/db/querytest TestQueryPerformance
+  `users_purge_candidates shared read blocks >64` — fails on clean master too (68>64 there, 76>64 here; varies);
+  untouched query, not ours. Candidate: loosen threshold or ANALYZE before measuring.
+SURFACE NOTE (#228): added optional `PreferredLanguage *string` to public authkit.User + authkit.AdminUser
+  (json omitempty, backward-compatible) to read language off the loaded row — small ADDITIVE surface growth,
+  justified by removing a /me round-trip; preferred_language is legit profile data. #230 projection-narrowing
+  was DESCOPED (#227 already removed the read repetition; narrowing a once-read row risks caller breakage).
 #215+#227 SECURITY DESIGN (verified coherent): every token/session MINT point gates banned/deleted via
   ensureUserAccess — password/2fa (IssueAuthenticatedSession), email-verify/OIDC/SIWS/passkey
   (IssueRefreshSessionWithAuthMethods L63), refresh (ExchangeRefreshToken top gate). The ungated
@@ -31,8 +38,8 @@ Branch: audit-impl (LOCAL only, not pushed). Merged + `go build ./... && go vet 
   only their existing ≤15min access token, cannot login or refresh. #215 enrichment-removal safe because nothing
   reads the enriched Claims fields (doujins resolves roles via its own RoleSlugsForUser(UserID); token never
   carried email/roles anyway — token_issue.go:64/67).
-NEXT, in order: (1) perf #228 (GET /me ~15 round-trips), #229 (register/availability double query), #230 (narrow
-  UserBy* projections + drop unused sessions-list cols — needs sqlc regen) — all internal, no consumer impact;
+NEXT, in order: ALL SAFE INTERNAL WORK DONE (bugs #196/#197/#198, perf #215/#216/#217/#227/#228/#229/#230-safe,
+  surface trims #208/#218). REMAINING is consumer-affecting / larger, needs coordination:
   (2) breaking surface #201–#207 + batch-native #219–#222 (CHANGE CONSUMER CODE — coordinate migration, don't
   fan out blind); (3) DX #209–#214; (4) security backlog #199.
 RULES: reduce API/SEMVER surface + total LOC; keep build+vet green after each change; integration-test new
