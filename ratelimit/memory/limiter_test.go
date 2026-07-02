@@ -133,6 +133,32 @@ func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
 	}
 }
 
+func TestAllowNamedZeroLimitNoPanic(t *testing.T) {
+	// #198: a bucket configured with Limit=0 made len(ts) >= lim.Limit true for
+	// an empty slice, so the window-exceeded branch indexed ts[0] on an empty
+	// backing array and panicked. The first request against such a bucket must
+	// return a defined result instead of panicking.
+	limiter := New(map[string]ratelimit.Limit{
+		"zero": {Limit: 0, Window: time.Minute},
+	})
+
+	result, err := limiter.AllowNamedResult("zero", "user")
+	if err != nil {
+		t.Fatalf("AllowNamedResult: %v", err)
+	}
+	// Limit <= 0 disables the threshold, so the request is admitted (rather than
+	// panicking); the reported Limit mirrors the configured value.
+	if !result.Allowed {
+		t.Fatalf("first request denied for Limit=0 bucket: %+v", result)
+	}
+	if result.RetryAfter != 0 {
+		t.Fatalf("RetryAfter = %s, want 0 for Limit=0 bucket", result.RetryAfter)
+	}
+	if result.Limit != 0 {
+		t.Fatalf("Limit = %d, want 0", result.Limit)
+	}
+}
+
 // allowRetry adapts AllowNamedResult to the (allowed, retryAfter, err) shape these
 // cooldown/window tests assert on, after the dedicated AllowNamedWithRetryAfter
 // wrapper was removed (#189). The retry-after value comes from AllowNamedResult.
