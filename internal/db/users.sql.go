@@ -141,29 +141,34 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language
 FROM profiles.users WHERE id = $1
 `
 
 type UserByIDRow struct {
-	ID            string
-	Email         *string
-	PhoneNumber   *string
-	Username      *string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	DeletedAt     *time.Time
-	Biography     *string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	LastLogin     *time.Time
+	ID                string
+	Email             *string
+	PhoneNumber       *string
+	Username          *string
+	EmailVerified     bool
+	PhoneVerified     bool
+	BannedAt          *time.Time
+	BannedUntil       *time.Time
+	BanReason         *string
+	BannedBy          *string
+	DeletedAt         *time.Time
+	Biography         *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	LastLogin         *time.Time
+	PreferredLanguage *string
 }
 
 // User-row queries (core/service.go).
+// preferred_language is included in this projection (a widening; no existing
+// caller breaks) so callers that already load the user row — e.g. GET /me — read
+// the language off this row instead of issuing a separate UserPreferredLanguage
+// query (#228).
 func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) {
 	row := q.db.QueryRow(ctx, userByID, id)
 	var i UserByIDRow
@@ -183,6 +188,7 @@ func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
+		&i.PreferredLanguage,
 	)
 	return i, err
 }

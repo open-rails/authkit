@@ -314,16 +314,17 @@ func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	}
 	var out []Session
 	for _, r := range rows {
+		// LastAuthenticatedAt and RevokedAt are left at their zero value: the
+		// session-list query no longer selects them (#230 — the handler never
+		// renders them, and revoked_at is always NULL for the rows it returns).
 		out = append(out, Session{
-			ID:                  r.ID,
-			FamilyID:            r.FamilyID,
-			CreatedAt:           r.CreatedAt,
-			LastAuthenticatedAt: r.LastAuthenticatedAt,
-			LastUsedAt:          r.LastUsedAt,
-			ExpiresAt:           r.ExpiresAt,
-			RevokedAt:           r.RevokedAt,
-			UserAgent:           r.UserAgent,
-			IPAddr:              r.IpAddr,
+			ID:         r.ID,
+			FamilyID:   r.FamilyID,
+			CreatedAt:  r.CreatedAt,
+			LastUsedAt: r.LastUsedAt,
+			ExpiresAt:  r.ExpiresAt,
+			UserAgent:  r.UserAgent,
+			IPAddr:     r.IpAddr,
 		})
 	}
 	return out, nil

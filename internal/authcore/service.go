@@ -1276,7 +1276,7 @@ func sha256Hex(s string) string {
 type User = authkit.User
 
 func userFromByIDRow(r db.UserByIDRow) *User {
-	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin}
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage}
 }
 
 func userFromByEmailRow(r db.UserByEmailRow) *User {
@@ -2526,6 +2526,7 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 		EmailVerified: u.EmailVerified, PhoneVerified: u.PhoneVerified,
 		BannedAt: u.BannedAt, BannedUntil: u.BannedUntil, BanReason: u.BanReason, BannedBy: u.BannedBy, DeletedAt: u.DeletedAt,
 		Biography: u.Biography, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLogin: u.LastLogin,
+		PreferredLanguage: u.PreferredLanguage,
 	}
 	a.Roles, a.RemovedRoles = s.rootRoleSlugsByUser(ctx, id)
 	a.Entitlements = s.ListEntitlements(ctx, id)

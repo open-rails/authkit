@@ -49,24 +49,63 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	}
 
 	resp := registrationAvailabilityResponse{}
+
+	// Username and email conflicts are answered by ONE combined query:
+	// CheckPendingRegistrationConflict → UserEmailOrUsernameTaken returns BOTH
+	// email_taken and username_taken, so checking them together runs it once
+	// instead of twice (#229). Each field is validated first; a field that fails
+	// validation reports its validation error and is excluded from the check, so
+	// the single call only covers the identifiers actually provided-and-valid.
+	var checkEmail, checkUsername string
+	var emailNeedsConflictCheck, usernameNeedsConflictCheck bool
+
 	if username != "" {
-		field, err := s.registrationUsernameAvailability(r, username)
-		if err != nil {
-			s.logInternalError(r, "register_availability", "username", "database_error", err)
-			serverErr(w, ErrDatabaseError)
-			return
+		if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
+			code := ErrorCode(embedded.ValidationErrorCode(err))
+			if code == "" {
+				// Not a validation error — an internal failure.
+				s.logInternalError(r, "register_availability", "username", "database_error", err)
+				serverErr(w, ErrDatabaseError)
+				return
+			}
+			resp.Username = &registrationAvailabilityField{Available: false, Error: code.String()}
+		} else {
+			checkUsername = strings.TrimSpace(username)
+			usernameNeedsConflictCheck = true
 		}
-		resp.Username = field
 	}
 	if email != "" {
-		field, err := s.registrationEmailAvailability(r, email)
+		if err := embedded.ValidateEmail(email); err != nil {
+			resp.Email = &registrationAvailabilityField{Available: false, Error: ErrorCode(embedded.ValidationErrorCode(err)).String()}
+		} else {
+			checkEmail = embedded.NormalizeEmail(email)
+			emailNeedsConflictCheck = true
+		}
+	}
+
+	if emailNeedsConflictCheck || usernameNeedsConflictCheck {
+		emailTaken, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), checkEmail, checkUsername)
 		if err != nil {
-			s.logInternalError(r, "register_availability", "email", "database_error", err)
+			s.logInternalError(r, "register_availability", "identifier", "database_error", err)
 			serverErr(w, ErrDatabaseError)
 			return
 		}
-		resp.Email = field
+		if usernameNeedsConflictCheck {
+			if usernameTaken {
+				resp.Username = &registrationAvailabilityField{Available: false, Error: "username_in_use"}
+			} else {
+				resp.Username = &registrationAvailabilityField{Available: true}
+			}
+		}
+		if emailNeedsConflictCheck {
+			if emailTaken {
+				resp.Email = &registrationAvailabilityField{Available: false, Error: "email_in_use"}
+			} else {
+				resp.Email = &registrationAvailabilityField{Available: true}
+			}
+		}
 	}
+
 	if phone != "" {
 		field, err := s.registrationPhoneAvailability(r, phone)
 		if err != nil {
@@ -78,43 +117,6 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	}
 
 	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Service) registrationUsernameAvailability(r *http.Request, username string) (*registrationAvailabilityField, error) {
-	if _, err := s.svc.ValidateUsernameForRegistration(r.Context(), username); err != nil {
-		if code := ErrorCode(embedded.ValidationErrorCode(err)); code != "" {
-			return &registrationAvailabilityField{Available: false, Error: code.String()}, nil
-		}
-		return nil, err
-	}
-	username = strings.TrimSpace(username)
-
-	_, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), "", username)
-	if err != nil {
-		return nil, err
-	}
-	if usernameTaken {
-		return &registrationAvailabilityField{Available: false, Error: "username_in_use"}, nil
-	}
-
-	return &registrationAvailabilityField{Available: true}, nil
-}
-
-func (s *Service) registrationEmailAvailability(r *http.Request, email string) (*registrationAvailabilityField, error) {
-	if err := embedded.ValidateEmail(email); err != nil {
-		return &registrationAvailabilityField{Available: false, Error: ErrorCode(embedded.ValidationErrorCode(err)).String()}, nil
-	}
-	email = embedded.NormalizeEmail(email)
-
-	emailTaken, _, err := s.svc.CheckPendingRegistrationConflict(r.Context(), email, "")
-	if err != nil {
-		return nil, err
-	}
-	if emailTaken {
-		return &registrationAvailabilityField{Available: false, Error: "email_in_use"}, nil
-	}
-
-	return &registrationAvailabilityField{Available: true}, nil
 }
 
 func (s *Service) registrationPhoneAvailability(r *http.Request, phone string) (*registrationAvailabilityField, error) {
