@@ -334,9 +334,14 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			})
 			return
 		}
-		sid, rt, _, err := s.svc.IssueRefreshSession(r.Context(), finalUserID, r.UserAgent(), nil)
-		if err != nil {
-			if errors.Is(err, authkit.ErrUserBanned) {
+		// Create the refresh session AND mint its access token from a single user
+		// load + MFA read (#227) rather than IssueRefreshSession + IssueAccessToken,
+		// which each re-read + re-gated the same row. The banned gate still fires with
+		// ErrUserBanned; the ID-token email the old path fetched here was ignored by
+		// IssueAccessToken, so it's gone.
+		sid, rt, accessTok, accessExp, _, issueErr := s.svc.IssueAuthenticatedSession(r.Context(), finalUserID, r.UserAgent(), nil, []string{"pwd"}, nil)
+		if issueErr != nil {
+			if errors.Is(issueErr, authkit.ErrUserBanned) {
 				logLoginFailed(s, r, finalUserID, "user_banned")
 				unauthorized(w, ErrUserBanned)
 				return
@@ -348,27 +353,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		ip := remoteIP(r)
 		uaPtr, ipPtr := &ua, &ip
 		s.svc.LogSessionCreated(r.Context(), finalUserID, "password_login", sid, ipPtr, uaPtr)
-
-		emailForToken := ""
-		if fetchedUser != nil && fetchedUser.Email != nil {
-			emailForToken = *fetchedUser.Email
-		} else {
-			usr, _ := s.svc.GetUserByEmail(r.Context(), loginEmail)
-			if usr != nil && usr.Email != nil {
-				emailForToken = *usr.Email
-			}
-		}
-		token, exp, err = s.svc.IssueAccessToken(r.Context(), finalUserID, emailForToken, map[string]any{"sid": sid})
-		if err != nil {
-			if errors.Is(err, authkit.ErrUserBanned) {
-				logLoginFailed(s, r, finalUserID, "user_banned")
-				unauthorized(w, ErrUserBanned)
-				return
-			}
-			serverErr(w, ErrTokenIssueFailed)
-			return
-		}
-		writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(token, rt, exp), nil)
+		writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(accessTok, rt, accessExp), nil)
 		return
 	}
 
