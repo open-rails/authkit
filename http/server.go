@@ -15,17 +15,12 @@ import (
 )
 
 // Server is the exported, recommended name for the net/http mounting wrapper
-// embedders construct with NewServer (it IS an HTTP server). Service is the
-// original struct name, kept as an alias; both refer to the same type. The #109
-// collision — a second public type also named Service — is resolved by #138: the
-// embedder-facing facade is now embedded.Client, reached via Server.Client().
-type Server = Service
-
-// Option configures a Server at construction. Options are applied INSIDE
-// NewServer, before the core service is built, so a half-built Server is never
+// Option configures a Service at construction. Options are applied INSIDE
+// NewServer, before the core service is built, so a half-built Service is never
 // observable. This is the ONLY way to wire optional dependencies — the chainable
-// WithX builder methods were removed in #108.
-type Option func(*Server)
+// WithX builder methods were removed in #108. (#206 collapsed the former `Server`
+// alias into the single canonical `Service` type; construct with NewServer.)
+type Option func(*Service)
 
 // NewServer constructs the auth Server over a client the host already built —
 // client-first construction (#142). The host wires the engine and its
@@ -51,7 +46,7 @@ type Option func(*Server)
 //	    embedded.WithRedis(rdb),          // engine ephemeral store; reused by the HTTP layer
 //	)
 //	srv, err := authhttp.NewServer(client)
-func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
+func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	if client == nil || client.Postgres() == nil {
 		return nil, errors.New("authkit: authhttp.NewServer requires a Postgres-backed *embedded.Client (Postgres is mandatory)")
 	}
@@ -59,7 +54,7 @@ func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 	cfg := coreSvc.Config()
 
 	// HTTP-level defaults set BEFORE options so an option can override them.
-	s := &Server{
+	s := &Service{
 		clientIP: DefaultClientIP(),
 	}
 	for _, opt := range opts {
@@ -119,7 +114,7 @@ func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 
 // validate enforces the CONDITIONAL dependency requirements for the configured
 // feature set (pg is already guaranteed by the signature).
-func (s *Server) validate(cfg embedded.Config) error {
+func (s *Service) validate(cfg embedded.Config) error {
 	if s.trustedProxyErr != nil {
 		return s.trustedProxyErr
 	}
@@ -150,20 +145,20 @@ func (s *Server) validate(cfg embedded.Config) error {
 // (#210), so most hosts pass Redis only once, on embedded.New. Pass this only to
 // point the HTTP layer at a DIFFERENT Redis than the engine's ephemeral store.
 func WithRedis(rd *redis.Client) Option {
-	return func(s *Server) { s.rd = rd }
+	return func(s *Service) { s.rd = rd }
 }
 
 // WithRateLimiter overrides AuthKit's automatic rate limiter. ADVANCED/TEST ONLY:
 // normal deployments let AuthKit own the policy (Redis-backed when WithRedis is
 // supplied, in-memory otherwise) and must not inject a custom limiter.
 func WithRateLimiter(rl RateLimiter) Option {
-	return func(s *Server) { s.rl = rl; s.rlExplicit = true }
+	return func(s *Service) { s.rl = rl; s.rlExplicit = true }
 }
 
 // WithoutRateLimiter disables rate limiting. ADVANCED/TEST ONLY: never use in
 // production — it removes brute-force and spam protection.
 func WithoutRateLimiter() Option {
-	return func(s *Server) { s.rl = nil; s.rlExplicit = true }
+	return func(s *Service) { s.rl = nil; s.rlExplicit = true }
 }
 
 // WithTrustedProxies is the normal knob for deployments behind a reverse proxy or
@@ -173,7 +168,7 @@ func WithoutRateLimiter() Option {
 // (RemoteAddr). With no trusted proxies the safe RemoteAddr default applies. An
 // invalid CIDR fails NewServer rather than silently mis-trusting a proxy.
 func WithTrustedProxies(cidrs ...string) Option {
-	return func(s *Server) {
+	return func(s *Service) {
 		prefixes := make([]netip.Prefix, 0, len(cidrs))
 		for _, c := range cidrs {
 			p, err := netip.ParsePrefix(strings.TrimSpace(c))
@@ -191,7 +186,7 @@ func WithTrustedProxies(cidrs ...string) Option {
 // normal deployments use WithTrustedProxies (proxy CIDRs) or the RemoteAddr
 // default; inject a raw ClientIPFunc only for bespoke strategies.
 func WithClientIPFunc(fn ClientIPFunc) Option {
-	return func(s *Server) {
+	return func(s *Service) {
 		if fn == nil {
 			fn = DefaultClientIP()
 		}
@@ -201,5 +196,5 @@ func WithClientIPFunc(fn ClientIPFunc) Option {
 
 // WithLanguageConfig sets the i18n language configuration.
 func WithLanguageConfig(cfg LanguageConfig) Option {
-	return func(s *Server) { s.langCfg = &cfg }
+	return func(s *Service) { s.langCfg = &cfg }
 }

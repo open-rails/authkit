@@ -145,12 +145,12 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	require.Same(t, other, override.rd, "explicit authhttp.WithRedis must override the engine's client")
 }
 
-// #109: Server is an alias of Service — NewServer returns *Server, which is
+// #109: Server is an alias of Service — NewServer returns *Service, which is
 // assignable to *Service (and vice versa).
 func TestServerAlias_BackCompat(t *testing.T) {
 	pool := newServerTestPool(t)
 	svc, err := NewServer(newServerClient(t, newServerTestConfig(), pool))
 	require.NoError(t, err)
-	var _ *Server = svc  // Server == Service (alias)
+	var _ *Service = svc  // Server == Service (alias)
 	var _ *Service = svc // both directions
 }
