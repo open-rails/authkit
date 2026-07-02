@@ -38,12 +38,21 @@ SURFACE NOTE (#228): added optional `PreferredLanguage *string` to public authki
   only their existing ≤15min access token, cannot login or refresh. #215 enrichment-removal safe because nothing
   reads the enriched Claims fields (doujins resolves roles via its own RoleSlugsForUser(UserID); token never
   carried email/roles anyway — token_issue.go:64/67).
-NEXT, in order: ALL SAFE INTERNAL WORK DONE (bugs #196/#197/#198, perf #215/#216/#217/#227/#228/#229/#230-safe,
-  surface trims #208/#218). REMAINING is consumer-affecting / larger, needs coordination:
-  (2) breaking surface #201–#207 + batch-native #219–#222 (CHANGE CONSUMER CODE — coordinate migration, don't
-  fan out blind); (3) DX #209–#214; (4) security backlog #199.
+ALSO MERGED (2026-07-02, breaking phase): #199 (security backlog — password-reset revoke-err propagation F8 +
+  atomic MFA/step-up consume F2; F1 already fixed in #176); #201 (relocate Passwordless+ExchangeRefreshToken off
+  the Client interface → HTTP-only; regenerated mirrors 95→89; membership rule in SEMVER); #203 (riverjobs takes
+  authkit.Client + Authorizer godoc); #204 (SEMVER error coverage); #207 (deleted authprovider Transforms DSL →
+  IdentityMapper); #210 (NewServer reuses engine Redis); #212 (construction error, no panic). Build+vet green.
+PLAN (Paul, 2026-07-02): finish ALL authkit breaking changes, then COMMIT+PUSH+TAG a new version (push now
+  authorized). Then migrate consumers one at a time starting with ~/openrails.
+NEXT (remaining, serial — shared files client.go/interfaces.go/SEMVER/generated, do in-tree not via worktree
+  agents which branch from master): #206 (strip aliasing: delete http/verify_aliases.go, collapse Service/Server,
+  dedupe MintDelegatedAccessToken, drop dead email param, legacy code-as-token), #202 (move storage/ratelimit/siws
+  under internal/), #205 (dir renames http→authhttp/oidc→oidckit/jwt→jwtkit), #209 (gin-native Optional/Required),
+  #211 (one construction entrypoint + RegisterAll), #213 (consolidate error registries + HTTPStatus), #214 (Mint*
+  verbs + Principal classifier), #219–#222 (batch-native reads/entitlements/mutations). Then push+tag.
 RULES: reduce API/SEMVER surface + total LOC; keep build+vet green after each change; integration-test new
-  behavior; do NOT push/commit to REMOTE. Tick each issue's tasks as done.
+  behavior; push+tag ONLY after all authkit breaking changes land. Tick each issue's tasks as done.
 -->
 
 

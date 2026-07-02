@@ -125,7 +125,7 @@ package name, is MAJOR.
 
 The root **`authkit`** package is the contract. It defines the **`Client` interface** —
 composed (#143) from cohesive topic interfaces (`Users`, `Passwords`, `Admin`, `Roles`,
-`Groups`, `Tokens`, `APIKeys`, `Sessions`, `Providers`, `RemoteApps`, `Passwordless`,
+`Groups`, `Tokens`, `APIKeys`, `Sessions`, `Providers`, `RemoteApps`,
 `Bootstrap`, `Senders`, `Entitlements`, `Maintenance`) so a host can depend on the slice
 it needs — plus the public data/result types, config, constants, sentinel errors, and the
 permission/API-key primitives. The concrete in-process implementation is the **`embedded`**
