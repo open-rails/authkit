@@ -17,20 +17,24 @@ Branch: audit-impl (LOCAL only, not pushed). Merged + `go build ./... && go vet 
   inlined); #226 (allowResult delegates); #196 (SIWS mem cache memoized + test); #197 (CodeForError walks the
   chain + test); #198 (memory limiter Limit<=0 guard + test); #217 (redis limiter atomic Lua, TOCTOU fixed);
   #215 (authenticated request path now STATELESS — removed per-request ban gate + discord/role/email enrichment,
-  0 DB lookups, realigns with #90); #216 (single JWT parse).
-#215 SAFETY NOTE: token carries neither email nor roles (token_issue.go:64/67 — profile claims + role authority
-  deliberately not in the token). Removing the middleware enrichment is safe because NOTHING reads the enriched
-  fields: doujins resolves roles via its own RoleSlugsForUser(ctx, UserID) + EffectivePermissions (reads only
-  claims.UserID/Entitlements/Permissions), cozy-art/tensorhub don't read native roles/email off claims, and
-  authkit's own handlers re-fetch via AdminGetUser. Ban stays enforced at login + refresh (≤15min residual).
-PENDING MERGE: #208 + #218 (surface trims: AuthCapabilities→authhttp, drop RBACDriftReport facade, unexport
-  unused jwtkit sources; SIWS regexp hoist) — worktree agent still running.
-NEW from handler over-fetch audit: #227 (thread user+MFAStatus through token-issue path — user row read 3×,
-  MFA 2-3× on refresh/login/2fa-verify), #228 (GET /me ~15 round-trips), #229 (register/availability double
-  query), #230 (narrow UserBy* projections). These are the high-value perf work per Paul's "0-1 DB lookups".
-NEXT, in order: (1) land #208; (2) run full `task test` centrally (AUTHKIT_TEST_DATABASE_URL set); (3) perf
-  #227–#230 (serial, hot token path — careful); (4) breaking surface #201–#207 + batch-native #219–#222 (need
-  consumer migration); (5) DX #209–#214; (6) security backlog #199.
+  0 DB lookups, realigns with #90); #216 (single JWT parse); #208 (surface trims: AuthCapabilities→authhttp,
+  drop RBACDriftReport facade, unexport unused jwtkit sources); #218 (SIWS regexp hoist + touchAccessToken
+  in-query throttle); #227 (thread loaded user + MFAStatus through the token-issue path — refresh/login/2fa-verify
+  now read profiles.users ONCE, compute MFA ONCE; was 3× / 2-3×). FULL `task test` GREEN except one pre-existing
+  flake: internal/db/querytest TestQueryPerformance `users_purge_candidates shared read blocks >64` — fails on
+  clean master too (68>64 there, 76>64 here; varies per run). Untouched query; not ours. Candidate: loosen the
+  threshold or ANALYZE before measuring.
+#215+#227 SECURITY DESIGN (verified coherent): every token/session MINT point gates banned/deleted via
+  ensureUserAccess — password/2fa (IssueAuthenticatedSession), email-verify/OIDC/SIWS/passkey
+  (IssueRefreshSessionWithAuthMethods L63), refresh (ExchangeRefreshToken top gate). The ungated
+  insertRefreshSession is only reached THROUGH those gated wrappers. No per-request live check; banned user keeps
+  only their existing ≤15min access token, cannot login or refresh. #215 enrichment-removal safe because nothing
+  reads the enriched Claims fields (doujins resolves roles via its own RoleSlugsForUser(UserID); token never
+  carried email/roles anyway — token_issue.go:64/67).
+NEXT, in order: (1) perf #228 (GET /me ~15 round-trips), #229 (register/availability double query), #230 (narrow
+  UserBy* projections + drop unused sessions-list cols — needs sqlc regen) — all internal, no consumer impact;
+  (2) breaking surface #201–#207 + batch-native #219–#222 (CHANGE CONSUMER CODE — coordinate migration, don't
+  fan out blind); (3) DX #209–#214; (4) security backlog #199.
 RULES: reduce API/SEMVER surface + total LOC; keep build+vet green after each change; integration-test new
   behavior; do NOT push/commit to REMOTE. Tick each issue's tasks as done.
 -->
