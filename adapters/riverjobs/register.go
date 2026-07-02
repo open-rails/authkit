@@ -3,13 +3,13 @@ package riverjobs
 import (
 	"fmt"
 
-	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit"
 	"github.com/riverqueue/river"
 	"github.com/robfig/cron/v3"
 )
 
 // RegisterPurgeDeletedUsersWorker registers the purge worker into a River workers registry.
-func RegisterPurgeDeletedUsersWorker(ws *river.Workers, svc *embedded.Client, before BeforeUserHardDeleteFunc) {
+func RegisterPurgeDeletedUsersWorker(ws *river.Workers, svc authkit.Client, before BeforeUserHardDeleteFunc) {
 	river.AddWorker(ws, NewPurgeDeletedUsersWorker(svc, before))
 }
 
