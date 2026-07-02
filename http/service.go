@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/siws"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	redisstore "github.com/open-rails/authkit/storage/redis"
 	"github.com/redis/go-redis/v9"
@@ -28,6 +29,7 @@ type Service struct {
 	oidcMgr             *oidckit.Manager
 	oidcMgrOnce         sync.Once
 	memStateCache       oidckit.StateCache
+	memSIWSCache        siws.ChallengeCache
 	langCfg             *LanguageConfig
 
 	// groupCanFn is a package-internal test hook for the auto-generated
