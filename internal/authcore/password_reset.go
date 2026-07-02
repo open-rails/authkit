@@ -81,7 +81,13 @@ func (s *Service) finishPasswordReset(ctx context.Context, userID, newPassword s
 		return err
 	}
 	// Revoke all sessions to invalidate any potentially compromised refresh tokens.
-	_ = s.RevokeAllSessions(ctx, userID, nil)
+	// Propagate the error (#199 F8/plan020): a reset must NOT report success while an
+	// attacker's pre-reset sessions survive. Matches ChangePassword/SetPasswordAfterFreshAuth,
+	// which return the RevokeAllSessions error rather than swallowing it.
+	ctx = WithSessionRevokeReason(ctx, SessionRevokeReasonPasswordChange)
+	if err := s.RevokeAllSessions(ctx, userID, nil); err != nil {
+		return err
+	}
 	s.LogPasswordChanged(ctx, userID, "", nil, nil)
 	return nil
 }

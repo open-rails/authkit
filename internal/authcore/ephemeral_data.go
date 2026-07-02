@@ -462,14 +462,18 @@ func (s *Service) storeMFACode(ctx context.Context, userID, codeHash, method, de
 
 func (s *Service) consumeMFACode(ctx context.Context, userID, codeHash string) (bool, error) {
 	var data twoFactorData
-	ok, err := s.ephemGetJSON(ctx, keyTwoFactor+userID, &data)
+	// Atomic single-use consume (#199 F2/plan015): get+del as ONE op so the same
+	// code cannot authenticate two concurrent requests racing a Get-then-Del. Same
+	// class as the password-reset/passkey consume. Trade-off: a presented code is
+	// spent even on hash mismatch (one attempt per issued code — resend to retry),
+	// which also bounds online brute force of the short numeric code.
+	ok, err := s.ephemConsumeJSON(ctx, keyTwoFactor+userID, &data)
 	if err != nil || !ok {
 		return false, nil
 	}
 	if data.CodeHash != codeHash {
 		return false, nil
 	}
-	_ = s.ephemDel(ctx, keyTwoFactor+userID)
 	return true, nil
 }
 
@@ -481,7 +485,8 @@ func (s *Service) storeMFAStepUpCode(ctx context.Context, userID, sessionID, cod
 func (s *Service) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, codeHash, method string) (bool, error) {
 	var data twoFactorData
 	key := keyTwoFactorStepUp + userID + ":" + sessionID
-	ok, err := s.ephemGetJSON(ctx, key, &data)
+	// Atomic single-use consume (#199 F2/plan015) — see consumeMFACode.
+	ok, err := s.ephemConsumeJSON(ctx, key, &data)
 	if err != nil || !ok {
 		return false, nil
 	}
@@ -491,7 +496,6 @@ func (s *Service) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, c
 	if method != "" && !strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)) {
 		return false, nil
 	}
-	_ = s.ephemDel(ctx, key)
 	return true, nil
 }
 
