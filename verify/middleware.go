@@ -18,10 +18,13 @@ type authError struct {
 func (e *authError) Error() string { return e.reason }
 
 // VerifyRequest runs the full Required authentication pipeline — bearer parse,
-// API-key resolution, JWT verify, 2FA/issuer gates, DB enrichment, ban/deleted
-// gate — and returns the enriched claims WITHOUT writing a response. Embedders
-// that authenticate a request outside the middleware chain call this instead of
-// driving Required against a throwaway ResponseWriter.
+// API-key resolution, JWT verify, 2FA gate, and (for delegated principals) the
+// fail-closed issuer gate — and returns the claims WITHOUT writing a response.
+// Embedders that authenticate a request outside the middleware chain call this
+// instead of driving Required against a throwaway ResponseWriter. The
+// native-user path is stateless: it does ZERO DB lookups (#215) — no ban gate,
+// no role/email/provider re-enrichment. Ban/deleted is enforced at token mint
+// (login + refresh); the short access TTL bounds the residual window (#90).
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := bearerToken(r.Header.Get("Authorization"))
 	if tokenStr == "" {
@@ -29,8 +32,8 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	}
 
 	// API-key branch, BEFORE JWT verification. A shaped-but-invalid API key is
-	// rejected here rather than re-tried as a JWT. API-key principals carry no
-	// UserID, so the live-user enrichment/ban gate below is skipped for them.
+	// rejected here rather than re-tried as a JWT. resolveAPIKey does its own
+	// live secret resolution; it does not flow into the stateless JWT path below.
 	if scl, matched, serr := v.resolveAPIKey(r.Context(), tokenStr); matched {
 		if serr != nil {
 			return Claims{}, &authError{http.StatusUnauthorized, serr.Error()}
@@ -63,30 +66,17 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 		}
 	}
 
-	// Best-effort DB enrichment. Skipped for delegated principals: their subject
-	// does not exist locally, so local enrichment + the IsUserAllowed gate must
-	// not apply (delegated tokens carry no UserID anyway).
-	if v.enrich != nil && cl.UserID != "" && !cl.isDelegated() {
-		if du, err := v.enrich.GetProviderUsername(r.Context(), cl.UserID, "discord"); err == nil && du != "" {
-			cl.DiscordUsername = du
-		}
-		if len(cl.Roles) == 0 {
-			if rs := v.enrich.ListRoleSlugsByUser(r.Context(), cl.UserID); len(rs) > 0 {
-				cl.Roles = rs
-			}
-		}
-		if cl.Email == "" {
-			if users, err := v.enrich.UsersByIDs(r.Context(), []string{cl.UserID}); err == nil && len(users) > 0 && strings.TrimSpace(users[0].Email) != "" {
-				cl.Email = users[0].Email
-			}
-		}
-		// Live user gate (ban/deleted).
-		allowed, err := v.enrich.IsUserAllowed(r.Context(), cl.UserID)
-		if err != nil || !allowed {
-			return Claims{}, &authError{http.StatusUnauthorized, "user_disabled"}
-		}
-	}
-
+	// #215: the native-user request path is STATELESS — zero DB lookups. We do
+	// NOT re-enrich roles/email/discord and do NOT run a per-request ban/deleted
+	// gate here. Ban/deleted is enforced where NEW tokens are minted — login
+	// (ensureUserAccess) and refresh (ExchangeRefreshToken → ensureUserAccessByID
+	// + IsUserAllowed, revoking all sessions on disable) — so a banned/deleted
+	// user cannot obtain a new access token and their existing one expires within
+	// one access-TTL window (≤15min by default). That residual window is the
+	// accepted #90 trade-off (internal/authcore/service.go:348-352: trust the
+	// short-lived access token instead of a per-request liveness lookup). Roles
+	// resolve lazily via Can() on permission-gated routes (DB-live there); email
+	// rides in the token claims. Delegated principals are still gated above.
 	return cl, nil
 }
 
