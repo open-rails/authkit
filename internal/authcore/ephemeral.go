@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	redisstore "github.com/open-rails/authkit/storage/redis"
+	"github.com/redis/go-redis/v9"
 )
 
 type EphemeralMode string
@@ -43,6 +46,21 @@ func (s *Service) EphemeralMode() EphemeralMode {
 // IsDevEnvironment reports whether a host-provided environment string is non-production.
 func IsDevEnvironment(environment string) bool {
 	return isDevEnvironment(environment)
+}
+
+// EphemeralRedisClient returns the *redis.Client backing the engine's ephemeral
+// store when it is Redis-backed (configured via embedded.WithRedis), or nil for a
+// memory store. The HTTP transport reuses it so a host that already wired Redis on
+// the engine doesn't also have to pass authhttp.WithRedis — one Redis client, no
+// split-brain ephemeral state (authkit #210).
+func (s *Service) EphemeralRedisClient() *redis.Client {
+	if s == nil {
+		return nil
+	}
+	if kv, ok := s.ephemeralStore.(*redisstore.KV); ok {
+		return kv.Client()
+	}
+	return nil
 }
 
 func (s *Service) useEphemeralStore() bool {

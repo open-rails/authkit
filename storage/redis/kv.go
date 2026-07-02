@@ -16,6 +16,11 @@ func NewKV(rdb *redis.Client) *KV {
 	return &KV{rdb: rdb}
 }
 
+// Client returns the underlying *redis.Client. It lets the HTTP transport reuse
+// the engine's ephemeral Redis as a single source of truth (authkit #210) instead
+// of requiring a second, separately-configured client via authhttp.WithRedis.
+func (k *KV) Client() *redis.Client { return k.rdb }
+
 func (k *KV) Get(ctx context.Context, key string) ([]byte, bool, error) {
 	b, err := k.rdb.Get(ctx, key).Bytes()
 	if err == redis.Nil {

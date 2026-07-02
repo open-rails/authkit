@@ -17,9 +17,8 @@ func (s *Service) APIHandler() http.Handler {
 	if s == nil || s.svc == nil || s.verifier == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serverErr(w, ErrAuthkitNotInitialized) })
 	}
-	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
-		panic(err)
-	}
+	// The registration-verification policy is validated at construction
+	// (authhttp.NewServer -> validate, #212), so no panic guard is needed here.
 	if !embedded.IsDevEnvironment(s.svc.Options().Environment) {
 		if s.svc.EphemeralMode() != embedded.EphemeralRedis {
 			panic("authkit: redis-compatible ephemeral store is required in production")

@@ -35,10 +35,22 @@ type Option func(*Server)
 // Postgres-backed; pure token verification with no storage uses
 // authhttp.NewVerifier / authkit/verify instead.
 //
-//	client, err := embedded.New(cfg, pg, embedded.WithEmailSender(mailer))
-//	srv, err := authhttp.NewServer(client,
-//	    authhttp.WithRedis(rdb), // OIDC/SIWS state caches
+// Construction fails (returns an error, never panics — #212) when the
+// configuration cannot be served: in particular, if Registration.Verification is
+// "required" but the engine has no email or SMS sender wired (embedded.WithEmailSender
+// / embedded.WithSMSSender), NewServer returns an error rather than panicking later
+// at handler mount.
+//
+// Redis is taken ONCE (#210): NewServer reuses the engine's ephemeral Redis client
+// (embedded.WithRedis) for the HTTP layer's OIDC/SIWS state caches and rate limiter,
+// so a host that wired Redis on the engine need not also pass authhttp.WithRedis.
+// authhttp.WithRedis remains available as an explicit override, not a requirement.
+//
+//	client, err := embedded.New(cfg, pg,
+//	    embedded.WithEmailSender(mailer), // required when Verification == "required"
+//	    embedded.WithRedis(rdb),          // engine ephemeral store; reused by the HTTP layer
 //	)
+//	srv, err := authhttp.NewServer(client)
 func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 	if client == nil || client.Postgres() == nil {
 		return nil, errors.New("authkit: authhttp.NewServer requires a Postgres-backed *embedded.Client (Postgres is mandatory)")
@@ -56,6 +68,15 @@ func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 		}
 	}
 	s.svc = coreSvc
+
+	// #210: take Redis ONCE. When the host wired Redis on the engine
+	// (embedded.WithRedis) but did NOT pass authhttp.WithRedis, adopt the engine's
+	// *redis.Client for the HTTP layer's OIDC/SIWS caches and rate limiter — one
+	// Redis instance, single source of truth, no split-brain ephemeral state. An
+	// explicit authhttp.WithRedis (applied above) still overrides.
+	if s.rd == nil {
+		s.rd = coreSvc.EphemeralRedisClient()
+	}
 
 	// AuthKit owns the rate-limit policy: auto-create the limiter unless the host
 	// explicitly set or disabled one (the advanced/test-only WithRateLimiter /
@@ -102,6 +123,12 @@ func (s *Server) validate(cfg embedded.Config) error {
 	if s.trustedProxyErr != nil {
 		return s.trustedProxyErr
 	}
+	// #212: the registration-verification policy must be satisfiable by a
+	// configured delivery sender at CONSTRUCTION time. Fail here with an error
+	// instead of panicking later when handlers are mounted (APIHandler).
+	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
+		return err
+	}
 	env := strings.ToLower(strings.TrimSpace(cfg.Environment))
 	if env == "prod" || env == "production" {
 		if s.rd == nil {
@@ -117,8 +144,11 @@ func (s *Server) validate(cfg embedded.Config) error {
 // builds the client before constructing the server (client-first, #142). ---
 
 // WithRedis supplies the Redis client for the HTTP layer's OIDC and SIWS state
-// caches (and satisfies the production durable-store requirement). The engine's
-// ephemeral store takes the same *redis.Client separately via embedded.WithRedis.
+// caches (and satisfies the production durable-store requirement). It is an
+// OVERRIDE, not a requirement: when the engine already has Redis wired via
+// embedded.WithRedis, NewServer reuses that client for the HTTP layer by default
+// (#210), so most hosts pass Redis only once, on embedded.New. Pass this only to
+// point the HTTP layer at a DIFFERENT Redis than the engine's ephemeral store.
 func WithRedis(rd *redis.Client) Option {
 	return func(s *Server) { s.rd = rd }
 }
