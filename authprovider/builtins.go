@@ -1,19 +1,20 @@
 package authprovider
 
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
 var builtIns = map[string]Provider{
+	// Google and Apple are OIDC: identity comes from standard ID-token claims read
+	// on the oidc path (see http/oidc_browser.go), so they carry no IdentityMapper.
 	"google": {
 		Name:   "google",
 		Kind:   KindOIDC,
 		Issuer: "https://accounts.google.com",
 		Scopes: []string{"openid", "email", "profile"},
 		PKCE:   true,
-		UserMapping: UserMapping{
-			Subject:           FieldMapping{Path: "sub", Transforms: []string{"string", "trim"}},
-			Email:             FieldMapping{Path: "email", Transforms: []string{"trim"}},
-			EmailVerified:     FieldMapping{Path: "email_verified"},
-			PreferredUsername: FieldMapping{Path: "preferred_username", Transforms: []string{"trim"}},
-			DisplayName:       FieldMapping{Path: "name", Transforms: []string{"trim"}},
-		},
 	},
 	"apple": {
 		Name:            "apple",
@@ -22,28 +23,16 @@ var builtIns = map[string]Provider{
 		Scopes:          []string{"openid", "email", "name"},
 		PKCE:            false,
 		ExtraAuthParams: map[string]string{"response_mode": "form_post"},
-		UserMapping: UserMapping{
-			Subject:       FieldMapping{Path: "sub", Transforms: []string{"string", "trim"}},
-			Email:         FieldMapping{Path: "email", Transforms: []string{"trim"}},
-			EmailVerified: FieldMapping{Path: "email_verified"},
-			DisplayName:   FieldMapping{Path: "name", Transforms: []string{"trim"}},
-		},
 	},
 	"discord": {
-		Name:         "discord",
-		Kind:         KindOAuth2,
-		Issuer:       "https://discord.com",
-		AuthorizeURL: "https://discord.com/api/oauth2/authorize",
-		TokenURL:     "https://discord.com/api/oauth2/token",
-		UserInfoURL:  "https://discord.com/api/users/@me",
-		Scopes:       []string{"identify", "email"},
-		UserMapping: UserMapping{
-			Subject:           FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
-			Email:             FieldMapping{Path: "email", Transforms: []string{"trim"}},
-			EmailVerified:     FieldMapping{Path: "verified"},
-			PreferredUsername: FieldMapping{Path: "username", Transforms: []string{"trim"}},
-			DisplayName:       FieldMapping{Path: "global_name", Transforms: []string{"trim"}},
-		},
+		Name:           "discord",
+		Kind:           KindOAuth2,
+		Issuer:         "https://discord.com",
+		AuthorizeURL:   "https://discord.com/api/oauth2/authorize",
+		TokenURL:       "https://discord.com/api/oauth2/token",
+		UserInfoURL:    "https://discord.com/api/users/@me",
+		Scopes:         []string{"identify", "email"},
+		IdentityMapper: mapDiscordIdentity,
 	},
 	"github": {
 		Name:           "github",
@@ -55,28 +44,70 @@ var builtIns = map[string]Provider{
 		UserInfoAccept: "application/vnd.github+json",
 		Scopes:         []string{"read:user", "user:email"},
 		PKCE:           true,
-		UserMapping: UserMapping{
-			Subject: FieldMapping{Path: "id", Transforms: []string{"string", "trim"}},
-			Email:   FieldMapping{Path: "email", Transforms: []string{"trim"}},
-			// GitHub's /user.email is the public profile address and carries NO
-			// verification guarantee, so we must NOT assert email_verified here. A
-			// verified address is sourced only from the /user/emails fallback below,
-			// which selects primary+verified entries (AK security audit F4).
-			PreferredUsername: FieldMapping{Path: "login", Transforms: []string{"trim"}},
-			DisplayName:       FieldMapping{Path: "name", Transforms: []string{"trim"}},
-		},
-		EmailFallback: &FallbackLookup{
-			URL:    "https://api.github.com/user/emails",
-			Accept: "application/vnd.github+json",
-			Array:  true,
-			Select: map[string]any{
-				"primary":  true,
-				"verified": true,
-			},
-			Email:         FieldMapping{Path: "email", Transforms: []string{"trim"}},
-			EmailVerified: FieldMapping{Path: "verified"},
-		},
+		IdentityMapper: mapGitHubIdentity,
+		// GitHub's /user.email is the public profile address and carries NO
+		// verification guarantee, so mapGitHubIdentity must NOT assert
+		// email_verified. A verified address is sourced only from the
+		// /user/emails fallback below, which selects the primary+verified entry
+		// (AK security audit F4).
+		EmailFallbackURL:    "https://api.github.com/user/emails",
+		EmailFallbackAccept: "application/vnd.github+json",
 	},
+}
+
+// mapDiscordIdentity reads the Discord /users/@me userinfo JSON into an Identity.
+func mapDiscordIdentity(root any) (Identity, error) {
+	subject := stringField(root, "id")
+	if subject == "" {
+		return Identity{}, errors.New("provider_mapping_missing_subject")
+	}
+	return Identity{
+		Subject:           subject,
+		Email:             stringField(root, "email"),
+		EmailVerified:     boolField(root, "verified"),
+		PreferredUsername: stringField(root, "username"),
+		DisplayName:       stringField(root, "global_name"),
+	}, nil
+}
+
+// mapGitHubIdentity reads the GitHub /user userinfo JSON into an Identity. It
+// deliberately leaves EmailVerified false: /user.email is unverified, and a
+// verified address is sourced only from the /user/emails fallback (AK F4).
+func mapGitHubIdentity(root any) (Identity, error) {
+	subject := stringField(root, "id")
+	if subject == "" {
+		return Identity{}, errors.New("provider_mapping_missing_subject")
+	}
+	return Identity{
+		Subject:           subject,
+		Email:             stringField(root, "email"),
+		PreferredUsername: stringField(root, "login"),
+		DisplayName:       stringField(root, "name"),
+	}, nil
+}
+
+// stringField reads root[key] as a trimmed string. Numeric ids (JSON numbers
+// decode to float64) render without a fractional part via fmt.Sprint.
+func stringField(root any, key string) string {
+	m, ok := root.(map[string]any)
+	if !ok {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(v))
+}
+
+// boolField reads root[key] as a bool (false when absent or not a JSON bool).
+func boolField(root any, key string) bool {
+	m, ok := root.(map[string]any)
+	if !ok {
+		return false
+	}
+	b, _ := m[key].(bool)
+	return b
 }
 
 // Google returns the built-in Google OIDC provider configured with the given

@@ -204,9 +204,6 @@ func TestOIDCHandler_OAuth2ProvidersUseGenericProviderRoute(t *testing.T) {
 			UserInfoURL:  "https://custom.example/me",
 			Scopes:       []string{"profile"},
 			PKCE:         true,
-			UserMapping: authprovider.UserMapping{
-				Subject: authprovider.FieldMapping{Path: "id"},
-			},
 		},
 	})
 	require.NoError(t, err)

@@ -3,9 +3,11 @@ package authhttp
 import (
 	"crypto"
 	"encoding/json"
+	"fmt"
 	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,7 +107,7 @@ func TestFetchGitHubUserInfoUsesNumericIDAndVerifiedPrimaryEmail(t *testing.T) {
 	provider, ok := authprovider.BuiltIn("github")
 	require.True(t, ok)
 	provider.UserInfoURL = ts.URL + "/user"
-	provider.EmailFallback.URL = ts.URL + "/user/emails"
+	provider.EmailFallbackURL = ts.URL + "/user/emails"
 
 	info, err := s.fetchOAuthUserInfo(
 		httptest.NewRequest(http.MethodGet, "/", nil),
@@ -143,12 +145,20 @@ func TestFetchOAuthUserInfoUsesCustomDescriptorMapping(t *testing.T) {
 			Kind:        authprovider.KindOAuth2,
 			Issuer:      "https://mapped.example",
 			UserInfoURL: ts.URL,
-			UserMapping: authprovider.UserMapping{
-				Subject:           authprovider.FieldMapping{Path: "user.id", Transforms: []string{"string"}},
-				Email:             authprovider.FieldMapping{Path: "user.email"},
-				EmailVerified:     authprovider.FieldMapping{Path: "user.verified"},
-				PreferredUsername: authprovider.FieldMapping{Path: "user.handle"},
-				DisplayName:       authprovider.FieldMapping{Path: "user.name"},
+			IdentityMapper: func(root any) (authprovider.Identity, error) {
+				m, _ := root.(map[string]any)
+				u, _ := m["user"].(map[string]any)
+				email, _ := u["email"].(string)
+				verified, _ := u["verified"].(bool)
+				handle, _ := u["handle"].(string)
+				name, _ := u["name"].(string)
+				return authprovider.Identity{
+					Subject:           strings.TrimSpace(fmt.Sprint(u["id"])),
+					Email:             email,
+					EmailVerified:     verified,
+					PreferredUsername: handle,
+					DisplayName:       name,
+				}, nil
 			},
 		},
 		oauth2TokenResp{AccessToken: "descriptor-token", TokenType: "Bearer"},
