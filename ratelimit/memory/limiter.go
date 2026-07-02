@@ -95,7 +95,11 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 		}
 	}
 
-	if len(ts) >= lim.Limit {
+	// Guard Limit > 0: a bucket with Limit <= 0 has no positive threshold, so
+	// len(ts) >= lim.Limit would be true even for an empty slice and ts[0] would
+	// panic on the empty backing array (#198). Skipping the check leaves the
+	// window-exceeded branch inactive for such buckets.
+	if lim.Limit > 0 && len(ts) >= lim.Limit {
 		windowRetryAfter := time.Duration(ts[0]+lim.Window.Milliseconds()-nowMs) * time.Millisecond
 		if windowRetryAfter < 0 {
 			windowRetryAfter = 0
