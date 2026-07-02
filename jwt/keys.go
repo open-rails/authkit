@@ -261,43 +261,43 @@ func persistKeysToDisk(dir string, signer *RSASigner, kid string) error {
 	return nil
 }
 
-// EnvKeySource loads the active signing key and JWKS public keys from
+// envKeySource loads the active signing key and JWKS public keys from
 // environment variables: ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, and the
 // optional PUBLIC_KEYS map (JSON of kid -> PEM). It returns (nil, nil) when no
 // key env vars are set so it can compose as the first step of a resolver.
-func EnvKeySource() (KeySource, error) {
+func envKeySource() (KeySource, error) {
 	return tryLoadFromEnv()
 }
 
-// FileKeySource loads the active signing key and JWKS public keys from a
+// fileKeySource loads the active signing key and JWKS public keys from a
 // keys.json file located under the given directory (default /vault/auth when
 // path is empty). The file uses the {active_key_id, active_private_key_pem,
 // public_keys} envelope. It returns (nil, nil) when the directory or keys.json
 // does not exist so it can compose as a fallthrough step of a resolver.
-func FileKeySource(path string) (KeySource, error) {
+func fileKeySource(path string) (KeySource, error) {
 	return tryLoadFromFilesystem(path)
 }
 
-// NewAutoKeySource auto-discovers JWT keys from multiple sources with the
+// newAutoKeySource auto-discovers JWT keys from multiple sources with the
 // following priority (using the default filesystem path /vault/auth):
 // 1. Environment variables (ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, PUBLIC_KEYS)
 // 2. Filesystem /vault/auth/keys.json
 // 3. Auto-generated keys in .runtime/authkit/ (development fallback; prod hard-fail)
-func NewAutoKeySource() (KeySource, error) {
+func newAutoKeySource() (KeySource, error) {
 	return NewAutoKeySourceWithPath(DefaultAuthKeysPath)
 }
 
-// NewAutoKeySourceWithPath is NewAutoKeySource with a host-overridable
+// NewAutoKeySourceWithPath is newAutoKeySource with a host-overridable
 // filesystem directory for the keys.json file. An empty path defaults to
 // DefaultAuthKeysPath ("/vault/auth"). Precedence and the production hard-fail
-// are identical to NewAutoKeySource: env -> FileKeySource(path) ->
+// are identical to newAutoKeySource: env -> fileKeySource(path) ->
 // GeneratedKeySource (non-prod only).
 func NewAutoKeySourceWithPath(path string) (KeySource, error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultAuthKeysPath
 	}
 
-	if keySource, err := EnvKeySource(); err != nil {
+	if keySource, err := envKeySource(); err != nil {
 		return nil, fmt.Errorf("failed to load keys from environment variables: %w", err)
 	} else if keySource != nil {
 		return keySource, nil

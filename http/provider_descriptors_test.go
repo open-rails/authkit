@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
@@ -157,7 +156,7 @@ func TestProvidersGETReturnsConfiguredProvidersOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var body struct {
-		Providers []authkit.AuthProviderSummary `json:"providers"`
+		Providers []AuthProviderSummary `json:"providers"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Len(t, body.Providers, 1)

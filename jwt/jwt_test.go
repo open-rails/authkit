@@ -149,7 +149,7 @@ func pemEncodePrivateKey(key *rsa.PrivateKey) []byte {
 
 func TestKeyRingMergesActiveKey(t *testing.T) {
 	signer, _ := NewRSASigner(2048, "active")
-	ring := NewKeyRing(signer, map[string]crypto.PublicKey{"retired": signer.PublicKey()})
+	ring := newKeyRing(signer, map[string]crypto.PublicKey{"retired": signer.PublicKey()})
 	if ring.PublicKeys()["active"] == nil || ring.PublicKeys()["retired"] == nil {
 		t.Fatalf("keys: %v", ring.PublicKeys())
 	}

@@ -350,10 +350,6 @@ func (s *Client) RemoveRoleBySlug(ctx context.Context, userID, slug string) erro
 	return s.impl.RemoveRoleBySlug(ctx, userID, slug)
 }
 
-func (s *Client) RBACDriftReport(ctx context.Context) (authkit.RBACDriftReport, error) {
-	return s.impl.RBACDriftReport(ctx)
-}
-
 func (s *Client) ResolveAPIKey(ctx context.Context, keyID, secret string) (string, []string, error) {
 	return s.impl.ResolveAPIKey(ctx, keyID, secret)
 }

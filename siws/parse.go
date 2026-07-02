@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// headerRegex matches the SIWS header line: "${domain} wants you to sign in
+// with your Solana account:". Compiled once at package load.
+var headerRegex = regexp.MustCompile(`^(.+) wants you to sign in with your Solana account:$`)
+
 // ParseMessage extracts SignInInput fields from a SIWS message string.
 // This is useful for verifying the signed message matches expected values.
 func ParseMessage(message string) (SignInInput, error) {
@@ -18,7 +22,6 @@ func ParseMessage(message string) (SignInInput, error) {
 	}
 
 	// Parse header: "${domain} wants you to sign in with your Solana account:"
-	headerRegex := regexp.MustCompile(`^(.+) wants you to sign in with your Solana account:$`)
 	matches := headerRegex.FindStringSubmatch(lines[0])
 	if matches == nil {
 		return input, fmt.Errorf("invalid header format")

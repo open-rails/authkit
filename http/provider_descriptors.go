@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authprovider"
 )
 
@@ -47,7 +46,7 @@ func (s *Service) authProvider(name string) (authprovider.Provider, bool) {
 	return authprovider.Clone(provider), true
 }
 
-func (s *Service) providerSummaries() []authkit.AuthProviderSummary {
+func (s *Service) providerSummaries() []AuthProviderSummary {
 	providers := s.authProviders()
 	names := make([]string, 0, len(providers))
 	for name := range providers {
@@ -55,10 +54,10 @@ func (s *Service) providerSummaries() []authkit.AuthProviderSummary {
 	}
 	sort.Strings(names)
 
-	out := make([]authkit.AuthProviderSummary, 0, len(names))
+	out := make([]AuthProviderSummary, 0, len(names))
 	for _, name := range names {
 		provider := providers[name]
-		out = append(out, authkit.AuthProviderSummary{
+		out = append(out, AuthProviderSummary{
 			ID:                   provider.NormalizedName(),
 			Name:                 providerDisplayName(provider),
 			Kind:                 string(provider.Kind),

@@ -384,13 +384,16 @@ func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret strin
 }
 
 // touchAccessTokenAsync updates last_used_at without blocking the request. A
-// failure here is non-critical (auth already succeeded).
+// failure here is non-critical (auth already succeeded). The write is throttled
+// in-query to at most once per 5 minutes per key (the WHERE clause no-ops when
+// last_used_at is recent), avoiding a row write on every request without adding
+// a read round-trip.
 func (s *Service) touchAccessTokenAsync(id string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		q := db.ForSchema(s.pg, s.dbSchema())
-		_, _ = q.Exec(ctx, `UPDATE profiles.api_keys SET last_used_at = now() WHERE id = $1::uuid`, id)
+		_, _ = q.Exec(ctx, `UPDATE profiles.api_keys SET last_used_at = now() WHERE id = $1::uuid AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')`, id)
 	}()
 }
 
