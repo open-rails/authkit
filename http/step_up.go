@@ -5,10 +5,12 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/db"
 	oidckit "github.com/open-rails/authkit/oidc"
 )
@@ -315,22 +317,41 @@ func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID st
 }
 
 func (s *Service) stepUpMethods(r *http.Request, userID string) []string {
+	hasPassword := s.svc.HasPassword(r.Context(), userID)
+	settings, _ := s.svc.Get2FASettings(r.Context(), userID)
+	var providerSlugs []string
+	if pg := s.svc.Postgres(); pg != nil {
+		providerSlugs, _ = db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderSlugsDistinct(r.Context(), strings.TrimSpace(userID))
+	}
+	return s.stepUpMethodsWith(hasPassword, settings, providerSlugs)
+}
+
+// stepUpMethodsWith builds the step-up method list from ALREADY-loaded inputs
+// (#228): the caller passes the user's HasPassword flag, their loaded 2FA
+// settings, and their provider slugs, so a caller that already read them — GET
+// /me — does not re-read any of them. providerSlugs may be the non-distinct,
+// unordered UserProviderSlugs list; this de-duplicates and sorts it to reproduce
+// the DISTINCT ... ORDER BY provider_slug the standalone query applied, so the
+// resulting method order is identical.
+func (s *Service) stepUpMethodsWith(hasPassword bool, settings *authcore.TwoFactorSettings, providerSlugs []string) []string {
 	methods := []string{}
-	if s.svc.HasPassword(r.Context(), userID) {
+	if hasPassword {
 		methods = append(methods, "password")
 	}
-	if settings, err := s.svc.Get2FASettings(r.Context(), userID); err == nil && settings != nil && settings.Enabled {
+	if settings != nil && settings.Enabled {
 		methods = append(methods, "2fa")
 	}
-	pg := s.svc.Postgres()
-	if pg == nil {
-		return methods
+	seen := make(map[string]struct{}, len(providerSlugs))
+	distinct := make([]string, 0, len(providerSlugs))
+	for _, provider := range providerSlugs {
+		if _, dup := seen[provider]; dup {
+			continue
+		}
+		seen[provider] = struct{}{}
+		distinct = append(distinct, provider)
 	}
-	providers, err := db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderSlugsDistinct(r.Context(), strings.TrimSpace(userID))
-	if err != nil {
-		return methods
-	}
-	for _, provider := range providers {
+	sort.Strings(distinct)
+	for _, provider := range distinct {
 		if _, ok := s.oidcManager().IssuerFor(provider); ok {
 			methods = append(methods, provider)
 		}
@@ -352,7 +373,28 @@ type stepUpTwoFactorOptionResponse struct {
 
 func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *stepUpTwoFactorOptionsResponse {
 	settings, err := s.svc.Get2FASettings(r.Context(), userID)
-	if err != nil || settings == nil || !settings.Enabled {
+	if err != nil {
+		return nil
+	}
+	// Email destination is fetched lazily — only when an enabled email factor
+	// actually needs it — so users without an email factor incur no user lookup.
+	return s.stepUpTwoFactorOptionsWith(settings, func() string {
+		if user, err := s.svc.AdminGetUser(r.Context(), userID); err == nil && user != nil && user.Email != nil {
+			return *user.Email
+		}
+		return ""
+	})
+}
+
+// stepUpTwoFactorOptionsWith builds the 2FA step-up options from ALREADY-loaded
+// 2FA settings (#228), instead of re-reading them AND re-fetching the user for
+// their email as the standalone path did. emailDestinationFor lazily supplies the
+// email used to obfuscate an email factor's verification_id, and is invoked ONLY
+// when an enabled email factor is present — so a caller that already holds the
+// email (GET /me) passes a closure that returns it with zero extra queries, while
+// callers without it fall back to a user lookup only when it is actually needed.
+func (s *Service) stepUpTwoFactorOptionsWith(settings *authcore.TwoFactorSettings, emailDestinationFor func() string) *stepUpTwoFactorOptionsResponse {
+	if settings == nil || !settings.Enabled {
 		return nil
 	}
 	factors := settings.Factors
@@ -376,10 +418,8 @@ func (s *Service) stepUpTwoFactorOptions(r *http.Request, userID string) *stepUp
 			break
 		}
 	}
-	if needsEmail {
-		if user, err := s.svc.AdminGetUser(r.Context(), userID); err == nil && user != nil && user.Email != nil {
-			emailDestination = *user.Email
-		}
+	if needsEmail && emailDestinationFor != nil {
+		emailDestination = emailDestinationFor()
 	}
 
 	out := &stepUpTwoFactorOptionsResponse{}

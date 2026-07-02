@@ -35,7 +35,11 @@ SET previous_token_hash = current_token_hash, current_token_hash = sqlc.arg(new_
 WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash) AND revoked_at IS NULL;
 
 -- name: SessionsListByUser :many
-SELECT id::text, family_id::text, created_at, last_authenticated_at, last_used_at, expires_at, revoked_at,
+-- last_authenticated_at and revoked_at are intentionally NOT selected: the
+-- session-list handler never renders them, and revoked_at is always NULL here
+-- (the WHERE clause filters to non-revoked rows), so reading them was pure
+-- over-fetch (#230).
+SELECT id::text, family_id::text, created_at, last_used_at, expires_at,
        user_agent, CASE WHEN ip_addr IS NULL THEN NULL ELSE NULLIF(host(ip_addr)::text, '') END AS ip_addr
 FROM profiles.refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL);

@@ -344,7 +344,7 @@ func (q *Queries) SessionsEvictOldest(ctx context.Context, arg SessionsEvictOlde
 }
 
 const sessionsListByUser = `-- name: SessionsListByUser :many
-SELECT id::text, family_id::text, created_at, last_authenticated_at, last_used_at, expires_at, revoked_at,
+SELECT id::text, family_id::text, created_at, last_used_at, expires_at,
        user_agent, CASE WHEN ip_addr IS NULL THEN NULL ELSE NULLIF(host(ip_addr)::text, '') END AS ip_addr
 FROM profiles.refresh_sessions
 WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL)
@@ -356,17 +356,19 @@ type SessionsListByUserParams struct {
 }
 
 type SessionsListByUserRow struct {
-	ID                  string
-	FamilyID            string
-	CreatedAt           time.Time
-	LastAuthenticatedAt *time.Time
-	LastUsedAt          time.Time
-	ExpiresAt           *time.Time
-	RevokedAt           *time.Time
-	UserAgent           *string
-	IpAddr              *string
+	ID         string
+	FamilyID   string
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	ExpiresAt  *time.Time
+	UserAgent  *string
+	IpAddr     *string
 }
 
+// last_authenticated_at and revoked_at are intentionally NOT selected: the
+// session-list handler never renders them, and revoked_at is always NULL here
+// (the WHERE clause filters to non-revoked rows), so reading them was pure
+// over-fetch (#230).
 func (q *Queries) SessionsListByUser(ctx context.Context, arg SessionsListByUserParams) ([]SessionsListByUserRow, error) {
 	rows, err := q.db.Query(ctx, sessionsListByUser, arg.UserID, arg.Issuer)
 	if err != nil {
@@ -380,10 +382,8 @@ func (q *Queries) SessionsListByUser(ctx context.Context, arg SessionsListByUser
 			&i.ID,
 			&i.FamilyID,
 			&i.CreatedAt,
-			&i.LastAuthenticatedAt,
 			&i.LastUsedAt,
 			&i.ExpiresAt,
-			&i.RevokedAt,
 			&i.UserAgent,
 			&i.IpAddr,
 		); err != nil {

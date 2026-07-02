@@ -1,7 +1,11 @@
 -- User-row queries (core/service.go).
 
 -- name: UserByID :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+-- preferred_language is included in this projection (a widening; no existing
+-- caller breaks) so callers that already load the user row — e.g. GET /me — read
+-- the language off this row instead of issuing a separate UserPreferredLanguage
+-- query (#228).
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language
 FROM profiles.users WHERE id = $1;
 
 -- name: UserByEmail :one

@@ -23,6 +23,10 @@ type User struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastLogin       *time.Time
+	// PreferredLanguage is populated by the by-ID lookup (UserByID) only; other
+	// lookups leave it nil. Nullable — NULL/unset when the user has no stored
+	// language preference.
+	PreferredLanguage *string
 }
 
 // UserRef is a slim user projection (id + display fields) returned by batch

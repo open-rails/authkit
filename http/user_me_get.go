@@ -64,12 +64,12 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, ErrUsernameMissing)
 		return
 	}
+	// Preferred language is read off the user row AdminGetUser already loaded
+	// (UserByID now projects preferred_language, #228) — no separate query.
 	var preferredLanguage *string
-	if preferred, err := s.svc.GetPreferredLanguage(r.Context(), adminUser.ID); err == nil {
-		if strings.TrimSpace(preferred.Language) != "" {
-			language := preferred.Language
-			preferredLanguage = &language
-		}
+	if adminUser.PreferredLanguage != nil && strings.TrimSpace(*adminUser.PreferredLanguage) != "" {
+		language := *adminUser.PreferredLanguage
+		preferredLanguage = &language
 	}
 
 	hasPassword := s.svc.HasPassword(r.Context(), adminUser.ID)
@@ -89,7 +89,11 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 	linkedProviders := []string{}
 	userAliases := []string{}
+	// providerSlugs is the raw provider-slug list; reused below for the step-up
+	// methods so /me does not issue a second UserProviderSlugsDistinct read (#228).
+	var providerSlugs []string
 	if providers, aliases, err := s.svc.UserProfileLinks(r.Context(), adminUser.ID); err == nil {
+		providerSlugs = providers
 		for _, provider := range providers {
 			provider = strings.TrimSpace(provider)
 			if provider != "" {
@@ -136,10 +140,18 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	}
 	required := !SensitiveClaims(claims)
 	stepUpRequiredForSensitiveActions = &required
-	mfa, err := s.svc.MFAStatus(r.Context(), claims.UserID)
+	// Read the user's 2FA settings ONCE and thread the result through MFA status,
+	// the step-up methods, and the step-up 2FA options (#228) — the three used to
+	// each re-run Get2FASettings independently.
+	settings, settingsErr := s.svc.Get2FASettings(r.Context(), adminUser.ID)
+	mfa, err := s.svc.MFAStatusWith(settings, settingsErr)
 	if err != nil {
 		serverErr(w, ErrDatabaseError)
 		return
+	}
+	meEmail := ""
+	if adminUser.Email != nil {
+		meEmail = *adminUser.Email
 	}
 
 	resp := userMeResponse{
@@ -164,8 +176,8 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		LastAuthenticatedAt:               lastAuthenticatedAt,
 		TimeUntilStepUpRequired:           timeUntilStepUpRequired,
 		StepUpRequiredForSensitiveActions: stepUpRequiredForSensitiveActions,
-		StepUpMethods:                     s.stepUpMethods(r, claims.UserID),
-		StepUp2FA:                         s.stepUpTwoFactorOptions(r, claims.UserID),
+		StepUpMethods:                     s.stepUpMethodsWith(hasPassword, settings, providerSlugs),
+		StepUp2FA:                         s.stepUpTwoFactorOptionsWith(settings, func() string { return meEmail }),
 		MFAEnabled:                        mfa.Enabled,
 		MFASatisfied:                      mfa.Satisfied,
 		MFAAllowedMethods:                 mfa.AllowedMethods,

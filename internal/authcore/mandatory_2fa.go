@@ -54,11 +54,21 @@ const (
 
 func (s *Service) MFAStatus(ctx context.Context, userID string) (MFAStatus, error) {
 	settings, err := s.Get2FASettings(ctx, userID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	return s.MFAStatusWith(settings, err)
+}
+
+// MFAStatusWith derives MFAStatus from an ALREADY-loaded Get2FASettings result
+// (and its lookup error) instead of re-reading 2FA settings here (#228), so a
+// caller that already read them — e.g. GET /me, which threads one Get2FASettings
+// through MFAStatus, the step-up methods, and the step-up 2FA options — does not
+// recompute the read. Behaviour matches MFAStatus exactly: a "no 2FA row" lookup
+// (pgx.ErrNoRows) is the empty/disabled status, any other error propagates.
+func (s *Service) MFAStatusWith(settings *TwoFactorSettings, settingsErr error) (MFAStatus, error) {
+	if errors.Is(settingsErr, pgx.ErrNoRows) {
 		return MFAStatus{}, nil
 	}
-	if err != nil {
-		return MFAStatus{}, err
+	if settingsErr != nil {
+		return MFAStatus{}, settingsErr
 	}
 	return MFAStatus{
 		Enabled:        settings.Enabled,

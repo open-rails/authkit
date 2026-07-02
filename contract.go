@@ -372,6 +372,10 @@ type AdminUser struct {
 	Roles           []string   `json:"roles"`
 	RemovedRoles    []string   `json:"removed_roles,omitempty"`
 	Entitlements    []string   `json:"entitlements"`
+	// PreferredLanguage carries the user's stored language preference through from
+	// the loaded user row, so callers (e.g. GET /me) need not issue a separate
+	// language read (#228). Omitted from JSON when unset.
+	PreferredLanguage *string `json:"preferred_language,omitempty"`
 }
 
 type AdminListUsersResult struct {
