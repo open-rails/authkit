@@ -69,7 +69,7 @@ func TestVerifyOnlyConsumer_EndToEnd(t *testing.T) {
 	}
 
 	// 2) Required middleware admits a valid token and exposes claims in context —
-	//    with NO enricher set (the verify-only case skips the DB live-user gate).
+	//    with NO enricher set (the native-user path is stateless — no DB work; #215).
 	var sawUser string
 	h := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, ok := verify.ClaimsFromContext(r.Context())

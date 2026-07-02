@@ -719,63 +719,8 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 // registers the token's issuer via AddIssuer and parses the returned MapClaims
 // itself. Verify() is built on top of this for authkit's own user tokens.
 func (v *Verifier) VerifyClaims(tokenStr string) (jwt.MapClaims, error) {
-	tokenStr = strings.TrimSpace(tokenStr)
-	if tokenStr == "" {
-		return nil, errors.New("missing_token")
-	}
-
-	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	keyFn := func(token *jwt.Token) (any, error) { return v.keyForToken(token) }
-	mapClaims := jwt.MapClaims{}
-	tok, err := parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
-	if err != nil || tok == nil || !tok.Valid {
-		// Resilience: a verification failure can mean our cached signing key is
-		// stale/rotated (same kid, new key material) or the JWKS was never
-		// fetched (peer was starting on first use). If the token names a KNOWN
-		// issuer, force an inline JWKS refetch and retry the verification before
-		// rejecting. The refetch goes through the per-issuer min-interval +
-		// single-flight guard, so a storm of bad tokens coalesces to at most one
-		// fetch per kidRefetchMin and cannot hammer the JWKS endpoint.
-		if v.forceRefreshForToken(tokenStr) {
-			mapClaims = jwt.MapClaims{}
-			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
-		}
-		if err != nil || tok == nil || !tok.Valid {
-			return nil, errors.New("invalid_token")
-		}
-	}
-
-	iss, _ := mapClaims["iss"].(string)
-	match := v.matchIssuer(iss)
-	if match == nil {
-		return nil, errors.New("bad_issuer")
-	}
-
-	if len(match.audiences) > 0 && !audContainsAny(mapClaims["aud"], match.audiences) {
-		return nil, errors.New("bad_audience")
-	}
-
-	skew := v.skew
-	now := time.Now()
-	expUnix, ok := toUnix(mapClaims["exp"])
-	if !ok {
-		return nil, errors.New("missing_exp")
-	}
-	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
-		return nil, errors.New("token_expired")
-	}
-	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok {
-		if time.Unix(nbfUnix, 0).After(now.Add(skew)) {
-			return nil, errors.New("token_not_yet_valid")
-		}
-	}
-	if iatUnix, ok := toUnix(mapClaims["iat"]); ok {
-		if time.Unix(iatUnix, 0).After(now.Add(skew)) {
-			return nil, errors.New("token_not_yet_valid")
-		}
-	}
-
-	return mapClaims, nil
+	mapClaims, _, err := v.verifyClaimsWithHeader(tokenStr)
+	return mapClaims, err
 }
 
 // Verify parses + verifies a token and returns typed Claims.
@@ -970,22 +915,74 @@ func (v *Verifier) defaultAttributeResolver(ctx context.Context, issuer, _key, r
 	return def.Definition, nil
 }
 
-// verifyClaimsWithHeader is VerifyClaims plus the JOSE `typ` header value, so
-// Verify can enforce delegated-access-token typing. The header is read from the
-// already-verified token; callers must not trust typ for security decisions
+// verifyClaimsWithHeader is the single internal parse that backs both public
+// entry points: it parses and cryptographically verifies the token exactly like
+// VerifyClaims (JWKS key resolution + signature, registered issuer, audience,
+// exp/nbf/iat with skew) AND returns the JOSE `typ` header value read off the
+// SAME verified token, so Verify can enforce delegated-access-token typing
+// without a second base64-decode/JSON-unmarshal (#216). The header comes from
+// the already-verified token; callers must not trust typ for security decisions
 // beyond what the signature and registered-issuer checks already guarantee.
+// VerifyClaims delegates here and drops typ.
 func (v *Verifier) verifyClaimsWithHeader(tokenStr string) (jwt.MapClaims, string, error) {
-	mapClaims, err := v.VerifyClaims(tokenStr)
-	if err != nil {
-		return nil, "", err
+	tokenStr = strings.TrimSpace(tokenStr)
+	if tokenStr == "" {
+		return nil, "", errors.New("missing_token")
 	}
-	// Re-parse (unverified) only to read the header; signature/issuer/audience
-	// were already validated by VerifyClaims above.
-	typ := ""
-	parser := jwt.NewParser()
-	if tok, _, perr := parser.ParseUnverified(strings.TrimSpace(tokenStr), jwt.MapClaims{}); perr == nil && tok != nil {
-		typ, _ = tok.Header["typ"].(string)
+
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	keyFn := func(token *jwt.Token) (any, error) { return v.keyForToken(token) }
+	mapClaims := jwt.MapClaims{}
+	tok, err := parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
+	if err != nil || tok == nil || !tok.Valid {
+		// Resilience: a verification failure can mean our cached signing key is
+		// stale/rotated (same kid, new key material) or the JWKS was never
+		// fetched (peer was starting on first use). If the token names a KNOWN
+		// issuer, force an inline JWKS refetch and retry the verification before
+		// rejecting. The refetch goes through the per-issuer min-interval +
+		// single-flight guard, so a storm of bad tokens coalesces to at most one
+		// fetch per kidRefetchMin and cannot hammer the JWKS endpoint.
+		if v.forceRefreshForToken(tokenStr) {
+			mapClaims = jwt.MapClaims{}
+			tok, err = parser.ParseWithClaims(tokenStr, mapClaims, keyFn)
+		}
+		if err != nil || tok == nil || !tok.Valid {
+			return nil, "", errors.New("invalid_token")
+		}
 	}
+
+	iss, _ := mapClaims["iss"].(string)
+	match := v.matchIssuer(iss)
+	if match == nil {
+		return nil, "", errors.New("bad_issuer")
+	}
+
+	if len(match.audiences) > 0 && !audContainsAny(mapClaims["aud"], match.audiences) {
+		return nil, "", errors.New("bad_audience")
+	}
+
+	skew := v.skew
+	now := time.Now()
+	expUnix, ok := toUnix(mapClaims["exp"])
+	if !ok {
+		return nil, "", errors.New("missing_exp")
+	}
+	if time.Unix(expUnix, 0).Before(now.Add(-skew)) {
+		return nil, "", errors.New("token_expired")
+	}
+	if nbfUnix, ok := toUnix(mapClaims["nbf"]); ok {
+		if time.Unix(nbfUnix, 0).After(now.Add(skew)) {
+			return nil, "", errors.New("token_not_yet_valid")
+		}
+	}
+	if iatUnix, ok := toUnix(mapClaims["iat"]); ok {
+		if time.Unix(iatUnix, 0).After(now.Add(skew)) {
+			return nil, "", errors.New("token_not_yet_valid")
+		}
+	}
+
+	// typ off the ALREADY-VERIFIED token header — no second ParseUnverified.
+	typ, _ := tok.Header["typ"].(string)
 	return mapClaims, typ, nil
 }
 
