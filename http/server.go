@@ -88,6 +88,7 @@ func NewServer(client *embedded.Client, opts ...Option) (*Server, error) {
 	}
 	s.authProvidersByName = authProvidersByName
 	s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
+	s.memSIWSCache = memorystore.NewSIWSCache(15 * time.Minute)
 
 	if err := s.validate(cfg); err != nil {
 		return nil, err
