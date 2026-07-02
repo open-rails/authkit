@@ -138,6 +138,15 @@ constructors, options, and types hosts need. The full service implementation liv
 Adding a method to `Client` (or any embedded topic interface) is MAJOR — consumers and the
 generated transports implement it.
 
+**Recommended held type — the interface, not the concrete.** Hold `authkit.Client` (or the
+narrowest topic slice a call site needs), never `*embedded.Client`, so swapping the
+in-process backend for the Phase-2 remote transport is construction-only (#143):
+`var c authkit.Client = embedded.New(cfg, pg)`. AuthKit's own adapters follow this
+(e.g. `riverjobs.RegisterPurgeDeletedUsersWorker` takes `authkit.Client`). The infra
+accessors (`Postgres`, `Keyfunc`, `JWKS`, raw `Options`/`Schema`) are deliberately OFF the
+interface (§9), so code that genuinely needs them — and only that code — holds the concrete
+`*embedded.Client`.
+
 **Constructors & options** (`embedded`; `Config`/`Options`/`Keyset`/`Option` are aliases
 to the internal service types):
 ```
@@ -231,7 +240,9 @@ overridable): `ValidateUsername`, `OwnerSlugFromUsername`, `ValidatePassword`,
 `ErrPasskeyNotFound`, `ErrPasskeyUserVerificationRequired`, `ErrPasskeyCloneDetected`,
 `ErrGroupNotFound`, `ErrNotGroupMember`, `ErrInviteLinkNotFound`, `ErrInviteLinkExpired`,
 `ErrInviteLinkRevoked`, `ErrExternalInvitesDisabled` (#134/#147), `ErrUserRoleNotFound`,
-`ErrCannotRemoveLastAdminRole`, `ErrEntitlementFilterUnavailable`,
+`ErrCannotRemoveLastAdminRole`, `ErrInsufficientRoleAuthority`, `ErrRoleAssignmentEscalation`
+(the actor-checked no-escalation role path — `*As` methods on `Roles`/`Groups`),
+`ErrEntitlementFilterUnavailable`,
 `ErrInvalidBootstrapManifest`, `ErrEmptyCustomClaims`, `ErrRemoteApplicationNotFound`,
 `ErrPasswordlessDisabled`, `ErrAttributeDefNotFound`, and the `ErrInvalid*` verify-only sentinels (§4.3).
 `HashAlgoLegacyResetRequired = "legacy-reset-required"` is a covered stored value.
