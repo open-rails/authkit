@@ -54,6 +54,9 @@ func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 			IssuedAudiences:   []string{"test"},
 			ExpectedAudiences: []string{"test"},
 		},
+		// This test exercises provider prebuild, not registration verification; opt
+		// out of the "required" default so NewServer doesn't require a sender (#212).
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 		Identity: embedded.IdentityConfig{
 			Providers: []authprovider.Provider{
 				testBuiltInProvider(t, "github", "github-client", "github-secret"),

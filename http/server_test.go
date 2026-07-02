@@ -91,6 +91,60 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	require.NoError(t, err, "production with Redis must pass validation")
 }
 
+// #212: a "required" registration-verification policy with no email/SMS sender
+// wired on the engine must fail NewServer with a construction ERROR — never a
+// panic (the old behavior panicked later, at handler mount).
+func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) {
+	cfg := newServerTestConfig()
+	cfg.Registration = embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired}
+
+	// Engine built with NO email/SMS sender.
+	client := newServerClient(t, cfg, newNoDBPool(t))
+
+	// The call under test must return an error and must NOT panic; if it panicked
+	// the test binary would crash, so reaching require.Error already proves no panic.
+	srv, err := NewServer(client)
+	require.Error(t, err, "Required verification without a sender must fail construction")
+	require.Nil(t, srv)
+	require.Contains(t, err.Error(), "no email or SMS sender")
+
+	// Wiring a sender on the engine makes the same construction succeed.
+	withSender := newServerClient(t, cfg, newNoDBPool(t), embedded.WithEmailSender(testEmailSender{}))
+	srv, err = NewServer(withSender, WithoutRateLimiter())
+	require.NoError(t, err, "Required verification with a sender must construct cleanly")
+	require.NotNil(t, srv)
+}
+
+// #210: Redis is taken ONCE. When the engine has Redis wired (embedded.WithRedis)
+// but the HTTP layer does NOT (no authhttp.WithRedis), NewServer reuses the
+// engine's *redis.Client — single source of truth, no split-brain — and the
+// production validation no longer flags a missing HTTP-side Redis.
+func TestNewServer_ReusesEngineRedis(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	prodCfg := newServerTestConfig()
+	prodCfg.Environment = "production"
+
+	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Production validation
+	// (which previously only checked the HTTP side) must now pass via reuse.
+	client := newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb))
+	srv, err := NewServer(client)
+	require.NoError(t, err, "engine Redis must satisfy production validation without authhttp.WithRedis")
+	require.NotNil(t, srv)
+	require.Same(t, rdb, srv.rd, "HTTP layer must reuse the engine's *redis.Client (no split-brain)")
+
+	// A second authhttp.WithRedis stays an explicit OVERRIDE, not a requirement.
+	other := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6380"})
+	t.Cleanup(func() { _ = other.Close() })
+	override, err := NewServer(
+		newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb)),
+		WithRedis(other),
+	)
+	require.NoError(t, err)
+	require.Same(t, other, override.rd, "explicit authhttp.WithRedis must override the engine's client")
+}
+
 // #109: Server is an alias of Service — NewServer returns *Server, which is
 // assignable to *Service (and vice versa).
 func TestServerAlias_BackCompat(t *testing.T) {
