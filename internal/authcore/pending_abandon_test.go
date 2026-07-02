@@ -12,7 +12,7 @@ func TestDeletePendingRegistrationByEmail(t *testing.T) {
 	ctx := context.Background()
 
 	email := "abandon@example.com"
-	if _, err := svc.CreatePendingRegistration(ctx, email, "abandoner", "argon2id$hash", 0); err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, email, "abandoner", "argon2id$hash", 0, ""); err != nil {
 		t.Fatalf("CreatePendingRegistration failed: %v", err)
 	}
 	if pr, _ := svc.GetPendingRegistrationByEmail(ctx, email); pr == nil {
@@ -37,7 +37,7 @@ func TestDeletePendingPhoneRegistrationByPhone(t *testing.T) {
 	ctx := context.Background()
 
 	phone := "+14155550123"
-	if _, err := svc.CreatePendingPhoneRegistration(ctx, phone, "phoneabandoner", "argon2id$hash"); err != nil {
+	if _, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "phoneabandoner", "argon2id$hash", ""); err != nil {
 		t.Fatalf("CreatePendingPhoneRegistration failed: %v", err)
 	}
 	if pr, _ := svc.GetPendingPhoneRegistrationByPhone(ctx, phone); pr == nil {

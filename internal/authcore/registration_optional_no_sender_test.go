@@ -51,7 +51,7 @@ func TestRegistrationOptionalNoSenderCreatesVerifiedAndSendsNothing(t *testing.T
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
 	})
 
-	code, err := svc.CreatePendingRegistration(ctx, email, username, "argon2id$hash", 0)
+	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, email, username, "argon2id$hash", 0, "")
 	if err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRegistrationOptionalWithSenderSendsAndLeavesUnverified(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
 	})
 
-	code, err := svc.CreatePendingRegistration(ctx, email, username, "argon2id$hash", 0)
+	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, email, username, "argon2id$hash", 0, "")
 	if err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}

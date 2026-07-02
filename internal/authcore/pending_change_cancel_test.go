@@ -15,7 +15,7 @@ func TestPendingRegistrationMakesEmailUnavailable(t *testing.T) {
 	ctx := context.Background()
 
 	email := "pending-avail@example.com"
-	if _, err := svc.CreatePendingRegistration(ctx, email, "pendinguser", "argon2id$hash", 0); err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, email, "pendinguser", "argon2id$hash", 0, ""); err != nil {
 		t.Fatalf("CreatePendingRegistration failed: %v", err)
 	}
 
@@ -40,7 +40,7 @@ func TestPendingPhoneRegistrationMakesPhoneUnavailable(t *testing.T) {
 	ctx := context.Background()
 
 	phone := "+14155550987"
-	if _, err := svc.CreatePendingPhoneRegistration(ctx, phone, "pendingphoneuser", "argon2id$hash"); err != nil {
+	if _, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "pendingphoneuser", "argon2id$hash", ""); err != nil {
 		t.Fatalf("CreatePendingPhoneRegistration failed: %v", err)
 	}
 

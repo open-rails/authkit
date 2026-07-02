@@ -202,3 +202,43 @@ func (s *Service) decryptTOTPSecret(data []byte) (string, error) {
 	}
 	return string(plain), nil
 }
+
+// SendPhone2FASetupCode generates and sends a 6-digit code for 2FA setup to the user's phone.
+func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code string) error {
+	hash := sha256Hex(code)
+	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
+	if s.useEphemeralStore() {
+		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, 10*time.Minute); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("ephemeral store not configured")
+	}
+
+	if s.sms != nil {
+		msg := VerificationMessage{Code: code}
+		sendCtx := s.contextWithUserPreferredLanguage(ctx, userID)
+		return smsDeliveryError(s.withSendTimeout(sendCtx, func(sendCtx context.Context) error { return s.sms.SendVerification(sendCtx, phone, msg) }))
+	}
+	// In production, require SMS to be configured
+	if !s.isDevEnvironment() {
+		return fmt.Errorf("SMS sender not configured")
+	}
+	return nil
+}
+
+// VerifyPhone2FASetupCode checks the code for 2FA phone setup.
+func (s *Service) VerifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
+	hash := sha256Hex(code)
+	if s.useEphemeralStore() {
+		uid, err := s.consumePhoneVerification(ctx, "2fa_setup", phone, hash)
+		if err != nil {
+			return false, err
+		}
+		if uid != userID {
+			return false, fmt.Errorf("user_id mismatch")
+		}
+		return true, nil
+	}
+	return false, fmt.Errorf("ephemeral store not configured")
+}

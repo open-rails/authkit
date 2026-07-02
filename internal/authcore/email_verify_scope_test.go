@@ -25,7 +25,7 @@ func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
 	svc := newEmailVerifyTestService()
 	ctx := context.Background()
 
-	code, err := svc.CreatePendingRegistration(ctx, "victim@example.com", "victim", "argon2id$hash", 0)
+	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "victim@example.com", "victim", "argon2id$hash", 0, "")
 	if err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestRecordFailedEmailVerifyCode_InvalidatesAfterCap(t *testing.T) {
 	svc := newEmailVerifyTestService()
 	ctx := context.Background()
 
-	code, err := svc.CreatePendingRegistration(ctx, "user@example.com", "user", "argon2id$hash", 0)
+	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, "")
 	if err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestClearEmailVerifyCodeAttempts_ResetsCounter(t *testing.T) {
 	svc := newEmailVerifyTestService()
 	ctx := context.Background()
 
-	code, err := svc.CreatePendingRegistration(ctx, "user@example.com", "user", "argon2id$hash", 0)
+	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, "")
 	if err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}

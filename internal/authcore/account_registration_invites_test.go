@@ -35,7 +35,7 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.account_registration_invites WHERE email=$1`, email)
 	})
 
-	if _, err := svc.CreatePendingRegistration(ctx, email, username, "argon2id$hash", 0); !errors.Is(err, ErrRegistrationDisabled) {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, email, username, "argon2id$hash", 0, ""); !errors.Is(err, ErrRegistrationDisabled) {
 		t.Fatalf("registration without invite = %v, want ErrRegistrationDisabled", err)
 	}
 
@@ -48,7 +48,7 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 	}
 
 	wrongCtx := contextWithAccountRegistrationInviteToken(ctx, "wrong")
-	if _, err := svc.CreatePendingRegistration(wrongCtx, email, username, "argon2id$hash", 0); !errors.Is(err, ErrRegistrationDisabled) {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(wrongCtx, email, username, "argon2id$hash", 0, ""); !errors.Is(err, ErrRegistrationDisabled) {
 		t.Fatalf("registration with wrong invite = %v, want ErrRegistrationDisabled", err)
 	}
 
@@ -57,7 +57,7 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 		t.Fatalf("hash password: %v", err)
 	}
 	inviteCtx := contextWithAccountRegistrationInviteToken(ctx, created.Code)
-	if _, err := svc.CreatePendingRegistration(inviteCtx, email, username, phc, 0); err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(inviteCtx, email, username, phc, 0, ""); err != nil {
 		t.Fatalf("registration with invite: %v", err)
 	}
 	u, err := svc.GetUserByEmail(ctx, email)
@@ -111,7 +111,7 @@ func TestAccountRegistrationInvite_RegisterPlusJoin(t *testing.T) {
 		t.Fatalf("hash password: %v", err)
 	}
 	inviteCtx := contextWithAccountRegistrationInviteToken(ctx, created.Code)
-	if _, err := svc.CreatePendingRegistration(inviteCtx, email, username, phc, 0); err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(inviteCtx, email, username, phc, 0, ""); err != nil {
 		t.Fatalf("register+join registration: %v", err)
 	}
 	u, err := svc.GetUserByEmail(ctx, email)
@@ -166,7 +166,7 @@ func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
 		t.Fatalf("hash password: %v", err)
 	}
 	inviteCtx := contextWithAccountRegistrationInviteToken(ctx, created.Code)
-	if _, err := svc.CreatePendingRegistration(inviteCtx, usedBy, username, phc, 0); err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(inviteCtx, usedBy, username, phc, 0, ""); err != nil {
 		t.Fatalf("unbound registration with a different email: %v", err)
 	}
 	if u, err := svc.GetUserByEmail(ctx, usedBy); err != nil || u == nil {
@@ -174,7 +174,7 @@ func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
 	}
 
 	// The single-use code is now spent — a second registration is rejected.
-	if _, err := svc.CreatePendingRegistration(inviteCtx, "third-"+suffix+"@example.com", "third"+suffix, phc, 0); !errors.Is(err, ErrRegistrationDisabled) {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(inviteCtx, "third-"+suffix+"@example.com", "third"+suffix, phc, 0, ""); !errors.Is(err, ErrRegistrationDisabled) {
 		t.Fatalf("reuse of a consumed code = %v, want ErrRegistrationDisabled", err)
 	}
 }
