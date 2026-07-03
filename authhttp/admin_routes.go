@@ -3,6 +3,7 @@ package authhttp
 import (
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strconv"
 	"strings"
@@ -56,7 +57,7 @@ func adminUserListOptionsFromQuery(r *http.Request) authkit.AdminUserListOptions
 // inherently root-scoped intrinsic route pass (embedded.RootPersona, "", perm).
 func (s *Service) requirePermission(persona, instanceSlug, perm string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := ClaimsFromContext(r.Context())
+		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok {
 			unauthorized(w, ErrNotAuthenticated)
 			return
@@ -130,7 +131,7 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, ErrUnauthorized)
 		return

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/url"
 	"strings"
@@ -146,7 +147,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrAuthenticationRequired)
 		return

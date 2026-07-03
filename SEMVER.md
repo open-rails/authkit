@@ -349,16 +349,17 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 
 `authhttp` is the integration entry point. Covered:
 ```
-type Server = Service; NewServer(client *embedded.Client, opts ...Option) (*Server, error)
+type Service; NewServer(client *embedded.Client, opts ...Option) (*Service, error)
   (the host builds the *embedded.Client via embedded.New(cfg, pg, …) and uses it directly
-   as the authkit.Client surface — there is no svc.Core() accessor)
+   as the authkit.Client surface — there is no svc.Core() accessor; the former
+   `Server = Service` alias was removed pre-1.0, #206)
 Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
   WithClientIPFunc, WithLanguageConfig
 Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)
-Re-exports from verify: Verifier, NewVerifier, Claims, Enricher, IssuerOptions, IssuerKey,
-  DelegatedPrincipal, ServiceJWTPrincipal, SensitiveOptions, the policy/validator aliases,
-  Required/Optional/RequiredServiceJWT/Sensitive/Require* middleware
+Verification surface: NOT re-exported (#206 — the former verify_aliases re-exports were
+  removed pre-1.0). Import github.com/open-rails/authkit/verify directly for Verifier,
+  Claims, Required/Optional/Sensitive/Require* middleware, and the With* verifier options.
   (admin authorization is permission-based via the root permission group — there is no
    bespoke RequireAdmin gate; the /admin/* routes gate on root:* perms — see §5.3)
 Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,

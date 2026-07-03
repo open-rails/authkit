@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,8 +52,8 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 	require.NoError(t, coreSvc.SeedPermissionGroupContainment(context.Background()))
 	_, err = coreSvc.EnsureRootGroup(context.Background())
 	require.NoError(t, err)
-	ver := NewVerifier(WithSkew(5 * time.Second))
-	require.NoError(t, ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, IssuerOptions{
+	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
+	require.NoError(t, ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 		IsLocal: true,
 	}))
@@ -137,7 +138,7 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	require.NoError(t, s.svc.BanUser(ctx, idD, nil, &banUntil, idA))
 
 	// The admin caller is A (it carries the catalog admin role and is not banned).
-	token, _, err := s.svc.IssueAccessToken(ctx, idA, "", nil)
+	token, _, err := s.svc.IssueAccessToken(ctx, idA, nil)
 	require.NoError(t, err)
 
 	t.Run("search isolates this run", func(t *testing.T) {
@@ -220,7 +221,7 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 
 	adminID := createAdminTestUser(t, s, ctx, prefix+"admin", true)
 	targetID := createAdminTestUser(t, s, ctx, prefix+"target", false)
-	token, _, err := s.svc.IssueAccessToken(ctx, adminID, "", nil)
+	token, _, err := s.svc.IssueAccessToken(ctx, adminID, nil)
 	require.NoError(t, err)
 
 	post := func(path, body string) *httptest.ResponseRecorder {
@@ -284,9 +285,9 @@ func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
 
 	adminID := createAdminTestUser(t, s, ctx, prefix+"admin", true)
 	plainID := createAdminTestUser(t, s, ctx, prefix+"plain", false)
-	adminJWT, _, err := s.svc.IssueAccessToken(ctx, adminID, "", nil)
+	adminJWT, _, err := s.svc.IssueAccessToken(ctx, adminID, nil)
 	require.NoError(t, err)
-	plainJWT, _, err := s.svc.IssueAccessToken(ctx, plainID, "", nil)
+	plainJWT, _, err := s.svc.IssueAccessToken(ctx, plainID, nil)
 	require.NoError(t, err)
 
 	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", embedded.OwnerRoleName, adminID)
@@ -351,10 +352,10 @@ func mintAdminTestDelegatedToken(t *testing.T, s *Service, ctx context.Context, 
 		raRole = embedded.OwnerRoleName
 	}
 	registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, raRole)
-	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, IssuerOptions{
+	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))
-	token, err := embedded.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+	token, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
 		Issuer:           issuer,
 		Audiences:        []string{"test-app"},
 		DelegatedSubject: slug + "-subject",
@@ -372,7 +373,7 @@ func mintAdminTestRemoteAppToken(t *testing.T, s *Service, ctx context.Context, 
 	issuer := "https://" + slug + ".example"
 	ra := registerAdminTestRemoteApplication(t, s, ctx, slug, issuer, signer, role)
 	require.NotEmpty(t, ra.ID)
-	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, IssuerOptions{
+	require.NoError(t, s.verifier.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}))
 	token, err := embedded.MintRemoteApplicationAccessToken(ctx, signer, authkit.RemoteApplicationAccessParams{

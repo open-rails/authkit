@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 
@@ -12,7 +13,7 @@ func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cl, err := getClaims(r.Context())
+	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		unauthorized(w, ErrUnauthorized)
 		return

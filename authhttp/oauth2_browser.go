@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"io"
 	stdlog "log"
 	"net/http"
@@ -44,7 +45,7 @@ func (s *Service) handleOAuthLoginGET(w http.ResponseWriter, r *http.Request, pr
 }
 
 func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -53,7 +54,7 @@ func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleOAuthStepUpStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -113,7 +114,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 	popupNonce := r.URL.Query().Get("popup_nonce")
 	sessionID := ""
 	if strings.TrimSpace(stepUpUserID) != "" {
-		if claims, ok := ClaimsFromContext(r.Context()); ok {
+		if claims, ok := verify.ClaimsFromContext(r.Context()); ok {
 			sessionID = claims.SessionID
 		}
 	}

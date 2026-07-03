@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,8 +30,8 @@ func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMo
 	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone, NativeUserMode: nativeMode}}
 	coreSvc := authcore.NewService(opts, ks)
-	ver := NewVerifier(WithSkew(5 * time.Second))
-	_ = ver.AddIssuer(opts.Token.Issuer, opts.Token.ExpectedAudiences, IssuerOptions{
+	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
+	_ = ver.AddIssuer(opts.Token.Issuer, opts.Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)

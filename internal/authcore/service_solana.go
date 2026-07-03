@@ -185,7 +185,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 	}
 	extra["sid"] = sid
 
-	accessToken, expiresAt, err = s.IssueAccessToken(ctx, userID, "", extra)
+	accessToken, expiresAt, err = s.IssueAccessToken(ctx, userID, extra)
 	if err != nil {
 		return "", time.Time{}, "", "", false, fmt.Errorf("failed to issue token: %w", err)
 	}

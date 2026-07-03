@@ -107,7 +107,7 @@ type Groups interface {
 // Tokens issues the app's JWTs: access, service, delegated, remote-application,
 // and custom.
 type Tokens interface {
-	IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (string, time.Time, error)
+	IssueAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error)
 	MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error)
 	MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error)
 	MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error)

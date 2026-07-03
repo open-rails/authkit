@@ -263,7 +263,7 @@ func (s *Service) FinishPasskeyLogin(ctx context.Context, response []byte, userA
 	if err != nil {
 		return PasskeyLoginResult{UserID: user.id}, err
 	}
-	token, exp, err := s.IssueAccessToken(ctx, user.id, "", map[string]any{"sid": sid})
+	token, exp, err := s.IssueAccessToken(ctx, user.id, map[string]any{"sid": sid})
 	if err != nil {
 		return PasskeyLoginResult{}, err
 	}

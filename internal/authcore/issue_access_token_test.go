@@ -13,7 +13,7 @@ func TestIssueAccessToken_OwnedClaimsWinOverExtra(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
 	ctx := context.Background()
 
-	tok, _, err := svc.IssueAccessToken(ctx, "user-1", "", map[string]any{
+	tok, _, err := svc.IssueAccessToken(ctx, "user-1", map[string]any{
 		"sub":              "attacker",
 		"iss":              "https://evil.example",
 		"exp":              1,
@@ -44,7 +44,7 @@ func TestIssueAccessToken_NonOwnedExtraPassesThrough(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
 	ctx := context.Background()
 
-	tok, _, err := svc.IssueAccessToken(ctx, "user-1", "", map[string]any{"sid": "session-xyz", "provider": "google"})
+	tok, _, err := svc.IssueAccessToken(ctx, "user-1", map[string]any{"sid": "session-xyz", "provider": "google"})
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestIssueAccessToken_ReservedClaimsDroppedFromExtra(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
 	ctx := context.Background()
 
-	tok, _, err := svc.IssueAccessToken(ctx, "user-1", "", map[string]any{
+	tok, _, err := svc.IssueAccessToken(ctx, "user-1", map[string]any{
 		// Reserved — must be dropped:
 		"roles":            []string{"admin", "superuser"},
 		"permissions":      []string{"billing:*:*"},

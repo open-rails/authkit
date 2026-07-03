@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"io"
 	"net/http"
 )
@@ -12,7 +13,7 @@ func (s *Service) handlePasskeyRegisterBeginPOST(w http.ResponseWriter, r *http.
 	if s.rateLimited(w, r, RLPasskeyRegister) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -32,7 +33,7 @@ func (s *Service) handlePasskeyRegisterFinishPOST(w http.ResponseWriter, r *http
 	if s.rateLimited(w, r, RLPasskeyRegister) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -101,7 +102,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -115,7 +116,7 @@ func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -142,7 +143,7 @@ func (s *Service) handlePasskeyPATCH(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handlePasskeyDELETE(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return

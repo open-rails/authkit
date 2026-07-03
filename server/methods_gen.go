@@ -343,13 +343,12 @@ var generatedMethods = map[string]MethodFunc{
 	"IssueAccessToken": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string         `json:"userID"`
-			A1 string         `json:"email"`
-			A2 map[string]any `json:"extra"`
+			A1 map[string]any `json:"extra"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		r0, r1, err := c.IssueAccessToken(ctx, a.A0, a.A1, a.A2)
+		r0, r1, err := c.IssueAccessToken(ctx, a.A0, a.A1)
 		return map[string]any{"r0": r0, "r1": r1}, err
 	},
 	"LeaveGroup": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {

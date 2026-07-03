@@ -3,6 +3,7 @@ package authhttp
 import (
 	"crypto/rand"
 	"fmt"
+	"github.com/open-rails/authkit/verify"
 	"math/big"
 	"net/http"
 	"strings"
@@ -33,7 +34,7 @@ func (s *Service) handleUser2FAStatusGET(w http.ResponseWriter, r *http.Request)
 	if s.rateLimited(w, r, RLUserMe) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -62,7 +63,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RL2FAEnable) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -230,7 +231,7 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RL2FADisable) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -283,7 +284,7 @@ func (s *Service) handleUser2FABackupCodesPOST(w http.ResponseWriter, r *http.Re
 	if s.rateLimited(w, r, RL2FARegenerateCodes) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return

@@ -3,6 +3,7 @@ package authhttp
 import (
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"time"
 
@@ -13,7 +14,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	if s.rateLimited(w, r, RLUserPasswordChange) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -33,7 +34,7 @@ func (s *Service) handleUserPasswordPOST(w http.ResponseWriter, r *http.Request)
 	}
 
 	var authMeta map[string]any
-	if !SensitiveClaims(claims) {
+	if !verify.SensitiveClaims(claims) {
 		if body.CurrentPassword == "" {
 			s.requireStepUp(w, r, claims)
 			return

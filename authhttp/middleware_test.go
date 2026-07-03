@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"crypto"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -25,10 +26,10 @@ func signToken(t *testing.T, signer jwtkit.Signer, claims map[string]any) string
 	return tok
 }
 
-func newTestVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string, audiences []string, opts ...VerifierOption) *Verifier {
+func newTestVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string, audiences []string, opts ...verify.VerifierOption) *verify.Verifier {
 	t.Helper()
-	v := NewVerifier(opts...)
-	err := v.AddIssuer(issuer, audiences, IssuerOptions{
+	v := verify.NewVerifier(opts...)
+	err := v.AddIssuer(issuer, audiences, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{
 			signer.KID(): signer.PublicKey(),
 		},
@@ -43,7 +44,7 @@ func TestRequired_RequiresExp_ServiceIssued(t *testing.T) {
 
 	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"})
 
-	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -68,9 +69,9 @@ func TestRequired_RejectsExpired_ServiceIssued(t *testing.T) {
 	require.NoError(t, err)
 
 	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"},
-		WithSkew(time.Second))
+		verify.WithSkew(time.Second))
 
-	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -96,7 +97,7 @@ func TestRequired_RejectsNbfInFuture_WhenPresent(t *testing.T) {
 
 	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"})
 
-	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -123,7 +124,7 @@ func TestRequired_RejectsIatInFuture_WhenPresent(t *testing.T) {
 
 	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"})
 
-	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -148,9 +149,9 @@ func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"},
-		WithSkew(60*time.Second))
+		verify.WithSkew(60*time.Second))
 
-	protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

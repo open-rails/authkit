@@ -3,6 +3,7 @@ package authhttp
 import (
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"time"
@@ -47,7 +48,7 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
 		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
 		if s.rateLimited(w, r, RLUserEmailChangeRequest) || !ok {
 			return
@@ -154,7 +155,7 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
 		if err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, email, code); err == nil {
 			s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Email changed successfully"})
@@ -189,7 +190,7 @@ func (s *Service) createTokensForUser(r *http.Request, userID string, method str
 	uaPtr, ipPtr := &ua, &ipStr
 	s.svc.LogSessionCreated(r.Context(), userID, method, sid, ipPtr, uaPtr)
 
-	accessToken, exp, err := s.svc.IssueAccessToken(r.Context(), userID, "", map[string]any{"sid": sid})
+	accessToken, exp, err := s.svc.IssueAccessToken(r.Context(), userID, map[string]any{"sid": sid})
 	if err != nil {
 		return authTokensResponse{}, err
 	}

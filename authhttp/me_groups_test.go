@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,7 +59,7 @@ func memberAdd(t *testing.T, s *Service, persona, instance, owner, target string
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"user_id": target, "role": "member"}) // NOTE: invite NOT set
 	r := httptest.NewRequest(http.MethodPost, "http://x/"+persona+"/"+instance+"/members", strings.NewReader(string(body)))
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: owner}))
+	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: owner}))
 	w := httptest.NewRecorder()
 	s.groupMemberAdd(w, r, persona, instance)
 	return w
@@ -111,7 +112,7 @@ func TestMeGroupLeave_HTTP(t *testing.T) {
 
 	leave := func(uid string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodDelete, "http://x/me/groups/repo/leave1", nil)
-		r = r.WithContext(setClaims(r.Context(), Claims{UserID: uid}))
+		r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: uid}))
 		r.SetPathValue("persona", "repo")
 		r.SetPathValue("instance_slug", "leave1")
 		w := httptest.NewRecorder()

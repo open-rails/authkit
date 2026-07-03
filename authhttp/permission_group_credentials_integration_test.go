@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,7 +89,7 @@ func (s *Service) drive(t *testing.T, gr embedded.GeneratedRoute, instanceSlug, 
 	path := strings.ReplaceAll(gr.Path, ":instance_slug", instanceSlug)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, strings.NewReader(body))
 	r = withMuxParams(r, gr.Path, nil)
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: caller}))
+	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: caller}))
 	w := httptest.NewRecorder()
 	s.generatedGroupHandler(gr).ServeHTTP(w, r)
 	return w
@@ -101,7 +102,7 @@ func (s *Service) driveSub(t *testing.T, gr embedded.GeneratedRoute, repl *strin
 	path := repl.Replace(gr.Path)
 	r := httptest.NewRequest(gr.Method, "http://x"+path, nil)
 	r = withMuxParams(r, gr.Path, nil)
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: caller}))
+	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: caller}))
 	w := httptest.NewRecorder()
 	s.generatedGroupHandler(gr).ServeHTTP(w, r)
 	return w

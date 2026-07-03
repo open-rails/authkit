@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"errors"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 // (RouteAccount, required). No consumable code in the URL.
 
 func (s *Service) handleMeGroupInvitesGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -47,7 +48,7 @@ func (s *Service) handleMeGroupInviteDecline(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Service) meGroupInviteRespond(w http.ResponseWriter, r *http.Request, accept bool) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return

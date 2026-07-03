@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,14 +13,15 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
 
-func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string, audiences []string) *Verifier {
+func newServiceJWTVerifier(t *testing.T, signer *jwtkit.RSASigner, issuer string, audiences []string) *verify.Verifier {
 	t.Helper()
-	v := NewVerifier(WithSkew(time.Second))
-	require.NoError(t, v.AddIssuer(issuer, audiences, IssuerOptions{
+	v := verify.NewVerifier(verify.WithSkew(time.Second))
+	require.NoError(t, v.AddIssuer(issuer, audiences, verify.IssuerOptions{
 		RawKeys:               map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 		RemoteApplicationSlug: "hentai0",
 	}))
@@ -158,7 +160,7 @@ func TestVerifyServiceJWTScopeCompatibilityAndReplayHook(t *testing.T) {
 	require.Equal(t, claims.Permissions, claims.Scope)
 
 	replayErr := errors.New("replay")
-	_, err = v.VerifyServiceJWT(context.Background(), token, WithServiceJWTReplayChecker(func(context.Context, authkit.ServiceJWTClaims) error {
+	_, err = v.VerifyServiceJWT(context.Background(), token, verify.WithServiceJWTReplayChecker(func(context.Context, authkit.ServiceJWTClaims) error {
 		return replayErr
 	}))
 	require.ErrorIs(t, err, replayErr)
@@ -181,7 +183,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	}, map[string]any{"typ": AccessTokenType})
 	require.NoError(t, err)
 
-	delegatedToken, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	delegatedToken, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: issuer, Audiences: []string{"openrails"},
 		DelegatedSubject: "external-user-1", TTL: time.Minute,
 	})
@@ -193,7 +195,7 @@ func TestWrongTokenTypeDenials(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("ordinary required rejects service jwt", func(t *testing.T) {
-		protected := Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protected := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			t.Fatal("service JWT must not reach ordinary Required route")
 		}))
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -229,7 +231,7 @@ func TestVerifyServiceJWTDisabledRemoteApplicationIssuerFailsClosed(t *testing.T
 	})
 	require.NoError(t, err)
 
-	v := NewVerifier()
+	v := verify.NewVerifier()
 	src := disabledRemoteApplicationIssuerSource{issuer: authkit.RemoteApplication{
 		Slug: "hentai0", Issuer: issuer, JWKSURI: "https://disabled-issuer.example/jwks", Enabled: false,
 	}}

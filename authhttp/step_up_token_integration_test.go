@@ -30,7 +30,7 @@ func TestPasswordStepUpReturnsFreshAccessToken(t *testing.T) {
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"`+pass+`"}`, token)
@@ -75,7 +75,7 @@ func TestPasswordStepUpDoesNotDowngradeMFASession(t *testing.T) {
 	// Simulate a session that proved a second factor at login.
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET auth_methods = ARRAY['pwd','otp','mfa']::text[] WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
-	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/step-up/password", `{"password":"`+pass+`"}`, token)
@@ -110,7 +110,7 @@ func TestTOTPStepUpReturnsFreshMFAAccessToken(t *testing.T) {
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
@@ -163,7 +163,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
@@ -188,7 +188,7 @@ func TestTwoFactorStepUpMethodOptionsAndStaleMFARetry(t *testing.T) {
 
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour', auth_methods = ARRAY['pwd','otp','mfa']::text[] WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
-	staleToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	staleToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w = serveAuthJSON(srv, http.MethodPost, "/user/2fa/backup-codes", `{}`, staleToken)
@@ -275,7 +275,7 @@ func TestAccessTokenCarriesMFAEnrolledClaim(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 
 	// No 2FA yet → claim absent.
-	tok, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", nil)
+	tok, _, err := srv.svc.IssueAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)
 	_, present := unverifiedAccessClaims(t, tok)["mfa_enrolled"]
 	require.False(t, present, "mfa_enrolled must be absent before enrollment")
@@ -284,7 +284,7 @@ func TestAccessTokenCarriesMFAEnrolledClaim(t *testing.T) {
 	phone := "+15555550177"
 	_, err = srv.svc.Enable2FA(ctx, user.ID, "sms", &phone)
 	require.NoError(t, err)
-	tok2, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", nil)
+	tok2, _, err := srv.svc.IssueAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)
 	require.Equal(t, true, unverifiedAccessClaims(t, tok2)["mfa_enrolled"], "mfa_enrolled must be true after enrollment")
 }

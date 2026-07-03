@@ -14,6 +14,7 @@ package authhttp
 // instance_slug inside the Service, then authorizes via svc.Can before acting.
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 
@@ -38,7 +39,7 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 	if s == nil || s.svc == nil || s.verifier == nil {
 		return nil
 	}
-	required := Required(s.verifier)
+	required := verify.Required(s.verifier)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 
 	specs := s.permissionGroupRouteSpecs()
@@ -158,7 +159,7 @@ func pathParam(r *http.Request, name string) string {
 func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.HandlerFunc {
 	op := classifyGeneratedRoute(gr.Method, gr.Path)
 	return func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := ClaimsFromContext(r.Context())
+		claims, ok := verify.ClaimsFromContext(r.Context())
 		if !ok || claims.UserID == "" {
 			unauthorized(w, ErrNotAuthenticated)
 			return

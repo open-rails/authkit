@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 
@@ -85,7 +86,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		return nil
 	}
 	selected := routeGroupSet(groups)
-	required := Required(s.verifier)
+	required := verify.Required(s.verifier)
 	// rootPermission gates an intrinsic, root-scoped route on a `root:*`
 	// permission through the granular permission system (svc.Can for users,
 	// the verified ceiling for machine principals — see requirePermission).
@@ -93,7 +94,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	rootPermission := func(perm string, h http.HandlerFunc) http.Handler {
 		return required(s.requirePermission(embedded.RootPersona, "", perm, h))
 	}
-	optional := Optional(s.verifier)
+	optional := verify.Optional(s.verifier)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
 		{Method: http.MethodGet, Path: "/auth/capabilities", Group: RouteAuth, Handler: http.HandlerFunc(s.handleCapabilitiesGET)},

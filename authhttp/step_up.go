@@ -3,6 +3,7 @@ package authhttp
 import (
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/url"
 	"sort"
@@ -20,7 +21,7 @@ const oidcStepUpClockSkew = 2 * time.Minute
 func ptr(s string) *string { return &s }
 
 func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -56,7 +57,7 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -140,7 +141,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	if s.rateLimited(w, r, RLOIDCStart) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -258,8 +259,8 @@ func validOIDCStepUpTime(startedAt, authTime, now time.Time) bool {
 	return !authTime.Before(startedAt.Add(-oidcStepUpClockSkew))
 }
 
-func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims Claims, password string) (bool, map[string]any) {
-	if SensitiveClaims(claims) {
+func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Request, claims verify.Claims, password string) (bool, map[string]any) {
+	if verify.SensitiveClaims(claims) {
 		return true, nil
 	}
 	if password != "" {
@@ -288,7 +289,7 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 	return false, nil
 }
 
-func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims Claims) {
+func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims verify.Claims) {
 	metadata := map[string]any{
 		"step_up_methods": s.stepUpMethods(r, claims.UserID),
 		"max_age_seconds": int64(embedded.SensitiveActionFreshAuthWindow.Seconds()),
@@ -303,7 +304,7 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims C
 }
 
 func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness embedded.SessionFreshness) (map[string]any, error) {
-	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, "", map[string]any{"sid": sessionID})
+	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, map[string]any{"sid": sessionID})
 	if err != nil {
 		return nil, err
 	}

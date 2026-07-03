@@ -81,11 +81,7 @@ func (s *Service) loginVerifiedUser(ctx context.Context, u *User, pass string, e
 		return "", time.Time{}, errOrUnauthorized(nil)
 	}
 	_ = s.setLastLogin(ctx, u.ID, time.Now())
-	emailStr := ""
-	if u.Email != nil {
-		emailStr = *u.Email
-	}
-	return s.IssueAccessToken(ctx, u.ID, emailStr, extra)
+	return s.IssueAccessToken(ctx, u.ID, extra)
 }
 
 func errOrUnauthorized(err error) error {

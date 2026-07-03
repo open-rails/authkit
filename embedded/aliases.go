@@ -139,7 +139,6 @@ var IntrinsicRootPermissions = authcore.IntrinsicRootPermissions
 var IntrinsicRootPersona = authcore.IntrinsicRootPersona
 var IsDevEnvironment = authcore.IsDevEnvironment
 var LoadBootstrapManifestFile = authcore.LoadBootstrapManifestFile
-var MintDelegatedAccessToken = authcore.MintDelegatedAccessToken
 var MintRemoteApplicationAccessToken = authcore.MintRemoteApplicationAccessToken
 var MintServiceJWT = authcore.MintServiceJWT
 var NewGroupSchema = authcore.NewGroupSchema

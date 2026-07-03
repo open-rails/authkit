@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 
@@ -11,7 +12,7 @@ func (s *Service) handleUserSessionsGET(w http.ResponseWriter, r *http.Request) 
 	if s.rateLimited(w, r, RLAuthSessionsList) {
 		return
 	}
-	cl, err := getClaims(r.Context())
+	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -40,7 +41,7 @@ func (s *Service) handleUserSessionDELETE(w http.ResponseWriter, r *http.Request
 	if s.rateLimited(w, r, RLAuthSessionsRevoke) {
 		return
 	}
-	cl, err := getClaims(r.Context())
+	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -62,7 +63,7 @@ func (s *Service) handleUserSessionsDELETE(w http.ResponseWriter, r *http.Reques
 	if s.rateLimited(w, r, RLAuthSessionsRevokeAll) {
 		return
 	}
-	cl, err := getClaims(r.Context())
+	cl, err := verify.GetClaims(r.Context())
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
 		unauthorized(w, ErrUnauthorized)
 		return

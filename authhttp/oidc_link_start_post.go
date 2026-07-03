@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"sync"
 
@@ -29,7 +30,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 	if s.rateLimited(w, r, RLOIDCStart) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return

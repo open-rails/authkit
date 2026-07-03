@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/verify"
 )
 
 func TestTestIssuer_ServesJWKS(t *testing.T) {
@@ -73,11 +73,11 @@ func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 
 	token := issuer.CreateToken("user-123", "test@example.com")
 
-	verifier := authhttp.NewVerifier(
-		authhttp.WithAlgorithms("RS256"),
-		authhttp.WithSkew(60*time.Second),
+	verifier := verify.NewVerifier(
+		verify.WithAlgorithms("RS256"),
+		verify.WithSkew(60*time.Second),
 	)
-	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
+	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
@@ -104,8 +104,8 @@ func TestTestIssuer_TokenWithRoles(t *testing.T) {
 	roles := []string{"admin", "moderator"}
 	token := issuer.CreateTokenWithRoles("user-123", "test@example.com", roles)
 
-	verifier := authhttp.NewVerifier(authhttp.WithAlgorithms("RS256"))
-	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
+	verifier := verify.NewVerifier(verify.WithAlgorithms("RS256"))
+	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 		IsLocal: true, // TestIssuer simulates the platform signer; roles must be trusted
 	})
@@ -126,11 +126,11 @@ func TestTestIssuer_ExpiredToken(t *testing.T) {
 
 	token := issuer.CreateExpiredToken("user-123", "test@example.com")
 
-	verifier := authhttp.NewVerifier(
-		authhttp.WithAlgorithms("RS256"),
-		authhttp.WithSkew(0),
+	verifier := verify.NewVerifier(
+		verify.WithAlgorithms("RS256"),
+		verify.WithSkew(0),
 	)
-	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, authhttp.IssuerOptions{
+	_ = verifier.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 
@@ -150,8 +150,8 @@ func TestTestIssuer_CustomAudience(t *testing.T) {
 
 	token := issuer.CreateToken("user-123", "test@example.com")
 
-	verifier := authhttp.NewVerifier(authhttp.WithAlgorithms("RS256"))
-	_ = verifier.AddIssuer(issuer.URL(), []string{"billing-service"}, authhttp.IssuerOptions{
+	verifier := verify.NewVerifier(verify.WithAlgorithms("RS256"))
+	_ = verifier.AddIssuer(issuer.URL(), []string{"billing-service"}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	})
 

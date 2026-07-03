@@ -44,6 +44,7 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
 	"github.com/open-rails/authkit/server"
+	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/migratekit"
 )
 
@@ -453,7 +454,7 @@ func (p staticDevEntitlements) ListEntitlements(context.Context, string) ([]stri
 // Dev-only; used by the RBAC E2E suite to assert API-key resolution.
 func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 	reflect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cl, ok := authhttp.ClaimsFromContext(r.Context())
+		cl, ok := verify.ClaimsFromContext(r.Context())
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
@@ -464,7 +465,7 @@ func devWhoamiHandler(svc *authhttp.Service) http.Handler {
 			"user_id":     cl.UserID,
 		})
 	})
-	return authhttp.Required(svc.Verifier())(reflect)
+	return verify.Required(svc.Verifier())(reflect)
 }
 
 // devMintHandler mints arbitrary access tokens for downstream-service E2E tests.

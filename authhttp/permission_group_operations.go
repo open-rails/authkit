@@ -8,6 +8,7 @@ package authhttp
 
 import (
 	"errors"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"time"
@@ -53,7 +54,7 @@ func (s *Service) groupMemberAdd(w http.ResponseWriter, r *http.Request, persona
 			return
 		}
 	}
-	actor, ok := ClaimsFromContext(r.Context())
+	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
 		forbidden(w, ErrForbidden)
 		return
@@ -148,7 +149,7 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, pers
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	actor, ok := ClaimsFromContext(r.Context())
+	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
 		forbidden(w, ErrForbidden)
 		return
@@ -173,7 +174,7 @@ func (s *Service) groupMemberRole(w http.ResponseWriter, r *http.Request, person
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	actor, ok := ClaimsFromContext(r.Context())
+	actor, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || actor.UserID == "" {
 		forbidden(w, ErrForbidden)
 		return
@@ -238,7 +239,7 @@ func (s *Service) groupRolesList(w http.ResponseWriter, persona string) {
 // handleMeGroupsGET is the cross-persona discovery endpoint: the caller's group
 // memberships as {persona, instance_slug, role}.
 func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -267,7 +268,7 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 // required because perms are persona-namespaced. Globs like `root:*` (held by an
 // owner) are returned VERBATIM.
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return
@@ -601,7 +602,7 @@ type inviteRedeemRequest struct {
 // assigning the link's role. Persona-agnostic: the code resolves to its own group,
 // so one endpoint serves every persona.
 func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return

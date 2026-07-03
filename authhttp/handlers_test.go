@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"encoding/json"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -79,8 +80,8 @@ func newTestServiceWithPasskeys(t *testing.T) *Service {
 func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {
 	t.Helper()
 	cfg := coreSvc.Config()
-	ver := NewVerifier(WithSkew(5 * time.Second))
-	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, IssuerOptions{
+	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
+	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)
@@ -145,7 +146,7 @@ func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
-	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", "e@example.com", map[string]any{})
+	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", map[string]any{})
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

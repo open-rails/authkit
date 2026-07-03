@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"encoding/json"
 	"errors"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,8 +82,8 @@ func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerifi
 	opts := append([]embedded.Option{authcore.WithEphemeralStore(memorystore.NewKV())}, coreOpts...)
 	coreSvc := authcore.NewService(embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: policy}, Environment: "test"}, ks, opts...)
 
-	ver := NewVerifier(WithSkew(5 * time.Second))
-	_ = ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, IssuerOptions{
+	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second))
+	_ = ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)

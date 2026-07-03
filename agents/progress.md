@@ -271,7 +271,24 @@ renames while still on v0.x.
 
 # #206: [v1 SURFACE][BREAKING] Strip legacy backcompat aliasing pre-1.0
 
-**Completed:** no
+**Completed:** yes — EXECUTED 2026-07-03 (Claude). (1) `authhttp/verify_aliases.go` DELETED — its ~40
+re-exports had 154 in-package free-identifier uses, migrated to qualified `verify.X` via an AST-based
+positional rewriter (gofmt -r was unsafe: `Verifier` is also an oidckit.StateData composite-literal KEY);
+the internal `setClaims`/`getClaims`/`maxDelegatedRoles` lowercase aliases went to
+`verify.SetClaims`/`GetClaims`/`MaxDelegatedRoles`; external consumers (cmd/authkit-server,
+authtest/issuer_test) migrated to `verify.X`. (2) `Server = Service` alias: ALREADY collapsed before this
+pass (`NewServer` returns `*Service`; no `Server` ident remained) — verified, SEMVER §4.5 now records it.
+(3) Mint dedup: the `authhttp` free func was already deleted (#191); the remaining dup was the
+`embedded.MintDelegatedAccessToken` free-func alias — deleted; its only users (4 authhttp test files
+needing EXPLICIT signers, which the Client method can't take) now call the internal
+`authcore.MintDelegatedAccessToken`. ONE public entry point: `Client.MintDelegatedAccessToken(ctx, p)`.
+(4) Dead `email` param DROPPED from `IssueAccessToken` end-to-end: `client.go` Tokens interface,
+authcore `IssueAccessToken`/`issueAccessToken` (+ the `_ = email` line), embedded facade, remote/server
+REGENERATED via genremote (89 methods), and all ~30 call sites. The legacy `code`-as-token acceptance:
+NOT FOUND in current code (all `code` fields are legit OTP/OAuth codes) — already gone; nothing to remove.
+(5) `embedded/aliases.go` KEPT (load-bearing facade, per the issue's own distinction).
+Full `go test ./...` green; gofmt clean; SEMVER §4.5 updated. BREAKING (rides #143): authhttp.<verify
+re-exports> gone → import verify directly; `Client.IssueAccessToken` loses the ignored email param.
 
 Proposed 2026-07-02 (Paul + Claude audit). Paul: remove old aliasing / legacy names / backcompat while on
 v0.x. KEY DISTINCTION — two kinds of "alias," only one is cruft:
@@ -293,11 +310,11 @@ Tell for the difference: if dropping the alias leaves the symbol reachable at a 
 droppable duplication; if it forces exporting `internal/` or a mass type-move, it's load-bearing facade.
 
 ## Tasks
-- [ ] Delete `authhttp/verify_aliases.go`; migrate the three consumers `authhttp.X` → `verify.X`.
-- [ ] Collapse `Service`/`Server` to one name.
-- [ ] Dedupe `MintDelegatedAccessToken` (one public entry point).
-- [ ] Drop the dead `email` param in `token_issue.go`; remove the legacy `code`-as-token field.
-- [ ] Explicitly KEEP `embedded/aliases.go`.
+- [x] Delete `authhttp/verify_aliases.go`; migrate the three consumers `authhttp.X` → `verify.X`.
+- [x] Collapse `Service`/`Server` to one name (was already done; verified + SEMVER updated).
+- [x] Dedupe `MintDelegatedAccessToken` (one public entry point).
+- [x] Drop the dead `email` param in `token_issue.go`; remove the legacy `code`-as-token field (code-as-token: already absent).
+- [x] Explicitly KEEP `embedded/aliases.go`.
 
 ---
 

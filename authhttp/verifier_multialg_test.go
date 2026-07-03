@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"github.com/open-rails/authkit/verify"
 	"testing"
 	"time"
 
@@ -28,8 +29,8 @@ func TestVerifierAcceptsES256RemoteApplicationIssuer(t *testing.T) {
 	issuer := authkittesting.NewTestIssuerWithSigner(signer, "openrails")
 	defer issuer.Close()
 
-	v := NewVerifier(WithSkew(5 * time.Second))
-	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, IssuerOptions{
+	v := verify.NewVerifier(verify.WithSkew(5 * time.Second))
+	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	}); err != nil {
 		t.Fatal(err)
@@ -58,8 +59,8 @@ func TestVerifierAcceptsEdDSARemoteApplicationIssuer(t *testing.T) {
 	issuer := authkittesting.NewTestIssuerWithSigner(signer, "openrails")
 	defer issuer.Close()
 
-	v := NewVerifier(WithSkew(5 * time.Second))
-	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, IssuerOptions{
+	v := verify.NewVerifier(verify.WithSkew(5 * time.Second))
+	if err := v.AddIssuer(issuer.URL(), []string{issuer.Audience()}, verify.IssuerOptions{
 		JWKSURI: issuer.URL() + "/.well-known/jwks.json",
 	}); err != nil {
 		t.Fatal(err)
@@ -73,8 +74,8 @@ func TestVerifierAcceptsEdDSARemoteApplicationIssuer(t *testing.T) {
 
 func TestVerifierRejectsHS256(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	v := NewVerifier()
-	_ = v.AddIssuer("https://issuer.example", nil, IssuerOptions{RawKeys: map[string]crypto.PublicKey{
+	v := verify.NewVerifier()
+	_ = v.AddIssuer("https://issuer.example", nil, verify.IssuerOptions{RawKeys: map[string]crypto.PublicKey{
 		signer.KID(): signer.PublicKey(),
 	}})
 	// Craft HS256-looking attempt is not possible without secret; test alg gate on keyfunc path

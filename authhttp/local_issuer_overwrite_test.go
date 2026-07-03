@@ -9,6 +9,7 @@ package authhttp
 
 import (
 	"crypto"
+	"github.com/open-rails/authkit/verify"
 	"testing"
 	"time"
 
@@ -43,8 +44,8 @@ func TestAddIssuerRefusesToOverwriteLocalWithFederated(t *testing.T) {
 
 	platformIss := "https://platform.example"
 
-	ver := NewVerifier(WithAlgorithms("RS256"))
-	if err := ver.AddIssuer(platformIss, []string{"platform"}, IssuerOptions{
+	ver := verify.NewVerifier(verify.WithAlgorithms("RS256"))
+	if err := ver.AddIssuer(platformIss, []string{"platform"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{platformSigner.KID(): platformSigner.PublicKey()},
 		IsLocal: true,
 	}); err != nil {
@@ -54,7 +55,7 @@ func TestAddIssuerRefusesToOverwriteLocalWithFederated(t *testing.T) {
 	// Attacker attempts to overwrite the local entry under the same issuer string
 	// with their own key and IsLocal=false (the only way a remote_application is
 	// registered). This must be refused.
-	err := ver.AddIssuer(platformIss, []string{"platform"}, IssuerOptions{
+	err := ver.AddIssuer(platformIss, []string{"platform"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{attackerSigner.KID(): attackerSigner.PublicKey()},
 		// IsLocal omitted (false) — federated registration
 	})
@@ -83,15 +84,15 @@ func TestAddIssuerAllowsLocalRefresh(t *testing.T) {
 	signerB, _ := jwtkit.NewRSASigner(2048, "kid-b")
 	iss := "https://platform.example"
 
-	ver := NewVerifier(WithAlgorithms("RS256"))
-	if err := ver.AddIssuer(iss, []string{"platform"}, IssuerOptions{
+	ver := verify.NewVerifier(verify.WithAlgorithms("RS256"))
+	if err := ver.AddIssuer(iss, []string{"platform"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signerA.KID(): signerA.PublicKey()},
 		IsLocal: true,
 	}); err != nil {
 		t.Fatalf("register local issuer: %v", err)
 	}
 	// Re-register the local issuer (local→local) with an additional rotated key.
-	if err := ver.AddIssuer(iss, []string{"platform"}, IssuerOptions{
+	if err := ver.AddIssuer(iss, []string{"platform"}, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{
 			signerA.KID(): signerA.PublicKey(),
 			signerB.KID(): signerB.PublicKey(),

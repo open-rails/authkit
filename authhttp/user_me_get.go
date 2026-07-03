@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"time"
@@ -41,7 +42,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RLUserMe) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -138,7 +139,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		seconds := int64((remaining + time.Second - time.Nanosecond) / time.Second)
 		timeUntilStepUpRequired = &seconds
 	}
-	required := !SensitiveClaims(claims)
+	required := !verify.SensitiveClaims(claims)
 	stepUpRequiredForSensitiveActions = &required
 	// Read the user's 2FA settings ONCE and thread the result through MFA status,
 	// the step-up methods, and the step-up 2FA options (#228) — the three used to

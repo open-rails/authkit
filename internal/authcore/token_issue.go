@@ -14,12 +14,12 @@ import (
 // Includes core registered claims plus:
 // - entitlements (authoritative short-lived snapshot)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
-func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (token string, expiresAt time.Time, err error) {
-	return s.issueAccessToken(ctx, userID, email, extra, s.cfg.Token.AccessTokenDuration)
+func (s *Service) IssueAccessToken(ctx context.Context, userID string, extra map[string]any) (token string, expiresAt time.Time, err error) {
+	return s.issueAccessToken(ctx, userID, extra, s.cfg.Token.AccessTokenDuration)
 }
 
 func (s *Service) Issue2FAEnrollmentToken(ctx context.Context, userID string) (token string, expiresAt time.Time, err error) {
-	return s.issueAccessToken(ctx, userID, "", map[string]any{"2fa_enrollment": true}, 10*time.Minute)
+	return s.issueAccessToken(ctx, userID, map[string]any{"2fa_enrollment": true}, 10*time.Minute)
 }
 
 // reservedAccessTokenClaims are claims the verifier extracts as authoritative
@@ -64,8 +64,7 @@ var reservedAccessTokenClaims = map[string]struct{}{
 // and computes MFAStatus, then delegates to issueAccessTokenForUser. Callers that
 // already hold a loaded+gated *User (and its MFAStatus) — the hot login / refresh /
 // 2FA paths — should call issueAccessTokenForUser directly to avoid the re-read (#227).
-func (s *Service) issueAccessToken(ctx context.Context, userID, email string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
-	_ = email // kept for API compatibility; profile claims no longer ride in access tokens.
+func (s *Service) issueAccessToken(ctx context.Context, userID string, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	// Keep the live-user gate even though profile fields no longer ride in the
 	// token: banned/deleted users must not receive fresh access tokens.
 	if s.pg != nil {

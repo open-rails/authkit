@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,7 +35,7 @@ func TestGroupMembershipInvite_HTTP_AcceptFlow(t *testing.T) {
 	// Owner POSTs the member add with invite=true → a pending invite, NOT a grant.
 	addBody, _ := json.Marshal(map[string]any{"user_id": target, "role": "member", "invite": true})
 	r := httptest.NewRequest(http.MethodPost, "http://x/merchant/m-invite/members", strings.NewReader(string(addBody)))
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: owner}))
+	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: owner}))
 	w := httptest.NewRecorder()
 	s.groupMemberAdd(w, r, "merchant", "m-invite")
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
@@ -45,7 +46,7 @@ func TestGroupMembershipInvite_HTTP_AcceptFlow(t *testing.T) {
 
 	// Invitee lists their pending invites (own auth) and finds it.
 	r = httptest.NewRequest(http.MethodGet, "http://x/me/group-invites", nil)
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: target}))
+	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: target}))
 	w = httptest.NewRecorder()
 	s.handleMeGroupInvitesGET(w, r)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -62,7 +63,7 @@ func TestGroupMembershipInvite_HTTP_AcceptFlow(t *testing.T) {
 
 	// Invitee accepts (own auth) → role granted.
 	r = httptest.NewRequest(http.MethodPost, "http://x/me/group-invites/"+inviteID+"/accept", nil)
-	r = r.WithContext(setClaims(r.Context(), Claims{UserID: target}))
+	r = r.WithContext(verify.SetClaims(r.Context(), verify.Claims{UserID: target}))
 	r.SetPathValue("id", inviteID)
 	w = httptest.NewRecorder()
 	s.handleMeGroupInviteAccept(w, r)

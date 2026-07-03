@@ -231,8 +231,8 @@ func (c *Client) IsUserAllowed(ctx context.Context, userID string) (bool, error)
 	return out, err
 }
 
-func (c *Client) IssueAccessToken(ctx context.Context, userID string, email string, extra map[string]any) (string, time.Time, error) {
-	args := map[string]any{"userID": userID, "email": email, "extra": extra}
+func (c *Client) IssueAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
+	args := map[string]any{"userID": userID, "extra": extra}
 	var out struct {
 		R0 string    `json:"r0"`
 		R1 time.Time `json:"r1"`

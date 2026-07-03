@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 
@@ -38,7 +39,7 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		serverErr(w, ErrPhoneVerificationUnavailable)
 		return
 	}
-	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
 		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
 		if s.rateLimited(w, r, RLUserPhoneChangeRequest) || !ok {
 			return
@@ -128,7 +129,7 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if claims, ok := ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
 		if err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code); err == nil {
 			s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Phone number changed successfully"})

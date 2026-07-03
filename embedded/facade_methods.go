@@ -221,8 +221,8 @@ func (s *Client) IsUserAllowed(ctx context.Context, userID string) (bool, error)
 	return s.impl.IsUserAllowed(ctx, userID)
 }
 
-func (s *Client) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (string, time.Time, error) {
-	return s.impl.IssueAccessToken(ctx, userID, email, extra)
+func (s *Client) IssueAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
+	return s.impl.IssueAccessToken(ctx, userID, extra)
 }
 
 func (s *Client) JWKS() jwtkit.JWKS {

@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"context"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,7 +20,7 @@ import (
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
 	svc                 *authcore.Service
-	verifier            *Verifier
+	verifier            *verify.Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter
 	rlExplicit          bool // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
@@ -160,7 +161,7 @@ func (s *Service) SMSAvailable() bool { return s.svc.SMSAvailable() }
 // passed to NewServer — code against authkit.Client to stay backend-agnostic
 // across the embedded↔standalone swap (#138); the server no longer vends it
 // (client-first, #142).
-func (s *Service) Verifier() *Verifier { return s.verifier }
+func (s *Service) Verifier() *verify.Verifier { return s.verifier }
 
 // publicRegistrationDisabled reports whether public user self-registration /
 // auto-registration is turned off for this service.

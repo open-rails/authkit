@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto"
 	"errors"
+	"github.com/open-rails/authkit/verify"
 	"testing"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -43,16 +44,16 @@ func (m *memRemoteAppSource) GetRemoteApplication(_ context.Context, issuer stri
 }
 
 // newDelegatedVerifier builds a Verifier trusting a single remote application.
-func newDelegatedVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *Verifier {
+func newDelegatedVerifier(t *testing.T, signer *jwtkit.RSASigner, iss string, aud []string) *verify.Verifier {
 	t.Helper()
-	v := NewVerifier()
+	v := verify.NewVerifier()
 	v.SetRemoteApplicationSource(&memRemoteAppSource{apps: []authkit.RemoteApplication{{
 		ID:      "remote-app-1",
 		Slug:    "remote-app",
 		Issuer:  iss,
 		Enabled: true,
 	}}})
-	if err := v.AddIssuer(iss, aud, IssuerOptions{
+	if err := v.AddIssuer(iss, aud, verify.IssuerOptions{
 		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	}); err != nil {
 		t.Fatalf("AddIssuer: %v", err)
@@ -67,7 +68,7 @@ func TestMintAndVerifyDelegatedAccessTokenBasic(t *testing.T) {
 	}
 	iss := "https://cozy.example"
 	aud := []string{"tensorhub"}
-	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	tok, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
@@ -120,7 +121,7 @@ func TestVerifyRejectsBothSubAndDelegatedSub(t *testing.T) {
 
 func TestMintRequiresDelegatedSubject(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	if _, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{Issuer: "x"}); err == nil {
+	if _, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{Issuer: "x"}); err == nil {
 		t.Fatal("expected error for missing delegated_sub")
 	}
 }
@@ -190,7 +191,7 @@ func TestIssuerOnlyDelegatedToken(t *testing.T) {
 	}
 	iss := "https://doujins.example"
 	aud := []string{"openrails"}
-	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	tok, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
@@ -221,7 +222,7 @@ func TestDelegatedAccessRolesFromAttributes(t *testing.T) {
 	u1 := "11111111-1111-1111-1111-111111111111"
 	u2 := "22222222-2222-2222-2222-222222222222"
 
-	tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	tok, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer:           iss,
 		Audiences:        aud,
 		DelegatedSubject: "user-123",
@@ -284,11 +285,11 @@ func TestDelegatedAccessRolesCapped(t *testing.T) {
 	iss := "https://cozy.example"
 	aud := []string{"tensorhub"}
 
-	roles := make([]string, 0, maxDelegatedRoles+10)
-	for i := 0; i < maxDelegatedRoles+10; i++ {
+	roles := make([]string, 0, verify.MaxDelegatedRoles+10)
+	for i := 0; i < verify.MaxDelegatedRoles+10; i++ {
 		roles = append(roles, delegatedUUIDForIndex(i))
 	}
-	tok, _ := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	tok, _ := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
 		Roles: roles, TTL: time.Minute,
 	})
@@ -296,8 +297,8 @@ func TestDelegatedAccessRolesCapped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if len(dp.Roles) != maxDelegatedRoles {
-		t.Fatalf("Roles len = %d, want cap %d", len(dp.Roles), maxDelegatedRoles)
+	if len(dp.Roles) != verify.MaxDelegatedRoles {
+		t.Fatalf("Roles len = %d, want cap %d", len(dp.Roles), verify.MaxDelegatedRoles)
 	}
 }
 
@@ -313,9 +314,9 @@ func delegatedUUIDForIndex(i int) string {
 // remote-application store is rejected even when its key would verify.
 func TestVerifierRejectsUnregisteredIssuer(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "k")
-	v := NewVerifier()
+	v := verify.NewVerifier()
 	v.SetRemoteApplicationSource(&memRemoteAppSource{}) // empty store
-	tok, _ := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+	tok, _ := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 		Issuer: "https://rogue.example", Audiences: []string{"tensorhub"},
 		DelegatedSubject: "x", TTL: time.Minute,
 	})
@@ -385,7 +386,7 @@ func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
 		authority: []string{"openrails:self:billing:read", "openrails:self:billing:write"},
 	}
 
-	mkVerifier := func() *Verifier {
+	mkVerifier := func() *verify.Verifier {
 		v := newDelegatedVerifier(t, signer, iss, aud)
 		v.SetRemoteApplicationSource(enr)
 		v.WithService(enr)
@@ -393,7 +394,7 @@ func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
 	}
 
 	t.Run("within ceiling passes", func(t *testing.T) {
-		tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+		tok, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 			Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
 			Permissions: []string{"openrails:self:billing:read"},
 			TTL:         time.Minute,
@@ -411,7 +412,7 @@ func TestDelegatedPermissionCeilingEnforced(t *testing.T) {
 	})
 
 	t.Run("out of ceiling rejected", func(t *testing.T) {
-		tok, err := embedded.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
+		tok, err := authcore.MintDelegatedAccessToken(context.Background(), signer, authkit.DelegatedAccessParams{
 			Issuer: iss, Audiences: aud, DelegatedSubject: "u1",
 			// Not within the app's stored authority -> privilege escalation attempt.
 			Permissions: []string{"openrails:platform:orgs:recover"},

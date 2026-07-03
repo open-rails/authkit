@@ -395,7 +395,7 @@ func TestUnifiedVerificationContactChangeTokenAndFreshAuth(t *testing.T) {
 	staleUserID, _, sid := createPasswordUserAccessToken(t, pool, srv, "contact-stale", pass)
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at = now() - interval '1 hour', auth_methods = ARRAY['pwd']::text[] WHERE id=$1::uuid`, sid)
 	require.NoError(t, err)
-	staleToken, _, err := srv.svc.IssueAccessToken(ctx, staleUserID, "", map[string]any{"sid": sid})
+	staleToken, _, err := srv.svc.IssueAccessToken(ctx, staleUserID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w = serveAuthJSON(srv, http.MethodPost, "/phone/verify/request", `{"phone_number":"`+uniquePhone()+`"}`, staleToken)
@@ -466,7 +466,7 @@ func createPasswordUserAccessToken(t *testing.T, pool *pgxpool.Pool, srv *Servic
 	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 	return user.ID, token, sid
 }

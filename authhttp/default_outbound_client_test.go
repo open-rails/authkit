@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"testing"
 )
@@ -22,7 +23,7 @@ func TestDefaultOutboundClientHasTimeout(t *testing.T) {
 }
 
 func TestNewVerifierUsesBoundedClient(t *testing.T) {
-	v := NewVerifier()
+	v := verify.NewVerifier()
 	if v.HTTPClient() == nil || v.HTTPClient() == http.DefaultClient {
 		t.Fatal("NewVerifier must default to a bounded outbound client")
 	}

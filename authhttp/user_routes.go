@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	if s.rateLimited(w, r, RLUserUpdateUsername) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -53,7 +54,7 @@ func (s *Service) handleUserPreferredLanguagePATCH(w http.ResponseWriter, r *htt
 	if s.rateLimited(w, r, RLUserPreferredLanguage) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -109,7 +110,7 @@ func (s *Service) supportsLanguage(language string) bool {
 }
 
 func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -140,7 +141,7 @@ func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request)
 	if s.rateLimited(w, r, RLUserDelete) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return
@@ -166,7 +167,7 @@ func (s *Service) handleUserUnlinkProviderDELETE(w http.ResponseWriter, r *http.
 	if s.rateLimited(w, r, RLUserUnlinkProvider) {
 		return
 	}
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrUnauthorized)
 		return

@@ -38,7 +38,7 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)
@@ -106,7 +106,7 @@ func TestTOTPFactorDefaultAndSelectedLoginHTTPIntegration(t *testing.T) {
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, "", map[string]any{"sid": sid})
+	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, setupToken)

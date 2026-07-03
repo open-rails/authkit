@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"errors"
+	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
 
@@ -15,7 +16,7 @@ import (
 // is the group's sole owner (leaving would orphan it). Leaving a group you are not in
 // is an idempotent no-op.
 func (s *Service) handleMeGroupLeave(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
+	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
 		unauthorized(w, ErrNotAuthenticated)
 		return

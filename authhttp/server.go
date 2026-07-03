@@ -3,6 +3,7 @@ package authhttp
 import (
 	"errors"
 	"fmt"
+	"github.com/open-rails/authkit/verify"
 	"net/netip"
 	"strings"
 	"time"
@@ -28,7 +29,7 @@ type Option func(*Service)
 // only HTTP-layer options. Postgres is REQUIRED: the durable user/role and
 // permission-group store has no in-memory fallback (#106), so the client must be
 // Postgres-backed; pure token verification with no storage uses
-// authhttp.NewVerifier / authkit/verify instead.
+// verify.NewVerifier (authkit/verify) instead.
 //
 // Construction fails (returns an error, never panics — #212) when the
 // configuration cannot be served: in particular, if Registration.Verification is
@@ -85,12 +86,12 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		}
 	}
 
-	ver := NewVerifier(
-		WithSkew(5*time.Second),
-		WithAPIKeyPrefix(cfg.APIKeys.Prefix),
-		WithSSRFGuard(),
+	ver := verify.NewVerifier(
+		verify.WithSkew(5*time.Second),
+		verify.WithAPIKeyPrefix(cfg.APIKeys.Prefix),
+		verify.WithSSRFGuard(),
 	)
-	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, IssuerOptions{
+	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 		IsLocal: true,
 	})
