@@ -123,10 +123,12 @@ func (s *Service) validate(cfg embedded.Config) error {
 	if err := s.svc.ValidateVerificationConfiguration(); err != nil {
 		return err
 	}
-	env := strings.ToLower(strings.TrimSpace(cfg.Environment))
-	if env == "prod" || env == "production" {
+	// #231: THE single dev/prod classifier — anything not explicitly dev-ish
+	// (incl. staging and unknown values) is prod-like and requires the durable
+	// ephemeral store. This was the last inline env comparison in library code.
+	if !embedded.IsDevEnvironment(cfg.Environment) {
 		if s.rd == nil {
-			return fmt.Errorf("authkit: production requires a Redis-compatible ephemeral store — pass authhttp.WithRedis(...); a memory store is dev-only")
+			return fmt.Errorf("authkit: Environment %q is production-like and requires a Redis-compatible ephemeral store — pass authhttp.WithRedis(...); a memory store is dev-only", cfg.Environment)
 		}
 	}
 	return nil
