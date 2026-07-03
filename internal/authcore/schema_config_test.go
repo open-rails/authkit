@@ -1,6 +1,7 @@
 package authcore
 
 import (
+	"crypto"
 	"strings"
 	"testing"
 	"time"
@@ -9,10 +10,11 @@ import (
 )
 
 func schemaTestConfig(schema string) Config {
-	ks, err := jwtkit.NewGeneratedKeySource()
+	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	if err != nil {
 		panic(err)
 	}
+	ks := jwtkit.StaticKeySource{Active: signer, Pubs: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
 	return Config{
 		Token: TokenConfig{
 			Issuer:               "https://example.test",

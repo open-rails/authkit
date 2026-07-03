@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 // TestIssueRefreshSession_CapHoldsUnderConcurrency: with SessionMaxPerUser=N, firing
@@ -15,10 +13,7 @@ import (
 // cap; the per-user advisory lock + single transaction make the cap an invariant.
 func TestIssueRefreshSession_CapHoldsUnderConcurrency(t *testing.T) {
 	pool := testPG(t)
-	ks, err := jwtkit.NewGeneratedKeySource()
-	if err != nil {
-		t.Fatalf("gen keys: %v", err)
-	}
+	ks := testKeySource(t)
 	const maxSessions = 3
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{

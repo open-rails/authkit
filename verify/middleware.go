@@ -81,6 +81,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 }
 
 // Required validates the Bearer token (JWT), enforces iss/aud/exp, and stores claims in request context.
+// Gin hosts: use the gin-native authkitgin.Required (adapters/gin) instead of hand-wrapping this.
 func Required(v *Verifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +122,7 @@ func allowed2FAEnrollmentPath(method, path string) bool {
 }
 
 // Optional validates when Authorization is present; otherwise passes through.
+// Gin hosts: use the gin-native authkitgin.Optional (adapters/gin) instead of hand-wrapping this.
 func Optional(v *Verifier) func(http.Handler) http.Handler {
 	req := Required(v)
 	return func(next http.Handler) http.Handler {

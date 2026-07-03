@@ -16,7 +16,7 @@ const (
 	// DefaultAuthKeysPath is the default directory where External Secrets mounts auth keys
 	DefaultAuthKeysPath = "/vault/auth"
 
-	// DefaultKeyReloadInterval is how often a ReloadableKeySource re-stats
+	// DefaultKeyReloadInterval is how often a reloadableKeySource re-stats
 	// keys.json for changes. Short keeps the post-rotation multi-replica skew
 	// window small; the cost is one stat() per tick. See authkit #90.
 	DefaultKeyReloadInterval = 10 * time.Second
@@ -37,14 +37,14 @@ type StaticKeySource struct {
 func (s StaticKeySource) ActiveSigner() Signer                    { return s.Active }
 func (s StaticKeySource) PublicKeys() map[string]crypto.PublicKey { return clonePublicKeyMap(s.Pubs) }
 
-// ReloadableKeySource wraps a file-backed StaticKeySource and hot-reloads it
+// reloadableKeySource wraps a file-backed StaticKeySource and hot-reloads it
 // when keys.json changes on disk (e.g. re-rendered by Vault Agent), so signing-
 // key rotation never requires a process restart. It implements KeySource; reads
 // are lock-free via an atomic pointer. A background poller re-stats keys.json at
 // the configured interval and, on change, atomically swaps in a NEW validated
 // keystore. A malformed/unreadable file keeps the last-good keystore — a bad
 // render never bricks signing. See authkit #90 (AK-IMPL-3).
-type ReloadableKeySource struct {
+type reloadableKeySource struct {
 	path     string // directory containing keys.json
 	interval time.Duration
 	cur      atomic.Pointer[StaticKeySource]
@@ -56,13 +56,13 @@ type ReloadableKeySource struct {
 	once sync.Once
 }
 
-// NewReloadableFileKeySource loads keys.json from the given directory and starts
+// newReloadableFileKeySource loads keys.json from the given directory and starts
 // a background poller that hot-reloads it every interval (<=0 →
 // DefaultKeyReloadInterval). It errors when no valid keys.json is present, so
 // use it only where a file source is expected — static/dev sources don't reload
 // (in-memory material is immutable in a running process; generated keys are
 // dev-only).
-func NewReloadableFileKeySource(path string, interval time.Duration) (*ReloadableKeySource, error) {
+func newReloadableFileKeySource(path string, interval time.Duration) (*reloadableKeySource, error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultAuthKeysPath
 	}
@@ -73,7 +73,7 @@ func NewReloadableFileKeySource(path string, interval time.Duration) (*Reloadabl
 	if err != nil {
 		return nil, err
 	}
-	r := &ReloadableKeySource{path: path, interval: interval, done: make(chan struct{})}
+	r := &reloadableKeySource{path: path, interval: interval, done: make(chan struct{})}
 	r.cur.Store(static)
 	if mod, modErr := r.keyFileModTime(); modErr == nil {
 		r.lastMod = mod
@@ -82,14 +82,14 @@ func NewReloadableFileKeySource(path string, interval time.Duration) (*Reloadabl
 	return r, nil
 }
 
-func (r *ReloadableKeySource) ActiveSigner() Signer { return r.cur.Load().ActiveSigner() }
-func (r *ReloadableKeySource) PublicKeys() map[string]crypto.PublicKey {
+func (r *reloadableKeySource) ActiveSigner() Signer { return r.cur.Load().ActiveSigner() }
+func (r *reloadableKeySource) PublicKeys() map[string]crypto.PublicKey {
 	return r.cur.Load().PublicKeys()
 }
 
-func (r *ReloadableKeySource) keyFilePath() string { return filepath.Join(r.path, "keys.json") }
+func (r *reloadableKeySource) keyFilePath() string { return filepath.Join(r.path, "keys.json") }
 
-func (r *ReloadableKeySource) keyFileModTime() (time.Time, error) {
+func (r *reloadableKeySource) keyFileModTime() (time.Time, error) {
 	fi, err := os.Stat(r.keyFilePath())
 	if err != nil {
 		return time.Time{}, err
@@ -100,7 +100,7 @@ func (r *ReloadableKeySource) keyFileModTime() (time.Time, error) {
 // Reload re-reads keys.json, validates it, and atomically swaps it in. On any
 // read/parse/validation failure it KEEPS the current keystore and returns the
 // error — it never serves a partial or empty key set.
-func (r *ReloadableKeySource) Reload() error {
+func (r *reloadableKeySource) Reload() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	static, err := loadStaticFromFile(r.path)
@@ -113,9 +113,9 @@ func (r *ReloadableKeySource) Reload() error {
 
 // Close stops the background poller. Safe to call multiple times; optional for
 // process-lifetime sources (primarily for tests and clean shutdown).
-func (r *ReloadableKeySource) Close() { r.once.Do(func() { close(r.done) }) }
+func (r *reloadableKeySource) Close() { r.once.Do(func() { close(r.done) }) }
 
-func (r *ReloadableKeySource) pollLoop() {
+func (r *reloadableKeySource) pollLoop() {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 	for {
@@ -167,36 +167,36 @@ func loadStaticFromFile(path string) (*StaticKeySource, error) {
 	return &static, nil
 }
 
-// GeneratedKeySource generates and persists RSA keys (for development only).
-type GeneratedKeySource struct {
+// generatedKeySource generates and persists RSA keys (for development only).
+type generatedKeySource struct {
 	signer *RSASigner
 	pubs   map[string]crypto.PublicKey
 }
 
 const (
-	// DefaultGeneratedKeysDir is the default directory under which the
-	// development GeneratedKeySource persists its auto-generated keypair.
-	DefaultGeneratedKeysDir = ".runtime/authkit"
+	// defaultGeneratedKeysDir is the default directory under which the
+	// development generatedKeySource persists its auto-generated keypair.
+	defaultGeneratedKeysDir = ".runtime/authkit"
 	privateKeyFile          = "private.pem"
 	keyIDFile               = "kid"
 )
 
-// NewGeneratedKeySource creates a KeySource with auto-generated RSA keys,
-// persisting them under DefaultGeneratedKeysDir (".runtime/authkit"). For a
-// custom directory use NewGeneratedKeySourceInDir.
-func NewGeneratedKeySource() (*GeneratedKeySource, error) {
-	return NewGeneratedKeySourceInDir(DefaultGeneratedKeysDir)
+// newGeneratedKeySource creates a KeySource with auto-generated RSA keys,
+// persisting them under defaultGeneratedKeysDir (".runtime/authkit"). For a
+// custom directory use newGeneratedKeySourceInDir.
+func newGeneratedKeySource() (*generatedKeySource, error) {
+	return newGeneratedKeySourceInDir(defaultGeneratedKeysDir)
 }
 
-// NewGeneratedKeySourceInDir creates a KeySource with auto-generated RSA keys,
+// newGeneratedKeySourceInDir creates a KeySource with auto-generated RSA keys,
 // loading from / persisting to the given directory. An empty dir defaults to
-// DefaultGeneratedKeysDir. Development only.
-func NewGeneratedKeySourceInDir(dir string) (*GeneratedKeySource, error) {
+// defaultGeneratedKeysDir. Development only.
+func newGeneratedKeySourceInDir(dir string) (*generatedKeySource, error) {
 	if strings.TrimSpace(dir) == "" {
-		dir = DefaultGeneratedKeysDir
+		dir = defaultGeneratedKeysDir
 	}
 	if signer, pubs, ok := loadKeysFromDisk(dir); ok {
-		return &GeneratedKeySource{signer: signer, pubs: pubs}, nil
+		return &generatedKeySource{signer: signer, pubs: pubs}, nil
 	}
 
 	kid := fmt.Sprintf("dev-%d", time.Now().Unix())
@@ -209,14 +209,14 @@ func NewGeneratedKeySourceInDir(dir string) (*GeneratedKeySource, error) {
 		logf("Warning: failed to persist authkit dev keys: %v", err)
 	}
 
-	return &GeneratedKeySource{
+	return &generatedKeySource{
 		signer: signer,
 		pubs:   map[string]crypto.PublicKey{kid: signer.PublicKey()},
 	}, nil
 }
 
-func (g *GeneratedKeySource) ActiveSigner() Signer { return g.signer }
-func (g *GeneratedKeySource) PublicKeys() map[string]crypto.PublicKey {
+func (g *generatedKeySource) ActiveSigner() Signer { return g.signer }
+func (g *generatedKeySource) PublicKeys() map[string]crypto.PublicKey {
 	return clonePublicKeyMap(g.pubs)
 }
 
@@ -303,7 +303,7 @@ func NewStaticKeySourceFromPEM(activeKeyID, activePrivateKeyPEM string, publicKe
 // arguments/config):
 //
 //  1. <path>/keys.json (path empty ⇒ DefaultAuthKeysPath "/vault/auth"),
-//     served through a ReloadableKeySource so signing-key rotation (e.g. Vault
+//     served through a reloadableKeySource so signing-key rotation (e.g. Vault
 //     Agent re-rendering the file) takes effect without a process restart.
 //  2. No keys.json: when allowEphemeralDevKeys is true, an auto-generated RSA
 //     dev keypair persisted under .runtime/authkit/ (DEVELOPMENT ONLY);
@@ -317,7 +317,7 @@ func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error
 	}
 
 	if _, statErr := os.Stat(filepath.Join(path, "keys.json")); statErr == nil {
-		rks, err := NewReloadableFileKeySource(path, DefaultKeyReloadInterval)
+		rks, err := newReloadableFileKeySource(path, DefaultKeyReloadInterval)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keys from %s: %w", path, err)
 		}
@@ -328,7 +328,7 @@ func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error
 		return nil, fmt.Errorf("no JWT signing keys: %s/keys.json not found and ephemeral dev keys are not enabled; mount keys.json, provide an explicit KeySource, or opt in with AllowEphemeralDevKeys for local development", path)
 	}
 
-	keySource, err := NewGeneratedKeySource()
+	keySource, err := newGeneratedKeySource()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate development keys: %w", err)
 	}

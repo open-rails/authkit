@@ -8,10 +8,7 @@ import (
 
 func mustGeneratedKeys(t *testing.T) jwtkit.KeySource {
 	t.Helper()
-	ks, err := jwtkit.NewGeneratedKeySource()
-	if err != nil {
-		t.Fatalf("generate keys: %v", err)
-	}
+	ks := testKeySource(t)
 	return ks
 }
 

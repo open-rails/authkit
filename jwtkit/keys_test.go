@@ -106,11 +106,11 @@ func TestResolveKeySourceGeneratesWithOptIn(t *testing.T) {
 
 func TestGeneratedKeySourceInDirPersists(t *testing.T) {
 	dir := t.TempDir()
-	first, err := NewGeneratedKeySourceInDir(dir)
+	first, err := newGeneratedKeySourceInDir(dir)
 	if err != nil {
 		t.Fatalf("first gen: %v", err)
 	}
-	second, err := NewGeneratedKeySourceInDir(dir)
+	second, err := newGeneratedKeySourceInDir(dir)
 	if err != nil {
 		t.Fatalf("second gen: %v", err)
 	}

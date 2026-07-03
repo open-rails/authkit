@@ -60,6 +60,19 @@ func RegisterAPI(r gin.IRouter, svc *authhttp.Service, options ...APIOption) {
 	registerRoutes(r, opts.Routes, opts.Wrap)
 }
 
+// Required is the gin-native form of verify.Required (#209): validates the
+// Bearer token and stores claims in the request context, aborting with the
+// verifier's 401 on failure. Use it directly on gin routes/groups instead of
+// hand-writing an http.Handler↔gin.HandlerFunc shim:
+//
+//	api := r.Group("/api", authkitgin.Required(verifier))
+func Required(v *verify.Verifier) gin.HandlerFunc { return Use(verify.Required(v)) }
+
+// Optional is the gin-native form of verify.Optional (#209): parses and stores
+// claims when a valid Bearer token is present, and passes through anonymously
+// otherwise. See Required for usage.
+func Optional(v *verify.Verifier) gin.HandlerFunc { return Use(verify.Optional(v)) }
+
 func Use(mw ...func(http.Handler) http.Handler) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		terminalRan := false

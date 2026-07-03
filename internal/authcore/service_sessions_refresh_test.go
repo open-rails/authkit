@@ -6,8 +6,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 // keyedServiceWithPG builds a Service with generated signing keys AND a Postgres
@@ -16,10 +14,7 @@ import (
 func keyedServiceWithPG(t *testing.T) *Service {
 	t.Helper()
 	pool := testPG(t)
-	ks, err := jwtkit.NewGeneratedKeySource()
-	if err != nil {
-		t.Fatalf("gen keys: %v", err)
-	}
+	ks := testKeySource(t)
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",

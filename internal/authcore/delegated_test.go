@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 // writeServiceKeysJSON renders a {active_key_id, active_private_key_pem,
@@ -121,10 +120,7 @@ func TestServiceMintServiceJWTRoundTrip(t *testing.T) {
 
 func mustServiceWithGeneratedKeys(t *testing.T) *Service {
 	t.Helper()
-	ks, err := jwtkit.NewGeneratedKeySource()
-	if err != nil {
-		t.Fatalf("gen keys: %v", err)
-	}
+	ks := testKeySource(t)
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",

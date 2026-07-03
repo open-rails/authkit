@@ -307,12 +307,13 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 
 ### 4.4 Other packages — exported surface (snapshot)
 
-- **`jwtkit`** (Advanced): `Signer`/`HeaderSigner`/`PublicKeySigner`/`ClaimsBuilder`
-  interfaces; `RSASigner`, `ECDSASigner`, `Ed25519Signer`, `KeyRing`; `KeySource` +
-  `EnvKeySource`, `FileKeySource`, `NewAutoKeySource(WithPath)`,
-  `NewGeneratedKeySource(InDir)`, `ReloadableKeySource`, `StaticKeySource`; `JWK`, `JWKS`,
-  `ServeJWKS`, conversion funcs; token-type consts (`AccessTokenType="access+jwt"`, …);
-  `DefaultAuthKeysPath="/vault/auth"`, `DefaultGeneratedKeysDir=".runtime/authkit"`;
+- **`jwtkit`** (Advanced): `Signer`/`HeaderSigner`/`PublicKeySigner` interfaces;
+  `RSASigner`/`NewRSASigner`, `Ed25519Signer`/`NewEd25519Signer`; `KeySource` +
+  `StaticKeySource`, `NewStaticKeySourceFromPEM`, `ResolveKeySource(path, allowEphemeralDevKeys)`
+  (#208: the reloadable/generated key-source machinery is unexported — reachable only through
+  `ResolveKeySource`; the former `KeyRing`/`EnvKeySource`/`FileKeySource`/`NewAutoKeySource`
+  are gone); `JWK`, `JWKS`, `ServeJWKS`, conversion funcs; token-type consts
+  (`AccessTokenType="access+jwt"`, …); `DefaultAuthKeysPath="/vault/auth"`;
   `BaseRegisteredClaims`, `AlgorithmForPublicKey`, `SetLogger`, `ErrUnsupportedJWK`.
   **No API returns a private key or PEM** — that absence is a deliberate, covered invariant.
 - **`authprovider`**: `Provider` (OAuth2 providers extract identity via the

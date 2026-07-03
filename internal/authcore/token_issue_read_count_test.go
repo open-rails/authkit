@@ -10,8 +10,6 @@ import (
 
 	pgx "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 // userRowQueryCounter is a pgx QueryTracer that counts how many times specific
@@ -83,10 +81,7 @@ func keyedServiceWithTracedPG(t *testing.T, tr pgx.QueryTracer) *Service {
 		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(638476116)`)
 		conn.Release()
 	})
-	ks, err := jwtkit.NewGeneratedKeySource()
-	if err != nil {
-		t.Fatalf("gen keys: %v", err)
-	}
+	ks := testKeySource(t)
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",

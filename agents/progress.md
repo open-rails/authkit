@@ -373,7 +373,12 @@ droppable duplication; if it forces exporting `internal/` or a mass type-move, i
 
 # #207: [v1 SURFACE][BREAKING] Delete the `authprovider` Transforms DSL; use `IdentityMapper` + standard OIDC claims
 
-**Completed:** no
+**Completed:** yes — verified done 2026-07-03 (Claude); had landed in the audit/design-lock batch: the
+DSL (`UserMapping`/`FieldMapping`/`Transforms`/`FallbackLookup`/`MapIdentity`/`MapFallbackEmail`/
+`ErrProviderInvalidTransform`) is gone repo-wide; built-ins carry `IdentityMapper` (Discord/GitHub via
+`mapDiscordIdentity`/`mapGitHubIdentity`; Google/Apple read standard ID-token claims on the oidc path and
+carry no mapper); the keep-list (`Provider`, `ClientSecret`, `Identity`, `BuiltIn`, `Clone`,
+`AppleJWTSecret`) is intact and SEMVER's authprovider bullet documents the IdentityMapper model.
 
 Proposed 2026-07-02 (Paul + Claude audit) — actions audit.md #3. The declarative field-mapping mini-language
 (`UserMapping`, `FieldMapping` with `Transforms []string`, `FallbackLookup`, `MapIdentity`, `MapFallbackEmail`,
@@ -383,15 +388,26 @@ preferred: `Provider.IdentityMapper func(any)(Identity,error)` (`authprovider/pr
 claims via `oidckit` and OAuth2-only providers (Discord/GitHub) use an `IdentityMapper`; delete the DSL.
 
 ## Tasks
-- [ ] Migrate built-ins (`authprovider/builtins.go`) off the DSL to standard-claims / `IdentityMapper`.
-- [ ] Delete the DSL types + `MapIdentity`/`MapFallbackEmail` + `ErrProviderInvalidTransform`.
-- [ ] Keep `Provider`, `ClientSecret`, `Identity`, `BuiltIn`, `Clone`, `AppleJWTSecret`.
+- [x] Migrate built-ins (`authprovider/builtins.go`) off the DSL to standard-claims / `IdentityMapper`.
+- [x] Delete the DSL types + `MapIdentity`/`MapFallbackEmail` + `ErrProviderInvalidTransform`.
+- [x] Keep `Provider`, `ClientSecret`, `Identity`, `BuiltIn`, `Clone`, `AppleJWTSecret`.
 
 ---
 
 # #208: [v1 SURFACE] Leaf surface cleanups
 
-**Completed:** no
+**Completed:** yes — three of four had landed (verified 2026-07-03): `AuthCapabilities` + sub-types live
+in `authhttp/providers_get.go` (root `capabilities.go` now holds only the RBAC-config `PersonaCapabilities`);
+`RBACDriftReport` is internal-only (struct + engine impl in `internal/authcore`, no facade method); the
+`contract.go` dead fragment is gone. FINISHED 2026-07-03 (Claude): the jwtkit export trim — unexported the
+reloadable/generated key-source machinery (`ReloadableKeySource`→`reloadableKeySource`,
+`NewReloadableFileKeySource`, `GeneratedKeySource`, `NewGeneratedKeySource(+InDir)`,
+`DefaultGeneratedKeysDir`), all reachable only through `ResolveKeySource(path, allowEphemeralDevKeys)`;
+`KeyRing`/`EnvKeySource`/`FileKeySource`/`NewAutoKeySource`/`ECDSASigner` were already gone. KEPT (real
+cross-package users): `RSASigner`/`NewRSASigner`, `Ed25519Signer`/`NewEd25519Signer` (multi-alg tests),
+`StaticKeySource`, `NewStaticKeySourceFromPEM`, `ResolveKeySource`. The 7 authcore test files that called
+`NewGeneratedKeySource` now use a shared `testKeySource(t)` static-source helper (no .runtime writes).
+SEMVER §4.4 jwtkit bullet rewritten to the current surface.
 
 Proposed 2026-07-02 (Paul + Claude audit). Small, mostly non-breaking public-surface trims:
 
@@ -406,16 +422,21 @@ Proposed 2026-07-02 (Paul + Claude audit). Small, mostly non-breaking public-sur
 - Delete the stale `var _ = time.Second // keep import` fragment in `contract.go` (`time` is genuinely used).
 
 ## Tasks
-- [ ] Relocate `AuthCapabilities` types to `authhttp`.
-- [ ] Drop `embedded.Client.RBACDriftReport`; move struct internal.
-- [ ] Unexport the jwtkit advanced key sources; keep the facade.
-- [ ] Delete the `contract.go` dead-comment fragment.
+- [x] Relocate `AuthCapabilities` types to `authhttp`.
+- [x] Drop `embedded.Client.RBACDriftReport`; move struct internal.
+- [x] Unexport the jwtkit advanced key sources; keep the facade.
+- [x] Delete the `contract.go` dead-comment fragment.
 
 ---
 
 # #209: [DX] Ship gin-native `Optional`/`Required`; fix the discoverability gap
 
-**Completed:** no
+**Completed:** yes — IMPLEMENTED 2026-07-03 (Claude): `authkitgin.Required(v)` / `authkitgin.Optional(v)`
+(one-liners over the existing `Use` bridge) with usage-example godoc — the exact shim all three apps
+hand-rolled; `verify.Required`/`verify.Optional` godoc now points gin hosts at the adapter (the
+discoverability half). Test `TestGinNativeRequiredOptional` (passing, no DB; built on `authtest.TestIssuer`
+— which also makes authtest no longer unused in-repo, backing #202's keep decision): 401+abort on missing
+token, claims-in-context on valid, anonymous pass-through on Optional, present-but-invalid still 401.
 
 Proposed 2026-07-02 (Paul + Claude audit). All three apps hand-write the identical `net/http`→`gin.HandlerFunc`
 shim around `authhttp.Optional/Required` (doujins `authkit_http.go:15`, cozy-art `provider_authkit.go:56`,
@@ -424,8 +445,8 @@ used **0 times** — they're documented but unreachable from the packages consum
 value ergonomic gap.
 
 ## Tasks
-- [ ] Expose gin-native `Optional(v)`/`Required(v)` from where people import (e.g. methods on the returned server, or a clearly-surfaced `authkitgin`).
-- [ ] Add a one-line godoc pointer from `verify.Optional/Required` to the gin adapter.
+- [x] Expose gin-native `Optional(v)`/`Required(v)` from where people import (e.g. methods on the returned server, or a clearly-surfaced `authkitgin`).
+- [x] Add a one-line godoc pointer from `verify.Optional/Required` to the gin adapter.
 
 ---
 

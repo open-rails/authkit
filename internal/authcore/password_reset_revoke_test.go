@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/open-rails/authkit/jwtkit"
 )
 
 // #199: confirming a password reset must leave ZERO live sessions — an attacker
@@ -15,10 +13,7 @@ import (
 // sessions survive.
 func TestConfirmPasswordReset_RevokesAllSessions(t *testing.T) {
 	pool := testPG(t)
-	ks, err := jwtkit.NewGeneratedKeySource()
-	if err != nil {
-		t.Fatalf("gen keys: %v", err)
-	}
+	ks := testKeySource(t)
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",
