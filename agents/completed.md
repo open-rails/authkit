@@ -8426,7 +8426,7 @@ Reviewed + pruned 2026-06-26 (Claude): the done / wrong / low-value children wer
 actionable ones remained. CAVEAT (historical): child research file:lines DRIFTED — they were re-grepped before each cut.
 
 Remaining dead code / duplicate helpers / same-logic-different-name functions to remove, each its own
-child section below. Per-item evidence is in `agents/audits/dead-duplicate-code.md`. Already-tracked
+child section below. Already-tracked
 culls (#143–#149, #142) and everything Paul's v0.72 merge already landed are excluded.
 
 ## Remaining children (verdicts from the 6-agent review)
@@ -8647,7 +8647,7 @@ PART B — resolver unification, GREENLIT, FAIL-CLOSED (this is a deliberate, co
 
 # #179: Parameterize verify/confirm/password-reset handler twins
 
-**Completed:** yes. (a) Extracted a `verifyChannel` descriptor + shared `confirmVerificationToken`/`handleVerifyLinkFailure`/`issueVerifiedTokens` (new `http/verify_confirm_link.go`); the email/phone confirm-link files are now thin wrappers. ASYMMETRY FIXED: a banned user confirming a PHONE link now gets 401 (was 500), matching email — pinned by `TestPhoneVerifyConfirm_BannedUserGets401` (verified by code path: `ConfirmPhoneVerificationByTokenUserID` has no ban check → `issueVerifiedTokens` → `ensureUserAccess` → `ErrUserBanned` → 401; test skips here, no DB). (b) Extracted `mapContactChangeError` (shared change-flow substring switch; matching kept fragile per plans 008/009/011). (c) Extracted `confirmPasswordReset` (shared confirm+error-mapping; request halves kept separate). Build + http tests green.
+**Completed:** yes. (a) Extracted a `verifyChannel` descriptor + shared `confirmVerificationToken`/`handleVerifyLinkFailure`/`issueVerifiedTokens` (new `http/verify_confirm_link.go`); the email/phone confirm-link files are now thin wrappers. ASYMMETRY FIXED: a banned user confirming a PHONE link now gets 401 (was 500), matching email — pinned by `TestPhoneVerifyConfirm_BannedUserGets401` (verified by code path: `ConfirmPhoneVerificationByTokenUserID` has no ban check → `issueVerifiedTokens` → `ensureUserAccess` → `ErrUserBanned` → 401; test skips here, no DB). (b) Extracted `mapContactChangeError` (shared change-flow substring switch; matching deliberately kept fragile — replacing the substring matching with typed sentinels is separate error-sentinel work). (c) Extracted `confirmPasswordReset` (shared confirm+error-mapping; request halves kept separate). Build + http tests green.
 
 Parent #150 (Tier 3, internal-only; mostly behaviour-preserving — one asymmetry fix flagged).
 COORDINATE with #146 Account-group rework (this is the body-sharing angle, not the route reshape).
@@ -8666,7 +8666,7 @@ not 401. Unifying normalizes this (behaviour change for phone: 500→401, an imp
 (b) VERIFY-REQUEST twins: `handleEmailVerifyRequestPOST` (`email_verify.go`) ≡
 `handlePhoneVerifyRequestPOST` (`phone_verify.go`) — same skeleton incl. the change-flow error switch.
 NOTE: those switches match `err.Error()` SUBSTRINGS ("same as current"/"already in use") — fragile;
-that belongs with the error-sentinel work in plans 008/009/011, not this dedup.
+that belongs with the separate error-sentinel rework, not this dedup.
 
 (c) PASSWORD-RESET confirm: `handleEmailPasswordResetConfirmPOST` ≡ `handlePhonePasswordResetConfirmPOST`
 both call the SAME `ConfirmPasswordReset` (`password_reset.go`/`phone_password_reset.go`), differing
@@ -8674,7 +8674,7 @@ only in success payload. Request halves differ (email anti-enumeration silent, p
 → keep request halves separate.
 
 - [x] (a) Parameterize the confirm-link twins by a channel descriptor (validator, normalizer, the 3 confirm-by-token fns, GetUserBy*, verified-field, error codes); decide the unified `ErrUserBanned`→401 handling (fixes the phone 500).
-- [x] (b) Share the verify-request change-flow switch; do NOT fix the substring matching here (→ plans 008/009/011).
+- [x] (b) Share the verify-request change-flow switch; do NOT fix the substring matching here (→ the separate error-sentinel rework).
 - [x] (c) Share the password-reset CONFIRM handler (one body, success payload as a param); leave the request halves separate.
 - [x] `go build ./... && go test ./http/` green; add a test pinning banned-user phone-confirm → 401.
 

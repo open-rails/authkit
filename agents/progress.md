@@ -147,23 +147,23 @@ reachable via `DefaultRateLimits()` (all ≥ 1), but a host passing a custom `Wi
 **Completed:** no
 
 Proposed 2026-07-02 (Paul + Claude audit). Two independent security passes found NO new high/medium
-vuln — the core is well-hardened. The residual real risk is a set of items **already analyzed** in
-`agents/audits/auth-login.md` but **not yet shipped**. This issue is the v1 gate so they don't slip:
+vuln — the core is well-hardened. The residual real risk is a set of already-analyzed items **not yet
+shipped**. This issue is the v1 gate so they don't slip (each item below is self-contained):
 
-- **F1 / plan 014** — OIDC browser callback swallows load-bearing writes with `_ =` (OAuth2 sibling
-  fails closed). `authhttp/oidc_browser.go:149,201`.
-- **F8 / plan 020** — `finishPasswordReset` discards the `RevokeAllSessions` error
-  (`internal/authcore/password_reset.go:84`) and rotates non-atomically; reset can "succeed" while an
-  attacker's sessions survive. `ChangePassword`/`SetPasswordAfterFreshAuth` already `return err`.
-  NOTE: the one-line error-propagation is a strict improvement shippable NOW, independent of the
-  atomic-rotation half.
-- **F2 / plan 015** — email/SMS 2FA + step-up codes use non-atomic get-then-del
+- **Swallowed OIDC callback writes** — OIDC browser callback swallows load-bearing writes with `_ =`
+  (OAuth2 sibling fails closed). `authhttp/oidc_browser.go:149,201`.
+- **Password-reset session revocation not enforced** — `finishPasswordReset` discards the
+  `RevokeAllSessions` error (`internal/authcore/password_reset.go:84`) and rotates non-atomically;
+  reset can "succeed" while an attacker's sessions survive. `ChangePassword`/`SetPasswordAfterFreshAuth`
+  already `return err`. NOTE: the one-line error-propagation is a strict improvement shippable NOW,
+  independent of the atomic-rotation half.
+- **Non-atomic 2FA/step-up code consume** — email/SMS 2FA + step-up codes use non-atomic get-then-del
   (`internal/authcore/ephemeral_data.go`), so the same code can authenticate two concurrent requests
   within the TTL. Every sibling uses the atomic `ephemConsumeJSON`.
 
 ## Tasks
-- [ ] Ship plan 020: propagate `RevokeAllSessions` error in `finishPasswordReset` (do the one-liner now); complete the atomic-rotation half.
-- [ ] Ship plan 014 (OIDC swallowed writes) and plan 015 (atomic code consume).
+- [ ] Propagate the `RevokeAllSessions` error in `finishPasswordReset` (do the one-liner now); complete the atomic-rotation half.
+- [ ] Fix the OIDC swallowed writes + the atomic code consume.
 - [ ] Confirm all three are green + covered before tagging v1.0.0.
 
 ---
@@ -261,7 +261,7 @@ uncovered surface, so a "non-breaking" change to them would silently break douji
 
 # #205: [v1 SURFACE][BREAKING] Package/path rename: `http`→`authhttp`, `oidc`→`oidckit`, `jwt`→`jwtkit`
 
-**Completed:** yes — EXECUTED 2026-07-03 per `plans/030-package-path-rename.md` (quiet window confirmed:
+**Completed:** yes — EXECUTED 2026-07-03 (quiet window confirmed:
 origin had no in-flight work under the dirs). `git mv` http→authhttp, oidc→oidckit, jwt→jwtkit; all 65
 in-repo imports rewritten to the new paths with the now-redundant aliases dropped (all had aliased to
 the exact target basename ⇒ pure sed); SEMVER §4.1 rows + inline mention, README import line, and
