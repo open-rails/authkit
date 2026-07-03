@@ -22,7 +22,7 @@ import (
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/embedded"
-	authhttp "github.com/open-rails/authkit/http"
+	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/verify"
 )
 

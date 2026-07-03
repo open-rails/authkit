@@ -13,7 +13,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 )
 
 // C-2: AuthKit must never silently link a fresh OIDC/OAuth2 identity to a

@@ -13,7 +13,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 )
 
 var errProviderAlreadyLinked = errors.New("provider_already_linked")

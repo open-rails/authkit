@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 func minimalKeysTestConfig() Config {

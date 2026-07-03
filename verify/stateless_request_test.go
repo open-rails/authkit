@@ -9,7 +9,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // failEnricher implements Enricher but fails the test the moment ANY method is

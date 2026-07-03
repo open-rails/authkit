@@ -1,7 +1,7 @@
 package authhttp
 
 import (
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // DelegatedAccessTokenType is the canonical JOSE `typ` header value for a

@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/adapters/internal/routepath"
-	authhttp "github.com/open-rails/authkit/http"
+	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -196,4 +196,3 @@ func ginPath(path string) string {
 	}
 	return strings.Join(parts, "/")
 }
-

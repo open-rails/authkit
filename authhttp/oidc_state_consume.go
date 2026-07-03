@@ -3,7 +3,7 @@ package authhttp
 import (
 	"context"
 
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 )
 
 // stateConsumer is the optional atomic-consume extension of oidc.StateCache. When

@@ -12,8 +12,8 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	jwtkit "github.com/open-rails/authkit/jwt"
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/oidckit"
 	"github.com/stretchr/testify/require"
 )
 

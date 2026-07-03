@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sync"
 
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 )
 
 func (s *Service) oidcManager() *oidckit.Manager {

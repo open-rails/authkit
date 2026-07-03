@@ -88,7 +88,7 @@ func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
 		"request_code": {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 	})
 
-	allowed, retryAfter, err := allowRetry(limiter,"request_code", "user")
+	allowed, retryAfter, err := allowRetry(limiter, "request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestAllowNamedWithRetryAfterCooldown(t *testing.T) {
 		t.Fatalf("first request allowed=%v retry_after=%s, want allowed with no retry_after", allowed, retryAfter)
 	}
 
-	allowed, retryAfter, err = allowRetry(limiter,"request_code", "user")
+	allowed, retryAfter, err = allowRetry(limiter, "request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
 		"request_code": {Limit: 1, Window: time.Hour, Cooldown: time.Minute},
 	})
 
-	allowed, _, err := allowRetry(limiter,"request_code", "user")
+	allowed, _, err := allowRetry(limiter, "request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestAllowNamedWithRetryAfterWindowUsesLongestReset(t *testing.T) {
 		t.Fatal("first request denied")
 	}
 
-	allowed, retryAfter, err := allowRetry(limiter,"request_code", "user")
+	allowed, retryAfter, err := allowRetry(limiter, "request_code", "user")
 	if err != nil {
 		t.Fatal(err)
 	}

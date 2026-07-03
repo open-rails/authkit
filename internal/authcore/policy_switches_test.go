@@ -3,7 +3,7 @@ package authcore
 import (
 	"testing"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 func mustGeneratedKeys(t *testing.T) jwtkit.KeySource {

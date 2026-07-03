@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // Config is the host-provided configuration for an AuthKit Service. Fields are

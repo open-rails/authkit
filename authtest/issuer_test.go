@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	authhttp "github.com/open-rails/authkit/http"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/authhttp"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 func TestTestIssuer_ServesJWKS(t *testing.T) {

@@ -39,9 +39,9 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/embedded"
-	authhttp "github.com/open-rails/authkit/http"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
 	"github.com/open-rails/authkit/server"
 	"github.com/open-rails/migratekit"

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/embedded"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/stretchr/testify/require"
 )
 

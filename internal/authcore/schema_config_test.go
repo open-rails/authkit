@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 func schemaTestConfig(schema string) Config {

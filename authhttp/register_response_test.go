@@ -13,7 +13,7 @@ import (
 
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 	authlang "github.com/open-rails/authkit/lang"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	"github.com/stretchr/testify/require"

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // TestIssueRefreshSession_CapHoldsUnderConcurrency: with SessionMaxPerUser=N, firing

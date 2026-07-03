@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/open-rails/authkit/adapters/internal/routepath"
-	authhttp "github.com/open-rails/authkit/http"
+	"github.com/open-rails/authkit/authhttp"
 )
 
 type APIOptions struct {
@@ -96,4 +96,3 @@ func registerRoutes(r chi.Router, mountPath string, routes []authhttp.RouteSpec,
 		}))
 	}
 }
-

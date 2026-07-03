@@ -8,7 +8,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // DefaultOutboundTimeout bounds the verify layer's outbound HTTP calls (JWKS

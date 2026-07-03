@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // writeServiceKeysJSON renders a {active_key_id, active_private_key_pem,

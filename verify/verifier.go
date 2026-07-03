@@ -15,7 +15,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	authkit "github.com/open-rails/authkit"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // MaxDelegatedRoles bounds how many role UUIDs we lift from attributes.roles on

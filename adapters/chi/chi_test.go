@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	authhttp "github.com/open-rails/authkit/http"
+	"github.com/open-rails/authkit/authhttp"
 	"github.com/stretchr/testify/require"
 )
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 	"github.com/redis/go-redis/v9"
 )
 

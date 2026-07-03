@@ -48,7 +48,7 @@ ALSO MERGED (2026-07-02, breaking phase): #199 (security backlog — password-re
   NO free-func `authhttp.MintDelegatedAccessToken` dupe (only the Client method); no obvious legacy "code-as-token"
   field in reset/verify confirm (only legitimate verification `code`). REMAINING #206: (a) drop the dead `email`
   param on IssueAccessToken/issueAccessToken (breaking Tokens-iface signature + regen mirrors); (b) remove the ~35
-  EXPORTED verify re-export aliases from http/verify_aliases.go — HIGH churn (every unqualified Verifier/Claims/
+  EXPORTED verify re-export aliases from authhttp/verify_aliases.go — HIGH churn (every unqualified Verifier/Claims/
   Required in the http package must become verify.X) + debatable (it's an embedder convenience), and the file's
   UNEXPORTED helpers setClaims/getClaims/maxDelegatedRoles are load-bearing and MUST stay. Recommend deciding (b)
   with Paul (convenience vs surface purity) rather than grinding it blind.
@@ -57,7 +57,7 @@ PLAN (Paul, 2026-07-02): finish authkit breaking changes, then COMMIT+PUSH+TAG a
   phase2 vs finish-all-then-tag vs pause-before-batch-native) — awaiting Paul. HOLDING: push+tag (irreversible,
   needs version/scope confirmation) and the batch-native redesign #219–#222 (design-sensitive) until he answers.
 NEXT (remaining, serial — shared files client.go/interfaces.go/SEMVER/generated, do in-tree not via worktree
-  agents which branch from master): #206 (strip aliasing: delete http/verify_aliases.go, collapse Service/Server,
+  agents which branch from master): #206 (strip aliasing: delete authhttp/verify_aliases.go, collapse Service/Server,
   dedupe MintDelegatedAccessToken, drop dead email param, legacy code-as-token), #202 (move storage/ratelimit/siws
   under internal/), #205 (dir renames http→authhttp/oidc→oidckit/jwt→jwtkit), #209 (gin-native Optional/Required),
   #211 (one construction entrypoint + RegisterAll), #213 (consolidate error registries + HTTPStatus), #214 (Mint*
@@ -72,10 +72,10 @@ RULES: reduce API/SEMVER surface + total LOC; keep build+vet green after each ch
 
 **Completed:** no
 
-Proposed 2026-07-02 (Paul + Claude audit). `http/siws_cache.go:11-16` returns a **fresh**
+Proposed 2026-07-02 (Paul + Claude audit). `authhttp/siws_cache.go:11-16` returns a **fresh**
 `memorystore.NewSIWSCache(...)` on every call in the no-Redis branch. `GenerateSIWSChallenge`
 does `Put` on instance A; the follow-up login/link does `Consume` on a **new empty** instance B
-→ always `ErrSIWSChallengeNotFound` → 401. Its sibling `stateCache()` (`http/service.go:195`)
+→ always `ErrSIWSChallengeNotFound` → 401. Its sibling `stateCache()` (`authhttp/service.go:195`)
 memoizes into `s.memStateCache`; `siwsCache()` has no equivalent field. Secondary defect: each
 `NewSIWSCache` starts an unstoppable `cleanupLoop` goroutine (`storage/memory/siws_cache.go:33`),
 so every Solana request permanently leaks one goroutine + map.
@@ -85,7 +85,7 @@ SIWS) — but it's a shipped feature that is 100% broken in a supported config. 
 per-caller.
 
 ## Tasks
-- [ ] Add a `memSIWSCache siws.ChallengeCache` field to `authhttp.Service`; create once in `NewServer` (mirror `memStateCache` at `http/server.go:90`).
+- [ ] Add a `memSIWSCache siws.ChallengeCache` field to `authhttp.Service`; create once in `NewServer` (mirror `memStateCache` at `authhttp/server.go:90`).
 - [ ] Return `s.memSIWSCache` from `siwsCache()` in the `s.rd == nil` branch.
 - [ ] Regression test: Put via challenge handler, then Consume via login handler on the same `Service`, no Redis → succeeds.
 - [ ] (Optional) Give `memorystore.SIWSCache` a `Close()`/`closed` channel so the cleanup loop can stop, matching `StateCache`.
@@ -137,7 +137,7 @@ vuln — the core is well-hardened. The residual real risk is a set of items **a
 `agents/audits/auth-login.md` but **not yet shipped**. This issue is the v1 gate so they don't slip:
 
 - **F1 / plan 014** — OIDC browser callback swallows load-bearing writes with `_ =` (OAuth2 sibling
-  fails closed). `http/oidc_browser.go:149,201`.
+  fails closed). `authhttp/oidc_browser.go:149,201`.
 - **F8 / plan 020** — `finishPasswordReset` discards the `RevokeAllSessions` error
   (`internal/authcore/password_reset.go:84`) and rotates non-atomically; reset can "succeed" while an
   attacker's sessions survive. `ChangePassword`/`SetPasswordAfterFreshAuth` already `return err`.
@@ -247,12 +247,15 @@ uncovered surface, so a "non-breaking" change to them would silently break douji
 
 # #205: [v1 SURFACE][BREAKING] Package/path rename: `http`→`authhttp`, `oidc`→`oidckit`, `jwt`→`jwtkit`
 
-**Completed:** no — PLANNED 2026-07-03: executor-ready plan at `plans/030-package-path-rename.md`.
-Direction decided there (rename DIRECTORIES to match packages — the reverse would create `package http`
-shadowing stdlib and `package jwt` colliding with golang-jwt). Blast radius verified: 65 in-repo import
-sites, ALL already aliased to the exact target basename (jwtkit×45/oidckit×14/authhttp×6 ⇒ pure sed) +
-SEMVER §4.1 + README + open-issue path refs. Execute in a quiet window (highest merge-conflict move in
-the batch); #206's verify_aliases.go deletion recommended first so consumers migrate imports once.
+**Completed:** yes — EXECUTED 2026-07-03 per `plans/030-package-path-rename.md` (quiet window confirmed:
+origin had no in-flight work under the dirs). `git mv` http→authhttp, oidc→oidckit, jwt→jwtkit; all 65
+in-repo imports rewritten to the new paths with the now-redundant aliases dropped (all had aliased to
+the exact target basename ⇒ pure sed); SEMVER §4.1 rows + inline mention, README import line, and
+open-issue file refs in this tracker updated (net/http + /oidc route paths protected). Full
+`go test ./...` green at the new paths; both env-doctrine guards pass; zero old-path Go references.
+Direction rationale: the reverse (rename packages) would create `package http` shadowing stdlib and
+`package jwt` colliding with golang-jwt. Consumer migration rides the #143 bump — sed one-liner in the
+commit message (BREAKING note in commit body). #206 unaffected (its file refs updated here).
 
 Proposed 2026-07-02 (Paul + Claude audit). Folder name ≠ package name for three packages, so consumers
 carry the path in the import and a different identifier in code (doujins imports `embedded` three ways).
@@ -274,10 +277,10 @@ Proposed 2026-07-02 (Paul + Claude audit). Paul: remove old aliasing / legacy na
 v0.x. KEY DISTINCTION — two kinds of "alias," only one is cruft:
 
 - **Backcompat re-exports that duplicate a canonical PUBLIC home → DELETE:**
-  - `http/verify_aliases.go` — re-exports the public `verify.*` (Verifier/Claims/Required/Optional, ~40
+  - `authhttp/verify_aliases.go` — re-exports the public `verify.*` (Verifier/Claims/Required/Optional, ~40
     symbols) under `authhttp` "so existing embedders keep compiling" after the #110 split. A second public
     path for symbols that already live in `verify`. Delete; consumers import `verify.X`.
-  - `Service` ≡ `Server` type alias (`http/server.go:22`, #109 collision) — pick one name.
+  - `Service` ≡ `Server` type alias (`authhttp/server.go:22`, #109 collision) — pick one name.
   - Duplicate mint entry point: `MintDelegatedAccessToken` as a `Client` method AND free func
     `authhttp.MintDelegatedAccessToken` — collapse to one.
   - Dead-param-for-compat: `internal/authcore/token_issue.go:64` `_ = email // kept for API compatibility` — drop the param.
@@ -290,7 +293,7 @@ Tell for the difference: if dropping the alias leaves the symbol reachable at a 
 droppable duplication; if it forces exporting `internal/` or a mass type-move, it's load-bearing facade.
 
 ## Tasks
-- [ ] Delete `http/verify_aliases.go`; migrate the three consumers `authhttp.X` → `verify.X`.
+- [ ] Delete `authhttp/verify_aliases.go`; migrate the three consumers `authhttp.X` → `verify.X`.
 - [ ] Collapse `Service`/`Server` to one name.
 - [ ] Dedupe `MintDelegatedAccessToken` (one public entry point).
 - [ ] Drop the dead `email` param in `token_issue.go`; remove the legacy `code`-as-token field.
@@ -306,7 +309,7 @@ Proposed 2026-07-02 (Paul + Claude audit) — actions audit.md #3. The declarati
 (`UserMapping`, `FieldMapping` with `Transforms []string`, `FallbackLookup`, `MapIdentity`, `MapFallbackEmail`,
 `ErrProviderInvalidTransform`) has zero downstream use, and its replacement ALREADY exists and is ALREADY
 preferred: `Provider.IdentityMapper func(any)(Identity,error)` (`authprovider/provider.go:52`), used at
-`http/oauth2_provider.go:43` when set. Refactor so OIDC providers (Google/Apple) read standard ID-token
+`authhttp/oauth2_provider.go:43` when set. Refactor so OIDC providers (Google/Apple) read standard ID-token
 claims via `oidckit` and OAuth2-only providers (Discord/GitHub) use an `IdentityMapper`; delete the DSL.
 
 ## Tasks
@@ -323,7 +326,7 @@ claims via `oidckit` and OAuth2-only providers (Discord/GitHub) use an `Identity
 Proposed 2026-07-02 (Paul + Claude audit). Small, mostly non-breaking public-surface trims:
 
 - Move `AuthCapabilities` + 6 sub-types (`capabilities.go:4-48`) into `authhttp` — built only by
-  `http/providers_get.go`, a JSON response shape living in the root package.
+  `authhttp/providers_get.go`, a JSON response shape living in the root package.
 - Drop the `RBACDriftReport` facade method (`embedded/facade_methods.go:353`, 0 callers); keep the engine
   impl, move the struct to `internal/authcore`.
 - `jwtkit` export-only trims (SEMVER §11 #7): unexport advanced key sources with zero external use
@@ -361,7 +364,7 @@ value ergonomic gap.
 **Completed:** no
 
 Proposed 2026-07-02 (Paul + Claude audit). `embedded.WithRedis` and `authhttp.WithRedis` are separate; all
-three apps wire both and each left a warning comment. The prod validation (`http/server.go:106`) only checks
+three apps wire both and each left a warning comment. The prod validation (`authhttp/server.go:106`) only checks
 the HTTP side, so a missing engine Redis passes and yields silent split-brain state across replicas.
 
 ## Tasks
@@ -402,7 +405,7 @@ doujins pre-validates (`di/authkit.go:216-225`) — two workarounds for one foot
 **Completed:** no
 
 Proposed 2026-07-02 (Paul + Claude audit). Two parallel registries carry the same string values in different
-types: `authkit.ErrX` sentinels (`errors.go`, ~60) and `authhttp.ErrorCode` (`http/error_codes.go`, ~210
+types: `authkit.ErrX` sentinels (`errors.go`, ~60) and `authhttp.ErrorCode` (`authhttp/error_codes.go`, ~210
 consts), mapped to HTTP status by hand-written `errors.Is` chains in ~20 handlers. A consumer calling a
 `Client` method directly must re-implement the mapping authkit already encodes. (Related: #197's `CodeForError`.)
 
@@ -619,7 +622,7 @@ with how it already sends verification + password-reset-link emails.
 
 **Completed:** no
 
-Proposed 2026-07-02 (Paul + Claude audit). `jwt/jwt.go:26` — exported interface with **zero** references
+Proposed 2026-07-02 (Paul + Claude audit). `jwtkit/jwt.go:26` — exported interface with **zero** references
 (verified: only the 2 definition lines across authkit + all three consumers; no implementer, no
 `WithClaimsBuilder`, no field, no caller). Speculative extension point nobody wired up.
 
@@ -646,7 +649,7 @@ Proposed 2026-07-02 (Paul + Claude audit). `internal/authcore/passkeys.go:402-40
 
 **Completed:** no
 
-Proposed 2026-07-02 (Paul + Claude audit). `http/service.go:133` (`allowResult`) derives
+Proposed 2026-07-02 (Paul + Claude audit). `authhttp/service.go:133` (`allowResult`) derives
 `key := "auth:"+bucket+":ip:"+ip` then runs the IDENTICAL `RateLimiterWithResult` type-assert-else-`AllowNamed`
 block (`:149-161`) that `allowResultForKey` already contains (`:118-130`).
 
@@ -665,7 +668,7 @@ reads 2-3×. Verified on the two hottest write paths:
 - **Refresh** (`internal/authcore/service_sessions.go:140-218`): `UserByID` runs 3× (`ensureUserAccessByID`
   L160, a full-row read at L174 used only for `email`, and again inside `IssueAccessToken`→`token_issue.go:88`),
   `IsUserReserved` 2×, `MFAStatus`/`Get2FASettings` 2× (`requireSessionMFAState` + `issueAccessToken`).
-- **Password login** (`http/password_login_post.go`) and **2FA verify** (`http/user_2fa_verify_post.go:69-91`):
+- **Password login** (`authhttp/password_login_post.go`) and **2FA verify** (`authhttp/user_2fa_verify_post.go:69-91`):
   same shape — the account row is read 3-5× and `MFAStatus` computed ~3× across `IssueRefreshSession*` +
   `AdminGetUser`-for-email + `IssueAccessToken`.
 
@@ -684,7 +687,7 @@ Root cause: `IssueAccessToken`/`IssueRefreshSession*`/`ensureUserAccessByID` tak
 
 **Completed:** no
 
-Proposed 2026-07-02 (handler over-fetch audit). `http/user_me_get.go:40-173` (very hot — app boot / page loads)
+Proposed 2026-07-02 (handler over-fetch audit). `authhttp/user_me_get.go:40-173` (very hot — app boot / page loads)
 issues ~15 queries with heavy duplication: `Get2FASettings` (2 queries) runs **3×** (`MFAStatus` L139 +
 `stepUpMethods` L167 + `stepUpTwoFactorOptions` L168), `HasPassword` **2×** (L75 + L167), provider slugs
 fetched twice (`UserProviderSlugs` L92 + `UserProviderSlugsDistinct` L167), `AdminGetUser`'s full
@@ -703,7 +706,7 @@ read (L68) for one column the user row already loaded twice could carry.
 
 **Completed:** no
 
-Proposed 2026-07-02 (handler over-fetch audit). `http/register_availability.go:52-78` calls
+Proposed 2026-07-02 (handler over-fetch audit). `authhttp/register_availability.go:52-78` calls
 `registrationUsernameAvailability` and `registrationEmailAvailability` separately, each invoking
 `CheckPendingRegistrationConflict` → `UserEmailOrUsernameTaken`, a SINGLE query that already returns BOTH
 `email_taken` and `username_taken`. Checking username+email together runs that two-`EXISTS` query TWICE
@@ -732,7 +735,7 @@ only `deleted_at`/`banned_*`). Compounds with the repeated reads (#227). Also `S
 
 # #231: [BUG][SECURITY] JWT prod-detection reads the wrong env vars — and libraries must not read env at all
 
-**Status:** IMPLEMENTED 2026-07-02 (Claude) — COMMITTED in 8bb630c (design-lock batch, on origin). FULL AUDIT 2026-07-03 (Claude): every status claim verified against code (guard test passes; env sweep clean — only internal/testdb allowlist; KeysConfig shape + Source→VerifyOnly→keys.json→opt-in precedence exact; cmd env boundary + NewStaticKeySourceFromPEM wiring exact; embedded.IsDevEnvironment exported; ResolveStatic plain-string; SEMVER §7.2/§7.3 + KEY_ROTATION.md + cmd README updated; binary builds; note BREAKING.md claim is moot — 0420aba later deleted BREAKING.md in favor of commit messages). ONE GAP FOUND + FIXED 2026-07-03: `http/server.go` validate() still had its own inline `env == "prod"|"production"` classifier, so STAGING ESCAPED the production Redis-ephemeral requirement (contradicting the staging-flips-to-prod-like claim below) — now routed through `embedded.IsDevEnvironment` (the genuinely last inline env comparison; sweep confirms all other sites use the single classifier). ENFORCEMENT CLOSED 2026-07-03: added `TestSingleDevProdClassifier` to env_doctrine_test.go — AST guard failing on any ==/!=/switch-case comparison against the dev/prod vocabulary ("prod"/"production"/"staging"/"dev"/"development"/"local") outside internal/authcore/accessors.go (+cmd/, tests) — so an inline classifier can never silently reappear (the env-READ guard alone had let the http/server.go one survive). Zero env reads in library code, enforced by guard
+**Status:** IMPLEMENTED 2026-07-02 (Claude) — COMMITTED in 8bb630c (design-lock batch, on origin). FULL AUDIT 2026-07-03 (Claude): every status claim verified against code (guard test passes; env sweep clean — only internal/testdb allowlist; KeysConfig shape + Source→VerifyOnly→keys.json→opt-in precedence exact; cmd env boundary + NewStaticKeySourceFromPEM wiring exact; embedded.IsDevEnvironment exported; ResolveStatic plain-string; SEMVER §7.2/§7.3 + KEY_ROTATION.md + cmd README updated; binary builds; note BREAKING.md claim is moot — 0420aba later deleted BREAKING.md in favor of commit messages). ONE GAP FOUND + FIXED 2026-07-03: `authhttp/server.go` validate() still had its own inline `env == "prod"|"production"` classifier, so STAGING ESCAPED the production Redis-ephemeral requirement (contradicting the staging-flips-to-prod-like claim below) — now routed through `embedded.IsDevEnvironment` (the genuinely last inline env comparison; sweep confirms all other sites use the single classifier). ENFORCEMENT CLOSED 2026-07-03: added `TestSingleDevProdClassifier` to env_doctrine_test.go — AST guard failing on any ==/!=/switch-case comparison against the dev/prod vocabulary ("prod"/"production"/"staging"/"dev"/"development"/"local") outside internal/authcore/accessors.go (+cmd/, tests) — so an inline classifier can never silently reappear (the env-READ guard alone had let the authhttp/server.go one survive). Zero env reads in library code, enforced by guard
 test `env_doctrine_test.go` (AST scan for os.Getenv/LookupEnv/Environ/ExpandEnv outside cmd/ + *_test.go;
 allowlist: internal/testdb only). Config shape: `KeysConfig.AllowEphemeralDevKeys bool` (default false ⇒
 no keys = hard construction error); resolution is Source → VerifyOnly → <Keys.Path>/keys.json → opt-in
@@ -745,10 +748,10 @@ accessors.go + main.go classifiers killed). authprovider `ClientSecret.Env` + `A
 removed (env indirection; ResolveStatic returns plain string). BREAKING for hosts: staging flips to
 prod-like (dev leniency closes, Redis-ephemeral prod requirement applies); dev boots without keys must set
 AllowEphemeralDevKeys (hosts already passing Source/keys.json unaffected). Docs: SEMVER §7.2/§7.3,
-BREAKING.md, cmd README, jwt/KEY_ROTATION.md. Verified: full `go test ./...` green; binary smoke-tested
+BREAKING.md, cmd README, jwtkit/KEY_ROTATION.md. Verified: full `go test ./...` green; binary smoke-tested
 (AUTHKIT_ENV unset → boots with ephemeral keys; production/staging with no keys → refuses, loud error).
 
-`jwt/keys.go` `isProdEnv()` reads `ENV` → `APP_ENV` → `ENVIRONMENT`, but the system uses `AUTHKIT_ENV`
+`jwtkit/keys.go` `isProdEnv()` reads `ENV` → `APP_ENV` → `ENVIRONMENT`, but the system uses `AUTHKIT_ENV`
 (`cmd/authkit-server/main.go`). A server run with only `AUTHKIT_ENV=production` is classified non-prod and
 SILENTLY AUTO-GENERATES dev signing keys instead of hard-failing (contradicts config.go docs). Three
 divergent dev/prod classifiers exist ('staging' is dev in one, prod-like in another).

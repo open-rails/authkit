@@ -93,13 +93,13 @@ appears in consumer code. Renaming either is breaking.
 |---|---|---|---|
 | `github.com/open-rails/authkit` (root) | `authkit` | Stable | The contract: the `Client` interface, domain/result types, config, sentinel errors, mint params, and the permission/API-key primitives |
 | `…/embedded` | `embedded` | Stable | In-process embedding facade — `New(cfg, pg, …) (*Client, …)` plus type/func aliases re-exporting the internal service surface |
-| `…/http` | `authhttp` | Stable | HTTP transport, middleware, routes, error codes |
+| `…/authhttp` | `authhttp` | Stable | HTTP transport, middleware, routes, error codes |
 | `…/server` | `server` | Stable | Management JSON handler (`NewHandler`) over an `authkit.Client` |
 | `…/remote` | `remote` | Stable | Remote `authkit.Client` implementation over HTTP |
 | `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
-| `…/jwt` | `jwtkit` | Advanced | Key management, signers, JWKS |
+| `…/jwtkit` | `jwtkit` | Advanced | Key management, signers, JWKS |
 | `…/authprovider` | `authprovider` | Stable | Provider descriptors / claim mapping |
-| `…/oidc` | `oidckit` | Stable | OIDC RP client manager |
+| `…/oidckit` | `oidckit` | Stable | OIDC RP client manager |
 | `…/password` | `password` | Stable | argon2id/bcrypt hash + verify |
 | `…/siws` | `siws` | Stable | Sign In With Solana |
 | `…/lang` | `lang` | Stable | Language context helpers |
@@ -132,7 +132,7 @@ permission/API-key primitives. The concrete in-process implementation is the **`
 facade: `embedded.New(cfg, pg, …) (*embedded.Client, error)` returns a `*Client` that
 satisfies `authkit.Client`, and `embedded` re-exports (via aliases) the service-side
 constructors, options, and types hosts need. The full service implementation lives in
-**`internal/authcore`** (driven by the `authkit/http` transport) and is **out of contract**
+**`internal/authcore`** (driven by the `authkit/authhttp` transport) and is **out of contract**
 (§9). The `authkit/remote` (remote SDK) and `authkit/server` (management API) packages are
 **generated method-for-method** from the `Client` interface, so they track it exactly.
 Adding a method to `Client` (or any embedded topic interface) is MAJOR — consumers and the

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // mintAccessJWT builds a standard first-party access token (iss/aud/sub/iat/exp,

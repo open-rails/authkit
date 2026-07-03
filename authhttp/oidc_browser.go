@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/embedded"
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 )
 
 func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {

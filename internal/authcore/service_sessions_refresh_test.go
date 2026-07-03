@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // keyedServiceWithPG builds a Service with generated signing keys AND a Postgres

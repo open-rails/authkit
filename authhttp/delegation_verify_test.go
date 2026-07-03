@@ -10,7 +10,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // memRemoteAppSource is a minimal in-memory RemoteApplicationSource for the

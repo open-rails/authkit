@@ -3,7 +3,7 @@ package authhttp
 import (
 	"net/http"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // JWKSHandler serves the public JWKS document for the given key set.

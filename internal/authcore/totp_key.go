@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	jwtkit "github.com/open-rails/authkit/jwt"
+	"github.com/open-rails/authkit/jwtkit"
 )
 
 // TOTP secret-encryption key as first-class vault key material (#148). The key

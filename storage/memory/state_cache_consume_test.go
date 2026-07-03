@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 )
 
 // Consume is single-use: a second consume of the same state reports not-found, so

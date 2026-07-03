@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 )
 
 // OIDCHandler returns a handler that serves browser redirect flows:

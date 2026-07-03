@@ -9,7 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	oidckit "github.com/open-rails/authkit/oidc"
+	"github.com/open-rails/authkit/oidckit"
 	"github.com/open-rails/authkit/siws"
 	memorystore "github.com/open-rails/authkit/storage/memory"
 	redisstore "github.com/open-rails/authkit/storage/redis"
