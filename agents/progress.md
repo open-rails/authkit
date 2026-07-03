@@ -247,7 +247,12 @@ uncovered surface, so a "non-breaking" change to them would silently break douji
 
 # #205: [v1 SURFACE][BREAKING] Package/path rename: `http`→`authhttp`, `oidc`→`oidckit`, `jwt`→`jwtkit`
 
-**Completed:** no
+**Completed:** no — PLANNED 2026-07-03: executor-ready plan at `plans/030-package-path-rename.md`.
+Direction decided there (rename DIRECTORIES to match packages — the reverse would create `package http`
+shadowing stdlib and `package jwt` colliding with golang-jwt). Blast radius verified: 65 in-repo import
+sites, ALL already aliased to the exact target basename (jwtkit×45/oidckit×14/authhttp×6 ⇒ pure sed) +
+SEMVER §4.1 + README + open-issue path refs. Execute in a quiet window (highest merge-conflict move in
+the batch); #206's verify_aliases.go deletion recommended first so consumers migrate imports once.
 
 Proposed 2026-07-02 (Paul + Claude audit). Folder name ≠ package name for three packages, so consumers
 carry the path in the import and a different identifier in code (doujins imports `embedded` three ways).
