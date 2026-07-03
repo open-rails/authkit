@@ -452,14 +452,20 @@ value ergonomic gap.
 
 # #210: [DX] Take Redis once — fix the dual `WithRedis` split-brain footgun
 
-**Completed:** no
+**Completed:** yes — verified done 2026-07-03 (Claude); implemented in the audit batch: `NewServer` adopts
+the engine's Redis (`coreSvc.EphemeralRedisClient()`) when `authhttp.WithRedis` was not passed — one Redis,
+single source of truth for the HTTP OIDC/SIWS caches AND the auto-created rate limiter; an explicit
+`authhttp.WithRedis` remains an override. Because `s.rd` is now engine-populated, the production
+durable-store validation also passes on engine-only wiring (the split-brain validation gap is closed).
+Pinned by `TestNewServer_ReusesEngineRedis` (passing, no DB): engine-Redis satisfies prod validation
+without `authhttp.WithRedis` + a second `WithRedis` overrides.
 
 Proposed 2026-07-02 (Paul + Claude audit). `embedded.WithRedis` and `authhttp.WithRedis` are separate; all
 three apps wire both and each left a warning comment. The prod validation (`authhttp/server.go:106`) only checks
 the HTTP side, so a missing engine Redis passes and yields silent split-brain state across replicas.
 
 ## Tasks
-- [ ] Have `NewServer` reuse the engine's configured Redis by default (single source); make a second `WithRedis` an override, not a requirement.
+- [x] Have `NewServer` reuse the engine's configured Redis by default (single source); make a second `WithRedis` an override, not a requirement.
 
 ---
 
