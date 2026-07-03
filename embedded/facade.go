@@ -14,8 +14,8 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	authcore "github.com/open-rails/authkit/internal/authcore"
-	memorystore "github.com/open-rails/authkit/storage/memory"
-	redisstore "github.com/open-rails/authkit/storage/redis"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -50,7 +50,7 @@ func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
 }
 
 // WithRedis uses a Redis client as the engine's ephemeral store, so hosts don't
-// import authkit/storage/redis directly. The HTTP transport's OIDC/SIWS state
+// import the internal redis store directly. The HTTP transport's OIDC/SIWS state
 // caches take the same *redis.Client via authhttp.WithRedis (separate layer).
 func WithRedis(rd *redis.Client) Option {
 	return authcore.WithEphemeralStore(redisstore.NewKV(rd))

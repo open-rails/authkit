@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {

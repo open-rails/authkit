@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/stretchr/testify/require"
 )
 

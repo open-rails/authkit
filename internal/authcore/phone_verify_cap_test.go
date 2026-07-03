@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 // Phone twin of the email attempt-cap tests (email_verify_scope_test.go): the typed

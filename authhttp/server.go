@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/embedded"
-	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
-	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
+	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	"github.com/redis/go-redis/v9"
 )
 

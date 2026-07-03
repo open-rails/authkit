@@ -94,21 +94,16 @@ appears in consumer code. Renaming either is breaking.
 | `github.com/open-rails/authkit` (root) | `authkit` | Stable | The contract: the `Client` interface, domain/result types, config, sentinel errors, mint params, and the permission/API-key primitives |
 | `…/embedded` | `embedded` | Stable | In-process embedding facade — `New(cfg, pg, …) (*Client, …)` plus type/func aliases re-exporting the internal service surface |
 | `…/authhttp` | `authhttp` | Stable | HTTP transport, middleware, routes, error codes |
-| `…/server` | `server` | Stable | Management JSON handler (`NewHandler`) over an `authkit.Client` |
-| `…/remote` | `remote` | Stable | Remote `authkit.Client` implementation over HTTP |
+| `…/server` | `server` | **Experimental** | Management JSON handler over an `authkit.Client` — NOT covered until the standalone transport is proven (#202) |
+| `…/remote` | `remote` | **Experimental** | Remote `authkit.Client` over HTTP — NOT covered until the standalone transport is proven (#202) |
 | `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
 | `…/jwtkit` | `jwtkit` | Advanced | Key management, signers, JWKS |
 | `…/authprovider` | `authprovider` | Stable | Provider descriptors / claim mapping |
 | `…/oidckit` | `oidckit` | Stable | OIDC RP client manager |
 | `…/password` | `password` | Stable | argon2id/bcrypt hash + verify |
-| `…/siws` | `siws` | Stable | Sign In With Solana |
 | `…/lang` | `lang` | Stable | Language context helpers |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/ratelimit` | `ratelimit` | Stable | Rate-limit result + `Limit` types and helpers |
-| `…/ratelimit/memory` | `memorylimiter` | Provided | In-memory limiter |
-| `…/ratelimit/redis` | `redislimiter` | Provided | Redis limiter |
-| `…/storage/memory` | `memorystore` | Provided | In-memory ephemeral stores |
-| `…/storage/redis` | `redisstore` | Provided | Redis ephemeral stores |
 | `…/adapters/gin` | `authkitgin` | Provided | Gin route registration |
 | `…/adapters/chi` | `authkitchi` | Provided | Chi route registration |
 | `…/adapters/twilio/email` | `twilio` | Provided | Twilio/SendGrid email sender |
@@ -330,15 +325,12 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 - **`password`**: `HashArgon2id`, `VerifyArgon2id`, `VerifyBcrypt`, `IsBcryptHash`,
   `Validate`, `Params`, `DefaultParams`. **Accepted hash formats (argon2id, bcrypt) are a
   covered whitelist** — see [§6.7](#67-password-hash-policy).
-- **`siws`**: `SignInInput`/`SignInOutput`, `NewSignInInput`, `ParseMessage`,
-  `ConstructMessage`, `Verify`, `VerifySignature`, `ValidateAddress`, `ValidateDomain`,
-  `ValidateTimestamps`, `GenerateNonce`, base58 funcs, `ChallengeCache`, `ChallengeData`,
-  `AccountInfo`, `InputOption` (+`With*`).
 - **`lang`**: `LanguageFromContext`, `WithLanguage`.
 - **`authtest`**: `TestIssuer`, `NewTestIssuer(WithAudience|WithSigner)`.
 - **`ratelimit`**: `Result`, `Reason*` consts, `Limit` (the single hoisted limit type, #188),
-  `LookupLimit`, `Remaining`. **`memorylimiter`/`redislimiter`**: `Limiter`, `New` (both consume
-  `ratelimit.Limit`). **`memorystore`/`redisstore`**: `KV`, `SIWSCache`, `StateCache` + `New*`.
+  `LookupLimit`, `Remaining`. The memory/redis limiter BACKENDS, the memory/redis ephemeral
+  STORES, and the `siws` protocol package moved behind `internal/` (#202) — consumers only ever
+  reached them through `embedded.WithRedis`/`authhttp.WithRedis`/internal wiring, never by name.
 - **`authkitgin`/`authkitchi`**: `RegisterAPI`, `RegisterJWKS`, `RegisterOIDC`,
   `RegisterRoutes`, `APIOption` (`WithRoutes`, `WithRouteWrapper`), `APIOptions`.
 - **`twilio` (email/sms)**: `Sender`, `New`, `Config`, and the builder func types.

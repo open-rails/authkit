@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/siws"
+	"github.com/open-rails/authkit/internal/siws"
 )
 
 // signedChallenge builds a valid, freshly-signed SIWS challenge/output pair for

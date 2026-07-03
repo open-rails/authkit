@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 // TestConsumePasskeyCeremony_SingleUseUnderConcurrency is the AK2-PK-001 regression:

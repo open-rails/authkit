@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/siws"
+	"github.com/open-rails/authkit/internal/siws"
 )
 
 // siwsDomainFromConfig derives the SIWS message domain (bare host, no scheme or

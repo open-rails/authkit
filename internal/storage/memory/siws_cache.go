@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-rails/authkit/siws"
+	"github.com/open-rails/authkit/internal/siws"
 )
 
 // SIWSCache stores pending SIWS challenges in memory.

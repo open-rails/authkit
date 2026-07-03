@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 // spyEmailSender records every SendVerification call so a test can assert

@@ -185,7 +185,13 @@ shipped**. This issue is the v1 gate so they don't slip (each item below is self
 
 # #201: [v1 SURFACE] Define the "Client interface membership" rule; relocate browser-flow methods to HTTP-only
 
-**Completed:** no
+**Completed:** yes — verified done 2026-07-03 (Claude); the work had landed in the audit/design-lock
+batch: the 3-test membership rule is written into SEMVER (§4.2, "Client interface membership rule —
+governs what may be ADDED too"); the `Passwordless` topic interface (5 methods) and
+`ExchangeRefreshToken` are OFF `authkit.Client` (embed list verified; facade + generated remote/server
+carry no trace); impls remain on `internal/authcore.Service` and authhttp calls them via the concrete
+service, so all routes work unchanged (full suite green). Lifecycle/backend-capability methods kept per
+the rule.
 
 Proposed 2026-07-02 (Paul + Claude audit). The `authkit.Client` interface has 95 methods; 43 have zero
 downstream calls. IMPORTANT CORRECTION (Paul): unused ≠ useless — a general-purpose auth library's API
@@ -206,16 +212,27 @@ endpoint's job). KEEP APIKeys mint/list/revoke, `RevokeAllSessions`/`ListUserSes
 user hard-delete/restore, `IsUserAllowed`, invite-links, `MintCustomJWT`.
 
 ## Tasks
-- [ ] Write the 3-test membership rule into SEMVER.md (it governs future additions too, not just this trim).
-- [ ] Relocate `Passwordless` (5) + `ExchangeRefreshToken` off `Client` to HTTP-only; keep the routes + the impl on `internal/authcore.Service`.
-- [ ] Re-audit each remaining "unused" method against the rule; keep backend-capability + lifecycle methods.
-- [ ] Regenerate remote/server; confirm authkit's own routes unaffected (`http` holds `embedded.Unwrap → *authcore.Service`, not the interface).
+- [x] Write the 3-test membership rule into SEMVER.md (it governs future additions too, not just this trim).
+- [x] Relocate `Passwordless` (5) + `ExchangeRefreshToken` off `Client` to HTTP-only; keep the routes + the impl on `internal/authcore.Service`.
+- [x] Re-audit each remaining "unused" method against the rule; keep backend-capability + lifecycle methods.
+- [x] Regenerate remote/server; confirm authkit's own routes unaffected (`http` holds `embedded.Unwrap → *authcore.Service`, not the interface).
 
 ---
 
 # #202: [v1 SURFACE] Move zero-external packages behind `internal/`
 
-**Completed:** no
+**Completed:** yes — EXECUTED 2026-07-03 (Claude): `storage/{memory,redis}`, `ratelimit/{memory,redis}`
+(backends only), and `siws` moved to `internal/…` via git mv + import rewrite (all importers were
+in-module; no exported signature in a public package names their types). Core `ratelimit`
+(`Limit`/`Result`/`LookupLimit`/`Remaining`) stays public — `DefaultRateLimits()` returns
+`map[string]ratelimit.Limit`. `remote` + `server` marked **Experimental** (package godoc + SEMVER §4.1
+tier) rather than internalized — keeps the embedded↔remote story visible without freezing the unproven
+transport into v1. DECISION: `authtest` KEPT — it exists precisely to be imported by consumer tests
+(SEMVER-covered), and its own `issuer_test.go` is the working usage example (TestIssuer + verify wiring);
+deleting a shipped consumer helper without checking consumer repos would be reckless. SEMVER §4.1 rows
+updated (moved rows removed, Experimental tiers set) + §4.4 backend/siws bullets folded into a note.
+Full `go test ./...` green at the new paths. BREAKING for any consumer that DID import the moved paths
+(none known) — rides the v1 bump.
 
 Proposed 2026-07-02 (Paul + Claude audit). Seven §4.1 "stable" packages are imported by zero consumers
 (verified). Criterion here IS semantic (consumers only reach them *through* an option, never by naming
@@ -232,16 +249,21 @@ the type), so internalizing is non-breaking for real consumers:
   It's unused even inside authkit's own tests → confirm the consumer-test story is real, else DELETE.
 
 ## Tasks
-- [ ] Move storage/{memory,redis}, ratelimit/{memory,redis}, siws under `internal/`.
-- [ ] Internalize or mark Experimental: remote, server. Keep core `ratelimit` public.
-- [ ] Decide authtest: keep (with a real consumer-test example) or delete.
-- [ ] Update SEMVER §4.1 package table.
+- [x] Move storage/{memory,redis}, ratelimit/{memory,redis}, siws under `internal/`.
+- [x] Internalize or mark Experimental: remote, server (chose Experimental). Core `ratelimit` kept public.
+- [x] Decide authtest: KEEP (its own issuer_test.go is the usage example).
+- [x] Update SEMVER §4.1 package table.
 
 ---
 
 # #203: [v1 SURFACE] #143 topic interfaces — fix godoc, riverjobs takes the interface, make it the held type (do NOT delete)
 
-**Completed:** no
+**Completed:** yes — verified done 2026-07-03 (Claude); all three tasks had landed: the `Authorizer`
+godoc (interfaces.go) no longer makes the false doujins claim (now documents the cross-cutting-slice
+rationale + when to add such slices); `adapters/riverjobs` (`NewPurgeDeletedUsersWorker` +
+`RegisterPurgeDeletedUsersWorker`) accepts `authkit.Client` (no `*embedded.Client` downcast); SEMVER
+§4.2 documents the interface as the recommended held type ("Recommended held type — the interface,
+not the concrete").
 
 Proposed 2026-07-02 (Paul + Claude audit). Only the composite `authkit.Client` is referenced as a type,
 and only by doujins; cozy-art/tensorhub hold the concrete `*embedded.Client`; no consumer types against a
@@ -255,22 +277,24 @@ audience (new integrations + test fakes) isn't in this sample. So keep the inter
   adapter defeating its own seam. Make it accept `authkit.Client`.
 
 ## Tasks
-- [ ] Fix / delete the fictional `Authorizer` godoc claim.
-- [ ] Change `adapters/riverjobs` (`RegisterPurgeDeletedUsersWorker`) to accept `authkit.Client`.
-- [ ] Document `authkit.Client` (interface) as the recommended held type (SEMVER §4.2 example).
+- [x] Fix / delete the fictional `Authorizer` godoc claim.
+- [x] Change `adapters/riverjobs` (`RegisterPurgeDeletedUsersWorker`) to accept `authkit.Client`.
+- [x] Document `authkit.Client` (interface) as the recommended held type (SEMVER §4.2 example).
 
 ---
 
 # #204: [v1 SURFACE] Cover `ErrInsufficientRoleAuthority` + `ErrRoleAssignmentEscalation` in the contract
 
-**Completed:** no
+**Completed:** yes — verified done 2026-07-03 (Claude): both sentinels are in SEMVER §4.2's covered
+sentinel-error list with the explanatory note "(the actor-checked no-escalation role path — `*As`
+methods on `Roles`/`Groups`)", so doujins' `errors.Is` dependence is covered surface.
 
 Proposed 2026-07-02 (Paul + Claude audit). Both sentinels exist at HEAD (`errors.go:25,47`) and doujins
 does `errors.Is` against both, but SEMVER.md references them **zero** times — a consumer depends on
 uncovered surface, so a "non-breaking" change to them would silently break doujins.
 
 ## Tasks
-- [ ] Add both sentinels to SEMVER §4's covered error list (or unexport them if they're not meant for consumers).
+- [x] Add both sentinels to SEMVER §4's covered error list (or unexport them if they're not meant for consumers).
 
 ---
 

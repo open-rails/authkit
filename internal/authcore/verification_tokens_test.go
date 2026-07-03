@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 // failingEphemeralStore is a stub EphemeralStore that always returns an error on Set,

@@ -10,10 +10,10 @@ import (
 
 	"github.com/open-rails/authkit/authprovider"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/siws"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/open-rails/authkit/oidckit"
-	"github.com/open-rails/authkit/siws"
-	memorystore "github.com/open-rails/authkit/storage/memory"
-	redisstore "github.com/open-rails/authkit/storage/redis"
 	"github.com/redis/go-redis/v9"
 )
 

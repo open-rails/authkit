@@ -3,8 +3,8 @@ package authhttp
 import (
 	"testing"
 
-	memorylimiter "github.com/open-rails/authkit/ratelimit/memory"
-	redislimiter "github.com/open-rails/authkit/ratelimit/redis"
+	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
+	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )

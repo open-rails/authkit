@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	redisstore "github.com/open-rails/authkit/storage/redis"
+	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/redis/go-redis/v9"
 )
 

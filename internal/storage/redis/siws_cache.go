@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/open-rails/authkit/siws"
+	"github.com/open-rails/authkit/internal/siws"
 	"github.com/redis/go-redis/v9"
 )
 

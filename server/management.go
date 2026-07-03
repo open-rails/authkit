@@ -1,3 +1,7 @@
+// Experimental: NOT covered by the v1 semver contract (#202) — the standalone/
+// remote transport has no production consumer yet; the wire contract may change
+// in MINOR releases until proven and promoted.
+//
 // Package server hosts the AuthKit management HTTP API — the wire contract a
 // standalone AuthKit server exposes and the authkit/remote SDK consumes (#142).
 //

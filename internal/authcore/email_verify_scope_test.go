@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 // AK security audit F1: the typed 6-digit email-verification / pending-registration

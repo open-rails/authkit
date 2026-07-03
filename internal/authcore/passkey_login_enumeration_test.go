@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	memorystore "github.com/open-rails/authkit/storage/memory"
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 // TestBeginPasskeyLogin_NoEnumerationOracle is the AK2-PK-002 regression: passkey

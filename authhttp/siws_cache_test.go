@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-rails/authkit/siws"
+	"github.com/open-rails/authkit/internal/siws"
 	"github.com/stretchr/testify/require"
 )
 

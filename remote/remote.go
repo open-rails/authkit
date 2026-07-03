@@ -1,3 +1,7 @@
+// Experimental: NOT covered by the v1 semver contract (#202) — the standalone/
+// remote transport has no production consumer yet; its surface (generated from
+// authkit.Client) may change in MINOR releases until proven and promoted.
+//
 // Package remote is the AuthKit remote SDK: a Go client that talks to a standalone
 // AuthKit server's management API over HTTP and satisfies the SAME
 // authkit.Client contract an in-process embedded.Client does (#142), so a host
