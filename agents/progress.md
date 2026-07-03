@@ -607,7 +607,19 @@ Proposed 2026-07-02 (Paul + Claude audit) — applies #219 to writes. Today sing
 
 # #223: [BUG] Group-invite email sender is dead code — FIX it to actually send (align with `SendPasswordResetLink`)
 
-**Completed:** no
+**Completed:** yes — the CORE FIX had already landed in 1bd8613 (went further than the RECOMMENDED
+option: `SendAccountRegistrationInvite(ctx, email, inviteURL string)` is now a REQUIRED plain-string
+`EmailSender` method; the internal `AccountRegistrationInviteMessage` struct + the always-failing
+optional type assertion are gone; twilio email adapter implements it). CLOSED OUT 2026-07-03 (Claude)
+— two gaps in that landing fixed: (1) the send error was silently swallowed (`_ =`) — a failed provider
+send meant the recipient silently never heard about the invite, the original bug class; now logged LOUD
+(create still succeeds; the inviter holds the URL). (2) NO test asserted delivery (every test stub was a
+no-op): added `TestSendAccountRegistrationInviteEmail_DeliversToHostSender` (no-DB, runs everywhere —
+asserts the host sender receives (email, inviteURL) and the failure path doesn't propagate) and an
+end-to-end delivery assertion inside `TestAccountRegistrationInvite_AllowsInviteOnlyRegistration`
+(sender.inviteURL == created.URL; DB-backed, runs in CI). Invite CREATION untouched per the scope
+guardrail. Note: making the method REQUIRED on EmailSender is BREAKING for host senders (add one
+method) — rides the v1 bump.
 
 Proposed 2026-07-02 (Paul + Claude audit); refined 2026-07-02 (Paul: confirm group-invite-by-email still works).
 
@@ -629,9 +641,9 @@ sender the same way so authkit actually sends the invite email through the host'
 with how it already sends verification + password-reset-link emails.
 
 ## Tasks
-- [ ] RECOMMENDED: change `SendAccountRegistrationInvite` to plain-string args (e.g. `(ctx, email, inviteURL, persona, role string)`) matching `SendPasswordResetLink`; delete the internal `AccountRegistrationInviteMessage` struct. Now a host sender CAN implement it and authkit sends the invite email.
-- [ ] Test: a host `EmailSender` implementing the optional interface receives the invite send (assertion now succeeds).
-- [ ] ALTERNATIVE (only if host-delivers-URL is explicitly preferred): delete the sender interface + method + call at `:165`; document that emailing `created.URL` is the host's job. Do NOT touch `CreateAccountRegistrationInvite`.
+- [x] RECOMMENDED: change `SendAccountRegistrationInvite` to plain-string args (e.g. `(ctx, email, inviteURL, persona, role string)`) matching `SendPasswordResetLink`; delete the internal `AccountRegistrationInviteMessage` struct. Now a host sender CAN implement it and authkit sends the invite email.
+- [x] Test: a host `EmailSender` implementing the (now required) interface receives the invite send.
+- [ ] ~~ALTERNATIVE~~ (not taken — the RECOMMENDED path landed): delete the sender interface + method + call at `:165`; document that emailing `created.URL` is the host's job. Do NOT touch `CreateAccountRegistrationInvite`.
 
 ---
 

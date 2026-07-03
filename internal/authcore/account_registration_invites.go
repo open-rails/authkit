@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	stdlog "log"
 	"net/url"
 	"strings"
 	"time"
@@ -160,9 +161,15 @@ func (s *Service) sendAccountRegistrationInviteEmail(ctx context.Context, email,
 	if s.email == nil {
 		return
 	}
-	_ = s.withSendTimeout(ctx, func(sendCtx context.Context) error {
+	// Deliberate availability-over-consistency: the invite CREATE already succeeded
+	// and the inviter got the URL back (they can share it any channel), so a failed
+	// email must not fail the call — but it must be LOUD, or the recipient silently
+	// never hears about the invite (#223's original bug class).
+	if err := s.withSendTimeout(ctx, func(sendCtx context.Context) error {
 		return s.email.SendAccountRegistrationInvite(sendCtx, email, inviteURL)
-	})
+	}); err != nil {
+		stdlog.Printf("authkit: error: account-registration invite email send failed (invite created; inviter still holds the URL): %v", err)
+	}
 }
 
 func (s *Service) RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error {

@@ -10,10 +10,55 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
+// inviteCaptureEmailSender records account-registration-invite sends (#223 — the
+// original bug was a type assertion that could never succeed, so the invite email
+// was silently never sent; these fields let tests assert delivery actually happens).
+type inviteCaptureEmailSender struct {
+	inviteEmail string
+	inviteURL   string
+	inviteErr   error // returned from SendAccountRegistrationInvite to exercise the failure path
+}
+
+func (s *inviteCaptureEmailSender) SendVerification(context.Context, string, string, VerificationMessage) error {
+	return nil
+}
+func (s *inviteCaptureEmailSender) SendPasswordResetLink(context.Context, string, string, string) error {
+	return nil
+}
+func (s *inviteCaptureEmailSender) SendAccountRegistrationInvite(_ context.Context, email, inviteURL string) error {
+	s.inviteEmail, s.inviteURL = email, inviteURL
+	return s.inviteErr
+}
+func (s *inviteCaptureEmailSender) SendLoginCode(context.Context, string, string, string) error {
+	return nil
+}
+func (s *inviteCaptureEmailSender) SendWelcome(context.Context, string, string) error { return nil }
+
+// #223: the configured host EmailSender must RECEIVE the invite send — and a
+// failing provider must not panic or propagate (the inviter still holds the URL).
+// No DB needed: this exercises the send helper directly.
+func TestSendAccountRegistrationInviteEmail_DeliversToHostSender(t *testing.T) {
+	sender := &inviteCaptureEmailSender{}
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithEmailSender(sender))
+
+	svc.sendAccountRegistrationInviteEmail(context.Background(), "invitee@example.com", "https://test/invite?account_invite_token=abc")
+	if sender.inviteEmail != "invitee@example.com" || sender.inviteURL != "https://test/invite?account_invite_token=abc" {
+		t.Fatalf("host sender did not receive the invite send: email=%q url=%q", sender.inviteEmail, sender.inviteURL)
+	}
+
+	// Failure path: swallowed (logged), never panics/propagates.
+	sender.inviteErr = errors.New("smtp down")
+	svc.sendAccountRegistrationInviteEmail(context.Background(), "second@example.com", "https://test/invite?account_invite_token=def")
+	if sender.inviteEmail != "second@example.com" {
+		t.Fatalf("failure-path send was not attempted")
+	}
+}
+
 func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
+	sender := &inviteCaptureEmailSender{}
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool), WithEmailSender(sender))
 	rootID, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
@@ -41,6 +86,12 @@ func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateAccountRegistrationInvite: %v", err)
+	}
+	// #223: creating the invite must actually SEND it through the host EmailSender
+	// (was dead code — an always-failing type assertion meant no email ever went out).
+	if sender.inviteEmail != email || sender.inviteURL != created.URL {
+		t.Fatalf("invite email not delivered: sender got email=%q url=%q, want %q / %q",
+			sender.inviteEmail, sender.inviteURL, email, created.URL)
 	}
 
 	wrongCtx := contextWithAccountRegistrationInviteToken(ctx, "wrong")
