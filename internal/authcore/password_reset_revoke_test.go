@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
 
 // #199: confirming a password reset must leave ZERO live sessions — an attacker
@@ -14,6 +16,8 @@ import (
 func TestConfirmPasswordReset_RevokesAllSessions(t *testing.T) {
 	pool := testPG(t)
 	ks := testKeySource(t)
+	// WithEphemeralStore: the reset token lives in the ephemeral store; the memory
+	// default is installed by embedded.New, not by bare NewFromConfig, so supply it.
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{
 			Issuer:            "https://issuer.test",
@@ -21,7 +25,7 @@ func TestConfirmPasswordReset_RevokesAllSessions(t *testing.T) {
 			ExpectedAudiences: []string{"app"},
 		},
 		Keys: KeysConfig{Source: ks},
-	}, pool)
+	}, pool, WithEphemeralStore(memorystore.NewKV()))
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
