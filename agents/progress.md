@@ -727,7 +727,7 @@ only `deleted_at`/`banned_*`). Compounds with the repeated reads (#227). Also `S
 
 # #231: [BUG][SECURITY] JWT prod-detection reads the wrong env vars — and libraries must not read env at all
 
-**Status:** IMPLEMENTED 2026-07-02 (Claude; uncommitted) — zero env reads in library code, enforced by guard
+**Status:** IMPLEMENTED 2026-07-02 (Claude) — COMMITTED in 8bb630c (design-lock batch, on origin); re-verified 2026-07-03 (guard test passes, env sweep clean, fail-closed key path + single classifier confirmed, build/vet/jwt/authcore tests green). Zero env reads in library code, enforced by guard
 test `env_doctrine_test.go` (AST scan for os.Getenv/LookupEnv/Environ/ExpandEnv outside cmd/ + *_test.go;
 allowlist: internal/testdb only). Config shape: `KeysConfig.AllowEphemeralDevKeys bool` (default false ⇒
 no keys = hard construction error); resolution is Source → VerifyOnly → <Keys.Path>/keys.json → opt-in
