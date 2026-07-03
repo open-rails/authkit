@@ -2,6 +2,7 @@ package remote_test
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -35,6 +36,11 @@ func (fakeClient) IsUserAllowed(_ context.Context, userID string) (bool, error) 
 func (fakeClient) CreateUser(_ context.Context, email, username string) (*authkit.User, error) {
 	if email == "taken@example.com" {
 		return nil, authkit.ErrEmailInUse
+	}
+	if email == "wrapped@example.com" {
+		// The shape exposed methods actually return (#197): a WRAPPED sentinel whose
+		// err.Error() is NOT a bare registry key.
+		return nil, fmt.Errorf("%w: smtp: connection refused", authkit.ErrEmailDeliveryFailed)
 	}
 	return &authkit.User{ID: "u-new", Email: &email, Username: &username}, nil
 }
@@ -83,6 +89,12 @@ func TestRemoteParity(t *testing.T) {
 	require.ErrorIs(t, err, authkit.ErrUserNotFound)
 	_, err = rc.CreateUser(ctx, "taken@example.com", "bob")
 	require.ErrorIs(t, err, authkit.ErrEmailInUse)
+
+	// #197: a WRAPPED sentinel also survives the wire. The server must resolve the
+	// code chain-aware (CodeForError) — emitting err.Error() verbatim would produce
+	// a non-registry code and errors.Is identity would be lost.
+	_, err = rc.CreateUser(ctx, "wrapped@example.com", "carol")
+	require.ErrorIs(t, err, authkit.ErrEmailDeliveryFailed)
 
 	// auth seam: a wrong token is rejected.
 	bad := remote.New(ts.URL, "wrong")
