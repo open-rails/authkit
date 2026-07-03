@@ -11,9 +11,10 @@ import (
 // SIWSCache stores pending SIWS challenges in memory.
 // This is only suitable for single-node deployments or local development.
 type SIWSCache struct {
-	mu   sync.RWMutex
-	data map[string]siwsEntry
-	ttl  time.Duration
+	mu     sync.RWMutex
+	data   map[string]siwsEntry
+	ttl    time.Duration
+	closed chan struct{}
 }
 
 type siwsEntry struct {
@@ -27,8 +28,9 @@ func NewSIWSCache(ttl time.Duration) *SIWSCache {
 		ttl = 15 * time.Minute
 	}
 	c := &SIWSCache{
-		data: make(map[string]siwsEntry),
-		ttl:  ttl,
+		data:   make(map[string]siwsEntry),
+		ttl:    ttl,
+		closed: make(chan struct{}),
 	}
 	go c.cleanupLoop()
 	return c
@@ -84,13 +86,27 @@ func (c *SIWSCache) Consume(ctx context.Context, nonce string) (siws.ChallengeDa
 	return entry.data, true, nil
 }
 
-// cleanupLoop periodically removes expired entries.
+// cleanupLoop periodically removes expired entries until Close is called
+// (mirrors StateCache — #196's secondary defect was an unstoppable goroutine
+// leaked per cache instance).
 func (c *SIWSCache) cleanupLoop() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		c.cleanup()
+	for {
+		select {
+		case <-ticker.C:
+			c.cleanup()
+		case <-c.closed:
+			return
+		}
 	}
+}
+
+// Close stops the background cleanup goroutine.
+// Should be called when the cache is no longer needed.
+func (c *SIWSCache) Close() error {
+	close(c.closed)
+	return nil
 }
 
 func (c *SIWSCache) cleanup() {

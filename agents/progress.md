@@ -70,7 +70,12 @@ RULES: reduce API/SEMVER surface + total LOC; keep build+vet green after each ch
 
 # #196: [BUG] SIWS in-memory challenge cache re-created per request (Solana login broken without Redis)
 
-**Completed:** no
+**Completed:** yes — core fix had landed (audit batch): `Service.memSIWSCache` field created once in
+`NewServer` (server.go:107) + lazily memoized fallback in `siwsCache()`; regression test
+`TestSIWSCacheSharesInstanceWithoutRedis` (no-DB, passing) proves Put→Consume hit the same instance +
+replay protection. CLOSED OUT 2026-07-03 (Claude): the OPTIONAL task was still open — `memorystore.SIWSCache`
+now has `Close()` + a `closed` channel so `cleanupLoop` stops (mirrors `StateCache`; the leak was one
+unstoppable goroutine per cache); `TestSIWSCacheClose` proves the cache keeps serving after Close.
 
 Proposed 2026-07-02 (Paul + Claude audit). `authhttp/siws_cache.go:11-16` returns a **fresh**
 `memorystore.NewSIWSCache(...)` on every call in the no-Redis branch. `GenerateSIWSChallenge`
@@ -85,16 +90,22 @@ SIWS) — but it's a shipped feature that is 100% broken in a supported config. 
 per-caller.
 
 ## Tasks
-- [ ] Add a `memSIWSCache siws.ChallengeCache` field to `authhttp.Service`; create once in `NewServer` (mirror `memStateCache` at `authhttp/server.go:90`).
-- [ ] Return `s.memSIWSCache` from `siwsCache()` in the `s.rd == nil` branch.
-- [ ] Regression test: Put via challenge handler, then Consume via login handler on the same `Service`, no Redis → succeeds.
-- [ ] (Optional) Give `memorystore.SIWSCache` a `Close()`/`closed` channel so the cleanup loop can stop, matching `StateCache`.
+- [x] Add a `memSIWSCache siws.ChallengeCache` field to `authhttp.Service`; create once in `NewServer` (mirror `memStateCache` at `authhttp/server.go:90`).
+- [x] Return `s.memSIWSCache` from `siwsCache()` in the `s.rd == nil` branch.
+- [x] Regression test: Put via challenge handler, then Consume via login handler on the same `Service`, no Redis → succeeds.
+- [x] (Optional) Give `memorystore.SIWSCache` a `Close()`/`closed` channel so the cleanup loop can stop, matching `StateCache`.
 
 ---
 
 # #197: [BUG] Remote wire-error round-trip breaks `errors.Is` for WRAPPED sentinels
 
-**Completed:** no
+**Completed:** yes — implemented (audit batch) exactly per the tasks, verified 2026-07-03 (Claude):
+`authkit.CodeForError(err)` (errors.go) walks the chain with `errors.Is` against the hand-listed
+`errorSentinels` registry; `server/management.go` uses it in BOTH the write path (`:60`, falls back to a
+generic code so raw `err.Error()` never leaks) and `statusFor` (`:90` → 422 iff a sentinel matches).
+`TestCodeForError` (passing) covers: wrapped sentinel resolves to the wire code + survives the round-trip
+(`errors.Is` true on the remote side), 422 vs 500 split, nil/opaque → "". Cosmetic fix while verifying:
+a corrupted word in the errorSentinels doc comment ("ponytail:" → "NOTE:").
 
 Proposed 2026-07-02 (Paul + Claude audit). `server/management.go:56` emits `err.Error()` verbatim
 as the wire code and `statusFor` (`:80`) keys off `authkit.ErrorForCode(err.Error())`. The registry
@@ -107,15 +118,18 @@ sentinels (`err.Error() == code`). Exposed `Client` methods return **wrapped** s
 cross-transport error identity (#138/#142). Same for `ErrSMSDeliveryFailed` and any wrapped SIWS errors.
 
 ## Tasks
-- [ ] Add `authkit.CodeForError(err) string` to `errors.go`: iterate the registry with `errors.Is(err, sentinel)` (chain-aware), return the matching sentinel's `.Error()` (else "").
-- [ ] Use `CodeForError` in both `server/management.go` `writeErr` and `statusFor`.
-- [ ] Extend `errors_test.go`: a wrapped sentinel round-trips (`errors.Is` survives) and maps to 422.
+- [x] Add `authkit.CodeForError(err) string` to `errors.go`: iterate the registry with `errors.Is(err, sentinel)` (chain-aware), return the matching sentinel's `.Error()` (else "").
+- [x] Use `CodeForError` in both `server/management.go` `writeErr` and `statusFor`.
+- [x] Extend `errors_test.go`: a wrapped sentinel round-trips (`errors.Is` survives) and maps to 422.
 
 ---
 
 # #198: [BUG] In-memory rate limiter panics (index out of range) on bucket `Limit <= 0`
 
-**Completed:** no
+**Completed:** yes — implemented (audit batch) via the guard option: `lim.Limit > 0 && len(ts) >= lim.Limit`
+(ratelimit/memory/limiter.go, with a #198 comment); semantics: `Limit <= 0` disables the window threshold
+(admit, defined result) instead of panicking. Verified 2026-07-03 (Claude): `TestAllowNamedZeroLimitNoPanic`
+(passing) pins first-request-allowed / RetryAfter=0 / reported Limit=0 for a `{Limit: 0}` bucket.
 
 Proposed 2026-07-02 (Paul + Claude audit). `ratelimit/memory/limiter.go:98` — `len(ts) >= lim.Limit`
 is true for an empty slice when `Limit == 0`, then `ts[0]` (`:99`) panics on the empty slice. Not
@@ -123,8 +137,8 @@ reachable via `DefaultRateLimits()` (all ≥ 1), but a host passing a custom `Wi
 `0` (incl. a `"default": {Limit: 0}`) crashes the request goroutine.
 
 ## Tasks
-- [ ] Guard: `if lim.Limit > 0 && len(ts) >= lim.Limit {`, or clamp `Limit` to a minimum of 1 in `LookupLimit`/`New`.
-- [ ] Test: a bucket with `Limit: 0`, first request → no panic (defined allow/deny, not a crash).
+- [x] Guard: `if lim.Limit > 0 && len(ts) >= lim.Limit {`, or clamp `Limit` to a minimum of 1 in `LookupLimit`/`New`.
+- [x] Test: a bucket with `Limit: 0`, first request → no panic (defined allow/deny, not a crash).
 
 ---
 

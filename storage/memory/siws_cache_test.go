@@ -8,6 +8,22 @@ import (
 	"github.com/open-rails/authkit/siws"
 )
 
+// Close stops the cleanup goroutine (#196 secondary defect: it was unstoppable,
+// leaking one goroutine per cache); the cache itself keeps working after Close.
+func TestSIWSCacheClose(t *testing.T) {
+	c := NewSIWSCache(time.Minute)
+	ctx := context.Background()
+	if err := c.Put(ctx, "n", siws.ChallengeData{Address: "a", ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if _, found, err := c.Consume(ctx, "n"); err != nil || !found {
+		t.Fatalf("consume after close: found=%v err=%v (cache must keep working; Close only stops cleanup)", found, err)
+	}
+}
+
 // Consume is single-use: a second consume of the same nonce reports not-found,
 // so a replayed SIWS signature cannot reuse the challenge.
 func TestConsumeIsSingleUse(t *testing.T) {

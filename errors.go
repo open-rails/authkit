@@ -90,7 +90,7 @@ func CodeForError(err error) string {
 }
 
 // errorSentinels is the single hand-listed source of truth for both errorsByCode
-// and CodeForError. ponytail: hand-listed because Go can't enumerate package vars —
+// and CodeForError. NOTE: hand-listed because Go can't enumerate package vars —
 // a new sentinel needs a line here too; the uniqueness check in errors_test.go
 // fails loudly if two share a code.
 var errorSentinels = []error{
