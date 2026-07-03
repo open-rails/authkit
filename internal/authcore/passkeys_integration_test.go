@@ -18,6 +18,7 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	cfg := Config{
+		Keys: KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: TokenConfig{
 			Issuer:            "https://example.org",
 			IssuedAudiences:   []string{"test-app"},
@@ -29,7 +30,7 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 			Origins:       []string{"https://example.org"},
 		},
 	}
-	svc, err := NewFromConfig(cfg, pool, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc, err := NewFromConfig(cfg, pool, WithEphemeralStore(memorystore.NewKV()))
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -43,8 +44,8 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 	body, challenge, credentialID, publicKey := passkeyAssertionVectorNoUV(t)
 	handle := []byte("test-user-id")
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO profiles.user_passkey_handles (user_id, rpid, user_handle)
-		VALUES ($1::uuid, 'example.org', $2)
+		INSERT INTO profiles.user_passkey_handles (user_id, user_handle)
+		VALUES ($1::uuid, $2)
 		ON CONFLICT DO NOTHING
 	`, user.ID, handle); err != nil {
 		t.Fatalf("insert handle: %v", err)
@@ -52,11 +53,11 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO profiles.user_passkeys (
 			user_id, rpid, credential_id, public_key, sign_count, clone_warning, transports,
-			authenticator_attachment, backup_eligible, backup_state, user_present, user_verified,
+			authenticator_attachment, backup_eligible, backup_state,
 			flags, attestation_type, attestation_fmt
 		) VALUES (
 			$1::uuid, 'example.org', $2, $3, 0, false, '{}',
-			'', true, true, true, false, $4, 'none', 'none'
+			'', true, true, $4, 'none', 'none'
 		)
 	`, user.ID, credentialID, publicKey, []byte{byte(protocol.FlagUserPresent | protocol.FlagBackupEligible | protocol.FlagBackupState)}); err != nil {
 		t.Fatalf("insert passkey: %v", err)

@@ -14,11 +14,7 @@ import (
 // account existence and the user's credential IDs to an unauthenticated caller.
 // No DB needed — the assertion is built from config + the ephemeral session store.
 func TestBeginPasskeyLogin_NoEnumerationOracle(t *testing.T) {
-	svc := NewService(Options{
-		Issuer:         "https://example.org",
-		PasskeyRPID:    "example.org",
-		PasskeyOrigins: []string{"https://example.org"},
-	}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://example.org"}, Passkeys: PasskeyConfig{RPID: "example.org", Origins: []string{"https://example.org"}}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	ctx := context.Background()
 
 	for _, identifier := range []string{"", "nobody@example.org", "ghost", "+15555550100"} {

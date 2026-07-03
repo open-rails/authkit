@@ -9,16 +9,16 @@ import (
 )
 
 // LanguageConfig declares the supported UI languages and default. The query
-// parameter and cookie name are NOT configurable — both are hardcoded to
-// langSelector ("lang") (#143). No language config means English-only
-// (Supported ["en"], default "en").
+// parameter name is NOT configurable — hardcoded to langSelector ("lang")
+// (#143). No language config means English-only (Supported ["en"], default
+// "en").
 type LanguageConfig struct {
 	Supported []string
 	Default   string
 }
 
-// langSelector is the fixed query-parameter and cookie name AuthKit reads for
-// request language. Not host-configurable (#143).
+// langSelector is the fixed query-parameter name AuthKit reads for request
+// language. Not host-configurable (#143).
 const langSelector = "lang"
 
 func (c *LanguageConfig) defaulted() LanguageConfig {
@@ -89,30 +89,10 @@ func pickFromAcceptLanguage(header string, supported map[string]struct{}) string
 	return ""
 }
 
-func pickFromPathPrefix(path string, supported map[string]struct{}) string {
-	path = strings.TrimLeft(path, "/")
-	if len(path) < 3 {
-		return ""
-	}
-	seg := path
-	if i := strings.IndexByte(seg, '/'); i >= 0 {
-		seg = seg[:i]
-	}
-	lang := normalizeLangCode(seg)
-	if lang == "" {
-		return ""
-	}
-	if supported == nil {
-		return lang
-	}
-	if _, ok := supported[lang]; ok {
-		return lang
-	}
-	return ""
-}
-
-// resolveRequestLanguage implements the shared language contract:
-// `?lang` query param > `/:lang/` path prefix > `lang` cookie > `Accept-Language` header > default.
+// resolveRequestLanguage implements the language contract (#236 trimmed the
+// former path-prefix and cookie tiers — routes are never mounted under a
+// language prefix and AuthKit never sets a lang cookie):
+// `?lang` query param > `Accept-Language` header > default.
 func resolveRequestLanguage(r *http.Request, cfg LanguageConfig) string {
 	supported := supportedSet(cfg.Supported)
 
@@ -123,23 +103,6 @@ func resolveRequestLanguage(r *http.Request, cfg LanguageConfig) string {
 			}
 			if _, ok := supported[qp]; ok {
 				return qp
-			}
-		}
-
-		if lp := pickFromPathPrefix(r.URL.Path, supported); lp != "" {
-			return lp
-		}
-
-		{
-			if c, err := r.Cookie(langSelector); err == nil && c != nil {
-				if ck := normalizeLangCode(c.Value); ck != "" {
-					if supported == nil {
-						return ck
-					}
-					if _, ok := supported[ck]; ok {
-						return ck
-					}
-				}
 			}
 		}
 

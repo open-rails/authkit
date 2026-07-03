@@ -9,7 +9,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"os"
 	"testing"
 	"time"
 
@@ -155,18 +154,14 @@ func TestKeyRingMergesActiveKey(t *testing.T) {
 	}
 }
 
-func TestTryLoadFromEnvPrecedence(t *testing.T) {
-	rsaSigner, _ := NewRSASigner(2048, "env-kid")
+func TestStaticKeySourceFromPEMActiveKID(t *testing.T) {
+	rsaSigner, _ := NewRSASigner(2048, "pem-kid")
 	pemBytes := pemEncodePrivateKey(rsaSigner.PrivateKey())
-	t.Setenv("ACTIVE_KEY_ID", "env-kid")
-	t.Setenv("ACTIVE_PRIVATE_KEY_PEM", string(pemBytes))
-	ks, err := tryLoadFromEnv()
-	if err != nil || ks == nil {
+	ks, err := NewStaticKeySourceFromPEM("pem-kid", string(pemBytes), nil)
+	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if ks.ActiveSigner().KID() != "env-kid" {
+	if ks.ActiveSigner().KID() != "pem-kid" {
 		t.Fatalf("kid %s", ks.ActiveSigner().KID())
 	}
-	_ = os.Unsetenv("ACTIVE_KEY_ID")
-	_ = os.Unsetenv("ACTIVE_PRIVATE_KEY_PEM")
 }

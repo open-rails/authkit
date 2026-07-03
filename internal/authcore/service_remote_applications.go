@@ -254,7 +254,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	// trusted local entry, swapping the platform's signing keys and breaking
 	// verification of all first-party tokens. Reject case-insensitively to deny
 	// trivial host-case bypasses. This guards every caller, including bootstrap.
-	if platformIssuer := strings.TrimSpace(s.opts.Issuer); platformIssuer != "" && strings.EqualFold(issuer, platformIssuer) {
+	if platformIssuer := strings.TrimSpace(s.cfg.Token.Issuer); platformIssuer != "" && strings.EqualFold(issuer, platformIssuer) {
 		return nil, ErrReservedIssuer
 	}
 	if err := validateRemoteAppSlug(slug); err != nil {
@@ -377,7 +377,7 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, i
 		`SELECT id::text, slug, COALESCE(permission_group_id::text, ''), issuer, COALESCE(jwks_uri,''),
 		        mode, public_keys, enabled, created_at, updated_at
 		 FROM profiles.remote_applications
-		 WHERE permission_group_id = $1::uuid AND deleted_at IS NULL
+		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
 	if err != nil {
 		return nil, err

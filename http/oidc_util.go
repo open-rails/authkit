@@ -19,7 +19,7 @@ func randB64(n int) string {
 // buildRedirectURI computes the OAuth/OIDC redirect_uri for this request's flow.
 //
 // SECURITY (AK F2): the scheme+host come from the TRUSTED server config
-// (Options().BaseURL), never from attacker-controllable X-Forwarded-Proto /
+// (Config().Frontend.BaseURL), never from attacker-controllable X-Forwarded-Proto /
 // X-Forwarded-Host request headers. An attacker who could set X-Forwarded-Host
 // would otherwise steer the redirect_uri — and thus the authorization code —
 // to a host they control. When no BaseURL is configured (local/dev) we fall
@@ -30,7 +30,7 @@ func (s *Service) buildRedirectURI(r *http.Request, provider string) string {
 		return ""
 	}
 	p := oidcCallbackPath(r.URL.Path, provider)
-	if origin, ok := originFromBaseURL(s.svc.Options().BaseURL); ok {
+	if origin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL); ok {
 		return origin + p
 	}
 	scheme := "http"
@@ -123,7 +123,7 @@ func stateCookieMatches(r *http.Request, state string) bool {
 // true whenever the deployment is HTTPS (BaseURL scheme, or the request's own
 // TLS). Local http dev gets non-Secure cookies so the flow still works.
 func (s *Service) cookieSecure(r *http.Request) bool {
-	if origin, ok := originFromBaseURL(s.svc.Options().BaseURL); ok {
+	if origin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL); ok {
 		return strings.HasPrefix(strings.ToLower(origin), "https://")
 	}
 	return r != nil && r.TLS != nil

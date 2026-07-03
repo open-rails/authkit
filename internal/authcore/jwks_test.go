@@ -14,12 +14,7 @@ func TestJWKSIncludesECAndEd25519Keys(t *testing.T) {
 	rsaSigner, _ := jwtkit.NewRSASigner(2048, "rsa")
 	edSigner, _ := jwtkit.NewEd25519Signer("ed")
 
-	svc := NewService(Options{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"app"},
-		ExpectedAudiences:   []string{"app"},
-		AccessTokenDuration: time.Hour,
-	}, Keyset{
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}, AccessTokenDuration: time.Hour}}, Keyset{
 		Active: rsaSigner,
 		PublicKeys: map[string]crypto.PublicKey{
 			"rsa": rsaSigner.PublicKey(),
@@ -42,7 +37,7 @@ func TestJWKSIncludesECAndEd25519Keys(t *testing.T) {
 
 func TestKeyfuncResolvesEd25519ActiveSigner(t *testing.T) {
 	edSigner, _ := jwtkit.NewEd25519Signer("ed-active")
-	svc := NewService(Options{Issuer: "https://example.com", IssuedAudiences: []string{"app"}}, Keyset{
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}}}, Keyset{
 		Active:     edSigner,
 		PublicKeys: map[string]crypto.PublicKey{"ed-active": edSigner.PublicKey()},
 	})

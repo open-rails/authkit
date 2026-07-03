@@ -64,7 +64,7 @@ func (s *Service) EnsureRootGroup(ctx context.Context) (string, error) {
 	if !errors.Is(err, ErrGroupNotFound) {
 		return "", err
 	}
-	return st.CreateGroup(ctx, RootPersona, "", "", "")
+	return st.CreateGroup(ctx, RootPersona, "", "")
 }
 
 // CreatePermissionGroupRequest creates a permission group. Parent is addressed by
@@ -118,7 +118,7 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 			return "", fmt.Errorf("resolve %q parent: %w", parentPersona, err)
 		}
 	}
-	id, err := st.CreateGroup(ctx, req.Persona, parentID, parentPersona, req.InstanceSlug)
+	id, err := st.CreateGroup(ctx, req.Persona, parentID, req.InstanceSlug)
 	if err != nil {
 		return "", err
 	}

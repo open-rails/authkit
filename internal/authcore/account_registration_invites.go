@@ -57,7 +57,7 @@ type AccountRegistrationInviteCreated = authkit.AccountRegistrationInviteCreated
 func (s *Service) accountRegistrationInviteURL(code string) string {
 	q := url.Values{}
 	q.Set("account_invite_token", code)
-	return s.authkitURL(s.opts.FrontendInvitePath, q)
+	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
 func (s *Service) CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error) {
@@ -91,7 +91,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 
 	var groupID *string
 	if carriesRole {
-		if !s.opts.externalInvitesEnabled() {
+		if !s.externalInvitesEnabled() {
 			return AccountRegistrationInviteCreated{}, ErrExternalInvitesDisabled
 		}
 		st := s.groupStore()
@@ -230,7 +230,7 @@ func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, u
 		// (hasValidAccountRegistrationInvite) already ran; there is nothing to consume.
 		return nil
 	}
-	mode, _ := normalizeRegistrationMode(s.opts.NativeUserRegistrationMode)
+	mode, _ := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 
 	// Claim the code and apply any carried group grant in ONE transaction, so a
 	// register+join can never mark the code used without also assigning the role
@@ -248,7 +248,7 @@ func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, u
 		`SELECT i.id::text, i.permission_group_id::text, i.role, g.persona
 		   FROM profiles.account_registration_invites i
 		   LEFT JOIN profiles.permission_groups g
-		     ON g.id = i.permission_group_id AND g.deleted_at IS NULL
+		     ON g.id = i.permission_group_id
 		  WHERE i.code_hash = $1 AND i.revoked_at IS NULL
 		    AND i.consumed_at IS NULL AND i.expires_at > now()
 		  FOR UPDATE OF i`,

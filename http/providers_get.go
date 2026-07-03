@@ -73,7 +73,6 @@ func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, _ *http.Request) 
 
 func (s *Service) capabilities() AuthCapabilities {
 	cfg := s.svc.Config()
-	opts := s.svc.Options()
 	langs := []string(nil)
 	if s.langCfg != nil {
 		langs = append(langs, s.langCfg.Supported...)
@@ -84,22 +83,22 @@ func (s *Service) capabilities() AuthCapabilities {
 	}
 	return AuthCapabilities{
 		Registration: AuthRegistrationCapabilities{
-			Mode:                string(opts.NativeUserRegistrationMode),
-			InviteTokenRequired: opts.NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly,
+			Mode:                string(cfg.Registration.NativeUserMode),
+			InviteTokenRequired: cfg.Registration.NativeUserMode == embedded.RegistrationModeInviteOnly,
 		},
 		Providers: s.providerSummaries(),
 		Password: AuthPasswordCapabilities{
 			Login: true,
 		},
 		Passwordless: AuthPasswordlessCapabilities{
-			Enabled:  opts.PasswordlessLoginEnabled,
+			Enabled:  cfg.Registration.PasswordlessLogin,
 			Channels: channels,
 		},
 		Passkeys: AuthPasskeyCapabilities{
 			Login: s.svc.PasskeysEnabled(),
 		},
 		Solana: AuthSolanaCapabilities{
-			Login: opts.SolanaNetwork != "",
+			Login: cfg.SolanaNetwork != "",
 		},
 		Verification: AuthVerificationCapabilities{
 			Registration: string(cfg.Registration.Verification),

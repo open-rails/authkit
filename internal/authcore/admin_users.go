@@ -94,7 +94,7 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 		where = append(where, "EXISTS (SELECT 1 FROM profiles.group_user_roles gur"+
 			" JOIN profiles.permission_groups pg ON pg.id = gur.permission_group_id"+
 			" WHERE gur.user_id = u.id AND gur.deleted_at IS NULL AND gur.role = $"+fmt.Sprint(argIdx)+
-			" AND pg.persona = 'root' AND pg.deleted_at IS NULL)")
+			" AND pg.persona = 'root')")
 		args = append(args, slug)
 		argIdx++
 	}
@@ -342,7 +342,7 @@ func (s *Service) AdminRecoverUser(ctx context.Context, userID string, input Adm
 		return err
 	}
 
-	sessionIDs, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.opts.Issuer})
+	sessionIDs, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		return err
 	}
@@ -386,7 +386,7 @@ func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 		return nil
 	}
 	// Revoke all sessions
-	_ = s.q.SessionsRevokeAllQuiet(ctx, db.SessionsRevokeAllQuietParams{UserID: id, Issuer: s.opts.Issuer})
+	_ = s.q.SessionsRevokeAllQuiet(ctx, db.SessionsRevokeAllQuietParams{UserID: id, Issuer: s.cfg.Token.Issuer})
 	if err := s.q.GroupAssignmentsDeleteByUser(ctx, id); err != nil {
 		return err
 	}

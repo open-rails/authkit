@@ -149,7 +149,7 @@ func (s *Service) ValidateVerificationConfiguration() error {
 	if s == nil {
 		return nil
 	}
-	policy := s.opts.RegistrationVerificationPolicy()
+	policy := s.RegistrationVerificationPolicy()
 	hasVerificationSender := s.email != nil || s.sms != nil
 
 	if policy == RegistrationVerificationRequired && !hasVerificationSender {
@@ -165,11 +165,11 @@ func (s *Service) ValidateVerificationConfiguration() error {
 }
 
 // verificationSendTimeout is the per-send deadline for in-line email/SMS
-// provider calls. Configurable via Options.VerificationSendTimeout; defaults to
+// provider calls. Configurable via Registration.VerificationSendTimeout; defaults to
 // 15s when unset.
 func (s *Service) verificationSendTimeout() time.Duration {
-	if s != nil && s.opts.VerificationSendTimeout > 0 {
-		return s.opts.VerificationSendTimeout
+	if s != nil && s.cfg.Registration.VerificationSendTimeout > 0 {
+		return s.cfg.Registration.VerificationSendTimeout
 	}
 	return 15 * time.Second
 }

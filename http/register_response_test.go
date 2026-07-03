@@ -77,19 +77,12 @@ func newRegistrationTestService(t *testing.T, policy embedded.RegistrationVerifi
 
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := append([]embedded.Option{authcore.WithEphemeralStore(memorystore.NewKV(), authcore.EphemeralMemory)}, coreOpts...)
-	coreSvc := authcore.NewService(embedded.Options{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		AccessTokenDuration:      time.Hour,
-		RegistrationVerification: policy,
-		Environment:              "test",
-	}, ks, opts...)
+	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := append([]embedded.Option{authcore.WithEphemeralStore(memorystore.NewKV())}, coreOpts...)
+	coreSvc := authcore.NewService(embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: policy}, Environment: "test"}, ks, opts...)
 
 	ver := NewVerifier(WithSkew(5 * time.Second))
-	_ = ver.AddIssuer(coreSvc.Options().Issuer, coreSvc.Options().ExpectedAudiences, IssuerOptions{
+	_ = ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)
@@ -211,6 +204,7 @@ func TestAPIHandler_RegisterSeedsPreferredLanguageAndResendPreservesIt(t *testin
 
 func TestAPIHandler_RegisterResendEmailHasPrivatePeerCooldown(t *testing.T) {
 	s, err := NewServer(newServerClient(t, embedded.Config{
+		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},

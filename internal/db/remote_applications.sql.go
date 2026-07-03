@@ -190,7 +190,7 @@ func (q *Queries) RemoteAppAttributeDefsList(ctx context.Context, remoteApplicat
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE issuer = $1 AND deleted_at IS NULL
+WHERE issuer = $1
 `
 
 type RemoteApplicationByIssuerRow struct {
@@ -227,7 +227,7 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 const remoteApplicationBySlug = `-- name: RemoteApplicationBySlug :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE slug = $1 AND deleted_at IS NULL
+WHERE slug = $1
 `
 
 type RemoteApplicationBySlugRow struct {
@@ -345,7 +345,6 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 const remoteApplicationsAll = `-- name: RemoteApplicationsAll :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE deleted_at IS NULL
 ORDER BY slug ASC
 `
 
@@ -396,7 +395,7 @@ func (q *Queries) RemoteApplicationsAll(ctx context.Context) ([]RemoteApplicatio
 const remoteApplicationsEnabled = `-- name: RemoteApplicationsEnabled :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE enabled = true AND deleted_at IS NULL
+WHERE enabled = true
 ORDER BY slug ASC
 `
 

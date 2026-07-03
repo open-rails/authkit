@@ -21,6 +21,7 @@ import (
 // RBAC so authcore.NewFromConfig builds + installs the schema.
 func credTestConfig() embedded.Config {
 	return embedded.Config{
+		Keys:  embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
 		RBAC: []embedded.PersonaDef{{
 			Name: "merchant", Parent: embedded.RootPersona,

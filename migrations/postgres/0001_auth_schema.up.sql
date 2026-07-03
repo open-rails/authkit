@@ -47,6 +47,9 @@ CREATE INDEX IF NOT EXISTS users_admin_last_login_idx
 CREATE INDEX IF NOT EXISTS users_admin_username_idx
   ON profiles.users (username, id)
   WHERE deleted_at IS NULL;
+-- Kept alongside users_email_uidx (#235): this serves the admin-directory
+-- (email, id) sort over live users; the uidx is uniqueness-only (different
+-- key + predicate).
 CREATE INDEX IF NOT EXISTS users_admin_email_idx
   ON profiles.users (email, id)
   WHERE deleted_at IS NULL;
@@ -70,6 +73,7 @@ CREATE TABLE IF NOT EXISTS profiles.user_passwords (
   password_hash text NOT NULL,
   hash_algo text NOT NULL DEFAULT 'argon2id',
   hash_params jsonb,
+  -- password_updated_at is write-only by design: kept as change forensics (#235).
   password_updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -89,17 +93,19 @@ CREATE TABLE IF NOT EXISTS profiles.user_providers (
 -- the (user_id, provider_slug) index below both already cover user_id-only lookups.)
 CREATE INDEX IF NOT EXISTS user_providers_user_id_provider_slug_idx
   ON profiles.user_providers (user_id, provider_slug);
+CREATE INDEX IF NOT EXISTS user_providers_slug_subject_idx
+  ON profiles.user_providers (provider_slug, subject);
 
+-- #235: rpid dropped — PasskeyRPID is single-valued deployment config, so a
+-- handle is per-user, not per-RP. Discoverable login resolves the user by the
+-- asserted handle alone (globally unique).
 CREATE TABLE IF NOT EXISTS profiles.user_passkey_handles (
   user_id uuid PRIMARY KEY REFERENCES profiles.users(id) ON DELETE CASCADE,
-  rpid varchar(512) NOT NULL,
   user_handle bytea NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_passkey_handles_rpid_user
-  ON profiles.user_passkey_handles (rpid, user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_passkey_handles_rpid_handle
-  ON profiles.user_passkey_handles (rpid, user_handle);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_passkey_handles_handle
+  ON profiles.user_passkey_handles (user_handle);
 
 CREATE TABLE IF NOT EXISTS profiles.user_passkeys (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -114,8 +120,7 @@ CREATE TABLE IF NOT EXISTS profiles.user_passkeys (
   authenticator_attachment text NOT NULL DEFAULT '',
   backup_eligible boolean NOT NULL DEFAULT false,
   backup_state boolean NOT NULL DEFAULT false,
-  user_present boolean NOT NULL DEFAULT false,
-  user_verified boolean NOT NULL DEFAULT false,
+  -- #235: user_present/user_verified columns dropped — scans derive both from flags.
   flags bytea NOT NULL DEFAULT '\x00',
   attestation_type text NOT NULL DEFAULT '',
   attestation_fmt text NOT NULL DEFAULT '',
@@ -154,7 +159,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS refresh_sessions_prev_hash_active
   ON profiles.refresh_sessions (previous_token_hash)
   WHERE revoked_at IS NULL AND previous_token_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS refresh_sessions_user_active
-  ON profiles.refresh_sessions (user_id, issuer)
+  ON profiles.refresh_sessions (user_id, issuer, last_used_at)
+  WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS refresh_sessions_family_active
+  ON profiles.refresh_sessions (family_id)
   WHERE revoked_at IS NULL;
 
 -- #125: account-level gate + backup codes only. Per-factor data (method/phone/
@@ -193,23 +201,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_mfa_factors_default
   WHERE is_default = true;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_mfa_factors_user_method
   ON profiles.mfa_factors (user_id, method);
-CREATE INDEX IF NOT EXISTS idx_mfa_factors_user
-  ON profiles.mfa_factors (user_id);
 COMMENT ON TABLE profiles.mfa_factors IS 'Enrolled 2FA factors per user (hard-deleted on removal); backup codes remain user-scoped on mfa_settings';
 COMMENT ON COLUMN profiles.mfa_factors.is_default IS 'Default factor AuthKit challenges first when 2FA is required';
 
-CREATE TABLE IF NOT EXISTS profiles.owner_reserved_names (
-  slug text PRIMARY KEY,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT owner_reserved_names_slug_format_chk CHECK (
-    char_length(slug) BETWEEN 1 AND 63
-    AND slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
-  )
-);
-INSERT INTO profiles.owner_reserved_names (slug)
-VALUES ('admin'), ('superuser'), ('root'), ('sudo')
-ON CONFLICT (slug) DO NOTHING;
+-- #233: owner_reserved_names dropped — the reserved-account guard is
+-- users.metadata->>'reserved' (UserIsReserved); the seeded table was never consulted.
 
 CREATE TABLE IF NOT EXISTS profiles.user_renames (
   id bigserial PRIMARY KEY,
@@ -221,8 +217,6 @@ CREATE TABLE IF NOT EXISTS profiles.user_renames (
     AND from_slug ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'
   )
 );
-CREATE INDEX IF NOT EXISTS user_renames_from_renamed_idx
-  ON profiles.user_renames (from_slug, renamed_at DESC);
 CREATE INDEX IF NOT EXISTS user_renames_user_idx
   ON profiles.user_renames (user_id, renamed_at DESC);
 
@@ -239,16 +233,16 @@ CREATE TABLE IF NOT EXISTS profiles.group_persona_parents (
 COMMENT ON TABLE profiles.group_persona_parents IS
   'Declared containment schema: the single parent persona for each permission-group persona. root is absent.';
 
+-- #234: permission-groups are permanent (no deletion surface) — no deleted_at.
+-- parent_persona denorm dropped; the containment trigger checks the actual
+-- parent's persona against group_persona_parents.
 CREATE TABLE IF NOT EXISTS profiles.permission_groups (
   id uuid PRIMARY KEY DEFAULT uuidv7(),
   persona text NOT NULL,
   parent_id uuid REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
-  parent_persona text,
   instance_slug text,
-  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz,
   CONSTRAINT pg_persona_format_chk CHECK (persona ~ '^[a-z][a-z0-9-]*$'),
   CONSTRAINT pg_instance_slug_format_chk CHECK (
     instance_slug IS NULL OR (
@@ -257,22 +251,21 @@ CREATE TABLE IF NOT EXISTS profiles.permission_groups (
     )
   ),
   CONSTRAINT pg_root_parentless_chk CHECK (
-    (persona = 'root' AND parent_id IS NULL AND parent_persona IS NULL AND instance_slug IS NULL)
-    OR (persona <> 'root' AND parent_id IS NOT NULL AND parent_persona IS NOT NULL AND instance_slug IS NOT NULL)
+    (persona = 'root' AND parent_id IS NULL AND instance_slug IS NULL)
+    OR (persona <> 'root' AND parent_id IS NOT NULL AND instance_slug IS NOT NULL)
   )
 );
 CREATE UNIQUE INDEX IF NOT EXISTS permission_groups_persona_instance_uidx
   ON profiles.permission_groups (persona, instance_slug)
-  WHERE instance_slug IS NOT NULL AND deleted_at IS NULL;
+  WHERE instance_slug IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS permission_groups_singleton_root_uidx
   ON profiles.permission_groups ((persona = 'root'))
-  WHERE persona = 'root' AND deleted_at IS NULL;
+  WHERE persona = 'root';
 CREATE INDEX IF NOT EXISTS permission_groups_parent_idx
   ON profiles.permission_groups (parent_id)
   WHERE parent_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS permission_groups_persona_idx
-  ON profiles.permission_groups (persona)
-  WHERE deleted_at IS NULL;
+  ON profiles.permission_groups (persona);
 COMMENT ON COLUMN profiles.permission_groups.instance_slug IS
   'Lowercase URL-safe slug identifying WHICH instance of the persona (e.g. acme-store for a merchant); the API addressing key. The group id is internal only.';
 
@@ -290,22 +283,18 @@ BEGIN
     RAISE EXCEPTION 'permission_groups.parent_id % does not exist', NEW.parent_id
       USING ERRCODE = 'foreign_key_violation';
   END IF;
-  IF actual_parent_persona <> NEW.parent_persona THEN
-    RAISE EXCEPTION 'permission_groups.parent_persona % does not match parent persona %',
-      NEW.parent_persona, actual_parent_persona USING ERRCODE = 'check_violation';
-  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM profiles.group_persona_parents
-    WHERE persona = NEW.persona AND parent_persona = NEW.parent_persona
+    WHERE persona = NEW.persona AND parent_persona = actual_parent_persona
   ) THEN
     RAISE EXCEPTION 'a % group may not have a % parent',
-      NEW.persona, NEW.parent_persona USING ERRCODE = 'check_violation';
+      NEW.persona, actual_parent_persona USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END;
 $$;
 CREATE TRIGGER permission_group_containment
-  BEFORE INSERT OR UPDATE OF persona, parent_id, parent_persona ON profiles.permission_groups
+  BEFORE INSERT OR UPDATE OF persona, parent_id ON profiles.permission_groups
   FOR EACH ROW EXECUTE FUNCTION profiles.trg_permission_group_containment();
 
 CREATE TABLE IF NOT EXISTS profiles.remote_applications (
@@ -316,10 +305,9 @@ CREATE TABLE IF NOT EXISTS profiles.remote_applications (
   mode text NOT NULL DEFAULT 'jwks',
   public_keys jsonb,
   enabled boolean NOT NULL DEFAULT true,
-  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- #234: no deleted_at — delete is a hard DELETE by design.
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz,
   -- #125: ON DELETE CASCADE — a remote-app belongs to its group (uniform with api_keys).
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   CONSTRAINT remote_applications_slug_format_chk CHECK (
@@ -334,9 +322,6 @@ CREATE TABLE IF NOT EXISTS profiles.remote_applications (
       AND jsonb_typeof(public_keys) = 'array' AND jsonb_array_length(public_keys) > 0)
   )
 );
-CREATE INDEX IF NOT EXISTS remote_applications_enabled_idx
-  ON profiles.remote_applications (enabled)
-  WHERE enabled = true;
 CREATE INDEX IF NOT EXISTS remote_applications_group_idx
   ON profiles.remote_applications (permission_group_id);
 COMMENT ON TABLE profiles.remote_applications IS
@@ -422,13 +407,13 @@ CREATE TABLE IF NOT EXISTS profiles.group_invite_links (
   role text NOT NULL,
   invited_by uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
   code_hash text NOT NULL UNIQUE,
-  uses integer NOT NULL DEFAULT 0,
+  -- #235: single-use marker (was `uses integer CHECK (uses IN (0,1))`).
+  redeemed_at timestamptz,
   expires_at timestamptz,
   revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT gil_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$'),
-  CONSTRAINT gil_single_use_chk CHECK (uses IN (0, 1))
+  CONSTRAINT gil_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 CREATE INDEX IF NOT EXISTS group_invite_links_group_idx
   ON profiles.group_invite_links (permission_group_id)
@@ -453,7 +438,9 @@ CREATE TABLE IF NOT EXISTS profiles.account_registration_invites (
   permission_group_id uuid REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   role text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ari_role_format_chk CHECK (role IS NULL OR role ~ '^[a-z][a-z0-9-]*$'),
+  CONSTRAINT ari_group_role_pairing_chk CHECK ((permission_group_id IS NULL) = (role IS NULL))
 );
 CREATE INDEX IF NOT EXISTS account_registration_invites_email_idx
   ON profiles.account_registration_invites (email, expires_at)
@@ -474,7 +461,8 @@ CREATE TABLE IF NOT EXISTS profiles.group_membership_invites (
   declined_at timestamptz,
   revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT gmi_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
 -- At most one PENDING invite per (group, user, role).
 CREATE UNIQUE INDEX IF NOT EXISTS group_membership_invites_pending_uidx
@@ -497,6 +485,8 @@ CREATE TABLE IF NOT EXISTS profiles.api_keys (
   revoked_at timestamptz,
   role text NOT NULL,
   CONSTRAINT api_keys_name_len_chk CHECK (char_length(name) BETWEEN 1 AND 128),
+  -- role regex deliberately looser than group-role slugs: catalog role names are
+  -- declared in host Go config and may be colon-namespaced (#235).
   CONSTRAINT api_keys_role_format_chk CHECK (
     char_length(role) BETWEEN 1 AND 64
     AND role ~ '^[a-zA-Z0-9:_-]+$'

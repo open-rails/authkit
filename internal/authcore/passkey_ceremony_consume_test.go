@@ -18,7 +18,7 @@ import (
 // enabling assertion/registration replay. With the atomic Consume primitive exactly
 // one consumer may win. No DB needed — the ceremony lives only in the ephemeral store.
 func TestConsumePasskeyCeremony_SingleUseUnderConcurrency(t *testing.T) {
-	svc := NewService(Options{}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	ctx := context.Background()
 
 	const (

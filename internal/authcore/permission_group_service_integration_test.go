@@ -34,7 +34,7 @@ func TestService_PermissionGroupLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
@@ -151,7 +151,7 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("seed: %v", err)

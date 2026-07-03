@@ -190,7 +190,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// Brand-new identity with no existing local account: this is a public
 		// registration path. InviteOnly requires an unbound account invite token
 		// carried from flow start; Open keeps the historical behavior.
-		if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeInviteOnly {
+		if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeInviteOnly {
 			if strings.TrimSpace(email) == "" {
 				registrationDisabled(w)
 				return
@@ -287,7 +287,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 	}
 
 	if sd.UI == "popup" {
-		targetOrigin, ok := originFromBaseURL(s.svc.Options().BaseURL)
+		targetOrigin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
 		if !ok {
 			serverErr(w, ErrInvalidBaseURL)
 			return
@@ -316,13 +316,13 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
-	base := s.svc.Options().BaseURL
+	base := s.svc.Config().Frontend.BaseURL
 	if base == "" {
 		base = "/"
 	}
 	state := r.URL.Query().Get("state")
 	frag := buildAuthResultFragment(token, rt, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
-	target := buildFrontendCallbackURL(base, s.svc.Options().OIDCReturnPath, frag)
+	target := buildFrontendCallbackURL(base, s.svc.Config().Frontend.OIDCReturnPath, frag)
 	http.Redirect(w, r, target, http.StatusFound)
 }
 

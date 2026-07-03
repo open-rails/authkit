@@ -14,8 +14,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 RETURNING id::text, family_id::text;
 
 -- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, family_id::text,
-       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
+SELECT id::text, user_id, family_id::text, auth_methods
 FROM profiles.refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
@@ -46,7 +45,7 @@ WHERE user_id = $1 AND issuer = $2 AND (revoked_at IS NULL);
 
 -- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
-       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
+       auth_methods
 FROM profiles.refresh_sessions
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid
@@ -62,7 +61,7 @@ WHERE id = sqlc.arg(session_id)::uuid
 UPDATE profiles.refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
-      SELECT DISTINCT unnest(COALESCE(auth_methods, '{}'::text[]) || sqlc.arg(auth_methods)::text[])
+      SELECT DISTINCT unnest(auth_methods || sqlc.arg(auth_methods)::text[])
     )
 WHERE id = sqlc.arg(session_id)::uuid
   AND user_id = sqlc.arg(user_id)::uuid

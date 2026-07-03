@@ -227,7 +227,7 @@ func (s *Service) claimBootstrapApply(ctx context.Context, name string) (claimed
 		SELECT
 			(SELECT count(*) FROM profiles.users WHERE deleted_at IS NULL)
 			+
-			(SELECT count(*) FROM profiles.remote_applications WHERE deleted_at IS NULL)
+			(SELECT count(*) FROM profiles.remote_applications)
 	`).Scan(&stateRows); err != nil {
 		return false, false, err
 	}

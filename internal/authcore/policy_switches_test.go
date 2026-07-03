@@ -33,11 +33,10 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
-	opts := svc.Options()
-	if opts.NativeUserRegistrationMode != RegistrationModeOpen {
+	if svc.Config().Registration.NativeUserMode != RegistrationModeOpen {
 		t.Fatalf("NativeUserRegistrationMode should default to open")
 	}
-	if !opts.PublicNativeUserRegistrationEnabled() {
+	if !svc.PublicNativeUserRegistrationEnabled() {
 		t.Fatalf("PublicNativeUserRegistrationEnabled should default to true")
 	}
 }
@@ -49,11 +48,10 @@ func TestPolicySwitches_Plumbed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
-	opts := svc.Options()
-	if opts.NativeUserRegistrationMode != RegistrationModeClosed {
+	if svc.Config().Registration.NativeUserMode != RegistrationModeClosed {
 		t.Fatalf("NativeUserRegistrationMode not plumbed through NewFromConfig")
 	}
-	if opts.PublicNativeUserRegistrationEnabled() {
+	if svc.PublicNativeUserRegistrationEnabled() {
 		t.Fatalf("PublicNativeUserRegistrationEnabled should be false when disabled")
 	}
 }
@@ -82,9 +80,8 @@ func TestPolicySwitches_RegistrationModes(t *testing.T) {
 		RegistrationModeClosed,
 	} {
 		t.Run(string(mode), func(t *testing.T) {
-			svc := NewService(Options{NativeUserRegistrationMode: mode}, Keyset{})
-			got := svc.Options()
-			if got.PublicNativeUserRegistrationEnabled() {
+			svc := NewService(Config{Registration: RegistrationConfig{NativeUserMode: mode}}, Keyset{})
+			if svc.PublicNativeUserRegistrationEnabled() {
 				t.Fatalf("native public registration should be disabled for %q", mode)
 			}
 		})
@@ -114,13 +111,9 @@ func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(Options{
-				Issuer:                     "https://test",
-				NativeUserRegistrationMode: tt.nativeMode,
-			}, Keyset{})
-			opts := svc.Options()
-			if opts.PublicNativeUserRegistrationEnabled() != tt.wantPublicNativeUsers {
-				t.Fatalf("PublicNativeUserRegistrationEnabled=%v, want %v", opts.PublicNativeUserRegistrationEnabled(), tt.wantPublicNativeUsers)
+			svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: tt.nativeMode}}, Keyset{})
+			if svc.PublicNativeUserRegistrationEnabled() != tt.wantPublicNativeUsers {
+				t.Fatalf("PublicNativeUserRegistrationEnabled=%v, want %v", svc.PublicNativeUserRegistrationEnabled(), tt.wantPublicNativeUsers)
 			}
 		})
 	}

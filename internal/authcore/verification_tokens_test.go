@@ -39,17 +39,17 @@ func TestVerificationMessageValidate(t *testing.T) {
 }
 
 func TestValidateVerificationConfiguration(t *testing.T) {
-	required := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{})
+	required := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{})
 	if err := required.ValidateVerificationConfiguration(); err == nil {
 		t.Fatal("expected error when registration verification is required without senders")
 	}
 
-	none := NewService(Options{RegistrationVerification: RegistrationVerificationNone}, Keyset{})
+	none := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationNone}}, Keyset{})
 	if err := none.ValidateVerificationConfiguration(); err != nil {
 		t.Fatalf("unexpected error for none policy: %v", err)
 	}
 
-	optional := NewService(Options{RegistrationVerification: RegistrationVerificationOptional}, Keyset{})
+	optional := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationOptional}}, Keyset{})
 	if err := optional.ValidateVerificationConfiguration(); err != nil {
 		t.Fatalf("unexpected error for optional policy: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestDefaultVerificationTTLs(t *testing.T) {
 }
 
 func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 
 	ctx := context.Background()
 	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "test@example.com", "tester", "argon2id$hash", 0, "")
@@ -103,7 +103,7 @@ func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 }
 
 func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 
 	ctx := context.Background()
 	code, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, "+15551234567", "tester", "argon2id$hash", "")
@@ -131,9 +131,9 @@ func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 // than silently swallowing it (regression for the return-nil bug).
 func TestSendEmailVerificationStoreFailureSurfaces(t *testing.T) {
 	svc := NewService(
-		Options{RegistrationVerification: RegistrationVerificationRequired},
+		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
 		Keyset{},
-		WithEphemeralStore(&failingEphemeralStore{}, EphemeralMemory),
+		WithEphemeralStore(&failingEphemeralStore{}),
 	)
 
 	email := "user@example.test"
@@ -154,9 +154,9 @@ func TestSendEmailVerificationStoreFailureSurfaces(t *testing.T) {
 // than silently swallowing it (regression for the return-nil bug).
 func TestSendPhoneVerificationStoreFailureSurfaces(t *testing.T) {
 	svc := NewService(
-		Options{RegistrationVerification: RegistrationVerificationRequired},
+		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
 		Keyset{},
-		WithEphemeralStore(&failingEphemeralStore{}, EphemeralMemory),
+		WithEphemeralStore(&failingEphemeralStore{}),
 	)
 
 	err := svc.SendPhoneVerificationToUser(context.Background(), "+15551234567", "user-store-fail", 0)

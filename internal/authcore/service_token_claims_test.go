@@ -33,12 +33,7 @@ func newClaimTestService(t *testing.T, orgMode string, coreOpts ...Option) (*Ser
 	signer, err := jwtkit.NewRSASigner(2048, "kid")
 	require.NoError(t, err)
 	ks := Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"kid": signer.PublicKey()}}
-	s := NewService(Options{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"app"},
-		ExpectedAudiences:   []string{"app"},
-		AccessTokenDuration: time.Hour,
-	}, ks, coreOpts...)
+	s := NewService(Config{Token: TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}, AccessTokenDuration: time.Hour}}, ks, coreOpts...)
 	return s, signer.PublicKey()
 }
 

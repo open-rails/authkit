@@ -41,10 +41,7 @@ func writeServiceKeysJSON(t *testing.T, dir, kid string) {
 // TestConfigKeysPathResolvesFile verifies that core.Config.KeysPath overrides
 // the local filesystem key directory and the service signs with that key.
 func TestConfigKeysPathResolvesFile(t *testing.T) {
-	for _, k := range []string{"ACTIVE_KEY_ID", "ACTIVE_PRIVATE_KEY_PEM", "PUBLIC_KEYS", "AUTHKIT_KEYS_PATH"} {
-		t.Setenv(k, "")
-		os.Unsetenv(k)
-	}
+	// #231: no env clearing needed — the library reads no environment variables.
 	dir := t.TempDir()
 	writeServiceKeysJSON(t, dir, "cfg-path-kid")
 

@@ -85,13 +85,12 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		}
 	}
 
-	o := coreSvc.Options()
 	ver := NewVerifier(
 		WithSkew(5*time.Second),
-		WithAPIKeyPrefix(o.APIKeyPrefix),
+		WithAPIKeyPrefix(cfg.APIKeys.Prefix),
 		WithSSRFGuard(),
 	)
-	_ = ver.AddIssuer(o.Issuer, o.ExpectedAudiences, IssuerOptions{
+	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 		IsLocal: true,
 	})

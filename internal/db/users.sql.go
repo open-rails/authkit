@@ -16,9 +16,8 @@ DELETE FROM profiles.group_user_roles
 WHERE user_id = $1::uuid
 `
 
-// #125 D7: pre-delete cleanup for the hard-delete/purge path.
-// group_invites.invited_by is ON DELETE RESTRICT so sent invites must be cleared
-// before the user row is removed.
+// #125 D7: pre-delete cleanup for the hard-delete/purge path (invite tables all
+// CASCADE on invited_by; only group role assignments need an explicit sweep).
 func (q *Queries) GroupAssignmentsDeleteByUser(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, groupAssignmentsDeleteByUser, userID)
 	return err

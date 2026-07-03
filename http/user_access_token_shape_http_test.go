@@ -56,6 +56,7 @@ func TestPasswordLoginAndRefreshMintSlimUserAccessTokens(t *testing.T) {
 	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1 OR username=$2`, email, username)
 
 	cfg := embedded.Config{
+		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},

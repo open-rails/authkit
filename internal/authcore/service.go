@@ -17,75 +17,6 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// Options configures issued tokens and identifiers.
-type Options struct {
-	Issuer               string
-	IssuedAudiences      []string // JWT audiences - tokens issued will contain ALL of these audiences
-	ExpectedAudiences    []string
-	AccessTokenDuration  time.Duration
-	RefreshTokenDuration time.Duration
-	SessionMaxPerUser    int
-	// Optional link building.
-	BaseURL string
-	// OIDCReturnPath is the host-owned frontend route that receives full-page OIDC login results.
-	OIDCReturnPath            string
-	FrontendVerifyPath        string
-	FrontendPasswordResetPath string
-	FrontendPasswordlessPath  string
-	FrontendInvitePath        string
-	PasskeyRPID               string
-	PasskeyRPDisplayName      string
-	PasskeyOrigins            []string
-	PasskeyUserVerification   string
-	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
-	// "profiles". Must match ^[a-z_][a-z0-9_]*$ (max 63 bytes); NewService
-	// panics on an invalid non-empty value because a malformed name would be
-	// spliced into SQL text (see internal/db.ForSchema). Prefer NewFromConfig,
-	// which returns the validation error instead.
-	Schema string
-	// RegistrationVerification controls whether registration verification is disabled,
-	// non-blocking, or required.
-	RegistrationVerification RegistrationVerificationPolicy
-
-	// VerificationSendTimeout bounds each in-line email/SMS provider send
-	// (verification codes, password-reset links, login codes) so a configured
-	// but misconfigured/unreachable provider cannot hang the request that
-	// triggered it (e.g. registration). Empty/<=0 defaults to 15 seconds.
-	VerificationSendTimeout time.Duration
-
-	// NativeUserRegistrationMode controls public native-user self-registration.
-	NativeUserRegistrationMode RegistrationMode
-	// PasswordlessLoginEnabled enables contact-based passwordless sessions.
-	PasswordlessLoginEnabled bool
-	// PasswordlessAutoRegistrationEnabled allows unknown verified contacts to
-	// create no-password users during passwordless confirmation.
-	PasswordlessAutoRegistrationEnabled bool
-
-	// Environment is host-provided runtime mode used for dev/prod behavior checks.
-	Environment string
-	// SolanaNetwork is host-provided chain selector for SIWS flows. SNS resolution is
-	// AuthKit-owned and always-on with a fixed timeout/cache — there is no host override.
-	SolanaNetwork string
-
-	// APIKeyPrefix is the issuing application's brand prefix for generated API
-	// keys (validated lowercase-alnum, 1-16 chars; empty -> bare st_).
-	APIKeyPrefix string
-	// APIKeyMaxTTL caps a minted API key's expiry (0 = no cap).
-	APIKeyMaxTTL time.Duration
-	// TOTPSecretKey encrypts persisted authenticator-app shared secrets.
-	TOTPSecretKey []byte
-	// TwoFactorMode is the account-wide 2FA policy (Disabled/Optional/Required).
-	// Empty is treated as Optional. Mapped from TwoFactorConfig.Mode.
-	TwoFactorMode TwoFactorMode
-	// TwoFactorMethods is the set of enabled second-factor channels. Empty means
-	// all (email/sms/totp). Mapped from TwoFactorConfig.Methods.
-	TwoFactorMethods []TwoFactorMethod
-	// RequireMFAEnrollment forces every user to enroll a second factor: without
-	// usable 2FA, a user cannot establish or refresh a session (returns
-	// ErrTwoFAEnrollmentRequired). Derived from TwoFactorMode == Required.
-	RequireMFAEnrollment bool
-}
-
 // Keyset holds the active signer and the public keys exposed via JWKS.
 type Keyset struct {
 	Active     jwtkit.Signer
@@ -166,7 +97,6 @@ var (
 
 // Service is the core auth service used by HTTP adapters.
 type Service struct {
-	opts              Options
 	keys              Keyset
 	email             EmailSender
 	sms               SMSSender
@@ -181,11 +111,9 @@ type Service struct {
 	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
 	snsCacheTTLOverride time.Duration
 	ephemeralStore      EphemeralStore
-	ephemeralMode       EphemeralMode
-	// cfg is the host Config this Service was built from, retained so the HTTP
-	// transport (client-first NewServer) can read HTTP-layer config that rides in
-	// Config but the engine doesn't consume (OIDC providers/descriptors). Zero
-	// value for NewService-constructed (config-less) services.
+	// cfg is THE configuration (#237): the host Config, normalized exactly once
+	// at construction (normalizeConfig). The engine and the HTTP transport both
+	// read it — there is no parallel flat options struct.
 	cfg            Config
 	verifyWarnOnce sync.Once
 
@@ -222,7 +150,7 @@ func (s *Service) LogSessionCreated(ctx context.Context, userID string, method s
 	}
 	e := AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.opts.Issuer,
+		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      SessionEventCreated,
@@ -240,7 +168,7 @@ func (s *Service) logSessionRevoked(ctx context.Context, userID string, sessionI
 	}
 	e := AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.opts.Issuer,
+		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      SessionEventRevoked,
@@ -259,7 +187,7 @@ func (s *Service) LogPasswordChanged(ctx context.Context, userID string, session
 	}
 	e := AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.opts.Issuer,
+		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      SessionEventPasswordChange,
@@ -279,7 +207,7 @@ func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, method
 	}
 	e := AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.opts.Issuer,
+		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      SessionEventPasswordRecovery,
@@ -299,7 +227,7 @@ func (s *Service) LogSessionFailed(ctx context.Context, userID string, sessionID
 	}
 	e := AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.opts.Issuer,
+		Issuer:     s.cfg.Token.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      SessionEventFailed,

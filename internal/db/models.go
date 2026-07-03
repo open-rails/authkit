@@ -57,7 +57,7 @@ type ProfilesGroupInviteLink struct {
 	Role              string
 	InvitedBy         string
 	CodeHash          string
-	Uses              int32
+	RedeemedAt        *time.Time
 	ExpiresAt         *time.Time
 	RevokedAt         *time.Time
 	CreatedAt         time.Time
@@ -127,23 +127,14 @@ type ProfilesMfaSetting struct {
 	UpdatedAt   time.Time
 }
 
-type ProfilesOwnerReservedName struct {
-	Slug      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
 type ProfilesPermissionGroup struct {
-	ID            string
-	Persona       string
-	ParentID      *string
-	ParentPersona *string
+	ID       string
+	Persona  string
+	ParentID *string
 	// Lowercase URL-safe slug identifying WHICH instance of the persona (e.g. acme-store for a merchant); the API addressing key. The group id is internal only.
 	InstanceSlug *string
-	Metadata     []byte
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-	DeletedAt    *time.Time
 }
 
 type ProfilesRefreshSession struct {
@@ -172,10 +163,8 @@ type ProfilesRemoteApplication struct {
 	Mode       string
 	PublicKeys []byte
 	Enabled    bool
-	Metadata   []byte
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
-	DeletedAt  *time.Time
 	// Required controlling permission-group. Authority comes from group_remote_application_roles and the parent walk.
 	PermissionGroupID string
 }
@@ -231,8 +220,6 @@ type ProfilesUserPasskey struct {
 	AuthenticatorAttachment string
 	BackupEligible          bool
 	BackupState             bool
-	UserPresent             bool
-	UserVerified            bool
 	Flags                   []byte
 	AttestationType         string
 	AttestationFmt          string
@@ -244,7 +231,6 @@ type ProfilesUserPasskey struct {
 
 type ProfilesUserPasskeyHandle struct {
 	UserID     string
-	Rpid       string
 	UserHandle []byte
 	CreatedAt  time.Time
 }

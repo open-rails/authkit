@@ -1,7 +1,6 @@
 package authhttp
 
 import (
-	"errors"
 	"sort"
 	"strings"
 
@@ -93,14 +92,7 @@ func authProviderConfigured(provider authprovider.Provider) bool {
 	if strings.TrimSpace(provider.ClientSecret.Strategy) != "" {
 		return true
 	}
-	secret, err := provider.ClientSecret.ResolveStatic()
-	if err != nil {
-		if errors.Is(err, authprovider.ErrClientSecretEnvEmpty) {
-			return false
-		}
-		return false
-	}
-	return strings.TrimSpace(secret) != ""
+	return provider.ClientSecret.ResolveStatic() != ""
 }
 
 func providerDisplayName(provider authprovider.Provider) string {

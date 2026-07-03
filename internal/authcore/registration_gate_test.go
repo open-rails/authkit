@@ -19,7 +19,7 @@ func TestRegistrationAllowedForEmail(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(string(c.mode), func(t *testing.T) {
-			s := NewService(Options{Issuer: "x", NativeUserRegistrationMode: c.mode}, Keyset{})
+			s := NewService(Config{Token: TokenConfig{Issuer: "x"}, Registration: RegistrationConfig{NativeUserMode: c.mode}}, Keyset{})
 			got, err := s.registrationAllowedForEmail(ctx, "a@b.com")
 			if err != nil {
 				t.Fatalf("err: %v", err)

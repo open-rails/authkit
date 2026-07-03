@@ -15,7 +15,7 @@ import (
 // - entitlements (authoritative short-lived snapshot)
 // Extra claims in `extra` are merged into the token body (e.g., sid).
 func (s *Service) IssueAccessToken(ctx context.Context, userID, email string, extra map[string]any) (token string, expiresAt time.Time, err error) {
-	return s.issueAccessToken(ctx, userID, email, extra, s.opts.AccessTokenDuration)
+	return s.issueAccessToken(ctx, userID, email, extra, s.cfg.Token.AccessTokenDuration)
 }
 
 func (s *Service) Issue2FAEnrollmentToken(ctx context.Context, userID string) (token string, expiresAt time.Time, err error) {
@@ -101,7 +101,7 @@ func (s *Service) issueAccessToken(ctx context.Context, userID, email string, ex
 // path). u must be non-nil.
 func (s *Service) issueAccessTokenForUser(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
 	userID := u.ID
-	base := jwtkit.BaseRegisteredClaims(userID, s.opts.IssuedAudiences, ttl)
+	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
 	// Group/role authority is no longer carried as a token claim: the legacy
 	// `global_roles`/`roles` plane was hard-cut in favor of the permission-group
@@ -123,7 +123,7 @@ func (s *Service) issueAccessTokenForUser(ctx context.Context, u *User, mfa *MFA
 	}
 
 	claims := map[string]any{
-		"iss":          s.opts.Issuer,
+		"iss":          s.cfg.Token.Issuer,
 		"sub":          base.Subject,
 		"aud":          base.Audience,
 		"iat":          base.IssuedAt.Time.Unix(),

@@ -34,21 +34,11 @@ func writeKeysJSON(t *testing.T, dir, kid string) {
 	}
 }
 
-// clearKeyEnv unsets the key-related env vars and ENV for the duration of a test.
-func clearKeyEnv(t *testing.T) {
-	t.Helper()
-	for _, k := range []string{"ACTIVE_KEY_ID", "ACTIVE_PRIVATE_KEY_PEM", "PUBLIC_KEYS", "ENV", "APP_ENV", "ENVIRONMENT"} {
-		t.Setenv(k, "")
-		os.Unsetenv(k)
-	}
-}
-
-func TestNewAutoKeySourceWithPathResolvesFile(t *testing.T) {
-	clearKeyEnv(t)
+func TestResolveKeySourceResolvesFile(t *testing.T) {
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "file-kid-1")
 
-	ks, err := NewAutoKeySourceWithPath(dir)
+	ks, err := ResolveKeySource(dir, false)
 	if err != nil {
 		t.Fatalf("resolve from path: %v", err)
 	}
@@ -61,8 +51,7 @@ func TestNewAutoKeySourceWithPathResolvesFile(t *testing.T) {
 }
 
 func TestFileKeySourceMissingReturnsNil(t *testing.T) {
-	clearKeyEnv(t)
-	ks, err := fileKeySource(filepath.Join(t.TempDir(), "does-not-exist"))
+	ks, err := tryLoadFromFilesystem(filepath.Join(t.TempDir(), "does-not-exist"))
 	if err != nil {
 		t.Fatalf("missing dir should not error: %v", err)
 	}
@@ -71,46 +60,44 @@ func TestFileKeySourceMissingReturnsNil(t *testing.T) {
 	}
 }
 
-func TestEnvPrecedenceOverFile(t *testing.T) {
-	clearKeyEnv(t)
-	dir := t.TempDir()
-	writeKeysJSON(t, dir, "file-kid")
-
-	// Env key wins over the file key.
-	envSigner, err := NewRSASigner(2048, "env-kid")
+func TestNewStaticKeySourceFromPEM(t *testing.T) {
+	signer, err := NewRSASigner(2048, "static-kid")
 	if err != nil {
-		t.Fatalf("env signer: %v", err)
+		t.Fatalf("signer: %v", err)
 	}
-	envPEM := pemEncode("RSA PRIVATE KEY", x509MarshalPKCS1PrivateKey(envSigner.PrivateKey()))
-	t.Setenv("ACTIVE_KEY_ID", "env-kid")
-	t.Setenv("ACTIVE_PRIVATE_KEY_PEM", string(envPEM))
+	privPEM := pemEncode("RSA PRIVATE KEY", x509MarshalPKCS1PrivateKey(signer.PrivateKey()))
 
-	ks, err := NewAutoKeySourceWithPath(dir)
+	ks, err := NewStaticKeySourceFromPEM("static-kid", string(privPEM), nil)
 	if err != nil {
-		t.Fatalf("resolve: %v", err)
+		t.Fatalf("build: %v", err)
 	}
-	if got := ks.ActiveSigner().KID(); got != "env-kid" {
-		t.Fatalf("active kid = %q, want env-kid (env must win over file)", got)
+	if got := ks.ActiveSigner().KID(); got != "static-kid" {
+		t.Fatalf("active kid = %q, want static-kid", got)
+	}
+
+	// Both halves are required — mismatched material is a hard error.
+	if _, err := NewStaticKeySourceFromPEM("static-kid", "", nil); err == nil {
+		t.Fatal("expected error for missing private key PEM")
+	}
+	if _, err := NewStaticKeySourceFromPEM("", string(privPEM), nil); err == nil {
+		t.Fatal("expected error for missing active key ID")
 	}
 }
 
-func TestProdHardFailsWithoutKey(t *testing.T) {
-	clearKeyEnv(t)
-	t.Setenv("ENV", "production")
-	// Point at an empty dir so the file source falls through, and prod must NOT
-	// auto-generate.
-	_, err := NewAutoKeySourceWithPath(filepath.Join(t.TempDir(), "empty"))
+func TestResolveKeySourceFailsClosedWithoutOptIn(t *testing.T) {
+	// Empty dir, no ephemeral opt-in => hard error, never auto-generate (#231).
+	_, err := ResolveKeySource(filepath.Join(t.TempDir(), "empty"), false)
 	if err == nil {
-		t.Fatal("expected hard-fail in production with no key, got nil error")
+		t.Fatal("expected hard-fail with no key and no ephemeral opt-in, got nil error")
 	}
 }
 
-func TestNonProdGeneratesFallback(t *testing.T) {
-	clearKeyEnv(t)
-	// No env, empty file dir, non-prod => dev-gen succeeds.
-	ks, err := NewAutoKeySourceWithPath(filepath.Join(t.TempDir(), "empty"))
+func TestResolveKeySourceGeneratesWithOptIn(t *testing.T) {
+	// Generated keys persist under .runtime/authkit relative to CWD; isolate.
+	t.Chdir(t.TempDir())
+	ks, err := ResolveKeySource(filepath.Join(t.TempDir(), "empty"), true)
 	if err != nil {
-		t.Fatalf("non-prod should generate dev keys: %v", err)
+		t.Fatalf("explicit ephemeral opt-in should generate dev keys: %v", err)
 	}
 	if ks.ActiveSigner() == nil {
 		t.Fatal("expected a generated active signer")
@@ -134,10 +121,9 @@ func TestGeneratedKeySourceInDirPersists(t *testing.T) {
 }
 
 func TestSignerSignVerifyRoundTrip(t *testing.T) {
-	clearKeyEnv(t)
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "rt-kid")
-	ks, err := NewAutoKeySourceWithPath(dir)
+	ks, err := ResolveKeySource(dir, false)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}

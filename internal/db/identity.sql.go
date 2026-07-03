@@ -9,64 +9,6 @@ import (
 	"context"
 )
 
-const identityForwardUsername = `-- name: IdentityForwardUsername :one
-
-SELECT u.username
-FROM profiles.user_renames r
-JOIN profiles.users u ON u.id = r.user_id AND u.deleted_at IS NULL
-WHERE r.from_slug = $1
-ORDER BY r.renamed_at DESC
-LIMIT 1
-`
-
-// Rename-history forwarding (identity/renames.go).
-func (q *Queries) IdentityForwardUsername(ctx context.Context, fromSlug string) (*string, error) {
-	row := q.db.QueryRow(ctx, identityForwardUsername, fromSlug)
-	var username *string
-	err := row.Scan(&username)
-	return username, err
-}
-
-const identityUpdateUserUsername = `-- name: IdentityUpdateUserUsername :exec
-UPDATE profiles.users SET username = $2, updated_at = now() WHERE id = $1
-`
-
-type IdentityUpdateUserUsernameParams struct {
-	ID       string
-	Username *string
-}
-
-func (q *Queries) IdentityUpdateUserUsername(ctx context.Context, arg IdentityUpdateUserUsernameParams) error {
-	_, err := q.db.Exec(ctx, identityUpdateUserUsername, arg.ID, arg.Username)
-	return err
-}
-
-const identityUserByID = `-- name: IdentityUserByID :one
-SELECT id, email, username, email_verified
-FROM profiles.users
-WHERE id = $1
-LIMIT 1
-`
-
-type IdentityUserByIDRow struct {
-	ID            string
-	Email         *string
-	Username      *string
-	EmailVerified bool
-}
-
-func (q *Queries) IdentityUserByID(ctx context.Context, id string) (IdentityUserByIDRow, error) {
-	row := q.db.QueryRow(ctx, identityUserByID, id)
-	var i IdentityUserByIDRow
-	err := row.Scan(
-		&i.ID,
-		&i.Email,
-		&i.Username,
-		&i.EmailVerified,
-	)
-	return i, err
-}
-
 const identityUsersByIDs = `-- name: IdentityUsersByIDs :many
 
 SELECT id, username, email
@@ -80,7 +22,7 @@ type IdentityUsersByIDsRow struct {
 	Email    *string
 }
 
-// Identity store queries (identity package).
+// Batch user projections (core user enrichment paths).
 func (q *Queries) IdentityUsersByIDs(ctx context.Context, ids []string) ([]IdentityUsersByIDsRow, error) {
 	rows, err := q.db.Query(ctx, identityUsersByIDs, ids)
 	if err != nil {

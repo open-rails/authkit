@@ -558,8 +558,10 @@ func (s *Service) groupInviteLinkList(w http.ResponseWriter, r *http.Request, pe
 			"id":         l.ID,
 			"role":       l.Role,
 			"invited_by": l.InvitedBy,
-			"uses":       l.Uses,
 			"created_at": l.CreatedAt,
+		}
+		if l.RedeemedAt != nil {
+			m["redeemed_at"] = l.RedeemedAt
 		}
 		if l.ExpiresAt != nil {
 			m["expires_at"] = l.ExpiresAt

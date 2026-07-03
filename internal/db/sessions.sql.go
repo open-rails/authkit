@@ -11,8 +11,7 @@ import (
 )
 
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
-SELECT id::text, user_id, family_id::text,
-       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
+SELECT id::text, user_id, family_id::text, auth_methods
 FROM profiles.refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
@@ -84,7 +83,7 @@ func (q *Queries) SessionCreateLock(ctx context.Context, key string) error {
 
 const sessionFreshSince = `-- name: SessionFreshSince :one
 SELECT COALESCE(last_authenticated_at, created_at)::timestamptz AS fresh_since,
-       COALESCE(auth_methods, ARRAY['pwd']::text[])::text[] AS auth_methods
+       auth_methods
 FROM profiles.refresh_sessions
 WHERE id = $1::uuid
   AND user_id = $2::uuid
@@ -174,7 +173,7 @@ const sessionMarkAuthenticated = `-- name: SessionMarkAuthenticated :execrows
 UPDATE profiles.refresh_sessions
 SET last_authenticated_at = now(),
     auth_methods = ARRAY(
-      SELECT DISTINCT unnest(COALESCE(auth_methods, '{}'::text[]) || $1::text[])
+      SELECT DISTINCT unnest(auth_methods || $1::text[])
     )
 WHERE id = $2::uuid
   AND user_id = $3::uuid

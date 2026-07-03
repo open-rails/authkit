@@ -11,7 +11,7 @@ func TestVerificationSendTimeout_DefaultAndConfigurable(t *testing.T) {
 	if got := (&Service{}).verificationSendTimeout(); got != 15*time.Second {
 		t.Fatalf("default timeout = %v, want 15s", got)
 	}
-	s := &Service{opts: Options{VerificationSendTimeout: 2 * time.Second}}
+	s := &Service{cfg: Config{Registration: RegistrationConfig{VerificationSendTimeout: 2 * time.Second}}}
 	if got := s.verificationSendTimeout(); got != 2*time.Second {
 		t.Fatalf("configured timeout = %v, want 2s", got)
 	}
@@ -25,7 +25,7 @@ func TestVerificationSendTimeout_DefaultAndConfigurable(t *testing.T) {
 // provider whose send blocks: withSendTimeout must return promptly (around the
 // timeout) with context.DeadlineExceeded instead of hanging the request.
 func TestWithSendTimeout_BoundsBlockingSend(t *testing.T) {
-	s := &Service{opts: Options{VerificationSendTimeout: 50 * time.Millisecond}}
+	s := &Service{cfg: Config{Registration: RegistrationConfig{VerificationSendTimeout: 50 * time.Millisecond}}}
 	start := time.Now()
 	err := s.withSendTimeout(context.Background(), func(ctx context.Context) error {
 		<-ctx.Done() // block until the bounded context cancels (dead provider)
@@ -44,7 +44,7 @@ func TestWithSendTimeout_BoundsBlockingSend(t *testing.T) {
 // stays nil and a provider error propagates unchanged (so callers can still map
 // it to ErrEmailDeliveryFailed / ErrSMSDeliveryFailed).
 func TestWithSendTimeout_PassThrough(t *testing.T) {
-	s := &Service{opts: Options{VerificationSendTimeout: time.Second}}
+	s := &Service{cfg: Config{Registration: RegistrationConfig{VerificationSendTimeout: time.Second}}}
 	if err := s.withSendTimeout(context.Background(), func(ctx context.Context) error { return nil }); err != nil {
 		t.Fatalf("success send returned %v", err)
 	}

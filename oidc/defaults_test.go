@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"testing"
 	"time"
 
@@ -63,22 +62,6 @@ func TestNewManagerFromProvidersAcceptsCustomOAuth2Descriptor(t *testing.T) {
 		if scope == "openid" {
 			t.Fatalf("custom OAuth2 provider must not force openid: %v", rp.Scopes)
 		}
-	}
-}
-
-func TestRPClientFromProviderSurfacesResolveStaticError(t *testing.T) {
-	const key = "AUTHKIT_RP_CLIENT_ENV_EMPTY"
-	t.Setenv(key, "")
-
-	_, err := RPClientFromProvider(authprovider.Provider{
-		Name:         "google",
-		Kind:         authprovider.KindOIDC,
-		Issuer:       "https://accounts.google.com",
-		ClientID:     "google-client",
-		ClientSecret: authprovider.ClientSecret{Env: key},
-	})
-	if !errors.Is(err, authprovider.ErrClientSecretEnvEmpty) {
-		t.Fatalf("expected ErrClientSecretEnvEmpty, got %v", err)
 	}
 }
 

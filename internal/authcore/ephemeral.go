@@ -10,13 +10,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type EphemeralMode string
-
-const (
-	EphemeralMemory EphemeralMode = "memory"
-	EphemeralRedis  EphemeralMode = "redis"
-)
-
 // EphemeralStore is a minimal key-value interface used for short-lived auth state.
 // Implementations should honor TTL on Set and treat missing keys as (found=false, err=nil).
 type EphemeralStore interface {
@@ -33,26 +26,12 @@ type EphemeralStore interface {
 	Consume(ctx context.Context, key string) ([]byte, bool, error)
 }
 
-func (s *Service) EphemeralMode() EphemeralMode {
-	if s == nil {
-		return EphemeralMemory
-	}
-	if s.ephemeralMode == "" {
-		return EphemeralMemory
-	}
-	return s.ephemeralMode
-}
-
-// IsDevEnvironment reports whether a host-provided environment string is non-production.
-func IsDevEnvironment(environment string) bool {
-	return isDevEnvironment(environment)
-}
-
 // EphemeralRedisClient returns the *redis.Client backing the engine's ephemeral
 // store when it is Redis-backed (configured via embedded.WithRedis), or nil for a
 // memory store. The HTTP transport reuses it so a host that already wired Redis on
 // the engine doesn't also have to pass authhttp.WithRedis — one Redis client, no
-// split-brain ephemeral state (authkit #210).
+// split-brain ephemeral state (authkit #210). The type assertion is also THE
+// redis-vs-memory discriminator (#236 removed the EphemeralMode string).
 func (s *Service) EphemeralRedisClient() *redis.Client {
 	if s == nil {
 		return nil

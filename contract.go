@@ -168,11 +168,13 @@ type GroupInviteLink struct {
 	PermissionGroupID string
 	Role              string
 	InvitedBy         string
-	Uses              int
-	ExpiresAt         *time.Time
-	RevokedAt         *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// RedeemedAt is non-nil once the single-use link has been redeemed (#235;
+	// replaces the former Uses 0/1 counter).
+	RedeemedAt *time.Time
+	ExpiresAt  *time.Time
+	RevokedAt  *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 type CreateGroupInviteLinkRequest struct {

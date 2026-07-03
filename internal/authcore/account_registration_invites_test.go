@@ -13,11 +13,7 @@ import (
 func TestAccountRegistrationInvite_AllowsInviteOnlyRegistration(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{
-		Issuer:                     "https://test",
-		NativeUserRegistrationMode: RegistrationModeInviteOnly,
-		RegistrationVerification:   RegistrationVerificationNone,
-	}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
 	rootID, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)
@@ -129,11 +125,7 @@ func TestAccountRegistrationInvite_RegisterPlusJoin(t *testing.T) {
 func TestAccountRegistrationInvite_UnboundByEmail(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{
-		Issuer:                     "https://test",
-		NativeUserRegistrationMode: RegistrationModeInviteOnly,
-		RegistrationVerification:   RegistrationVerificationNone,
-	}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeInviteOnly, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
 	rootID, err := svc.EnsureRootGroup(ctx)
 	if err != nil {
 		t.Fatalf("EnsureRootGroup: %v", err)

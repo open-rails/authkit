@@ -55,7 +55,7 @@ func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role st
 	}
 	var persona string
 	q := db.ForSchema(s.pg, s.dbSchema())
-	if err := q.QueryRow(ctx, `SELECT persona FROM profiles.permission_groups WHERE id = $1::uuid AND deleted_at IS NULL`, gid).Scan(&persona); err != nil {
+	if err := q.QueryRow(ctx, `SELECT persona FROM profiles.permission_groups WHERE id = $1::uuid`, gid).Scan(&persona); err != nil {
 		return err
 	}
 	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {

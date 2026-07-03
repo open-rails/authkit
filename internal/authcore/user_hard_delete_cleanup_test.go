@@ -28,7 +28,7 @@ func TestAdminDeleteUserClearsGroupData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {

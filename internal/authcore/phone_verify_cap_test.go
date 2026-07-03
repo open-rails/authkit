@@ -13,9 +13,9 @@ import (
 
 func newPhoneVerifyTestService() *Service {
 	return NewService(
-		Options{RegistrationVerification: RegistrationVerificationRequired},
+		Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}},
 		Keyset{},
-		WithEphemeralStore(memorystore.NewKV(), EphemeralMemory),
+		WithEphemeralStore(memorystore.NewKV()),
 	)
 }
 

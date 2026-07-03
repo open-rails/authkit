@@ -59,7 +59,6 @@ func keysOf(m map[string]crypto.PublicKey) []string {
 
 // Reload() picks up a rotated active key without a restart.
 func TestReloadableReloadSwapsActiveKey(t *testing.T) {
-	clearKeyEnv(t)
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "kid-A")
 
@@ -84,7 +83,6 @@ func TestReloadableReloadSwapsActiveKey(t *testing.T) {
 // A malformed / partial keys.json must error AND keep the last-good keystore —
 // a bad Vault render never bricks signing.
 func TestReloadableKeepsOldOnMalformed(t *testing.T) {
-	clearKeyEnv(t)
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "kid-good")
 
@@ -120,7 +118,6 @@ func TestReloadableKeepsOldOnMalformed(t *testing.T) {
 
 // The background poller swaps the key in after the file changes.
 func TestReloadablePollerPicksUpChange(t *testing.T) {
-	clearKeyEnv(t)
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "kid-1")
 
@@ -151,7 +148,6 @@ func TestReloadablePollerPicksUpChange(t *testing.T) {
 // After rotation the retired key stays in JWKS so ≤TTL in-flight tokens still
 // verify, while new tokens are signed by (and verify against) the new key.
 func TestReloadableRetainsRetiredPublicKey(t *testing.T) {
-	clearKeyEnv(t)
 	dir := t.TempDir()
 	oldPubPEM := writeKeysJSONWithRetired(t, dir, "kid-old", nil)
 

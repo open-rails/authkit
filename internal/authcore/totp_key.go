@@ -8,16 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
 // TOTP secret-encryption key as first-class vault key material (#148). The key
-// lives next to the JWT signing keys: <Keys.Path>/totp.key (Keys.Path defaults to
-// AUTHKIT_KEYS_PATH, then /vault/auth — identical resolution to keys.json). The
-// file holds the AES key encoded as base64 or hex (raw bytes also accepted),
-// decoding to exactly 16, 24, or 32 bytes (AES-128/192/256). Hosts do not load or
-// pass the secret manually on the normal embedded path; the explicit
+// lives next to the JWT signing keys: <Keys.Path>/totp.key (empty Keys.Path
+// defaults to /vault/auth — identical resolution to keys.json; no env fallback,
+// #231). The file holds the AES key encoded as base64 or hex (raw bytes also
+// accepted), decoding to exactly 16, 24, or 32 bytes (AES-128/192/256). Hosts do
+// not load or pass the secret manually on the normal embedded path; the explicit
 // TwoFactorConfig.TOTPSecretKey []byte is an override for tests/custom key
-// management and wins over the file.
+// management and wins over the file. Wired into NewFromConfig (#232).
 const totpKeyFilename = "totp.key"
 
 func validTOTPKeyLen(n int) bool { return n == 16 || n == 24 || n == 32 }
@@ -60,15 +62,25 @@ func resolveTOTPSecretKey(cfg Config) ([]byte, error) {
 	return key, nil
 }
 
+// twoFactorMethodListed mirrors twoFactorMethodConfigured for construction-time
+// checks: empty Methods means all three are offered.
+func twoFactorMethodListed(methods []TwoFactorMethod, m TwoFactorMethod) bool {
+	if len(methods) == 0 {
+		return true
+	}
+	for _, x := range methods {
+		if x == m {
+			return true
+		}
+	}
+	return false
+}
+
 func totpKeysDir(cfg Config) string {
-	p := strings.TrimSpace(cfg.Keys.Path)
-	if p == "" {
-		p = strings.TrimSpace(os.Getenv("AUTHKIT_KEYS_PATH"))
+	if p := strings.TrimSpace(cfg.Keys.Path); p != "" {
+		return p
 	}
-	if p == "" {
-		p = "/vault/auth"
-	}
-	return p
+	return jwtkit.DefaultAuthKeysPath
 }
 
 // decodeTOTPKeyBytes accepts the key as base64 (std/url, padded or not), hex, or

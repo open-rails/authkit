@@ -138,19 +138,19 @@ func TestPasskeyManagementHTTPIntegration(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 
 	_, err = pool.Exec(ctx, `
-		INSERT INTO profiles.user_passkey_handles (user_id, rpid, user_handle)
-		VALUES ($1::uuid, 'example.com', $2)
+		INSERT INTO profiles.user_passkey_handles (user_id, user_handle)
+		VALUES ($1::uuid, $2)
 	`, user.ID, []byte("handle"))
 	require.NoError(t, err)
 	var passkeyID string
 	err = pool.QueryRow(ctx, `
 		INSERT INTO profiles.user_passkeys (
 			user_id, rpid, credential_id, public_key, sign_count, clone_warning, transports,
-			authenticator_attachment, backup_eligible, backup_state, user_present, user_verified,
+			authenticator_attachment, backup_eligible, backup_state,
 			flags, attestation_type, attestation_fmt, label
 		) VALUES (
 			$1::uuid, 'example.com', $2, $3, 0, false, ARRAY['internal']::text[],
-			'platform', true, true, true, true, $4, 'none', 'none', 'old'
+			'platform', true, true, $4, 'none', 'none', 'old'
 		)
 		RETURNING id
 	`, user.ID, []byte("credential-id"), []byte("public-key"), []byte{0x1d}).Scan(&passkeyID)

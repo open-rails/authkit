@@ -47,7 +47,7 @@ func (s *Service) providerCount(t *testing.T, ctx context.Context, userID string
 func TestUnlinkProviderUnlessLast_Guard(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, false, "google")
 
 	removed, err := svc.UnlinkProviderUnlessLast(ctx, uid, "google")
@@ -67,7 +67,7 @@ func TestUnlinkProviderUnlessLast_Guard(t *testing.T) {
 func TestUnlinkProviderUnlessLast_Allowed(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, true, "google")
 
 	removed, err := svc.UnlinkProviderUnlessLast(ctx, uid, "google")
@@ -85,7 +85,7 @@ func TestUnlinkProviderUnlessLast_Allowed(t *testing.T) {
 func TestUnlinkProviderUnlessLast_ConcurrentNeverZero(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := mkUnlinkUser(t, ctx, svc, false, "google", "github")
 
 	var wg sync.WaitGroup

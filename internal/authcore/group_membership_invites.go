@@ -101,7 +101,7 @@ func (s *Service) ListPendingGroupMembershipInvites(ctx context.Context, userID 
 		   JOIN profiles.permission_groups g ON g.id = i.permission_group_id
 		  WHERE i.user_id = $1::uuid
 		    AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.revoked_at IS NULL
-		    AND i.expires_at > now() AND g.deleted_at IS NULL
+		    AND i.expires_at > now()
 		  ORDER BY i.created_at DESC`, userID)
 	if err != nil {
 		return nil, err

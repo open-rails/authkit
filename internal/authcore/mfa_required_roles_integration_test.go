@@ -30,7 +30,7 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)
@@ -75,7 +75,8 @@ func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	clean := func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invites`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_membership_invites`)
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_invite_links`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_remote_application_roles`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.group_user_roles`)
 		_, _ = pool.Exec(ctx, `DELETE FROM profiles.permission_groups`)
@@ -91,7 +92,7 @@ func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)
@@ -144,13 +145,13 @@ func TestRequireMFAEnrollmentForcesEnrollment(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.refresh_sessions WHERE user_id=$1::uuid`, user) })
 
 	// Default policy: a user without 2FA can establish a session.
-	lenient := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	lenient := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	if _, _, _, err := lenient.IssueRefreshSession(ctx, user, "test", nil); err != nil {
 		t.Fatalf("default policy should allow a no-2FA session: %v", err)
 	}
 
 	// RequireMFAEnrollment: the same user is blocked until they enroll 2FA.
-	strict := NewService(Options{Issuer: "https://test", RequireMFAEnrollment: true}, Keyset{}, WithPostgres(pool))
+	strict := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorRequired}}, Keyset{}, WithPostgres(pool))
 	if _, _, _, err := strict.IssueRefreshSession(ctx, user, "test", nil); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
 		t.Fatalf("RequireMFAEnrollment without 2FA = %v, want ErrTwoFAEnrollmentRequired", err)
 	}

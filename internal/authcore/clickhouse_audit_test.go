@@ -40,7 +40,7 @@ func testClickHouse(t *testing.T) clickhouse.Conn {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	// Single-node render of migrations/clickhouse/001_auth_analytics.up.sql
+	// Single-node render of migrations/clickhouse/0001_auth_analytics.up.sql
 	// (no {{ON_CLUSTER}} / Replicated engine): same columns + ORDER BY.
 	require.NoError(t, conn.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS user_auth_session_events (

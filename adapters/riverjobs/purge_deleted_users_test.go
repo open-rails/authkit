@@ -14,7 +14,7 @@ import (
 
 // testPG mirrors core's DB-backed test gating: it returns a pool against
 // AUTHKIT_TEST_DATABASE_URL, or skips. The schema in
-// migrations/postgres/001_auth_schema.up.sql must already be applied.
+// migrations/postgres/0001_auth_schema.up.sql must already be applied.
 func testPG(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")

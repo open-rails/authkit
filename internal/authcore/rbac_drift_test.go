@@ -10,7 +10,7 @@ import (
 func TestRBACDriftReportCountsOrphanedAuthorityRows(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	gs, err := BuildSchema(IntrinsicRootPersona(RoleDef{Name: "viewer"}))
 	if err != nil {
 		t.Fatalf("schema: %v", err)

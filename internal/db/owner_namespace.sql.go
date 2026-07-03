@@ -9,66 +9,8 @@ import (
 	"context"
 )
 
-const ownerReservedNameDelete = `-- name: OwnerReservedNameDelete :execrows
-DELETE FROM profiles.owner_reserved_names WHERE slug = $1
-`
-
-func (q *Queries) OwnerReservedNameDelete(ctx context.Context, slug string) (int64, error) {
-	result, err := q.db.Exec(ctx, ownerReservedNameDelete, slug)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const ownerReservedNameExists = `-- name: OwnerReservedNameExists :one
-
-SELECT EXISTS(
-  SELECT 1 FROM profiles.owner_reserved_names WHERE slug = $1
-)
-`
-
-// Owner-namespace queries (core/service_owner_namespace*.go, core/owner_namespace_lookup.go).
-//
-// Permission groups own group-scoped routing now. Only the user/owner-reserved
-// name namespace queries remain here.
-func (q *Queries) OwnerReservedNameExists(ctx context.Context, slug string) (bool, error) {
-	row := q.db.QueryRow(ctx, ownerReservedNameExists, slug)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
-const ownerReservedNameUpsert = `-- name: OwnerReservedNameUpsert :exec
-INSERT INTO profiles.owner_reserved_names (slug)
-VALUES ($1)
-ON CONFLICT (slug) DO UPDATE SET updated_at = now()
-`
-
-func (q *Queries) OwnerReservedNameUpsert(ctx context.Context, slug string) error {
-	_, err := q.db.Exec(ctx, ownerReservedNameUpsert, slug)
-	return err
-}
-
-const userBySlug = `-- name: UserBySlug :one
-SELECT id::text, username::text
-FROM profiles.users
-WHERE username = $1 AND deleted_at IS NULL
-`
-
-type UserBySlugRow struct {
-	ID       string
-	Username string
-}
-
-func (q *Queries) UserBySlug(ctx context.Context, username *string) (UserBySlugRow, error) {
-	row := q.db.QueryRow(ctx, userBySlug, username)
-	var i UserBySlugRow
-	err := row.Scan(&i.ID, &i.Username)
-	return i, err
-}
-
 const userIsReserved = `-- name: UserIsReserved :one
+
 SELECT (CASE
   WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
   THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
@@ -78,6 +20,10 @@ FROM profiles.users
 WHERE id = $1::uuid
 `
 
+// Owner-namespace queries (core/service_owner_namespace*.go, core/owner_namespace_lookup.go).
+//
+// Permission groups own group-scoped routing now. The reserved-account guard is
+// users.metadata->>'reserved' (UserIsReserved); slug aliases come from user_renames.
 func (q *Queries) UserIsReserved(ctx context.Context, id string) (bool, error) {
 	row := q.db.QueryRow(ctx, userIsReserved, id)
 	var reserved bool

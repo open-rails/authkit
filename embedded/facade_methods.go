@@ -169,10 +169,6 @@ func (s *Client) EntitlementsProvider() EntitlementsProvider {
 	return s.impl.EntitlementsProvider()
 }
 
-func (s *Client) EphemeralMode() EphemeralMode {
-	return s.impl.EphemeralMode()
-}
-
 func (s *Client) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error) {
 	return s.impl.UsersByIDs(ctx, ids)
 }
@@ -301,8 +297,9 @@ func (s *Client) MintServiceJWT(ctx context.Context, opts authkit.ServiceJWTMint
 	return s.impl.MintServiceJWT(ctx, opts)
 }
 
-func (s *Client) Options() Options {
-	return s.impl.Options()
+// Config returns the normalized host Config the engine was built from (#237).
+func (s *Client) Config() Config {
+	return s.impl.Config()
 }
 
 func (s *Client) Postgres() *pgxpool.Pool {

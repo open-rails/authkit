@@ -2,7 +2,6 @@ package oidckit
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	"github.com/open-rails/authkit/authprovider"
@@ -33,10 +32,7 @@ func NewManagerFromProviders(providers map[string]authprovider.Provider) *Manage
 }
 
 func RPClientFromProvider(provider authprovider.Provider) (RPClient, error) {
-	secret, err := provider.ClientSecret.ResolveStatic()
-	if err != nil {
-		return RPClient{}, err
-	}
+	secret := provider.ClientSecret.ResolveStatic()
 	client := RPClient{
 		Issuer:               strings.TrimSpace(provider.Issuer),
 		ClientID:             strings.TrimSpace(provider.ClientID),
@@ -67,10 +63,9 @@ func appleJWTSecretProvider(provider authprovider.Provider) (func(context.Contex
 	if spec == nil {
 		spec = &authprovider.AppleJWTSecret{}
 	}
+	// Explicit PEM only — no env-var indirection (#231): hosts resolve the key
+	// at their own boundary and pass AppleJWTSecret.PrivateKeyPEM.
 	privateKey := append([]byte(nil), spec.PrivateKeyPEM...)
-	if len(privateKey) == 0 && strings.TrimSpace(spec.PrivateKeyEnv) != "" {
-		privateKey = []byte(os.Getenv(strings.TrimSpace(spec.PrivateKeyEnv)))
-	}
 	return NewAppleClientSecretProvider(AppleSecretConfig{
 		TeamID:        spec.TeamID,
 		KeyID:         spec.KeyID,

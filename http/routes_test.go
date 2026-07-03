@@ -111,9 +111,11 @@ func TestPermissionGroupDiscoveryRoutesAreConfigAware(t *testing.T) {
 }
 
 func TestPasskeyRoutesGatedOnPasskeyConfig(t *testing.T) {
-	// No PasskeyConfig (RPID unset): the /passkeys/* routes are not mounted, so
-	// the embedder never exposes WebAuthn endpoints that can only fail.
-	off := newTestService(t)
+	// No passkey RP identity: the /passkeys/* routes are not mounted, so the
+	// embedder never exposes WebAuthn endpoints that can only fail. RPID derives
+	// from the BaseURL origin (#237: one normalization, host semantics), so the
+	// off case needs a service with NO base origin — a non-URL issuer.
+	off := newTestServiceNoBaseOrigin(t)
 	require.False(t, off.svc.PasskeysEnabled())
 	requireNoRoute(t, off.APIRoutes(RouteAccount), http.MethodGet, "/passkeys")
 	requireNoRoute(t, off.APIRoutes(RouteAuth), http.MethodPost, "/passkeys/login/begin")
@@ -130,6 +132,7 @@ func TestPasskeyRoutesGatedOnPasskeyConfig(t *testing.T) {
 func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Service {
 	t.Helper()
 	cfg := authcore.Config{
+		Keys: authcore.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: authcore.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
@@ -146,6 +149,7 @@ func newTestServiceWithRBAC(t *testing.T, personas ...embedded.PersonaDef) *Serv
 func newRouteFeatureTestService(t *testing.T, configure func(*authcore.Config)) *Service {
 	t.Helper()
 	cfg := authcore.Config{
+		Keys: authcore.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: authcore.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},

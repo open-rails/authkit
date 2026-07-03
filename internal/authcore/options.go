@@ -24,15 +24,10 @@ func WithPostgres(pool *pgxpool.Pool) Option {
 	}
 }
 
-// WithEphemeralStore sets the ephemeral store + mode (empty mode => memory).
-func WithEphemeralStore(store EphemeralStore, mode EphemeralMode) Option {
-	return func(s *Service) {
-		if mode == "" {
-			mode = EphemeralMemory
-		}
-		s.ephemeralStore = store
-		s.ephemeralMode = mode
-	}
+// WithEphemeralStore sets the ephemeral store. Redis-backedness is discovered by
+// type assertion (EphemeralRedisClient), not a mode string (#236).
+func WithEphemeralStore(store EphemeralStore) Option {
+	return func(s *Service) { s.ephemeralStore = store }
 }
 
 // WithEntitlements sets the entitlements provider.

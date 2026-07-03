@@ -91,7 +91,7 @@ func TestTOTPSecretRoundTripVersioned(t *testing.T) {
 	for i := range key {
 		key[i] = byte(i * 7)
 	}
-	s := NewService(Options{Issuer: "https://test", TOTPSecretKey: key}, Keyset{})
+	s := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, TwoFactor: TwoFactorConfig{TOTPSecretKey: key}}, Keyset{})
 
 	const secret = "JBSWY3DPEHPK3PXP"
 	enc, err := s.encryptTOTPSecret(secret)
@@ -116,7 +116,7 @@ func TestTOTPSecretRoundTripVersioned(t *testing.T) {
 func TestTwoFactorMethodAvailable(t *testing.T) {
 	key := make([]byte, 32)
 	// Disabled blocks everything.
-	disabled := NewService(Options{Issuer: "x", TOTPSecretKey: key, TwoFactorMode: TwoFactorDisabled}, Keyset{})
+	disabled := NewService(Config{Token: TokenConfig{Issuer: "x"}, TwoFactor: TwoFactorConfig{TOTPSecretKey: key, Mode: TwoFactorDisabled}}, Keyset{})
 	for _, m := range []string{"email", "sms", "totp"} {
 		if disabled.TwoFactorMethodAvailable(m) {
 			t.Fatalf("disabled: %s should be unavailable", m)
@@ -128,7 +128,7 @@ func TestTwoFactorMethodAvailable(t *testing.T) {
 
 	// Optional, TOTP-only policy with a key: only TOTP is available (no email/SMS
 	// sender wired).
-	totpOnly := NewService(Options{Issuer: "x", TOTPSecretKey: key, TwoFactorMode: TwoFactorOptional, TwoFactorMethods: []TwoFactorMethod{TwoFactorTOTP}}, Keyset{})
+	totpOnly := NewService(Config{Token: TokenConfig{Issuer: "x"}, TwoFactor: TwoFactorConfig{TOTPSecretKey: key, Mode: TwoFactorOptional, Methods: []TwoFactorMethod{TwoFactorTOTP}}}, Keyset{})
 	if !totpOnly.TwoFactorMethodAvailable("totp") {
 		t.Fatal("totp should be available with a key and totp in policy")
 	}
@@ -137,7 +137,7 @@ func TestTwoFactorMethodAvailable(t *testing.T) {
 	}
 
 	// TOTP without a key fails closed even when enabled by policy.
-	noKey := NewService(Options{Issuer: "x", TwoFactorMode: TwoFactorOptional}, Keyset{})
+	noKey := NewService(Config{Token: TokenConfig{Issuer: "x"}, TwoFactor: TwoFactorConfig{Mode: TwoFactorOptional}}, Keyset{})
 	if noKey.TwoFactorMethodAvailable("totp") {
 		t.Fatal("totp without a key must be unavailable (fail closed)")
 	}

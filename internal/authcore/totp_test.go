@@ -34,13 +34,10 @@ func TestTOTPEnrollmentVerifyAndReplay(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(
-		Options{
-			Issuer:        "https://test",
-			TOTPSecretKey: []byte("0123456789abcdef"),
-		},
+		Config{Token: TokenConfig{Issuer: "https://test"}, TwoFactor: TwoFactorConfig{TOTPSecretKey: []byte("0123456789abcdef")}},
 		Keyset{},
 		WithPostgres(pool),
-		WithEphemeralStore(memorystore.NewKV(), EphemeralMemory),
+		WithEphemeralStore(memorystore.NewKV()),
 	)
 
 	username := fmt.Sprintf("totp%d", time.Now().UnixNano())

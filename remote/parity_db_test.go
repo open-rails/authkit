@@ -25,8 +25,6 @@ func TestRemoteEmbeddedParity_DB(t *testing.T) {
 	if dsn == "" {
 		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed parity test")
 	}
-	t.Setenv("AUTHKIT_KEYS_PATH", t.TempDir()) // dev-gen a signing key here
-
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -38,6 +36,8 @@ func TestRemoteEmbeddedParity_DB(t *testing.T) {
 			IssuedAudiences:   []string{"authkit"},
 			ExpectedAudiences: []string{"authkit"},
 		},
+		// #231: dev signing keys are an explicit opt-in now (no env reads).
+		Keys: embedded.KeysConfig{Path: t.TempDir(), AllowEphemeralDevKeys: true},
 	}, pool)
 	require.NoError(t, err)
 

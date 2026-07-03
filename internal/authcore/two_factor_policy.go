@@ -18,14 +18,14 @@ var Err2FAMethodUnavailable = errors.New("2fa_method_unavailable")
 
 // TwoFactorEnabled reports whether any 2FA flow is usable (Mode != Disabled).
 func (s *Service) TwoFactorEnabled() bool {
-	return normalizeTwoFactorMode(s.opts.TwoFactorMode) != TwoFactorDisabled
+	return normalizeTwoFactorMode(s.cfg.TwoFactor.Mode) != TwoFactorDisabled
 }
 
 func (s *Service) twoFactorMethodConfigured(m TwoFactorMethod) bool {
 	if !s.TwoFactorEnabled() {
 		return false
 	}
-	methods := s.opts.TwoFactorMethods
+	methods := s.cfg.TwoFactor.Methods
 	if len(methods) == 0 {
 		return true // empty Methods means all three are offered.
 	}
@@ -50,7 +50,7 @@ func (s *Service) TwoFactorMethodAvailable(method string) bool {
 	case TwoFactorEmail:
 		return s.email != nil
 	case TwoFactorTOTP:
-		return len(s.opts.TOTPSecretKey) > 0
+		return len(s.cfg.TwoFactor.TOTPSecretKey) > 0
 	default:
 		return false
 	}

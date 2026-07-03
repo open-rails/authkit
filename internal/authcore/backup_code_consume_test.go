@@ -33,7 +33,7 @@ func seedBackupUser(t *testing.T, ctx context.Context, svc *Service, codes ...st
 func TestVerifyBackupCode_SingleUse(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := seedBackupUser(t, ctx, svc, "code-aaa", "code-bbb")
 
 	ok, err := svc.VerifyBackupCode(ctx, uid, "code-aaa")
@@ -59,7 +59,7 @@ func TestVerifyBackupCode_SingleUse(t *testing.T) {
 func TestVerifyBackupCode_ConcurrentSingleWinner(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	uid := seedBackupUser(t, ctx, svc, "race-code")
 
 	const n = 2

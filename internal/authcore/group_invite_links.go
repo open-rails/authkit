@@ -58,8 +58,8 @@ type GroupInviteLinkCreated = authkit.GroupInviteLinkCreated
 // sign up) or invite_only (sign up ONLY via an invite). Under closed an invited
 // stranger has no way to obtain an account, so the capability is OFF (an admin
 // assigns roles directly via the members endpoint instead).
-func (o Options) externalInvitesEnabled() bool {
-	mode, err := normalizeRegistrationMode(o.NativeUserRegistrationMode)
+func (s *Service) externalInvitesEnabled() bool {
+	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	if err != nil {
 		return false
 	}
@@ -68,14 +68,14 @@ func (o Options) externalInvitesEnabled() bool {
 
 // ExternalInvitesEnabled exposes the registration-mode gate for HTTP adapters
 // (so a closed-registration deployment can omit/zero the invite-link routes).
-func (s *Service) ExternalInvitesEnabled() bool { return s.opts.externalInvitesEnabled() }
+func (s *Service) ExternalInvitesEnabled() bool { return s.externalInvitesEnabled() }
 
 // inviteURL builds the host-facing accept-invite link: BaseURL + the configured
 // FrontendInvitePath + ?code=. The SPA reads the code and POSTs it to redeem.
 func (s *Service) inviteURL(code string) string {
 	q := url.Values{}
 	q.Set("code", code)
-	return s.authkitURL(s.opts.FrontendInvitePath, q)
+	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
 // CreateGroupInviteLink mints an unbound single-use invite link. Returns the
@@ -84,7 +84,7 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	if err := s.requirePG(); err != nil {
 		return GroupInviteLinkCreated{}, err
 	}
-	if !s.opts.externalInvitesEnabled() {
+	if !s.externalInvitesEnabled() {
 		return GroupInviteLinkCreated{}, ErrExternalInvitesDisabled
 	}
 	role := strings.ToLower(strings.TrimSpace(req.Role))
@@ -151,7 +151,7 @@ func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlu
 	q := db.ForSchema(s.pg, s.dbSchema())
 	rows, err := q.Query(ctx,
 		`SELECT id::text, permission_group_id::text, role, invited_by::text,
-		        uses, expires_at, revoked_at, created_at, updated_at
+		        redeemed_at, expires_at, revoked_at, created_at, updated_at
 		 FROM profiles.group_invite_links
 		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
@@ -163,7 +163,7 @@ func (s *Service) ListGroupInviteLinks(ctx context.Context, persona, instanceSlu
 	for rows.Next() {
 		var l GroupInviteLink
 		if err := rows.Scan(&l.ID, &l.PermissionGroupID, &l.Role, &l.InvitedBy,
-			&l.Uses, &l.ExpiresAt, &l.RevokedAt, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			&l.RedeemedAt, &l.ExpiresAt, &l.RevokedAt, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -204,9 +204,9 @@ func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSl
 type RedeemGroupInviteLinkResult = authkit.RedeemGroupInviteLinkResult
 
 // RedeemGroupInviteLink redeems code on behalf of the authenticated redeemerUserID:
-// it validates the link (live, not expired/revoked, unused), assigns the role in
-// the same transaction, and marks the code used. Idempotent: if the redeemer
-// already holds that role, it succeeds without changing uses.
+// it validates the link (live, not expired/revoked, unredeemed), assigns the role
+// in the same transaction, and stamps redeemed_at. Idempotent: if the redeemer
+// already holds that role, it succeeds without consuming the link.
 func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserID string) (RedeemGroupInviteLinkResult, error) {
 	var zero RedeemGroupInviteLinkResult
 	if err := s.requirePG(); err != nil {
@@ -227,16 +227,15 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 	q := db.ForSchema(tx, s.dbSchema())
 
 	var linkID, groupID, persona, instanceSlug, role string
-	var uses int
-	var expiresAt, revokedAt *time.Time
+	var redeemedAt, expiresAt, revokedAt *time.Time
 	err = q.QueryRow(ctx,
 		`SELECT l.id::text, l.permission_group_id::text, g.persona, COALESCE(g.instance_slug,''), l.role,
-		        l.uses, l.expires_at, l.revoked_at
+		        l.redeemed_at, l.expires_at, l.revoked_at
 		 FROM profiles.group_invite_links l
 		 JOIN profiles.permission_groups g ON g.id = l.permission_group_id
-		 WHERE l.code_hash = $1 AND g.deleted_at IS NULL
+		 WHERE l.code_hash = $1
 		 FOR UPDATE OF l`,
-		codeHash).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &uses, &expiresAt, &revokedAt)
+		codeHash).Scan(&linkID, &groupID, &persona, &instanceSlug, &role, &redeemedAt, &expiresAt, &revokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return zero, ErrInviteLinkNotFound
 	}
@@ -255,7 +254,7 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 		return zero, err
 	}
 	if !already {
-		if uses > 0 {
+		if redeemedAt != nil {
 			return zero, ErrInviteLinkNotFound
 		}
 		if err := s.requireMFAForRoleAssignment(ctx, q, persona, redeemerUserID, SubjectKindUser, role); err != nil {
@@ -265,7 +264,7 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 			return zero, err
 		}
 		if _, err := q.Exec(ctx,
-			`UPDATE profiles.group_invite_links SET uses = uses + 1, updated_at = now() WHERE id = $1::uuid`,
+			`UPDATE profiles.group_invite_links SET redeemed_at = now(), updated_at = now() WHERE id = $1::uuid`,
 			linkID); err != nil {
 			return zero, err
 		}

@@ -32,7 +32,7 @@ var (
 
 // Client is the public AuthKit service facade. It wraps the internal engine
 // and exposes the curated embedder API (facade_methods.go). Construct it with
-// NewFromConfig (recommended) or NewService.
+// New.
 type Client struct {
 	impl *authcore.Service
 }
@@ -41,7 +41,7 @@ type Client struct {
 // optional dependencies are functional options. The ephemeral store defaults to
 // in-memory (dev-friendly); pass WithRedis to override (later options win).
 func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
-	opts := append([]Option{authcore.WithEphemeralStore(memorystore.NewKV(), EphemeralMemory)}, extraOpts...)
+	opts := append([]Option{authcore.WithEphemeralStore(memorystore.NewKV())}, extraOpts...)
 	impl, err := authcore.NewFromConfig(cfg, pg, opts...)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
 // import authkit/storage/redis directly. The HTTP transport's OIDC/SIWS state
 // caches take the same *redis.Client via authhttp.WithRedis (separate layer).
 func WithRedis(rd *redis.Client) Option {
-	return authcore.WithEphemeralStore(redisstore.NewKV(rd), EphemeralRedis)
+	return authcore.WithEphemeralStore(redisstore.NewKV(rd))
 }
 
 // Unwrap returns the internal engine a Client wraps, for the authkit/http

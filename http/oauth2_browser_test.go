@@ -26,18 +26,11 @@ func newRegistrationModeService(t *testing.T, nativeMode embedded.RegistrationMo
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := embedded.Options{
-		Issuer:                     "https://example.com",
-		IssuedAudiences:            []string{"test-app"},
-		ExpectedAudiences:          []string{"test-app"},
-		AccessTokenDuration:        time.Hour,
-		RegistrationVerification:   embedded.RegistrationVerificationNone,
-		NativeUserRegistrationMode: nativeMode,
-	}
+	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone, NativeUserMode: nativeMode}}
 	coreSvc := authcore.NewService(opts, ks)
 	ver := NewVerifier(WithSkew(5 * time.Second))
-	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
+	_ = ver.AddIssuer(opts.Token.Issuer, opts.Token.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)

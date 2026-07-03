@@ -35,7 +35,7 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
 		return "", "", Err2FAMethodUnavailable
 	}
-	if _, err := aes.NewCipher(s.opts.TOTPSecretKey); err != nil {
+	if _, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey); err != nil {
 		return "", "", fmt.Errorf("totp secret encryption key not configured")
 	}
 	if !s.useEphemeralStore() {
@@ -58,7 +58,7 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 	} else if user.Username != nil && strings.TrimSpace(*user.Username) != "" {
 		label = *user.Username
 	}
-	return secret, buildTOTPURI(s.opts.Issuer, label, secret), nil
+	return secret, buildTOTPURI(s.cfg.Token.Issuer, label, secret), nil
 }
 
 // EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
@@ -158,7 +158,7 @@ func totpCode(secret string, step int64) (string, error) {
 const totpKeyVersion byte = 1
 
 func (s *Service) encryptTOTPSecret(secret string) ([]byte, error) {
-	block, err := aes.NewCipher(s.opts.TOTPSecretKey)
+	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
 	if err != nil {
 		return nil, fmt.Errorf("totp secret encryption key not configured")
 	}
@@ -177,7 +177,7 @@ func (s *Service) encryptTOTPSecret(secret string) ([]byte, error) {
 }
 
 func (s *Service) decryptTOTPSecret(data []byte) (string, error) {
-	block, err := aes.NewCipher(s.opts.TOTPSecretKey)
+	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
 	if err != nil {
 		return "", fmt.Errorf("totp secret encryption key not configured")
 	}

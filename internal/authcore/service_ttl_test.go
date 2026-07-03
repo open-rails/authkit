@@ -17,7 +17,7 @@ func TestNewFromConfigDefaultAccessTokenTTLIsFifteenMinutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
-	if got := svc.Options().AccessTokenDuration; got != 15*time.Minute {
+	if got := svc.Config().Token.AccessTokenDuration; got != 15*time.Minute {
 		t.Fatalf("default access token TTL = %v, want 15m", got)
 	}
 }

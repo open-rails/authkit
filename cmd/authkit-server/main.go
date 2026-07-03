@@ -61,6 +61,27 @@ type config struct {
 	regVerify      string // registration verification policy: none|optional|required
 	migrateOnStart bool   // run schema migrations before serving (CI/dev convenience)
 	apiKeyPrefix   string // branded API-key prefix (APIKeysConfig.Prefix)
+	// Standalone reachability knobs (#236): previously library-only options with
+	// no env mapping, so a bare binary deployment could not set them.
+	trustedProxies    []string      // CIDRs whose forwarded headers are trusted (CDN/reverse proxy)
+	accessTokenTTL    time.Duration // 0 => library default (15m)
+	refreshTokenTTL   time.Duration // 0 => indefinite sessions
+	sessionMaxPerUser int           // 0 => default 3; -1 => unlimited
+	verifySendTimeout time.Duration // per email/SMS send bound; 0 => 15s
+	twoFAMode         string        // disabled|optional|required ("" => optional)
+	twoFAMethods      []string      // subset of email,sms,totp ("" => all)
+	passkeyRPID       string
+	passkeyRPName     string
+	passkeyOrigins    []string
+	languages         []string // supported UI languages ("" => en-only)
+	defaultLanguage   string
+	bootstrapPath     string // startup-once bootstrap manifest (YAML); "" => none
+	// Inline JWT key material (#231): the LIBRARY reads no env, so the binary
+	// reads ACTIVE_KEY_ID / ACTIVE_PRIVATE_KEY_PEM / PUBLIC_KEYS here — once, at
+	// the binary boundary — and passes an explicit KeySource in.
+	activeKeyID         string
+	activePrivateKeyPEM string
+	publicKeysPEM       map[string]string // kid -> public-key PEM (retired keys kept in JWKS)
 	// Dev-only integration-test knobs (honored only when env is a dev env, #194).
 	devMintSecret      string   // enables POST {prefix}/dev/mint when set
 	staticEntitlements []string // seeded into access tokens for billing/entitlement E2E
@@ -83,15 +104,56 @@ func loadConfig() (*config, error) {
 		// Default to "none": a bare standalone server has no email/SMS sender, and
 		// "required" verification with no sender is unsatisfiable. Operators set
 		// this once they wire a sender (senders are an embedded.New option).
-		regVerify:          strings.ToLower(envOr("AUTHKIT_REGISTRATION_VERIFICATION", "none")),
-		devMintSecret:      strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
-		staticEntitlements: splitCSV(os.Getenv("AUTHKIT_STATIC_ENTITLEMENTS")),
+		regVerify:           strings.ToLower(envOr("AUTHKIT_REGISTRATION_VERIFICATION", "none")),
+		activeKeyID:         strings.TrimSpace(os.Getenv("ACTIVE_KEY_ID")),
+		activePrivateKeyPEM: strings.TrimSpace(os.Getenv("ACTIVE_PRIVATE_KEY_PEM")),
+		devMintSecret:       strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
+		staticEntitlements:  splitCSV(os.Getenv("AUTHKIT_STATIC_ENTITLEMENTS")),
+		trustedProxies:      splitCSV(os.Getenv("AUTHKIT_TRUSTED_PROXIES")),
+		twoFAMode:           strings.ToLower(strings.TrimSpace(os.Getenv("AUTHKIT_2FA_MODE"))),
+		twoFAMethods:        splitCSV(strings.ToLower(os.Getenv("AUTHKIT_2FA_METHODS"))),
+		passkeyRPID:         strings.TrimSpace(os.Getenv("AUTHKIT_PASSKEY_RPID")),
+		passkeyRPName:       strings.TrimSpace(os.Getenv("AUTHKIT_PASSKEY_RP_DISPLAY_NAME")),
+		passkeyOrigins:      splitCSV(os.Getenv("AUTHKIT_PASSKEY_ORIGINS")),
+		languages:           splitCSV(strings.ToLower(os.Getenv("AUTHKIT_LANGUAGES"))),
+		defaultLanguage:     strings.ToLower(strings.TrimSpace(os.Getenv("AUTHKIT_DEFAULT_LANGUAGE"))),
+		bootstrapPath:       strings.TrimSpace(os.Getenv("AUTHKIT_BOOTSTRAP_PATH")),
 	}
 	if c.issuer == "" {
 		return nil, errors.New("AUTHKIT_ISSUER is required")
 	}
 	if c.dbURL == "" {
 		return nil, errors.New("DB_URL (or DATABASE_URL) is required")
+	}
+	var err error
+	if c.accessTokenTTL, err = envDuration("AUTHKIT_ACCESS_TOKEN_TTL"); err != nil {
+		return nil, err
+	}
+	if c.refreshTokenTTL, err = envDuration("AUTHKIT_REFRESH_TOKEN_TTL"); err != nil {
+		return nil, err
+	}
+	if c.verifySendTimeout, err = envDuration("AUTHKIT_VERIFICATION_SEND_TIMEOUT"); err != nil {
+		return nil, err
+	}
+	if c.sessionMaxPerUser, err = envInt("AUTHKIT_SESSION_MAX_PER_USER"); err != nil {
+		return nil, err
+	}
+	switch c.twoFAMode {
+	case "", "disabled", "optional", "required":
+	default:
+		return nil, fmt.Errorf("invalid AUTHKIT_2FA_MODE %q (want disabled|optional|required)", c.twoFAMode)
+	}
+	for _, m := range c.twoFAMethods {
+		switch m {
+		case "email", "sms", "totp":
+		default:
+			return nil, fmt.Errorf("invalid AUTHKIT_2FA_METHODS entry %q (want a comma-separated subset of email,sms,totp)", m)
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("PUBLIC_KEYS")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &c.publicKeysPEM); err != nil {
+			return nil, fmt.Errorf("parse PUBLIC_KEYS JSON (kid -> public-key PEM): %w", err)
+		}
 	}
 	return c, nil
 }
@@ -140,33 +202,71 @@ func run() error {
 		defer func() { _ = rdb.Close() }()
 	}
 
-	devMode := isDevEnv(cfg.env)
+	// ONE dev/prod classifier (#231): AUTHKIT_ENV (default "dev" via envOr) maps
+	// through embedded.IsDevEnvironment — only dev/development/local/test are
+	// dev; everything else (incl. staging) is prod-like/fail-closed.
+	devMode := embedded.IsDevEnvironment(cfg.env)
+
+	// Key resolution (#231): env is read ONLY here, at the binary boundary.
+	// Inline env key material (ACTIVE_KEY_ID/ACTIVE_PRIVATE_KEY_PEM/PUBLIC_KEYS)
+	// wins; otherwise the engine loads <keysPath>/keys.json, and ONLY a dev env
+	// opts in to ephemeral generated keys. Prod with no keys refuses to boot.
+	keysCfg := embedded.KeysConfig{Path: cfg.keysPath, AllowEphemeralDevKeys: devMode}
+	if cfg.activeKeyID != "" || cfg.activePrivateKeyPEM != "" {
+		ks, err := jwtkit.NewStaticKeySourceFromPEM(cfg.activeKeyID, cfg.activePrivateKeyPEM, cfg.publicKeysPEM)
+		if err != nil {
+			return fmt.Errorf("load JWT keys from ACTIVE_KEY_ID/ACTIVE_PRIVATE_KEY_PEM: %w", err)
+		}
+		keysCfg = embedded.KeysConfig{Source: ks}
+	}
+
+	// /dev/mint signs arbitrary tokens, so it needs the active signer handle. Build
+	// an explicit key source (same file→generated precedence the engine uses) and
+	// hand it to the engine so JWKS and dev-mint share one active key. Only in
+	// dev with a mint secret; the prod path keeps Keys.Path resolution untouched.
+	var devSigner jwtkit.Signer
+	if devMode && cfg.devMintSecret != "" {
+		if keysCfg.Source == nil {
+			ks, err := jwtkit.ResolveKeySource(cfg.keysPath, true)
+			if err != nil {
+				return fmt.Errorf("load jwt keys for dev mint: %w", err)
+			}
+			keysCfg = embedded.KeysConfig{Source: ks}
+		}
+		devSigner = keysCfg.Source.ActiveSigner()
+	}
+
+	twoFAMethods := make([]authkit.TwoFactorMethod, 0, len(cfg.twoFAMethods))
+	for _, m := range cfg.twoFAMethods {
+		twoFAMethods = append(twoFAMethods, authkit.TwoFactorMethod(m))
+	}
 
 	coreCfg := embedded.Config{
 		Environment: cfg.env,
 		Schema:      cfg.schema,
 		Token: embedded.TokenConfig{
-			Issuer:            cfg.issuer,
-			IssuedAudiences:   cfg.audiences,
-			ExpectedAudiences: cfg.audiences,
+			Issuer:               cfg.issuer,
+			IssuedAudiences:      cfg.audiences,
+			ExpectedAudiences:    cfg.audiences,
+			AccessTokenDuration:  cfg.accessTokenTTL,
+			RefreshTokenDuration: cfg.refreshTokenTTL,
+			SessionMaxPerUser:    cfg.sessionMaxPerUser,
 		},
-		Keys:         embedded.KeysConfig{Path: cfg.keysPath},
-		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationPolicy(cfg.regVerify)},
-		APIKeys:      embedded.APIKeysConfig{Prefix: cfg.apiKeyPrefix},
-	}
-
-	// /dev/mint signs arbitrary tokens, so it needs the active signer handle. Build
-	// an explicit key source (same env→file→generated precedence the engine uses)
-	// and hand it to the engine so JWKS and dev-mint share one active key. Only in
-	// dev with a mint secret; the prod path keeps Keys.Path auto-discovery untouched.
-	var devSigner jwtkit.Signer
-	if devMode && cfg.devMintSecret != "" {
-		ks, err := jwtkit.NewAutoKeySourceWithPath(cfg.keysPath)
-		if err != nil {
-			return fmt.Errorf("load jwt keys for dev mint: %w", err)
-		}
-		coreCfg.Keys = embedded.KeysConfig{Source: ks}
-		devSigner = ks.ActiveSigner()
+		Keys: keysCfg,
+		Registration: embedded.RegistrationConfig{
+			Verification:            embedded.RegistrationVerificationPolicy(cfg.regVerify),
+			VerificationSendTimeout: cfg.verifySendTimeout,
+		},
+		APIKeys: embedded.APIKeysConfig{Prefix: cfg.apiKeyPrefix},
+		TwoFactor: embedded.TwoFactorConfig{
+			Mode:    authkit.TwoFactorMode(cfg.twoFAMode),
+			Methods: twoFAMethods,
+		},
+		Passkeys: embedded.PasskeyConfig{
+			RPID:          cfg.passkeyRPID,
+			RPDisplayName: cfg.passkeyRPName,
+			Origins:       cfg.passkeyOrigins,
+		},
 	}
 
 	var engineOpts []embedded.Option
@@ -174,6 +274,15 @@ func run() error {
 	if rdb != nil {
 		engineOpts = append(engineOpts, embedded.WithRedis(rdb))
 		httpOpts = append(httpOpts, authhttp.WithRedis(rdb))
+	}
+	if len(cfg.trustedProxies) > 0 {
+		httpOpts = append(httpOpts, authhttp.WithTrustedProxies(cfg.trustedProxies...))
+	}
+	if len(cfg.languages) > 0 || cfg.defaultLanguage != "" {
+		httpOpts = append(httpOpts, authhttp.WithLanguageConfig(authhttp.LanguageConfig{
+			Supported: cfg.languages,
+			Default:   cfg.defaultLanguage,
+		}))
 	}
 	if devMode && len(cfg.staticEntitlements) > 0 {
 		engineOpts = append(engineOpts, embedded.WithEntitlements(staticDevEntitlements{names: cfg.staticEntitlements}))
@@ -183,6 +292,26 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build authkit engine: %w", err)
 	}
+
+	// Startup-once bootstrap manifest (#236): seed initial users / remote apps
+	// from a YAML file. Apply-once is DB-marked, so restarts are no-ops.
+	if cfg.bootstrapPath != "" {
+		manifest, err := embedded.LoadBootstrapManifestFile(cfg.bootstrapPath)
+		if err != nil {
+			return fmt.Errorf("load bootstrap manifest %s: %w", cfg.bootstrapPath, err)
+		}
+		res, err := client.ApplyBootstrapManifest(ctx, manifest, authkit.BootstrapReconcileOptions{StartupOnly: true})
+		if err != nil {
+			return fmt.Errorf("apply bootstrap manifest %s: %w", cfg.bootstrapPath, err)
+		}
+		if res.AlreadyApplied {
+			log.Printf("bootstrap manifest %s already applied; skipped", cfg.bootstrapPath)
+		} else {
+			log.Printf("bootstrap manifest %s applied: users_created=%d passwords_set=%d root_roles=%d remote_apps=%d",
+				cfg.bootstrapPath, res.UsersCreated, res.PasswordsSet, res.RootRoleAssignments, res.RemoteApplications)
+		}
+	}
+
 	svc, err := authhttp.NewServer(client, httpOpts...)
 	if err != nil {
 		return fmt.Errorf("build authkit http server: %w", err)
@@ -443,6 +572,30 @@ func firstEnv(keys ...string) string {
 	return ""
 }
 
+func envDuration(key string) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration in %s=%q (want a Go duration like 15m, 720h): %w", key, raw, err)
+	}
+	return d, nil
+}
+
+func envInt(key string) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid integer in %s=%q: %w", key, raw, err)
+	}
+	return n, nil
+}
+
 func envBool(key string, def bool) bool {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -464,12 +617,4 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-func isDevEnv(env string) bool {
-	switch strings.ToLower(strings.TrimSpace(env)) {
-	case "", "dev", "development", "local", "test":
-		return true
-	}
-	return false
 }

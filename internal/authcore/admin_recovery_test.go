@@ -38,7 +38,7 @@ func TestAdminRecoverUserEmailReplacesLoginFactors(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	sender := &recoverEmailSender{}
-	svc := NewService(Options{Issuer: "https://test", RefreshTokenDuration: time.Hour}, Keyset{}, WithPostgres(pool), WithEmailSender(sender), WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test", RefreshTokenDuration: time.Hour}}, Keyset{}, WithPostgres(pool), WithEmailSender(sender), WithEphemeralStore(memorystore.NewKV()))
 
 	suffix := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
 	username := "recover" + suffix

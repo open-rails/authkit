@@ -20,23 +20,22 @@ RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permi
 -- name: RemoteApplicationByIssuer :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE issuer = $1 AND deleted_at IS NULL;
+WHERE issuer = $1;
 
 -- name: RemoteApplicationBySlug :one
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE slug = $1 AND deleted_at IS NULL;
+WHERE slug = $1;
 
 -- name: RemoteApplicationsAll :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE deleted_at IS NULL
 ORDER BY slug ASC;
 
 -- name: RemoteApplicationsEnabled :many
 SELECT id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at
 FROM profiles.remote_applications
-WHERE enabled = true AND deleted_at IS NULL
+WHERE enabled = true
 ORDER BY slug ASC;
 
 -- name: RemoteApplicationDelete :execrows

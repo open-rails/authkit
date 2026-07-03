@@ -75,7 +75,7 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("schema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("ensure root group: %v", err)

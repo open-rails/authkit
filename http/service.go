@@ -168,7 +168,7 @@ func (s *Service) publicRegistrationDisabled() bool {
 	if s == nil || s.svc == nil {
 		return false
 	}
-	return !s.svc.Options().PublicNativeUserRegistrationEnabled()
+	return !s.svc.PublicNativeUserRegistrationEnabled()
 }
 
 func (s *Service) stateCache() oidckit.StateCache {

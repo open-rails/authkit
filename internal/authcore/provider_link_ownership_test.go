@@ -47,7 +47,7 @@ func (s *Service) providerOwner(t *testing.T, ctx context.Context, issuer, subje
 func TestLinkProviderByIssuer_CrossUserRejected(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	a := mkBareUser(t, ctx, svc, "a")
 	b := mkBareUser(t, ctx, svc, "b")
@@ -79,7 +79,7 @@ func TestLinkProviderByIssuer_CrossUserRejected(t *testing.T) {
 func TestLinkProviderByIssuer_SameUserIdempotent(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	a := mkBareUser(t, ctx, svc, "idem")
 	issuer := "https://google.example"
@@ -108,7 +108,7 @@ func TestLinkProviderByIssuer_SameUserIdempotent(t *testing.T) {
 func TestLinkProviderByIssuer_SubjectSwitchAtomic(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	a := mkBareUser(t, ctx, svc, "switch")
 	issuer := "https://discord.example"

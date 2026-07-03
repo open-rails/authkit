@@ -16,7 +16,7 @@ import (
 // guard that ConfirmPhoneChange already had. Skips without a test database.
 func TestConfirmContactChange_RequiresEphemeralStore(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	require.False(t, svc.useEphemeralStore())
 
 	ctx := context.Background()

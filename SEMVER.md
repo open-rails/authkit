@@ -143,12 +143,12 @@ narrowest topic slice a call site needs), never `*embedded.Client`, so swapping 
 in-process backend for the Phase-2 remote transport is construction-only (#143):
 `var c authkit.Client = embedded.New(cfg, pg)`. AuthKit's own adapters follow this
 (e.g. `riverjobs.RegisterPurgeDeletedUsersWorker` takes `authkit.Client`). The infra
-accessors (`Postgres`, `Keyfunc`, `JWKS`, raw `Options`/`Schema`) are deliberately OFF the
+accessors (`Postgres`, `Keyfunc`, `JWKS`, raw `Config`/`Schema`) are deliberately OFF the
 interface (§9), so code that genuinely needs them — and only that code — holds the concrete
 `*embedded.Client`.
 
-**Constructors & options** (`embedded`; `Config`/`Options`/`Keyset`/`Option` are aliases
-to the internal service types):
+**Constructors & options** (`embedded`; `Config`/`Option` are aliases to the internal
+service types; the flat `Options`/`Keyset` aliases were removed in #237 — one config type):
 ```
 func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error)
 type Option ; WithRedis, WithClickHouse, WithEmailSender, WithEntitlements,
@@ -157,8 +157,8 @@ type Option ; WithRedis, WithClickHouse, WithEmailSender, WithEntitlements,
 
 **Config types** (every field is covered; see [§7.3](#73-config-surface)):
 `Config`, `TokenConfig`, `FrontendConfig`, `RegistrationConfig`, `KeysConfig`,
-`IdentityConfig`, `APIKeysConfig`, `TwoFactorConfig`, `PasskeyConfig`, `RBACConfig`,
-`Options`, `Keyset`. (Solana chain selection is the flat `Config.SolanaNetwork string`; SNS
+`IdentityConfig`, `APIKeysConfig`, `TwoFactorConfig`, `PasskeyConfig`, `RBACConfig`.
+(Solana chain selection is the flat `Config.SolanaNetwork string`; SNS
 is always-on with fixed timeout/cache — there is no `SolanaConfig`.)
 
 **Mint APIs** (free functions + `*Service` facade methods — wire-shape owners):
@@ -662,14 +662,25 @@ covered compatibility alias.)
 
 ### 7.2 Key resolution & environment variables (covered)
 
-When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
-1. **Env** — `ACTIVE_KEY_ID` + `ACTIVE_PRIVATE_KEY_PEM` (+ optional `PUBLIC_KEYS`).
-2. **File** — `<dir>/keys.json` where `dir` = `Config.Keys.Path` → `AUTHKIT_KEYS_PATH` →
-   `/vault/auth` (default). Envelope: `{active_key_id, active_private_key_pem, public_keys}`.
-3. **Dev-gen** — auto-generates under `.runtime/authkit/`; **hard-fails in production**
-   (`ENV`/`APP_ENV`/`ENVIRONMENT` = `production`/`prod`).
+**The library reads NO environment variables — ever (#231).** In embedded mode the
+host owns the process env; env is read once, at the binary boundary
+(`cmd/authkit-server`), and flows in as explicit config. A guard test
+(`env_doctrine_test.go`) enforces this.
 
-These env var names, the default path, the file envelope shape, and the prod hard-fail
+When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
+1. **File** — `<dir>/keys.json` where `dir` = `Config.Keys.Path` → `/vault/auth`
+   (default; no env fallback). Envelope: `{active_key_id, active_private_key_pem,
+   public_keys}`. Hot-reloaded on rotation.
+2. **Dev-gen** — auto-generates under `.runtime/authkit/`, ONLY with the explicit
+   `Keys.AllowEphemeralDevKeys` opt-in; otherwise construction **hard-fails**.
+   The opt-in is deliberately independent of `Environment`.
+
+Hosts with in-memory key material pass an explicit `Keys.Source`
+(`jwtkit.NewStaticKeySourceFromPEM` / `jwtkit.StaticKeySource`). The standalone
+binary still honors `ACTIVE_KEY_ID`/`ACTIVE_PRIVATE_KEY_PEM`/`PUBLIC_KEYS` and
+`AUTHKIT_KEYS_PATH` — read in `cmd/authkit-server`, not the library.
+
+The default path, the file envelope shape, and the fail-closed no-keys hard error
 are covered. AuthKit reads **no** provider env vars directly — hosts inject senders.
 
 ### 7.3 Config surface (covered, field by field)
@@ -689,20 +700,25 @@ an optional field with a backward-compatible zero-value default is MINOR.
   `PasswordlessLogin` (default false), `PasswordlessAutoRegistration` (default false).
   The `RegistrationMode` & `RegistrationVerificationPolicy` enum value sets are covered.
 - **`Keys`** `KeysConfig`: `Source`, `Path`, `VerifyOnly` (no-signer mode: minting returns
-  `ErrMissingSigner`, verification/JWKS still work).
+  `ErrMissingSigner`, verification/JWKS still work), `AllowEphemeralDevKeys` (default
+  false ⇒ no keys is a hard construction error; dev-only opt-in, #231).
 - **`Identity`** `IdentityConfig`: `Providers` (`map[string]oidckit.RPConfig`),
   `ProviderDescriptors` (`map[string]authprovider.Provider`).
 - **`APIKeys`** `APIKeysConfig`: `Prefix` (lowercase alnum 1–16; empty ⇒ bare `st_`),
   `MaxTTL` (0 ⇒ uncapped).
-- **`TwoFactor`** `TwoFactorConfig`: `TOTPSecretKey` (16/24/32 bytes). Role-level
-  MFA requirements live on `RoleDef.RequiresMFA`.
+- **`TwoFactor`** `TwoFactorConfig`: `TOTPSecretKey` (16/24/32 raw bytes; an OVERRIDE —
+  the normal path loads `<Keys.Path>/totp.key`, wired in construction per #232; any
+  other override length is a construction error). Role-level MFA requirements live on
+  `RoleDef.RequiresMFA`.
 - **`Passkeys`** `PasskeyConfig`: `RPID` (WebAuthn relying-party id; defaults to the
   `Frontend.BaseURL` hostname), `RPDisplayName` (defaults to `Token.Issuer`, else RPID),
   `Origins` (allowed WebAuthn origins; defaults to `[BaseURL origin]`; every origin host
   must equal `RPID` or be a subdomain of it), `UserVerification` (`preferred` default |
   `required` | `discouraged`). Requires a valid `Frontend.BaseURL` origin to be usable.
 - **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `Groups` (`[]PersonaDef`).
-- **Top-level**: `Environment`, `Schema`, `SolanaNetwork`.
+- **Top-level**: `Environment` (single classifier `IsDevEnvironment`, #231: only
+  `dev`/`development`/`local`/`test`/empty are dev; everything else — incl. `staging` —
+  is prod-like/fail-closed), `Schema`, `SolanaNetwork`.
 
 The constructor-injected dependencies (`WithPostgres`/`WithRedis`/`WithEmailSender`/
 `WithSMSSender`/`WithEntitlements`/…) are covered as Plane A options.

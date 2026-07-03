@@ -41,7 +41,7 @@ func (s *Service) MintServiceJWT(ctx context.Context, opts ServiceJWTMintOptions
 	if signer == nil {
 		return "", ServiceJWTClaims{}, ErrMissingSigner
 	}
-	return MintServiceJWT(ctx, signer, strings.TrimSpace(s.opts.Issuer), opts)
+	return MintServiceJWT(ctx, signer, strings.TrimSpace(s.cfg.Token.Issuer), opts)
 }
 
 // MintServiceJWT signs a service JWT with an explicit signer and issuer. Hosts

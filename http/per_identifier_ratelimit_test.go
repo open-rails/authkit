@@ -15,6 +15,7 @@ import (
 func newPerIdentifierTestService(t *testing.T) *Service {
 	t.Helper()
 	cfg := embedded.Config{
+		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},

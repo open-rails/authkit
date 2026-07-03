@@ -44,7 +44,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		return "", err
 	}
 	sendCtx := contextWithPreferredLanguage(ctx, language)
-	switch s.opts.RegistrationVerificationPolicy() {
+	switch s.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
 		userID, err := s.createEmailRegistrationUser(ctx, email, username, passwordHash, true)
 		if err != nil {
@@ -147,7 +147,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 // and the HTTP layer caps attempts per-identifier (AK security audit F1). For the
 // 256-bit emailed link token use ConfirmPendingRegistrationByToken instead.
 func (s *Service) ConfirmPendingRegistration(ctx context.Context, email, code string) (userID string, err error) {
-	if !s.opts.PublicNativeUserRegistrationEnabled() {
+	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
 	if !s.useEphemeralStore() {
@@ -181,7 +181,7 @@ func (s *Service) ConfirmPendingRegistration(ctx context.Context, email, code st
 // the 256-bit emailed link token. The token's entropy is the security boundary,
 // so this path is global-lookup and needs no email scoping.
 func (s *Service) ConfirmPendingRegistrationByToken(ctx context.Context, token string) (userID string, err error) {
-	if !s.opts.PublicNativeUserRegistrationEnabled() {
+	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
 	if !s.useEphemeralStore() {
@@ -222,7 +222,7 @@ func (s *Service) CheckPendingRegistrationConflict(ctx context.Context, email, u
 // --- Phone Registration (for phone+password signups) ---
 
 func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
-	if !s.opts.PublicNativeUserRegistrationEnabled() {
+	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
 	language, err := NormalizePreferredLanguage(preferredLanguage)
@@ -230,7 +230,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 		return "", err
 	}
 	sendCtx := contextWithPreferredLanguage(ctx, language)
-	switch s.opts.RegistrationVerificationPolicy() {
+	switch s.RegistrationVerificationPolicy() {
 	case RegistrationVerificationNone:
 		userID, err := s.createPhoneRegistrationUser(ctx, phone, username, passwordHash, true)
 		if err != nil {
@@ -315,7 +315,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 // ConfirmPendingPhoneRegistration verifies code and creates the actual user account.
 // Implements "first to verify wins" - whoever verifies first gets the username/phone.
 func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
-	if !s.opts.PublicNativeUserRegistrationEnabled() {
+	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
 	if !s.useEphemeralStore() {

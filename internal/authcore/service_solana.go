@@ -44,11 +44,11 @@ func normalizeSolanaNetwork(network string) string {
 	return ""
 }
 
-func solanaChainIDForOptions(opts Options) string {
-	if n := normalizeSolanaNetwork(opts.SolanaNetwork); n != "" {
+func solanaChainIDForConfig(cfg Config) string {
+	if n := normalizeSolanaNetwork(cfg.SolanaNetwork); n != "" {
 		return n
 	}
-	if isDevEnvironment(opts.Environment) {
+	if IsDevEnvironment(cfg.Environment) {
 		return "testnet"
 	}
 	return "mainnet"
@@ -56,9 +56,9 @@ func solanaChainIDForOptions(opts Options) string {
 
 func (s *Service) solanaChainID() string {
 	if s == nil {
-		return solanaChainIDForOptions(Options{})
+		return solanaChainIDForConfig(Config{})
 	}
-	return solanaChainIDForOptions(s.opts)
+	return solanaChainIDForConfig(s.cfg)
 }
 
 func (s *Service) solanaIssuer() string {
@@ -77,8 +77,8 @@ func (s *Service) GenerateSIWSChallenge(ctx context.Context, cache siws.Challeng
 	opts := []siws.InputOption{
 		siws.WithChainID(s.solanaChainID()),
 	}
-	if s.opts.BaseURL != "" {
-		opts = append(opts, siws.WithURI(s.opts.BaseURL))
+	if s.cfg.Frontend.BaseURL != "" {
+		opts = append(opts, siws.WithURI(s.cfg.Frontend.BaseURL))
 	}
 
 	input, err := siws.NewSignInInput(domain, address, opts...)
@@ -144,7 +144,7 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		// New user - create account. Blocked when public registration is
 		// disabled: an existing wallet still logs in via the branch above, but
 		// no NEW account may be auto-created here.
-		if !s.opts.PublicNativeUserRegistrationEnabled() {
+		if !s.PublicNativeUserRegistrationEnabled() {
 			return "", time.Time{}, "", "", false, ErrRegistrationDisabled
 		}
 		username := challengeData.Username

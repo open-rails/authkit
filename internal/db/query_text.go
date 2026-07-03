@@ -20,7 +20,6 @@ var QueryText = map[string]string{
 	"ProviderLinkByIssuer":       providerLinkByIssuer,
 	"UserProviderSlugs":          userProviderSlugs,
 	"ProviderLinkBySlug":         providerLinkBySlug,   // gated since migration 003 added user_providers_slug_subject_idx
-	"IdentityForwardUsername":    identityForwardUsername,
 	"UsersPurgeCandidates":       usersPurgeCandidates,
 	"SessionsRevokeFamily":       sessionsRevokeFamily, // gated since migration 002 added refresh_sessions_family_active
 

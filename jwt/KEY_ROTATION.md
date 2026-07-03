@@ -2,10 +2,12 @@
 
 How to rotate AuthKit's RS256 signing keys **without a process restart**.
 
-Applies to file-delivered keys (`/vault/auth/keys.json`). Env-delivered keys
-(`ACTIVE_KEY_ID` / `ACTIVE_PRIVATE_KEY_PEM` / `PUBLIC_KEYS`) cannot hot-rotate —
-env is immutable in a running process, so an env-based deploy must restart to
-pick up a new key. Use file delivery in production.
+Applies to file-delivered keys (`/vault/auth/keys.json`). Statically injected
+keys (an explicit `Keys.Source`, e.g. built by the standalone binary from its
+`ACTIVE_KEY_ID` / `ACTIVE_PRIVATE_KEY_PEM` / `PUBLIC_KEYS` env — the library
+itself reads no env, #231) cannot hot-rotate — the material is fixed in a
+running process, so such a deploy must restart to pick up a new key. Use file
+delivery in production.
 
 ## How it works
 

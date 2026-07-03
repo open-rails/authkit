@@ -63,7 +63,7 @@ func preferredLanguageFromRequest(r *http.Request) string {
 }
 
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
-	if s.svc.Options().NativeUserRegistrationMode == embedded.RegistrationModeClosed {
+	if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeClosed {
 		registrationDisabled(w)
 		return
 	}
@@ -128,7 +128,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	policy := s.svc.Options().RegistrationVerificationPolicy()
+	policy := s.svc.RegistrationVerificationPolicy()
 	requiresVerification := policy == embedded.RegistrationVerificationRequired
 	preferredLanguage := preferredLanguageFromRequest(r)
 
@@ -262,7 +262,7 @@ func (s *Service) handlePendingRegistrationResendPOST(w http.ResponseWriter, r *
 		registrationDisabled(w)
 		return
 	}
-	if !s.svc.Options().RegistrationVerificationEnabled() {
+	if !s.svc.RegistrationVerificationEnabled() {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}
@@ -373,7 +373,7 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		registrationDisabled(w)
 		return
 	}
-	if !s.svc.Options().RegistrationVerificationEnabled() {
+	if !s.svc.RegistrationVerificationEnabled() {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 		return
 	}

@@ -38,7 +38,7 @@ func setupInviteLinkTest(t *testing.T, mode RegistrationMode) (*Service, *pgxpoo
 	// through the ephemeral store + an email sender — neither is wired in this DB-only
 	// harness. These tests exercise invite/registration flows directly, so pin None:
 	// users register immediately, matching the register+join assertions below.
-	svc := NewService(Options{Issuer: "https://test", NativeUserRegistrationMode: mode, RegistrationVerification: RegistrationVerificationNone}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: mode, Verification: RegistrationVerificationNone}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("SeedPermissionGroupContainment: %v", err)
@@ -108,12 +108,12 @@ func TestInviteLink_ShareableRedeemIdempotent(t *testing.T) {
 	}
 	mustHoldMember(t, svc, ctx, user)
 
-	// Idempotent: second redeem succeeds and does NOT increment uses.
+	// Idempotent: second redeem succeeds and keeps the link redeemed.
 	if _, err := svc.RedeemGroupInviteLink(ctx, created.Code, user); err != nil {
 		t.Fatalf("idempotent redeem: %v", err)
 	}
-	if uses := usesOf(t, pool, created.ID); uses != 1 {
-		t.Fatalf("idempotent re-redeem burned a use: uses=%d, want 1", uses)
+	if !isRedeemed(t, pool, created.ID) {
+		t.Fatal("idempotent re-redeem cleared redeemed_at")
 	}
 }
 
@@ -220,7 +220,7 @@ func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSchema: %v", err)
 	}
-	svc := NewService(Options{Issuer: "https://test", NativeUserRegistrationMode: RegistrationModeOpen}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: RegistrationModeOpen}}, Keyset{}, WithPostgres(pool))
 	svc.groupSchema = gs
 	if err := svc.SeedPermissionGroupContainment(ctx); err != nil {
 		t.Fatalf("seed containment: %v", err)
@@ -267,11 +267,11 @@ func TestInviteLink_MintEnforcesNoEscalation_DB(t *testing.T) {
 	}
 }
 
-func usesOf(t *testing.T, pool *pgxpool.Pool, linkID string) int {
+func isRedeemed(t *testing.T, pool *pgxpool.Pool, linkID string) bool {
 	t.Helper()
-	var n int
-	if err := pool.QueryRow(context.Background(), `SELECT uses FROM profiles.group_invite_links WHERE id = $1::uuid`, linkID).Scan(&n); err != nil {
-		t.Fatalf("read uses: %v", err)
+	var redeemed bool
+	if err := pool.QueryRow(context.Background(), `SELECT redeemed_at IS NOT NULL FROM profiles.group_invite_links WHERE id = $1::uuid`, linkID).Scan(&redeemed); err != nil {
+		t.Fatalf("read redeemed_at: %v", err)
 	}
-	return n
+	return redeemed
 }

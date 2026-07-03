@@ -7,7 +7,7 @@ import (
 )
 
 // renameCooldown is how long a user must wait between consecutive username
-// renames. Hardcoded — not a configurable Options field — so the policy is
+// renames. Hardcoded — not a configurable Config field — so the policy is
 // uniform across deployments and support workflows are predictable. Admins can
 // bypass via UpdateUsernameForce for support cases (typo correction, deadname
 // requests, etc.).

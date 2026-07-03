@@ -13,6 +13,7 @@ import (
 
 func newServerTestConfig() embedded.Config {
 	return embedded.Config{
+		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
@@ -151,6 +152,6 @@ func TestServerAlias_BackCompat(t *testing.T) {
 	pool := newServerTestPool(t)
 	svc, err := NewServer(newServerClient(t, newServerTestConfig(), pool))
 	require.NoError(t, err)
-	var _ *Service = svc  // Server == Service (alias)
+	var _ *Service = svc // Server == Service (alias)
 	var _ *Service = svc // both directions
 }

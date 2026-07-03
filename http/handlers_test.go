@@ -24,22 +24,44 @@ func newTestCoreService(t *testing.T) *authcore.Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := embedded.Options{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"test-app"},
-		ExpectedAudiences:   []string{"test-app"},
-		AccessTokenDuration: time.Hour,
+	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
+			Issuer:              "https://example.com",
+			IssuedAudiences:     []string{"test-app"},
+			ExpectedAudiences:   []string{"test-app"},
+			AccessTokenDuration: time.Hour,
+		},
 		// Tests that use newTestCoreService are not testing registration/verification flows,
 		// so we explicitly opt out to avoid needing a real email sender.
-		RegistrationVerification: embedded.RegistrationVerificationNone,
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
 	}
-	return authcore.NewService(opts, ks)
+	return authcore.NewService(cfg, ks)
 }
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 	return serviceFromCore(t, newTestCoreService(t))
+}
+
+// newTestServiceNoBaseOrigin builds a Service whose core has NO frontend base
+// origin (non-URL issuer, empty BaseURL), so origin-derived features (passkey
+// RP identity) stay unconfigured.
+func newTestServiceNoBaseOrigin(t *testing.T) *Service {
+	t.Helper()
+	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
+	require.NoError(t, err)
+	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	cfg := embedded.Config{
+		Token: embedded.TokenConfig{
+			Issuer:              "test-app",
+			IssuedAudiences:     []string{"test-app"},
+			ExpectedAudiences:   []string{"test-app"},
+			AccessTokenDuration: time.Hour,
+		},
+		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+	}
+	return serviceFromCore(t, authcore.NewService(cfg, ks))
 }
 
 // newTestServiceWithPasskeys builds a test Service whose core has a passkey
@@ -49,24 +71,16 @@ func newTestServiceWithPasskeys(t *testing.T) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := embedded.Options{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		AccessTokenDuration:      time.Hour,
-		RegistrationVerification: embedded.RegistrationVerificationNone,
-		PasskeyRPID:              "example.com",
-		PasskeyRPDisplayName:     "Example",
-	}
+	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone}, Passkeys: embedded.PasskeyConfig{RPID: "example.com", RPDisplayName: "Example"}}
 	return serviceFromCore(t, authcore.NewService(opts, ks))
 }
 
 func serviceFromCore(t *testing.T, coreSvc *authcore.Service) *Service {
 	t.Helper()
-	opts := coreSvc.Options()
+	cfg := coreSvc.Config()
 	ver := NewVerifier(WithSkew(5 * time.Second))
-	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
+	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 	})
 	ver.WithService(coreSvc)

@@ -84,8 +84,8 @@ func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent st
 	rt := randB64(32)
 	hash := s.hashRefresh(rt)
 	var expPtr *time.Time
-	if s.opts.RefreshTokenDuration > 0 {
-		exp := time.Now().Add(s.opts.RefreshTokenDuration)
+	if s.cfg.Token.RefreshTokenDuration > 0 {
+		exp := time.Now().Add(s.cfg.Token.RefreshTokenDuration)
 		expPtr = &exp
 	}
 	sid, err := newUUIDV7String()
@@ -111,11 +111,11 @@ func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent st
 	q := db.New(db.ForSchema(tx, s.dbSchema()))
 
 	var evicted []string
-	if s.opts.SessionMaxPerUser > 0 {
-		if lockErr := q.SessionCreateLock(ctx, userID+"|"+s.opts.Issuer); lockErr != nil {
+	if s.cfg.Token.SessionMaxPerUser > 0 {
+		if lockErr := q.SessionCreateLock(ctx, userID+"|"+s.cfg.Token.Issuer); lockErr != nil {
 			return "", "", nil, lockErr
 		}
-		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.opts.Issuer)
+		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.cfg.Token.Issuer)
 		if err != nil {
 			return "", "", nil, err
 		}
@@ -125,7 +125,7 @@ func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent st
 		ID:               sid,
 		FamilyID:         fam,
 		UserID:           userID,
-		Issuer:           s.opts.Issuer,
+		Issuer:           s.cfg.Token.Issuer,
 		CurrentTokenHash: hash,
 		ExpiresAt:        expPtr,
 		UserAgent:        nullable(userAgent),
@@ -161,10 +161,10 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	h := s.hashRefresh(refreshToken)
 
 	// Try current hash
-	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.opts.Issuer})
+	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		// Maybe reuse of previous token -> revoke family
-		if prev, e2 := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.opts.Issuer}); e2 == nil {
+		if prev, e2 := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.cfg.Token.Issuer}); e2 == nil {
 			s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
 			return "", time.Time{}, "", errors.New("refresh token reuse detected")
 		}
@@ -221,7 +221,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	if mfaErr == nil {
 		mfaForToken = &mfa
 	}
-	accessToken, exp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.opts.AccessTokenDuration)
+	accessToken, exp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
 	if err != nil {
 		return "", time.Time{}, "", err
 	}
@@ -294,7 +294,7 @@ func (s *Service) IssueAuthenticatedSession(ctx context.Context, userID, userAge
 	if mfaErr == nil {
 		mfaForToken = &mfa
 	}
-	accessToken, accessExp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.opts.AccessTokenDuration)
+	accessToken, accessExp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
 	if err != nil {
 		return "", "", "", time.Time{}, nil, err
 	}
@@ -308,7 +308,7 @@ func (s *Service) ListUserSessions(ctx context.Context, userID string) ([]Sessio
 	if s.pg == nil {
 		return nil, nil
 	}
-	rows, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: userID, Issuer: s.opts.Issuer})
+	rows, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +343,7 @@ func (s *Service) SessionFreshness(ctx context.Context, userID, sessionID string
 		now = time.Now()
 	}
 
-	fresh, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
+	fresh, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		return SessionFreshness{}, err
 	}
@@ -389,7 +389,7 @@ func (s *Service) MarkSessionAuthenticatedWithMethods(ctx context.Context, userI
 	n, err := s.q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{
 		SessionID:   sessionID,
 		UserID:      userID,
-		Issuer:      s.opts.Issuer,
+		Issuer:      s.cfg.Token.Issuer,
 		AuthMethods: normalizeAuthMethods(authMethods),
 	})
 	if err != nil {
@@ -427,7 +427,7 @@ func (s *Service) ResolveSessionByRefresh(ctx context.Context, refreshToken stri
 		return "", errors.New("not_found")
 	}
 	h := s.hashRefresh(refreshToken)
-	sid, err := s.q.SessionIDByCurrentTokenHash(ctx, db.SessionIDByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.opts.Issuer})
+	sid, err := s.q.SessionIDByCurrentTokenHash(ctx, db.SessionIDByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		return "", err
 	}
@@ -443,7 +443,7 @@ func (s *Service) RevokeSessionByID(ctx context.Context, sessionID string) error
 		v := string(SessionRevokeReasonAdminRevoke)
 		reason = &v
 	}
-	uid, err := s.q.SessionRevokeByID(ctx, db.SessionRevokeByIDParams{ID: sessionID, Issuer: s.opts.Issuer})
+	uid, err := s.q.SessionRevokeByID(ctx, db.SessionRevokeByIDParams{ID: sessionID, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -464,7 +464,7 @@ func (s *Service) RevokeSessionByIDForUser(ctx context.Context, userID, sessionI
 		v := string(SessionRevokeReasonUserRevoke)
 		reason = &v
 	}
-	sid, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.opts.Issuer})
+	sid, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -485,7 +485,7 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSess
 		reason = &v
 	}
 	if keepSessionID != nil && *keepSessionID != "" {
-		ids, err := s.q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.opts.Issuer, ID: *keepSessionID})
+		ids, err := s.q.SessionsRevokeAllExcept(ctx, db.SessionsRevokeAllExceptParams{UserID: userID, Issuer: s.cfg.Token.Issuer, ID: *keepSessionID})
 		if err != nil {
 			return err
 		}
@@ -494,7 +494,7 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSess
 		}
 		return nil
 	}
-	ids, err := s.q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.opts.Issuer})
+	ids, err := s.q.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
 		return err
 	}
@@ -511,18 +511,18 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string, keepSess
 // never exceed the cap. Returns the evicted session ids for the caller to audit after
 // commit (so a logging failure can't roll back the eviction).
 func (s *Service) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userID, issuer string) ([]string, error) {
-	if s.opts.SessionMaxPerUser <= 0 {
+	if s.cfg.Token.SessionMaxPerUser <= 0 {
 		return nil, nil
 	}
 	count, err := q.SessionsCountActive(ctx, db.SessionsCountActiveParams{UserID: userID, Issuer: issuer})
 	if err != nil {
 		return nil, err
 	}
-	if int(count) < s.opts.SessionMaxPerUser {
+	if int(count) < s.cfg.Token.SessionMaxPerUser {
 		return nil, nil
 	}
 	// evict-oldest in a single statement so inserting one more lands at the cap
-	excess := int(count) - s.opts.SessionMaxPerUser + 1
+	excess := int(count) - s.cfg.Token.SessionMaxPerUser + 1
 	if excess <= 0 {
 		return nil, nil
 	}

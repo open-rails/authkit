@@ -34,8 +34,12 @@ type Config struct {
 	RBAC []PersonaDef
 
 	// Environment is a host-provided runtime mode string used for dev/prod
-	// behavior checks. "prod"/"production" mean production; anything else is
-	// treated as non-prod.
+	// behavior checks via IsDevEnvironment, the single classifier (#231): only
+	// "dev", "development", "local", "test" (and empty, preserving zero-config
+	// dev ergonomics) count as development; EVERYTHING else — including
+	// "staging" — is treated as production-like (fail-closed). NOTE: ephemeral
+	// signing-key generation is NOT tied to this field — it requires the
+	// explicit Keys.AllowEphemeralDevKeys opt-in.
 	Environment string
 
 	// Schema is the Postgres schema AuthKit's tables live in. Empty defaults to
@@ -61,8 +65,9 @@ type TokenConfig struct {
 	ExpectedAudiences    []string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
-	// SessionMaxPerUser caps concurrent refresh sessions per user. 0 = unlimited
-	// (default 3 if unset by the service); eviction is always evict-oldest.
+	// SessionMaxPerUser caps concurrent refresh sessions per user. 0 (unset)
+	// applies the default of 3; any negative value (e.g. -1) means unlimited.
+	// Eviction is always evict-oldest.
 	SessionMaxPerUser int
 }
 
@@ -108,26 +113,42 @@ type RegistrationConfig struct {
 	// PasswordlessAutoRegistration lets a verified unknown contact create a
 	// no-password user during passwordless confirmation. Off by default.
 	PasswordlessAutoRegistration bool
+	// VerificationSendTimeout bounds each in-line email/SMS provider send
+	// (registration/verification codes, password-reset links, passwordless login
+	// codes) so a misconfigured/unreachable provider cannot hang the request that
+	// triggered it. 0 (unset) defaults to 15 seconds.
+	VerificationSendTimeout time.Duration
 }
 
-// KeysConfig controls signing-key resolution.
+// KeysConfig controls signing-key resolution. AuthKit reads NO environment
+// variables here (#231): key material and the dev opt-in come from the host's
+// explicit configuration; binaries (cmd/authkit-server) read env once at their
+// own boundary and set these fields.
 type KeysConfig struct {
-	// Source can be nil — if nil, authkit auto-discovers keys: (1) env vars
-	// (ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, PUBLIC_KEYS); (2) filesystem
-	// <Path>/keys.json (default /vault/auth); (3) auto-generated keys in
-	// .runtime/authkit/ (dev fallback; prod hard-fail). Hosts NEVER handle the
-	// private key — they delegate the signing OPERATION to authkit; there is no
-	// API that returns a private key or PEM (a future Vault-Transit backend,
-	// authkit future #72, drops in behind the same Signer seam).
+	// Source can be nil — if nil, authkit resolves keys from the filesystem:
+	// <Path>/keys.json (default /vault/auth), hot-reloaded on rotation. When no
+	// keys.json exists, construction FAILS unless AllowEphemeralDevKeys is set.
+	// Hosts NEVER handle the private key — they delegate the signing OPERATION
+	// to authkit; there is no API that returns a private key or PEM (a future
+	// Vault-Transit backend, authkit future #72, drops in behind the same
+	// Signer seam).
 	Source jwtkit.KeySource
 	// Path overrides the filesystem DIRECTORY the local key resolver scans for
-	// keys.json when Source is nil. Empty defaults to AUTHKIT_KEYS_PATH, then
-	// /vault/auth.
+	// keys.json (and totp.key, #148) when Source is nil. Empty defaults to
+	// /vault/auth. There is no env fallback (#231; AUTHKIT_KEYS_PATH is read by
+	// cmd/authkit-server only).
 	Path string
+	// AllowEphemeralDevKeys opts in to auto-generating an RSA dev signing
+	// keypair (persisted under .runtime/authkit/) when Source is nil and no
+	// <Path>/keys.json exists. DEVELOPMENT ONLY — the default (false) is
+	// fail-closed: with no keys configured, NewFromConfig returns a hard error
+	// instead of silently minting dev keys (#231). This flag is deliberately
+	// NOT derived from Environment.
+	AllowEphemeralDevKeys bool
 	// VerifyOnly constructs the Service with NO active signer (#87): token
 	// MINTING returns ErrMissingSigner, while VERIFICATION and all RBAC reads
 	// work fully and the JWKS endpoint serves an empty key set. When true, key
-	// auto-discovery is SKIPPED. Ignored when Source is non-nil. Use it for a
+	// resolution is SKIPPED. Ignored when Source is non-nil. Use it for a
 	// pure resource-server / control-plane deployment that only verifies inbound
 	// tokens.
 	VerifyOnly bool
@@ -171,9 +192,11 @@ type TwoFactorConfig struct {
 	Methods []TwoFactorMethod
 
 	// TOTPSecretKey encrypts persisted authenticator-app shared secrets. It must
-	// be 16, 24, or 32 bytes. This is an OVERRIDE for tests/custom key management;
-	// the normal path loads the key from <Keys.Path>/totp.key (vault-mounted key
-	// material, same model as JWT signing keys). Without either, TOTP enrollment
+	// be 16, 24, or 32 RAW bytes (not base64/hex). This is an OVERRIDE for
+	// tests/custom key management; the normal path loads the key from
+	// <Keys.Path>/totp.key (vault-mounted key material, same model as JWT
+	// signing keys; wired in NewFromConfig, #232). An override of any other
+	// length is a hard construction error. Without either, TOTP enrollment
 	// fails closed.
 	TOTPSecretKey []byte
 }

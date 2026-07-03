@@ -21,6 +21,7 @@ func newConsentTestService(t *testing.T) (s *Service, owner string) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := embedded.Config{
+		Keys:  embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"a"}, ExpectedAudiences: []string{"a"}},
 		RBAC: []embedded.PersonaDef{
 			{Name: "team", Parent: embedded.RootPersona, RequireConsent: true,

@@ -119,11 +119,6 @@ func TestQueryPerformance(t *testing.T) {
 			ForbidSeqScan: []string{"user_providers"},
 		},
 		{
-			Name: "identity_forward_username", MaxExecutionMS: 75, MaxSharedReadBlocks: 32,
-			SQL: db.QueryText["IdentityForwardUsername"], Args: []any{perfFromSlug(hot)},
-			ForbidSeqScan: []string{"user_renames"},
-		},
-		{
 			// Bounded by the partial users_deleted_at_idx (touches only deleted rows),
 			// then top-N sorts the LIMIT page — the planner's correct choice for a
 			// small eligible set, so no ForbidSort here. Gated for no full scan.
@@ -294,19 +289,9 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 		t.Fatalf("copy providers n=%d err=%v", n, err)
 	}
 
-	// One rename per user: from_slug feeds IdentityForwardUsername via the
-	// (from_slug, renamed_at DESC) index.
-	copyRenames := pgx.CopyFromSlice(scale, func(i int) ([]any, error) {
-		return []any{perfUserID(i), perfFromSlug(i)}, nil
-	})
-	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "user_renames"},
-		[]string{"user_id", "from_slug"}, copyRenames); err != nil || int(n) != scale {
-		t.Fatalf("copy renames n=%d err=%v", n, err)
-	}
-
 	for _, table := range []string{
 		"profiles.users", "profiles.refresh_sessions", "profiles.group_user_roles",
-		"profiles.user_providers", "profiles.user_renames",
+		"profiles.user_providers",
 	} {
 		// VACUUM, not just ANALYZE, so the visibility map is set: covering indexes
 		// like users_deleted_at_idx (deleted_at, id) then serve true index-only
@@ -415,6 +400,5 @@ func prevHash(i int) []byte       { return []byte(fmt.Sprintf("prev-%012x", i)) 
 func perfEmail(i int) string      { return fmt.Sprintf("user%06d@example.test", i) }
 func perfUsername(i int) string   { return fmt.Sprintf("user%06d", i) }
 func perfSubject(i int) string    { return fmt.Sprintf("sub-%06d", i) }
-func perfFromSlug(i int) string   { return fmt.Sprintf("olduser%06d", i) }
 func perfIdpEmail(i int) string   { return fmt.Sprintf("idp%06d@example.test", i) }
 func perfIdpIssuer(i int) string  { return fmt.Sprintf("https://perf-idp-%d.example", i%perfIssuers) }

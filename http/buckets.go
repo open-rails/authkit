@@ -57,10 +57,11 @@ const (
 	RLUserDelete         = "auth_user_delete"
 	RLUserUnlinkProvider = "auth_user_unlink_provider"
 
-	RLAdminRolesGrant            = "auth_admin_roles_grant"
-	RLAdminRolesRevoke           = "auth_admin_roles_revoke"
-	RLAdminUserSessionsList      = "auth_admin_user_sessions_list"
-	RLAdminUserSessionsRevoke    = "auth_admin_user_sessions_revoke"
+	RLAdminRolesGrant       = "auth_admin_roles_grant"
+	RLAdminRolesRevoke      = "auth_admin_roles_revoke"
+	RLAdminUserSessionsList = "auth_admin_user_sessions_list"
+	// The admin session route revokes ALL of a user's sessions; there is no
+	// single-session admin revoke, so no RLAdminUserSessionsRevoke bucket.
 	RLAdminUserSessionsRevokeAll = "auth_admin_user_sessions_revoke_all"
 	RLAdminPasswordReset         = "auth_admin_password_reset"
 

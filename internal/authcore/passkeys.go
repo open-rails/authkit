@@ -25,7 +25,7 @@ const passkeyCeremonyTTL = 10 * time.Minute
 // WebAuthn ceremony fails closed (the origin must match the RPID). The HTTP
 // transport uses this to skip mounting the /passkeys/* routes entirely rather
 // than exposing endpoints that can only error.
-func (s *Service) PasskeysEnabled() bool { return strings.TrimSpace(s.opts.PasskeyRPID) != "" }
+func (s *Service) PasskeysEnabled() bool { return strings.TrimSpace(s.cfg.Passkeys.RPID) != "" }
 
 var (
 	ErrPasskeyNotFound                 = authkit.ErrPasskeyNotFound
@@ -117,7 +117,7 @@ func normalizePasskeyUserVerification(value string) string {
 }
 
 func (s *Service) passkeyUserVerification() protocol.UserVerificationRequirement {
-	switch normalizePasskeyUserVerification(s.opts.PasskeyUserVerification) {
+	switch normalizePasskeyUserVerification(s.cfg.Passkeys.UserVerification) {
 	case string(protocol.VerificationRequired):
 		return protocol.VerificationRequired
 	case string(protocol.VerificationDiscouraged):
@@ -129,9 +129,9 @@ func (s *Service) passkeyUserVerification() protocol.UserVerificationRequirement
 
 func (s *Service) webAuthn() (*webauthn.WebAuthn, error) {
 	return webauthn.New(&webauthn.Config{
-		RPID:                  s.opts.PasskeyRPID,
-		RPDisplayName:         s.opts.PasskeyRPDisplayName,
-		RPOrigins:             append([]string(nil), s.opts.PasskeyOrigins...),
+		RPID:                  s.cfg.Passkeys.RPID,
+		RPDisplayName:         s.cfg.Passkeys.RPDisplayName,
+		RPOrigins:             append([]string(nil), s.cfg.Passkeys.Origins...),
 		AttestationPreference: protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			UserVerification: s.passkeyUserVerification(),
@@ -272,7 +272,7 @@ func (s *Service) FinishPasskeyLogin(ctx context.Context, response []byte, userA
 
 func (s *Service) ListPasskeys(ctx context.Context, userID string) ([]Passkey, error) {
 	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT id, user_id, transports, authenticator_attachment, backup_eligible, backup_state, label, created_at, last_used_at
-FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.opts.PasskeyRPID)
+FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +357,7 @@ func (s *Service) passkeyUser(ctx context.Context, userID string, createHandle b
 
 func (s *Service) passkeyUserByHandle(ctx context.Context, handle []byte) (passkeyUser, error) {
 	var userID string
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT user_id FROM profiles.user_passkey_handles WHERE rpid=$1 AND user_handle=$2`, s.opts.PasskeyRPID, handle).Scan(&userID)
+	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT user_id FROM profiles.user_passkey_handles WHERE user_handle=$1`, handle).Scan(&userID)
 	if err != nil {
 		return passkeyUser{}, err
 	}
@@ -366,7 +366,7 @@ func (s *Service) passkeyUserByHandle(ctx context.Context, handle []byte) (passk
 
 func (s *Service) passkeyHandle(ctx context.Context, userID string, create bool) ([]byte, error) {
 	var handle []byte
-	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT user_handle FROM profiles.user_passkey_handles WHERE user_id=$1 AND rpid=$2`, userID, s.opts.PasskeyRPID).Scan(&handle)
+	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT user_handle FROM profiles.user_passkey_handles WHERE user_id=$1`, userID).Scan(&handle)
 	if err == nil {
 		return handle, nil
 	}
@@ -377,13 +377,13 @@ func (s *Service) passkeyHandle(ctx context.Context, userID string, create bool)
 	if _, err := rand.Read(handle); err != nil {
 		return nil, err
 	}
-	err = db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `INSERT INTO profiles.user_passkey_handles (user_id, rpid, user_handle) VALUES ($1, $2, $3) ON CONFLICT (rpid, user_id) DO UPDATE SET user_handle=profiles.user_passkey_handles.user_handle RETURNING user_handle`, userID, s.opts.PasskeyRPID, handle).Scan(&handle)
+	err = db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `INSERT INTO profiles.user_passkey_handles (user_id, user_handle) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET user_handle=profiles.user_passkey_handles.user_handle RETURNING user_handle`, userID, handle).Scan(&handle)
 	return handle, err
 }
 
 func (s *Service) passkeyCredentialsByUser(ctx context.Context, userID string) ([]webauthn.Credential, error) {
-	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, backup_eligible, backup_state, user_present, user_verified, flags, attestation_type, attestation_fmt
-FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`, userID, s.opts.PasskeyRPID)
+	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, backup_eligible, backup_state, flags, attestation_type, attestation_fmt
+FROM profiles.user_passkeys WHERE user_id=$1 AND rpid=$2 AND deleted_at IS NULL`, userID, s.cfg.Passkeys.RPID)
 	if err != nil {
 		return nil, err
 	}
@@ -405,16 +405,18 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 		transports                             []string
 		attachment, attType, attFmt            string
 		signCount                              int64
-		clone, be, bs, up, uv                  bool
+		clone, be, bs                          bool
 	)
-	if err := row.Scan(&credentialID, &publicKey, &signCount, &clone, &aaguid, &transports, &attachment, &be, &bs, &up, &uv, &flags, &attType, &attFmt); err != nil {
+	if err := row.Scan(&credentialID, &publicKey, &signCount, &clone, &aaguid, &transports, &attachment, &be, &bs, &flags, &attType, &attFmt); err != nil {
 		return webauthn.Credential{}, err
 	}
 	var transport []protocol.AuthenticatorTransport
 	for _, t := range transports {
 		transport = append(transport, protocol.AuthenticatorTransport(t))
 	}
-	credFlags := webauthn.CredentialFlags{UserPresent: up, UserVerified: uv, BackupEligible: be, BackupState: bs}
+	// UserPresent/UserVerified are derived from flags (#235); the bool columns
+	// only backstop legacy rows with an empty flags byte.
+	credFlags := webauthn.CredentialFlags{BackupEligible: be, BackupState: bs}
 	if len(flags) > 0 {
 		credFlags = webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(flags[0]))
 	}
@@ -437,11 +439,11 @@ func scanWebAuthnCredential(row pgx.Rows) (webauthn.Credential, error) {
 func (s *Service) createPasskey(ctx context.Context, userID string, cred *webauthn.Credential, label *string) (Passkey, error) {
 	var p Passkey
 	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `INSERT INTO profiles.user_passkeys
-(user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, backup_eligible, backup_state, user_present, user_verified, flags, attestation_type, attestation_fmt, label)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+(user_id, rpid, credential_id, public_key, sign_count, clone_warning, aaguid, transports, authenticator_attachment, backup_eligible, backup_state, flags, attestation_type, attestation_fmt, label)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 RETURNING id, user_id, transports, authenticator_attachment, backup_eligible, backup_state, label, created_at, last_used_at`,
-		userID, s.opts.PasskeyRPID, cred.ID, cred.PublicKey, int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, nullBytes(cred.Authenticator.AAGUID),
-		transportStrings(cred.Transport), string(cred.Authenticator.Attachment), cred.Flags.BackupEligible, cred.Flags.BackupState, cred.Flags.UserPresent, cred.Flags.UserVerified,
+		userID, s.cfg.Passkeys.RPID, cred.ID, cred.PublicKey, int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, nullBytes(cred.Authenticator.AAGUID),
+		transportStrings(cred.Transport), string(cred.Authenticator.Attachment), cred.Flags.BackupEligible, cred.Flags.BackupState,
 		[]byte{byte(cred.Flags.ProtocolValue())}, cred.AttestationType, cred.AttestationFormat, label,
 	).Scan(&p.ID, &p.UserID, &p.Transports, &p.AuthenticatorAttachment, &p.BackupEligible, &p.BackupState, &p.Label, &p.CreatedAt, &p.LastUsedAt)
 	return p, err
@@ -449,9 +451,9 @@ RETURNING id, user_id, transports, authenticator_attachment, backup_eligible, ba
 
 func (s *Service) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) error {
 	tag, err := db.ForSchema(s.pg, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_passkeys
-SET sign_count=$1, clone_warning=$2, backup_state=$3, user_present=$4, user_verified=$5, flags=$6, last_used_at=NOW()
-WHERE user_id=$7 AND rpid=$8 AND credential_id=$9 AND deleted_at IS NULL`,
-		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, cred.Flags.BackupState, cred.Flags.UserPresent, cred.Flags.UserVerified, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.opts.PasskeyRPID, cred.ID)
+SET sign_count=$1, clone_warning=$2, backup_state=$3, flags=$4, last_used_at=NOW()
+WHERE user_id=$5 AND rpid=$6 AND credential_id=$7 AND deleted_at IS NULL`,
+		int64(cred.Authenticator.SignCount), cred.Authenticator.CloneWarning, cred.Flags.BackupState, []byte{byte(cred.Flags.ProtocolValue())}, userID, s.cfg.Passkeys.RPID, cred.ID)
 	if err != nil {
 		return err
 	}

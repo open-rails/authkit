@@ -172,6 +172,7 @@ func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
 
 func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	cfg := embedded.Config{
+		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},

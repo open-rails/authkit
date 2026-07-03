@@ -21,18 +21,11 @@ func newTestServiceBaseURL(t *testing.T, baseURL string) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	opts := embedded.Options{
-		Issuer:                   "https://example.com",
-		BaseURL:                  baseURL,
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		AccessTokenDuration:      time.Hour,
-		RegistrationVerification: embedded.RegistrationVerificationNone,
-	}
+	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	opts := embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}, Frontend: embedded.FrontendConfig{BaseURL: baseURL}, Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone}}
 	coreSvc := authcore.NewService(opts, ks)
 	ver := NewVerifier(WithSkew(5 * time.Second))
-	_ = ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{RawKeys: coreSvc.PublicKeysByKID()})
+	_ = ver.AddIssuer(opts.Token.Issuer, opts.Token.ExpectedAudiences, IssuerOptions{RawKeys: coreSvc.PublicKeysByKID()})
 	ver.WithService(coreSvc)
 	return &Service{svc: coreSvc, verifier: ver}
 }
@@ -51,7 +44,9 @@ func TestBuildRedirectURI_UsesBaseURLNotForwardedHeaders(t *testing.T) {
 }
 
 func TestBuildRedirectURI_DevFallbackIgnoresForwardedHost(t *testing.T) {
-	s := newTestServiceBaseURL(t, "") // no BaseURL -> fall back to the connection host
+	// #237: BaseURL now defaults from a well-formed issuer in the ONE
+	// normalization pass, so "no BaseURL" requires a non-URL issuer too.
+	s := newTestServiceNoBaseOrigin(t) // no base origin -> fall back to the connection host
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/login", nil)
 	r.Host = "localhost:8080"
 	r.Header.Set("X-Forwarded-Host", "attacker.example")

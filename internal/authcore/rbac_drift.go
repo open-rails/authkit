@@ -42,7 +42,6 @@ func (s *Service) driftCustomRoles(ctx context.Context) (int, error) {
 		SELECT pg.persona, gcr.role, count(*)
 		  FROM profiles.group_custom_roles gcr
 		  JOIN profiles.permission_groups pg ON pg.id = gcr.permission_group_id
-		 WHERE pg.deleted_at IS NULL
 		 GROUP BY pg.persona, gcr.role`, s.dbSchema()))
 	if err != nil {
 		return 0, err
@@ -72,7 +71,7 @@ func (s *Service) driftAssignedRoles(ctx context.Context, table, where string) (
 		SELECT pg.id::text, pg.persona, r.role, count(*)
 		  FROM profiles.`+table+` r
 		  JOIN profiles.permission_groups pg ON pg.id = r.permission_group_id
-		 WHERE pg.deleted_at IS NULL AND `+where+`
+		 WHERE `+where+`
 		 GROUP BY pg.id, pg.persona, r.role`, s.dbSchema()))
 	if err != nil {
 		return 0, err
@@ -97,8 +96,7 @@ func (s *Service) liveCustomRoleSet(ctx context.Context) (map[string]map[string]
 	rows, err := s.pg.Query(ctx, db.RewriteSQL(`
 		SELECT pg.id::text, gcr.role
 		  FROM profiles.group_custom_roles gcr
-		  JOIN profiles.permission_groups pg ON pg.id = gcr.permission_group_id
-		 WHERE pg.deleted_at IS NULL`, s.dbSchema()))
+		  JOIN profiles.permission_groups pg ON pg.id = gcr.permission_group_id`, s.dbSchema()))
 	if err != nil {
 		return nil, err
 	}

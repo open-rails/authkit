@@ -99,12 +99,12 @@ func TestValidAPIKeyPrefix(t *testing.T) {
 }
 
 func TestAPIKeyPrefixAndTTLConfigured(t *testing.T) {
-	svc := NewService(Options{Issuer: "https://test", APIKeyPrefix: "or", APIKeyMaxTTL: time.Hour}, Keyset{})
-	opts := svc.Options()
-	if opts.APIKeyPrefix != "or" {
-		t.Fatalf("prefix not normalized: %+v", opts)
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, APIKeys: APIKeysConfig{Prefix: "or", MaxTTL: time.Hour}}, Keyset{})
+	cfg := svc.Config()
+	if cfg.APIKeys.Prefix != "or" {
+		t.Fatalf("prefix not normalized: %+v", cfg.APIKeys)
 	}
-	if opts.APIKeyMaxTTL != time.Hour {
-		t.Fatalf("ttl not normalized: %+v", opts)
+	if cfg.APIKeys.MaxTTL != time.Hour {
+		t.Fatalf("ttl not normalized: %+v", cfg.APIKeys)
 	}
 }

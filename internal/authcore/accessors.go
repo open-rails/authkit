@@ -17,10 +17,10 @@ import (
 )
 
 // Plain accessors and small setters on Service: keys/JWKS, config, the DB pool
-// and schema, and the verify-time Keyfunc. isDevEnvironment pairs a free
-// function (pure logic on an env string, callable before a Service exists,
-// e.g. from ephemeral.go/service_solana.go during options resolution) with a
-// nil-safe Service method wrapper used everywhere else.
+// and schema, and the verify-time Keyfunc. IsDevEnvironment is THE single
+// dev/prod classifier (#231): pure logic on a config-provided string, callable
+// before a Service exists (e.g. from service_solana.go during options
+// resolution), with a nil-safe Service method wrapper used everywhere else.
 
 // JWKS returns a JWKS built from configured public keys.
 func (s *Service) JWKS() jwtkit.JWKS {
@@ -82,15 +82,9 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 
 // --- Refresh tokens are implemented via server-side sessions in service_sessions.go ---
 
-// Options exposes immutable configuration for callers that need to validate claims.
-func (s *Service) Options() Options {
-	return s.opts
-}
-
-// Config returns the host Config this Service was built from. The client-first
-// HTTP transport reads it for HTTP-layer config (OIDC providers/descriptors) that
-// rides in Config but the engine doesn't consume. Zero value for a Service built
-// via NewService (config-less, e.g. some tests).
+// Config returns THE configuration (#237): the host Config, normalized once at
+// construction. Both the engine and the HTTP transport read it — there is no
+// parallel flat options struct (#236 bug class is structurally impossible).
 func (s *Service) Config() Config { return s.cfg }
 
 // PublicKeysByKID returns the public keys indexed by key ID.
@@ -102,14 +96,14 @@ func (s *Service) isDevEnvironment() bool {
 	if s == nil {
 		return true
 	}
-	return isDevEnvironment(s.opts.Environment)
+	return IsDevEnvironment(s.cfg.Environment)
 }
 
 // Postgres returns the attached pgx pool (may be nil).
 func (s *Service) Postgres() *pgxpool.Pool { return s.pg }
 
 // Schema returns the Postgres schema AuthKit's tables live in ("profiles"
-// unless configured otherwise via Config.Schema/Options.Schema).
+// unless configured otherwise via Config.Schema).
 func (s *Service) Schema() string { return s.dbSchema() }
 
 // dbSchema returns the validated schema name, defaulting for zero-value
@@ -159,13 +153,19 @@ func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
 	}
 }
 
-// isDevEnvironment returns true unless the environment is explicitly set to prod/production
-func isDevEnvironment(env string) bool {
-	e := strings.ToLower(strings.TrimSpace(env))
-	// Only production environments are considered non-dev
-	if e == "prod" || e == "production" {
-		return false
+// IsDevEnvironment is THE dev/prod classifier (#231) — the single function all
+// dev-vs-prod behavior switches on (the standalone binary maps AUTHKIT_ENV
+// through it too; there are deliberately no other classifiers). Only
+// explicitly dev-ish values count as development: "dev", "development",
+// "local", "test" — plus the empty string, so zero-config embedding keeps dev
+// ergonomics (deployments must set Environment). EVERYTHING else — including
+// "staging" and unknown/misspelled values — is prod-like, i.e. fail-closed.
+// NOTE: ephemeral signing-key generation is NOT tied to this classifier; it
+// requires the explicit KeysConfig.AllowEphemeralDevKeys opt-in.
+func IsDevEnvironment(env string) bool {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "", "dev", "development", "local", "test":
+		return true
 	}
-	// Everything else (dev, development, local, staging, empty, etc.) is considered dev
-	return true
+	return false
 }

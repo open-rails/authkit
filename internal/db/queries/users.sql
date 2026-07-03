@@ -153,9 +153,8 @@ DELETE FROM profiles.users WHERE id = $1;
 -- name: SessionsRevokeAllQuiet :exec
 UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2;
 
--- #125 D7: pre-delete cleanup for the hard-delete/purge path.
--- group_invites.invited_by is ON DELETE RESTRICT so sent invites must be cleared
--- before the user row is removed.
+-- #125 D7: pre-delete cleanup for the hard-delete/purge path (invite tables all
+-- CASCADE on invited_by; only group role assignments need an explicit sweep).
 
 -- name: GroupAssignmentsDeleteByUser :exec
 DELETE FROM profiles.group_user_roles

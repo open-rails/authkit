@@ -33,12 +33,6 @@ func TestQueryContracts(t *testing.T) {
 			t.Fatalf("UserByEmail = %+v", byEmail)
 		}
 
-		identity, err := q.IdentityUserByID(ctx, userID)
-		requireNoError(t, err)
-		if identity.ID != userID || identity.Email == nil || *identity.Email != "contract.user@example.test" {
-			t.Fatalf("IdentityUserByID = %+v", identity)
-		}
-
 		requireNoError(t, q.UserSetPreferredLanguage(ctx, db.UserSetPreferredLanguageParams{ID: userID, PreferredLanguage: ptr("es")}))
 		language, err := q.UserPreferredLanguage(ctx, userID)
 		requireNoError(t, err)
@@ -47,26 +41,14 @@ func TestQueryContracts(t *testing.T) {
 		}
 
 		requireNoError(t, q.UserRenameInsert(ctx, db.UserRenameInsertParams{UserID: userID, FromSlug: username}))
-		requireNoError(t, q.IdentityUpdateUserUsername(ctx, db.IdentityUpdateUserUsernameParams{ID: userID, Username: ptr("contract-user-new")}))
-		forwarded, err := q.IdentityForwardUsername(ctx, username)
+		requireNoError(t, q.UserSetUsername(ctx, db.UserSetUsernameParams{ID: userID, Username: ptr("contract-user-new")}))
+		aliases, err := q.UserSlugAliases(ctx, userID)
 		requireNoError(t, err)
-		if forwarded == nil || *forwarded != "contract-user-new" {
-			t.Fatalf("IdentityForwardUsername = %v", forwarded)
+		if len(aliases) != 1 || aliases[0] != username {
+			t.Fatalf("UserSlugAliases = %v", aliases)
 		}
 
-		requireNoError(t, q.OwnerReservedNameUpsert(ctx, "contract-reserved"))
-		exists, err := q.OwnerReservedNameExists(ctx, "contract-reserved")
-		requireNoError(t, err)
-		if !exists {
-			t.Fatal("reserved owner name was not found")
-		}
-		rows, err := q.OwnerReservedNameDelete(ctx, "contract-reserved")
-		requireNoError(t, err)
-		if rows != 1 {
-			t.Fatalf("deleted reserved rows = %d", rows)
-		}
-
-		rows, err = q.UserMetadataPatch(ctx, db.UserMetadataPatchParams{ID: userID, Patch: []byte(`{"reserved":true}`)})
+		rows, err := q.UserMetadataPatch(ctx, db.UserMetadataPatchParams{ID: userID, Patch: []byte(`{"reserved":true}`)})
 		requireNoError(t, err)
 		if rows != 1 {
 			t.Fatalf("metadata patch rows = %d", rows)
@@ -204,11 +186,11 @@ func TestQueryContracts(t *testing.T) {
 		schema := testGroupSchema(t)
 		store := authcore.NewPermissionGroupStore(pg.Pool)
 		requireNoError(t, store.SeedContainment(ctx, schema))
-		rootID, err := store.CreateGroup(ctx, "root", "", "", "")
+		rootID, err := store.CreateGroup(ctx, "root", "", "")
 		requireNoError(t, err)
-		orgID, err := store.CreateGroup(ctx, "org", rootID, "root", "contract-org")
+		orgID, err := store.CreateGroup(ctx, "org", rootID, "contract-org")
 		requireNoError(t, err)
-		repoID, err := store.CreateGroup(ctx, "repo", orgID, "org", "contract-repo")
+		repoID, err := store.CreateGroup(ctx, "repo", orgID, "contract-repo")
 		requireNoError(t, err)
 
 		userID := createUser(t, ctx, q, 30, "group-user")

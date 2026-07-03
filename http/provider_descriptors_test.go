@@ -45,6 +45,7 @@ func TestAuthProviderCacheIsolation(t *testing.T) {
 
 func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 	cfg := embedded.Config{
+		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test"},
@@ -104,16 +105,15 @@ func TestBuildAuthProvidersMapSkipsUnconfiguredProviders(t *testing.T) {
 	require.NotContains(t, providers, "custom")
 }
 
-func TestBuildAuthProvidersMapTreatsEmptySecretEnvAsUnavailable(t *testing.T) {
-	t.Setenv("AUTHKIT_EMPTY_PROVIDER_SECRET", "")
-
+func TestBuildAuthProvidersMapTreatsEmptySecretAsUnavailable(t *testing.T) {
+	// #231: no env-var indirection — an empty explicit secret means unavailable.
 	providers, err := buildAuthProvidersMap([]authprovider.Provider{
 		{
 			Name:         "custom",
 			Kind:         authprovider.KindOAuth2,
 			Issuer:       "https://custom.example",
 			ClientID:     "custom-client",
-			ClientSecret: authprovider.ClientSecret{Env: "AUTHKIT_EMPTY_PROVIDER_SECRET"},
+			ClientSecret: authprovider.ClientSecret{Value: "  "},
 			AuthorizeURL: "https://custom.example/auth",
 			TokenURL:     "https://custom.example/token",
 			UserInfoURL:  "https://custom.example/user",

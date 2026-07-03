@@ -14,7 +14,7 @@ import (
 func importTestService(t *testing.T) (*Service, context.Context) {
 	t.Helper()
 	pool := testPG(t)
-	return NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool)), context.Background()
+	return NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool)), context.Background()
 }
 
 // uniq returns identity material unique per test run (the test DB persists).

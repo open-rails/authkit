@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -20,10 +19,7 @@ const (
 	SecretStrategyAppleJWT = "apple_jwt"
 )
 
-var (
-	ErrClientSecretEnvEmpty = errors.New("client_secret_env_empty")
-	ErrProviderNonHTTPSURL  = errors.New("provider_non_https_url")
-)
+var ErrProviderNonHTTPSURL = errors.New("provider_non_https_url")
 
 type Provider struct {
 	Name            string
@@ -59,9 +55,12 @@ type Provider struct {
 	SecretProvider func(context.Context) (string, error)
 }
 
+// ClientSecret carries the provider's client secret as explicit config. There
+// is deliberately NO env-var indirection (#231): AuthKit is a library and
+// never reads process env — hosts/binaries resolve secrets at their own
+// boundary and pass Value (or a Strategy) here.
 type ClientSecret struct {
 	Value    string
-	Env      string
 	Strategy string
 	AppleJWT *AppleJWTSecret
 }
@@ -70,7 +69,6 @@ type AppleJWTSecret struct {
 	TeamID        string
 	KeyID         string
 	PrivateKeyPEM []byte
-	PrivateKeyEnv string
 	TTL           time.Duration
 }
 
@@ -102,22 +100,10 @@ func (p Provider) NormalizedName() string {
 	return strings.ToLower(strings.TrimSpace(p.Name))
 }
 
-func (s ClientSecret) ResolveStatic() (string, error) {
-	if strings.TrimSpace(s.Value) != "" {
-		return strings.TrimSpace(s.Value), nil
-	}
-	env := strings.TrimSpace(s.Env)
-	if env != "" {
-		v := strings.TrimSpace(os.Getenv(env))
-		if v == "" {
-			return "", fmt.Errorf("%w: %s", ErrClientSecretEnvEmpty, env)
-		}
-		return v, nil
-	}
-	if strings.TrimSpace(s.Strategy) != "" {
-		return "", nil
-	}
-	return "", nil
+// ResolveStatic returns the statically configured secret value (empty when
+// unset or when a dynamic Strategy is used instead).
+func (s ClientSecret) ResolveStatic() string {
+	return strings.TrimSpace(s.Value)
 }
 
 // Validate checks descriptor shape for config-loaded providers.

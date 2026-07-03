@@ -15,7 +15,7 @@ import (
 // same code.
 func TestConsumeMFACode_AtomicSingleUse(t *testing.T) {
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 
 	userID := "user-single-use"
 	codeHash := sha256Hex("123456")
@@ -35,7 +35,7 @@ func TestConsumeMFACode_AtomicSingleUse(t *testing.T) {
 // attempt then fails and the user must request a fresh code.
 func TestConsumeMFACode_WrongGuessSpendsCode(t *testing.T) {
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 
 	userID := "user-wrong-guess"
 	require.NoError(t, svc.storeMFACode(ctx, userID, sha256Hex("123456"), "email", "a@b.co", time.Minute))
@@ -52,7 +52,7 @@ func TestConsumeMFACode_WrongGuessSpendsCode(t *testing.T) {
 // The step-up code path shares the same atomic single-use guarantee.
 func TestConsumeMFAStepUpCode_AtomicSingleUse(t *testing.T) {
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 
 	userID, sessionID := "user-stepup", "sess-1"
 	codeHash := sha256Hex("654321")

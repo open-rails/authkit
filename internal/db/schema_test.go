@@ -77,8 +77,7 @@ func TestForSchemaRewritesGeneratedQueries(t *testing.T) {
 
 	_, _ = q.UserByEmail(ctx, "user@example.com")
 	_, _ = q.RemoteApplicationBySlug(ctx, "acme")
-	slug := "acme"
-	_, _ = q.UserBySlug(ctx, &slug)
+	_, _ = q.UserSlugAliases(ctx, "00000000-0000-0000-0000-000000000000")
 	_, _ = q.UserProviderSlugs(ctx, "00000000-0000-0000-0000-000000000000")
 
 	if len(rec.sqls) == 0 {

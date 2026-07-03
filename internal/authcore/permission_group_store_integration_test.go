@@ -50,15 +50,15 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 	}
 
 	// Build the tree root -> org(acme) -> repo(r1).
-	rootID, err := st.CreateGroup(ctx, "root", "", "", "")
+	rootID, err := st.CreateGroup(ctx, "root", "", "")
 	if err != nil {
 		t.Fatalf("create root: %v", err)
 	}
-	orgID, err := st.CreateGroup(ctx, "org", rootID, "root", "acme")
+	orgID, err := st.CreateGroup(ctx, "org", rootID, "acme")
 	if err != nil {
 		t.Fatalf("create org permission group: %v", err)
 	}
-	repoID, err := st.CreateGroup(ctx, "repo", orgID, "org", "r1")
+	repoID, err := st.CreateGroup(ctx, "repo", orgID, "r1")
 	if err != nil {
 		t.Fatalf("create repo: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 			t.Fatalf("savepoint: %v", err)
 		}
 		defer func() { _ = sp.Rollback(ctx) }()
-		if _, err := NewPermissionGroupStore(sp).CreateGroup(ctx, "repo", rootID, "root", "rX"); err == nil {
+		if _, err := NewPermissionGroupStore(sp).CreateGroup(ctx, "repo", rootID, "rX"); err == nil {
 			t.Errorf("root->repo should be rejected by the containment trigger")
 		}
 	}()

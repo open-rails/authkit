@@ -49,7 +49,7 @@ func (s *Service) MintRemoteApplicationAccessToken(ctx context.Context, p Remote
 		return "", ErrMissingSigner
 	}
 	if strings.TrimSpace(p.Issuer) == "" {
-		p.Issuer = strings.TrimSpace(s.opts.Issuer)
+		p.Issuer = strings.TrimSpace(s.cfg.Token.Issuer)
 	}
 	return MintRemoteApplicationAccessToken(ctx, signer, p)
 }

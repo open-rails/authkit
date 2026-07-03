@@ -4,7 +4,6 @@ import (
 	"fmt"
 	stdlog "log"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -13,9 +12,12 @@ import (
 	jwtkit "github.com/open-rails/authkit/jwt"
 )
 
-// Construction and Options/Config validation: the two entry points (NewService
-// from low-level Options, NewFromConfig from high-level Config), the normalize*
-// validators they share, and the registration-policy reads on Options.
+// Construction and Config validation. There is ONE config type (Config, #237)
+// and ONE normalization pass (normalizeConfig): the Service reads the
+// normalized Config directly, so a knob cannot exist internally without being
+// settable by hosts. NewFromConfig is THE host construction path (key/TOTP
+// resolution + required-field checks); NewService is the module-internal
+// low-level seam (explicit Keyset, sparse configs) used by tests.
 
 const (
 	defaultOIDCReturnPath            = "/login/callback"
@@ -25,36 +27,117 @@ const (
 	defaultFrontendInvitePath        = "/accept-invite"
 )
 
-func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
-	if mode, err := normalizeRegistrationMode(opts.NativeUserRegistrationMode); err == nil {
-		opts.NativeUserRegistrationMode = mode
+// normalizeConfig is the single defaulting/validation pass every Service's
+// Config goes through, exactly once, at construction. It returns a normalized
+// COPY: trimmed strings, defaulted paths/TTLs/limits, canonical enum values.
+// Required-field presence (Issuer, audiences) is NewFromConfig's job — sparse
+// test configs stay constructible through NewService.
+func normalizeConfig(cfg Config) (Config, error) {
+	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
+	cfg.Environment = strings.TrimSpace(cfg.Environment)
+	cfg.SolanaNetwork = strings.TrimSpace(cfg.SolanaNetwork)
+
+	// BaseURL defaults from a well-formed Issuer URL.
+	cfg.Frontend.BaseURL = strings.TrimSpace(cfg.Frontend.BaseURL)
+	if cfg.Frontend.BaseURL == "" && isWellFormattedURL(cfg.Token.Issuer) {
+		cfg.Frontend.BaseURL = cfg.Token.Issuer
 	}
-	if strings.TrimSpace(opts.OIDCReturnPath) == "" {
-		opts.OIDCReturnPath = defaultOIDCReturnPath
+
+	var err error
+	if cfg.Frontend.OIDCReturnPath, err = normalizeFrontendPath("OIDCReturnPath", cfg.Frontend.OIDCReturnPath, defaultOIDCReturnPath); err != nil {
+		return Config{}, err
 	}
-	if strings.TrimSpace(opts.FrontendVerifyPath) == "" {
-		opts.FrontendVerifyPath = defaultFrontendVerifyPath
+	if cfg.Frontend.VerifyPath, err = normalizeFrontendPath("FrontendVerifyPath", cfg.Frontend.VerifyPath, defaultFrontendVerifyPath); err != nil {
+		return Config{}, err
 	}
-	if strings.TrimSpace(opts.FrontendPasswordResetPath) == "" {
-		opts.FrontendPasswordResetPath = defaultFrontendPasswordResetPath
+	if cfg.Frontend.PasswordResetPath, err = normalizeFrontendPath("FrontendPasswordResetPath", cfg.Frontend.PasswordResetPath, defaultFrontendPasswordResetPath); err != nil {
+		return Config{}, err
 	}
-	if strings.TrimSpace(opts.FrontendPasswordlessPath) == "" {
-		opts.FrontendPasswordlessPath = defaultFrontendPasswordlessPath
+	if cfg.Frontend.PasswordlessPath, err = normalizeFrontendPath("FrontendPasswordlessPath", cfg.Frontend.PasswordlessPath, defaultFrontendPasswordlessPath); err != nil {
+		return Config{}, err
 	}
-	if strings.TrimSpace(opts.FrontendInvitePath) == "" {
-		opts.FrontendInvitePath = defaultFrontendInvitePath
+	if cfg.Frontend.InvitePath, err = normalizeFrontendPath("FrontendInvitePath", cfg.Frontend.InvitePath, defaultFrontendInvitePath); err != nil {
+		return Config{}, err
 	}
-	opts.PasskeyUserVerification = normalizePasskeyUserVerification(opts.PasskeyUserVerification)
-	opts.APIKeyPrefix = strings.TrimSpace(opts.APIKeyPrefix)
-	schema, err := normalizeSchemaName(opts.Schema)
+
+	// 0 (unset) => default 3; negative => unlimited (session code treats <=0 as no cap).
+	if cfg.Token.SessionMaxPerUser == 0 {
+		cfg.Token.SessionMaxPerUser = 3
+	}
+	if cfg.Token.AccessTokenDuration == 0 {
+		// Short default bounds revocation lag (logout / ban / password-change)
+		// to one TTL window; refresh-token rotation re-issues silently. See
+		// authkit #90 — we deliberately rely on this bound instead of a
+		// per-request jti/liveness lookup.
+		cfg.Token.AccessTokenDuration = 15 * time.Minute
+	}
+	// RefreshTokenDuration: 0 or less => indefinite sessions.
+
+	if cfg.Registration.Verification, err = normalizeRegistrationVerification(cfg.Registration.Verification); err != nil {
+		return Config{}, err
+	}
+	mode, err := normalizeRegistrationMode(cfg.Registration.NativeUserMode)
 	if err != nil {
-		// A malformed schema name would be spliced into SQL text; refusing to
-		// construct the service is the injection guard for the Options path
-		// (NewFromConfig returns this as an error instead).
+		return Config{}, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, closed)", cfg.Registration.NativeUserMode)
+	}
+	cfg.Registration.NativeUserMode = mode
+
+	cfg.APIKeys.Prefix = strings.TrimSpace(cfg.APIKeys.Prefix)
+	if !validAPIKeyPrefix(cfg.APIKeys.Prefix) {
+		return Config{}, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", cfg.APIKeys.Prefix)
+	}
+
+	if cfg.Schema, err = normalizeSchemaName(cfg.Schema); err != nil {
+		return Config{}, err
+	}
+
+	cfg.TwoFactor.Mode = normalizeTwoFactorMode(cfg.TwoFactor.Mode)
+	cfg.TwoFactor.Methods = append([]TwoFactorMethod(nil), cfg.TwoFactor.Methods...)
+
+	// Passkey RP identity derives from the BaseURL origin. A non-empty BaseURL
+	// must be a valid origin (fail loud, as before); an empty one is only
+	// reachable via the low-level NewService path — passkeys stay unconfigured
+	// there unless RPID is set explicitly.
+	if cfg.Frontend.BaseURL != "" {
+		rpid, name, origins, uv, err := normalizePasskeyConfig(cfg.Passkeys, cfg.Frontend.BaseURL, cfg.Token.Issuer)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Passkeys = PasskeyConfig{RPID: rpid, RPDisplayName: name, Origins: origins, UserVerification: uv}
+	} else {
+		cfg.Passkeys.UserVerification = normalizePasskeyUserVerification(cfg.Passkeys.UserVerification)
+	}
+	return cfg, nil
+}
+
+// NewService is the low-level constructor: explicit Keyset, no key/TOTP
+// resolution, no required-field checks. Module-internal plumbing (tests and
+// NewFromConfig); hosts construct via embedded.New / NewFromConfig. Panics on
+// config values normalizeConfig rejects (malformed schema/paths/modes) — at
+// this layer they are programmer errors (NewFromConfig returns them instead).
+func NewService(cfg Config, keys Keyset, coreOpts ...Option) *Service {
+	norm, err := normalizeConfig(cfg)
+	if err != nil {
 		panic(err.Error())
 	}
-	opts.Schema = schema
-	s := &Service{opts: opts, keys: keys, schema: schema, ephemeralMode: EphemeralMemory, solanaSNSResolver: newDefaultSolanaSNSResolver()}
+	var gs *GroupSchema
+	if len(norm.RBAC) > 0 {
+		if gs, err = BuildSchema(norm.RBAC...); err != nil {
+			panic(fmt.Sprintf("permission-group schema: %v", err))
+		}
+	}
+	return newService(norm, keys, gs, coreOpts...)
+}
+
+// newService assembles a Service from an already-normalized Config.
+func newService(norm Config, keys Keyset, gs *GroupSchema, coreOpts ...Option) *Service {
+	s := &Service{
+		cfg:               norm,
+		keys:              keys,
+		schema:            norm.Schema,
+		groupSchema:       gs,
+		solanaSNSResolver: newDefaultSolanaSNSResolver(),
+	}
 	for _, o := range coreOpts {
 		if o != nil {
 			o(s)
@@ -63,164 +146,81 @@ func NewService(opts Options, keys Keyset, coreOpts ...Option) *Service {
 	return s
 }
 
-// NewFromConfig creates a Service from high-level Config + Stores.
-// If Keys is nil, auto-discovers keys from environment variables, filesystem, or generates development keys.
+// NewFromConfig creates a Service from the host Config + Stores.
+// If Keys.Source is nil, keys are resolved from <Keys.Path>/keys.json — or,
+// ONLY with the explicit Keys.AllowEphemeralDevKeys opt-in, generated for dev.
 func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service, error) {
-	// Handle nil Keys - auto-discover from env vars, <KeysPath>/keys.json, or
-	// generate for dev. The filesystem directory is host-overridable via
-	// cfg.Keys.Path, then the AUTHKIT_KEYS_PATH env var, defaulting to
-	// /vault/auth so existing embedders are unchanged.
+	// Handle nil Keys.Source — resolve from <Keys.Path>/keys.json (empty Path ⇒
+	// /vault/auth). No environment variables are consulted (#231): AuthKit is a
+	// library and the HOST owns the process env; binaries (cmd/authkit-server)
+	// read env at their own boundary and set these fields explicitly. With no
+	// keys and no Keys.AllowEphemeralDevKeys opt-in, construction fails loudly
+	// instead of silently minting dev signing keys.
 	keySource := cfg.Keys.Source
 	if keySource == nil && cfg.Keys.VerifyOnly {
 		// #87: explicit verify-only — NO signer and NO key discovery. Minting
 		// returns ErrMissingSigner; verification, RBAC reads, and the (empty)
 		// JWKS endpoint all work. A pure resource-server / control-plane boots
-		// without any env/file/dev key.
+		// without any file/dev key.
 		keySource = jwtkit.StaticKeySource{}
 	}
 	if keySource == nil {
-		keysPath := strings.TrimSpace(cfg.Keys.Path)
-		if keysPath == "" {
-			keysPath = strings.TrimSpace(os.Getenv("AUTHKIT_KEYS_PATH"))
-		}
 		var err error
-		keySource, err = jwtkit.NewAutoKeySourceWithPath(keysPath)
+		keySource, err = jwtkit.ResolveKeySource(strings.TrimSpace(cfg.Keys.Path), cfg.Keys.AllowEphemeralDevKeys)
 		if err != nil {
-			return nil, fmt.Errorf("authkit: failed to auto-discover JWT keys: %w", err)
+			return nil, fmt.Errorf("authkit: failed to resolve JWT signing keys (set Keys.Path to a directory containing keys.json, provide Keys.Source, or — for development only — set Keys.AllowEphemeralDevKeys): %w", err)
 		}
 	}
-
 	ks := Keyset{Active: keySource.ActiveSigner(), PublicKeys: keySource.PublicKeys()}
 
-	// Require critical JWT configuration.
-	issuer := strings.TrimSpace(cfg.Token.Issuer)
-	if issuer == "" {
-		return nil, fmt.Errorf("authkit: Issuer is required (e.g., \"https://myapp.com\")")
-	}
-	baseURL := strings.TrimSpace(cfg.Frontend.BaseURL)
-	issuerIsURL := isWellFormattedURL(issuer)
-	if !issuerIsURL {
-		stdlog.Printf("authkit: warning: Issuer is not a well-formatted URL: %q", issuer)
-	}
-	if baseURL == "" {
-		if issuerIsURL {
-			baseURL = issuer
-		} else {
-			return nil, fmt.Errorf("authkit: BaseURL is required when Issuer is not a well-formatted URL (issuer=%q)", issuer)
-		}
-	}
-	oidcReturnPath, err := normalizeFrontendPath("OIDCReturnPath", cfg.Frontend.OIDCReturnPath, defaultOIDCReturnPath)
-	if err != nil {
-		return nil, err
-	}
-	frontendVerifyPath, err := normalizeFrontendPath("FrontendVerifyPath", cfg.Frontend.VerifyPath, defaultFrontendVerifyPath)
-	if err != nil {
-		return nil, err
-	}
-	frontendPasswordResetPath, err := normalizeFrontendPath("FrontendPasswordResetPath", cfg.Frontend.PasswordResetPath, defaultFrontendPasswordResetPath)
-	if err != nil {
-		return nil, err
-	}
-	frontendPasswordlessPath, err := normalizeFrontendPath("FrontendPasswordlessPath", cfg.Frontend.PasswordlessPath, defaultFrontendPasswordlessPath)
-	if err != nil {
-		return nil, err
-	}
-	frontendInvitePath, err := normalizeFrontendPath("FrontendInvitePath", cfg.Frontend.InvitePath, defaultFrontendInvitePath)
-	if err != nil {
-		return nil, err
-	}
-	passkeyRPID, passkeyName, passkeyOrigins, passkeyUV, err := normalizePasskeyConfig(cfg.Passkeys, baseURL, issuer)
+	norm, err := normalizeConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	issuedAudiences := cfg.Token.IssuedAudiences
-	if len(issuedAudiences) == 0 {
+	// Required host-facing fields (the low-level NewService path skips these).
+	if norm.Token.Issuer == "" {
+		return nil, fmt.Errorf("authkit: Issuer is required (e.g., \"https://myapp.com\")")
+	}
+	if !isWellFormattedURL(norm.Token.Issuer) {
+		stdlog.Printf("authkit: warning: Issuer is not a well-formatted URL: %q", norm.Token.Issuer)
+		if norm.Frontend.BaseURL == "" {
+			return nil, fmt.Errorf("authkit: BaseURL is required when Issuer is not a well-formatted URL (issuer=%q)", norm.Token.Issuer)
+		}
+	}
+	if len(norm.Token.IssuedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
 	}
-	expectedAudiences := cfg.Token.ExpectedAudiences
-	if len(expectedAudiences) == 0 {
+	if len(norm.Token.ExpectedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: ExpectedAudiences is required (e.g., []string{\"myapp\"})")
 	}
 
-	maxSess := cfg.Token.SessionMaxPerUser
-	if maxSess == 0 {
-		maxSess = 3
+	// #232: TOTP secret-encryption key — explicit override (validated) or
+	// <Keys.Path>/totp.key; nil (no key configured) fails closed at enrollment.
+	// The resolved key is written back into the normalized Config: the Service
+	// reads Config, so what it reads IS what was resolved.
+	totpSecretKey, err := resolveTOTPSecretKey(norm)
+	if err != nil {
+		return nil, err
 	}
-	accessTTL := cfg.Token.AccessTokenDuration
-	if accessTTL == 0 {
-		// Short default bounds revocation lag (logout / ban / password-change)
-		// to one TTL window; refresh-token rotation re-issues silently. See
-		// authkit #90 — we deliberately rely on this bound instead of a
-		// per-request jti/liveness lookup.
-		accessTTL = 15 * time.Minute
+	norm.TwoFactor.TOTPSecretKey = totpSecretKey
+	if totpSecretKey == nil && norm.TwoFactor.Mode != TwoFactorDisabled && twoFactorMethodListed(norm.TwoFactor.Methods, TwoFactorTOTP) {
+		stdlog.Printf("authkit: warning: TOTP is offered by 2FA policy but no key material is configured (no %s/%s, no TwoFactor.TOTPSecretKey) — TOTP will be reported unavailable and enrollment will fail closed", totpKeysDir(norm), totpKeyFilename)
 	}
-	refTTL := cfg.Token.RefreshTokenDuration // 0 or less => indefinite sessions
 
-	registrationVerification, err := normalizeRegistrationVerification(cfg.Registration.Verification)
-	if err != nil {
-		return nil, err
+	// #111: build + validate the permission-group schema (intrinsic root injected
+	// when the app declares none). A bad catalog/containment fails construction.
+	gs, gerr := BuildSchema(norm.RBAC...)
+	if gerr != nil {
+		return nil, fmt.Errorf("permission-group schema: %w", gerr)
 	}
-	nativeUserRegistrationMode, err := normalizeRegistrationMode(cfg.Registration.NativeUserMode)
-	if err != nil {
-		return nil, fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, closed)", cfg.Registration.NativeUserMode)
-	}
-	tokenPrefix := strings.TrimSpace(cfg.APIKeys.Prefix)
-	if !validAPIKeyPrefix(tokenPrefix) {
-		return nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", tokenPrefix)
-	}
-	maxTTL := cfg.APIKeys.MaxTTL
-	schema, err := normalizeSchemaName(cfg.Schema)
-	if err != nil {
-		return nil, err
-	}
-	twoFactorMode := normalizeTwoFactorMode(cfg.TwoFactor.Mode)
-	opts := Options{
-		Issuer:                              issuer,
-		IssuedAudiences:                     issuedAudiences,
-		ExpectedAudiences:                   expectedAudiences,
-		AccessTokenDuration:                 accessTTL,
-		RefreshTokenDuration:                refTTL,
-		SessionMaxPerUser:                   maxSess,
-		BaseURL:                             baseURL,
-		OIDCReturnPath:                      oidcReturnPath,
-		FrontendVerifyPath:                  frontendVerifyPath,
-		FrontendPasswordResetPath:           frontendPasswordResetPath,
-		FrontendPasswordlessPath:            frontendPasswordlessPath,
-		FrontendInvitePath:                  frontendInvitePath,
-		PasskeyRPID:                         passkeyRPID,
-		PasskeyRPDisplayName:                passkeyName,
-		PasskeyOrigins:                      passkeyOrigins,
-		PasskeyUserVerification:             passkeyUV,
-		Schema:                              schema,
-		RegistrationVerification:            registrationVerification,
-		NativeUserRegistrationMode:          nativeUserRegistrationMode,
-		PasswordlessLoginEnabled:            cfg.Registration.PasswordlessLogin,
-		PasswordlessAutoRegistrationEnabled: cfg.Registration.PasswordlessAutoRegistration,
-		Environment:                         strings.TrimSpace(cfg.Environment),
-		SolanaNetwork:                       strings.TrimSpace(cfg.SolanaNetwork),
-		APIKeyPrefix:                        tokenPrefix,
-		APIKeyMaxTTL:                        maxTTL,
-		TOTPSecretKey:                       append([]byte(nil), cfg.TwoFactor.TOTPSecretKey...),
-		TwoFactorMode:                       twoFactorMode,
-		TwoFactorMethods:                    append([]TwoFactorMethod(nil), cfg.TwoFactor.Methods...),
-		RequireMFAEnrollment:                twoFactorMode == TwoFactorRequired,
-	}
+
 	// pg is positional but MAY be nil at the core layer (verify-only construction
 	// or config-only unit tests need no store); WithPostgres(nil) is a no-op, so a
 	// nil pg simply yields a Service with no querier. The mandatory-Postgres
 	// contract (#106) is enforced at the host-facing authhttp.NewServer, not here.
 	coreOpts := append([]Option{WithPostgres(pg)}, extraOpts...)
-	svc := NewService(opts, ks, coreOpts...)
-	// #111: build + validate the permission-group schema (intrinsic root injected
-	// when the app declares none). A bad catalog/containment fails construction.
-	gs, gerr := BuildSchema(cfg.RBAC...)
-	if gerr != nil {
-		return nil, fmt.Errorf("permission-group schema: %w", gerr)
-	}
-	svc.groupSchema = gs
-	svc.cfg = cfg
-	return svc, nil
+	return newService(norm, ks, gs, coreOpts...), nil
 }
 
 // normalizeSchemaName trims and validates a Postgres schema name, defaulting to
@@ -258,7 +258,9 @@ func validAPIKeyPrefix(p string) bool {
 func normalizeRegistrationVerification(v RegistrationVerificationPolicy) (RegistrationVerificationPolicy, error) {
 	value := RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(string(v))))
 	if value == "" {
-		return RegistrationVerificationRequired, nil
+		// Empty => none (matches the Config doc and the zero-config path: "required"
+		// with no sender wired would make NewServer fail).
+		return RegistrationVerificationNone, nil
 	}
 	switch value {
 	case RegistrationVerificationNone, RegistrationVerificationOptional, RegistrationVerificationRequired:
@@ -307,27 +309,38 @@ func normalizeFrontendPath(name, raw, defaultPath string) (string, error) {
 	return u.RequestURI(), nil
 }
 
-func (o Options) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
-	v, err := normalizeRegistrationVerification(o.RegistrationVerification)
+// Registration-policy reads. The stored Config is normalized at construction,
+// but these re-normalize defensively: some tests build a zero Service{}.
+
+// RegistrationVerificationPolicy returns the effective registration
+// verification policy ("none" when unset/invalid).
+func (s *Service) RegistrationVerificationPolicy() RegistrationVerificationPolicy {
+	v, err := normalizeRegistrationVerification(s.cfg.Registration.Verification)
 	if err != nil {
 		return RegistrationVerificationNone
 	}
 	return v
 }
 
-func (o Options) RegistrationVerificationRequired() bool {
-	return o.RegistrationVerificationPolicy() == RegistrationVerificationRequired
+func (s *Service) RegistrationVerificationRequired() bool {
+	return s.RegistrationVerificationPolicy() == RegistrationVerificationRequired
 }
 
-func (o Options) RegistrationVerificationEnabled() bool {
-	return o.RegistrationVerificationPolicy() != RegistrationVerificationNone
+func (s *Service) RegistrationVerificationEnabled() bool {
+	return s.RegistrationVerificationPolicy() != RegistrationVerificationNone
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user
 // self-registration / auto-registration is allowed.
-func (o Options) PublicNativeUserRegistrationEnabled() bool {
-	mode, err := normalizeRegistrationMode(o.NativeUserRegistrationMode)
+func (s *Service) PublicNativeUserRegistrationEnabled() bool {
+	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	return err == nil && mode == RegistrationModeOpen
+}
+
+// requireMFAEnrollment reports whether every user must enroll a second factor
+// before establishing/refreshing a session (TwoFactor.Mode == "required").
+func (s *Service) requireMFAEnrollment() bool {
+	return normalizeTwoFactorMode(s.cfg.TwoFactor.Mode) == TwoFactorRequired
 }
 
 func isWellFormattedURL(raw string) bool {

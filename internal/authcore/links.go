@@ -10,7 +10,7 @@ import (
 // configured BaseURL and frontend paths.
 
 func (s *Service) authkitURL(path string, q url.Values) string {
-	base := strings.TrimRight(strings.TrimSpace(s.opts.BaseURL), "/")
+	base := strings.TrimRight(strings.TrimSpace(s.cfg.Frontend.BaseURL), "/")
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
@@ -39,19 +39,19 @@ func (s *Service) verificationURL(frontendPath, channel, token string) string {
 }
 
 func (s *Service) emailVerificationURL(token string) string {
-	return s.verificationURL(s.opts.FrontendVerifyPath, "email", token)
+	return s.verificationURL(s.cfg.Frontend.VerifyPath, "email", token)
 }
 
 func (s *Service) phoneVerificationURL(token string) string {
-	return s.verificationURL(s.opts.FrontendVerifyPath, "phone", token)
+	return s.verificationURL(s.cfg.Frontend.VerifyPath, "phone", token)
 }
 
 func (s *Service) emailPasswordResetURL(token string) string {
-	return s.verificationURL(s.opts.FrontendPasswordResetPath, "email", token)
+	return s.verificationURL(s.cfg.Frontend.PasswordResetPath, "email", token)
 }
 
 func (s *Service) phonePasswordResetURL(token string) string {
-	return s.verificationURL(s.opts.FrontendPasswordResetPath, "phone", token)
+	return s.verificationURL(s.cfg.Frontend.PasswordResetPath, "phone", token)
 }
 
 func (s *Service) passwordlessURL(channel, token, returnTo string) string {
@@ -63,5 +63,5 @@ func (s *Service) passwordlessURL(channel, token, returnTo string) string {
 	if safe := sanitizePasswordlessReturnTo(returnTo); safe != "" {
 		q.Set("return_to", safe)
 	}
-	return s.authkitURL(s.opts.FrontendPasswordlessPath, q)
+	return s.authkitURL(s.cfg.Frontend.PasswordlessPath, q)
 }

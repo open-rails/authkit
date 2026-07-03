@@ -28,19 +28,12 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "admin-dir-kid")
 	require.NoError(t, err)
-	opts := embedded.Options{
-		Issuer:                   "https://example.com",
-		IssuedAudiences:          []string{"test-app"},
-		ExpectedAudiences:        []string{"test-app"},
-		AccessTokenDuration:      time.Hour,
-		RegistrationVerification: embedded.RegistrationVerificationNone,
-	}
 	coreSvc, err := authcore.NewFromConfig(authcore.Config{
 		Token: authcore.TokenConfig{
-			Issuer:              opts.Issuer,
-			IssuedAudiences:     opts.IssuedAudiences,
-			ExpectedAudiences:   opts.ExpectedAudiences,
-			AccessTokenDuration: opts.AccessTokenDuration,
+			Issuer:              "https://example.com",
+			IssuedAudiences:     []string{"test-app"},
+			ExpectedAudiences:   []string{"test-app"},
+			AccessTokenDuration: time.Hour,
 		},
 		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
 		Keys: authcore.KeysConfig{Source: jwtkit.StaticKeySource{
@@ -59,7 +52,7 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 	_, err = coreSvc.EnsureRootGroup(context.Background())
 	require.NoError(t, err)
 	ver := NewVerifier(WithSkew(5 * time.Second))
-	require.NoError(t, ver.AddIssuer(opts.Issuer, opts.ExpectedAudiences, IssuerOptions{
+	require.NoError(t, ver.AddIssuer(coreSvc.Config().Token.Issuer, coreSvc.Config().Token.ExpectedAudiences, IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 		IsLocal: true,
 	}))

@@ -10,7 +10,7 @@ import (
 func TestMFASettingsDeriveFromDefaultFactor(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	email := "derive-2fa-factor@test.example"
 	username := "derive2fafactor"
@@ -51,7 +51,7 @@ func TestMFASettingsDeriveFromDefaultFactor(t *testing.T) {
 func TestMFAFactorHardDelete(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	user, err := svc.CreateUser(ctx, "harddelete-2fa@test.example", "harddelete2fa")
 	if err != nil {

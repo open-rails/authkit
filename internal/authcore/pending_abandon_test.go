@@ -8,7 +8,7 @@ import (
 )
 
 func TestDeletePendingRegistrationByEmail(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	ctx := context.Background()
 
 	email := "abandon@example.com"
@@ -33,7 +33,7 @@ func TestDeletePendingRegistrationByEmail(t *testing.T) {
 }
 
 func TestDeletePendingPhoneRegistrationByPhone(t *testing.T) {
-	svc := NewService(Options{RegistrationVerification: RegistrationVerificationRequired}, Keyset{}, WithEphemeralStore(memorystore.NewKV(), EphemeralMemory))
+	svc := NewService(Config{Registration: RegistrationConfig{Verification: RegistrationVerificationRequired}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
 	ctx := context.Background()
 
 	phone := "+14155550123"

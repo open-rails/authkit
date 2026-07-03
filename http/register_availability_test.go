@@ -82,7 +82,7 @@ func TestRegisterPost_DisabledShortCircuits(t *testing.T) {
 // with registration_disabled).
 func TestRegisterPost_OpenNotShortCircuited(t *testing.T) {
 	s := newTestService(t)
-	require.True(t, s.svc.Options().PublicNativeUserRegistrationEnabled())
+	require.True(t, s.svc.PublicNativeUserRegistrationEnabled())
 
 	h := s.APIHandler()
 	w := httptest.NewRecorder()

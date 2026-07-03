@@ -49,7 +49,7 @@ type passwordlessChallenge struct {
 }
 
 func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRequest) (PasswordlessStartResult, error) {
-	if s == nil || !s.opts.PasswordlessLoginEnabled {
+	if s == nil || !s.cfg.Registration.PasswordlessLogin {
 		return PasswordlessStartResult{}, ErrPasswordlessDisabled
 	}
 	if s.pg == nil {
@@ -369,10 +369,10 @@ func (s *Service) sendPasswordlessChallenge(ctx context.Context, rec passwordles
 }
 
 func (s *Service) passwordlessAutoRegistrationAllowed() bool {
-	if s == nil || !s.opts.PasswordlessAutoRegistrationEnabled {
+	if s == nil || !s.cfg.Registration.PasswordlessAutoRegistration {
 		return false
 	}
-	mode, err := normalizeRegistrationMode(s.opts.NativeUserRegistrationMode)
+	mode, err := normalizeRegistrationMode(s.cfg.Registration.NativeUserMode)
 	return err == nil && mode != RegistrationModeClosed
 }
 

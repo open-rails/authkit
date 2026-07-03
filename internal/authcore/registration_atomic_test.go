@@ -17,7 +17,7 @@ import (
 func TestCreateEmailRegistrationUserAtomic(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	username := "regemail" + suffix
@@ -46,7 +46,7 @@ func TestCreateEmailRegistrationUserAtomic(t *testing.T) {
 func TestCreatePhoneRegistrationUserAtomic(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	username := "regphone" + suffix

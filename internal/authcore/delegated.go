@@ -37,7 +37,7 @@ func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAcces
 		return "", ErrMissingSigner
 	}
 	if strings.TrimSpace(p.Issuer) == "" {
-		p.Issuer = strings.TrimSpace(s.opts.Issuer)
+		p.Issuer = strings.TrimSpace(s.cfg.Token.Issuer)
 	}
 	return MintDelegatedAccessToken(ctx, signer, p)
 }

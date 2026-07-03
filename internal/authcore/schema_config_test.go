@@ -60,5 +60,5 @@ func TestNewServicePanicsOnInvalidSchema(t *testing.T) {
 			t.Fatal("NewService with invalid Schema should panic")
 		}
 	}()
-	NewService(Options{Schema: "not;valid"}, Keyset{})
+	NewService(Config{Schema: "not;valid"}, Keyset{})
 }

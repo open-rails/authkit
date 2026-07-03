@@ -37,7 +37,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	requiresVerification := s.svc.Options().RegistrationVerificationRequired()
+	requiresVerification := s.svc.RegistrationVerificationRequired()
 
 	type userWithEmail struct {
 		ID            string
@@ -88,7 +88,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			recoveredUserID, recoveryErr, handled := recoverPendingPhoneLogin(
 				hasPending,
 				passwordMatches,
-				s.svc.Options().RegistrationVerificationRequired(),
+				s.svc.RegistrationVerificationRequired(),
 				func() error {
 					_, createErr := s.svc.CreatePendingPhoneRegistrationWithLanguage(r.Context(), identifier, pendingUsername, pendingPasswordHash, pendingPreferredLanguage)
 					return createErr
@@ -260,7 +260,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			recoveryToken, recoveryExp, recoveryErr, handled := recoverPendingEmailLogin(
 				hasPending,
 				pendingPasswordMatches,
-				s.svc.Options().RegistrationVerificationRequired(),
+				s.svc.RegistrationVerificationRequired(),
 				func() error {
 					_, createErr := s.svc.CreatePendingRegistrationWithLanguage(r.Context(), loginEmail, pendingUser.Username, pendingUser.PasswordHash, 0, pendingUser.PreferredLanguage)
 					return createErr

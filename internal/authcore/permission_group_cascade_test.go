@@ -47,15 +47,15 @@ func TestPermissionGroups_ParentDeleteCascadesSubtree(t *testing.T) {
 		t.Fatalf("SeedContainment: %v", err)
 	}
 
-	rootID, err := st.CreateGroup(ctx, "root", "", "", "")
+	rootID, err := st.CreateGroup(ctx, "root", "", "")
 	if err != nil {
 		t.Fatalf("create root: %v", err)
 	}
-	orgID, err := st.CreateGroup(ctx, "org", rootID, "root", "acme")
+	orgID, err := st.CreateGroup(ctx, "org", rootID, "acme")
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
-	repoID, err := st.CreateGroup(ctx, "repo", orgID, "org", "r1")
+	repoID, err := st.CreateGroup(ctx, "repo", orgID, "r1")
 	if err != nil {
 		t.Fatalf("create repo: %v", err)
 	}

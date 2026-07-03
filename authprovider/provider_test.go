@@ -6,42 +6,22 @@ import (
 )
 
 func TestResolveStatic(t *testing.T) {
+	// #231: ClientSecret carries explicit config only — no env-var indirection.
 	t.Run("static value", func(t *testing.T) {
-		got, err := (ClientSecret{Value: " secret "}).ResolveStatic()
-		if err != nil || got != "secret" {
-			t.Fatalf("got %q err %v", got, err)
-		}
-	})
-
-	t.Run("env set and populated", func(t *testing.T) {
-		const key = "AUTHKIT_TEST_CLIENT_SECRET"
-		t.Setenv(key, "from-env")
-		got, err := (ClientSecret{Env: key}).ResolveStatic()
-		if err != nil || got != "from-env" {
-			t.Fatalf("got %q err %v", got, err)
-		}
-	})
-
-	t.Run("env set but empty", func(t *testing.T) {
-		const key = "AUTHKIT_TEST_CLIENT_SECRET_EMPTY"
-		t.Setenv(key, "")
-		_, err := (ClientSecret{Env: key}).ResolveStatic()
-		if !errors.Is(err, ErrClientSecretEnvEmpty) {
-			t.Fatalf("expected ErrClientSecretEnvEmpty, got %v", err)
+		if got := (ClientSecret{Value: " secret "}).ResolveStatic(); got != "secret" {
+			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("dynamic strategy", func(t *testing.T) {
-		got, err := (ClientSecret{Strategy: SecretStrategyAppleJWT}).ResolveStatic()
-		if err != nil || got != "" {
-			t.Fatalf("got %q err %v", got, err)
+		if got := (ClientSecret{Strategy: SecretStrategyAppleJWT}).ResolveStatic(); got != "" {
+			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("no source", func(t *testing.T) {
-		got, err := (ClientSecret{}).ResolveStatic()
-		if err != nil || got != "" {
-			t.Fatalf("got %q err %v", got, err)
+		if got := (ClientSecret{}).ResolveStatic(); got != "" {
+			t.Fatalf("got %q", got)
 		}
 	})
 }

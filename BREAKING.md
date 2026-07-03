@@ -3,6 +3,105 @@
 This records the breaking API changes from the recent `v0.54.1` to `v0.56.2`
 cut. Use it when updating host apps to the current AuthKit API.
 
+## Unreleased (post-v0.76.0): #231 env doctrine + #232 TOTP file key
+
+The library no longer reads ANY environment variables (guard-tested); env is
+read once, at the binary boundary (`cmd/authkit-server`).
+
+- **No-keys construction now fails closed.** With `Keys.Source == nil` and no
+  `<Keys.Path>/keys.json`, `NewFromConfig`/`embedded.New` return an error
+  instead of silently generating dev signing keys. Local development opts in
+  explicitly with the new `KeysConfig.AllowEphemeralDevKeys: true`.
+- **Env-var key loading removed from the library.** `ACTIVE_KEY_ID` /
+  `ACTIVE_PRIVATE_KEY_PEM` / `PUBLIC_KEYS` and the `AUTHKIT_KEYS_PATH` fallback
+  are no longer read by the library (the standalone binary still reads them and
+  passes an explicit source). Hosts with in-memory material use
+  `jwtkit.NewStaticKeySourceFromPEM(kid, pem, extraPublicPEMs)`.
+- `jwtkit.NewAutoKeySourceWithPath(path)` →
+  `jwtkit.ResolveKeySource(path, allowEphemeralDevKeys)`.
+- **One dev/prod classifier.** `embedded.IsDevEnvironment` is THE classifier:
+  only `dev`/`development`/`local`/`test` (and empty) are dev; **everything
+  else — including `staging` — is now prod-like/fail-closed** (staging was
+  previously treated as dev by the library: dev leniency paths close, and the
+  HTTP layer's production Redis-ephemeral-store requirement now applies).
+- `authprovider.ClientSecret.Env` and `authprovider.AppleJWTSecret.PrivateKeyEnv`
+  were removed (env indirection); pass `Value` / `PrivateKeyPEM` directly.
+  `ClientSecret.ResolveStatic()` now returns just `string`;
+  `ErrClientSecretEnvEmpty` is gone.
+- **TOTP file key is now actually wired (#232).** `NewFromConfig` loads
+  `<Keys.Path>/totp.key` when `TwoFactor.TOTPSecretKey` is unset — deployments
+  with a stray/invalid `totp.key` next to `keys.json` will now load (or reject)
+  it at construction. An explicit `TOTPSecretKey` override with a length other
+  than 16/24/32 raw bytes is now a hard construction error (was: accepted at
+  construction, TOTP broken at runtime).
+
+## Unreleased (post-v0.76.0): #236 config seam cleanup
+
+- **Empty `Registration.Verification` now means `"none"`** (was: silently
+  normalized to `"required"`, which then made `authhttp.NewServer` fail when no
+  email/SMS sender was wired). This matches the long-standing Config doc and the
+  standalone server's env default. Hosts that relied on the implicit
+  required-by-default must set
+  `Registration.Verification: embedded.RegistrationVerificationRequired`
+  explicitly.
+- **`Token.SessionMaxPerUser` contract pinned (doc fix, behavior unchanged):**
+  `0` (unset) applies the packaged default of 3; any **negative** value (e.g.
+  `-1`) means unlimited. The old doc claimed `0 = unlimited` — it never was.
+- New `Registration.VerificationSendTimeout time.Duration`: bounds each in-line
+  email/SMS provider send (was a frozen internal 15s; 0 keeps the 15s default).
+- **`embedded.EphemeralMode` / `EphemeralMemory` / `EphemeralRedis` and
+  `Client.EphemeralMode()` were removed.** Redis-backedness of the ephemeral
+  store is discovered by type assertion (`EphemeralRedisClient() != nil`); the
+  mode string was a second source of truth beside the store itself. Nothing on
+  the `authkit.Client` contract changed.
+- **`authhttp.RLAdminUserSessionsRevoke` was removed** — it was wired to no
+  handler and had no `DefaultRateLimits` entry (the admin route revokes ALL of a
+  user's sessions and uses `RLAdminUserSessionsRevokeAll`).
+- **Request-language negotiation trimmed** to `?lang` query param >
+  `Accept-Language` header > configured default. The `/:lang/` path-prefix and
+  `lang`-cookie tiers were removed: AuthKit routes are never mounted under a
+  language prefix and AuthKit never sets a language cookie.
+- `cmd/authkit-server` gained env knobs for previously unreachable config (all
+  optional, additive): `AUTHKIT_TRUSTED_PROXIES`, `AUTHKIT_ACCESS_TOKEN_TTL`,
+  `AUTHKIT_REFRESH_TOKEN_TTL`, `AUTHKIT_SESSION_MAX_PER_USER`,
+  `AUTHKIT_VERIFICATION_SEND_TIMEOUT`, `AUTHKIT_2FA_MODE`,
+  `AUTHKIT_2FA_METHODS`, `AUTHKIT_PASSKEY_RPID`,
+  `AUTHKIT_PASSKEY_RP_DISPLAY_NAME`, `AUTHKIT_PASSKEY_ORIGINS`,
+  `AUTHKIT_LANGUAGES`, `AUTHKIT_DEFAULT_LANGUAGE`, and
+  `AUTHKIT_BOOTSTRAP_PATH` (startup-once bootstrap manifest apply).
+
+## Unreleased (post-v0.76.0): #237 single config type
+
+The two parallel config types collapsed into ONE: the nested `Config` survives;
+the flat internal `Options` struct (re-exported as `embedded.Options`) is GONE.
+The engine now reads a Config normalized exactly once at construction, so a
+knob can no longer exist internally without being settable by hosts (the #236
+`VerificationSendTimeout` bug class is structurally impossible).
+
+- **`embedded.Options` and `embedded.Keyset` aliases removed.** They were never
+  usable by hosts (there is no `embedded.NewService`; the low-level constructor
+  lives in `internal/`); construction is unchanged:
+  `embedded.New(cfg Config, pg, opts...)`.
+- **`Client.Options()` removed → `Client.Config()`.** The returned Config is
+  the NORMALIZED one (trimmed/defaulted: paths, TTLs, session cap, passkey RP
+  identity, resolved TOTP key). Field moves for readers:
+  `Issuer`/`ExpectedAudiences`/… → `Config().Token.*`; `BaseURL`/frontend paths
+  (`FrontendVerifyPath` → `Frontend.VerifyPath`, etc.) → `Config().Frontend.*`;
+  `RegistrationVerification` → `Config().Registration.Verification`;
+  `NativeUserRegistrationMode` → `Config().Registration.NativeUserMode`;
+  `PasskeyRPID`/… → `Config().Passkeys.*`; `APIKeyPrefix`/`APIKeyMaxTTL` →
+  `Config().APIKeys.*`; `TwoFactorMode`/`TwoFactorMethods`/`TOTPSecretKey` →
+  `Config().TwoFactor.*`; `Environment`/`SolanaNetwork`/`Schema` stay top-level.
+- The Options **policy helper methods** moved to the service/facade:
+  `RegistrationVerificationPolicy()`, `RegistrationVerificationRequired()`,
+  `RegistrationVerificationEnabled()`, `PublicNativeUserRegistrationEnabled()`
+  are now methods on the engine (and reachable from the HTTP layer); the
+  derived `RequireMFAEnrollment` field is gone — it always meant
+  `TwoFactor.Mode == "required"`.
+- **Host impact: none found.** doujins, hentai0, and cozy-art all construct via
+  `embedded.New`/`New(cfg Config, …)` and never referenced `embedded.Options`,
+  `embedded.Keyset`, or `Client.Options()` — no host code changes needed.
+
 ## Versions Covered
 
 - `v0.56.0`: finalized the smaller public AuthKit API.
@@ -175,7 +274,7 @@ The current public API includes token-assurance, 2FA, and passkey types:
 
 The Postgres migration history was compacted into the baseline migration:
 
-- `migrations/postgres/001_auth_schema.up.sql` is the current baseline.
+- `migrations/postgres/0001_auth_schema.up.sql` is the current baseline.
 - Old incremental files `002` through `012` were removed.
 
 Existing deployed databases need an explicit migration plan; new installs should

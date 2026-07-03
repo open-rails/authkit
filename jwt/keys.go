@@ -59,8 +59,9 @@ type ReloadableKeySource struct {
 // NewReloadableFileKeySource loads keys.json from the given directory and starts
 // a background poller that hot-reloads it every interval (<=0 →
 // DefaultKeyReloadInterval). It errors when no valid keys.json is present, so
-// use it only where a file source is expected — env/dev sources don't reload
-// (env is immutable in a running process; generated keys are dev-only).
+// use it only where a file source is expected — static/dev sources don't reload
+// (in-memory material is immutable in a running process; generated keys are
+// dev-only).
 func NewReloadableFileKeySource(path string, interval time.Duration) (*ReloadableKeySource, error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultAuthKeysPath
@@ -261,53 +262,60 @@ func persistKeysToDisk(dir string, signer *RSASigner, kid string) error {
 	return nil
 }
 
-// envKeySource loads the active signing key and JWKS public keys from
-// environment variables: ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, and the
-// optional PUBLIC_KEYS map (JSON of kid -> PEM). It returns (nil, nil) when no
-// key env vars are set so it can compose as the first step of a resolver.
-func envKeySource() (KeySource, error) {
-	return tryLoadFromEnv()
+// NewStaticKeySourceFromPEM builds a StaticKeySource from explicit key
+// material: the active signing key (kid + private-key PEM) plus optional extra
+// verification-only public keys (kid -> public-key PEM, e.g. retired keys kept
+// in the JWKS during rotation). It performs no I/O and reads no environment
+// variables — callers (binaries, hosts) own where the material comes from
+// (#231). Unparseable extra public keys are skipped with a warning, matching
+// the keys.json loader.
+func NewStaticKeySourceFromPEM(activeKeyID, activePrivateKeyPEM string, publicKeysPEM map[string]string) (StaticKeySource, error) {
+	activeKeyID = strings.TrimSpace(activeKeyID)
+	activePrivateKeyPEM = strings.TrimSpace(activePrivateKeyPEM)
+	if activeKeyID == "" {
+		return StaticKeySource{}, fmt.Errorf("active key ID is required")
+	}
+	if activePrivateKeyPEM == "" {
+		return StaticKeySource{}, fmt.Errorf("active private key PEM is required")
+	}
+
+	signer, err := NewSignerFromPEM(activeKeyID, []byte(activePrivateKeyPEM))
+	if err != nil {
+		return StaticKeySource{}, fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	publicKeys := map[string]crypto.PublicKey{activeKeyID: signerPublicKey(signer)}
+	for kid, pemStr := range publicKeysPEM {
+		pub, err := ParsePublicKeyFromPEM(pemStr)
+		if err != nil {
+			logf("Warning: failed to parse public key %s: %v", kid, err)
+			continue
+		}
+		publicKeys[kid] = pub
+	}
+
+	return StaticKeySource{Active: signer, Pubs: publicKeys}, nil
 }
 
-// fileKeySource loads the active signing key and JWKS public keys from a
-// keys.json file located under the given directory (default /vault/auth when
-// path is empty). The file uses the {active_key_id, active_private_key_pem,
-// public_keys} envelope. It returns (nil, nil) when the directory or keys.json
-// does not exist so it can compose as a fallthrough step of a resolver.
-func fileKeySource(path string) (KeySource, error) {
-	return tryLoadFromFilesystem(path)
-}
-
-// newAutoKeySource auto-discovers JWT keys from multiple sources with the
-// following priority (using the default filesystem path /vault/auth):
-// 1. Environment variables (ACTIVE_KEY_ID, ACTIVE_PRIVATE_KEY_PEM, PUBLIC_KEYS)
-// 2. Filesystem /vault/auth/keys.json
-// 3. Auto-generated keys in .runtime/authkit/ (development fallback; prod hard-fail)
-func newAutoKeySource() (KeySource, error) {
-	return NewAutoKeySourceWithPath(DefaultAuthKeysPath)
-}
-
-// NewAutoKeySourceWithPath is newAutoKeySource with a host-overridable
-// filesystem directory for the keys.json file. An empty path defaults to
-// DefaultAuthKeysPath ("/vault/auth"). Precedence and the production hard-fail
-// are identical to newAutoKeySource: env -> fileKeySource(path) ->
-// GeneratedKeySource (non-prod only).
-func NewAutoKeySourceWithPath(path string) (KeySource, error) {
+// ResolveKeySource resolves the local signing-key source with a fixed,
+// explicit precedence. It reads NO environment variables (#231 — AuthKit is a
+// library; env is read once, at the binary boundary, and flows in as explicit
+// arguments/config):
+//
+//  1. <path>/keys.json (path empty ⇒ DefaultAuthKeysPath "/vault/auth"),
+//     served through a ReloadableKeySource so signing-key rotation (e.g. Vault
+//     Agent re-rendering the file) takes effect without a process restart.
+//  2. No keys.json: when allowEphemeralDevKeys is true, an auto-generated RSA
+//     dev keypair persisted under .runtime/authkit/ (DEVELOPMENT ONLY);
+//     when false — the default, fail-closed posture — a hard error.
+//
+// Callers that hold key material in memory should build a source directly
+// (NewStaticKeySourceFromPEM / StaticKeySource) instead.
+func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultAuthKeysPath
 	}
 
-	if keySource, err := envKeySource(); err != nil {
-		return nil, fmt.Errorf("failed to load keys from environment variables: %w", err)
-	} else if keySource != nil {
-		return keySource, nil
-	}
-
-	// File branch: when keys.json exists, serve it through a ReloadableKeySource
-	// so signing-key rotation (Vault Agent re-renders the file) takes effect
-	// without a process restart. Falls through to the dev generator only when no
-	// keys.json is present. The poller lives for the process lifetime; callers
-	// needing lifecycle control use NewReloadableFileKeySource directly.
 	if _, statErr := os.Stat(filepath.Join(path, "keys.json")); statErr == nil {
 		rks, err := NewReloadableFileKeySource(path, DefaultKeyReloadInterval)
 		if err != nil {
@@ -316,8 +324,8 @@ func NewAutoKeySourceWithPath(path string) (KeySource, error) {
 		return rks, nil
 	}
 
-	if isProdEnv() {
-		return nil, fmt.Errorf("no JWT keys found in env or %s and auto-generation is disabled in production; set ACTIVE_KEY_ID/ACTIVE_PRIVATE_KEY_PEM or mount keys.json", path)
+	if !allowEphemeralDevKeys {
+		return nil, fmt.Errorf("no JWT signing keys: %s/keys.json not found and ephemeral dev keys are not enabled; mount keys.json, provide an explicit KeySource, or opt in with AllowEphemeralDevKeys for local development", path)
 	}
 
 	keySource, err := NewGeneratedKeySource()
@@ -325,58 +333,6 @@ func NewAutoKeySourceWithPath(path string) (KeySource, error) {
 		return nil, fmt.Errorf("failed to generate development keys: %w", err)
 	}
 	return keySource, nil
-}
-
-func isProdEnv() bool {
-	env := strings.TrimSpace(os.Getenv("ENV"))
-	if env == "" {
-		env = strings.TrimSpace(os.Getenv("APP_ENV"))
-	}
-	if env == "" {
-		env = strings.TrimSpace(os.Getenv("ENVIRONMENT"))
-	}
-	env = strings.ToLower(env)
-	return env == "production" || env == "prod"
-}
-
-func tryLoadFromEnv() (KeySource, error) {
-	activeKeyID := strings.TrimSpace(os.Getenv("ACTIVE_KEY_ID"))
-	activePrivateKeyPEM := strings.TrimSpace(os.Getenv("ACTIVE_PRIVATE_KEY_PEM"))
-
-	if activeKeyID == "" && activePrivateKeyPEM == "" {
-		return nil, nil
-	}
-	if activeKeyID == "" {
-		return nil, fmt.Errorf("ACTIVE_PRIVATE_KEY_PEM is set but ACTIVE_KEY_ID is missing")
-	}
-	if activePrivateKeyPEM == "" {
-		return nil, fmt.Errorf("ACTIVE_KEY_ID is set but ACTIVE_PRIVATE_KEY_PEM is missing")
-	}
-
-	signer, err := NewSignerFromPEM(activeKeyID, []byte(activePrivateKeyPEM))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse ACTIVE_PRIVATE_KEY_PEM: %w", err)
-	}
-
-	publicKeys := map[string]crypto.PublicKey{activeKeyID: signerPublicKey(signer)}
-
-	publicKeysJSON := strings.TrimSpace(os.Getenv("PUBLIC_KEYS"))
-	if publicKeysJSON != "" {
-		var pubKeyMap map[string]string
-		if err := json.Unmarshal([]byte(publicKeysJSON), &pubKeyMap); err != nil {
-			return nil, fmt.Errorf("failed to parse PUBLIC_KEYS JSON: %w", err)
-		}
-		for kid, pemStr := range pubKeyMap {
-			pub, err := ParsePublicKeyFromPEM(pemStr)
-			if err != nil {
-				logf("Warning: failed to parse public key %s from PUBLIC_KEYS: %v", kid, err)
-				continue
-			}
-			publicKeys[kid] = pub
-		}
-	}
-
-	return StaticKeySource{Active: signer, Pubs: publicKeys}, nil
 }
 
 func tryLoadFromFilesystem(keysPath string) (KeySource, error) {
@@ -412,22 +368,11 @@ func tryLoadFromFilesystem(keysPath string) (KeySource, error) {
 		return nil, fmt.Errorf("keys.json missing active_private_key_pem")
 	}
 
-	signer, err := NewSignerFromPEM(keyData.ActiveKeyID, []byte(keyData.ActivePrivateKeyPEM))
+	ks, err := NewStaticKeySourceFromPEM(keyData.ActiveKeyID, keyData.ActivePrivateKeyPEM, keyData.PublicKeys)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse private key: %w", err)
+		return nil, err
 	}
-
-	publicKeys := map[string]crypto.PublicKey{keyData.ActiveKeyID: signerPublicKey(signer)}
-	for kid, pemStr := range keyData.PublicKeys {
-		pub, err := ParsePublicKeyFromPEM(pemStr)
-		if err != nil {
-			logf("Warning: failed to parse public key %s: %v", kid, err)
-			continue
-		}
-		publicKeys[kid] = pub
-	}
-
-	return StaticKeySource{Active: signer, Pubs: publicKeys}, nil
+	return ks, nil
 }
 
 func signerPublicKey(s Signer) crypto.PublicKey {

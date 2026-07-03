@@ -105,7 +105,7 @@ func (s *Service) requireSessionMFAStateWith(authMethods []string, status MFASta
 	if !status.Enabled {
 		// Global policy: when 2FA enrollment is mandatory, a user without usable
 		// 2FA cannot establish or refresh a session — they must enroll first.
-		if s.opts.RequireMFAEnrollment {
+		if s.requireMFAEnrollment() {
 			return ErrTwoFAEnrollmentRequired
 		}
 		return nil
@@ -161,8 +161,7 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 		   FROM profiles.group_user_roles a
 		   JOIN profiles.permission_groups g ON g.id = a.permission_group_id
 		  WHERE a.user_id = $1::uuid
-		    AND a.deleted_at IS NULL
-		    AND g.deleted_at IS NULL`,
+		    AND a.deleted_at IS NULL`,
 		userID)
 	if err != nil {
 		return nil, err

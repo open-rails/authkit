@@ -6,12 +6,7 @@ import "testing"
 // landing path + ?token=…&channel=email|phone (SPA-link model). Verify and reset
 // are symmetric — same mechanism, different configured path. No DB needed.
 func TestVerificationLinkURLs_UseConfiguredFrontendPaths(t *testing.T) {
-	svc := NewService(Options{
-		Issuer:                    "https://issuer.example",
-		BaseURL:                   "https://app.example",
-		FrontendVerifyPath:        "/verify-registration",
-		FrontendPasswordResetPath: "/reset-password",
-	}, Keyset{})
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://issuer.example"}, Frontend: FrontendConfig{BaseURL: "https://app.example", VerifyPath: "/verify-registration", PasswordResetPath: "/reset-password"}}, Keyset{})
 
 	cases := []struct{ name, got, want string }{
 		{"email verify", svc.emailVerificationURL("T"), "https://app.example/verify-registration?channel=email&token=T"},
@@ -28,7 +23,7 @@ func TestVerificationLinkURLs_UseConfiguredFrontendPaths(t *testing.T) {
 
 // Defaults: empty paths fall back to /verify and /reset.
 func TestVerificationLinkURLs_Defaults(t *testing.T) {
-	svc := NewService(Options{Issuer: "https://issuer.example", BaseURL: "https://app.example"}, Keyset{})
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://issuer.example"}, Frontend: FrontendConfig{BaseURL: "https://app.example"}}, Keyset{})
 	if got, want := svc.emailVerificationURL("T"), "https://app.example/verify?channel=email&token=T"; got != want {
 		t.Errorf("default verify path: got %q want %q", got, want)
 	}

@@ -78,17 +78,18 @@ func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *Gro
 	return err
 }
 
-// CreateGroup inserts a permission-group and returns its internal id. parentID/
-// parentPersona are empty for the root group. The containment trigger + CHECK
-// enforce shape at the DB; callers SHOULD also pre-validate via
-// GroupSchema.ValidateParent for a clear error before hitting the DB.
-func (st *PermissionGroupStore) CreateGroup(ctx context.Context, persona, parentID, parentPersona, instanceSlug string) (string, error) {
+// CreateGroup inserts a permission-group and returns its internal id. parentID
+// is empty for the root group. The containment trigger + CHECK enforce shape at
+// the DB (the trigger resolves the parent's persona by parent_id); callers
+// SHOULD also pre-validate via GroupSchema.ValidateParent for a clear error
+// before hitting the DB.
+func (st *PermissionGroupStore) CreateGroup(ctx context.Context, persona, parentID, instanceSlug string) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
-		`INSERT INTO profiles.permission_groups (persona, parent_id, parent_persona, instance_slug)
-		 VALUES ($1, NULLIF($2,'')::uuid, NULLIF($3,''), NULLIF($4,''))
+		`INSERT INTO profiles.permission_groups (persona, parent_id, instance_slug)
+		 VALUES ($1, NULLIF($2,'')::uuid, NULLIF($3,''))
 		 RETURNING id::text`,
-		persona, parentID, parentPersona, instanceSlug).Scan(&id)
+		persona, parentID, instanceSlug).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create %q group: %w", persona, err)
 	}
@@ -102,7 +103,7 @@ func (st *PermissionGroupStore) GroupByInstanceSlug(ctx context.Context, persona
 	var id string
 	err := st.q.QueryRow(ctx,
 		`SELECT id::text FROM profiles.permission_groups
-		 WHERE persona = $1 AND instance_slug = $2 AND deleted_at IS NULL`,
+		 WHERE persona = $1 AND instance_slug = $2`,
 		persona, instanceSlug).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrGroupNotFound
@@ -118,7 +119,7 @@ func (st *PermissionGroupStore) GroupByInstanceSlug(ctx context.Context, persona
 func (st *PermissionGroupStore) RootGroupID(ctx context.Context) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
-		`SELECT id::text FROM profiles.permission_groups WHERE persona = 'root' AND deleted_at IS NULL`).Scan(&id)
+		`SELECT id::text FROM profiles.permission_groups WHERE persona = 'root'`).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrGroupNotFound
 	}
@@ -137,10 +138,10 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 	rows, err := st.q.Query(ctx,
 		fmt.Sprintf(`WITH RECURSIVE chain AS (
 			SELECT id, persona, parent_id FROM profiles.permission_groups
-			WHERE id = $1::uuid AND deleted_at IS NULL
+			WHERE id = $1::uuid
 			UNION ALL
 			SELECT p.id, p.persona, p.parent_id FROM profiles.permission_groups p
-			JOIN chain c ON p.id = c.parent_id WHERE p.deleted_at IS NULL
+			JOIN chain c ON p.id = c.parent_id
 		)
 		SELECT c.id::text, c.persona, a.role
 		FROM chain c
@@ -422,7 +423,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 	rows, err := st.q.Query(ctx,
 		fmt.Sprintf(`SELECT g.persona, COALESCE(g.instance_slug, ''), a.role
 		 FROM %s a
-		 JOIN profiles.permission_groups g ON g.id = a.permission_group_id AND g.deleted_at IS NULL
+		 JOIN profiles.permission_groups g ON g.id = a.permission_group_id
 		 WHERE a.%s = $1::uuid AND a.deleted_at IS NULL
 		 ORDER BY g.persona, g.instance_slug, a.role`, table, subjectColumn), subjectID)
 	if err != nil {

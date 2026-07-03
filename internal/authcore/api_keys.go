@@ -169,7 +169,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 	if expiresAt != nil && !expiresAt.After(now) {
 		return APIKey{}, "", errors.New("invalid_expiry")
 	}
-	if maxTTL := s.opts.APIKeyMaxTTL; maxTTL > 0 {
+	if maxTTL := s.cfg.APIKeys.MaxTTL; maxTTL > 0 {
 		capAt := now.Add(maxTTL)
 		if expiresAt == nil || expiresAt.After(capAt) {
 			expiresAt = &capAt
@@ -229,7 +229,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 			CreatedAt:   createdAt,
 			ExpiresAt:   expiresAt,
 		}
-		return out, FormatAPIKey(s.opts.APIKeyPrefix, keyID, secret), nil
+		return out, FormatAPIKey(s.cfg.APIKeys.Prefix, keyID, secret), nil
 	}
 	return APIKey{}, "", errors.New("key_id_generation_failed")
 }
@@ -328,22 +328,21 @@ func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret strin
 	}
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var (
-		id           string
-		secretHash   []byte
-		role         string
-		expiresAt    *time.Time
-		revokedAt    *time.Time
-		groupID      string
-		persona      string
-		groupDeleted *time.Time
+		id         string
+		secretHash []byte
+		role       string
+		expiresAt  *time.Time
+		revokedAt  *time.Time
+		groupID    string
+		persona    string
 	)
 	err := q.QueryRow(ctx,
 		`SELECT t.id::text, t.secret_hash, t.role, t.expires_at, t.revoked_at,
-		        pg.id::text, pg.persona, pg.deleted_at
+		        pg.id::text, pg.persona
 		 FROM profiles.api_keys t
 		 JOIN profiles.permission_groups pg ON pg.id = t.permission_group_id
 		 WHERE t.key_id = $1`, keyID).
-		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona, &groupDeleted)
+		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ResolvedAPIKey{}, ErrInvalidAccessToken
@@ -360,9 +359,6 @@ func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret strin
 	}
 	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
 		return ResolvedAPIKey{}, ErrAccessTokenExpired
-	}
-	if groupDeleted != nil {
-		return ResolvedAPIKey{}, ErrInvalidAccessToken
 	}
 
 	s.touchAccessTokenAsync(id)

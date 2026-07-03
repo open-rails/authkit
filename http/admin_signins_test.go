@@ -81,13 +81,8 @@ func TestAdminSignins_EndToEnd_ClickHouse(t *testing.T) {
 
 	signer, err := jwtkit.NewRSASigner(2048, "test-kid")
 	require.NoError(t, err)
-	ks := embedded.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
-	engine := authcore.NewService(embedded.Options{
-		Issuer:              "https://example.com",
-		IssuedAudiences:     []string{"test-app"},
-		ExpectedAudiences:   []string{"test-app"},
-		AccessTokenDuration: time.Hour,
-	}, ks, authcore.WithClickHouse(conn))
+	ks := authcore.Keyset{Active: signer, PublicKeys: map[string]crypto.PublicKey{"test-kid": signer.PublicKey()}}
+	engine := authcore.NewService(embedded.Config{Token: embedded.TokenConfig{Issuer: "https://example.com", IssuedAudiences: []string{"test-app"}, ExpectedAudiences: []string{"test-app"}, AccessTokenDuration: time.Hour}}, ks, authcore.WithClickHouse(conn))
 	svc := &Service{svc: engine}
 
 	ctx := context.Background()

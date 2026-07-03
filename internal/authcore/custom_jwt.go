@@ -153,7 +153,7 @@ func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) 
 
 	issuer := strings.TrimSpace(opts.Issuer)
 	if issuer == "" {
-		issuer = strings.TrimSpace(s.opts.Issuer)
+		issuer = strings.TrimSpace(s.cfg.Token.Issuer)
 	}
 
 	now := time.Now()

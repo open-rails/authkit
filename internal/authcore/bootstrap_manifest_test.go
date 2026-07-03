@@ -135,7 +135,7 @@ func TestParseBootstrapManifestExample(t *testing.T) {
 func TestApplyBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	username := fmt.Sprintf("bootstrap-dryrun-%d", time.Now().UnixNano())
 	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
@@ -161,7 +161,7 @@ func TestApplyBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 func TestApplyBootstrapManifestOnceOnlyRejectsNonEmptyUnmarkedDatabase(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	existingUsername := fmt.Sprintf("bootstrap-existing-%d", suffix)
@@ -189,14 +189,14 @@ func TestApplyBootstrapManifestOnceOnlyRejectsNonEmptyUnmarkedDatabase(t *testin
 func TestApplyBootstrapManifestOnceOnlySkipsAfterFirstApply(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	var stateRows int64
 	if err := pool.QueryRow(ctx, `
 		SELECT
 			(SELECT count(*) FROM profiles.users WHERE deleted_at IS NULL)
 			+
-			(SELECT count(*) FROM profiles.remote_applications WHERE deleted_at IS NULL)
+			(SELECT count(*) FROM profiles.remote_applications)
 	`).Scan(&stateRows); err != nil {
 		t.Fatalf("count bootstrap state: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestApplyBootstrapManifestOnceOnlySkipsAfterFirstApply(t *testing.T) {
 func TestApplyBootstrapManifestSeedsRootOwner(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	username := fmt.Sprintf("bootstrap-admin-%d", suffix)
@@ -288,7 +288,7 @@ func TestApplyBootstrapManifestSeedsRootOwner(t *testing.T) {
 func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://auth.example"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://auth.example"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	slug := fmt.Sprintf("bootstrap-remote-%d", suffix)
@@ -339,7 +339,7 @@ func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	suffix := time.Now().UnixNano()
 	existingUsername := fmt.Sprintf("bootstrap-existing-owner-%d", suffix)
@@ -393,7 +393,7 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 func TestApplyBootstrapManifestFileLoadsAndAppliesYAML(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
-	svc := NewService(Options{Issuer: "https://test"}, Keyset{}, WithPostgres(pool))
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
 	username := fmt.Sprintf("bootstrap-file-%d", time.Now().UnixNano())
 	t.Cleanup(func() {
