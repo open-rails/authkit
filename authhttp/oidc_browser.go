@@ -159,7 +159,11 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if strings.TrimSpace(provUsername) != "" {
-			_ = s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername)
+			// Cosmetic write: never fail the callback, but never swallow silently
+			// either (#199 — matches the OAuth2 sibling's treatment).
+			if err := s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername); err != nil {
+				stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); link succeeded, username not updated: %v", userID, issuer, err)
+			}
 		}
 	} else if uid, provEmail, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject); err == nil && uid != "" {
 		userID = uid
@@ -167,7 +171,9 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			email = *provEmail
 		}
 		if strings.TrimSpace(provUsername) != "" {
-			_ = s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername)
+			if err := s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername); err != nil {
+				stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); login succeeded, username not updated: %v", userID, issuer, err)
+			}
 		}
 	} else {
 		// No (issuer, sub) link yet, and this is not an explicit link flow.
@@ -222,7 +228,9 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// Trust the IdP's email_verified ONLY when it is explicitly true; an
 		// absent claim is treated as false (defense in depth).
 		if claims.EmailVerified != nil && *claims.EmailVerified && provider != "discord" {
-			_ = s.svc.SetEmailVerified(r.Context(), u.ID, true)
+			if err := s.svc.SetEmailVerified(r.Context(), u.ID, true); err != nil {
+				stdlog.Printf("[authkit/security] warning: SetEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
+			}
 		}
 		if err := s.svc.ConsumeAccountRegistrationInvite(r.Context(), email, u.ID, sd.AccountInviteToken); err != nil {
 			serverErr(w, ErrUserCreationFailed)
@@ -238,7 +246,9 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if strings.TrimSpace(provUsername) != "" {
-			_ = s.svc.SetProviderUsername(r.Context(), u.ID, issuer, claims.Subject, provUsername)
+			if err := s.svc.SetProviderUsername(r.Context(), u.ID, issuer, claims.Subject, provUsername); err != nil {
+				stdlog.Printf("[authkit/security] warning: SetProviderUsername failed for new user %s (cosmetic): %v", u.ID, err)
+			}
 		}
 		created = true
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -77,16 +78,35 @@ func (s *Service) finishPasswordReset(ctx context.Context, userID, newPassword s
 	if err != nil {
 		return err
 	}
-	if err := s.upsertPasswordHash(ctx, userID, phc, "argon2id", nil); err != nil {
+	if s.pg == nil {
+		return nil
+	}
+	// Atomic rotation (#199): the new password hash and the revocation of every
+	// pre-reset session COMMIT TOGETHER. Done separately, a crash/error between the
+	// two writes could leave the new password live while an attacker's stolen
+	// sessions survive — the reset would look successful without evicting them.
+	// (The revocation error is also propagated — a reset must NOT report success
+	// unless the revocation committed; matches ChangePassword/SetPasswordAfterFreshAuth.)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	// Revoke all sessions to invalidate any potentially compromised refresh tokens.
-	// Propagate the error (#199 F8/plan020): a reset must NOT report success while an
-	// attacker's pre-reset sessions survive. Matches ChangePassword/SetPasswordAfterFreshAuth,
-	// which return the RevokeAllSessions error rather than swallowing it.
-	ctx = WithSessionRevokeReason(ctx, SessionRevokeReasonPasswordChange)
-	if err := s.RevokeAllSessions(ctx, userID, nil); err != nil {
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := db.New(db.ForSchema(tx, s.dbSchema()))
+	if err := qtx.UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: phc, HashAlgo: "argon2id", HashParams: nil}); err != nil {
 		return err
+	}
+	revoked, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	// Post-commit audit trail (best-effort, mirroring RevokeAllSessions' own logging).
+	reason := string(SessionRevokeReasonPasswordChange)
+	for _, sid := range revoked {
+		s.logSessionRevoked(ctx, userID, sid, &reason)
 	}
 	s.LogPasswordChanged(ctx, userID, "", nil, nil)
 	return nil

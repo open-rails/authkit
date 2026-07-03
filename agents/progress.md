@@ -144,7 +144,22 @@ reachable via `DefaultRateLimits()` (all ≥ 1), but a host passing a custom `Wi
 
 # #199: [SECURITY][v1 GATE] Ship the already-tracked pre-v1 security backlog before v1.0.0
 
-**Completed:** no
+**Completed:** yes — all three items shipped, 2026-07-03 (Claude):
+- **Swallowed OIDC callback writes**: the load-bearing `LinkProviderByIssuer` swallows were already
+  fail-closed (#176); the 4 REMAINING silent `_ =` writes (3× `SetProviderUsername`, 1× `SetEmailVerified`
+  in the create branch) now warn-log on failure with the same messages/severity as the OAuth2 sibling —
+  never silent, never callback-fatal (cosmetic/recoverable writes).
+- **Password-reset session revocation**: error propagation had landed; NOW ALSO ATOMIC —
+  `finishPasswordReset` commits the hash upsert + `SessionsRevokeAll` in ONE transaction
+  (`qtx := db.New(db.ForSchema(tx, …))`), with post-commit audit logging, so a crash/error between the
+  two writes can never leave the new password live while pre-reset sessions survive. New DB-backed
+  regression `TestConfirmPasswordReset_RevokesAllSessions` (2 live sessions → reset → 0 sessions + new
+  password verifies; skips without a DB, runs in CI).
+- **Non-atomic 2FA/step-up code consume**: already shipped — `consumeMFACode`/`consumeMFAStepUpCode`
+  use the atomic `ephemConsumeJSON` (spend-on-mismatch bounds brute force); pinned by the passing
+  `TestConsumeMFACode_AtomicSingleUse` / `TestConsumeMFACode_WrongGuessSpendsCode` /
+  `TestConsumeMFAStepUpCode_AtomicSingleUse`.
+Build + vet + authcore/authhttp suites green.
 
 Proposed 2026-07-02 (Paul + Claude audit). Two independent security passes found NO new high/medium
 vuln — the core is well-hardened. The residual real risk is a set of already-analyzed items **not yet
@@ -162,9 +177,9 @@ shipped**. This issue is the v1 gate so they don't slip (each item below is self
   within the TTL. Every sibling uses the atomic `ephemConsumeJSON`.
 
 ## Tasks
-- [ ] Propagate the `RevokeAllSessions` error in `finishPasswordReset` (do the one-liner now); complete the atomic-rotation half.
-- [ ] Fix the OIDC swallowed writes + the atomic code consume.
-- [ ] Confirm all three are green + covered before tagging v1.0.0.
+- [x] Propagate the `RevokeAllSessions` error in `finishPasswordReset`; complete the atomic-rotation half (one tx).
+- [x] Fix the OIDC swallowed writes + the atomic code consume.
+- [x] Confirm all three are green + covered before tagging v1.0.0 (MFA-consume tests pass locally; reset-revoke test is DB-backed → CI).
 
 ---
 
