@@ -37,19 +37,11 @@ func (s *Client) AdminSetPassword(ctx context.Context, userID, new string) error
 	return s.impl.AdminSetPassword(ctx, userID, new)
 }
 
-func (s *Client) AssignRoleBySlug(ctx context.Context, userID, slug string) error {
-	return s.impl.AssignRoleBySlug(ctx, userID, slug)
-}
-
-func (s *Client) AssignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string) error {
-	return s.impl.AssignGroupRole(ctx, persona, instanceSlug, subjectID, subjectKind, role)
-}
-
 // AssignRoleBySlugAs / RemoveRoleBySlugAs / AssignGroupRoleAs / UnassignGroupRoleAs
 // are the actor-aware role-change methods (#136): they enforce the actor's
 // <persona>:members:manage capability + no-escalation (perms(role) ⊆ perms(actor))
-// in embedded. Runtime/admin endpoints MUST use these; the non-As methods are the
-// unchecked genesis path (bootstrap/migration).
+// in embedded. Runtime/admin endpoints MUST use these; the unchecked bootstrap/
+// migration equivalents live on the explicitly-dangerous Client.Genesis() (#241).
 func (s *Client) AssignRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
 	return s.impl.AssignRoleBySlugAs(ctx, actorUserID, userID, slug)
 }
@@ -68,7 +60,8 @@ func (s *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, 
 
 // RemoveGroupSubjectAs is the actor-aware whole-subject revoke (#136): it enforces
 // no-escalation across every role the subject holds before stripping them. HTTP
-// member-removal MUST use this; the unchecked RemoveGroupSubject is genesis-only.
+// member-removal MUST use this; the unchecked equivalent is Client.Genesis()
+// .RemoveGroupSubject (#241).
 func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error {
 	return s.impl.RemoveGroupSubjectAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind)
 }
@@ -316,10 +309,6 @@ func (s *Client) PublicKeysByKID() map[string]crypto.PublicKey {
 
 func (s *Client) ApplyBootstrapManifest(ctx context.Context, manifest authkit.BootstrapManifest, opts authkit.BootstrapReconcileOptions) (authkit.BootstrapManifestResult, error) {
 	return s.impl.ApplyBootstrapManifest(ctx, manifest, opts)
-}
-
-func (s *Client) RemoveRoleBySlug(ctx context.Context, userID, slug string) error {
-	return s.impl.RemoveRoleBySlug(ctx, userID, slug)
 }
 
 func (s *Client) ResolveAPIKey(ctx context.Context, keyID, secret string) (string, []string, error) {

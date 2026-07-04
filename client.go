@@ -67,12 +67,13 @@ type Admin interface {
 	UnbanUser(ctx context.Context, userID string) error
 }
 
-// Roles is global root-role assignment. The *As variants are the actor-checked
-// (no-escalation) path; the plain ones are the bootstrap path.
+// Roles is global root-role assignment, actor-checked (no-escalation) only. The
+// unchecked bootstrap/genesis equivalents (AssignRoleBySlug, RemoveRoleBySlug)
+// are NOT part of this in-process/RPC-swappable interface (#241) — they live on
+// embedded.Client.Genesis(), an explicitly-dangerous seam reached only by the
+// concrete embedded client, never through authkit.Client or the remote transport.
 type Roles interface {
-	AssignRoleBySlug(ctx context.Context, userID, slug string) error
 	AssignRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error
-	RemoveRoleBySlug(ctx context.Context, userID, slug string) error
 	RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error
 	UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error
 	ListRoleSlugsByUser(ctx context.Context, userID string) []string
@@ -80,7 +81,10 @@ type Roles interface {
 }
 
 // Groups is the permission-group surface: lifecycle, membership, role
-// assignment, authorization checks, and invite links.
+// assignment, authorization checks, and invite links. Role/subject mutation
+// here is actor-checked (no-escalation) only; the unchecked bootstrap/genesis
+// equivalent (AssignGroupRole) lives on embedded.Client.Genesis() (#241), not
+// on this interface.
 type Groups interface {
 	CreatePermissionGroup(ctx context.Context, req CreatePermissionGroupRequest) (string, error)
 	EnsureRootGroup(ctx context.Context) (string, error)
@@ -88,7 +92,6 @@ type Groups interface {
 	ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error)
 	CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error)
 	RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error
-	AssignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string) error
 	AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
 	UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
 	RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error
