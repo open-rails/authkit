@@ -165,9 +165,10 @@ func (s *Service) issueAccessTokenForUser(ctx context.Context, u *User, mfa *MFA
 		}
 		claims[k] = v
 	}
-	if s.keys.Active == nil {
+	signer := s.keys.ActiveSigner()
+	if signer == nil {
 		return "", time.Time{}, ErrMissingSigner // #87: verify-only Service cannot mint
 	}
-	tok, err := jwtkit.SignWithType(ctx, s.keys.Active, claims, jwtkit.AccessTokenType, true)
+	tok, err := jwtkit.SignWithType(ctx, signer, claims, jwtkit.AccessTokenType, true)
 	return tok, expiresAt, err
 }

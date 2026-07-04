@@ -62,7 +62,7 @@ func TestReloadableReloadSwapsActiveKey(t *testing.T) {
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "kid-A")
 
-	ks, err := newReloadableFileKeySource(dir, time.Hour) // long interval; drive Reload() directly
+	ks, err := NewFileKeySource(dir, time.Hour) // long interval; drive Reload() directly
 	if err != nil {
 		t.Fatalf("new reloadable: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestReloadableKeepsOldOnMalformed(t *testing.T) {
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "kid-good")
 
-	ks, err := newReloadableFileKeySource(dir, time.Hour)
+	ks, err := NewFileKeySource(dir, time.Hour)
 	if err != nil {
 		t.Fatalf("new reloadable: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestReloadablePollerPicksUpChange(t *testing.T) {
 	dir := t.TempDir()
 	writeKeysJSON(t, dir, "kid-1")
 
-	ks, err := newReloadableFileKeySource(dir, 10*time.Millisecond)
+	ks, err := NewFileKeySource(dir, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("new reloadable: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestReloadableRetainsRetiredPublicKey(t *testing.T) {
 	dir := t.TempDir()
 	oldPubPEM := writeKeysJSONWithRetired(t, dir, "kid-old", nil)
 
-	ks, err := newReloadableFileKeySource(dir, time.Hour)
+	ks, err := NewFileKeySource(dir, time.Hour)
 	if err != nil {
 		t.Fatalf("new reloadable: %v", err)
 	}
