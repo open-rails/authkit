@@ -17,8 +17,9 @@ const inviteRetention = 90 * 24 * time.Hour
 // email/phone changes, email/phone verifications, and password resets — now
 // lives entirely in the ephemeral store (Redis when multi-instance, in-memory
 // otherwise) and expires automatically by TTL, so no database sweep is needed
-// for it. The postgres sweep covers revoked/expired refresh sessions and
-// long-dead invite rows (retained inviteRetention past their terminal moment).
+// for it. The postgres sweep covers revoked/expired refresh sessions,
+// long-dead invite rows (retained inviteRetention past their terminal moment),
+// and session-event history past Config.SessionEventRetention (#245).
 func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.requirePG(); err != nil {
 		return err
@@ -42,5 +43,5 @@ func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return s.pruneSessionEvents(ctx)
 }

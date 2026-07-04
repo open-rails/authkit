@@ -155,12 +155,12 @@ func (s *Service) validate(cfg embedded.Config) error {
 }
 
 // --- Functional options (#108). These are HTTP-LAYER options only; engine
-// dependencies (email/SMS senders, entitlements, ephemeral store, auth logger,
+// dependencies (email/SMS senders, entitlements, ephemeral store,
 // API-key authorizer, Solana resolver) are wired on embedded.New, since the host
 // builds the client before constructing the server (client-first, #142). ---
 
 // WithEngine passes embedded-engine options (embedded.WithEmailSender,
-// WithSMSSender, WithEntitlements, WithClickHouse, WithRedis, …) through the
+// WithSMSSender, WithEntitlements, WithRedis, …) through the
 // one-step authhttp.New (#211). It is ONLY valid with New — NewServer returns a
 // construction error if it sees engine options, because in the two-step path the
 // host already built the engine and these would be silently ignored.

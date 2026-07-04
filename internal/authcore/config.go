@@ -56,6 +56,12 @@ type Config struct {
 	// resolution is AuthKit-owned: it uses the built-in keyless resolver, with a
 	// fixed 3s lookup timeout and 24h cache TTL. There is no host override.
 	SolanaNetwork string
+
+	// SessionEventRetention is how long session-event history rows
+	// (sign-ins/revocations, incl. IP + user-agent — personal data) are kept
+	// before CleanupExpiredAuthState prunes them. 0 (unset) defaults to 365
+	// days — the deliberate ceiling; any negative value keeps events forever.
+	SessionEventRetention time.Duration
 }
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.

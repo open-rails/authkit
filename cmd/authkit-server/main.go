@@ -395,6 +395,20 @@ func run() error {
 		log.Printf("management API DISABLED: set AUTHKIT_MGMT_TOKEN to enable it outside dev")
 	}
 
+	// Daily auth-state sweep (expired sessions/invites + session-event
+	// retention, #245). Embedding hosts schedule Client.CleanupExpiredAuthState
+	// themselves; the standalone binary has no host scheduler, so it owns the tick.
+	go func() {
+		tick := time.NewTicker(24 * time.Hour)
+		defer tick.Stop()
+		for {
+			if err := client.CleanupExpiredAuthState(ctx); err != nil {
+				log.Printf("auth-state cleanup: %v", err)
+			}
+			<-tick.C
+		}
+	}()
+
 	httpServer := &http.Server{
 		Addr:              cfg.listenAddr,
 		Handler:           mux,

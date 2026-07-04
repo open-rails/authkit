@@ -84,9 +84,6 @@ const (
 	// ErrAuthkitNotInitialized is the authkit_not_initialized AuthKit HTTP wire error code.
 	ErrAuthkitNotInitialized ErrorCode = "authkit_not_initialized"
 
-	// ErrAuthlogUnavailable is the authlog_unavailable AuthKit HTTP wire error code.
-	ErrAuthlogUnavailable ErrorCode = "authlog_unavailable"
-
 	// ErrCancelFailed is the cancel_failed AuthKit HTTP wire error code.
 	ErrCancelFailed ErrorCode = "cancel_failed"
 

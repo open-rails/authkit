@@ -1,7 +1,6 @@
 package authcore
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/internal/db"
@@ -32,16 +31,6 @@ func WithEphemeralStore(store EphemeralStore) Option {
 
 // WithEntitlements sets the entitlements provider.
 func WithEntitlements(p EntitlementsProvider) Option { return func(s *Service) { s.entitlements = p } }
-
-// WithClickHouse wires a ClickHouse connection AuthKit uses directly to record
-// and read auth/session-history events (the user_auth_session_events table; see
-// migrations/clickhouse). No ClickHouse means no session-event history and the
-// admin sign-in routes report it unavailable.
-func WithClickHouse(conn clickhouse.Conn) Option {
-	return func(s *Service) {
-		s.authlog = newClickHouseAuthLog(conn)
-	}
-}
 
 // WithEmailSender sets the email provider.
 func WithEmailSender(sender EmailSender) Option { return func(s *Service) { s.email = sender } }
