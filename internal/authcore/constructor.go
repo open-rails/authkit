@@ -73,6 +73,11 @@ func normalizeConfig(cfg Config) (Config, error) {
 	}
 	// RefreshTokenDuration: 0 or less => indefinite sessions.
 
+	// SessionEventRetention: 0 (unset) => 365 days; negative => keep forever (#245).
+	if cfg.SessionEventRetention == 0 {
+		cfg.SessionEventRetention = 365 * 24 * time.Hour
+	}
+
 	if cfg.Registration.Verification, err = normalizeRegistrationVerification(cfg.Registration.Verification); err != nil {
 		return Config{}, err
 	}

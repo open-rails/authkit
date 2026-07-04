@@ -110,7 +110,6 @@ appears in consumer code. Renaming either is breaking.
 | `…/adapters/twilio/sms` | `twilio` | Provided | Twilio SMS sender |
 | `…/adapters/riverjobs` | `riverjobs` | Provided | River background workers |
 | `…/migrations/postgres` | `migrations` | Stable | Embedded Postgres migrations (`FS`, `FSForSchema`) |
-| `…/migrations/clickhouse` | `migrations` | Stable | Embedded ClickHouse migrations (`FS`) |
 | `…/internal/*` | (various) | **Out of contract** | `internal/db` (sqlc-generated), `internal/authcore` (service impl); never import |
 
 **Adding a package** is MINOR. **Removing or renaming** a package, or changing its
@@ -146,8 +145,10 @@ interface (§9), so code that genuinely needs them — and only that code — ho
 service types; the flat `Options`/`Keyset` aliases were removed in #237 — one config type):
 ```
 func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error)
-type Option ; WithRedis, WithClickHouse, WithEmailSender, WithEntitlements,
+type Option ; WithRedis, WithEmailSender, WithEntitlements,
   WithPostgres, WithSMSSender, WithSessionRevokeReason
+(#245 BREAKING: WithClickHouse removed — session-event history is Postgres-backed
+and always on; see §7.1/§7.3.)
 ```
 
 **Config types** (every field is covered; see [§7.3](#73-config-surface)):
@@ -654,8 +655,10 @@ covered compatibility alias.)
 
 ### 7.1 Database schema & migrations
 
-- Postgres migrations are embedded at `migrations/postgres` (`FS`, `FSForSchema(schema)`)
-  and ClickHouse at `migrations/clickhouse` (`FS`). They are run with
+- Postgres migrations are embedded at `migrations/postgres` (`FS`, `FSForSchema(schema)`).
+  (#245 BREAKING: `migrations/clickhouse` removed — session-event history now lives in
+  the Postgres `session_events` table, retained per `Config.SessionEventRetention` and
+  pruned by `CleanupExpiredAuthState`.) They are run with
   [migratekit](https://github.com/open-rails/migratekit), name-tracked in
   `public.migrations` so a recorded migration is never re-applied.
 - **Migrations are forward-only and append-only after v1.0.0.** Published migration files
@@ -730,7 +733,8 @@ an optional field with a backward-compatible zero-value default is MINOR.
 - **`RBAC`** `RBACConfig`: `Permissions` (`[]PermissionDef`), `Groups` (`[]PersonaDef`).
 - **Top-level**: `Environment` (single classifier `IsDevEnvironment`, #231: only
   `dev`/`development`/`local`/`test`/empty are dev; everything else — incl. `staging` —
-  is prod-like/fail-closed), `Schema`, `SolanaNetwork`.
+  is prod-like/fail-closed), `Schema`, `SolanaNetwork`, `SessionEventRetention`
+  (session-event history retention, #245: 0 ⇒ default 365 days; negative ⇒ keep forever).
 
 The constructor-injected dependencies (`WithPostgres`/`WithRedis`/`WithEmailSender`/
 `WithSMSSender`/`WithEntitlements`/…) are covered as Plane A options.

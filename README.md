@@ -358,9 +358,13 @@ reuse a retired name for a different meaning until old assignments are cleared.
 
 ## Advanced Host Flows
 
-For session history, run `migrations/clickhouse` and pass a
-`clickhouse.Conn` to `embedded.New` with `embedded.WithClickHouse(ch)`.
-`authhttp.NewServer(client)` uses that same client as the admin sign-in reader.
+Session history (sign-ins, revocations, password changes) is built in: events
+are recorded best-effort in Postgres (`session_events`) and served by
+`GET /admin/users/{id}/signins` in every deployment. Retention defaults to 365
+days (IP + user-agent are personal data — the ceiling is deliberate); tune it
+with `Config.SessionEventRetention` (negative = keep forever). Pruning runs
+inside `Client.CleanupExpiredAuthState` — schedule it daily-ish (the standalone
+server ticks it itself).
 
 ```go
 func mountAdvancedAuthExamples(

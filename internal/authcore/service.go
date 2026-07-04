@@ -109,7 +109,6 @@ type Service struct {
 	schema            string       // validated Postgres schema name; db.DefaultSchema when unset
 	groupSchema       *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
 	entitlements      EntitlementsProvider
-	authlog           *clickHouseAuthLog // session-event sink/reader; nil unless WithClickHouse
 	solanaSNSResolver defaultSolanaSNSResolver
 	// snsCacheTTLOverride is a test-only seam for forcing SNS cache staleness; 0 in
 	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
@@ -127,120 +126,6 @@ type Service struct {
 	smsHealthChecked atomic.Bool
 	smsHealthy       atomic.Bool
 	smsHealthReason  atomic.Value // string
-}
-
-// SessionEventHistoryEnabled reports whether ClickHouse session-event history is
-// wired (WithClickHouse). The admin sign-in routes report unavailable when false.
-func (s *Service) SessionEventHistoryEnabled() bool { return s.authlog != nil }
-
-// ListSessionEvents returns a user's recent session events from ClickHouse, most
-// recent first. Empty when ClickHouse is not configured.
-func (s *Service) ListSessionEvents(ctx context.Context, userID string, eventTypes ...SessionEventType) ([]AuthSessionEvent, error) {
-	if s.authlog == nil {
-		return nil, nil
-	}
-	return s.authlog.ListSessionEvents(ctx, userID, eventTypes...)
-}
-
-// LogSessionCreated records a session creation event to ClickHouse (best-effort).
-func (s *Service) LogSessionCreated(ctx context.Context, userID string, method string, sessionID string, ip *string, ua *string) {
-	if s.authlog == nil {
-		return
-	}
-	m := strings.TrimSpace(method)
-	var mPtr *string
-	if m != "" {
-		mPtr = &m
-	}
-	e := AuthSessionEvent{
-		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
-		UserID:     userID,
-		SessionID:  sessionID,
-		Event:      SessionEventCreated,
-		Method:     mPtr,
-		Reason:     nil,
-		IPAddr:     ip,
-		UserAgent:  ua,
-	}
-	_ = s.authlog.LogSessionEvent(ctx, e)
-}
-
-func (s *Service) logSessionRevoked(ctx context.Context, userID string, sessionID string, reason *string) {
-	if s.authlog == nil {
-		return
-	}
-	e := AuthSessionEvent{
-		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
-		UserID:     userID,
-		SessionID:  sessionID,
-		Event:      SessionEventRevoked,
-		Method:     nil,
-		Reason:     reason,
-		IPAddr:     nil,
-		UserAgent:  nil,
-	}
-	_ = s.authlog.LogSessionEvent(ctx, e)
-}
-
-// LogPasswordChanged records a password change event for a user (best-effort).
-func (s *Service) LogPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
-	if s.authlog == nil {
-		return
-	}
-	e := AuthSessionEvent{
-		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
-		UserID:     userID,
-		SessionID:  sessionID,
-		Event:      SessionEventPasswordChange,
-		Method:     nil,
-		Reason:     nil,
-		IPAddr:     ip,
-		UserAgent:  ua,
-	}
-	_ = s.authlog.LogSessionEvent(ctx, e)
-}
-
-// LogPasswordRecovery records a password recovery event for a user (best-effort).
-
-func (s *Service) LogPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
-	if s.authlog == nil {
-		return
-	}
-	e := AuthSessionEvent{
-		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
-		UserID:     userID,
-		SessionID:  sessionID,
-		Event:      SessionEventPasswordRecovery,
-		Method:     &method,
-		Reason:     nil,
-		IPAddr:     ip,
-		UserAgent:  ua,
-	}
-	_ = s.authlog.LogSessionEvent(ctx, e)
-}
-
-// LogSessionFailed records a failed session event for a user (best-effort).
-
-func (s *Service) LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string) {
-	if s.authlog == nil {
-		return
-	}
-	e := AuthSessionEvent{
-		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
-		UserID:     userID,
-		SessionID:  sessionID,
-		Event:      SessionEventFailed,
-		Method:     nil,
-		Reason:     reason,
-		IPAddr:     ip,
-		UserAgent:  ua,
-	}
-	_ = s.authlog.LogSessionEvent(ctx, e)
 }
 
 // SendWelcome triggers the welcome email if an EmailSender is configured.

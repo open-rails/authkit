@@ -32,10 +32,11 @@ const (
 	SessionRevokeReasonRefreshReuseDetected SessionRevokeReason = "refresh_reuse_detected"
 )
 
-// AuthSessionEvent is a best-effort, append-only session lifecycle record written
-// to ClickHouse (see migrations/clickhouse) when WithClickHouse is configured.
-// issuer/user_id/session_id/event are required; method is typically set for
-// SessionEventCreated and reason for SessionEventRevoked.
+// AuthSessionEvent is a best-effort, append-only session lifecycle record
+// stored in Postgres (profiles.session_events, #245) and retained per
+// Config.SessionEventRetention. issuer/user_id/session_id/event are required;
+// method is typically set for SessionEventCreated and reason for
+// SessionEventRevoked.
 type AuthSessionEvent struct {
 	OccurredAt time.Time
 	Issuer     string

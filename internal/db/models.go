@@ -179,6 +179,19 @@ type ProfilesRemoteApplicationAttributeDef struct {
 	UpdatedAt           time.Time
 }
 
+type ProfilesSessionEvent struct {
+	ID         int64
+	OccurredAt time.Time
+	Issuer     string
+	UserID     string
+	SessionID  string
+	Event      string
+	Method     *string
+	Reason     *string
+	IpAddr     *string
+	UserAgent  *string
+}
+
 type ProfilesUser struct {
 	ID            string
 	Email         *string
