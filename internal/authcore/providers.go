@@ -221,17 +221,3 @@ func (s *Service) setProviderUsername(ctx context.Context, userID, issuer, subje
 	return s.q.UserProviderSetUsername(ctx, db.UserProviderSetUsernameParams{UserID: userID, Issuer: issuer, Subject: subject, Username: username})
 }
 
-// getProviderUsername fetches provider profile->>'username' for the given user (first match by provider).
-func (s *Service) getProviderUsername(ctx context.Context, userID, provider string) (string, error) {
-	if s.pg == nil {
-		return "", nil
-	}
-	uname, err := s.q.UserProviderUsername(ctx, db.UserProviderUsernameParams{UserID: userID, ProviderSlug: &provider})
-	if err != nil {
-		return "", err
-	}
-	if uname == nil {
-		return "", nil
-	}
-	return *uname, nil
-}
