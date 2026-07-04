@@ -44,7 +44,7 @@ type RemoteApplicationAccessParams = authkit.RemoteApplicationAccessParams
 // Service's internal signer. When p.Issuer is empty it defaults to the Service's
 // configured Issuer.
 func (s *Service) MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error) {
-	signer := s.keys.Active
+	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ErrMissingSigner
 	}

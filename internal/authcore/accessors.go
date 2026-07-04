@@ -22,24 +22,29 @@ import (
 // before a Service exists (e.g. from service_solana.go during options
 // resolution), with a nil-safe Service method wrapper used everywhere else.
 
-// JWKS returns a JWKS built from configured public keys.
+// JWKS returns a JWKS built from the CURRENT public keys — read fresh from the
+// KeySource on every call, so a rotation is reflected on the very next request
+// (#238).
 func (s *Service) JWKS() jwtkit.JWKS {
+	active := s.keys.ActiveSigner()
+	pubs := s.keys.PublicKeys()
+
 	// Build a deterministic, sorted JWKS. For current RSA keysets, include alg
 	// to make verifier policy and key intent explicit.
-	ks := jwtkit.JWKS{Keys: make([]jwtkit.JWK, 0, len(s.keys.PublicKeys))}
+	ks := jwtkit.JWKS{Keys: make([]jwtkit.JWK, 0, len(pubs))}
 	activeKID := ""
 	activeAlg := ""
-	if s.keys.Active != nil {
-		activeKID = strings.TrimSpace(s.keys.Active.KID())
-		activeAlg = strings.TrimSpace(s.keys.Active.Algorithm())
+	if active != nil {
+		activeKID = strings.TrimSpace(active.KID())
+		activeAlg = strings.TrimSpace(active.Algorithm())
 	}
-	kids := make([]string, 0, len(s.keys.PublicKeys))
-	for kid := range s.keys.PublicKeys {
+	kids := make([]string, 0, len(pubs))
+	for kid := range pubs {
 		kids = append(kids, kid)
 	}
 	sort.Strings(kids)
 	for _, kid := range kids {
-		pub := s.keys.PublicKeys[kid]
+		pub := pubs[kid]
 		alg := activeAlg
 		if strings.TrimSpace(kid) != activeKID || strings.TrimSpace(alg) == "" {
 			alg = jwtkit.AlgorithmForPublicKey(pub)
@@ -87,9 +92,10 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 // parallel flat options struct (#236 bug class is structurally impossible).
 func (s *Service) Config() Config { return s.cfg }
 
-// PublicKeysByKID returns the public keys indexed by key ID.
+// PublicKeysByKID returns the CURRENT public keys indexed by key ID, read
+// fresh from the KeySource on every call (#238).
 func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
-	return s.keys.PublicKeys
+	return s.keys.PublicKeys()
 }
 
 func (s *Service) isDevEnvironment() bool {
@@ -136,15 +142,17 @@ func (s *Service) qtx(tx pgx.Tx) *db.Queries {
 // should prefer the WithEntitlements construction option instead.
 func (s *Service) SetEntitlementsProvider(p EntitlementsProvider) { s.entitlements = p }
 
-// Keyfunc looks up a public key by KID, falling back to the active key if missing.
+// Keyfunc looks up a public key by KID, falling back to the active key if
+// missing. Reads the KeySource fresh on every call (#238), so a rotation is
+// observed on the next verification without re-fetching the Keyfunc.
 func (s *Service) Keyfunc() func(token *jwt.Token) (any, error) {
 	return func(token *jwt.Token) (any, error) {
 		if kid, _ := token.Header["kid"].(string); kid != "" {
-			if pub, ok := s.keys.PublicKeys[kid]; ok {
+			if pub, ok := s.keys.PublicKeys()[kid]; ok {
 				return pub, nil
 			}
 		}
-		if ps, ok := s.keys.Active.(jwtkit.PublicKeySigner); ok {
+		if ps, ok := s.keys.ActiveSigner().(jwtkit.PublicKeySigner); ok {
 			if pub := ps.PublicKey(); pub != nil {
 				return pub, nil
 			}

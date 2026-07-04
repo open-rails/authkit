@@ -115,6 +115,10 @@ func normalizeConfig(cfg Config) (Config, error) {
 // NewFromConfig); hosts construct via embedded.New / NewFromConfig. Panics on
 // config values normalizeConfig rejects (malformed schema/paths/modes) — at
 // this layer they are programmer errors (NewFromConfig returns them instead).
+//
+// The Keyset is fixed for the lifetime of the Service — there is no rotation
+// path here. Hosts that need hot-reloaded signing keys construct via
+// NewFromConfig / embedded.New with a live jwtkit.KeySource (#238).
 func NewService(cfg Config, keys Keyset, coreOpts ...Option) *Service {
 	norm, err := normalizeConfig(cfg)
 	if err != nil {
@@ -126,11 +130,15 @@ func NewService(cfg Config, keys Keyset, coreOpts ...Option) *Service {
 			panic(fmt.Sprintf("permission-group schema: %v", err))
 		}
 	}
-	return newService(norm, keys, gs, coreOpts...)
+	src := jwtkit.StaticKeySource{Active: keys.Active, Pubs: keys.PublicKeys}
+	return newService(norm, src, gs, coreOpts...)
 }
 
-// newService assembles a Service from an already-normalized Config.
-func newService(norm Config, keys Keyset, gs *GroupSchema, coreOpts ...Option) *Service {
+// newService assembles a Service from an already-normalized Config. keys is
+// read per-operation via the KeySource interface (never snapshotted) so a
+// live, hot-reloading source (jwtkit.FileKeySource) is observed for as long as
+// the Service exists.
+func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, coreOpts ...Option) *Service {
 	s := &Service{
 		cfg:               norm,
 		keys:              keys,
@@ -171,7 +179,11 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 			return nil, fmt.Errorf("authkit: failed to resolve JWT signing keys (set Keys.Path to a directory containing keys.json, provide Keys.Source, or — for development only — set Keys.AllowEphemeralDevKeys): %w", err)
 		}
 	}
-	ks := Keyset{Active: keySource.ActiveSigner(), PublicKeys: keySource.PublicKeys()}
+	// keySource is held live, NOT snapshotted into a Keyset: a reloadable file
+	// source hot-swaps its active signer/public keys behind an atomic pointer
+	// as keys.json rotates, and the Service must keep observing it for the
+	// rest of the process lifetime (#238) rather than freezing the keys seen
+	// at construction time.
 
 	norm, err := normalizeConfig(cfg)
 	if err != nil {
@@ -220,7 +232,7 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	// nil pg simply yields a Service with no querier. The mandatory-Postgres
 	// contract (#106) is enforced at the host-facing authhttp.NewServer, not here.
 	coreOpts := append([]Option{WithPostgres(pg)}, extraOpts...)
-	return newService(norm, ks, gs, coreOpts...), nil
+	return newService(norm, keySource, gs, coreOpts...), nil
 }
 
 // normalizeSchemaName trims and validates a Postgres schema name, defaulting to

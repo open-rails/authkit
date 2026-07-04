@@ -102,9 +102,15 @@ type issuerEntry struct {
 }
 
 type issuerKeys struct {
-	jwks       jwtkit.JWKS
-	pubByKID   map[string]crypto.PublicKey
-	fetchedAt  time.Time
+	jwks      jwtkit.JWKS
+	pubByKID  map[string]crypto.PublicKey
+	fetchedAt time.Time
+	// expiresAt/staleUntil are meaningful ONLY for issuers with a non-empty
+	// jwksURL (there is something to legitimately refetch from). For a
+	// permanent issuer (jwksURL == "": keys came from Keys/RawKeys/IsLocal
+	// with no JWKS URI, #239) these stay zero and are never consulted —
+	// publicKeyFor treats the absence of a jwksURL as "never fetch, never
+	// expire" regardless of their value.
 	expiresAt  time.Time
 	staleUntil time.Time
 }
@@ -447,13 +453,20 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	pubByKID := v.collectKeys(opts)
 	if len(pubByKID) > 0 {
 		now := time.Now()
-		farFuture := 24 * time.Hour
-		v.byIss[issuerID] = &issuerKeys{
-			pubByKID:   pubByKID,
-			fetchedAt:  now,
-			expiresAt:  now.Add(farFuture),
-			staleUntil: now.Add(farFuture * 2),
+		entry := &issuerKeys{pubByKID: pubByKID, fetchedAt: now}
+		if ie.jwksURL != "" {
+			// A JWKS URI is ALSO registered: the pre-provided keys are just a
+			// head start avoiding first-request fetch latency — normal
+			// cacheTTL/maxStale-driven refetch takes over after this
+			// generous initial grace period.
+			farFuture := 24 * time.Hour
+			entry.expiresAt = now.Add(farFuture)
+			entry.staleUntil = now.Add(farFuture * 2)
 		}
+		// else: no JWKS URI (RawKeys/Keys/IsLocal) — these keys are
+		// PERMANENT (#239). expiresAt/staleUntil stay zero; publicKeyFor
+		// never compares against them for a URI-less issuer.
+		v.byIss[issuerID] = entry
 	}
 
 	return nil
@@ -1199,6 +1212,13 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 		return nil, errors.New("bad_issuer")
 	}
 
+	// permanent issuers have no JWKS URI: their keys were supplied directly
+	// (RawKeys/Keys, or IsLocal) with nowhere to legitimately refetch from, so
+	// they never expire and are NEVER network-fetched (#239) — that includes
+	// the unknown-kid force-refresh below, which would otherwise synthesize a
+	// `<issuer>/.well-known/jwks.json` guess.
+	permanent := strings.TrimSpace(ie.jwksURL) == ""
+
 	cacheTTL := ie.cacheTTL
 	if cacheTTL == 0 {
 		cacheTTL = 10 * time.Minute
@@ -1215,9 +1235,9 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 		v.byIss[iss] = c
 	}
 	now := time.Now()
-	shouldFetch := c.pubByKID == nil || now.After(c.expiresAt)
-	hasFresh := c.pubByKID != nil && now.Before(c.expiresAt)
-	hasStale := c.pubByKID != nil && now.Before(c.staleUntil)
+	shouldFetch := !permanent && (c.pubByKID == nil || now.After(c.expiresAt))
+	hasFresh := c.pubByKID != nil && (permanent || now.Before(c.expiresAt))
+	hasStale := c.pubByKID != nil && (permanent || now.Before(c.staleUntil))
 	v.mu.Unlock()
 
 	if shouldFetch {
@@ -1232,12 +1252,14 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 			v.mu.Unlock()
 			return pk, nil
 		}
+		v.mu.Unlock()
 		// Unknown kid for a KNOWN issuer: a key may have rotated mid-TTL (the
 		// cached JWKS is still "fresh" so the TTL refresh above did not fire).
 		// Force ONE bounded JWKS refetch (min-interval + single-flight guarded so
-		// a storm of bad kids can't hammer the JWKS endpoint) and retry.
-		v.mu.Unlock()
-		if v.refetchForUnknownKID(ctx, iss, ie, cacheTTL, maxStale) {
+		// a storm of bad kids can't hammer the JWKS endpoint) and retry — but
+		// only when there IS a JWKS URI to refetch from; a permanent issuer's
+		// key set is exactly what was registered, forever (#239).
+		if !permanent && v.refetchForUnknownKID(ctx, iss, ie, cacheTTL, maxStale) {
 			v.mu.Lock()
 			if pk := c.pubByKID[kid]; pk != nil {
 				v.mu.Unlock()
@@ -1320,6 +1342,11 @@ func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
 		return false
 	}
 	entry := *ie // copy out from under the verifier lock before fetching
+	if strings.TrimSpace(entry.jwksURL) == "" {
+		// Permanent issuer (#239): no JWKS URI means nothing to refetch from —
+		// a verify failure here is a real signature/key mismatch, not staleness.
+		return false
+	}
 	cacheTTL := entry.cacheTTL
 	if cacheTTL == 0 {
 		cacheTTL = 10 * time.Minute
@@ -1339,7 +1366,12 @@ func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
 func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) error {
 	jwksURL := strings.TrimSpace(ie.jwksURL)
 	if jwksURL == "" {
-		jwksURL = strings.TrimRight(strings.TrimSpace(issuer), "/") + "/.well-known/jwks.json"
+		// Callers (publicKeyFor, refetchForUnknownKID, forceRefreshForToken) only
+		// reach here for issuers registered WITH a JWKS URI: a permanent,
+		// pre-provided-key issuer (RawKeys/Keys/IsLocal, no URI) is filtered out
+		// before ever calling this. Fail loud instead of guessing a well-known
+		// URL from the issuer string (#239 — that guess was the bug).
+		return fmt.Errorf("authkit: no JWKS URI configured for issuer %q; cannot refetch", issuer)
 	}
 
 	// One fetch+parse attempt. A nil error means the JWKS was fetched and parsed.

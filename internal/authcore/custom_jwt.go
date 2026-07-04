@@ -114,7 +114,7 @@ type CustomJWTMintOptions = authkit.CustomJWTMintOptions
 // CustomJWTMintOptions for the claim-precedence rules. The host Claims map may
 // not set `iss`/`iat`/`exp` (ErrCustomClaimsReserved).
 func (s *Service) MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error) {
-	signer := s.keys.Active
+	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ErrMissingSigner
 	}

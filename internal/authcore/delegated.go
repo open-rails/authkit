@@ -32,7 +32,7 @@ type DelegatedAccessParams = authkit.DelegatedAccessParams
 // configured Issuer. See the package-level MintDelegatedAccessToken for the
 // claim contract.
 func (s *Service) MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error) {
-	signer := s.keys.Active
+	signer := s.keys.ActiveSigner()
 	if signer == nil {
 		return "", ErrMissingSigner
 	}

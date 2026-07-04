@@ -142,7 +142,7 @@ func verifyAgainstServiceJWKS(t *testing.T, svc *Service, tok string) jwt.MapCla
 	claims := jwt.MapClaims{}
 	_, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(tok, claims, func(token *jwt.Token) (any, error) {
 		kid, _ := token.Header["kid"].(string)
-		pub, ok := svc.keys.PublicKeys[kid]
+		pub, ok := svc.keys.PublicKeys()[kid]
 		if !ok {
 			t.Fatalf("kid %q not on JWKS", kid)
 		}

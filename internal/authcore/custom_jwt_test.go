@@ -16,7 +16,7 @@ func parseUnverified(t *testing.T, svc *Service, tok string) *jwt.Token {
 	t.Helper()
 	parsed, err := jwt.NewParser(jwt.WithoutClaimsValidation()).Parse(tok, func(token *jwt.Token) (any, error) {
 		kid, _ := token.Header["kid"].(string)
-		pub, ok := svc.keys.PublicKeys[kid]
+		pub, ok := svc.keys.PublicKeys()[kid]
 		if !ok {
 			t.Fatalf("kid %q not on JWKS", kid)
 		}

@@ -16,7 +16,7 @@ const (
 	// DefaultAuthKeysPath is the default directory where External Secrets mounts auth keys
 	DefaultAuthKeysPath = "/vault/auth"
 
-	// DefaultKeyReloadInterval is how often a reloadableKeySource re-stats
+	// DefaultKeyReloadInterval is how often a FileKeySource re-stats
 	// keys.json for changes. Short keeps the post-rotation multi-replica skew
 	// window small; the cost is one stat() per tick. See authkit #90.
 	DefaultKeyReloadInterval = 10 * time.Second
@@ -37,14 +37,14 @@ type StaticKeySource struct {
 func (s StaticKeySource) ActiveSigner() Signer                    { return s.Active }
 func (s StaticKeySource) PublicKeys() map[string]crypto.PublicKey { return clonePublicKeyMap(s.Pubs) }
 
-// reloadableKeySource wraps a file-backed StaticKeySource and hot-reloads it
+// FileKeySource wraps a file-backed StaticKeySource and hot-reloads it
 // when keys.json changes on disk (e.g. re-rendered by Vault Agent), so signing-
 // key rotation never requires a process restart. It implements KeySource; reads
 // are lock-free via an atomic pointer. A background poller re-stats keys.json at
 // the configured interval and, on change, atomically swaps in a NEW validated
 // keystore. A malformed/unreadable file keeps the last-good keystore — a bad
 // render never bricks signing. See authkit #90 (AK-IMPL-3).
-type reloadableKeySource struct {
+type FileKeySource struct {
 	path     string // directory containing keys.json
 	interval time.Duration
 	cur      atomic.Pointer[StaticKeySource]
@@ -56,13 +56,20 @@ type reloadableKeySource struct {
 	once sync.Once
 }
 
-// newReloadableFileKeySource loads keys.json from the given directory and starts
-// a background poller that hot-reloads it every interval (<=0 →
+// NewFileKeySource loads keys.json from the given directory and starts a
+// background poller that hot-reloads it every interval (<=0 →
 // DefaultKeyReloadInterval). It errors when no valid keys.json is present, so
 // use it only where a file source is expected — static/dev sources don't reload
 // (in-memory material is immutable in a running process; generated keys are
 // dev-only).
-func newReloadableFileKeySource(path string, interval time.Duration) (*reloadableKeySource, error) {
+//
+// ResolveKeySource calls this with DefaultKeyReloadInterval; call it directly
+// instead of ResolveKeySource when you need a non-default interval — e.g. a
+// short interval in a test asserting rotation is observed within a bound, or a
+// host that wants to trade the default's stat() cost for faster/slower
+// pickup. The caller owns the returned source's lifecycle (Close stops its
+// poller goroutine).
+func NewFileKeySource(path string, interval time.Duration) (*FileKeySource, error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultAuthKeysPath
 	}
@@ -73,7 +80,7 @@ func newReloadableFileKeySource(path string, interval time.Duration) (*reloadabl
 	if err != nil {
 		return nil, err
 	}
-	r := &reloadableKeySource{path: path, interval: interval, done: make(chan struct{})}
+	r := &FileKeySource{path: path, interval: interval, done: make(chan struct{})}
 	r.cur.Store(static)
 	if mod, modErr := r.keyFileModTime(); modErr == nil {
 		r.lastMod = mod
@@ -82,14 +89,14 @@ func newReloadableFileKeySource(path string, interval time.Duration) (*reloadabl
 	return r, nil
 }
 
-func (r *reloadableKeySource) ActiveSigner() Signer { return r.cur.Load().ActiveSigner() }
-func (r *reloadableKeySource) PublicKeys() map[string]crypto.PublicKey {
+func (r *FileKeySource) ActiveSigner() Signer { return r.cur.Load().ActiveSigner() }
+func (r *FileKeySource) PublicKeys() map[string]crypto.PublicKey {
 	return r.cur.Load().PublicKeys()
 }
 
-func (r *reloadableKeySource) keyFilePath() string { return filepath.Join(r.path, "keys.json") }
+func (r *FileKeySource) keyFilePath() string { return filepath.Join(r.path, "keys.json") }
 
-func (r *reloadableKeySource) keyFileModTime() (time.Time, error) {
+func (r *FileKeySource) keyFileModTime() (time.Time, error) {
 	fi, err := os.Stat(r.keyFilePath())
 	if err != nil {
 		return time.Time{}, err
@@ -100,7 +107,7 @@ func (r *reloadableKeySource) keyFileModTime() (time.Time, error) {
 // Reload re-reads keys.json, validates it, and atomically swaps it in. On any
 // read/parse/validation failure it KEEPS the current keystore and returns the
 // error — it never serves a partial or empty key set.
-func (r *reloadableKeySource) Reload() error {
+func (r *FileKeySource) Reload() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	static, err := loadStaticFromFile(r.path)
@@ -113,9 +120,9 @@ func (r *reloadableKeySource) Reload() error {
 
 // Close stops the background poller. Safe to call multiple times; optional for
 // process-lifetime sources (primarily for tests and clean shutdown).
-func (r *reloadableKeySource) Close() { r.once.Do(func() { close(r.done) }) }
+func (r *FileKeySource) Close() { r.once.Do(func() { close(r.done) }) }
 
-func (r *reloadableKeySource) pollLoop() {
+func (r *FileKeySource) pollLoop() {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 	for {
@@ -133,6 +140,10 @@ func (r *reloadableKeySource) pollLoop() {
 			if unchanged {
 				continue
 			}
+			prevKID := ""
+			if prev := r.cur.Load(); prev != nil {
+				prevKID = prev.ActiveSigner().KID()
+			}
 			if err := r.Reload(); err != nil {
 				logf("Warning: keys.json reload failed, keeping current signing keys: %v", err)
 				continue
@@ -140,7 +151,16 @@ func (r *reloadableKeySource) pollLoop() {
 			r.mu.Lock()
 			r.lastMod = mod
 			r.mu.Unlock()
-			logf("authkit: reloaded signing keys from %s (rotated active kid into service)", r.keyFilePath())
+			// This log describes only what THIS source observed: the swap is a
+			// single atomic pointer store, visible immediately to every reader
+			// holding this KeySource. It makes no claim about which service/
+			// process consumes it — that is the caller's responsibility (#238).
+			newKID := r.cur.Load().ActiveSigner().KID()
+			if newKID != prevKID {
+				logf("authkit: reloaded signing keys from %s (active kid %s -> %s)", r.keyFilePath(), prevKID, newKID)
+			} else {
+				logf("authkit: reloaded signing keys from %s (active kid unchanged: %s; public key set may have changed)", r.keyFilePath(), newKID)
+			}
 		}
 	}
 }
@@ -303,7 +323,7 @@ func NewStaticKeySourceFromPEM(activeKeyID, activePrivateKeyPEM string, publicKe
 // arguments/config):
 //
 //  1. <path>/keys.json (path empty ⇒ DefaultAuthKeysPath "/vault/auth"),
-//     served through a reloadableKeySource so signing-key rotation (e.g. Vault
+//     served through a FileKeySource so signing-key rotation (e.g. Vault
 //     Agent re-rendering the file) takes effect without a process restart.
 //  2. No keys.json: when allowEphemeralDevKeys is true, an auto-generated RSA
 //     dev keypair persisted under .runtime/authkit/ (DEVELOPMENT ONLY);
@@ -317,7 +337,7 @@ func ResolveKeySource(path string, allowEphemeralDevKeys bool) (KeySource, error
 	}
 
 	if _, statErr := os.Stat(filepath.Join(path, "keys.json")); statErr == nil {
-		rks, err := newReloadableFileKeySource(path, DefaultKeyReloadInterval)
+		rks, err := NewFileKeySource(path, DefaultKeyReloadInterval)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keys from %s: %w", path, err)
 		}

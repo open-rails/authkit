@@ -17,7 +17,11 @@ import (
 	"github.com/open-rails/authkit/password"
 )
 
-// Keyset holds the active signer and the public keys exposed via JWKS.
+// Keyset is a fixed active signer + public-key set for the low-level
+// NewService constructor (explicit-key tests). It is converted to a
+// jwtkit.KeySource at construction and never read again directly — hosts that
+// need rotation should provide a live jwtkit.KeySource via
+// Config.Keys.Source / NewFromConfig instead. See #238.
 type Keyset struct {
 	Active     jwtkit.Signer
 	PublicKeys map[string]crypto.PublicKey // kid -> pub
@@ -97,7 +101,10 @@ var (
 
 // Service is the core auth service used by HTTP adapters.
 type Service struct {
-	keys              Keyset
+	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
+	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
+	// behind an atomic pointer, and the Service must observe every swap (#238).
+	keys              jwtkit.KeySource
 	email             EmailSender
 	sms               SMSSender
 	pg                *pgxpool.Pool

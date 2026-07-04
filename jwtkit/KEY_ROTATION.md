@@ -30,17 +30,27 @@ delivery in production.
 
 Two pieces make rotation reboot-free:
 
-1. **Issuer side — `ReloadableKeySource`** (`jwt/keys.go`). When keys are loaded
+1. **Issuer side — `FileKeySource`** (`jwtkit/keys.go`). When keys are loaded
    from a file, AuthKit serves them through a source that re-stats `keys.json`
-   every `DefaultKeyReloadInterval` (10s) and atomically swaps in the new keystore
-   on change. A malformed/unreadable file is rejected and the last-good keystore
-   is kept (a bad render never bricks signing). So the issuer's own
-   `/.well-known/jwks.json` reflects a rotation within ~10s, no restart.
-2. **Verifier side — unknown-kid refetch** (`http/verifier.go`). Any verifier
+   every `DefaultKeyReloadInterval` (10s, overridable via `jwtkit.NewFileKeySource`)
+   and atomically swaps in the new keystore on change. A malformed/unreadable
+   file is rejected and the last-good keystore is kept (a bad render never
+   bricks signing). `internal/authcore.Service` reads `ActiveSigner()`/
+   `PublicKeys()` from this source on every mint/JWKS call — never a snapshot
+   taken once at construction (#238) — so the issuer's own
+   `/.well-known/jwks.json` and new mints reflect a rotation within ~10s, no
+   restart.
+2. **Verifier side — unknown-kid refetch** (`verify/verifier.go`). Any verifier
    (federated consumer, or AuthKit verifying another issuer) that sees a token
    signed by a `kid` it doesn't have force-refetches the issuer's JWKS once
    (rate-limited, single-flight), then accepts if present / rejects if absent.
-   So external verifiers pick up the rotated key on demand.
+   So external verifiers pick up the rotated key on demand — PROVIDED the
+   issuer was registered with a JWKS URI. An issuer registered with
+   pre-provided keys (`RawKeys`/`Keys`) and no JWKS URI — e.g. a co-located
+   `authkit.Service` registering itself via `IsLocal` — has no URL to refetch
+   from and is exempt from this: those keys are permanent for the life of the
+   registration and are never expired or fetched over the network (#239).
+   Rotating such an issuer means calling `AddIssuer` again with the new keys.
 
 **Accepted tradeoff:** across a replica fleet there is a few-second window after a
 rotation where replica A (already reloaded) signs with the new key and replica B
@@ -87,4 +97,7 @@ cache TTL; the issuer side is already immediate.
 
 The dev/compose host mount (`./.secrets/authkit` → `/vault/auth`) makes this
 testable by hand: edit `keys.json` and watch the poller reload it. See
-`jwt/keys_reload_test.go` for the reload/keep-old-on-error/poller coverage.
+`jwtkit/keys_reload_test.go` for the reload/keep-old-on-error/poller coverage,
+and `internal/authcore/key_rotation_integration_test.go` for the end-to-end
+proof that a running Service observes the reload (mint + JWKS, not just the
+key source in isolation).
