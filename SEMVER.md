@@ -190,13 +190,25 @@ passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the
    (invite links, api-key / remote-app management) is kept even at low adoption.
 Adoption count alone is NOT a criterion for adding or removing a method.
 
+**Operation shape rule (#219) — batch-native for collection ops; governs future methods too:**
+- **Reads over a collection**: `(ctx, []ID) (map[ID]T, error)` — missing IDs are simply absent from the
+  map; a single-item call is the batch with a one-element slice and an `m[id]` read.
+- **Bulk-capable mutations**: return PER-ITEM results — `[]OpResult{ID string; Err error}` — so partial
+  failure is expressible; OR be explicitly all-or-nothing transactional where that is the right semantic
+  (chosen and documented per operation). A bare `([]T) error` single-error on a bulk write is the
+  anti-pattern: the caller cannot tell which item failed.
+- **Exclusions (never batch)**: request-scoped single-subject auth primitives — `Verify`/`VerifyRequest`,
+  password login, `MintAccessToken`, `Can(subject, …)`, `ResolveAPIKey`, refresh exchange. They are
+  inherently one-principal/one-request; batching them puts partial-failure ambiguity on the auth path.
+
 **`Client` interface methods** (covered) — the curated embedder surface, defined on
 `authkit.Client` (and its topic interfaces) and implemented by `*embedded.Client`. Adding
 a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`CreateUser`,
 `ImportUsers`, `UpdateImportedUser`,
 `GetUserBy{Email,Username,Phone,SolanaAddress}`, `BanUser`/`UnbanUser`,
-`{Soft,Hard}DeleteUser`, `RestoreUser`, `AdminListUsers`/`AdminGetUser`/…); tokens
-(`Mint*`, `IssueAccessToken`); passwords (`VerifyUserPassword`, `ChangePassword`,
+`{Soft,Hard,Restore}DeleteUsers`-style batch bulk mutations returning `[]OpResult` (#222),
+`AdminListUsers`/`AdminGetUser`/…); tokens
+(`Mint{Access,Service,Delegated,RemoteApplication,Custom}*` (#214)); passwords (`VerifyUserPassword`, `ChangePassword`,
 `UpsertPasswordHash`); RBAC/groups (`Can`, `AssignRoleBySlug`/`RemoveRoleBySlug`/
 `UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
 links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
@@ -229,8 +241,9 @@ exposes) are **not**. (Method names above are illustrative; `client.go` is autho
 
 **Interfaces consumers implement** (covered — adding a method is MAJOR for an interface
 consumers implement): `EmailSender`, `SMSSender`, `SMSHealthChecker`,
-`EntitlementsProvider`, `BatchEntitlementsProvider`, `EntitlementFilterProvider`,
-`EphemeralStore`, `CustomRoleResolver`.
+`EntitlementsProvider` (batch-native, #221: `ListEntitlements(ctx, []userID) (map[userID][]string, error)`
+— the former single-user signature + optional `BatchEntitlementsProvider` upgrade are gone),
+`EntitlementFilterProvider`, `EphemeralStore`, `CustomRoleResolver`.
 Verification senders receive final AuthKit-built URLs in `VerificationMessage.LinkURL`;
 password-reset senders receive the final reset URL, not a raw token.
 
@@ -333,7 +346,9 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
   STORES, and the `siws` protocol package moved behind `internal/` (#202) — consumers only ever
   reached them through `embedded.WithRedis`/`authhttp.WithRedis`/internal wiring, never by name.
 - **`authkitgin`/`authkitchi`**: `RegisterAPI`, `RegisterJWKS`, `RegisterOIDC`,
-  `RegisterRoutes`, `APIOption` (`WithRoutes`, `WithRouteWrapper`), `APIOptions`.
+  `RegisterRoutes`, `APIOption` (`WithRoutes`, `WithRouteWrapper`), `APIOptions`;
+  gin also ships `RegisterAll` (one-call JWKS+OIDC+API mount, #211) and the gin-native
+  `Required`/`Optional` middleware (#209).
 - **`twilio` (email/sms)**: `Sender`, `New`, `Config`, and the builder func types.
 - **`riverjobs`**: `PurgeDeletedUsersWorker`/`Args`, `RegisterPurgeDeletedUsersWorker`,
   `AddPurgeDeletedUsersPeriodicJob`, `BeforeUserHardDeleteFunc`.
@@ -343,6 +358,9 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 `authhttp` is the integration entry point. Covered:
 ```
 type Service; NewServer(client *embedded.Client, opts ...Option) (*Service, error)
+One-step construction (#211): New(cfg, pg, opts...) (*Service, *embedded.Client, error)
+  builds engine + transport in one call; engine deps ride in via WithEngine(...embedded.Option)
+  (valid ONLY with New — NewServer errors on it so the two-step path can't silently drop them)
   (the host builds the *embedded.Client via embedded.New(cfg, pg, …) and uses it directly
    as the authkit.Client surface — there is no svc.Core() accessor; the former
    `Server = Service` alias was removed pre-1.0, #206)

@@ -272,31 +272,38 @@ func (s *Service) RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID, s
 	return s.UnassignGroupRoleAs(ctx, actorUserID, RootPersona, "", strings.TrimSpace(userID), SubjectKindUser, role)
 }
 
-// ListRoleSlugsByUserErr is the error-PROPAGATING form of ListRoleSlugsByUser:
-// a failure resolving the user's root-group roles is returned, not swallowed
-// into an empty slice, so authz callers can FAIL CLOSED instead of silently
-// treating a backend outage as "this user has no roles" (#136). A missing root
-// group is genuinely empty (not an error). Consumed by callers that must surface
-// role-resolution failures (e.g. doujins #420 middleware).
-func (s *Service) ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error) {
-	if s.pg == nil {
-		return nil, nil
+// RoleSlugsByUsers returns each user's LIVE configured root permission-group
+// role slugs in ONE call (#220 — replaces ListRoleSlugsByUser and the
+// error-propagating ListRoleSlugsByUserErr). The map is keyed by user id;
+// users holding no live roles are absent. A failure resolving roles is
+// RETURNED, not swallowed into an empty result, so authz callers can FAIL
+// CLOSED instead of treating a backend outage as "no roles" (#136). A missing
+// root group is genuinely empty (not an error). Root has no parent groups, so
+// direct root-group assignments ARE the effective set. Roles that have drifted
+// out of the configured catalog are excluded (splitConfiguredRootRoles), which
+// is also the correct authz reading: an unconfigured role confers nothing.
+func (s *Service) RoleSlugsByUsers(ctx context.Context, userIDs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if s.pg == nil || len(userIDs) == 0 {
+		return out, nil
 	}
 	st := s.groupStore()
 	gid, err := st.RootGroupID(ctx)
 	if err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
-			return nil, nil // no root group yet ⇒ genuinely no roles
+			return out, nil // no root group yet ⇒ genuinely no roles
 		}
 		return nil, err
 	}
-	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(userID), SubjectKindUser)
+	raw, err := st.RootRolesForUsers(ctx, gid, userIDs)
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for _, a := range asg {
-		out = append(out, a.Roles...)
+	for id, roles := range raw {
+		live, _ := s.splitConfiguredRootRoles(roles)
+		if len(live) > 0 {
+			out[id] = live
+		}
 	}
 	return out, nil
 }

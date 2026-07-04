@@ -9,13 +9,12 @@ import (
 )
 
 type batchEntitlementsProvider struct {
-	staticEntitlementsProvider
 	batch      map[string][]string
 	batchErr   error
 	batchCalls int
 }
 
-func (p *batchEntitlementsProvider) ListEntitlementsBatch(ctx context.Context, userIDs []string) (map[string][]string, error) {
+func (p *batchEntitlementsProvider) ListEntitlements(ctx context.Context, userIDs []string) (map[string][]string, error) {
 	p.batchCalls++
 	return p.batch, p.batchErr
 }
@@ -41,7 +40,9 @@ func TestEnrichEntitlements_BatchErrorDegradesToNone(t *testing.T) {
 	require.Empty(t, users[0].Entitlements)
 }
 
-func TestEnrichEntitlements_SingleProviderFallback(t *testing.T) {
+func TestEnrichEntitlements_StaticProviderCoversAllUsers(t *testing.T) {
+	// #221: the provider interface is batch-native; a static fake answers for
+	// every requested id (the former single-provider fallback path is gone).
 	s, _ := newClaimTestService(t, "multi", WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}}))
 
 	users := []AdminUser{{ID: "u1"}, {ID: "u2"}}

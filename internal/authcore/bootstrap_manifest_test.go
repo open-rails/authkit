@@ -272,7 +272,7 @@ func TestApplyBootstrapManifestSeedsRootOwner(t *testing.T) {
 	if err := svc.CheckUserPassword(ctx, user.ID, "bootstrap-password-1"); err != nil {
 		t.Fatalf("seeded password check: %v", err)
 	}
-	if roles := svc.ListRoleSlugsByUser(ctx, user.ID); !containsString(roles, OwnerRoleName) {
+	if roles := svc.listRoleSlugsByUser(ctx, user.ID); !containsString(roles, OwnerRoleName) {
 		t.Fatalf("root roles=%v, want %q", roles, OwnerRoleName)
 	}
 
@@ -371,10 +371,10 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookup recovery user: %v", err)
 	}
-	if roles, err := svc.ListRoleSlugsByUserErr(ctx, recovery.ID); err != nil {
+	if rolesByUser, err := svc.RoleSlugsByUsers(ctx, []string{recovery.ID}); err != nil {
 		t.Fatalf("list recovery roles: %v", err)
-	} else if containsString(roles, OwnerRoleName) {
-		t.Fatalf("bootstrap should not assign owner while another owner exists; roles=%v", roles)
+	} else if containsString(rolesByUser[recovery.ID], OwnerRoleName) {
+		t.Fatalf("bootstrap should not assign owner while another owner exists; roles=%v", rolesByUser[recovery.ID])
 	}
 
 	if err := svc.UnassignGroupRole(ctx, RootPersona, "", existing.ID, SubjectKindUser, OwnerRoleName); err != nil {
@@ -383,10 +383,10 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 	if _, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{}); err != nil {
 		t.Fatalf("reconcile after zero-owner state: %v", err)
 	}
-	if roles, err := svc.ListRoleSlugsByUserErr(ctx, recovery.ID); err != nil {
+	if rolesByUser, err := svc.RoleSlugsByUsers(ctx, []string{recovery.ID}); err != nil {
 		t.Fatalf("list recovery roles after reseed: %v", err)
-	} else if !containsString(roles, OwnerRoleName) {
-		t.Fatalf("bootstrap should recover zero-owner state; roles=%v", roles)
+	} else if !containsString(rolesByUser[recovery.ID], OwnerRoleName) {
+		t.Fatalf("bootstrap should recover zero-owner state; roles=%v", rolesByUser[recovery.ID])
 	}
 }
 

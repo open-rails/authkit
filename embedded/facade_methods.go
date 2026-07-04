@@ -42,12 +42,12 @@ func (s *Client) AdminSetPassword(ctx context.Context, userID, new string) error
 // <persona>:members:manage capability + no-escalation (perms(role) ⊆ perms(actor))
 // in embedded. Runtime/admin endpoints MUST use these; the unchecked bootstrap/
 // migration equivalents live on the explicitly-dangerous Client.Genesis() (#241).
-func (s *Client) AssignRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
-	return s.impl.AssignRoleBySlugAs(ctx, actorUserID, userID, slug)
+func (s *Client) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]authkit.OpResult, error) {
+	return s.impl.AssignRolesBySlugAs(ctx, actorUserID, userIDs, slug)
 }
 
-func (s *Client) RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error {
-	return s.impl.RemoveRoleBySlugAs(ctx, actorUserID, userID, slug)
+func (s *Client) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]authkit.OpResult, error) {
+	return s.impl.RemoveRolesBySlugAs(ctx, actorUserID, userIDs, slug)
 }
 
 func (s *Client) AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
@@ -70,11 +70,10 @@ func (s *Client) LeaveGroup(ctx context.Context, userID, persona, instanceSlug s
 	return s.impl.LeaveGroup(ctx, userID, persona, instanceSlug)
 }
 
-// ListRoleSlugsByUserErr is the error-propagating ListRoleSlugsByUser (#136):
-// role-resolution failures are returned (not swallowed into an empty slice) so
-// authz callers can fail closed.
-func (s *Client) ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error) {
-	return s.impl.ListRoleSlugsByUserErr(ctx, userID)
+// RoleSlugsByUsers returns each user's live root-group role slugs in one call
+// (#220; error-propagating so authz callers fail closed, #136).
+func (s *Client) RoleSlugsByUsers(ctx context.Context, userIDs []string) (map[string][]string, error) {
+	return s.impl.RoleSlugsByUsers(ctx, userIDs)
 }
 
 // CreateGroupInviteLink mints a permission-group invite link (#134); the returned
@@ -162,12 +161,12 @@ func (s *Client) EntitlementsProvider() EntitlementsProvider {
 	return s.impl.EntitlementsProvider()
 }
 
-func (s *Client) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error) {
+func (s *Client) UsersByIDs(ctx context.Context, ids []string) (map[string]authkit.UserRef, error) {
 	return s.impl.UsersByIDs(ctx, ids)
 }
 
-func (s *Client) GetProviderUsername(ctx context.Context, userID, provider string) (string, error) {
-	return s.impl.GetProviderUsername(ctx, userID, provider)
+func (s *Client) ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error) {
+	return s.impl.ProviderUsernames(ctx, userIDs, provider)
 }
 
 func (s *Client) GetUserMetadata(ctx context.Context, userID string) (map[string]any, error) {
@@ -194,8 +193,8 @@ func (s *Client) GetUserByUsername(ctx context.Context, username string) (*authk
 	return s.impl.GetUserByUsername(ctx, username)
 }
 
-func (s *Client) HardDeleteUser(ctx context.Context, userID string) error {
-	return s.impl.HardDeleteUser(ctx, userID)
+func (s *Client) HardDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+	return s.impl.HardDeleteUsers(ctx, userIDs)
 }
 
 func (s *Client) HasEmailSender() bool {
@@ -214,8 +213,8 @@ func (s *Client) IsUserAllowed(ctx context.Context, userID string) (bool, error)
 	return s.impl.IsUserAllowed(ctx, userID)
 }
 
-func (s *Client) IssueAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
-	return s.impl.IssueAccessToken(ctx, userID, extra)
+func (s *Client) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
+	return s.impl.MintAccessToken(ctx, userID, extra)
 }
 
 func (s *Client) JWKS() jwtkit.JWKS {
@@ -252,10 +251,6 @@ func (s *Client) ListSubjectGroups(ctx context.Context, subjectID, subjectKind s
 
 func (s *Client) ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authkit.RemoteApplication, error) {
 	return s.impl.ListRemoteApplications(ctx, activeOnly)
-}
-
-func (s *Client) ListRoleSlugsByUser(ctx context.Context, userID string) []string {
-	return s.impl.ListRoleSlugsByUser(ctx, userID)
 }
 
 func (s *Client) ListUserSessions(ctx context.Context, userID string) ([]authkit.Session, error) {
@@ -331,8 +326,8 @@ func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	return s.impl.ResolveRemoteApplicationAuthority(ctx, appID)
 }
 
-func (s *Client) RestoreUser(ctx context.Context, id string) error {
-	return s.impl.RestoreUser(ctx, id)
+func (s *Client) RestoreUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+	return s.impl.RestoreUsers(ctx, userIDs)
 }
 
 func (s *Client) RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error) {
@@ -363,8 +358,8 @@ func (s *Client) SetEntitlementsProvider(p EntitlementsProvider) {
 	s.impl.SetEntitlementsProvider(p)
 }
 
-func (s *Client) SoftDeleteUser(ctx context.Context, id string) error {
-	return s.impl.SoftDeleteUser(ctx, id)
+func (s *Client) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+	return s.impl.SoftDeleteUsers(ctx, userIDs)
 }
 
 func (s *Client) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {

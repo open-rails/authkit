@@ -532,10 +532,9 @@ type Enricher interface {
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authkit.RemoteApplication, error)
 	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error)
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authkit.RemoteAppAttributeDef, error)
-	GetProviderUsername(ctx context.Context, userID, provider string) (string, error)
-	ListRoleSlugsByUser(ctx context.Context, userID string) []string
-	UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error)
-	IsUserAllowed(ctx context.Context, userID string) (bool, error)
+	// (#215/#220: the former per-request enrichment methods — provider username,
+	// role slugs, user refs, live ban gate — are gone from this seam; the request
+	// path is stateless and those reads live on authkit.Client.)
 }
 
 // WithService enables best-effort enrichment hooks (roles/provider usernames)

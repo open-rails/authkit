@@ -27,9 +27,15 @@ type Users interface {
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
 	GetUserMetadata(ctx context.Context, userID string) (map[string]any, error)
 	PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error
-	HardDeleteUser(ctx context.Context, userID string) error
-	SoftDeleteUser(ctx context.Context, id string) error
-	RestoreUser(ctx context.Context, id string) error
+	// {Hard,Soft}DeleteUsers / RestoreUsers are batch-native admin bulk mutations
+	// (#219/#222): per-item BEST-EFFORT — deleting 99 of 100 succeeds item-by-item
+	// and the returned OpResults pinpoint the failures. Single-item = one-element
+	// slice. The outer error is a whole-call failure only (e.g. no store).
+	// SetEmailVerified / UpdateEmail / UpdateUsername stay single by decision:
+	// they are per-subject correctness flows, not bulk admin operations.
+	HardDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
+	SoftDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
+	RestoreUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	SetEmailVerified(ctx context.Context, id string, v bool) error
 	UpdateBiography(ctx context.Context, id string, bio *string) error
 	UpdateEmail(ctx context.Context, id, email string) error
@@ -44,7 +50,8 @@ type Users interface {
 	// without N+1. Missing IDs are simply absent from the result. (Replaces the
 	// removed authkit/identity store; writes go through UpdateUsername/UpdateEmail,
 	// which enforce the rename cooldown + validation raw table writes skip.)
-	UsersByIDs(ctx context.Context, ids []string) ([]UserRef, error)
+	// Returns map[id]UserRef (#219/#220): O(1) single-item access, missing IDs absent.
+	UsersByIDs(ctx context.Context, ids []string) (map[string]UserRef, error)
 }
 
 // Passwords is the password credential surface: change, import, verify.
@@ -73,11 +80,21 @@ type Admin interface {
 // embedded.Client.Genesis(), an explicitly-dangerous seam reached only by the
 // concrete embedded client, never through authkit.Client or the remote transport.
 type Roles interface {
-	AssignRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error
-	RemoveRoleBySlugAs(ctx context.Context, actorUserID, userID, slug string) error
+	// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the actor-checked
+	// no-escalation authority check (#136) runs PER ITEM inside the batch — an
+	// actor may hold authority over some targets and not others, and each item's
+	// OpResult carries its own ErrInsufficientRoleAuthority/ErrRoleAssignmentEscalation.
+	// Per-item best-effort; single-item = one-element slice.
+	AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]OpResult, error)
+	RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]OpResult, error)
 	UpsertRoleBySlug(ctx context.Context, name, slug string, description *string) error
-	ListRoleSlugsByUser(ctx context.Context, userID string) []string
-	ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error)
+	// RoleSlugsByUsers returns each user's LIVE configured root permission-group
+	// role slugs in ONE call — batch-native per the operation-shape rule (#219,
+	// #220; replaces ListRoleSlugsByUser + ListRoleSlugsByUserErr). The map is
+	// keyed by user id; users with no roles are absent. Errors PROPAGATE so authz
+	// callers fail closed (#136) instead of reading an outage as "no roles".
+	// Single-user = one-element slice + m[id].
+	RoleSlugsByUsers(ctx context.Context, userIDs []string) (map[string][]string, error)
 }
 
 // Groups is the permission-group surface: lifecycle, membership, role
@@ -110,7 +127,9 @@ type Groups interface {
 // Tokens issues the app's JWTs: access, service, delegated, remote-application,
 // and custom.
 type Tokens interface {
-	IssueAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error)
+	// MintAccessToken signs a user access JWT (#214: Mint* = signing a JWT;
+	// session creation — IssueRefreshSession* on the engine — is not a Mint).
+	MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error)
 	MintCustomJWT(ctx context.Context, opts CustomJWTMintOptions) (string, error)
 	MintDelegatedAccessToken(ctx context.Context, p DelegatedAccessParams) (string, error)
 	MintRemoteApplicationAccessToken(ctx context.Context, p RemoteApplicationAccessParams) (string, error)
@@ -142,7 +161,10 @@ type Providers interface {
 	LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error
 	LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error
 	UnlinkProvider(ctx context.Context, userID, provider string) error
-	GetProviderUsername(ctx context.Context, userID, provider string) (string, error)
+	// ProviderUsernames returns each user's stored username for the given
+	// provider in ONE call (#219/#220; replaces the single GetProviderUsername).
+	// Map keyed by user id; users without a stored username are absent.
+	ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error)
 }
 
 // RemoteApps manages trusted remote applications (federation issuers) and

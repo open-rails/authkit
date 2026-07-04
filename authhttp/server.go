@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
@@ -65,6 +66,9 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		}
 	}
 	s.svc = coreSvc
+	if len(s.engineOpts) > 0 && !s.engineOptsAllowed {
+		return nil, errors.New("authkit: authhttp.WithEngine is only valid with authhttp.New (one-step); with NewServer the engine is already built — pass engine options to embedded.New instead")
+	}
 
 	// #210: take Redis ONCE. When the host wired Redis on the engine
 	// (embedded.WithRedis) but did NOT pass authhttp.WithRedis, adopt the engine's
@@ -154,6 +158,44 @@ func (s *Service) validate(cfg embedded.Config) error {
 // dependencies (email/SMS senders, entitlements, ephemeral store, auth logger,
 // API-key authorizer, Solana resolver) are wired on embedded.New, since the host
 // builds the client before constructing the server (client-first, #142). ---
+
+// WithEngine passes embedded-engine options (embedded.WithEmailSender,
+// WithSMSSender, WithEntitlements, WithClickHouse, WithRedis, …) through the
+// one-step authhttp.New (#211). It is ONLY valid with New — NewServer returns a
+// construction error if it sees engine options, because in the two-step path the
+// host already built the engine and these would be silently ignored.
+func WithEngine(opts ...embedded.Option) Option {
+	return func(s *Service) { s.engineOpts = append(s.engineOpts, opts...) }
+}
+
+// allowEngineOpts marks a Service as constructed via New, where WithEngine is legal.
+func allowEngineOpts() Option {
+	return func(s *Service) { s.engineOptsAllowed = true }
+}
+
+// New builds BOTH layers in one call (#211): the embedded engine and the HTTP
+// transport over it, collapsing the Config→embedded.New→NewServer glue every
+// host copy-pastes. Engine dependencies ride in via WithEngine; all other
+// options are the usual authhttp set. The *embedded.Client is returned too —
+// it IS the host's authkit.Client. The two-step path (embedded.New + NewServer)
+// remains for hosts that need to hold or decorate the engine separately.
+func New(cfg embedded.Config, pg *pgxpool.Pool, opts ...Option) (*Service, *embedded.Client, error) {
+	probe := &Service{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(probe)
+		}
+	}
+	client, err := embedded.New(cfg, pg, probe.engineOpts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	svc, err := NewServer(client, append([]Option{allowEngineOpts()}, opts...)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	return svc, client, nil
+}
 
 // WithRedis supplies the Redis client for the HTTP layer's OIDC and SIWS state
 // caches (and satisfies the production durable-store requirement). It is an

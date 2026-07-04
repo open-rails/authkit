@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/authprovider"
+	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/siws"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
@@ -33,7 +34,12 @@ type Service struct {
 	oidcMgrOnce         sync.Once
 	memStateCache       oidckit.StateCache
 	memSIWSCache        siws.ChallengeCache
-	langCfg             *LanguageConfig
+	// engineOpts stashes embedded engine options passed via WithEngine — consumed
+	// ONLY by the one-step authhttp.New (#211); NewServer rejects them so the
+	// two-step path stays unambiguous. engineOptsAllowed is set internally by New.
+	engineOpts        []embedded.Option
+	engineOptsAllowed bool
+	langCfg           *LanguageConfig
 }
 
 // failClosedBuckets are the credential-VERIFICATION endpoints where the secret

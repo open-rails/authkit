@@ -18,8 +18,14 @@ type fakeDirectoryProvider struct {
 	filterErr error
 }
 
-func (p *fakeDirectoryProvider) ListEntitlements(_ context.Context, userID string) ([]string, error) {
-	return p.byUser[userID], nil
+func (p *fakeDirectoryProvider) ListEntitlements(_ context.Context, userIDs []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(userIDs))
+	for _, id := range userIDs {
+		if ents, ok := p.byUser[id]; ok {
+			out[id] = ents
+		}
+	}
+	return out, nil
 }
 
 func (p *fakeDirectoryProvider) ListSubjectsWithEntitlement(_ context.Context, entitlement string) ([]string, error) {

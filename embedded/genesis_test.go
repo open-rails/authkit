@@ -52,16 +52,24 @@ func TestGenesisClient_AssignAndRemove(t *testing.T) {
 
 	// Genesis().AssignGroupRole grants with NO actor check.
 	require.NoError(t, client.Genesis().AssignGroupRole(ctx, RootPersona, "", user.ID, SubjectKindUser, OwnerRoleName))
-	require.Contains(t, client.ListRoleSlugsByUser(ctx, user.ID), OwnerRoleName)
+	require.Contains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
 
 	// Genesis().RemoveGroupSubject revokes with NO actor check.
 	require.NoError(t, client.Genesis().RemoveGroupSubject(ctx, RootPersona, "", user.ID, SubjectKindUser))
-	require.NotContains(t, client.ListRoleSlugsByUser(ctx, user.ID), OwnerRoleName)
+	require.NotContains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
 
 	// Genesis().AssignRoleBySlug / RemoveRoleBySlug are the single-role-slug
 	// shorthand over the root persona, also unchecked.
 	require.NoError(t, client.Genesis().AssignRoleBySlug(ctx, user.ID, OwnerRoleName))
-	require.Contains(t, client.ListRoleSlugsByUser(ctx, user.ID), OwnerRoleName)
+	require.Contains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
 	require.NoError(t, client.Genesis().RemoveRoleBySlug(ctx, user.ID, OwnerRoleName))
-	require.NotContains(t, client.ListRoleSlugsByUser(ctx, user.ID), OwnerRoleName)
+	require.NotContains(t, rootRoles(t, client, ctx, user.ID), OwnerRoleName)
+}
+
+// rootRoles reads one user's live root-group roles via the batch RoleSlugsByUsers (#220).
+func rootRoles(t *testing.T, c *Client, ctx context.Context, userID string) []string {
+	t.Helper()
+	m, err := c.RoleSlugsByUsers(ctx, []string{userID})
+	require.NoError(t, err)
+	return m[userID]
 }

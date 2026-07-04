@@ -69,7 +69,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	// Create the refresh session AND mint its access token from a single user load +
 	// MFA read (#227), recording the verified second factor via authMethods. The
 	// banned gate still fires with ErrUserBanned; the ID-token email the old path
-	// fetched (AdminGetUser) was ignored by IssueAccessToken, so it's gone.
+	// fetched (AdminGetUser) was ignored by MintAccessToken, so it's gone.
 	sid, rt, token, exp, _, err := s.svc.IssueAuthenticatedSession(r.Context(), userID, r.UserAgent(), nil, []string{"pwd", "otp", "mfa"}, nil)
 	if err != nil {
 		if errors.Is(err, authkit.ErrUserBanned) {

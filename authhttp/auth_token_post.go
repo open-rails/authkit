@@ -59,7 +59,7 @@ func (s *Service) send2FAEnrollmentRequiredError(w http.ResponseWriter) {
 }
 
 func (s *Service) write2FAEnrollmentRequired(w http.ResponseWriter, r *http.Request, userID string) {
-	token, exp, err := s.svc.Issue2FAEnrollmentToken(r.Context(), userID)
+	token, exp, err := s.svc.Mint2FAEnrollmentToken(r.Context(), userID)
 	if err != nil {
 		serverErr(w, ErrTokenIssueFailed)
 		return

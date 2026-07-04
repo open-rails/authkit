@@ -445,8 +445,12 @@ type staticDevEntitlements struct {
 	names []string
 }
 
-func (p staticDevEntitlements) ListEntitlements(context.Context, string) ([]string, error) {
-	return append([]string(nil), p.names...), nil
+func (p staticDevEntitlements) ListEntitlements(_ context.Context, userIDs []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(userIDs))
+	for _, id := range userIDs {
+		out[id] = append([]string(nil), p.names...)
+	}
+	return out, nil
 }
 
 // devWhoamiHandler reflects the authenticated principal as resolved by the real

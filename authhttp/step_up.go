@@ -304,7 +304,7 @@ func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims v
 }
 
 func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID string, freshness embedded.SessionFreshness) (map[string]any, error) {
-	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, map[string]any{"sid": sessionID})
+	token, exp, err := s.svc.MintAccessToken(r.Context(), userID, map[string]any{"sid": sessionID})
 	if err != nil {
 		return nil, err
 	}

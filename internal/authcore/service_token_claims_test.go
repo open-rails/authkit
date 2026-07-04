@@ -37,19 +37,19 @@ func newClaimTestService(t *testing.T, orgMode string, coreOpts ...Option) (*Ser
 	return s, signer.PublicKey()
 }
 
-func TestIssueAccessToken_TypHeader(t *testing.T) {
+func TestMintAccessToken_TypHeader(t *testing.T) {
 	s, _ := newClaimTestService(t, "multi")
-	tok, _, err := s.IssueAccessToken(context.Background(), "user", map[string]any{})
+	tok, _, err := s.MintAccessToken(context.Background(), "user", map[string]any{})
 	require.NoError(t, err)
 
 	header := parseHeaderNoValidate(t, tok)
 	require.Equal(t, jwtkit.AccessTokenType, header["typ"])
 }
 
-func TestIssueAccessToken_SlimUserClaimsKeepsSessionAndEntitlements(t *testing.T) {
+func TestMintAccessToken_SlimUserClaimsKeepsSessionAndEntitlements(t *testing.T) {
 	s, pub := newClaimTestService(t, "", WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}}))
 
-	tok, _, err := s.IssueAccessToken(context.Background(), "user", map[string]any{
+	tok, _, err := s.MintAccessToken(context.Background(), "user", map[string]any{
 		"sid": "session-1",
 	})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestSetEntitlementsProvider_LateBoundProviderEnrichesToken(t *testing.T) {
 	s, pub := newClaimTestService(t, "") // built WITHOUT entitlements
 
 	// No provider yet => no (or empty) entitlements.
-	tok0, _, err := s.IssueAccessToken(context.Background(), "user", map[string]any{"sid": "s0"})
+	tok0, _, err := s.MintAccessToken(context.Background(), "user", map[string]any{"sid": "s0"})
 	require.NoError(t, err)
 	cl0 := parseClaimsNoValidate(t, tok0, pub)
 	require.Empty(t, cl0["entitlements"], "no entitlements before a provider is installed")
@@ -86,7 +86,7 @@ func TestSetEntitlementsProvider_LateBoundProviderEnrichesToken(t *testing.T) {
 	// Install the provider after construction (the cyclic-dependency seam).
 	s.SetEntitlementsProvider(&staticEntitlementsProvider{names: []string{"premium"}})
 
-	tok1, _, err := s.IssueAccessToken(context.Background(), "user", map[string]any{"sid": "s1"})
+	tok1, _, err := s.MintAccessToken(context.Background(), "user", map[string]any{"sid": "s1"})
 	require.NoError(t, err)
 	cl1 := parseClaimsNoValidate(t, tok1, pub)
 	require.ElementsMatch(t, []any{"premium"}, cl1["entitlements"])

@@ -138,7 +138,7 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	require.NoError(t, s.svc.BanUser(ctx, idD, nil, &banUntil, idA))
 
 	// The admin caller is A (it carries the catalog admin role and is not banned).
-	token, _, err := s.svc.IssueAccessToken(ctx, idA, nil)
+	token, _, err := s.svc.MintAccessToken(ctx, idA, nil)
 	require.NoError(t, err)
 
 	t.Run("search isolates this run", func(t *testing.T) {
@@ -221,7 +221,7 @@ func TestAdminUserBanRoutesUseUserIDPath(t *testing.T) {
 
 	adminID := createAdminTestUser(t, s, ctx, prefix+"admin", true)
 	targetID := createAdminTestUser(t, s, ctx, prefix+"target", false)
-	token, _, err := s.svc.IssueAccessToken(ctx, adminID, nil)
+	token, _, err := s.svc.MintAccessToken(ctx, adminID, nil)
 	require.NoError(t, err)
 
 	post := func(path, body string) *httptest.ResponseRecorder {
@@ -285,9 +285,9 @@ func TestAdminUsersRequiresRootPermissionAcrossPrincipalTypes(t *testing.T) {
 
 	adminID := createAdminTestUser(t, s, ctx, prefix+"admin", true)
 	plainID := createAdminTestUser(t, s, ctx, prefix+"plain", false)
-	adminJWT, _, err := s.svc.IssueAccessToken(ctx, adminID, nil)
+	adminJWT, _, err := s.svc.MintAccessToken(ctx, adminID, nil)
 	require.NoError(t, err)
-	plainJWT, _, err := s.svc.IssueAccessToken(ctx, plainID, nil)
+	plainJWT, _, err := s.svc.MintAccessToken(ctx, plainID, nil)
 	require.NoError(t, err)
 
 	apiKeyAllow := mintAdminTestAPIKey(t, s, ctx, prefix+"api-allow", embedded.OwnerRoleName, adminID)

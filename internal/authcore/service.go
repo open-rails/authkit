@@ -27,23 +27,20 @@ type Keyset struct {
 	PublicKeys map[string]crypto.PublicKey // kid -> pub
 }
 
-// EntitlementsProvider returns the names of a user's currently active
+// EntitlementsProvider returns the names of users' currently active
 // application entitlements (e.g., billing tiers). Names are the ONLY shape
 // AuthKit consumes — they are baked verbatim into the `entitlements` claim of
 // access tokens and surfaced on admin user views. Providers should return
 // active grants only; expired/revoked entitlements are the provider's concern,
 // not AuthKit's.
+//
+// BATCH-NATIVE (#221, operation-shape rule #219): one call answers many users —
+// the map is keyed by user id and unknown/entitlement-less ids are simply
+// absent. A single-user read is the batch with a one-element slice. (This
+// replaces the former single-user signature plus the optional
+// BatchEntitlementsProvider type-assertion upgrade.)
 type EntitlementsProvider interface {
-	ListEntitlements(ctx context.Context, userID string) ([]string, error)
-}
-
-// BatchEntitlementsProvider is an optional upgrade of EntitlementsProvider:
-// one call answers many users, so list renders (AdminListUsers) cost one
-// provider round trip instead of one per row. Detected by type assertion;
-// providers without it get the per-user fallback. Unknown user ids may be
-// absent from the result.
-type BatchEntitlementsProvider interface {
-	ListEntitlementsBatch(ctx context.Context, userIDs []string) (map[string][]string, error)
+	ListEntitlements(ctx context.Context, userIDs []string) (map[string][]string, error)
 }
 
 // EntitlementFilterProvider is the REVERSE of EntitlementsProvider: given an
@@ -278,18 +275,18 @@ func (s *Service) HasPassword(ctx context.Context, userID string) bool {
 }
 
 // ListEntitlements returns current entitlement names for a user (fresh from
-// the provider). A provider failure is logged and returned as none — callers
-// (admin user views) degrade rather than fail.
+// the provider — a one-element batch, #221). A provider failure is logged and
+// returned as none — callers (admin user views) degrade rather than fail.
 func (s *Service) ListEntitlements(ctx context.Context, userID string) []string {
 	if s.entitlements == nil {
 		return nil
 	}
-	ents, err := s.entitlements.ListEntitlements(ctx, userID)
+	m, err := s.entitlements.ListEntitlements(ctx, []string{userID})
 	if err != nil {
 		stdlog.Printf("authkit: error: entitlements provider failed for user %s; reporting no entitlements: %v", userID, err)
 		return nil
 	}
-	return ents
+	return m[userID]
 }
 
 // (legacy ChangePassword removed in favor of unified ChangePassword with session revocation)

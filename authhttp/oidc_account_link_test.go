@@ -32,7 +32,7 @@ func TestAccountExistsLinkRequiredOutcome(t *testing.T) {
 
 func TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken(t *testing.T) {
 	s := newTestService(t)
-	token, _, err := s.svc.Issue2FAEnrollmentToken(context.Background(), "user-1")
+	token, _, err := s.svc.Mint2FAEnrollmentToken(context.Background(), "user-1")
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

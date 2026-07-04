@@ -15,16 +15,16 @@ import (
 // NOT exposed here on purpose: username/email writes go through UpdateUsername/
 // UpdateEmail, which enforce the rename cooldown + validation that raw table
 // writes (the old identity.Store) silently skipped.
-func (s *Service) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error) {
+func (s *Service) UsersByIDs(ctx context.Context, ids []string) (map[string]authkit.UserRef, error) {
+	out := map[string]authkit.UserRef{}
 	if s.pg == nil || len(ids) == 0 {
-		return nil, nil
+		return out, nil
 	}
 	q := db.New(db.ForSchema(s.pg, s.dbSchema()))
 	rows, err := q.IdentityUsersByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]authkit.UserRef, 0, len(rows))
 	for _, r := range rows {
 		ref := authkit.UserRef{ID: r.ID}
 		if r.Username != nil {
@@ -33,7 +33,7 @@ func (s *Service) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserR
 		if r.Email != nil {
 			ref.Email = *r.Email
 		}
-		out = append(out, ref)
+		out[r.ID] = ref
 	}
 	return out, nil
 }

@@ -190,7 +190,7 @@ func (s *Service) createTokensForUser(r *http.Request, userID string, method str
 	uaPtr, ipPtr := &ua, &ipStr
 	s.svc.LogSessionCreated(r.Context(), userID, method, sid, ipPtr, uaPtr)
 
-	accessToken, exp, err := s.svc.IssueAccessToken(r.Context(), userID, map[string]any{"sid": sid})
+	accessToken, exp, err := s.svc.MintAccessToken(r.Context(), userID, map[string]any{"sid": sid})
 	if err != nil {
 		return authTokensResponse{}, err
 	}

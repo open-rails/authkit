@@ -16,5 +16,5 @@ type Authorizer interface {
 	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)
 	ListEffectivePermissions(ctx context.Context, subjectID, subjectKind, persona, instanceSlug string) ([]string, error)
 	IsUserAllowed(ctx context.Context, userID string) (bool, error)
-	ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error)
+	RoleSlugsByUsers(ctx context.Context, userIDs []string) (map[string][]string, error)
 }

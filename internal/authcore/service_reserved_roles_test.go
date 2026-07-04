@@ -19,7 +19,8 @@ func TestAssignRoleBySlug_AllowsOwnerGenesis(t *testing.T) {
 	if err := svc.AssignRoleBySlug(ctx, userID, OwnerRoleName); err != nil {
 		t.Fatalf("assign owner through genesis helper: %v", err)
 	}
-	roles, err := svc.ListRoleSlugsByUserErr(ctx, userID)
+	rolesByUser, err := svc.RoleSlugsByUsers(ctx, []string{userID})
+	roles := rolesByUser[userID]
 	if err != nil {
 		t.Fatalf("list roles: %v", err)
 	}

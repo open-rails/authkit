@@ -60,9 +60,11 @@ func (c *Client) AssignGroupRoleAs(ctx context.Context, actorUserID string, pers
 	return c.call(ctx, "AssignGroupRoleAs", args, nil)
 }
 
-func (c *Client) AssignRoleBySlugAs(ctx context.Context, actorUserID string, userID string, slug string) error {
-	args := map[string]any{"actorUserID": actorUserID, "userID": userID, "slug": slug}
-	return c.call(ctx, "AssignRoleBySlugAs", args, nil)
+func (c *Client) AssignRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]authkit.OpResult, error) {
+	args := map[string]any{"actorUserID": actorUserID, "userIDs": userIDs, "slug": slug}
+	var out []authkit.OpResult
+	err := c.call(ctx, "AssignRolesBySlugAs", args, &out)
+	return out, err
 }
 
 func (c *Client) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
@@ -137,13 +139,6 @@ func (c *Client) ExternalInvitesEnabled() bool {
 	return out
 }
 
-func (c *Client) GetProviderUsername(ctx context.Context, userID string, provider string) (string, error) {
-	args := map[string]any{"userID": userID, "provider": provider}
-	var out string
-	err := c.call(ctx, "GetProviderUsername", args, &out)
-	return out, err
-}
-
 func (c *Client) GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error) {
 	args := map[string]any{"issuer": issuer}
 	var out *authkit.RemoteApplication
@@ -186,9 +181,11 @@ func (c *Client) GetUserMetadata(ctx context.Context, userID string) (map[string
 	return out, err
 }
 
-func (c *Client) HardDeleteUser(ctx context.Context, userID string) error {
-	args := map[string]any{"userID": userID}
-	return c.call(ctx, "HardDeleteUser", args, nil)
+func (c *Client) HardDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+	args := map[string]any{"userIDs": userIDs}
+	var out []authkit.OpResult
+	err := c.call(ctx, "HardDeleteUsers", args, &out)
+	return out, err
 }
 
 func (c *Client) HasEmailSender() bool {
@@ -219,16 +216,6 @@ func (c *Client) IsUserAllowed(ctx context.Context, userID string) (bool, error)
 	var out bool
 	err := c.call(ctx, "IsUserAllowed", args, &out)
 	return out, err
-}
-
-func (c *Client) IssueAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
-	args := map[string]any{"userID": userID, "extra": extra}
-	var out struct {
-		R0 string    `json:"r0"`
-		R1 time.Time `json:"r1"`
-	}
-	err := c.call(ctx, "IssueAccessToken", args, &out)
-	return out.R0, out.R1, err
 }
 
 func (c *Client) LeaveGroup(ctx context.Context, userID string, persona string, instanceSlug string) error {
@@ -289,21 +276,6 @@ func (c *Client) ListRemoteApplications(ctx context.Context, activeOnly bool) ([
 	return out, err
 }
 
-func (c *Client) ListRoleSlugsByUser(ctx context.Context, userID string) []string {
-	args := map[string]any{"userID": userID}
-	var out []string
-	err := c.call(ctx, "ListRoleSlugsByUser", args, &out)
-	_ = err
-	return out
-}
-
-func (c *Client) ListRoleSlugsByUserErr(ctx context.Context, userID string) ([]string, error) {
-	args := map[string]any{"userID": userID}
-	var out []string
-	err := c.call(ctx, "ListRoleSlugsByUserErr", args, &out)
-	return out, err
-}
-
 func (c *Client) ListSubjectGroups(ctx context.Context, subjectID string, subjectKind string) ([]authkit.SubjectGroupMembership, error) {
 	args := map[string]any{"subjectID": subjectID, "subjectKind": subjectKind}
 	var out []authkit.SubjectGroupMembership
@@ -345,6 +317,16 @@ func (c *Client) MintAPIKeyWithOptions(ctx context.Context, persona string, inst
 	return out.R0, out.R1, err
 }
 
+func (c *Client) MintAccessToken(ctx context.Context, userID string, extra map[string]any) (string, time.Time, error) {
+	args := map[string]any{"userID": userID, "extra": extra}
+	var out struct {
+		R0 string    `json:"r0"`
+		R1 time.Time `json:"r1"`
+	}
+	err := c.call(ctx, "MintAccessToken", args, &out)
+	return out.R0, out.R1, err
+}
+
 func (c *Client) MintCustomJWT(ctx context.Context, opts authkit.CustomJWTMintOptions) (string, error) {
 	args := map[string]any{"opts": opts}
 	var out string
@@ -381,6 +363,13 @@ func (c *Client) PatchUserMetadata(ctx context.Context, userID string, patch map
 	return c.call(ctx, "PatchUserMetadata", args, nil)
 }
 
+func (c *Client) ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error) {
+	args := map[string]any{"userIDs": userIDs, "provider": provider}
+	var out map[string]string
+	err := c.call(ctx, "ProviderUsernames", args, &out)
+	return out, err
+}
+
 func (c *Client) RedeemGroupInviteLink(ctx context.Context, code string, redeemerUserID string) (authkit.RedeemGroupInviteLinkResult, error) {
 	args := map[string]any{"code": code, "redeemerUserID": redeemerUserID}
 	var out authkit.RedeemGroupInviteLinkResult
@@ -393,9 +382,11 @@ func (c *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, p
 	return c.call(ctx, "RemoveGroupSubjectAs", args, nil)
 }
 
-func (c *Client) RemoveRoleBySlugAs(ctx context.Context, actorUserID string, userID string, slug string) error {
-	args := map[string]any{"actorUserID": actorUserID, "userID": userID, "slug": slug}
-	return c.call(ctx, "RemoveRoleBySlugAs", args, nil)
+func (c *Client) RemoveRolesBySlugAs(ctx context.Context, actorUserID string, userIDs []string, slug string) ([]authkit.OpResult, error) {
+	args := map[string]any{"actorUserID": actorUserID, "userIDs": userIDs, "slug": slug}
+	var out []authkit.OpResult
+	err := c.call(ctx, "RemoveRolesBySlugAs", args, &out)
+	return out, err
 }
 
 func (c *Client) ResolveAPIKey(ctx context.Context, keyID string, secret string) (string, []string, error) {
@@ -436,9 +427,11 @@ func (c *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	return out, err
 }
 
-func (c *Client) RestoreUser(ctx context.Context, id string) error {
-	args := map[string]any{"id": id}
-	return c.call(ctx, "RestoreUser", args, nil)
+func (c *Client) RestoreUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+	args := map[string]any{"userIDs": userIDs}
+	var out []authkit.OpResult
+	err := c.call(ctx, "RestoreUsers", args, &out)
+	return out, err
 }
 
 func (c *Client) RevokeAPIKey(ctx context.Context, persona string, instanceSlug string, tokenID string) (bool, error) {
@@ -463,6 +456,13 @@ func (c *Client) RevokeGroupInviteLink(ctx context.Context, persona string, inst
 	return c.call(ctx, "RevokeGroupInviteLink", args, nil)
 }
 
+func (c *Client) RoleSlugsByUsers(ctx context.Context, userIDs []string) (map[string][]string, error) {
+	args := map[string]any{"userIDs": userIDs}
+	var out map[string][]string
+	err := c.call(ctx, "RoleSlugsByUsers", args, &out)
+	return out, err
+}
+
 func (c *Client) SMSAvailable() bool {
 	ctx := context.Background()
 	var out bool
@@ -480,9 +480,11 @@ func (c *Client) SetEmailVerified(ctx context.Context, id string, v bool) error 
 	return c.call(ctx, "SetEmailVerified", args, nil)
 }
 
-func (c *Client) SoftDeleteUser(ctx context.Context, id string) error {
-	args := map[string]any{"id": id}
-	return c.call(ctx, "SoftDeleteUser", args, nil)
+func (c *Client) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
+	args := map[string]any{"userIDs": userIDs}
+	var out []authkit.OpResult
+	err := c.call(ctx, "SoftDeleteUsers", args, &out)
+	return out, err
 }
 
 func (c *Client) TimeUntilUsernameRenameAvailable(ctx context.Context, userID string, now time.Time) (int64, error) {
@@ -546,9 +548,9 @@ func (c *Client) UpsertRoleBySlug(ctx context.Context, name string, slug string,
 	return c.call(ctx, "UpsertRoleBySlug", args, nil)
 }
 
-func (c *Client) UsersByIDs(ctx context.Context, ids []string) ([]authkit.UserRef, error) {
+func (c *Client) UsersByIDs(ctx context.Context, ids []string) (map[string]authkit.UserRef, error) {
 	args := map[string]any{"ids": ids}
-	var out []authkit.UserRef
+	var out map[string]authkit.UserRef
 	err := c.call(ctx, "UsersByIDs", args, &out)
 	return out, err
 }

@@ -22,8 +22,38 @@ func (s *Service) SetProviderUsername(ctx context.Context, userID, provider, sub
 	return s.setProviderUsername(ctx, userID, provider, subject, username)
 }
 
-func (s *Service) GetProviderUsername(ctx context.Context, userID, provider string) (string, error) {
-	return s.getProviderUsername(ctx, userID, provider)
+// ProviderUsernames returns each user's stored username for the given provider
+// in ONE call (#220 — replaces the single GetProviderUsername). Map keyed by
+// user id; users without a stored username are absent.
+func (s *Service) ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error) {
+	out := map[string]string{}
+	if s.pg == nil || len(userIDs) == 0 {
+		return out, nil
+	}
+	q := db.ForSchema(s.pg, s.dbSchema())
+	// Batch form of the sqlc UserProviderUsername query: one row per user (their
+	// most recent link for the provider). Raw SQL by the invite-links precedent.
+	rows, err := q.Query(ctx,
+		`SELECT DISTINCT ON (user_id) user_id::text, profile->>'username' AS username
+		   FROM profiles.user_providers
+		  WHERE user_id = ANY($1::uuid[]) AND provider_slug = $2
+		  ORDER BY user_id, created_at DESC`,
+		userIDs, provider)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var username *string
+		if err := rows.Scan(&id, &username); err != nil {
+			return nil, err
+		}
+		if username != nil && *username != "" {
+			out[id] = *username
+		}
+	}
+	return out, rows.Err()
 }
 
 // Provider link management

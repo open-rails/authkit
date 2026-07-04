@@ -99,16 +99,17 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.AssignGroupRoleAs(ctx, a.A0, a.A1, a.A2, a.A3, a.A4, a.A5)
 	},
-	"AssignRoleBySlugAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+	"AssignRolesBySlugAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
-			A0 string `json:"actorUserID"`
-			A1 string `json:"userID"`
-			A2 string `json:"slug"`
+			A0 string   `json:"actorUserID"`
+			A1 []string `json:"userIDs"`
+			A2 string   `json:"slug"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, c.AssignRoleBySlugAs(ctx, a.A0, a.A1, a.A2)
+		r0, err := c.AssignRolesBySlugAs(ctx, a.A0, a.A1, a.A2)
+		return r0, err
 	},
 	"BanUser": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
@@ -211,17 +212,6 @@ var generatedMethods = map[string]MethodFunc{
 	"ExternalInvitesEnabled": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		return c.ExternalInvitesEnabled(), nil
 	},
-	"GetProviderUsername": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"userID"`
-			A1 string `json:"provider"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.GetProviderUsername(ctx, a.A0, a.A1)
-		return r0, err
-	},
 	"GetRemoteApplication": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"issuer"`
@@ -282,14 +272,15 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.GetUserMetadata(ctx, a.A0)
 		return r0, err
 	},
-	"HardDeleteUser": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+	"HardDeleteUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
-			A0 string `json:"userID"`
+			A0 []string `json:"userIDs"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, c.HardDeleteUser(ctx, a.A0)
+		r0, err := c.HardDeleteUsers(ctx, a.A0)
+		return r0, err
 	},
 	"HasEmailSender": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		return c.HasEmailSender(), nil
@@ -316,17 +307,6 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		r0, err := c.IsUserAllowed(ctx, a.A0)
 		return r0, err
-	},
-	"IssueAccessToken": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string         `json:"userID"`
-			A1 map[string]any `json:"extra"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, r1, err := c.IssueAccessToken(ctx, a.A0, a.A1)
-		return map[string]any{"r0": r0, "r1": r1}, err
 	},
 	"LeaveGroup": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
@@ -429,25 +409,6 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.ListRemoteApplications(ctx, a.A0)
 		return r0, err
 	},
-	"ListRoleSlugsByUser": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"userID"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		return c.ListRoleSlugsByUser(ctx, a.A0), nil
-	},
-	"ListRoleSlugsByUserErr": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"userID"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.ListRoleSlugsByUserErr(ctx, a.A0)
-		return r0, err
-	},
 	"ListSubjectGroups": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"subjectID"`
@@ -507,6 +468,17 @@ var generatedMethods = map[string]MethodFunc{
 		r0, r1, err := c.MintAPIKeyWithOptions(ctx, a.A0, a.A1, a.A2)
 		return map[string]any{"r0": r0, "r1": r1}, err
 	},
+	"MintAccessToken": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 string         `json:"userID"`
+			A1 map[string]any `json:"extra"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, r1, err := c.MintAccessToken(ctx, a.A0, a.A1)
+		return map[string]any{"r0": r0, "r1": r1}, err
+	},
 	"MintCustomJWT": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 authkit.CustomJWTMintOptions `json:"opts"`
@@ -557,6 +529,17 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.PatchUserMetadata(ctx, a.A0, a.A1)
 	},
+	"ProviderUsernames": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 []string `json:"userIDs"`
+			A1 string   `json:"provider"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.ProviderUsernames(ctx, a.A0, a.A1)
+		return r0, err
+	},
 	"RedeemGroupInviteLink": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"code"`
@@ -581,16 +564,17 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.RemoveGroupSubjectAs(ctx, a.A0, a.A1, a.A2, a.A3, a.A4)
 	},
-	"RemoveRoleBySlugAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+	"RemoveRolesBySlugAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
-			A0 string `json:"actorUserID"`
-			A1 string `json:"userID"`
-			A2 string `json:"slug"`
+			A0 string   `json:"actorUserID"`
+			A1 []string `json:"userIDs"`
+			A2 string   `json:"slug"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, c.RemoveRoleBySlugAs(ctx, a.A0, a.A1, a.A2)
+		r0, err := c.RemoveRolesBySlugAs(ctx, a.A0, a.A1, a.A2)
+		return r0, err
 	},
 	"ResolveAPIKey": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
@@ -647,14 +631,15 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.ResolveRemoteApplicationAuthority(ctx, a.A0)
 		return r0, err
 	},
-	"RestoreUser": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+	"RestoreUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
-			A0 string `json:"id"`
+			A0 []string `json:"userIDs"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, c.RestoreUser(ctx, a.A0)
+		r0, err := c.RestoreUsers(ctx, a.A0)
+		return r0, err
 	},
 	"RevokeAPIKey": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
@@ -699,6 +684,16 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.RevokeGroupInviteLink(ctx, a.A0, a.A1, a.A2)
 	},
+	"RoleSlugsByUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 []string `json:"userIDs"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.RoleSlugsByUsers(ctx, a.A0)
+		return r0, err
+	},
 	"SMSAvailable": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		return c.SMSAvailable(), nil
 	},
@@ -715,14 +710,15 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.SetEmailVerified(ctx, a.A0, a.A1)
 	},
-	"SoftDeleteUser": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+	"SoftDeleteUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
-			A0 string `json:"id"`
+			A0 []string `json:"userIDs"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, c.SoftDeleteUser(ctx, a.A0)
+		r0, err := c.SoftDeleteUsers(ctx, a.A0)
+		return r0, err
 	},
 	"TimeUntilUsernameRenameAvailable": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {

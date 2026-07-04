@@ -238,30 +238,24 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 	return &AdminListUsersResult{Users: out, Total: total, Limit: opts.PageSize, Offset: offset}, nil
 }
 
-// enrichEntitlements fills Entitlements for a page of users: one provider call
-// when the provider implements BatchEntitlementsProvider, per-user otherwise.
-// Provider failures log and degrade to no entitlements.
+// enrichEntitlements fills Entitlements for a page of users in ONE provider
+// call (the provider is batch-native, #221). Provider failures log and degrade
+// to no entitlements.
 func (s *Service) enrichEntitlements(ctx context.Context, users []AdminUser) {
 	if s.entitlements == nil || len(users) == 0 {
 		return
 	}
-	if bp, ok := s.entitlements.(BatchEntitlementsProvider); ok {
-		ids := make([]string, 0, len(users))
-		for i := range users {
-			ids = append(ids, users[i].ID)
-		}
-		ents, err := bp.ListEntitlementsBatch(ctx, ids)
-		if err != nil {
-			stdlog.Printf("authkit: error: batch entitlements provider failed for %d users; reporting no entitlements: %v", len(users), err)
-			return
-		}
-		for i := range users {
-			users[i].Entitlements = ents[users[i].ID]
-		}
+	ids := make([]string, 0, len(users))
+	for i := range users {
+		ids = append(ids, users[i].ID)
+	}
+	ents, err := s.entitlements.ListEntitlements(ctx, ids)
+	if err != nil {
+		stdlog.Printf("authkit: error: batch entitlements provider failed for %d users; reporting no entitlements: %v", len(users), err)
 		return
 	}
 	for i := range users {
-		users[i].Entitlements = s.ListEntitlements(ctx, users[i].ID)
+		users[i].Entitlements = ents[users[i].ID]
 	}
 }
 

@@ -207,7 +207,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	}
 
 	// (The former separate UserByID read here existed only to source an ID-token
-	// email that IssueAccessToken then ignored — profile claims no longer ride in the
+	// email that MintAccessToken then ignored — profile claims no longer ride in the
 	// access token — so it is dropped entirely; u already holds u.Email if ever needed.)
 
 	// Mint the new access token BEFORE rotating the refresh session. Minting reads
@@ -221,7 +221,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	if mfaErr == nil {
 		mfaForToken = &mfa
 	}
-	accessToken, exp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
+	accessToken, exp, err := s.mintAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
 	if err != nil {
 		return "", time.Time{}, "", err
 	}
@@ -254,7 +254,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 // token for an ALREADY-AUTHENTICATED user in one shot (#227). It loads + gates the
 // user row (ensureUserAccess) and computes MFAStatus ONCE, threading both through the
 // session-creation gate and the access-token mint — instead of the 2× user-read /
-// 2× MFA-read that the separate IssueRefreshSession* + IssueAccessToken calls incurred
+// 2× MFA-read that the separate IssueRefreshSession* + MintAccessToken calls incurred
 // on the password-login and 2FA-verify paths.
 //
 // authMethods records how the session was established (e.g. []string{"pwd"} for
@@ -294,7 +294,7 @@ func (s *Service) IssueAuthenticatedSession(ctx context.Context, userID, userAge
 	if mfaErr == nil {
 		mfaForToken = &mfa
 	}
-	accessToken, accessExp, err := s.issueAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
+	accessToken, accessExp, err := s.mintAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
 	if err != nil {
 		return "", "", "", time.Time{}, nil, err
 	}

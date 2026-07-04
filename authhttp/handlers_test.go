@@ -146,7 +146,7 @@ func TestAPIHandler_Logout_MissingSidClaim(t *testing.T) {
 	s := newTestService(t)
 	h := s.APIHandler()
 
-	tok, _, err := s.svc.IssueAccessToken(context.Background(), "user", map[string]any{})
+	tok, _, err := s.svc.MintAccessToken(context.Background(), "user", map[string]any{})
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

@@ -155,6 +155,5 @@ func (s *Service) RemoveRoleBySlug(ctx context.Context, userID, slug string) err
 	return s.removeRoleBySlug(ctx, userID, slug)
 }
 
-func (s *Service) ListRoleSlugsByUser(ctx context.Context, userID string) []string {
-	return s.listRoleSlugsByUser(ctx, userID)
-}
+// (single-user role reads collapsed into RoleSlugsByUsers, #220; the unexported
+// listRoleSlugsByUser stays for internal display callers.)

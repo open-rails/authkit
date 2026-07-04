@@ -123,7 +123,7 @@ func TestUserMeGET_DeduplicatesProfileAnd2FAReads(t *testing.T) {
 	// gated (enroll first), so the working order mirrors the other step-up tests.
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	// An enabled EMAIL second factor exercises the exact branch #228 collapsed:

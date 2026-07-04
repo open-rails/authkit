@@ -161,6 +161,20 @@ func RegisterRoutes(r gin.IRouter, routes []authhttp.RouteSpec, wrap func(authht
 	registerRoutes(r, routes, wrap)
 }
 
+// RegisterAll mounts the full AuthKit surface in one call (#211): JWKS at
+// /.well-known/jwks.json, the browser OIDC flows under /oidc (plus the bare
+// /oidc→/oidc/ redirect every host hand-wrote), and the default API route set
+// (including the generated permission-group routes) at the router root.
+func RegisterAll(r gin.IRouter, svc *authhttp.Service) {
+	if r == nil || svc == nil {
+		return
+	}
+	RegisterJWKS(r, svc)
+	RegisterOIDC(r, svc, "/oidc")
+	r.GET("/oidc", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/oidc/") })
+	RegisterAPI(r, svc)
+}
+
 func RegisterOIDC(r gin.IRouter, svc *authhttp.Service, mountPath string) {
 	if r == nil || svc == nil {
 		return

@@ -19,8 +19,12 @@ type staticHTTPEntitlementsProvider struct {
 	names []string
 }
 
-func (p staticHTTPEntitlementsProvider) ListEntitlements(context.Context, string) ([]string, error) {
-	return p.names, nil
+func (p staticHTTPEntitlementsProvider) ListEntitlements(_ context.Context, userIDs []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(userIDs))
+	for _, id := range userIDs {
+		out[id] = p.names
+	}
+	return out, nil
 }
 
 func unverifiedAccessClaims(t *testing.T, token string) jwt.MapClaims {

@@ -277,7 +277,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	extra["sid"] = sid
-	token, exp, err := s.svc.IssueAccessToken(r.Context(), userID, extra)
+	token, exp, err := s.svc.MintAccessToken(r.Context(), userID, extra)
 	if err != nil {
 		if errors.Is(err, authkit.ErrUserBanned) {
 			unauthorized(w, ErrUserBanned)

@@ -99,7 +99,7 @@ func keyedServiceWithTracedPG(t *testing.T, tr pgx.QueryTracer) *Service {
 // TestExchangeRefreshToken_ReadsUserRowAtMostOnce proves the #227 reduction: a single
 // refresh now reads the full user row (UserByID) at most once. Before this change the
 // same flow read it 3–4× (ensureUserAccessByID, a full-row read for email, the
-// IsUserAllowed recheck, and again inside IssueAccessToken).
+// IsUserAllowed recheck, and again inside MintAccessToken).
 func TestExchangeRefreshToken_ReadsUserRowAtMostOnce(t *testing.T) {
 	counter := newUserRowQueryCounter()
 	svc := keyedServiceWithTracedPG(t, counter)

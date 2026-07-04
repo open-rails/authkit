@@ -335,10 +335,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 			return
 		}
 		// Create the refresh session AND mint its access token from a single user
-		// load + MFA read (#227) rather than IssueRefreshSession + IssueAccessToken,
+		// load + MFA read (#227) rather than IssueRefreshSession + MintAccessToken,
 		// which each re-read + re-gated the same row. The banned gate still fires with
 		// ErrUserBanned; the ID-token email the old path fetched here was ignored by
-		// IssueAccessToken, so it's gone.
+		// MintAccessToken, so it's gone.
 		sid, rt, accessTok, accessExp, _, issueErr := s.svc.IssueAuthenticatedSession(r.Context(), finalUserID, r.UserAgent(), nil, []string{"pwd"}, nil)
 		if issueErr != nil {
 			if errors.Is(issueErr, authkit.ErrUserBanned) {

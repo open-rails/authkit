@@ -13,15 +13,22 @@ type staticEntitlementsProvider struct {
 	err   error
 }
 
-func (p *staticEntitlementsProvider) ListEntitlements(ctx context.Context, userID string) ([]string, error) {
-	return p.names, p.err
+func (p *staticEntitlementsProvider) ListEntitlements(ctx context.Context, userIDs []string) (map[string][]string, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	out := make(map[string][]string, len(userIDs))
+	for _, id := range userIDs {
+		out[id] = p.names
+	}
+	return out, nil
 }
 
 // Provider names land verbatim in the `entitlements` claim.
-func TestIssueAccessToken_EntitlementsClaim(t *testing.T) {
+func TestMintAccessToken_EntitlementsClaim(t *testing.T) {
 	s, pub := newClaimTestService(t, "multi", WithEntitlements(&staticEntitlementsProvider{names: []string{"premium"}}))
 
-	tok, _, err := s.IssueAccessToken(context.Background(), "user", map[string]any{})
+	tok, _, err := s.MintAccessToken(context.Background(), "user", map[string]any{})
 	require.NoError(t, err)
 	cl := parseClaimsNoValidate(t, tok, pub)
 
@@ -34,13 +41,13 @@ func TestIssueAccessToken_EntitlementsClaim(t *testing.T) {
 // Availability over consistency: a failing entitlements provider must not block
 // token issuance — the token mints WITHOUT entitlement claims (and the failure
 // is logged so operators can see users are not getting their entitlements).
-func TestIssueAccessToken_EntitlementsProviderError_StillIssues(t *testing.T) {
+func TestMintAccessToken_EntitlementsProviderError_StillIssues(t *testing.T) {
 	s, pub := newClaimTestService(t, "multi", WithEntitlements(&staticEntitlementsProvider{
 		names: []string{"premium"}, // returned alongside the error; must be discarded
 		err:   errors.New("billing unreachable"),
 	}))
 
-	tok, _, err := s.IssueAccessToken(context.Background(), "user", map[string]any{})
+	tok, _, err := s.MintAccessToken(context.Background(), "user", map[string]any{})
 	require.NoError(t, err, "provider failure must not block issuance")
 	cl := parseClaimsNoValidate(t, tok, pub)
 

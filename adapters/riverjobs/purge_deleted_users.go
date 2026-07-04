@@ -71,7 +71,11 @@ func (w *PurgeDeletedUsersWorker) Work(ctx context.Context, job *river.Job[Purge
 				return err
 			}
 		}
-		if err := w.svc.HardDeleteUser(ctx, userID); err != nil {
+		results, err := w.svc.HardDeleteUsers(ctx, []string{userID})
+		if err == nil && len(results) == 1 {
+			err = results[0].Err
+		}
+		if err != nil {
 			return err
 		}
 	}

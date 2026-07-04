@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// TestIssueAccessToken_OwnedClaimsWinOverExtra verifies a caller's extra map cannot
+// TestMintAccessToken_OwnedClaimsWinOverExtra verifies a caller's extra map cannot
 // override AuthKit-owned claims (sub/iss/aud/iat/exp/entitlements) — the owned
 // values win — while non-owned custom claims still pass through. This closes the
 // impersonation/forgery vector without rejecting callers.
-func TestIssueAccessToken_OwnedClaimsWinOverExtra(t *testing.T) {
+func TestMintAccessToken_OwnedClaimsWinOverExtra(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
 	ctx := context.Background()
 
-	tok, _, err := svc.IssueAccessToken(ctx, "user-1", map[string]any{
+	tok, _, err := svc.MintAccessToken(ctx, "user-1", map[string]any{
 		"sub":              "attacker",
 		"iss":              "https://evil.example",
 		"exp":              1,
@@ -38,13 +38,13 @@ func TestIssueAccessToken_OwnedClaimsWinOverExtra(t *testing.T) {
 	}
 }
 
-// TestIssueAccessToken_NonOwnedExtraPassesThrough confirms the common in-tree usage
+// TestMintAccessToken_NonOwnedExtraPassesThrough confirms the common in-tree usage
 // (session id, provider) still rides on the token unchanged.
-func TestIssueAccessToken_NonOwnedExtraPassesThrough(t *testing.T) {
+func TestMintAccessToken_NonOwnedExtraPassesThrough(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
 	ctx := context.Background()
 
-	tok, _, err := svc.IssueAccessToken(ctx, "user-1", map[string]any{"sid": "session-xyz", "provider": "google"})
+	tok, _, err := svc.MintAccessToken(ctx, "user-1", map[string]any{"sid": "session-xyz", "provider": "google"})
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -54,18 +54,18 @@ func TestIssueAccessToken_NonOwnedExtraPassesThrough(t *testing.T) {
 	}
 }
 
-// TestIssueAccessToken_ReservedClaimsDroppedFromExtra is the AK2-AUTH-01 regression:
+// TestMintAccessToken_ReservedClaimsDroppedFromExtra is the AK2-AUTH-01 regression:
 // a caller's extra map must never populate an authority/identity/assurance claim the
 // verifier trusts (roles/permissions/email/email_verified/user_tier/assurance/...).
 // These are signed by AuthKit from authenticated state or not at all; a host
 // forwarding request-influenced data into extra must not be able to mint a
 // validly-signed token with attacker-chosen authority. Legitimate protocol claims
 // (sid/provider/2fa_enrollment) and arbitrary custom claims must still pass through.
-func TestIssueAccessToken_ReservedClaimsDroppedFromExtra(t *testing.T) {
+func TestMintAccessToken_ReservedClaimsDroppedFromExtra(t *testing.T) {
 	svc := mustServiceWithGeneratedKeys(t)
 	ctx := context.Background()
 
-	tok, _, err := svc.IssueAccessToken(ctx, "user-1", map[string]any{
+	tok, _, err := svc.MintAccessToken(ctx, "user-1", map[string]any{
 		// Reserved — must be dropped:
 		"roles":            []string{"admin", "superuser"},
 		"permissions":      []string{"billing:*:*"},
@@ -113,7 +113,7 @@ func TestIssueAccessToken_ReservedClaimsDroppedFromExtra(t *testing.T) {
 		t.Errorf("protocol claims sid/provider must pass through, got sid=%v provider=%v", claims["sid"], claims["provider"])
 	}
 	if claims["2fa_enrollment"] != true {
-		t.Errorf("2fa_enrollment must pass through (used by Issue2FAEnrollmentToken), got %v", claims["2fa_enrollment"])
+		t.Errorf("2fa_enrollment must pass through (used by Mint2FAEnrollmentToken), got %v", claims["2fa_enrollment"])
 	}
 	if claims["custom_app_claim"] != "ok" {
 		t.Errorf("custom app claim must pass through, got %v", claims["custom_app_claim"])

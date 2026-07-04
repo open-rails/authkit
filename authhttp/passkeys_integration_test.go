@@ -37,7 +37,7 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	setupToken, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	setupToken, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	authn := newSoftwarePasskeyAuthenticator(t)
@@ -158,7 +158,7 @@ func TestPasskeyManagementHTTPIntegration(t *testing.T) {
 
 	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
 	require.NoError(t, err)
-	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 
 	w := serveAuthJSON(srv, http.MethodGet, "/passkeys", `{}`, token)

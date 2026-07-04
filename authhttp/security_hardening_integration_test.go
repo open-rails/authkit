@@ -69,7 +69,7 @@ func stalePasswordUserToken(t *testing.T, srv *Service, pool *pgxpool.Pool, pref
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE profiles.refresh_sessions SET last_authenticated_at=$1 WHERE id=$2::uuid`, time.Now().Add(-time.Hour), sid)
 	require.NoError(t, err)
-	token, _, err := srv.svc.IssueAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
 	require.NoError(t, err)
 	return user.ID, token
 }
