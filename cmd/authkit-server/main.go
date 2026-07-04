@@ -57,6 +57,8 @@ type config struct {
 	schema         string
 	env            string
 	redisAddr      string
+	redisURL       string
+	redisPassword  string
 	mgmtToken      string // app→server bearer credential for the management API
 	apiPrefix      string
 	regVerify      string // registration verification policy: none|optional|required
@@ -98,6 +100,8 @@ func loadConfig() (*config, error) {
 		schema:         strings.TrimSpace(os.Getenv("AUTHKIT_SCHEMA")),
 		env:            envOr("AUTHKIT_ENV", "dev"),
 		redisAddr:      strings.TrimSpace(os.Getenv("AUTHKIT_REDIS_ADDR")),
+		redisURL:       strings.TrimSpace(os.Getenv("AUTHKIT_REDIS_URL")),
+		redisPassword:  os.Getenv("AUTHKIT_REDIS_PASSWORD"),
 		mgmtToken:      strings.TrimSpace(os.Getenv("AUTHKIT_MGMT_TOKEN")),
 		apiPrefix:      envOr("AUTHKIT_API_PREFIX", "/api/v1"),
 		migrateOnStart: envBool("AUTHKIT_MIGRATE_ON_START", false),
@@ -197,9 +201,24 @@ func run() error {
 	}
 	defer pg.Close()
 
+	// #244: authenticated/TLS Redis. AUTHKIT_REDIS_URL takes the standard
+	// redis:// / rediss:// form (password, TLS, and db number all ride in the
+	// URL via redis.ParseURL); AUTHKIT_REDIS_ADDR (+ optional
+	// AUTHKIT_REDIS_PASSWORD) remains for discrete-var deployments. Setting both
+	// is a loud configuration error, not a silent precedence pick.
 	var rdb *redis.Client
-	if cfg.redisAddr != "" {
-		rdb = redis.NewClient(&redis.Options{Addr: cfg.redisAddr})
+	switch {
+	case cfg.redisURL != "" && cfg.redisAddr != "":
+		return fmt.Errorf("set AUTHKIT_REDIS_URL or AUTHKIT_REDIS_ADDR, not both")
+	case cfg.redisURL != "":
+		opts, err := redis.ParseURL(cfg.redisURL)
+		if err != nil {
+			return fmt.Errorf("parse AUTHKIT_REDIS_URL: %w", err)
+		}
+		rdb = redis.NewClient(opts)
+		defer func() { _ = rdb.Close() }()
+	case cfg.redisAddr != "":
+		rdb = redis.NewClient(&redis.Options{Addr: cfg.redisAddr, Password: cfg.redisPassword})
 		defer func() { _ = rdb.Close() }()
 	}
 

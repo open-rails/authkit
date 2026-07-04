@@ -185,7 +185,7 @@ passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the
    it only if a server calls it in-process; a browser/end-user request flow (passkeys, passwordless,
    refresh exchange) belongs on the HTTP layer only.
 2. **Completeness/symmetry.** Keep lifecycle-completing methods even if currently unused (`MintAPIKey`
-   ⇒ `RevokeAPIKey`; `SoftDeleteUser` ⇒ `Restore`/`HardDelete`) — removing one arm is a footgun.
+   ⇒ `RevokeAPIKey`; `SoftDeleteUsers` ⇒ `RestoreUsers`/`HardDeleteUsers`) — removing one arm is a footgun.
 3. **Commitment.** Only a WHOLE speculative feature is a YAGNI cut; a route-wired committed feature
    (invite links, api-key / remote-app management) is kept even at low adoption.
 Adoption count alone is NOT a criterion for adding or removing a method.
@@ -209,8 +209,8 @@ a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`Crea
 `{Soft,Hard,Restore}DeleteUsers`-style batch bulk mutations returning `[]OpResult` (#222),
 `AdminListUsers`/`AdminGetUser`/…); tokens
 (`Mint{Access,Service,Delegated,RemoteApplication,Custom}*` (#214)); passwords (`VerifyUserPassword`, `ChangePassword`,
-`UpsertPasswordHash`); RBAC/groups (`Can`, `AssignRoleBySlug`/`RemoveRoleBySlug`/
-`UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
+`UpsertPasswordHash`); RBAC/groups (`Can`, `AssignRolesBySlugAs`/`RemoveRolesBySlugAs`
+(batch, per-item authz, #222), `UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
 links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
 `RedeemGroupInviteLink`/`ExternalInvitesEnabled`); API keys
 (`MintAPIKey`, `ListAPIKeys`, `RevokeAPIKey`, `ResolveAPIKey[WithResources]`); remote

@@ -1,6 +1,9 @@
 package authkit
 
-import "errors"
+import (
+	"errors"
+	"net/http"
+)
 
 // Sentinel errors — the wire-contract error identities shared by the embedded
 // engine and (Phase 2) the remote SDK so errors.Is works across transports
@@ -19,7 +22,7 @@ var (
 	ErrEmailInUse                        = errors.New("email_in_use")
 	ErrEmailSenderUnavailable            = errors.New("email_sender_unavailable")
 	ErrEmptyCustomClaims                 = errors.New("custom_jwt_empty_claims")
-	ErrEntitlementFilterUnavailable      = errors.New("authkit: entitlement filtering requires an EntitlementFilterProvider")
+	ErrEntitlementFilterUnavailable      = errors.New("entitlement_filter_unavailable")
 	ErrExternalInvitesDisabled           = errors.New("external_invites_disabled")
 	ErrGroupNotFound                     = errors.New("permission_group_not_found")
 	ErrInsufficientRoleAuthority         = errors.New("insufficient_role_authority")
@@ -87,6 +90,92 @@ func CodeForError(err error) string {
 		}
 	}
 	return ""
+}
+
+// sentinelHTTPStatus assigns each sentinel its HTTP status for HTTPStatus (#213).
+// DERIVED from the authhttp handlers' existing errors.Is chains (2026-07-04
+// inventory) — this table transcribes shipped behavior, it does not invent it.
+// Sentinels absent here default to 422 Unprocessable Entity, matching the
+// management transport's historical classification of domain errors.
+var sentinelHTTPStatus = map[error]int{
+	// 401 — authentication failures.
+	ErrUserBanned:            http.StatusUnauthorized,
+	ErrPasswordResetRequired: http.StatusUnauthorized,
+	ErrSIWSChallengeNotFound: http.StatusUnauthorized,
+	ErrSIWSChallengeExpired:  http.StatusUnauthorized,
+	ErrSIWSSignatureInvalid:  http.StatusUnauthorized,
+	ErrSIWSDomainInvalid:     http.StatusUnauthorized,
+	ErrSIWSTimestampInvalid:  http.StatusUnauthorized,
+	// 403 — authenticated but not allowed.
+	ErrRegistrationDisabled:      http.StatusForbidden,
+	ErrPasswordlessDisabled:      http.StatusForbidden,
+	ErrTwoFAEnrollmentRequired:   http.StatusForbidden,
+	ErrStepUpRequired:            http.StatusForbidden,
+	ErrExternalInvitesDisabled:   http.StatusForbidden,
+	ErrInsufficientRoleAuthority: http.StatusForbidden,
+	ErrRoleAssignmentEscalation:  http.StatusForbidden,
+	// 404 — subject not found.
+	ErrUserNotFound:                http.StatusNotFound,
+	ErrPendingRegistrationNotFound: http.StatusNotFound,
+	ErrPasskeyNotFound:             http.StatusNotFound,
+	ErrGroupNotFound:               http.StatusNotFound,
+	ErrRemoteApplicationNotFound:   http.StatusNotFound,
+	ErrInviteLinkNotFound:          http.StatusNotFound,
+	// 409 — conflicts with current state.
+	ErrEmailAlreadyVerified:      http.StatusConflict,
+	ErrPhoneAlreadyVerified:      http.StatusConflict,
+	ErrCannotRemoveLastAdminRole: http.StatusConflict,
+	ErrWalletAlreadyLinked:       http.StatusConflict,
+	ErrProviderAlreadyLinked:     http.StatusConflict,
+	// 410 — expired one-shot links.
+	ErrVerificationLinkExpired: http.StatusGone,
+	// 429 — rate limits.
+	ErrRenameRateLimited: http.StatusTooManyRequests,
+	// 400 — malformed / invalid input.
+	ErrInvalidUntil:                 http.StatusBadRequest,
+	ErrEmailInUse:                   http.StatusBadRequest,
+	ErrPhoneInUse:                   http.StatusBadRequest,
+	ErrEntitlementFilterUnavailable: http.StatusBadRequest,
+	ErrInvalidRemoteApplication:     http.StatusBadRequest,
+	ErrReservedIssuer:               http.StatusBadRequest,
+	ErrInviteLinkExpired:            http.StatusBadRequest,
+	ErrInviteLinkRevoked:            http.StatusBadRequest,
+	ErrSIWSAddressMismatch:          http.StatusBadRequest,
+	ErrOwnerSlugTaken:               http.StatusBadRequest,
+	// 502/503 — delivery/dependency failures.
+	ErrEmailDeliveryFailed:    http.StatusBadGateway,
+	ErrSMSDeliveryFailed:      http.StatusBadGateway,
+	ErrEmailSenderUnavailable: http.StatusServiceUnavailable,
+	ErrSMSSenderUnavailable:   http.StatusServiceUnavailable,
+}
+
+// HTTPStatus maps an error to its HTTP status and wire code (#213): the ONE
+// chain-aware mapper for consumers calling Client methods directly and for the
+// management transport, so hosts stop re-implementing the errors.Is chains
+// authkit already encodes. Non-sentinel errors return (500, "internal_error");
+// sentinels without an explicit status entry return 422 with their code.
+// (The authhttp handlers keep their own chains where they deliberately emit
+// context-specific wire codes — e.g. last-admin-role maps to a different code
+// on the group routes than the sentinel's own.)
+func HTTPStatus(err error) (int, string) {
+	code := CodeForError(err)
+	if code == "" {
+		return http.StatusInternalServerError, "internal_error"
+	}
+	if status, ok := sentinelHTTPStatus[ErrorForCode(code)]; ok {
+		return status, code
+	}
+	return http.StatusUnprocessableEntity, code
+}
+
+// ErrorCodes returns every registered wire code (each sentinel's Error()
+// string), for parity guards between this registry and transport code tables.
+func ErrorCodes() []string {
+	out := make([]string, 0, len(errorSentinels))
+	for _, sentinel := range errorSentinels {
+		out = append(out, sentinel.Error())
+	}
+	return out
 }
 
 // errorSentinels is the single hand-listed source of truth for both errorsByCode

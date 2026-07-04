@@ -45,7 +45,9 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `PUBLIC_KEYS` | no | — | JSON map `kid -> public-key PEM` of extra verification keys kept in the JWKS (rotation) |
 | `AUTHKIT_SCHEMA` | no | `profiles` | Postgres schema |
 | `AUTHKIT_ENV` | no | `dev` | Only `dev`/`development`/`local`/`test` are dev; **everything else — incl. `staging` — is prod-like** (#231). Non-dev requires real keys, Redis, and a management token |
-| `AUTHKIT_REDIS_ADDR` | no | — | Redis address (ephemeral store + OIDC/SIWS state) |
+| `AUTHKIT_REDIS_ADDR` | no | — | Redis address (ephemeral store + OIDC/SIWS state); pair with `AUTHKIT_REDIS_PASSWORD` when the server requires auth |
+| `AUTHKIT_REDIS_URL` | no | — | Full `redis://`/`rediss://` URL (password, TLS, and db ride in the URL); mutually exclusive with `AUTHKIT_REDIS_ADDR` |
+| `AUTHKIT_REDIS_PASSWORD` | no | — | Password for `AUTHKIT_REDIS_ADDR` deployments (URL form carries its own) |
 | `AUTHKIT_REGISTRATION_VERIFICATION` | no | `none` | `none`/`optional`/`required` (`required` needs a configured sender) |
 | `AUTHKIT_API_PREFIX` | no | `/api/v1` | Mount prefix for browser routes |
 | `AUTHKIT_MIGRATE_ON_START` | no | `false` | Apply the schema before serving. Prefer the one-shot `migrate` command in prod. |

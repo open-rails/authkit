@@ -1,6 +1,8 @@
 package authhttp
 
 import (
+	"errors"
+
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
 	"net/http"
@@ -28,7 +30,7 @@ func (s *Service) handleUserUsernamePATCH(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.svc.UpdateUsername(r.Context(), claims.UserID, body.Username); err != nil {
-		if err == authkit.ErrOwnerSlugTaken {
+		if errors.Is(err, authkit.ErrOwnerSlugTaken) {
 			badRequest(w, ErrOwnerSlugTaken)
 			return
 		}

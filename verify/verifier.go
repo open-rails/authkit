@@ -537,9 +537,11 @@ type Enricher interface {
 	// path is stateless and those reads live on authkit.Client.)
 }
 
-// WithService enables best-effort enrichment hooks (roles/provider usernames)
-// from Postgres, and wires the same enricher as the default remote-application
-// source for lazy-load-on-miss (see keyForToken). *authkit.Service satisfies Enricher.
+// WithService wires the engine as the API-key/remote-application resolution
+// backend and as the default remote-application source for lazy-load-on-miss
+// (see keyForToken). (#215/#220: the former per-request roles/provider-username
+// enrichment is gone — the request path is stateless.) *embedded.Client's
+// underlying service satisfies Enricher.
 func (v *Verifier) WithService(svc Enricher) *Verifier {
 	v.enrich = svc
 	v.mu.Lock()

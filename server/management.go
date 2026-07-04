@@ -57,15 +57,12 @@ func NewHandler(client authkit.Client, token string) http.Handler {
 		}
 		result, err := fn(r.Context(), client, args)
 		if err != nil {
-			// Resolve the sentinel's wire code chain-aware (WRAPPED sentinels too),
-			// so remote re-derives errors.Is identity. A non-sentinel is an opaque
-			// server fault: emit a generic code, not err.Error() which could leak
-			// internals (#197).
-			code := authkit.CodeForError(err)
-			if code == "" {
-				code = "internal"
-			}
-			writeErr(w, statusFor(err), code)
+			// authkit.HTTPStatus (#213) resolves the sentinel's wire code
+			// chain-aware (WRAPPED sentinels too, #197) AND its transcribed HTTP
+			// status in one place. A non-sentinel is an opaque server fault:
+			// (500, "internal_error") — never err.Error(), which could leak internals.
+			status, code := authkit.HTTPStatus(err)
+			writeErr(w, status, code)
 			return
 		}
 		writeJSON(w, http.StatusOK, resultEnvelope{Result: result})
@@ -84,17 +81,6 @@ type ErrorResponse struct {
 	Error struct {
 		Code string `json:"code"`
 	} `json:"error"`
-}
-
-// statusFor maps an error to an HTTP status. The CODE (not the status) carries
-// error identity, so the mapping is coarse: a known AuthKit sentinel — matched
-// chain-aware, so WRAPPED sentinels count too — is a client-side condition (422);
-// anything else is a server fault (500).
-func statusFor(err error) int {
-	if authkit.CodeForError(err) != "" {
-		return http.StatusUnprocessableEntity
-	}
-	return http.StatusInternalServerError
 }
 
 func auth(token string, next http.HandlerFunc) http.HandlerFunc {

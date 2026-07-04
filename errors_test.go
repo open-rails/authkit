@@ -59,16 +59,10 @@ func TestCodeForError(t *testing.T) {
 		t.Error("wrapped error lost errors.Is(ErrEmailDeliveryFailed) identity")
 	}
 
-	// server.statusFor returns 422 exactly when CodeForError(err) != "" and 500
-	// otherwise. A resolvable (wrapped) sentinel is a client condition (422), not a
-	// server fault (500). statusFor lives in package server; this asserts the exact
-	// predicate it keys off, which errors_test.go can reach without importing server.
-	status := http.StatusInternalServerError
-	if CodeForError(wrapped) != "" {
-		status = http.StatusUnprocessableEntity
-	}
-	if status != http.StatusUnprocessableEntity {
-		t.Errorf("wrapped sentinel maps to HTTP %d, want %d (422)", status, http.StatusUnprocessableEntity)
+	// HTTPStatus (#213) is the one mapper the management transport uses: a
+	// resolvable (wrapped) sentinel keeps its code AND gets its transcribed status.
+	if status, gotCode := HTTPStatus(wrapped); status != http.StatusBadGateway || gotCode != code {
+		t.Errorf("HTTPStatus(wrapped delivery failure) = (%d, %q), want (502, %q)", status, gotCode, code)
 	}
 
 	// Nil and non-sentinel errors resolve to "" so the server falls back to 500.
@@ -77,5 +71,34 @@ func TestCodeForError(t *testing.T) {
 	}
 	if CodeForError(errors.New("some opaque failure")) != "" {
 		t.Error("CodeForError(non-sentinel) should be empty")
+	}
+}
+
+// #213: HTTPStatus transcribes the handler-derived status table; unmapped
+// sentinels default to 422; non-sentinels are 500/internal_error.
+func TestHTTPStatus(t *testing.T) {
+	cases := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{ErrUserBanned, http.StatusUnauthorized, "user_banned"},
+		{ErrRegistrationDisabled, http.StatusForbidden, "registration_disabled"},
+		{ErrUserNotFound, http.StatusNotFound, "user_not_found"},
+		{ErrEmailAlreadyVerified, http.StatusConflict, "email_already_verified"},
+		{ErrVerificationLinkExpired, http.StatusGone, "verification_link_expired"},
+		{ErrRenameRateLimited, http.StatusTooManyRequests, "rename_rate_limited"},
+		{ErrEmailInUse, http.StatusBadRequest, "email_in_use"},
+		{ErrEmailSenderUnavailable, http.StatusServiceUnavailable, "email_sender_unavailable"},
+		{ErrMissingSigner, http.StatusUnprocessableEntity, "missing_signer"}, // unmapped ⇒ 422
+		{fmt.Errorf("wrap: %w", ErrUserBanned), http.StatusUnauthorized, "user_banned"},
+		{errors.New("opaque"), http.StatusInternalServerError, "internal_error"},
+		{nil, http.StatusInternalServerError, "internal_error"},
+	}
+	for _, c := range cases {
+		status, code := HTTPStatus(c.err)
+		if status != c.status || code != c.code {
+			t.Errorf("HTTPStatus(%v) = (%d, %q), want (%d, %q)", c.err, status, code, c.status, c.code)
+		}
 	}
 }
