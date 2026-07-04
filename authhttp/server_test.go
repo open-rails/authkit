@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -144,6 +146,33 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Same(t, other, override.rd, "explicit authhttp.WithRedis must override the engine's client")
+}
+
+// #242: WithRateLimitOverrides merges bucket-specific limits onto
+// DefaultRateLimits without replacing the whole table or the auto-selected
+// backend — an untouched bucket keeps its default while the overridden one
+// applies the overlay.
+func TestNewServer_RateLimitOverrides(t *testing.T) {
+	override := ratelimit.Limit{Limit: 3, Window: time.Minute}
+	srv, err := NewServer(
+		newServerClient(t, newServerTestConfig(), newNoDBPool(t)),
+		WithRateLimitOverrides(map[string]ratelimit.Limit{RLPasswordLogin: override}),
+	)
+	require.NoError(t, err)
+
+	rlr, ok := srv.rl.(RateLimiterWithResult)
+	require.True(t, ok, "the auto-created limiter must implement RateLimiterWithResult")
+
+	overridden, err := rlr.AllowNamedResult(RLPasswordLogin, "k1")
+	require.NoError(t, err)
+	require.Equal(t, override.Limit, overridden.Limit, "overridden bucket must use the overlay limit")
+	require.Equal(t, override.Window, overridden.Window, "overridden bucket must use the overlay window")
+
+	wantDefault := DefaultRateLimits()[RLAuthLogout]
+	untouched, err := rlr.AllowNamedResult(RLAuthLogout, "k2")
+	require.NoError(t, err)
+	require.Equal(t, wantDefault.Limit, untouched.Limit, "untouched bucket must keep its default limit")
+	require.Equal(t, wantDefault.Window, untouched.Window, "untouched bucket must keep its default window")
 }
 
 // #109: Server is an alias of Service — NewServer returns *Service, which is

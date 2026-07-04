@@ -12,6 +12,7 @@ import (
 	memorylimiter "github.com/open-rails/authkit/internal/ratelimit/memory"
 	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
+	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -79,10 +80,14 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	// WithoutRateLimiter seams). Redis-backed when a Redis client is supplied via
 	// authhttp.WithRedis, so limits are shared across instances; in-memory otherwise.
 	if !s.rlExplicit {
+		limits := DefaultRateLimits()
+		for bucket, lim := range s.rlOverrides {
+			limits[bucket] = lim
+		}
 		if s.rd != nil {
-			s.rl = redislimiter.New(s.rd, DefaultRateLimits())
+			s.rl = redislimiter.New(s.rd, limits)
 		} else {
-			s.rl = memorylimiter.New(DefaultRateLimits())
+			s.rl = memorylimiter.New(limits)
 		}
 	}
 
@@ -90,6 +95,10 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		verify.WithSkew(5*time.Second),
 		verify.WithAPIKeyPrefix(cfg.APIKeys.Prefix),
 		verify.WithSSRFGuard(),
+		// #240: wire the documented per-request forced-2FA-enrollment gate from
+		// the host's TwoFactor policy. Required mode challenges every existing
+		// un-enrolled user on their next request, not just at mint time.
+		verify.WithRequireMFAEnrollment(cfg.TwoFactor.Mode == embedded.TwoFactorRequired),
 	)
 	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
@@ -105,6 +114,12 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	s.authProvidersByName = authProvidersByName
 	s.memStateCache = memorystore.NewStateCache(15 * time.Minute)
 	s.memSIWSCache = memorystore.NewSIWSCache(15 * time.Minute)
+
+	// #243: derive the 2FA-enrollment allowlist from the route registry (single
+	// source of truth — RouteSpec.MFAEnrollmentExempt) instead of a hand-
+	// maintained suffix list, so a renamed/added enroll route can't silently
+	// drift from the gate. Must run after every field APIRoutes reads is set.
+	ver.SetMFAEnrollmentExemptPaths(mfaEnrollmentExemptPaths(s.APIRoutes()))
 
 	if err := s.validate(cfg); err != nil {
 		return nil, err
@@ -155,6 +170,25 @@ func WithRedis(rd *redis.Client) Option {
 // supplied, in-memory otherwise) and must not inject a custom limiter.
 func WithRateLimiter(rl RateLimiter) Option {
 	return func(s *Service) { s.rl = rl; s.rlExplicit = true }
+}
+
+// WithRateLimitOverrides overlays bucket-specific limits onto AuthKit's built-in
+// defaults (DefaultRateLimits, #242) — a host tunes one or a few buckets (e.g.
+// RLPasswordLogin) without owning or re-materializing the whole ~55-bucket
+// table. AuthKit still auto-selects the backend (Redis when WithRedis/the
+// engine's Redis is wired, in-memory otherwise) exactly as it would with no
+// options. Repeated calls merge (last write per bucket wins); an explicit
+// WithRateLimiter/WithoutRateLimiter takes over the limiter entirely and makes
+// these overrides moot (they're never consulted).
+func WithRateLimitOverrides(overrides map[string]ratelimit.Limit) Option {
+	return func(s *Service) {
+		if s.rlOverrides == nil {
+			s.rlOverrides = make(map[string]ratelimit.Limit, len(overrides))
+		}
+		for bucket, lim := range overrides {
+			s.rlOverrides[bucket] = lim
+		}
+	}
 }
 
 // WithoutRateLimiter disables rate limiting. ADVANCED/TEST ONLY: never use in

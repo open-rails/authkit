@@ -85,19 +85,6 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.ApplyBootstrapManifest(ctx, a.A0, a.A1)
 		return r0, err
 	},
-	"AssignGroupRole": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"persona"`
-			A1 string `json:"instanceSlug"`
-			A2 string `json:"subjectID"`
-			A3 string `json:"subjectKind"`
-			A4 string `json:"role"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		return nil, c.AssignGroupRole(ctx, a.A0, a.A1, a.A2, a.A3, a.A4)
-	},
 	"AssignGroupRoleAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"actorUserID"`
@@ -111,16 +98,6 @@ var generatedMethods = map[string]MethodFunc{
 			return nil, err
 		}
 		return nil, c.AssignGroupRoleAs(ctx, a.A0, a.A1, a.A2, a.A3, a.A4, a.A5)
-	},
-	"AssignRoleBySlug": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"userID"`
-			A1 string `json:"slug"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		return nil, c.AssignRoleBySlug(ctx, a.A0, a.A1)
 	},
 	"AssignRoleBySlugAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
@@ -603,16 +580,6 @@ var generatedMethods = map[string]MethodFunc{
 			return nil, err
 		}
 		return nil, c.RemoveGroupSubjectAs(ctx, a.A0, a.A1, a.A2, a.A3, a.A4)
-	},
-	"RemoveRoleBySlug": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string `json:"userID"`
-			A1 string `json:"slug"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		return nil, c.RemoveRoleBySlug(ctx, a.A0, a.A1)
 	},
 	"RemoveRoleBySlugAs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {

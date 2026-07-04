@@ -30,6 +30,12 @@ type RouteSpec struct {
 	Path    string
 	Group   RouteGroup
 	Handler http.Handler
+	// MFAEnrollmentExempt marks a route as part of the 2FA enroll/challenge/
+	// verify surface a forced-enrollment-gated user (verify.WithRequireMFAEnrollment)
+	// must still be able to reach. NewServer derives the verifier's exempt-path
+	// allowlist from routes tagged here (#243) — the route table is the single
+	// source of truth, so a rename/add stays consistent by construction.
+	MFAEnrollmentExempt bool
 }
 
 // Routes provides access to AuthKit's canonical route groups.
@@ -156,12 +162,12 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/oidc/{provider}/link/start", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleOIDCLinkStartPOST))},
 		{Method: http.MethodPost, Path: "/oidc/{provider}/step-up/start", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleOIDCStepUpStartPOST))},
 
-		{Method: http.MethodGet, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FAStatusGET))},
-		{Method: http.MethodPost, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FAPOST))},
-		{Method: http.MethodDelete, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FADELETE))},
-		{Method: http.MethodPost, Path: "/user/2fa/backup-codes", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FABackupCodesPOST))},
-		{Method: http.MethodPost, Path: "/2fa/challenge", Group: RouteAuth, Handler: http.HandlerFunc(s.handleUser2FAChallengePOST)},
-		{Method: http.MethodPost, Path: "/2fa/verify", Group: RouteAuth, Handler: http.HandlerFunc(s.handleUser2FAVerifyPOST)},
+		{Method: http.MethodGet, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FAStatusGET)), MFAEnrollmentExempt: true},
+		{Method: http.MethodPost, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FAPOST)), MFAEnrollmentExempt: true},
+		{Method: http.MethodDelete, Path: "/user/2fa", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FADELETE)), MFAEnrollmentExempt: true},
+		{Method: http.MethodPost, Path: "/user/2fa/backup-codes", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUser2FABackupCodesPOST)), MFAEnrollmentExempt: true},
+		{Method: http.MethodPost, Path: "/2fa/challenge", Group: RouteAuth, Handler: http.HandlerFunc(s.handleUser2FAChallengePOST), MFAEnrollmentExempt: true},
+		{Method: http.MethodPost, Path: "/2fa/verify", Group: RouteAuth, Handler: http.HandlerFunc(s.handleUser2FAVerifyPOST), MFAEnrollmentExempt: true},
 
 		{Method: http.MethodPost, Path: "/solana/challenge", Group: RouteAuth, Handler: http.HandlerFunc(s.handleSolanaChallengePOST)},
 		{Method: http.MethodPost, Path: "/solana/login", Group: RouteAuth, Handler: http.HandlerFunc(s.handleSolanaLoginPOST)},
@@ -279,6 +285,24 @@ func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 		}
 		route.Handler = lang(route.Handler)
 		out = append(out, route)
+	}
+	return out
+}
+
+// mfaEnrollmentExemptPaths returns the distinct Path values of the routes tagged
+// MFAEnrollmentExempt — the authoritative 2FA enroll/challenge/verify surface a
+// forced-enrollment-gated request must still reach (#243). NewServer feeds this
+// into the verifier via verify.Verifier.SetMFAEnrollmentExemptPaths so the gate's
+// allowlist is derived from the route registry rather than a hand-maintained list.
+func mfaEnrollmentExemptPaths(specs []RouteSpec) []string {
+	seen := make(map[string]bool, len(specs))
+	out := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		if !spec.MFAEnrollmentExempt || seen[spec.Path] {
+			continue
+		}
+		seen[spec.Path] = true
+		out = append(out, spec.Path)
 	}
 	return out
 }

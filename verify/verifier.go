@@ -51,6 +51,12 @@ type Verifier struct {
 	// gate in VerifyRequest (#148). Set from TwoFactor.Mode == Required.
 	requireMFAEnrollment bool
 
+	// mfaEnrollmentExemptPaths is the set of route paths (suffix-matched) exempt
+	// from requireMFAEnrollment and from the TwoFAEnrollment-only-token gate —
+	// see SetMFAEnrollmentExemptPaths (#243). Nil/empty exempts nothing
+	// (fail-closed default for a verify-only Verifier that never calls it).
+	mfaEnrollmentExemptPaths map[string]bool
+
 	// Remote-application lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*authkit.Service) but
 	// can be overridden (tests). fedAudiences is threaded so a lazily-loaded

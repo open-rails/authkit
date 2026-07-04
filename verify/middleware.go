@@ -45,7 +45,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	if err != nil {
 		return Claims{}, &authError{http.StatusUnauthorized, err.Error()}
 	}
-	if cl.TwoFAEnrollment && !allowed2FAEnrollmentPath(r.Method, r.URL.Path) {
+	if cl.TwoFAEnrollment && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
 		return Claims{}, &authError{http.StatusForbidden, "forbidden"}
 	}
 	// #148: per-request forced-enrollment gate. When 2FA policy is Required, a
@@ -54,7 +54,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	// existing un-enrolled user is challenged on their NEXT authenticated request,
 	// not just at signup. Gated explicitly on IsUser: API-key/delegated/service
 	// principals can't enroll TOTP and bypass (note d).
-	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !allowed2FAEnrollmentPath(r.Method, r.URL.Path) {
+	if v.requireMFAEnrollment && cl.IsUser() && !cl.MFAEnrolled && !v.mfaEnrollmentExemptPath(r.Method, r.URL.Path) {
 		return Claims{}, &authError{http.StatusForbidden, "2fa_enrollment_required"}
 	}
 	if v.enrich != nil && cl.isDelegated() {
@@ -101,19 +101,38 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 	}
 }
 
-// allowed2FAEnrollmentPath reports whether a path is one a forced-enrollment-gated
-// user must still reach: the 2FA enroll surface (/user/2fa[/...]) and the
-// challenge/verify surface (/2fa/challenge, /2fa/verify). Matching by route suffix
-// keeps the verify layer free of the route table; the canonical 2FA route set
-// lives in http/routes.go and any addition there must stay covered here.
-// ponytail: suffix allowlist, not derived from the live route registry — upgrade
-// to registry-derived only if the 2FA route paths ever stop being stable suffixes.
-func allowed2FAEnrollmentPath(method, path string) bool {
+// SetMFAEnrollmentExemptPaths installs the set of route paths that stay
+// reachable to a request blocked by the requireMFAEnrollment gate or carrying a
+// TwoFAEnrollment-only token (#243): the 2FA enroll/challenge/verify surface.
+// AuthKit's server derives this set from its authoritative route registry
+// (authhttp.RouteSpec.MFAEnrollmentExempt) at construction, so a renamed or
+// added enroll route can't silently drift out of the allowlist. A Verifier that
+// never calls this (verify-only, no WithRequireMFAEnrollment) exempts nothing.
+// Paths are suffix-matched against the incoming request path, since AuthKit
+// routes are prefix-neutral (a host may mount them under any prefix).
+func (v *Verifier) SetMFAEnrollmentExemptPaths(paths []string) *Verifier {
+	m := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		p = strings.TrimRight(strings.TrimSpace(p), "/")
+		if p != "" {
+			m[p] = true
+		}
+	}
+	v.mfaEnrollmentExemptPaths = m
+	return v
+}
+
+// mfaEnrollmentExemptPath reports whether a path is one a forced-enrollment-gated
+// user must still reach. See SetMFAEnrollmentExemptPaths.
+func (v *Verifier) mfaEnrollmentExemptPath(method, path string) bool {
 	if method != http.MethodGet && method != http.MethodPost && method != http.MethodDelete {
 		return false
 	}
+	if len(v.mfaEnrollmentExemptPaths) == 0 {
+		return false
+	}
 	path = strings.TrimRight(path, "/")
-	for _, suffix := range []string{"/user/2fa", "/user/2fa/backup-codes", "/2fa/challenge", "/2fa/verify"} {
+	for suffix := range v.mfaEnrollmentExemptPaths {
 		if path == suffix || strings.HasSuffix(path, suffix) {
 			return true
 		}

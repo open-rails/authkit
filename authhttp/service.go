@@ -14,6 +14,7 @@ import (
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/open-rails/authkit/oidckit"
+	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -23,7 +24,8 @@ type Service struct {
 	verifier            *verify.Verifier
 	rd                  *redis.Client
 	rl                  RateLimiter
-	rlExplicit          bool // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
+	rlExplicit          bool                       // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
+	rlOverrides         map[string]ratelimit.Limit // WithRateLimitOverrides: merged onto DefaultRateLimits (#242)
 	clientIP            ClientIPFunc
 	trustedProxyErr     error // deferred WithTrustedProxies CIDR parse error, surfaced by NewServer
 	authProvidersByName map[string]authprovider.Provider

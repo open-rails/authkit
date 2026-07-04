@@ -55,19 +55,9 @@ func (c *Client) ApplyBootstrapManifest(ctx context.Context, manifest authkit.Bo
 	return out, err
 }
 
-func (c *Client) AssignGroupRole(ctx context.Context, persona string, instanceSlug string, subjectID string, subjectKind string, role string) error {
-	args := map[string]any{"persona": persona, "instanceSlug": instanceSlug, "subjectID": subjectID, "subjectKind": subjectKind, "role": role}
-	return c.call(ctx, "AssignGroupRole", args, nil)
-}
-
 func (c *Client) AssignGroupRoleAs(ctx context.Context, actorUserID string, persona string, instanceSlug string, subjectID string, subjectKind string, role string) error {
 	args := map[string]any{"actorUserID": actorUserID, "persona": persona, "instanceSlug": instanceSlug, "subjectID": subjectID, "subjectKind": subjectKind, "role": role}
 	return c.call(ctx, "AssignGroupRoleAs", args, nil)
-}
-
-func (c *Client) AssignRoleBySlug(ctx context.Context, userID string, slug string) error {
-	args := map[string]any{"userID": userID, "slug": slug}
-	return c.call(ctx, "AssignRoleBySlug", args, nil)
 }
 
 func (c *Client) AssignRoleBySlugAs(ctx context.Context, actorUserID string, userID string, slug string) error {
@@ -401,11 +391,6 @@ func (c *Client) RedeemGroupInviteLink(ctx context.Context, code string, redeeme
 func (c *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID string, persona string, instanceSlug string, subjectID string, subjectKind string) error {
 	args := map[string]any{"actorUserID": actorUserID, "persona": persona, "instanceSlug": instanceSlug, "subjectID": subjectID, "subjectKind": subjectKind}
 	return c.call(ctx, "RemoveGroupSubjectAs", args, nil)
-}
-
-func (c *Client) RemoveRoleBySlug(ctx context.Context, userID string, slug string) error {
-	args := map[string]any{"userID": userID, "slug": slug}
-	return c.call(ctx, "RemoveRoleBySlug", args, nil)
 }
 
 func (c *Client) RemoveRoleBySlugAs(ctx context.Context, actorUserID string, userID string, slug string) error {
