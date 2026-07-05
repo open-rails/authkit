@@ -352,7 +352,16 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
   `Required`/`Optional` middleware (#209).
 - **`twilio` (email/sms)**: `Sender`, `New`, `Config`, and the builder func types.
 - **`riverjobs`**: `PurgeDeletedUsersWorker`/`Args`, `RegisterPurgeDeletedUsersWorker`,
-  `AddPurgeDeletedUsersPeriodicJob`, `BeforeUserHardDeleteFunc`.
+  `AddPurgeDeletedUsersPeriodicJob`, `BeforeUserHardDeleteFunc`, `DefaultQueue` (#246).
+  (#246 BREAKING: the job no longer inserts onto `river.QueueDefault` — it inserts onto
+  `DefaultQueue = "authkit"` unless the new `PurgeDeletedUsersArgs.Queue` field overrides
+  it. The queue name a River job inserts onto is a covered operational default: River
+  fetches jobs by queue name only, so a client polling a queue it has no worker for burns
+  a failed attempt, and a client that doesn't poll a job's queue never works it at all.
+  Pinning to the shared `default` queue poisoned any host that also ran its own jobs
+  there. Every host embedding `RegisterPurgeDeletedUsersWorker` MUST add `DefaultQueue`
+  (or its own `Args.Queue` override) to its `river.Config.Queues` map at the next bump, or
+  the periodic purge job silently stops being worked.)
 
 ### 4.5 `authhttp` re-exports & server surface
 
