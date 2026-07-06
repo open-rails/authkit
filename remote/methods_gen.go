@@ -420,9 +420,9 @@ func (c *Client) ResolveRemoteAppAttributeDef(ctx context.Context, appID string,
 	return out, err
 }
 
-func (c *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error) {
+func (c *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error) {
 	args := map[string]any{"appID": appID}
-	var out []string
+	var out authkit.RemoteApplicationAuthority
 	err := c.call(ctx, "ResolveRemoteApplicationAuthority", args, &out)
 	return out, err
 }

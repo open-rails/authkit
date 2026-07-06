@@ -48,13 +48,13 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 		t.Fatalf("remote_application should hold owner role, got %+v", roles)
 	}
 
-	perms, err := svc.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 	if err != nil {
 		t.Fatalf("resolve remote_application authority: %v", err)
 	}
 	// owner of the root persona holds the namespace-pure apex grant root:*.
-	if !containsString(perms, OwnerGrant(RootPersona)) {
-		t.Fatalf("owner role should confer %q; got perms=%v", OwnerGrant(RootPersona), perms)
+	if !containsString(authority.Permissions, OwnerGrant(RootPersona)) {
+		t.Fatalf("owner role should confer %q; got perms=%v", OwnerGrant(RootPersona), authority.Permissions)
 	}
 }
 

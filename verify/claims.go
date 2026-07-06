@@ -90,6 +90,16 @@ type Claims struct {
 	// carry its STORED, assigned authority.
 	RemoteApplicationID   string
 	RemoteApplicationSlug string
+
+	// PermissionGroupPersona / PermissionGroupInstance bind a machine principal's
+	// token-carried Permissions to the permission-group INSTANCE it was minted on
+	// (#248). Populated server-side for API-key and remote-application principals;
+	// empty for user and delegated tokens (delegated authorization is issuer-trust
+	// + permissions by contract — the receiving service's model). Instance is ""
+	// for singleton personas (root). v1 is EXACT-match binding only:
+	// descendant/walk-down authority is deliberately deferred.
+	PermissionGroupPersona  string
+	PermissionGroupInstance string
 }
 
 // APIKeyPrincipalType is the TokenType value carried by an opaque API key: a
@@ -246,6 +256,26 @@ func (c Claims) AttributeReference(key string) (ref string, ok bool) {
 func (c Claims) AttributeIsReference(key string) bool {
 	_, ok := c.AttributeReference(key)
 	return ok
+}
+
+// BoundToPermissionGroup reports whether these claims carry an owning
+// permission-group binding (#248) — true for machine principals (API keys,
+// remote-application access tokens) whose authority was resolved server-side
+// from a specific group instance; false for user and delegated tokens.
+func (c Claims) BoundToPermissionGroup() bool {
+	return strings.TrimSpace(c.PermissionGroupPersona) != ""
+}
+
+// PermissionGroupAllows reports whether token-carried permissions may be
+// exercised in the (persona, instance) scope (#248): unbound claims are
+// unrestricted (issuer-trust + permissions is the delegated model); bound
+// claims require an EXACT instance match — descendant/walk-down authority is
+// deliberately deferred.
+func (c Claims) PermissionGroupAllows(persona, instance string) bool {
+	if !c.BoundToPermissionGroup() {
+		return true
+	}
+	return c.PermissionGroupPersona == persona && c.PermissionGroupInstance == instance
 }
 
 // HasPermission reports whether the claims carry a permission token covering

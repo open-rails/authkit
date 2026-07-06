@@ -343,11 +343,11 @@ func (e *ceilingEnricher) GetRemoteApplication(_ context.Context, issuer string)
 	return nil, errors.New("not_found")
 }
 
-func (e *ceilingEnricher) ResolveRemoteApplicationAuthority(_ context.Context, appID string) ([]string, error) {
+func (e *ceilingEnricher) ResolveRemoteApplicationAuthority(_ context.Context, appID string) (authkit.RemoteApplicationAuthority, error) {
 	if appID == e.appID {
-		return e.authority, nil
+		return authkit.RemoteApplicationAuthority{Permissions: e.authority}, nil
 	}
-	return []string{}, nil
+	return authkit.RemoteApplicationAuthority{Permissions: []string{}}, nil
 }
 
 func (e *ceilingEnricher) ResolveAPIKeyDetailed(context.Context, string, string) (authkit.ResolvedAPIKey, error) {

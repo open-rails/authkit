@@ -328,21 +328,22 @@ func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret strin
 	}
 	q := db.ForSchema(s.pg, s.dbSchema())
 	var (
-		id         string
-		secretHash []byte
-		role       string
-		expiresAt  *time.Time
-		revokedAt  *time.Time
-		groupID    string
-		persona    string
+		id           string
+		secretHash   []byte
+		role         string
+		expiresAt    *time.Time
+		revokedAt    *time.Time
+		groupID      string
+		persona      string
+		instanceSlug string
 	)
 	err := q.QueryRow(ctx,
 		`SELECT t.id::text, t.secret_hash, t.role, t.expires_at, t.revoked_at,
-		        pg.id::text, pg.persona
+		        pg.id::text, pg.persona, COALESCE(pg.instance_slug, '')
 		 FROM profiles.api_keys t
 		 JOIN profiles.permission_groups pg ON pg.id = t.permission_group_id
 		 WHERE t.key_id = $1`, keyID).
-		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona)
+		Scan(&id, &secretHash, &role, &expiresAt, &revokedAt, &groupID, &persona, &instanceSlug)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ResolvedAPIKey{}, ErrInvalidAccessToken
@@ -374,6 +375,8 @@ func (s *Service) ResolveAPIKeyDetailed(ctx context.Context, keyID, secret strin
 		APIKeyID:          id,
 		KeyID:             keyID,
 		PermissionGroupID: groupID,
+		Persona:           persona,
+		InstanceSlug:      instanceSlug,
 		Role:              role,
 		Permissions:       gotPerms,
 	}, nil

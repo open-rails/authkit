@@ -97,6 +97,73 @@ func TestRequirePermission_NilChecker_Forbidden(t *testing.T) {
 	}
 }
 
+// #248: a group-bound machine principal's token-carried authority is valid
+// ONLY on the exact permission-group instance it was minted on.
+func TestRequirePermission_GroupBoundPrincipal(t *testing.T) {
+	bound := Claims{
+		TokenType:               APIKeyPrincipalType,
+		Permissions:             []string{"repo:models:deploy"},
+		PermissionGroupPersona:  "repo",
+		PermissionGroupInstance: "alpha",
+	}
+	scopeOf := func(inst string) func(*http.Request) PermissionScope {
+		return func(*http.Request) PermissionScope { return PermissionScope{Persona: "repo", Instance: inst} }
+	}
+
+	// Matching instance allows without consulting the checker.
+	chk := &fakeChecker{allow: false}
+	code, next := serveGate(RequirePermission(chk, "repo:models:deploy", scopeOf("alpha")), reqWithClaims(bound))
+	if !next || code != http.StatusOK {
+		t.Fatalf("matching instance: code=%d next=%v", code, next)
+	}
+	if chk.called {
+		t.Fatal("checker must not be consulted for a bound token-carried allow")
+	}
+
+	// Cross-instance is denied even though the perm string matches.
+	code, next = serveGate(RequirePermission(&fakeChecker{allow: true}, "repo:models:deploy", scopeOf("beta")), reqWithClaims(bound))
+	if next || code != http.StatusForbidden {
+		t.Fatalf("cross-instance must 403: code=%d next=%v", code, next)
+	}
+
+	// Fail-closed: a bound principal with no resolvable scope is denied.
+	code, next = serveGate(RequirePermission(&fakeChecker{allow: true}, "repo:models:deploy", nil), reqWithClaims(bound))
+	if next || code != http.StatusForbidden {
+		t.Fatalf("nil resolver must 403 a bound principal: code=%d next=%v", code, next)
+	}
+
+	// Wrong persona at the same instance slug is denied.
+	orgScope := func(*http.Request) PermissionScope { return PermissionScope{Persona: "org", Instance: "alpha"} }
+	code, next = serveGate(RequirePermission(&fakeChecker{}, "repo:models:deploy", orgScope), reqWithClaims(bound))
+	if next || code != http.StatusForbidden {
+		t.Fatalf("persona mismatch must 403: code=%d next=%v", code, next)
+	}
+}
+
+func TestAllow_GroupBoundPrincipal(t *testing.T) {
+	ctx := context.Background()
+	bound := Claims{
+		TokenType:               RemoteApplicationTokenType,
+		Permissions:             []string{"repo:*"},
+		PermissionGroupPersona:  "repo",
+		PermissionGroupInstance: "alpha",
+	}
+	if ok, err := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{Persona: "repo", Instance: "alpha"}); err != nil || !ok {
+		t.Fatalf("exact scope must allow: ok=%v err=%v", ok, err)
+	}
+	if ok, _ := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{Persona: "repo", Instance: "beta"}); ok {
+		t.Fatal("cross-instance must deny")
+	}
+	if ok, _ := Allow(ctx, nil, bound, "repo:models:deploy", PermissionScope{}); ok {
+		t.Fatal("empty scope must deny a bound principal")
+	}
+	// Unbound claims (delegated model) stay unrestricted by scope.
+	unbound := Claims{Permissions: []string{"repo:models:deploy"}}
+	if ok, _ := Allow(ctx, nil, unbound, "repo:models:deploy", PermissionScope{Persona: "repo", Instance: "beta"}); !ok {
+		t.Fatal("unbound token-carried perm must remain scope-free")
+	}
+}
+
 func TestAllow(t *testing.T) {
 	ctx := context.Background()
 

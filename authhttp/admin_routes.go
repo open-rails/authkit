@@ -49,7 +49,10 @@ func adminUserListOptionsFromQuery(r *http.Request) authkit.AdminUserListOptions
 //   - user JWT: resolved through the permission-group (svc.Can, walking the
 //     parent chain to root and unioning assignments);
 //   - api-key / service, delegated, and remote-application principals: resolved
-//     through their verified permission ceiling (claims.HasPermission).
+//     through their verified permission ceiling (claims.HasPermission); a
+//     GROUP-BOUND machine principal (#248) must additionally match the gated
+//     (persona, instanceSlug) exactly — its authority is valid only on the
+//     group instance it was minted on.
 //
 // There is deliberately NO special "admin" authorization tier: admin authority
 // over the user directory is simply the `root:users:*` permissions on the root
@@ -64,7 +67,7 @@ func (s *Service) requirePermission(persona, instanceSlug, perm string, next htt
 		}
 		switch {
 		case claims.PrincipalKind() != authkit.PrincipalKindUser:
-			if claims.HasPermission(perm) {
+			if claims.HasPermission(perm) && claims.PermissionGroupAllows(persona, instanceSlug) {
 				next.ServeHTTP(w, r)
 				return
 			}
