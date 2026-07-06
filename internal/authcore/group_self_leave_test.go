@@ -68,7 +68,7 @@ func TestLeaveGroupAndLastOwnerGuard_DB(t *testing.T) {
 	for _, s := range []struct{ id, role string }{
 		{owner1, OwnerRoleName}, {owner2, OwnerRoleName}, {viewer, "viewer"},
 	} {
-		if err := svc.AssignGroupRole(ctx, RootPersona, "", s.id, SubjectKindUser, s.role); err != nil {
+		if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", s.id, SubjectKindUser, s.role); err != nil {
 			t.Fatalf("seed %s: %v", s.role, err)
 		}
 	}

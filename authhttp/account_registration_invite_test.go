@@ -17,7 +17,7 @@ func createAccountInvite(t *testing.T, srv *Service, pool *pgxpool.Pool, email s
 	require.NoError(t, err)
 	inviter, err := srv.svc.CreateUser(ctx, uniqueEmail("account-inviter"), "accountinviter"+uniqueSuffix())
 	require.NoError(t, err)
-	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", inviter.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
+	require.NoError(t, srv.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", inviter.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
 	invite, err := srv.svc.CreateAccountRegistrationInvite(ctx, authkit.CreateAccountRegistrationInviteRequest{
 		Email:     email,
 		InvitedBy: inviter.ID,

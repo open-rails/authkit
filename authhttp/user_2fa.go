@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"github.com/open-rails/authkit/verify"
 	"math/big"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 )
 
@@ -256,6 +258,10 @@ func (s *Service) handleUser2FADELETE(w http.ResponseWriter, r *http.Request) {
 		removed, err = s.svc.Disable2FAFactorWithRemovedRoles(r.Context(), claims.UserID, factorID)
 	}
 	if err != nil {
+		if errors.Is(err, authkit.ErrCannotRemoveLastAdminRole) {
+			sendErr(w, http.StatusConflict, ErrCannotRemoveLastOwner)
+			return
+		}
 		serverErr(w, ErrDisableTwoFAFailed)
 		return
 	}

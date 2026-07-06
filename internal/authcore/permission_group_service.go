@@ -179,8 +179,23 @@ func (s *Service) validRoleForPersona(sch *GroupSchema, persona, role string) bo
 
 // AssignGroupRole grants a subject a role in the group addressed by (persona,
 // instanceSlug). The role must be a catalog role (or any role for custom-enabled
-// types).
+// types). Gated by the MFA-required-role rule (#148/root-owner-MFA); genesis
+// callers that must run before any policy can apply use AssignGroupRoleGenesis.
 func (s *Service) AssignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string) error {
+	return s.assignGroupRole(ctx, persona, instanceSlug, subjectID, subjectKind, role, true)
+}
+
+// AssignGroupRoleGenesis grants a role with NEITHER actor-authz (#136) NOR the
+// MFA-required-role gate (#148/root-owner-MFA). Reserved for genesis/bootstrap
+// callers (GenesisClient, the bootstrap manifest) — the deploy-time trust root
+// that runs before any actor-authorized request path (or any chance to enroll
+// MFA) exists, so no runtime policy can apply yet. Never call this from a
+// runtime request handler; use AssignGroupRole or AssignGroupRoleAs there.
+func (s *Service) AssignGroupRoleGenesis(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string) error {
+	return s.assignGroupRole(ctx, persona, instanceSlug, subjectID, subjectKind, role, false)
+}
+
+func (s *Service) assignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string, checkMFA bool) error {
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, persona, role) {
 		return fmt.Errorf("role %q is not assignable in a %q group", role, persona)
@@ -190,8 +205,10 @@ func (s *Service) AssignGroupRole(ctx context.Context, persona, instanceSlug, su
 	if err != nil {
 		return err
 	}
-	if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), persona, subjectID, subjectKind, role); err != nil {
-		return err
+	if checkMFA {
+		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), persona, subjectID, subjectKind, role); err != nil {
+			return err
+		}
 	}
 	return st.AssignRole(ctx, gid, subjectID, subjectKind, role)
 }

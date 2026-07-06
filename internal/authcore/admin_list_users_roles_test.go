@@ -35,7 +35,7 @@ func TestAdminListUsers_RoleEnrichmentParity(t *testing.T) {
 	}
 	withOwner, withViewer, noRole := mk("owner"), mk("viewer"), mk("norole")
 
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", withOwner, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", withOwner, SubjectKindUser, OwnerRoleName); err != nil {
 		t.Fatalf("assign owner: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", withViewer, SubjectKindUser, "viewer"); err != nil {
