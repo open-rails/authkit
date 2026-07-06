@@ -87,7 +87,7 @@ func (s *Service) requireSessionMFAState(ctx context.Context, userID string, aut
 		return nil
 	}
 	status, err := s.MFAStatus(ctx, userID)
-	return s.requireSessionMFAStateWith(authMethods, status, err)
+	return s.requireSessionMFAStateWith(ctx, userID, authMethods, status, err)
 }
 
 // requireSessionMFAStateWith applies the session MFA gate using an ALREADY-COMPUTED
@@ -96,7 +96,7 @@ func (s *Service) requireSessionMFAState(ctx context.Context, userID string, aut
 // recompute it. Behaviour matches requireSessionMFAState exactly: statusErr is only
 // consulted once 2FA is enabled (when 2FA is globally Disabled the gate short-circuits
 // and never looks at MFA state, so a lookup error there is intentionally ignored).
-func (s *Service) requireSessionMFAStateWith(authMethods []string, status MFAStatus, statusErr error) error {
+func (s *Service) requireSessionMFAStateWith(ctx context.Context, userID string, authMethods []string, status MFAStatus, statusErr error) error {
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
@@ -107,6 +107,24 @@ func (s *Service) requireSessionMFAStateWith(authMethods []string, status MFASta
 		// Global policy: when 2FA enrollment is mandatory, a user without usable
 		// 2FA cannot establish or refresh a session — they must enroll first.
 		if s.requireMFAEnrollment() {
+			return ErrTwoFAEnrollmentRequired
+		}
+		// #249 follow-up: Mode==Optional otherwise lets an unenrolled user
+		// through — EXCEPT a user holding a role whose RoleDef.RequiresMFA is
+		// true. That combination arises when a role was assigned while
+		// Mode==Disabled (requireMFAForRoleAssignment short-circuits there so
+		// bootstrap can't brick itself) and the host later re-enables 2FA,
+		// leaving an MFA-required role holder with no enrollment and no gate
+		// to catch it. Reached only here — not enrolled, and Mode isn't
+		// already Required — so an enrolled user or a Required deployment
+		// never pays for the extra query.
+		holds, err := s.userHoldsMFARequiredRole(ctx, db.ForSchema(s.pg, s.dbSchema()), userID)
+		if err != nil {
+			// Fail closed: a role-lookup error denies session establishment,
+			// it does not silently skip the check.
+			return err
+		}
+		if holds {
 			return ErrTwoFAEnrollmentRequired
 		}
 		return nil
@@ -134,6 +152,49 @@ func (s *Service) roleRequiresMFA(ctx context.Context, q db.DBTX, gid, persona, 
 	}
 	_, requiresMFA, err := NewPermissionGroupStore(q).CustomRole(ctx, gid, role)
 	return requiresMFA, err
+}
+
+// userHoldsMFARequiredRole reports whether userID currently holds at least one
+// role, in any permission group, that requires MFA — a catalog role with
+// RoleDef.RequiresMFA or a custom role with requires_mfa (#247). Used only by
+// requireSessionMFAStateWith (login/refresh session establishment) — never
+// per-request middleware — since it hits the database.
+func (s *Service) userHoldsMFARequiredRole(ctx context.Context, q db.DBTX, userID string) (bool, error) {
+	rows, err := q.Query(ctx,
+		`SELECT a.permission_group_id::text, g.persona, a.role
+		   FROM profiles.group_user_roles a
+		   JOIN profiles.permission_groups g ON g.id = a.permission_group_id
+		  WHERE a.user_id = $1::uuid
+		    AND a.deleted_at IS NULL`,
+		userID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	// Collect first: roleRequiresMFA may itself query q (custom roles), which
+	// cannot run while rows is open on a single-connection DBTX.
+	type assignment struct{ gid, persona, role string }
+	var assignments []assignment
+	for rows.Next() {
+		var a assignment
+		if err := rows.Scan(&a.gid, &a.persona, &a.role); err != nil {
+			return false, err
+		}
+		assignments = append(assignments, a)
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	for _, a := range assignments {
+		requires, err := s.roleRequiresMFA(ctx, q, a.gid, a.persona, a.role)
+		if err != nil {
+			return false, err
+		}
+		if requires {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid, persona, subjectID, subjectKind, role string) error {
