@@ -129,9 +129,10 @@ func TestAdminUsersListHTTP_GenericDirectory(t *testing.T) {
 	idC := mk("ccc")
 	idD := mk("ddd")
 
-	// Root owner assignment for A + B.
-	require.NoError(t, s.svc.AssignGroupRole(ctx, embedded.RootPersona, "", idA, embedded.SubjectKindUser, roleSlug))
-	require.NoError(t, s.svc.AssignGroupRole(ctx, embedded.RootPersona, "", idB, embedded.SubjectKindUser, roleSlug))
+	// Root owner assignment for A + B (genesis seeding — fixture setup, not an
+	// MFA-enrollment scenario under test).
+	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", idA, embedded.SubjectKindUser, roleSlug))
+	require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", idB, embedded.SubjectKindUser, roleSlug))
 
 	// Ban D (so status filters can distinguish it).
 	banUntil := time.Now().UTC().Add(time.Hour)
@@ -325,7 +326,7 @@ func createAdminTestUser(t *testing.T, s *Service, ctx context.Context, username
 	u, err := s.svc.CreateUser(ctx, username+"@test.example", username)
 	require.NoError(t, err)
 	if admin {
-		require.NoError(t, s.svc.AssignGroupRole(ctx, embedded.RootPersona, "", u.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
+		require.NoError(t, s.svc.AssignGroupRoleGenesis(ctx, embedded.RootPersona, "", u.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
 	}
 	return u.ID
 }

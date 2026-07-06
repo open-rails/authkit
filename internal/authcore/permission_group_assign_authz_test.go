@@ -94,8 +94,13 @@ func TestAssignRoleBySlugAs_NoEscalation_DB(t *testing.T) {
 	owner, adminU, memberMgr, roleMgr, target := mk("owner"), mk("admin"), mk("membermgr"), mk("rolemgr"), mk("target")
 
 	// Genesis: seed the owner via the unchecked path.
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", owner, SubjectKindUser, OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
+	}
+	// target later receives "owner" through the actor-checked (still MFA-gated)
+	// AssignRoleBySlugAs path below, so it needs MFA enrolled first.
+	if _, err := svc.Enable2FA(ctx, target, "email", nil); err != nil {
+		t.Fatalf("enroll target 2FA: %v", err)
 	}
 
 	// owner (root:*) may grant admin and member-manager (both ⊆ root:*).

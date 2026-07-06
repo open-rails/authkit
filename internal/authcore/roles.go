@@ -96,8 +96,8 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 }
 
 // assignRoleBySlug grants a user a role in the root permission-group (#111).
-// The unchecked path is for genesis/bootstrap/migration; runtime callers use the
-// actor-aware AssignRoleBySlugAs path.
+// The unchecked (no actor-authz, no MFA gate) path is for genesis/bootstrap/
+// migration; runtime callers use the actor-aware AssignRoleBySlugAs path.
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
 	if s.pg == nil {
 		return nil
@@ -106,7 +106,7 @@ func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) err
 		return err
 	}
 	role := normalizeRootRoleSlug(slug)
-	return s.AssignGroupRole(ctx, RootPersona, "", strings.TrimSpace(userID), SubjectKindUser, role)
+	return s.AssignGroupRoleGenesis(ctx, RootPersona, "", strings.TrimSpace(userID), SubjectKindUser, role)
 }
 
 // upsertRoleBySlug is a no-op under the permission-group model: catalog roles

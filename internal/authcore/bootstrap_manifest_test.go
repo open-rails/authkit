@@ -352,7 +352,7 @@ func TestApplyBootstrapManifestOwnerSeedIfAbsentRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create existing owner: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", existing.ID, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", existing.ID, SubjectKindUser, OwnerRoleName); err != nil {
 		t.Fatalf("seed existing owner: %v", err)
 	}
 

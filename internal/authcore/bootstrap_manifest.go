@@ -269,16 +269,18 @@ func (s *Service) rootGroupHasOwner(ctx context.Context) (bool, error) {
 
 // seedBootstrapRootRole seeds one root role for a genesis (manifest) user.
 // "owner" — the apex (root:*) — is SEED-IF-ABSENT and goes through the genesis
-// path (AssignGroupRole) that bypasses the runtime owner-reserved guard; any
-// other declared root role is assigned directly. Genesis seeding is the
-// deploy-time trust root and intentionally bypasses the #136 runtime
-// capability/no-escalation rules.
+// path (AssignGroupRoleGenesis) that bypasses both the runtime owner-reserved
+// guard (#136) and the MFA-required-role gate (#148/root-owner-MFA) — a
+// manifest-seeded user has no session to have enrolled MFA with, so bootstrap
+// must never brick on it; any other declared root role is assigned the same
+// way via AssignRoleBySlug. Genesis seeding is the deploy-time trust root and
+// intentionally bypasses these runtime rules.
 func (s *Service) seedBootstrapRootRole(ctx context.Context, userID, slug string, rootHasOwner bool) error {
 	if strings.EqualFold(slug, OwnerRoleName) {
 		if rootHasOwner {
 			return nil // break-glass: owners already exist; don't fight runtime
 		}
-		return s.AssignGroupRole(ctx, RootPersona, "", userID, SubjectKindUser, OwnerRoleName)
+		return s.AssignGroupRoleGenesis(ctx, RootPersona, "", userID, SubjectKindUser, OwnerRoleName)
 	}
 	return s.AssignRoleBySlug(ctx, userID, slug)
 }

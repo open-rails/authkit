@@ -248,7 +248,13 @@ func normalizePersona(t PersonaDef) (PersonaDef, error) {
 			return t, fmt.Errorf("group persona %q: the %q role must hold exactly [%q]", t.Name, OwnerRoleName, want)
 		}
 	} else {
-		add(RoleDef{Name: OwnerRoleName, Permissions: []string{want}})
+		// The ROOT persona's injected owner defaults to MFA-required: the apex
+		// `root:*` role must never be the one role that forgot 2FA. Non-root
+		// personas' injected owners are unaffected. A host that explicitly
+		// declares the root owner role (the branch above) keeps whatever
+		// RequiresMFA it set — explicit wins over this default. Inert when the
+		// deployment has 2FA disabled (see requireMFAForRoleAssignment).
+		add(RoleDef{Name: OwnerRoleName, Permissions: []string{want}, RequiresMFA: t.Name == RootPersona})
 	}
 
 	eff := t

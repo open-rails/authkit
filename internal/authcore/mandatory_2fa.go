@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"errors"
+	"fmt"
 	authkit "github.com/open-rails/authkit"
 	"strings"
 	"time"
@@ -122,6 +123,12 @@ func (s *Service) roleRequiresMFA(persona, role string) bool {
 }
 
 func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, persona, subjectID, subjectKind, role string) error {
+	// #148/root-owner-MFA: RequiresMFA is inert when the deployment has no usable
+	// 2FA (Mode == Disabled) — a fresh deployment must still be able to seed/assign
+	// its root owner. Mirrors requireSessionMFAState's gate.
+	if !s.TwoFactorEnabled() {
+		return nil
+	}
 	if strings.TrimSpace(subjectKind) != SubjectKindUser || !s.roleRequiresMFA(persona, role) {
 		return nil
 	}
@@ -155,6 +162,13 @@ func userHasEnabledMFA(ctx context.Context, q db.DBTX, userID string) (bool, err
 	return hasFactor, nil
 }
 
+// removeMFARequiredUserRoles strips a user's MFA-required role assignments when
+// THEY disable their own 2FA. This is a user decision, not app-level
+// enforcement — unlike requireMFAForRoleAssignment (which the host's TwoFactor
+// Mode gates), this runs regardless of Mode: holding a role that requires MFA
+// without MFA enrolled is inconsistent independent of whether the app is
+// currently enforcing it, and application-mode toggles must never themselves
+// mutate role/2FA state (only gate checks).
 func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, userID string) ([]RemovedMFARoleAssignment, error) {
 	rows, err := q.Query(ctx,
 		`SELECT a.permission_group_id::text, g.persona, COALESCE(g.instance_slug, ''), a.role
@@ -182,6 +196,25 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+
+	// Never orphan a group: refuse the whole disable outright if it would strip
+	// the owner role from a group's LAST owner, rather than silently keeping the
+	// role (2FA stays on) or silently stripping it (group left ownerless). The
+	// caller must add another owner before disabling their own 2FA.
+	st := NewPermissionGroupStore(q)
+	for _, r := range removals {
+		if r.Role != OwnerRoleName {
+			continue
+		}
+		n, err := st.OwnerCount(ctx, r.PermissionGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if n <= 1 {
+			return nil, fmt.Errorf("disable 2fa: sole owner of %s group: %w", r.Persona, ErrCannotRemoveLastAdminRole)
+		}
+	}
+
 	for _, r := range removals {
 		if _, err := q.Exec(ctx,
 			`UPDATE profiles.group_user_roles

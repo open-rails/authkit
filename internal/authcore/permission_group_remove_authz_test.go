@@ -42,16 +42,16 @@ func TestRemoveGroupSubjectAs_NoEscalation_DB(t *testing.T) {
 	owner, memberMgr, roleMgr, ownerTarget, weakTarget := mk("owner"), mk("membermgr"), mk("rolemgr"), mk("ownertgt"), mk("weaktgt")
 
 	// Genesis seeding via the unchecked path.
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", owner, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", owner, SubjectKindUser, OwnerRoleName); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", memberMgr, SubjectKindUser, "member-manager"); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", memberMgr, SubjectKindUser, "member-manager"); err != nil {
 		t.Fatalf("seed member-manager: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", roleMgr, SubjectKindUser, "role-manager"); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", roleMgr, SubjectKindUser, "role-manager"); err != nil {
 		t.Fatalf("seed role-manager: %v", err)
 	}
-	if err := svc.AssignGroupRole(ctx, RootPersona, "", ownerTarget, SubjectKindUser, OwnerRoleName); err != nil {
+	if err := svc.AssignGroupRoleGenesis(ctx, RootPersona, "", ownerTarget, SubjectKindUser, OwnerRoleName); err != nil {
 		t.Fatalf("seed owner target: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", weakTarget, SubjectKindUser, "admin"); err != nil {

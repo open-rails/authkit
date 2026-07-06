@@ -131,6 +131,41 @@ func TestNewGroupSchema_SeedsOwnerOnly(t *testing.T) {
 	}
 }
 
+// The injected root owner defaults to RequiresMFA; injected owners of every
+// other persona are unaffected.
+func TestNewGroupSchema_RootOwnerRequiresMFAByDefault(t *testing.T) {
+	s := tensorhubSchema(t)
+
+	root, ok := s.Role(RootPersona, OwnerRoleName)
+	if !ok || !root.RequiresMFA {
+		t.Fatalf("root owner RequiresMFA = %v, want true", root.RequiresMFA)
+	}
+	for _, persona := range []string{"org", "repo"} {
+		r, ok := s.Role(persona, OwnerRoleName)
+		if !ok || r.RequiresMFA {
+			t.Errorf("persona %q owner RequiresMFA = %v, want false", persona, r.RequiresMFA)
+		}
+	}
+}
+
+// A host that explicitly declares the root owner role keeps whatever
+// RequiresMFA it set — explicit wins over the injected default.
+func TestNewGroupSchema_ExplicitRootOwnerOverridesMFADefault(t *testing.T) {
+	s, err := NewGroupSchema(PersonaDef{
+		Name: RootPersona,
+		Roles: []RoleDef{
+			{Name: OwnerRoleName, Permissions: []string{OwnerGrant(RootPersona)}, RequiresMFA: false},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewGroupSchema: %v", err)
+	}
+	r, ok := s.Role(RootPersona, OwnerRoleName)
+	if !ok || r.RequiresMFA {
+		t.Fatalf("explicit root owner RequiresMFA = %v, want false (explicit wins)", r.RequiresMFA)
+	}
+}
+
 func TestNewGroupSchema_Rejections(t *testing.T) {
 	cases := []struct {
 		name  string
