@@ -68,7 +68,7 @@ type Config struct {
 type TokenConfig struct {
 	Issuer               string
 	IssuedAudiences      []string // tokens issued will contain ALL of these audiences
-	ExpectedAudiences    []string
+	ExpectedAudiences    []string // audiences accepted at verification; empty defaults to IssuedAudiences
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 	// SessionMaxPerUser caps concurrent refresh sessions per user. 0 (unset)

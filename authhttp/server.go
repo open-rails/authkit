@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/open-rails/authkit/verify"
@@ -17,7 +18,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Server is the exported, recommended name for the net/http mounting wrapper
 // Option configures a Service at construction. Options are applied INSIDE
 // NewServer, before the core service is built, so a half-built Service is never
 // observable. This is the ONLY way to wire optional dependencies — the chainable
@@ -52,6 +52,9 @@ type Option func(*Service)
 func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	if client == nil || client.Postgres() == nil {
 		return nil, errors.New("authkit: authhttp.NewServer requires a Postgres-backed *embedded.Client (Postgres is mandatory)")
+	}
+	if err := probeMigrations(client); err != nil {
+		return nil, err
 	}
 	coreSvc := embedded.Unwrap(client)
 	cfg := coreSvc.Config()
@@ -129,6 +132,25 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// probeMigrations fails fast at construction when AuthKit's migrations were
+// never run — a definitive "users table missing" beats a cryptic mid-request
+// `relation "profiles.users" does not exist`. Fail-open on probe errors
+// (connectivity, permissions): those surface elsewhere; only a definitive
+// "table missing" fails construction.
+func probeMigrations(client *embedded.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var exists bool
+	err := client.Postgres().QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'users')`,
+		client.Schema(),
+	).Scan(&exists)
+	if err != nil || exists {
+		return nil
+	}
+	return fmt.Errorf("authkit: schema %q has no users table — run AuthKit's migrations before constructing the server (see migrations/postgres; for a non-default schema use migrations/postgres.FSForSchema)", client.Schema())
 }
 
 // validate enforces the CONDITIONAL dependency requirements for the configured

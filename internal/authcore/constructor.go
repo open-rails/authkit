@@ -60,6 +60,11 @@ func normalizeConfig(cfg Config) (Config, error) {
 		return Config{}, err
 	}
 
+	// Empty ExpectedAudiences defaults to IssuedAudiences (copied, not aliased).
+	if len(cfg.Token.ExpectedAudiences) == 0 && len(cfg.Token.IssuedAudiences) > 0 {
+		cfg.Token.ExpectedAudiences = append([]string(nil), cfg.Token.IssuedAudiences...)
+	}
+
 	// 0 (unset) => default 3; negative => unlimited (session code treats <=0 as no cap).
 	if cfg.Token.SessionMaxPerUser == 0 {
 		cfg.Token.SessionMaxPerUser = 3
@@ -207,9 +212,6 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	}
 	if len(norm.Token.IssuedAudiences) == 0 {
 		return nil, fmt.Errorf("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
-	}
-	if len(norm.Token.ExpectedAudiences) == 0 {
-		return nil, fmt.Errorf("authkit: ExpectedAudiences is required (e.g., []string{\"myapp\"})")
 	}
 
 	// #232: TOTP secret-encryption key — explicit override (validated) or

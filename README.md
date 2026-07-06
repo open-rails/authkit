@@ -12,12 +12,12 @@ package main
 import (
 	"context"
 	"net/http"
-	"net/netip"
 	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/open-rails/authkit"
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
@@ -26,20 +26,15 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
+func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	ctx := context.Background()
 
 	pg, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	// Trust only infrastructure that overwrites/appends forwarded headers.
-	trustedProxies := []netip.Prefix{
-		netip.MustParsePrefix("10.0.0.0/8"),
-		netip.MustParsePrefix("172.16.0.0/12"),
-		netip.MustParsePrefix("192.168.0.0/16"),
-	}
+	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR")})
+	var mailer embedded.EmailSender // host-provided implementation
 
 	cfg := embedded.Config{
 		Token: embedded.TokenConfig{
@@ -145,18 +140,20 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 		SolanaNetwork: "mainnet",
 	}
 
-	client, err := embedded.New(cfg, pg)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	srv := authhttp.NewServer(client,
-		authhttp.WithTrustedProxies(trustedProxies),
+	// One call builds the embedded engine AND the HTTP transport over it.
+	// Engine dependencies (Redis, senders, entitlements, …) ride in via WithEngine.
+	srv, client, err := authhttp.New(cfg, pg,
+		authhttp.WithEngine(embedded.WithRedis(rdb), embedded.WithEmailSender(mailer)),
+		// Trust only infrastructure that overwrites/appends forwarded headers.
+		authhttp.WithTrustedProxies("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"),
 		authhttp.WithLanguageConfig(authhttp.LanguageConfig{
 			Supported: []string{"en", "es"},
 			Default:   "en",
 		}),
 	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	router := gin.New()
 	v1 := router.Group("/api/v1")
@@ -323,9 +320,19 @@ func setupAuth() (*gin.Engine, *authhttp.Server, authkit.Client, error) {
 This exposes AuthKit routes such as `/api/v1/token`, `/api/v1/me`, and
 `/.well-known/jwks.json`.
 
-Use `embedded.New` for in-process AuthKit operations and `authhttp.NewServer`
-for mounted HTTP routes. The future standalone server will use `remote.New` for
-the same `authkit.Client` contract.
+Redis is passed once, on the engine (`embedded.WithRedis`); the HTTP layer
+adopts it automatically (#210) — `authhttp.WithRedis` is only an override.
+
+Two-step construction: hosts that need to hold or decorate the engine
+separately build it first, then wrap it:
+
+```go
+client, err := embedded.New(cfg, pg, embedded.WithRedis(rdb), embedded.WithEmailSender(mailer))
+srv, err := authhttp.NewServer(client, authhttp.WithTrustedProxies("10.0.0.0/8"))
+```
+
+The returned `client` is the host's `authkit.Client` for in-process operations.
+The future standalone server will use `remote.New` for the same contract.
 
 `RegisterAPI(v1, srv)` registers every enabled JSON API route. Use
 `WithGroups(...)` only when the host wants to mount selected surfaces:

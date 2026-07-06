@@ -222,8 +222,9 @@ type Maintenance interface {
 // stay on the concrete *embedded.Client. Code against authkit.Client (or one of
 // the topic interfaces) so swapping backends is construction-only:
 //
-//	var c authkit.Client = embedded.New(cfg, pg)     // today (in-process)
-//	// var c authkit.Client = remote.New(url, creds) // Phase 2 (standalone)
+//	c, err := embedded.New(cfg, pg) // today (in-process)
+//	var _ authkit.Client = c
+//	// c, err := remote.New(url, creds) // Phase 2 (standalone)
 type Client interface {
 	Users
 	Passwords
