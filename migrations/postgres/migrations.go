@@ -1,18 +1,13 @@
 // Package migrations embeds AuthKit's Postgres schema migrations.
 //
-// Run them with migratekit (github.com/open-rails/migratekit), the same way
-// host applications do — name-tracked per app in public.migrations, so a
-// recorded migration is never re-applied:
+// Hosts should apply them via authkitmigrate, which handles pool adaptation,
+// schema rendering, and migration tracking in one call:
 //
-//	ms, _ := migratekit.LoadFromFS(migrations.FS)
-//	m := migratekit.NewPostgres(sqlDB, "authkit")
-//	_ = m.ApplyMigrations(ctx, ms)
+//	migrator := authkitmigrate.New(pool, &authkitmigrate.Config{Schema: cfg.Schema})
+//	res, err := migrator.Migrate(ctx)
 //
-// Hosts that configure a non-default schema (embedded.Config.Schema, authkit
-// issue 69) must run the migrations rendered for that schema instead:
-//
-//	fsys, _ := migrations.FSForSchema("openrails_auth")
-//	ms, _ := migratekit.LoadFromFS(fsys)
+// The raw FS (and FSForSchema for a non-default schema) remains exported for
+// external migration runners.
 package migrations
 
 import (
