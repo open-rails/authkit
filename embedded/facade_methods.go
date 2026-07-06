@@ -322,7 +322,7 @@ func (s *Client) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key st
 	return s.impl.ResolveRemoteAppAttributeDef(ctx, appID, key, version)
 }
 
-func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error) {
+func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error) {
 	return s.impl.ResolveRemoteApplicationAuthority(ctx, appID)
 }
 

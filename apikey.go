@@ -73,6 +73,12 @@ type ResolvedAPIKey struct {
 	KeyID    string
 	// PermissionGroupID is the controlling permission-group id.
 	PermissionGroupID string
-	Role              string
-	Permissions       []string
+	// Persona / InstanceSlug identify the owning permission-group INSTANCE the
+	// key was minted on (#248). InstanceSlug is "" for singleton personas (root).
+	// The verify layer binds the key's token-carried permissions to this exact
+	// instance; descendant/walk-down authority is deliberately deferred.
+	Persona      string
+	InstanceSlug string
+	Role         string
+	Permissions  []string
 }

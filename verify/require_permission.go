@@ -31,14 +31,19 @@ const subjectKindUser = "user"
 // behind RequirePermission, for non-HTTP gates (e.g. a host's billing-admin check).
 // Two authority paths, matching how authkit carries it:
 //   - API-key / delegated-access principals carry their permission strings ON the
-//     token; those are checked directly (no group lookup).
+//     token; those are checked directly (no group lookup). A GROUP-BOUND machine
+//     principal (#248: API keys, remote-application tokens) is additionally
+//     required to match `scope` EXACTLY — its authority is valid only on the
+//     group instance it was minted on. Unbound tokens (delegated, by contract)
+//     are unrestricted here.
 //   - Human users carry only identity; their authority is resolved against the
 //     registered permission-group schema via the checker's Can in `scope`.
 //
-// Fail-closed: a token without the perm, a nil checker, or an empty UserID yields
-// false; a Can error is returned (the caller must deny on a non-nil error).
+// Fail-closed: a token without the perm, a bound principal in a mismatched
+// scope, a nil checker, or an empty UserID yields false; a Can error is
+// returned (the caller must deny on a non-nil error).
 func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm string, scope PermissionScope) (bool, error) {
-	if cl.HasPermission(perm) {
+	if cl.HasPermission(perm) && cl.PermissionGroupAllows(scope.Persona, scope.Instance) {
 		return true, nil
 	}
 	if checker == nil || cl.UserID == "" {
@@ -54,8 +59,9 @@ func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm strin
 // after Required so the verified Claims are in context. The authority decision is
 // Allow; this is the HTTP wrapper.
 //
-// Fail-closed: missing claims, no resolver, an unknown group, or a Can error all
-// deny (403).
+// Fail-closed: missing claims, no resolver, an unknown group, a Can error, or
+// a group-bound machine principal (#248) whose request scope cannot be resolved
+// or does not match its owning group instance all deny (403).
 func RequirePermission(checker PermissionChecker, perm string, resolve func(*http.Request) PermissionScope) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,9 +70,11 @@ func RequirePermission(checker PermissionChecker, perm string, resolve func(*htt
 				forbidden(w, "forbidden")
 				return
 			}
-			// Token-carried authority short-circuits without a scope (API keys /
-			// delegated access carry the perm on the token).
-			if cl.HasPermission(perm) {
+			// Token-carried authority short-circuits without a scope ONLY for
+			// unbound principals (delegated access — issuer trust + permissions).
+			// A group-bound machine principal (#248) needs the resolved scope to
+			// check its instance binding, so it falls through to Allow.
+			if cl.HasPermission(perm) && !cl.BoundToPermissionGroup() {
 				next.ServeHTTP(w, r)
 				return
 			}

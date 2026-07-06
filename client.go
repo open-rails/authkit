@@ -174,7 +174,7 @@ type RemoteApps interface {
 	GetRemoteApplication(ctx context.Context, issuer string) (*RemoteApplication, error)
 	DeleteRemoteApplication(ctx context.Context, issuer string) error
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]RemoteApplication, error)
-	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error)
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (RemoteApplicationAuthority, error)
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*RemoteAppAttributeDef, error)
 }
 

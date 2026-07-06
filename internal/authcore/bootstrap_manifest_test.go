@@ -327,12 +327,12 @@ func TestApplyBootstrapManifestSeedsRemoteApplication(t *testing.T) {
 	if !containsString(roles, OwnerRoleName) {
 		t.Fatalf("remote application roles=%v, want %q", roles, OwnerRoleName)
 	}
-	perms, err := svc.ResolveRemoteApplicationAuthority(ctx, got.ID)
+	authority, err := svc.ResolveRemoteApplicationAuthority(ctx, got.ID)
 	if err != nil {
 		t.Fatalf("remote application authority: %v", err)
 	}
-	if !containsString(perms, OwnerGrant(RootPersona)) {
-		t.Fatalf("remote application authority=%v, want %q", perms, OwnerGrant(RootPersona))
+	if !containsString(authority.Permissions, OwnerGrant(RootPersona)) {
+		t.Fatalf("remote application authority=%v, want %q", authority.Permissions, OwnerGrant(RootPersona))
 	}
 }
 

@@ -90,24 +90,41 @@ func (s *Service) remoteApplicationRoles(ctx context.Context, appID string) ([]s
 }
 
 // ResolveRemoteApplicationAuthority resolves a remote_application's effective
-// permissions: the additive walk-up of every role it holds across its
-// controlling permission-group's parent chain (#111). Returns an empty slice
+// permissions — the additive walk-up of every role it holds across its
+// controlling permission-group's parent chain (#111) — plus the owning group
+// instance the authority is bound to (#248). Permissions is an empty slice
 // (no error) when the app holds no roles.
-func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error) {
+func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error) {
+	var out authkit.RemoteApplicationAuthority
 	if err := s.requirePG(); err != nil {
-		return nil, err
+		return out, err
 	}
-	gid, err := s.remoteApplicationGroupID(ctx, appID)
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		return out, ErrInvalidRemoteApplication
+	}
+	q := db.ForSchema(s.pg, s.dbSchema())
+	var gid string
+	err := q.QueryRow(ctx,
+		`SELECT ra.permission_group_id::text, pg.persona, COALESCE(pg.instance_slug, '')
+		 FROM profiles.remote_applications ra
+		 JOIN profiles.permission_groups pg ON pg.id = ra.permission_group_id
+		 WHERE ra.id = $1::uuid`,
+		appID).Scan(&gid, &out.Persona, &out.InstanceSlug)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authkit.RemoteApplicationAuthority{}, ErrRemoteApplicationNotFound
+	}
 	if err != nil {
-		return nil, err
+		return authkit.RemoteApplicationAuthority{}, err
 	}
 	st := s.groupStore()
-	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp)
+	asg, err := st.WalkAssignments(ctx, gid, appID, SubjectKindRemoteApp)
 	if err != nil {
-		return nil, err
+		return authkit.RemoteApplicationAuthority{}, err
 	}
+	out.Permissions = []string{}
 	if len(asg) == 0 {
-		return []string{}, nil
+		return out, nil
 	}
 	ids := make([]string, 0, len(asg))
 	for _, a := range asg {
@@ -115,11 +132,10 @@ func (s *Service) ResolveRemoteApplicationAuthority(ctx context.Context, appID s
 	}
 	resolver, err := st.CustomRolesFor(ctx, ids)
 	if err != nil {
-		return nil, err
+		return authkit.RemoteApplicationAuthority{}, err
 	}
-	perms := s.groupSchemaOrDefault().ResolveGrants(asg, resolver)
-	if perms == nil {
-		perms = []string{}
+	if perms := s.groupSchemaOrDefault().ResolveGrants(asg, resolver); perms != nil {
+		out.Permissions = perms
 	}
-	return perms, nil
+	return out, nil
 }

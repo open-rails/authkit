@@ -43,6 +43,17 @@ type RemoteAppAttributeDef struct {
 	Definition          json.RawMessage
 }
 
+// RemoteApplicationAuthority is a remote_application's STORED authority: its
+// role-resolved effective permissions plus the owning permission-group INSTANCE
+// they are bound to (#248). InstanceSlug is "" for singleton personas (root).
+// Exact-instance binding only; descendant/walk-down authority is deliberately
+// deferred.
+type RemoteApplicationAuthority struct {
+	Permissions  []string
+	Persona      string
+	InstanceSlug string
+}
+
 // RemoteApplication is a registered federation principal: an external issuer
 // authkit trusts to mint delegated/remote-application tokens. It is a plain data
 // view; persistence and lifecycle live in core.

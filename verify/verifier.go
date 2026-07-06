@@ -253,6 +253,9 @@ func (v *Verifier) resolveAPIKey(ctx context.Context, token string) (cl Claims, 
 	return Claims{
 		Permissions: resolved.Permissions,
 		TokenType:   APIKeyPrincipalType,
+		// Bind the key's authority to the group instance it was minted on (#248).
+		PermissionGroupPersona:  resolved.Persona,
+		PermissionGroupInstance: resolved.InstanceSlug,
 	}, true, nil
 }
 
@@ -330,7 +333,7 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 	if v.enrich == nil {
 		return Claims{}, errors.New("invalid_token")
 	}
-	authorityPerms, err := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+	authority, err := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 	if err != nil {
 		return Claims{}, errors.New("invalid_token")
 	}
@@ -339,7 +342,7 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 	// stored ceiling to the claimed subset; absent (nil) keeps the full ceiling.
 	// Any claimed perm OUTSIDE the ceiling rejects the whole token — a
 	// misconfigured caller must fail loudly, not silently lose perms.
-	perms, err := permissionsWithinAuthority(claimedPerms, authorityPerms)
+	perms, err := permissionsWithinAuthority(claimedPerms, authority.Permissions)
 	if err != nil {
 		return Claims{}, err
 	}
@@ -351,6 +354,10 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 		Permissions:           perms,
 		RemoteApplicationID:   ra.ID,
 		RemoteApplicationSlug: ra.Slug,
+		// Bind the stored authority to its owning group instance (#248),
+		// resolved server-side alongside the permission ceiling.
+		PermissionGroupPersona:  authority.Persona,
+		PermissionGroupInstance: authority.InstanceSlug,
 	}, nil
 }
 
@@ -530,7 +537,7 @@ type Enricher interface {
 	ResolveAPIKeyDetailed(ctx context.Context, keyID, secret string) (authkit.ResolvedAPIKey, error)
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
 	ListRemoteApplications(ctx context.Context, activeOnly bool) ([]authkit.RemoteApplication, error)
-	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) ([]string, error)
+	ResolveRemoteApplicationAuthority(ctx context.Context, appID string) (authkit.RemoteApplicationAuthority, error)
 	ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authkit.RemoteAppAttributeDef, error)
 	// (#215/#220: the former per-request enrichment methods — provider username,
 	// role slugs, user refs, live ban gate — are gone from this seam; the request
@@ -835,13 +842,13 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	if isDelegatedAccessTyp && len(cl.Permissions) > 0 && v.enrich != nil {
 		ctx := context.Background()
 		if ra, rerr := v.remoteApplication(ctx, cl.Issuer); rerr == nil && ra != nil {
-			authorityPerms, aerr := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
+			authority, aerr := v.enrich.ResolveRemoteApplicationAuthority(ctx, ra.ID)
 			if aerr != nil {
 				// Never swallow an authority-resolution failure into "allow": a
 				// backend outage must fail closed, not grant the claimed perms.
 				return Claims{}, errors.New("invalid_token")
 			}
-			perms, perr := permissionsWithinAuthority(cl.Permissions, authorityPerms)
+			perms, perr := permissionsWithinAuthority(cl.Permissions, authority.Permissions)
 			if perr != nil {
 				return Claims{}, perr
 			}
