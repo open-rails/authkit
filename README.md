@@ -2,6 +2,20 @@
 
 Embedded auth library for Go applications. (Standalone server coming later.)
 
+## Migrations
+
+Apply AuthKit's Postgres schema before constructing the client, from your app's
+migrate command (same shape as rivermigrate):
+
+```go
+import "github.com/open-rails/authkit/authkitmigrate"
+
+migrator := authkitmigrate.New(pool, nil) // &authkitmigrate.Config{Schema: "..."} for a non-default schema
+res, err := migrator.Migrate(ctx)         // idempotent; res.Applied lists what ran
+```
+
+`migrator.Validate(ctx)` reports pending migrations without applying.
+
 ## Construction
 
 (Basic embedded setup)
