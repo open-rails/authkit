@@ -18,38 +18,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRegisterRoutesSetsPathValues(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	v1 := router.Group("/api/v1")
-
-	RegisterRoutes(v1, []authhttp.RouteSpec{{
-		Method: http.MethodGet,
-		Path:   "/namespaces/{slug}",
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte(r.PathValue("slug")))
-		}),
-	}}, nil)
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/cozy", nil))
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "cozy", rec.Body.String())
-}
-
-func TestRegisterOIDCMountPath(t *testing.T) {
+// MountHandler mounted once as a gin NoRoute fallback (#250) — no gin-side
+// route registration exists anymore. Fallback (not bare gin.WrapH) because
+// gin pre-sets 404 on NoRoute: the JWKS assertion below pins that implicit-200
+// handlers keep their status; the mount's own 404 must still 404.
+func TestMountHandlerViaFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	svc := newTestService(t)
 
-	RegisterOIDC(router, svc, "/oidc")
+	h, err := authhttp.MountHandler(svc, authhttp.MountOptions{})
+	require.NoError(t, err)
+	router.NoRoute(Fallback(h))
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil))
-
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), `"code":"invalid_request"`)
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/definitely/not/a/route", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestUsePropagatesContextAndShortCircuits(t *testing.T) {
@@ -121,7 +114,9 @@ func newTestService(t *testing.T) *authhttp.Service {
 	t.Cleanup(pool.Close)
 	client, err := embedded.New(cfg, pool)
 	require.NoError(t, err)
-	svc, err := authhttp.NewServer(client)
+	// Rate limiting off: the parity test probes the whole route table twice
+	// (old stack + new mount) and must not trip order-dependent 429s.
+	svc, err := authhttp.NewServer(client, authhttp.WithoutRateLimiter())
 	require.NoError(t, err)
 	return svc
 }

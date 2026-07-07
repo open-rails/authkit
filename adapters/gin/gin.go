@@ -1,63 +1,32 @@
+// Package authkitgin bridges AuthKit's net/http middleware to gin. Route
+// mounting is NOT here (#250): build the whole surface with
+// authhttp.MountHandler and mount it once via gin.WrapH.
 package authkitgin
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	authkit "github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/adapters/internal/routepath"
-	"github.com/open-rails/authkit/authhttp"
 	"github.com/open-rails/authkit/verify"
 )
 
-type APIOptions struct {
-	Routes    []authhttp.RouteSpec
-	Groups    []authhttp.RouteGroup
-	Wrap      func(authhttp.RouteSpec, http.Handler) http.Handler
-	routesSet bool
-}
-
-type APIOption func(*APIOptions)
-
-func WithRoutes(routes []authhttp.RouteSpec) APIOption {
-	return func(opts *APIOptions) {
-		opts.Routes = routes
-		opts.routesSet = true
+// Fallback adapts a neutral handler (authhttp.MountHandler) for use as a gin
+// NoRoute fallback. gin pre-sets 404 on the response before running NoRoute
+// handlers, which silently overrides any handler that relies on the implicit
+// 200-on-first-write; this clears the pending status so the mounted handler's
+// own status wins (its 404s still 404).
+//
+//	router.NoRoute(authkitgin.Fallback(mount))
+//
+// For explicit wildcard mounts (r.Any("/oidc/*path", …)) plain gin.WrapH is
+// fine — gin only pre-sets 404 on the NoRoute path.
+func Fallback(h http.Handler) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.WriteHeader(http.StatusOK)
+		h.ServeHTTP(c.Writer, c.Request)
 	}
-}
-
-func WithGroups(groups ...authhttp.RouteGroup) APIOption {
-	return func(opts *APIOptions) {
-		opts.Groups = append([]authhttp.RouteGroup(nil), groups...)
-	}
-}
-
-func WithRouteWrapper(wrap func(authhttp.RouteSpec, http.Handler) http.Handler) APIOption {
-	return func(opts *APIOptions) {
-		opts.Wrap = wrap
-	}
-}
-
-func RegisterAPI(r gin.IRouter, svc *authhttp.Service, options ...APIOption) {
-	if r == nil || svc == nil {
-		return
-	}
-	opts := APIOptions{}
-	for _, option := range options {
-		if option != nil {
-			option(&opts)
-		}
-	}
-	if !opts.routesSet {
-		if opts.Groups != nil {
-			opts.Routes = svc.Routes().Groups(opts.Groups...)
-		} else {
-			opts.Routes = svc.Routes().DefaultAPI()
-		}
-	}
-	registerRoutes(r, opts.Routes, opts.Wrap)
 }
 
 // Required is the gin-native form of verify.Required (#209): validates the
@@ -152,74 +121,4 @@ func RequirePermission(checker verify.PermissionChecker, perm string, resolve fu
 		}
 		Use(mw)(c)
 	}
-}
-
-func RegisterRoutes(r gin.IRouter, routes []authhttp.RouteSpec, wrap func(authhttp.RouteSpec, http.Handler) http.Handler) {
-	if r == nil {
-		return
-	}
-	registerRoutes(r, routes, wrap)
-}
-
-// RegisterAll mounts the full AuthKit surface in one call (#211): JWKS at
-// /.well-known/jwks.json, the browser OIDC flows under /oidc (plus the bare
-// /oidc→/oidc/ redirect every host hand-wrote), and the default API route set
-// (including the generated permission-group routes) at the router root.
-func RegisterAll(r gin.IRouter, svc *authhttp.Service) {
-	if r == nil || svc == nil {
-		return
-	}
-	RegisterJWKS(r, svc)
-	RegisterOIDC(r, svc, "/oidc")
-	r.GET("/oidc", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/oidc/") })
-	RegisterAPI(r, svc)
-}
-
-func RegisterOIDC(r gin.IRouter, svc *authhttp.Service, mountPath string) {
-	if r == nil || svc == nil {
-		return
-	}
-	prefix := routepath.Clean(mountPath)
-	routes := svc.Routes().OIDCBrowser()
-	for i := range routes {
-		routes[i].Path = routepath.Join(prefix, routes[i].Path)
-	}
-	registerRoutes(r, routes, nil)
-}
-
-func RegisterJWKS(r gin.IRouter, svc *authhttp.Service) {
-	if r == nil || svc == nil {
-		return
-	}
-	r.GET("/.well-known/jwks.json", gin.WrapH(svc.JWKSHandler()))
-}
-
-func registerRoutes(r gin.IRouter, routes []authhttp.RouteSpec, wrap func(authhttp.RouteSpec, http.Handler) http.Handler) {
-	for _, route := range routes {
-		if route.Method == "" || route.Path == "" || route.Handler == nil {
-			continue
-		}
-		handler := route.Handler
-		if wrap != nil {
-			handler = wrap(route, handler)
-		}
-		paramNames := routepath.ParamNames(route.Path)
-		r.Handle(route.Method, ginPath(route.Path), func(c *gin.Context) {
-			for _, name := range paramNames {
-				c.Request.SetPathValue(name, c.Param(name))
-			}
-			handler.ServeHTTP(c.Writer, c.Request)
-		})
-	}
-}
-
-func ginPath(path string) string {
-	parts := strings.Split(path, "/")
-	for i, part := range parts {
-		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
-			name := strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}")
-			parts[i] = ":" + name
-		}
-	}
-	return strings.Join(parts, "/")
 }
