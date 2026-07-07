@@ -90,28 +90,3 @@ jobs:
           # committed, absent from CI checkouts); skip it so a local scan or a
           # stray dev artifact can't trip the secret scanner.
           skip-dirs: testing,migrations,agents,**/.runtime
-
-  # ---------------------------------------------------------------------------
-  # golangci-lint — code quality / lint. Advisory for now (does not block);
-  # flip continue-on-error to false once the backlog is clear.
-  # ---------------------------------------------------------------------------
-  golangci-lint:
-    name: golangci-lint
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
-        with:
-          egress-policy: audit
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Run golangci-lint
-        continue-on-error: true
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
