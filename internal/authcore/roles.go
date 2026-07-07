@@ -96,9 +96,26 @@ func (s *Service) listRoleSlugsByUser(ctx context.Context, userID string) []stri
 }
 
 // assignRoleBySlug grants a user a role in the root permission-group (#111).
-// The unchecked (no actor-authz, no MFA gate) path is for genesis/bootstrap/
-// migration; runtime callers use the actor-aware AssignRoleBySlugAs path.
+// This path skips actor-authz/no-escalation (genesis/bootstrap/migration);
+// runtime callers use the actor-aware AssignRoleBySlugAs path. The
+// MFA-required-role enrollment gate is a subject-state invariant and STILL
+// applies — assigning an MFA-required role to a non-enrolled user fails closed
+// with ErrTwoFAEnrollmentRequired.
 func (s *Service) assignRoleBySlug(ctx context.Context, userID, slug string) error {
+	if s.pg == nil {
+		return nil
+	}
+	if _, err := s.EnsureRootGroup(ctx); err != nil {
+		return err
+	}
+	role := normalizeRootRoleSlug(slug)
+	return s.AssignGroupRole(ctx, RootPersona, "", strings.TrimSpace(userID), SubjectKindUser, role)
+}
+
+// assignRoleBySlugGenesis is assignRoleBySlug WITHOUT the MFA-enrollment gate.
+// Bootstrap-manifest seeding only — a manifest-seeded user has no session to
+// have enrolled MFA with, so deploy-time seeding must never brick on it.
+func (s *Service) assignRoleBySlugGenesis(ctx context.Context, userID, slug string) error {
 	if s.pg == nil {
 		return nil
 	}
