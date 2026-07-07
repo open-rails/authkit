@@ -273,8 +273,9 @@ func (s *Service) rootGroupHasOwner(ctx context.Context) (bool, error) {
 // guard (#136) and the MFA-required-role gate (#148/root-owner-MFA) — a
 // manifest-seeded user has no session to have enrolled MFA with, so bootstrap
 // must never brick on it; any other declared root role is assigned the same
-// way via AssignRoleBySlug. Genesis seeding is the deploy-time trust root and
-// intentionally bypasses these runtime rules.
+// way via assignRoleBySlugGenesis. The manifest is the deploy-time trust root
+// and the ONE seam that bypasses these runtime rules — GenesisClient does NOT
+// bypass the MFA gate.
 func (s *Service) seedBootstrapRootRole(ctx context.Context, userID, slug string, rootHasOwner bool) error {
 	if strings.EqualFold(slug, OwnerRoleName) {
 		if rootHasOwner {
@@ -282,7 +283,7 @@ func (s *Service) seedBootstrapRootRole(ctx context.Context, userID, slug string
 		}
 		return s.AssignGroupRoleGenesis(ctx, RootPersona, "", userID, SubjectKindUser, OwnerRoleName)
 	}
-	return s.AssignRoleBySlug(ctx, userID, slug)
+	return s.assignRoleBySlugGenesis(ctx, userID, slug)
 }
 
 func validateBootstrapManifest(manifest BootstrapManifest) error {

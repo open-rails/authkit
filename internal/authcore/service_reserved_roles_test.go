@@ -16,6 +16,12 @@ func TestAssignRoleBySlug_AllowsOwnerGenesis(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, userID) })
 
+	// The genesis slug path skips the owner-reserved guard (#136) but NOT the
+	// MFA-enrollment gate — the root owner requires MFA by default, so enroll.
+	if _, err := svc.Enable2FA(ctx, userID, "email", nil); err != nil {
+		t.Fatalf("enroll 2FA: %v", err)
+	}
+
 	if err := svc.AssignRoleBySlug(ctx, userID, OwnerRoleName); err != nil {
 		t.Fatalf("assign owner through genesis helper: %v", err)
 	}
