@@ -24,8 +24,22 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: docker/setup-buildx-action@v3
+
+      # Build the compose `issuer` image with GHA layer caching instead of
+      # rebuilding from scratch inside `docker compose up --build` every run.
+      - name: Build issuer image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/authkit-server/Dockerfile
+          tags: authkit-issuer:local
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Start migrated authkit-server database
-        run: docker compose up -d --build issuer
+        run: docker compose up -d --no-build issuer
 
       - name: Wait for authkit-server migrations
         run: |
@@ -43,6 +57,14 @@ jobs:
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # sqlc generate must produce no diff against the committed code in
+      # internal/db, and sqlc vet (db-prepare rule) PREPAREs every query against
+      # the compose Postgres already provisioned above (migrations applied by
+      # the issuer's healthz-gated boot; `task sqlc-check` re-runs them
+      # idempotently via `authkit-server migrate`).
+      - name: sqlc generate + vet, fail on drift
+        run: task sqlc-check
 
       - name: Run Go tests
         run: task test

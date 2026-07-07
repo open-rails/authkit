@@ -16,6 +16,9 @@ services:
       retries: 20
 
   issuer:
+    # Deterministic image name so CI can pre-build with buildx layer caching
+    # and `docker compose up --no-build` picks it up.
+    image: authkit-issuer:local
     build:
       context: .
       dockerfile: cmd/authkit-server/Dockerfile
