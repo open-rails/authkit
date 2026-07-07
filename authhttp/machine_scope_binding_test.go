@@ -180,6 +180,71 @@ func TestRemoteAppTokenGroupBinding_EndToEnd(t *testing.T) {
 	require.False(t, allowed, "cross-instance must deny")
 }
 
+// The delegated-token contract is UNCHANGED by #248: delegated authorization is
+// issuer-trust + permissions (the receiving service's model). Even though the
+// issuing remote_application is nested under a group instance — and the same
+// server-side authority resolver now returns that (persona, instance) — a
+// verified delegated token must stay UNBOUND and its token-carried permissions
+// must remain valid on ANY scope.
+func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
+	pool := newServerTestPool(t)
+	ctx := context.Background()
+	coreSvc := newScopeBindingCore(t, pool)
+
+	suffix := time.Now().UnixNano()
+	alpha := fmt.Sprintf("dl-alpha%d", suffix)
+	gid := createRepoGroup(t, ctx, coreSvc, pool, alpha)
+
+	signer, err := jwtkit.NewRSASigner(2048, "scope-bind-dl-kid")
+	require.NoError(t, err)
+	issuer := fmt.Sprintf("https://scope-bind-dl-%d.example", suffix)
+	ra, err := coreSvc.UpsertRemoteApplication(ctx, authkit.RemoteApplication{
+		Slug:              fmt.Sprintf("scope-bind-dl-%d", suffix),
+		PermissionGroupID: gid,
+		Issuer:            issuer,
+		Enabled:           true,
+		PublicKeys: []authkit.RemoteAppKey{{
+			KID:          signer.KID(),
+			PublicKeyPEM: adminTestPublicKeyPEM(t, signer.PublicKey()),
+		}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = coreSvc.DeleteRemoteApplication(context.Background(), issuer)
+	})
+	require.NoError(t, coreSvc.AddRemoteApplicationMember(ctx, ra.ID, "deployer"))
+
+	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second)).WithService(coreSvc)
+	require.NoError(t, ver.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
+		RawKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
+	}))
+	token, err := authcore.MintDelegatedAccessToken(ctx, signer, authkit.DelegatedAccessParams{
+		Issuer:           issuer,
+		Audiences:        []string{"test-app"},
+		DelegatedSubject: "delegated-user-1",
+		Permissions:      []string{"repo:models:deploy"}, // within the app's stored ceiling
+		TTL:              time.Minute,
+	})
+	require.NoError(t, err)
+
+	cl, err := ver.Verify(token)
+	require.NoError(t, err)
+	require.False(t, cl.BoundToPermissionGroup(), "delegated tokens must stay unbound")
+	require.Empty(t, cl.PermissionGroupPersona)
+	require.Empty(t, cl.PermissionGroupInstance)
+	require.Contains(t, cl.Permissions, "repo:models:deploy")
+
+	// Cross-instance and unresolvable scopes both remain ALLOWED for delegated
+	// tokens — exactly where a bound machine principal is denied.
+	allowed, err := verify.Allow(ctx, coreSvc, cl, "repo:models:deploy", verify.PermissionScope{Persona: "repo", Instance: "any-other"})
+	require.NoError(t, err)
+	require.True(t, allowed, "delegated token-carried perm must remain scope-free")
+
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	gate := verify.Required(ver)(verify.RequirePermission(coreSvc, "repo:models:deploy", nil)(okHandler))
+	require.Equal(t, http.StatusOK, bearerStatus(t, gate, token), "delegated token must pass without a resolvable scope")
+}
+
 // authhttp's intrinsic requirePermission applies the same binding: a root-bound
 // key passes the root gate; a repo-bound key is denied there even if it somehow
 // carried a matching permission string.
