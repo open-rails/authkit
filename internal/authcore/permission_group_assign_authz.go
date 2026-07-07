@@ -37,6 +37,9 @@ var (
 	// does not itself hold — assigning (or revoking) it would be privilege
 	// escalation.
 	ErrRoleAssignmentEscalation = authkit.ErrRoleAssignmentEscalation
+	// ErrRoleNotAssignable: the named role is not valid for the group's persona
+	// (neither a catalog role nor, for custom-role personas, a defined custom role).
+	ErrRoleNotAssignable = authkit.ErrRoleNotAssignable
 )
 
 // grantsCoverAll reports whether actorGrants cover EVERY permission in
@@ -107,7 +110,50 @@ func (s *Service) roleGrantsForAuthz(sch *GroupSchema, persona, gid, role string
 			return grants, nil
 		}
 	}
-	return nil, fmt.Errorf("role %q is not assignable in a %q group", role, persona)
+	return nil, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, ErrRoleNotAssignable)
+}
+
+// authorizeCustomRoleChange enforces the #136/#247 capability + no-escalation
+// rules for DEFINING (create/redefine) or DELETING a per-group custom role.
+// Redefining a role's grants is a DEFERRED grant/revoke to EVERY subject
+// currently holding it — same class as invite minting or a direct role
+// assignment — so it needs the same gate: the actor must hold
+// <persona>:roles:manage in the group AND already cover every permission in
+// BOTH the role's CURRENT grant set (oldGrants — nil for a brand-new role) and
+// its REQUESTED grant set (newGrants — nil for a delete), so nobody can widen
+// (or narrow, silently stripping others while keeping their own coverage)
+// authority they do not themselves hold. Unlike authorizeRoleGrant, the grant
+// sets are supplied directly by the caller rather than resolved from a role
+// name — DefineGroupCustomRole/DeleteGroupCustomRole already have both the
+// stored old grants and the requested new ones in hand.
+func (s *Service) authorizeCustomRoleChange(ctx context.Context, st *PermissionGroupStore, sch *GroupSchema, persona, gid, actorUserID string, oldGrants, newGrants []string) error {
+	actorUserID = strings.TrimSpace(actorUserID)
+	if actorUserID == "" {
+		return ErrInsufficientRoleAuthority
+	}
+	asg, err := st.WalkAssignments(ctx, gid, actorUserID, SubjectKindUser)
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(asg))
+	for _, a := range asg {
+		ids = append(ids, a.PermissionGroupID)
+	}
+	resolver, err := st.CustomRolesFor(ctx, ids)
+	if err != nil {
+		return err
+	}
+	actorGrants := sch.ResolveGrants(asg, resolver)
+	if !anyGrantCovers(actorGrants, PermRolesManage(persona)) {
+		return ErrInsufficientRoleAuthority
+	}
+	combined := make([]string, 0, len(oldGrants)+len(newGrants))
+	combined = append(combined, oldGrants...)
+	combined = append(combined, newGrants...)
+	if !grantsCoverAll(actorGrants, combined) {
+		return ErrRoleAssignmentEscalation
+	}
+	return nil
 }
 
 // AssignGroupRoleAs is the actor-aware AssignGroupRole: it enforces the #136
@@ -117,7 +163,7 @@ func (s *Service) roleGrantsForAuthz(sch *GroupSchema, persona, gid, role string
 func (s *Service) AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error {
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, persona, role) {
-		return fmt.Errorf("role %q is not assignable in a %q group", role, persona)
+		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, ErrRoleNotAssignable)
 	}
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
@@ -127,7 +173,7 @@ func (s *Service) AssignGroupRoleAs(ctx context.Context, actorUserID, persona, i
 	if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, actorUserID, role); err != nil {
 		return err
 	}
-	if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), persona, subjectID, subjectKind, role); err != nil {
+	if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), gid, persona, subjectID, subjectKind, role); err != nil {
 		return err
 	}
 	return st.AssignRole(ctx, gid, subjectID, subjectKind, role)
@@ -162,45 +208,40 @@ func (s *Service) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona
 	if err != nil {
 		return err
 	}
-	// Roles the subject holds DIRECTLY in this group (the gid entry of the walk;
-	// ancestor grants are not being removed here, so they are not authorized).
+	// The SINGLE role the subject holds DIRECTLY in this group (#247 — the gid
+	// entry of the walk; ancestor grants are not being removed here, so they
+	// are not authorized).
 	asg, err := st.WalkAssignments(ctx, gid, strings.TrimSpace(subjectID), subjectKind)
 	if err != nil {
 		return err
 	}
-	var roles []string
+	var role string
 	for _, a := range asg {
 		if a.PermissionGroupID == gid {
-			roles = a.Roles
+			role = a.Role
 			break
 		}
 	}
-	// No step-up on revoke: the actor must already hold every perm each role
+	// No step-up on revoke: the actor must already hold every perm the role
 	// confers (which also enforces the capability gate via authorizeRoleChange).
-	for _, role := range roles {
+	// A subject holding no role here has nothing to authorize.
+	if role != "" {
 		if err := s.authorizeRoleChange(ctx, st, sch, persona, gid, actorUserID, role); err != nil {
 			return err
 		}
 	}
-	if err := s.refuseIfLastOwner(ctx, st, gid, roles); err != nil {
+	if err := s.refuseIfLastOwner(ctx, st, gid, role); err != nil {
 		return err
 	}
 	return st.UnassignSubject(ctx, gid, strings.TrimSpace(subjectID), subjectKind)
 }
 
-// refuseIfLastOwner returns ErrCannotRemoveLastAdminRole when stripping these roles
+// refuseIfLastOwner returns ErrCannotRemoveLastAdminRole when stripping this role
 // from a subject would leave the group instance with zero owners (#193) — so neither
 // an admin removal nor a self-leave can orphan a group. Pure ownership-safety, not an
 // acceptance/consent concern.
-func (s *Service) refuseIfLastOwner(ctx context.Context, st *PermissionGroupStore, gid string, roles []string) error {
-	holdsOwner := false
-	for _, r := range roles {
-		if r == OwnerRoleName {
-			holdsOwner = true
-			break
-		}
-	}
-	if !holdsOwner {
+func (s *Service) refuseIfLastOwner(ctx context.Context, st *PermissionGroupStore, gid, role string) error {
+	if role != OwnerRoleName {
 		return nil
 	}
 	n, err := st.OwnerCount(ctx, gid)
@@ -233,17 +274,17 @@ func (s *Service) LeaveGroup(ctx context.Context, userID, persona, instanceSlug 
 	if err != nil {
 		return err
 	}
-	var roles []string
+	var role string
 	for _, a := range asg {
 		if a.PermissionGroupID == gid {
-			roles = a.Roles
+			role = a.Role
 			break
 		}
 	}
-	if len(roles) == 0 {
+	if role == "" {
 		return nil // not a direct member of this group — nothing to leave
 	}
-	if err := s.refuseIfLastOwner(ctx, st, gid, roles); err != nil {
+	if err := s.refuseIfLastOwner(ctx, st, gid, role); err != nil {
 		return err
 	}
 	return st.UnassignSubject(ctx, gid, userID, SubjectKindUser)

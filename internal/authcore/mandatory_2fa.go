@@ -117,19 +117,40 @@ func (s *Service) requireSessionMFAStateWith(authMethods []string, status MFASta
 	return nil
 }
 
-func (s *Service) roleRequiresMFA(persona, role string) bool {
-	def, ok := s.groupSchemaOrDefault().Role(strings.TrimSpace(persona), strings.TrimSpace(role))
-	return ok && def.RequiresMFA
+// roleRequiresMFA reports whether role (in persona) requires MFA: a catalog
+// role's declared RoleDef.RequiresMFA, or — for a non-catalog role (#247) — a
+// per-group custom role's stored requires_mfa flag, looked up in gid. gid may
+// be empty when the role is known to be a catalog role at the call site (the
+// custom-role branch is then simply skipped, reporting false).
+func (s *Service) roleRequiresMFA(ctx context.Context, q db.DBTX, gid, persona, role string) (bool, error) {
+	persona = strings.TrimSpace(persona)
+	role = strings.TrimSpace(role)
+	if def, ok := s.groupSchemaOrDefault().Role(persona, role); ok {
+		return def.RequiresMFA, nil
+	}
+	gid = strings.TrimSpace(gid)
+	if gid == "" || role == "" {
+		return false, nil
+	}
+	_, requiresMFA, err := NewPermissionGroupStore(q).CustomRole(ctx, gid, role)
+	return requiresMFA, err
 }
 
-func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, persona, subjectID, subjectKind, role string) error {
+func (s *Service) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid, persona, subjectID, subjectKind, role string) error {
 	// #148/root-owner-MFA: RequiresMFA is inert when the deployment has no usable
 	// 2FA (Mode == Disabled) — a fresh deployment must still be able to seed/assign
 	// its root owner. Mirrors requireSessionMFAState's gate.
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
-	if strings.TrimSpace(subjectKind) != SubjectKindUser || !s.roleRequiresMFA(persona, role) {
+	if strings.TrimSpace(subjectKind) != SubjectKindUser {
+		return nil
+	}
+	needsMFA, err := s.roleRequiresMFA(ctx, q, gid, persona, role)
+	if err != nil {
+		return err
+	}
+	if !needsMFA {
 		return nil
 	}
 	ok, err := userHasEnabledMFA(ctx, q, strings.TrimSpace(subjectID))
@@ -180,23 +201,35 @@ func (s *Service) removeMFARequiredUserRoles(ctx context.Context, q db.DBTX, use
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var removals []RemovedMFARoleAssignment
+	// Drain + close the cursor BEFORE issuing any further query on q: q may be a
+	// single-connection pgx.Tx, which cannot interleave a new query with an
+	// still-open result set from a prior one.
+	var candidates []RemovedMFARoleAssignment
 	for rows.Next() {
 		var r RemovedMFARoleAssignment
 		if err := rows.Scan(&r.PermissionGroupID, &r.Persona, &r.InstanceSlug, &r.Role); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		if s.roleRequiresMFA(r.Persona, r.Role) {
+		candidates = append(candidates, r)
+	}
+	rerr := rows.Err()
+	rows.Close()
+	if rerr != nil {
+		return nil, rerr
+	}
+
+	var removals []RemovedMFARoleAssignment
+	for _, r := range candidates {
+		needsMFA, err := s.roleRequiresMFA(ctx, q, r.PermissionGroupID, r.Persona, r.Role)
+		if err != nil {
+			return nil, err
+		}
+		if needsMFA {
 			r.RemovedAt = time.Now().UTC()
 			removals = append(removals, r)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	// Never orphan a group: refuse the whole disable outright if it would strip
 	// the owner role from a group's LAST owner, rather than silently keeping the
 	// role (2FA stays on) or silently stripping it (group left ownerless). The

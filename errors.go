@@ -17,6 +17,11 @@ var (
 	ErrAccountRegistrationInviteRevoked  = errors.New("account_registration_invite_revoked")
 	ErrCustomClaimsReserved              = errors.New("custom_jwt_reserved_claim")
 	ErrCustomJWTReservedType             = errors.New("custom_jwt_reserved_type")
+	ErrCustomRoleGrantCrossPersona       = errors.New("custom_role_grant_cross_persona")
+	ErrCustomRoleGrantOutsideCatalog     = errors.New("custom_role_grant_outside_catalog")
+	ErrCustomRoleIsCatalogRole           = errors.New("custom_role_is_catalog_role")
+	ErrCustomRoleNameInvalid             = errors.New("custom_role_name_invalid")
+	ErrCustomRolesNotSupported           = errors.New("custom_roles_not_supported")
 	ErrEmailAlreadyVerified              = errors.New("email_already_verified")
 	ErrEmailDeliveryFailed               = errors.New("email_delivery_failed")
 	ErrEmailInUse                        = errors.New("email_in_use")
@@ -28,10 +33,14 @@ var (
 	ErrInsufficientRoleAuthority         = errors.New("insufficient_role_authority")
 	ErrInvalidAttributeDef               = errors.New("invalid_attribute_def")
 	ErrInvalidBootstrapManifest          = errors.New("invalid_bootstrap_manifest")
+	ErrInvalidExpiry                     = errors.New("invalid_expiry")
+	ErrInvalidInvite                     = errors.New("invalid_invite")
+	ErrInvalidRole                       = errors.New("invalid_role")
 	ErrInvalidUntil                      = errors.New("invalid_until")
 	ErrInviteLinkExpired                 = errors.New("group_invite_link_expired")
 	ErrInviteLinkNotFound                = errors.New("group_invite_link_not_found")
 	ErrInviteLinkRevoked                 = errors.New("group_invite_link_revoked")
+	ErrMissingName                       = errors.New("missing_name")
 	ErrMissingSigner                     = errors.New("missing_signer")
 	ErrNotGroupMember                    = errors.New("not_group_member")
 	ErrOwnerSlugTaken                    = errors.New("owner_slug_taken")
@@ -48,11 +57,14 @@ var (
 	ErrRenameRateLimited                 = errors.New("rename_rate_limited")
 	ErrReservedIssuer                    = errors.New("reserved_issuer")
 	ErrRoleAssignmentEscalation          = errors.New("role_assignment_escalation")
+	ErrRoleNotAssignable                 = errors.New("role_not_assignable")
 	ErrSMSDeliveryFailed                 = errors.New("sms_delivery_failed")
 	ErrSMSSenderUnavailable              = errors.New("sms_unavailable")
 	ErrStepUpRequired                    = errors.New("step_up_required")
 	ErrTooManyCustomClaims               = errors.New("custom_jwt_too_many_claims")
 	ErrTwoFAEnrollmentRequired           = errors.New("2fa_enrollment_required")
+	ErrUnknownGroupPersona               = errors.New("unknown_group_persona")
+	ErrUnknownRole                       = errors.New("unknown_role")
 	ErrUserBanned                        = errors.New("user_banned")
 	ErrUserNotFound                      = errors.New("user_not_found")
 	ErrUserRoleNotFound                  = errors.New("user_role_not_found")
@@ -132,16 +144,28 @@ var sentinelHTTPStatus = map[error]int{
 	// 429 — rate limits.
 	ErrRenameRateLimited: http.StatusTooManyRequests,
 	// 400 — malformed / invalid input.
-	ErrInvalidUntil:                 http.StatusBadRequest,
-	ErrEmailInUse:                   http.StatusBadRequest,
-	ErrPhoneInUse:                   http.StatusBadRequest,
-	ErrEntitlementFilterUnavailable: http.StatusBadRequest,
-	ErrInvalidRemoteApplication:     http.StatusBadRequest,
-	ErrReservedIssuer:               http.StatusBadRequest,
-	ErrInviteLinkExpired:            http.StatusBadRequest,
-	ErrInviteLinkRevoked:            http.StatusBadRequest,
-	ErrSIWSAddressMismatch:          http.StatusBadRequest,
-	ErrOwnerSlugTaken:               http.StatusBadRequest,
+	ErrInvalidUntil:                  http.StatusBadRequest,
+	ErrEmailInUse:                    http.StatusBadRequest,
+	ErrPhoneInUse:                    http.StatusBadRequest,
+	ErrEntitlementFilterUnavailable:  http.StatusBadRequest,
+	ErrInvalidRemoteApplication:      http.StatusBadRequest,
+	ErrReservedIssuer:                http.StatusBadRequest,
+	ErrInviteLinkExpired:             http.StatusBadRequest,
+	ErrInviteLinkRevoked:             http.StatusBadRequest,
+	ErrSIWSAddressMismatch:           http.StatusBadRequest,
+	ErrOwnerSlugTaken:                http.StatusBadRequest,
+	ErrRoleNotAssignable:             http.StatusBadRequest,
+	ErrInvalidRole:                   http.StatusBadRequest,
+	ErrUnknownRole:                   http.StatusBadRequest,
+	ErrMissingName:                   http.StatusBadRequest,
+	ErrInvalidInvite:                 http.StatusBadRequest,
+	ErrInvalidExpiry:                 http.StatusBadRequest,
+	ErrUnknownGroupPersona:           http.StatusBadRequest,
+	ErrCustomRolesNotSupported:       http.StatusBadRequest,
+	ErrCustomRoleNameInvalid:         http.StatusBadRequest,
+	ErrCustomRoleIsCatalogRole:       http.StatusBadRequest,
+	ErrCustomRoleGrantCrossPersona:   http.StatusBadRequest,
+	ErrCustomRoleGrantOutsideCatalog: http.StatusBadRequest,
 	// 502/503 — delivery/dependency failures.
 	ErrEmailDeliveryFailed:    http.StatusBadGateway,
 	ErrSMSDeliveryFailed:      http.StatusBadGateway,
@@ -201,6 +225,13 @@ var errorSentinels = []error{
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked,
 	ErrProviderAlreadyLinked,
+	// #247: permission-group hardening — role-assignability + custom-role +
+	// invite/api-key input errors, promoted from ad hoc strings so authhttp maps
+	// them via errors.Is instead of strings.Contains.
+	ErrRoleNotAssignable, ErrInvalidRole, ErrUnknownRole, ErrMissingName,
+	ErrInvalidInvite, ErrInvalidExpiry, ErrUnknownGroupPersona,
+	ErrCustomRolesNotSupported, ErrCustomRoleNameInvalid, ErrCustomRoleIsCatalogRole,
+	ErrCustomRoleGrantCrossPersona, ErrCustomRoleGrantOutsideCatalog,
 }
 
 // errorsByCode is built once from every sentinel in errorSentinels.

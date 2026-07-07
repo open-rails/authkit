@@ -15,8 +15,8 @@ func TestErrorForCode(t *testing.T) {
 		}
 	}
 	// Uniqueness: no two sentinels collapsed onto one code. The var block in
-	// errors.go currently defines 56 sentinels — bump this if you add one.
-	if len(errorsByCode) != 56 {
+	// errors.go currently defines 68 sentinels — bump this if you add one.
+	if len(errorsByCode) != 68 {
 		t.Fatalf("registry has %d codes; a duplicate code (or a new sentinel) shifts this — see errors.go", len(errorsByCode))
 	}
 	// Unknown / empty codes resolve to nil so callers can fall back.

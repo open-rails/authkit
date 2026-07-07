@@ -75,7 +75,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 	}
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if invitedBy == "" {
-		return AccountRegistrationInviteCreated{}, errors.New("invalid_invite")
+		return AccountRegistrationInviteCreated{}, authkit.ErrInvalidInvite
 	}
 
 	// #147 register+join: an invite OPTIONALLY carries a group role it ALSO grants on
@@ -98,7 +98,7 @@ func (s *Service) createAccountRegistrationInvite(ctx context.Context, req Creat
 		st := s.groupStore()
 		sch := s.groupSchemaOrDefault()
 		if !s.validRoleForPersona(sch, persona, role) {
-			return AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group", role, persona)
+			return AccountRegistrationInviteCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
 		}
 		gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
 		if err != nil {
@@ -179,7 +179,7 @@ func (s *Service) RevokeAccountRegistrationInvite(ctx context.Context, inviteID,
 	inviteID = strings.TrimSpace(inviteID)
 	actorUserID = strings.TrimSpace(actorUserID)
 	if inviteID == "" || actorUserID == "" {
-		return errors.New("invalid_invite")
+		return authkit.ErrInvalidInvite
 	}
 	ok, err := s.Can(ctx, actorUserID, SubjectKindUser, RootPersona, "", PermRootUsersInvite)
 	if err != nil {
@@ -284,7 +284,7 @@ func (s *Service) consumeAccountRegistrationInvite(ctx context.Context, email, u
 		if persona != nil {
 			p = *persona
 		}
-		if err := s.requireMFAForRoleAssignment(ctx, q, p, userID, SubjectKindUser, *role); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, q, *groupID, p, userID, SubjectKindUser, *role); err != nil {
 			return err
 		}
 		if err := NewPermissionGroupStore(q).AssignRole(ctx, *groupID, userID, SubjectKindUser, *role); err != nil {

@@ -47,6 +47,7 @@ type ProfilesGroupCustomRole struct {
 	PermissionGroupID string
 	Role              string
 	Permissions       []string
+	RequiresMfa       bool
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }

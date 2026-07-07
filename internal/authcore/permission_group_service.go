@@ -84,7 +84,7 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 	req.ParentInstanceSlug = strings.TrimSpace(req.ParentInstanceSlug)
 	td, ok := sch.Persona(req.Persona)
 	if !ok {
-		return "", fmt.Errorf("unknown group persona %q", req.Persona)
+		return "", fmt.Errorf("unknown group persona %q: %w", req.Persona, authkit.ErrUnknownGroupPersona)
 	}
 	if err := validateGroupInstanceSlug(req.Persona, req.InstanceSlug); err != nil {
 		return "", err
@@ -123,7 +123,7 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 		return "", err
 	}
 	if req.OwnerSubjectID != "" {
-		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(tx, s.dbSchema()), req.Persona, req.OwnerSubjectID, SubjectKindUser, OwnerRoleName); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(tx, s.dbSchema()), id, req.Persona, req.OwnerSubjectID, SubjectKindUser, OwnerRoleName); err != nil {
 			return "", fmt.Errorf("seed owner: %w", err)
 		}
 		if err := st.AssignRole(ctx, id, req.OwnerSubjectID, SubjectKindUser, OwnerRoleName); err != nil {
@@ -198,7 +198,7 @@ func (s *Service) AssignGroupRoleGenesis(ctx context.Context, persona, instanceS
 func (s *Service) assignGroupRole(ctx context.Context, persona, instanceSlug, subjectID, subjectKind, role string, checkMFA bool) error {
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, persona, role) {
-		return fmt.Errorf("role %q is not assignable in a %q group", role, persona)
+		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, ErrRoleNotAssignable)
 	}
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
@@ -206,7 +206,7 @@ func (s *Service) assignGroupRole(ctx context.Context, persona, instanceSlug, su
 		return err
 	}
 	if checkMFA {
-		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), persona, subjectID, subjectKind, role); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(s.pg, s.dbSchema()), gid, persona, subjectID, subjectKind, role); err != nil {
 			return err
 		}
 	}
@@ -290,35 +290,46 @@ func (s *Service) ListSubjectGroups(ctx context.Context, subjectID, subjectKind 
 }
 
 // DefineGroupCustomRole creates/updates a custom role in the group addressed by
-// (persona, instanceSlug). Requires the persona to allow custom roles; every
-// permission must be a valid grant pattern in that persona's namespace
-// (namespace purity) and must not collide with a catalog role name.
-func (s *Service) DefineGroupCustomRole(ctx context.Context, persona, instanceSlug, role string, permissions []string) error {
+// (persona, instanceSlug), acting as actorUserID. Requires the persona to allow
+// custom roles; every permission must be a valid grant pattern in that
+// persona's namespace (namespace purity) and must not collide with a catalog
+// role name. requiresMFA mirrors RoleDef.RequiresMFA for catalog roles (#247).
+//
+// #247 SECURITY: redefining an EXISTING custom role is a DEFERRED grant (a
+// widened grant set) — and, for a narrowed one, a deferred revoke — to EVERY
+// subject currently holding it, the same class of risk invite-minting already
+// gates (AK2-AUTHZ-1). Without this check, a bounded admin holding
+// <persona>:roles:manage (but not the role's own grants) could redefine a role
+// someone else holds to the full catalog, instantly widening their OWN
+// effective grants without ever passing AssignGroupRoleAs's no-escalation
+// gate. The actor must hold roles:manage AND already cover every permission in
+// BOTH the role's current grants (if it exists) and the requested ones.
+func (s *Service) DefineGroupCustomRole(ctx context.Context, actorUserID, persona, instanceSlug, role string, permissions []string, requiresMFA bool) error {
 	sch := s.groupSchemaOrDefault()
 	td, ok := sch.Persona(persona)
 	if !ok {
-		return fmt.Errorf("unknown group persona %q", persona)
+		return fmt.Errorf("unknown group persona %q: %w", persona, authkit.ErrUnknownGroupPersona)
 	}
 	if !td.Capabilities.CustomRoles {
-		return fmt.Errorf("group persona %q does not allow custom roles", persona)
+		return fmt.Errorf("group persona %q does not allow custom roles: %w", persona, authkit.ErrCustomRolesNotSupported)
 	}
 	if !segmentRe.MatchString(role) {
-		return fmt.Errorf("custom role name %q must match [a-z][a-z0-9-]*", role)
+		return fmt.Errorf("custom role name %q must match [a-z][a-z0-9-]*: %w", role, authkit.ErrCustomRoleNameInvalid)
 	}
 	if _, isCatalog := sch.Role(persona, role); isCatalog {
-		return fmt.Errorf("role %q is a catalog role and cannot be redefined as custom", role)
+		return fmt.Errorf("role %q is a catalog role and cannot be redefined as custom: %w", role, authkit.ErrCustomRoleIsCatalogRole)
 	}
 	for _, p := range permissions {
 		if err := ValidateGrantPattern(p); err != nil {
 			return err
 		}
 		if PermissionPersona(p) != persona {
-			return fmt.Errorf("custom role grant %q is cross-persona — a %q role may hold only %q: perms", p, persona, persona)
+			return fmt.Errorf("custom role grant %q is cross-persona — a %q role may hold only %q: perms: %w", p, persona, persona, authkit.ErrCustomRoleGrantCrossPersona)
 		}
 	}
 	universe, ok := sch.GrantableUniverse(persona)
 	if !ok {
-		return fmt.Errorf("unknown group persona %q", persona)
+		return fmt.Errorf("unknown group persona %q: %w", persona, authkit.ErrUnknownGroupPersona)
 	}
 	allowed := make(map[string]struct{}, len(universe))
 	for _, p := range universe {
@@ -326,7 +337,7 @@ func (s *Service) DefineGroupCustomRole(ctx context.Context, persona, instanceSl
 	}
 	for _, p := range permissions {
 		if _, ok := allowed[p]; !ok {
-			return fmt.Errorf("custom role grant %q is outside catalog", p)
+			return fmt.Errorf("custom role grant %q is outside catalog: %w", p, authkit.ErrCustomRoleGrantOutsideCatalog)
 		}
 	}
 	st := s.groupStore()
@@ -334,14 +345,34 @@ func (s *Service) DefineGroupCustomRole(ctx context.Context, persona, instanceSl
 	if err != nil {
 		return err
 	}
-	return st.UpsertCustomRole(ctx, gid, role, permissions)
+	oldGrants, _, err := st.CustomRole(ctx, gid, role)
+	if err != nil {
+		return err
+	}
+	if err := s.authorizeCustomRoleChange(ctx, st, sch, persona, gid, actorUserID, oldGrants, permissions); err != nil {
+		return err
+	}
+	return st.UpsertCustomRole(ctx, gid, role, permissions, requiresMFA)
 }
 
-// DeleteGroupCustomRole removes a custom role from a group.
-func (s *Service) DeleteGroupCustomRole(ctx context.Context, persona, instanceSlug, role string) error {
+// DeleteGroupCustomRole removes a custom role from a group, acting as
+// actorUserID. #247 SECURITY: deleting a role is a DEFERRED REVOKE from every
+// subject currently holding it, gated by the same capability + no-escalation
+// rule as DefineGroupCustomRole (covering the role's stored grants; a
+// not-yet-defined role has nothing to revoke, so only the capability check
+// applies).
+func (s *Service) DeleteGroupCustomRole(ctx context.Context, actorUserID, persona, instanceSlug, role string) error {
+	sch := s.groupSchemaOrDefault()
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
 	if err != nil {
+		return err
+	}
+	oldGrants, _, err := st.CustomRole(ctx, gid, role)
+	if err != nil {
+		return err
+	}
+	if err := s.authorizeCustomRoleChange(ctx, st, sch, persona, gid, actorUserID, oldGrants, nil); err != nil {
 		return err
 	}
 	return st.DeleteCustomRole(ctx, gid, role)

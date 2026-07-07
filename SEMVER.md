@@ -239,6 +239,17 @@ exposes) are **not**. (Method names above are illustrative; `client.go` is autho
 `SubjectKindUser`/`SubjectKind*` consts, `RootPersona`, the `PermRoot*` constants, and the
 `Perm*(t string) string` / `OwnerGrant` / `PermissionPersona` permission-builder funcs.
 
+(#247 BREAKING: one role per subject per group is now a HARD rule — no per-group
+role unions (the additive walk-up union ACROSS ancestor groups is unchanged).
+`GroupAssignment.Roles []string` is now `GroupAssignment.Role string`.
+`PermissionGroupStore.UpsertCustomRole` gained a `requiresMFA bool` parameter
+and a new `CustomRole` lookup method; assigning a role now REPLACES a subject's
+existing role in that group via a single atomic upsert, backed by a partial
+unique index on `(permission_group_id, subject)` — see §7.1. Custom-role
+`requires_mfa` is honored by the same assignment/redeem-time MFA gate as
+catalog roles. Invite-link `ExpiresIn` is now clamped to a 30-day ceiling at
+mint — never rejected, silently capped.)
+
 **Interfaces consumers implement** (covered — adding a method is MAJOR for an interface
 consumers implement): `EmailSender`, `SMSSender`, `SMSHealthChecker`,
 `EntitlementsProvider` (batch-native, #221: `ListEntitlements(ctx, []userID) (map[userID][]string, error)`
@@ -671,7 +682,11 @@ covered compatibility alias.)
 - Postgres migrations are embedded at `migrations/postgres` (`FS`, `FSForSchema(schema)`).
   (#245 BREAKING: `migrations/clickhouse` removed — session-event history now lives in
   the Postgres `session_events` table, retained per `Config.SessionEventRetention` and
-  pruned by `CleanupExpiredAuthState`.) They are run with
+  pruned by `CleanupExpiredAuthState`.) (#247 BREAKING, pre-v1.0.0 rewrite of `0001`:
+  `group_user_roles`/`group_remote_application_roles`'s live-unique index is now
+  `(permission_group_id, subject)` — NOT including `role` — enforcing the hard
+  one-role-per-subject-per-group rule structurally; `group_custom_roles` gained a
+  `requires_mfa boolean NOT NULL DEFAULT false` column.) They are run with
   [migratekit](https://github.com/open-rails/migratekit), name-tracked in
   `public.migrations` so a recorded migration is never re-applied.
 - **Migrations are forward-only and append-only after v1.0.0.** Published migration files
@@ -758,7 +773,9 @@ These are intentionally non-configurable and part of the contract: email verific
 reset link/code TTLs (email verify 60m, phone verify 15m, password reset 1h, server-sent
 2FA codes 10m); username rules (4–30 chars, ASCII-letter start, `[A-Za-z0-9_]`, no `@`,
 no leading `+`); user rename cooldown 72h; 10 backup codes (8-char alphanumeric);
-`SensitiveActionFreshAuthWindow = 15m`; SNS lookup timeout 3s / cache TTL 24h.
+`SensitiveActionFreshAuthWindow = 15m`; SNS lookup timeout 3s / cache TTL 24h;
+group invite-link default TTL 72h, HARD ceiling 30d (#247 — `ExpiresIn` longer than
+30d is clamped at mint, never rejected).
 Default rate-limit buckets come from `DefaultRateLimits()`.
 
 ---

@@ -154,9 +154,11 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 	}
 	defer rows.Close()
 
+	// #247: at most one live role per (group, subject) — enforced by the
+	// partial unique index — so the join yields at most one row per group.
 	type acc struct {
-		typ   string
-		roles []string
+		typ  string
+		role *string
 	}
 	byGroup := map[string]*acc{}
 	var order []string
@@ -173,7 +175,7 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 			order = append(order, gid)
 		}
 		if role != nil {
-			a.roles = append(a.roles, *role)
+			a.role = role
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -182,10 +184,10 @@ func (st *PermissionGroupStore) WalkAssignments(ctx context.Context, groupID, su
 	var out []GroupAssignment
 	for _, gid := range order {
 		a := byGroup[gid]
-		if len(a.roles) == 0 {
+		if a.role == nil {
 			continue // an ancestor where the subject holds nothing contributes no grants
 		}
-		out = append(out, GroupAssignment{Persona: a.typ, PermissionGroupID: gid, Roles: a.roles})
+		out = append(out, GroupAssignment{Persona: a.typ, PermissionGroupID: gid, Role: *a.role})
 	}
 	return out, nil
 }
@@ -217,24 +219,27 @@ func (st *PermissionGroupStore) RootRolesForUsers(ctx context.Context, rootGID s
 	return out, rows.Err()
 }
 
-// AssignRole grants subject a role in a group, replacing any previous role in
-// that same group. The role NAME is validated against the persona catalog / custom
-// roles by the caller before assignment.
+// AssignRole grants subject a role in a group, REPLACING any previous role it
+// held there (#247 hard rule: one role per subject per group, enforced by a
+// partial unique index on (permission_group_id, subject) — no per-group role
+// unions). A single atomic UPSERT: no live row yet -> insert fresh; a live row
+// already exists (whatever role it holds) -> its role is overwritten in place.
+// Deliberately NOT a soft-delete-then-insert (a two-statement version of that
+// has a same-snapshot visibility trap: a writable CTE's UPDATE is invisible to
+// the following INSERT's ON CONFLICT check in the SAME command, so the INSERT
+// would spuriously conflict with the row the CTE just tried to retire and
+// silently no-op instead of swapping the role). The role NAME is validated
+// against the persona catalog / custom roles by the caller before assignment.
 func (st *PermissionGroupStore) AssignRole(ctx context.Context, groupID, subjectID, subjectKind, role string) error {
 	table, subjectColumn, err := groupRoleTable(subjectKind)
 	if err != nil {
 		return err
 	}
 	_, err = st.q.Exec(ctx,
-		fmt.Sprintf(`WITH replaced AS (
-		   UPDATE %s
-		      SET deleted_at = now(), updated_at = now()
-		    WHERE permission_group_id = $1::uuid AND %s = $2::uuid AND role <> $3 AND deleted_at IS NULL
-		 )
-		 INSERT INTO %s (permission_group_id, %s, role)
+		fmt.Sprintf(`INSERT INTO %s (permission_group_id, %s, role)
 		 VALUES ($1::uuid, $2::uuid, $3)
-		 ON CONFLICT (permission_group_id, %s, role) WHERE deleted_at IS NULL
-		 DO UPDATE SET updated_at = now()`, table, subjectColumn, table, subjectColumn, subjectColumn),
+		 ON CONFLICT (permission_group_id, %s) WHERE deleted_at IS NULL
+		 DO UPDATE SET role = EXCLUDED.role, updated_at = now()`, table, subjectColumn, subjectColumn),
 		groupID, subjectID, role)
 	return err
 }
@@ -281,16 +286,32 @@ func (st *PermissionGroupStore) OwnerCount(ctx context.Context, groupID string) 
 	return n, err
 }
 
-// UpsertCustomRole defines/updates a per-group custom role's permission set.
-// Only meaningful for personas whose CustomRoles capability is set; the caller
-// enforces that + validates each grant pattern against the group's persona.
-func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID, role string, permissions []string) error {
+// UpsertCustomRole defines/updates a per-group custom role's permission set and
+// its requires_mfa flag (#247). Only meaningful for personas whose CustomRoles
+// capability is set; the caller enforces that + validates each grant pattern
+// against the group's persona.
+func (st *PermissionGroupStore) UpsertCustomRole(ctx context.Context, groupID, role string, permissions []string, requiresMFA bool) error {
 	_, err := st.q.Exec(ctx,
-		`INSERT INTO profiles.group_custom_roles (permission_group_id, role, permissions)
-		 VALUES ($1::uuid, $2, $3)
-		 ON CONFLICT (permission_group_id, role) DO UPDATE SET permissions = EXCLUDED.permissions, updated_at = now()`,
-		groupID, role, permissions)
+		`INSERT INTO profiles.group_custom_roles (permission_group_id, role, permissions, requires_mfa)
+		 VALUES ($1::uuid, $2, $3, $4)
+		 ON CONFLICT (permission_group_id, role)
+		 DO UPDATE SET permissions = EXCLUDED.permissions, requires_mfa = EXCLUDED.requires_mfa, updated_at = now()`,
+		groupID, role, permissions, requiresMFA)
 	return err
+}
+
+// CustomRole returns a single per-group custom role's stored permissions and
+// requires_mfa flag, or (nil, false, nil) if no such custom role is defined —
+// absence is not an error (the caller may be about to CREATE it).
+func (st *PermissionGroupStore) CustomRole(ctx context.Context, groupID, role string) (permissions []string, requiresMFA bool, err error) {
+	err = st.q.QueryRow(ctx,
+		`SELECT permissions, requires_mfa FROM profiles.group_custom_roles
+		 WHERE permission_group_id = $1::uuid AND role = $2`,
+		groupID, role).Scan(&permissions, &requiresMFA)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	return permissions, requiresMFA, err
 }
 
 // CustomRolesFor preloads the custom roles for a set of group ids and returns a

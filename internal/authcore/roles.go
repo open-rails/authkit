@@ -83,7 +83,9 @@ func (s *Service) rootRoleSlugsByUser(ctx context.Context, userID string) ([]str
 	}
 	var roles []string
 	for _, a := range asg {
-		roles = append(roles, a.Roles...)
+		if a.Role != "" {
+			roles = append(roles, a.Role)
+		}
 	}
 	return s.splitConfiguredRootRoles(roles)
 }

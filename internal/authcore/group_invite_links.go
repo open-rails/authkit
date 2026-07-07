@@ -27,7 +27,17 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 )
 
-const defaultGroupInviteTTL = 72 * time.Hour
+const (
+	defaultGroupInviteTTL = 72 * time.Hour
+	// maxGroupInviteTTL is the hard ceiling on an invite link's requested
+	// lifetime (#247, Paul's decision): a mint requesting longer is CLAMPED down
+	// to now+30d, never rejected — mirrors APIKeysConfig.MaxTTL's capping
+	// semantics. Possession of the link is the credential, so an unbounded TTL
+	// is an unbounded-lifetime credential; 30d bounds the blast radius of a
+	// leaked/forgotten link without breaking the common case (the default stays
+	// 72h).
+	maxGroupInviteTTL = 30 * 24 * time.Hour
+)
 
 var (
 	// ErrInviteLinkNotFound indicates no invite link matched the code/lookup.
@@ -90,14 +100,14 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	role := strings.ToLower(strings.TrimSpace(req.Role))
 	invitedBy := strings.TrimSpace(req.InvitedBy)
 	if role == "" || invitedBy == "" {
-		return GroupInviteLinkCreated{}, errors.New("invalid_invite")
+		return GroupInviteLinkCreated{}, authkit.ErrInvalidInvite
 	}
 	persona := strings.TrimSpace(req.Persona)
 	instanceSlug := strings.TrimSpace(req.InstanceSlug)
 	st := s.groupStore()
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, persona, role) {
-		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group", role, persona)
+		return GroupInviteLinkCreated{}, fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
 	}
 	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
 	if err != nil {
@@ -119,6 +129,11 @@ func (s *Service) CreateGroupInviteLink(ctx context.Context, req CreateGroupInvi
 	ttl := req.ExpiresIn
 	if ttl <= 0 {
 		ttl = defaultGroupInviteTTL
+	}
+	// #247: clamp to the 30d ceiling — never reject, just cap (mirrors
+	// APIKeysConfig.MaxTTL's mint-time capping).
+	if ttl > maxGroupInviteTTL {
+		ttl = maxGroupInviteTTL
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
 
@@ -179,7 +194,7 @@ func (s *Service) RevokeGroupInviteLink(ctx context.Context, persona, instanceSl
 	}
 	linkID = strings.TrimSpace(linkID)
 	if linkID == "" {
-		return errors.New("invalid_invite")
+		return authkit.ErrInvalidInvite
 	}
 	gid, err := s.resolveGroupID(ctx, s.groupStore(), strings.TrimSpace(persona), strings.TrimSpace(instanceSlug))
 	if err != nil {
@@ -215,7 +230,7 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 	code = strings.TrimSpace(code)
 	redeemerUserID = strings.TrimSpace(redeemerUserID)
 	if code == "" || redeemerUserID == "" {
-		return zero, errors.New("invalid_invite")
+		return zero, authkit.ErrInvalidInvite
 	}
 	codeHash := sha256Hex(code)
 
@@ -257,7 +272,7 @@ func (s *Service) RedeemGroupInviteLink(ctx context.Context, code, redeemerUserI
 		if redeemedAt != nil {
 			return zero, ErrInviteLinkNotFound
 		}
-		if err := s.requireMFAForRoleAssignment(ctx, q, persona, redeemerUserID, SubjectKindUser, role); err != nil {
+		if err := s.requireMFAForRoleAssignment(ctx, q, groupID, persona, redeemerUserID, SubjectKindUser, role); err != nil {
 			return zero, err
 		}
 		if err := NewPermissionGroupStore(q).AssignRole(ctx, groupID, redeemerUserID, SubjectKindUser, role); err != nil {

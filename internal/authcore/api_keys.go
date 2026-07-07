@@ -137,11 +137,11 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 	}
 	name := strings.TrimSpace(opts.Name)
 	if name == "" {
-		return APIKey{}, "", errors.New("missing_name")
+		return APIKey{}, "", authkit.ErrMissingName
 	}
 	role := strings.ToLower(strings.TrimSpace(opts.Role))
 	if role == "" {
-		return APIKey{}, "", errors.New("invalid_role")
+		return APIKey{}, "", authkit.ErrInvalidRole
 	}
 	// The role must be valid for the group's persona: a catalog role, any role
 	// for custom-enabled personas, or an existing group custom role.
@@ -149,7 +149,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 		if _, ok, cerr := s.lookupGroupCustomRole(ctx, gid, role); cerr != nil {
 			return APIKey{}, "", cerr
 		} else if !ok {
-			return APIKey{}, "", errors.New("unknown_role")
+			return APIKey{}, "", authkit.ErrUnknownRole
 		}
 	}
 	// Resolve the role's effective permissions for the returned view.
@@ -167,7 +167,7 @@ func (s *Service) MintAPIKeyWithOptions(ctx context.Context, persona, instanceSl
 	now := time.Now().UTC()
 	expiresAt := opts.ExpiresAt
 	if expiresAt != nil && !expiresAt.After(now) {
-		return APIKey{}, "", errors.New("invalid_expiry")
+		return APIKey{}, "", authkit.ErrInvalidExpiry
 	}
 	if maxTTL := s.cfg.APIKeys.MaxTTL; maxTTL > 0 {
 		capAt := now.Add(maxTTL)

@@ -159,17 +159,23 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 	if _, err := svc.EnsureRootGroup(ctx); err != nil {
 		t.Fatalf("root: %v", err)
 	}
-	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme"}); err != nil {
+	var owner, uid string
+	for _, p := range []*string{&owner, &uid} {
+		if err := pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(p); err != nil {
+			t.Fatalf("create user: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = ANY($1::uuid[])`, []string{owner, uid})
+	})
+
+	if _, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "org", InstanceSlug: "acme", OwnerSubjectID: owner}); err != nil {
 		t.Fatalf("create org permission group: %v", err)
 	}
-	var uid string
-	if err := pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&uid); err != nil {
-		t.Fatalf("user: %v", err)
-	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id = $1`, uid) })
 
-	// define a custom role, assign it to a non-owner, authorize.
-	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "auditor", []string{"org:billing:read"}); err != nil {
+	// define a custom role (as the owner — #247 requires an actor who covers
+	// roles:manage + the role's grants), assign it to a non-owner, authorize.
+	if err := svc.DefineGroupCustomRole(ctx, owner, "org", "acme", "auditor", []string{"org:billing:read"}, false); err != nil {
 		t.Fatalf("DefineGroupCustomRole: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, "org", "acme", uid, SubjectKindUser, "auditor"); err != nil {
@@ -188,14 +194,21 @@ func TestService_CustomRoleDefineDelete(t *testing.T) {
 		t.Fatalf("reassign auditor: %v", err)
 	}
 	// cross-persona custom perm is rejected (namespace purity).
-	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "bad", []string{"repo:repo:read"}); err == nil {
+	if err := svc.DefineGroupCustomRole(ctx, owner, "org", "acme", "bad", []string{"repo:repo:read"}, false); err == nil {
 		t.Errorf("a cross-persona custom-role grant must be rejected")
 	}
-	if err := svc.DefineGroupCustomRole(ctx, "org", "acme", "bad", []string{"org:billing:write"}); err == nil {
+	if err := svc.DefineGroupCustomRole(ctx, owner, "org", "acme", "bad", []string{"org:billing:write"}, false); err == nil {
 		t.Errorf("an outside-catalog custom-role grant must be rejected")
 	}
+	// a bounded actor with no roles:manage authority cannot redefine or delete.
+	if err := svc.DefineGroupCustomRole(ctx, uid, "org", "acme", "auditor", []string{"org:billing:read"}, false); err == nil {
+		t.Errorf("an actor without roles:manage must not be able to redefine a custom role")
+	}
+	if err := svc.DeleteGroupCustomRole(ctx, uid, "org", "acme", "auditor"); err == nil {
+		t.Errorf("an actor without roles:manage must not be able to delete a custom role")
+	}
 	// delete -> the grant is gone.
-	if err := svc.DeleteGroupCustomRole(ctx, "org", "acme", "auditor"); err != nil {
+	if err := svc.DeleteGroupCustomRole(ctx, owner, "org", "acme", "auditor"); err != nil {
 		t.Fatalf("DeleteGroupCustomRole: %v", err)
 	}
 	if ok, _ := svc.Can(ctx, uid, SubjectKindUser, "org", "acme", "org:billing:read"); ok {

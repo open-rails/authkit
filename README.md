@@ -377,6 +377,17 @@ but AuthKit does not auto-delete those rows because a typo in config must not
 erase operator intent. Review and clean up drifted rows deliberately, and do not
 reuse a retired name for a different meaning until old assignments are cleared.
 
+Instance creation (`CreatePermissionGroup`, including its unchecked
+`OwnerSubjectID` owner-seeding) has no actor-aware `*As` variant: authorizing
+*who may create a group instance* is deliberately the HOST's job in the
+embedded trust model — the host already decided to call it, which is the
+authority. Runtime mutations to an EXISTING instance (assign/unassign a role,
+define/delete a custom role, mint an invite or API key) all go through
+actor-aware `*As` paths that re-derive authority from the caller's own grants
+(#136/#247 no-escalation). `*As` variants for group creation itself are
+deferred to the Phase-2 remote transport (#138), where host-trust no longer
+holds and every actor must be independently authorized.
+
 ---
 
 ## Advanced Host Flows

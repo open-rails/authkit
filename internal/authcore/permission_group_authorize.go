@@ -9,14 +9,16 @@ package authcore
 
 import authkit "github.com/open-rails/authkit"
 
-// GroupAssignment is a subject's role-assignment set within ONE permission-group,
-// tagged with that group's persona. The engine produces a slice of these by walking
-// a target group's parent chain (resolving the subject's roles at each level);
-// the slice order is irrelevant — the union is additive and order-independent.
+// GroupAssignment is a subject's SINGLE role assignment within ONE
+// permission-group (#247: one role per subject per group is a hard rule — no
+// per-group role unions), tagged with that group's persona. The engine produces
+// a slice of these by walking a target group's parent chain (resolving the
+// subject's role at each level, when it holds one); the slice order is
+// irrelevant — the union ACROSS groups is additive and order-independent.
 type GroupAssignment struct {
-	Persona           string   // the declared persona of the group this assignment lives in
-	PermissionGroupID string   // opaque group id; used ONLY to scope custom-role lookups
-	Roles             []string // role names the subject holds in this group
+	Persona           string // the declared persona of the group this assignment lives in
+	PermissionGroupID string // opaque group id; used ONLY to scope custom-role lookups
+	Role              string // the single role name the subject holds in this group
 }
 
 // CustomRoleResolver returns the grant tokens of a per-group custom role, or
@@ -44,18 +46,19 @@ func (s *GroupSchema) ResolveGrants(assignments []GroupAssignment, custom Custom
 		if !ok {
 			continue // unknown persona: fail-closed
 		}
-		for _, role := range a.Roles {
-			if r, ok := roleByName(td.Roles, role); ok {
-				for _, g := range r.Permissions {
-					add(g)
-				}
-				continue
+		if a.Role == "" {
+			continue
+		}
+		if r, ok := roleByName(td.Roles, a.Role); ok {
+			for _, g := range r.Permissions {
+				add(g)
 			}
-			if td.Capabilities.CustomRoles && custom != nil {
-				if grants, ok := custom(a.PermissionGroupID, role); ok {
-					for _, g := range grants {
-						add(g)
-					}
+			continue
+		}
+		if td.Capabilities.CustomRoles && custom != nil {
+			if grants, ok := custom(a.PermissionGroupID, a.Role); ok {
+				for _, g := range grants {
+					add(g)
 				}
 			}
 		}
