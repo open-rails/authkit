@@ -104,8 +104,7 @@ appears in consumer code. Renaming either is breaking.
 | `…/lang` | `lang` | Stable | Language context helpers |
 | `…/authtest` | `authtest` | Stable | Test issuer for consumers |
 | `…/ratelimit` | `ratelimit` | Stable | Rate-limit result + `Limit` types and helpers |
-| `…/adapters/gin` | `authkitgin` | Provided | Gin route registration |
-| `…/adapters/chi` | `authkitchi` | Provided | Chi route registration |
+| `…/adapters/gin` | `authkitgin` | Provided | Gin middleware bridges (mounting is `authhttp.MountHandler`, #250) |
 | `…/adapters/twilio/email` | `twilio` | Provided | Twilio/SendGrid email sender |
 | `…/adapters/twilio/sms` | `twilio` | Provided | Twilio SMS sender |
 | `…/adapters/riverjobs` | `riverjobs` | Provided | River background workers |
@@ -346,10 +345,10 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
   `LookupLimit`, `Remaining`. The memory/redis limiter BACKENDS, the memory/redis ephemeral
   STORES, and the `siws` protocol package moved behind `internal/` (#202) — consumers only ever
   reached them through `embedded.WithRedis`/`authhttp.WithRedis`/internal wiring, never by name.
-- **`authkitgin`/`authkitchi`**: `RegisterAPI`, `RegisterJWKS`, `RegisterOIDC`,
-  `RegisterRoutes`, `APIOption` (`WithRoutes`, `WithRouteWrapper`), `APIOptions`;
-  gin also ships `RegisterAll` (one-call JWKS+OIDC+API mount, #211) and the gin-native
-  `Required`/`Optional` middleware (#209).
+- **`authkitgin`**: the gin-native `Required`/`Optional` middleware (#209), `Use`,
+  `Fallback` (NoRoute-safe mount bridge), `Principal`, `UserClaims`, `RequirePermission`.
+  (#250 BREAKING: the `Register*` route-registration surface and the `authkitchi`
+  package were DELETED — hosts mount `authhttp.MountHandler` once instead.)
 - **`twilio` (email/sms)**: `Sender`, `New`, `Config`, and the builder func types.
 - **`riverjobs`**: `PurgeDeletedUsersWorker`/`Args`, `RegisterPurgeDeletedUsersWorker`,
   `AddPurgeDeletedUsersPeriodicJob`, `BeforeUserHardDeleteFunc`, `DefaultQueue` (#246).
@@ -376,7 +375,8 @@ One-step construction (#211): New(cfg, pg, opts...) (*Service, *embedded.Client,
    `Server = Service` alias was removed pre-1.0, #206)
 Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
   WithClientIPFunc, WithLanguageConfig
-Handlers / mounts: svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
+Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
+  svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)
 Verification surface: NOT re-exported (#206 — the former verify_aliases re-exports were
   removed pre-1.0). Import github.com/open-rails/authkit/verify directly for Verifier,
@@ -398,15 +398,19 @@ Remote-application issuers client: RemoteApplicationIssuersClient (+options/regi
 
 ### 5.1 Mounting model (covered behavior)
 
-- Routes are **prefix-neutral**. The host chooses the mount point; AuthKit's internal
-  paths (`/token`, `/me`, `/admin/users`, …) are fixed. Mounting `RegisterAPI` under
-  `/api/v1` yields `/api/v1/token`, etc.
-- Hosts select capability subsets via `svc.Routes().Groups(...)`. The set of
-  `RouteGroup` values and their membership is covered.
+- Routes are **prefix-neutral**. AuthKit's internal paths (`/token`, `/me`,
+  `/admin/users`, …) are fixed; `authhttp.MountHandler(svc, MountOptions)` (#250) serves
+  the whole surface as one handler: API under `APIPrefix` (default `/api/v1`), browser
+  OIDC under `OIDCPath` (default `/oidc`), JWKS at `/.well-known/jwks.json`, all
+  optionally under a boundary-checked `MountPrefix`.
+- `MountOptions{Groups, APIPrefix, OIDCPath, MountPrefix, ExcludeRoutes, Wrap}` and
+  `RouteRef{Method, Path}` are covered. Hosts select capability subsets via
+  `MountOptions.Groups` (or `svc.Routes().Groups(...)` for direct table access). The set
+  of `RouteGroup` values and their membership is covered.
 - `RouteSpec{Method, Path, Group, Handler}` shape is covered. Path params use net/http
   `{param}` syntax.
-- JWKS mounts separately at `svc.JWKSHandler()` (conventionally `/.well-known/jwks.json`).
-- Browser OIDC routes mount via `svc.Routes().OIDCBrowser()` (conventionally `/oidc`).
+- The lower-level pieces stay covered for hosts that assemble their own mux:
+  `svc.JWKSHandler()`, `svc.Routes().OIDCBrowser()`, `svc.APIHandler()`.
 
 **Adding a route** to an existing group is MINOR. **Removing/renaming a route, changing
 its method, moving it between groups, or changing its auth requirement** is MAJOR.

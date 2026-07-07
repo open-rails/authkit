@@ -170,18 +170,15 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	}
 
 	router := gin.New()
-	v1 := router.Group("/api/v1")
-	authkitgin.RegisterAPI(v1, srv,
-		authkitgin.WithGroups(
-			authhttp.RouteAuth,
-			authhttp.RouteRegistration,
-			authhttp.RouteAccount,
-			authhttp.RouteAdmin,
-			authhttp.RoutePermissionGroups,
-		),
-	)
-	authkitgin.RegisterJWKS(router, srv)
-	authkitgin.RegisterOIDC(router, srv, "/oidc")
+	// The whole AuthKit surface — JWKS at /.well-known/jwks.json, browser OIDC
+	// under /oidc, JSON API under /api/v1 — is ONE framework-neutral handler,
+	// mounted once as the router's fallback. Host routes always win; excluded
+	// routes are the host-shadowing seam.
+	mount, err := authhttp.MountHandler(srv, authhttp.MountOptions{})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	router.NoRoute(authkitgin.Fallback(mount))
 
 	// Host route middleware definitions, in the same order as the examples below.
 	optionalAuth := authkitgin.Use(verify.Optional(srv.Verifier()))
@@ -348,11 +345,16 @@ srv, err := authhttp.NewServer(client, authhttp.WithTrustedProxies("10.0.0.0/8")
 The returned `client` is the host's `authkit.Client` for in-process operations.
 The future standalone server will use `remote.New` for the same contract.
 
-`RegisterAPI(v1, srv)` registers every enabled JSON API route. Use
-`WithGroups(...)` only when the host wants to mount selected surfaces:
-`auth`, `registration`, `account`, `admin`, and `permission_groups`. Browser
-OIDC redirects are mounted separately with `RegisterOIDC`; JWKS is mounted with
-`RegisterJWKS`.
+`authhttp.MountHandler` returns the whole surface as one `http.Handler`: every
+enabled JSON API route under `APIPrefix` (default `/api/v1`), browser OIDC
+redirects under `OIDCPath` (default `/oidc`), and JWKS at
+`/.well-known/jwks.json`. Options: `Groups` selects surfaces (`auth`,
+`registration`, `account`, `admin`, `permission_groups`, `browser_oidc`);
+`ExcludeRoutes` drops routes the host shadows with its own handlers;
+`MountPrefix` shifts everything under a host path (boundary-checked, for
+non-stripping proxies); `Wrap` decorates every mounted route. gin hosts mount
+it once via `router.NoRoute(authkitgin.Fallback(mount))` (or `gin.WrapH` on an
+explicit wildcard); any other router mounts it like any `http.Handler`.
 
 ### RBAC config and durability
 
@@ -513,7 +515,7 @@ func mountAdvancedAuthExamples(
 }
 ```
 
-Frontend code calls the AuthKit routes mounted by `RegisterAPI`:
+Frontend code calls the AuthKit routes mounted by `MountHandler`:
 
 ```text
 POST /api/v1/password/login

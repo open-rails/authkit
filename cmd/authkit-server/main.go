@@ -341,45 +341,35 @@ func run() error {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	})
-	// Downstream verifiers fetch signing keys here (public).
-	mux.Handle("/.well-known/jwks.json", svc.JWKSHandler())
 
-	// Browser-facing auth-flow routes under the configured prefix.
-	apiH := svc.APIHandler()
-	oidcH := svc.OIDCHandler()
+	// The whole auth surface — JWKS at root, API + browser OIDC under the
+	// configured prefix — is ONE neutral handler (#250).
 	prefix := cfg.apiPrefix
+	if strings.TrimSpace(prefix) == "" {
+		prefix = "/" // explicit empty AUTHKIT_API_PREFIX means root
+	}
+	authH, err := authhttp.MountHandler(svc, authhttp.MountOptions{
+		APIPrefix: prefix,
+		OIDCPath:  strings.TrimSuffix(prefix, "/") + "/oidc",
+	})
+	if err != nil {
+		return fmt.Errorf("mount authkit routes: %w", err)
+	}
+	mux.Handle("/", authH)
 
 	// Dev-only integration-test affordances, consolidated from the former
 	// authkit-devserver (#194). Mounted ONLY in a dev env; /dev/mint additionally
 	// requires AUTHKIT_DEV_MINT_SECRET. Fail-closed: prod or no secret ⇒ absent.
-	var devMintH, devWhoamiH http.Handler
+	// Registered as more-specific mux patterns, so they win over the mount.
 	if devMode {
-		devWhoamiH = devWhoamiHandler(svc)
+		mux.Handle("GET "+strings.TrimSuffix(prefix, "/")+"/dev/whoami", devWhoamiHandler(svc))
 		if devSigner != nil {
-			devMintH = devMintHandler(cfg.issuer, devSigner, cfg.devMintSecret)
+			mux.Handle("POST "+strings.TrimSuffix(prefix, "/")+"/dev/mint", devMintHandler(cfg.issuer, devSigner, cfg.devMintSecret))
 			log.Printf("dev endpoints enabled: GET %s/dev/whoami, POST %s/dev/mint (DEV ONLY)", prefix, prefix)
 		} else {
 			log.Printf("dev endpoint enabled: GET %s/dev/whoami (DEV ONLY; set AUTHKIT_DEV_MINT_SECRET to enable /dev/mint)", prefix)
 		}
 	}
-
-	mux.Handle(prefix+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if devMintH != nil && r.Method == http.MethodPost && r.URL.Path == prefix+"/dev/mint" {
-			devMintH.ServeHTTP(w, r)
-			return
-		}
-		if devWhoamiH != nil && r.Method == http.MethodGet && r.URL.Path == prefix+"/dev/whoami" {
-			devWhoamiH.ServeHTTP(w, r)
-			return
-		}
-		if r.Method == http.MethodGet &&
-			strings.HasPrefix(r.URL.Path, prefix+"/oidc/") &&
-			(strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/callback")) {
-			http.StripPrefix(prefix, oidcH).ServeHTTP(w, r)
-			return
-		}
-		http.StripPrefix(prefix, apiH).ServeHTTP(w, r)
-	}))
 
 	// Management API: provision/manage/mint, driven by the remote SDK or non-Go
 	// clients. Gated by the app→server bearer token. Fail closed: with no token
