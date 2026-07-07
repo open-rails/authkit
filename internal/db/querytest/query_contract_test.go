@@ -197,7 +197,7 @@ func TestQueryContracts(t *testing.T) {
 		requireNoError(t, store.AssignRole(ctx, orgID, userID, authcore.SubjectKindUser, authcore.OwnerRoleName))
 		assignments, err := store.WalkAssignments(ctx, repoID, userID, authcore.SubjectKindUser)
 		requireNoError(t, err)
-		if len(assignments) != 1 || assignments[0].Persona != "org" || assignments[0].Roles[0] != authcore.OwnerRoleName {
+		if len(assignments) != 1 || assignments[0].Persona != "org" || assignments[0].Role != authcore.OwnerRoleName {
 			t.Fatalf("WalkAssignments = %+v", assignments)
 		}
 		can, err := store.CanOnGroup(ctx, schema, userID, authcore.SubjectKindUser, repoID, "org:repo:read")

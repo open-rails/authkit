@@ -54,10 +54,10 @@ func TestBuildSchema_AppExtendsRootCatalog(t *testing.T) {
 		t.Fatalf("moderator root role missing")
 	}
 	// A moderator reaches its declared perms but NOT root:* (reach != capability).
-	if !s.Can([]GroupAssignment{{Persona: RootPersona, Roles: []string{"moderator"}}}, nil, "root:content:moderate") {
+	if !s.Can([]GroupAssignment{{Persona: RootPersona, Role: "moderator"}}, nil, "root:content:moderate") {
 		t.Errorf("moderator should hold root:content:moderate")
 	}
-	if s.Can([]GroupAssignment{{Persona: RootPersona, Roles: []string{"moderator"}}}, nil, "root:users:ban") {
+	if s.Can([]GroupAssignment{{Persona: RootPersona, Role: "moderator"}}, nil, "root:users:ban") {
 		t.Errorf("moderator (review only) must NOT hold root:users:ban")
 	}
 	_ = mod

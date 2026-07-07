@@ -348,6 +348,13 @@ CREATE INDEX IF NOT EXISTS raad_app_key_idx
 COMMENT ON TABLE profiles.remote_application_attribute_defs IS
   'Reference-mode attribute definitions: opaque JSON by remote application, key, and version.';
 
+-- #247: ONE role per (group, subject) is a HARD rule — no per-group role
+-- unions (the additive walk-up union ACROSS ancestor groups is unchanged). The
+-- unique index is on (permission_group_id, subject) alone, NOT including
+-- role — AssignRole's replace-on-assign upsert (soft-delete any differing live
+-- role, then insert/update) is the only writer, so this is a structural
+-- backstop against any OTHER path ever holding two live roles for one subject
+-- in one group.
 CREATE TABLE IF NOT EXISTS profiles.group_user_roles (
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
@@ -357,8 +364,8 @@ CREATE TABLE IF NOT EXISTS profiles.group_user_roles (
   deleted_at timestamptz,
   CONSTRAINT gur_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
-CREATE UNIQUE INDEX IF NOT EXISTS gur_group_user_role_uidx
-  ON profiles.group_user_roles (permission_group_id, user_id, role)
+CREATE UNIQUE INDEX IF NOT EXISTS gur_group_subject_uidx
+  ON profiles.group_user_roles (permission_group_id, user_id)
   WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS gur_user_idx
   ON profiles.group_user_roles (user_id)
@@ -376,8 +383,8 @@ CREATE TABLE IF NOT EXISTS profiles.group_remote_application_roles (
   deleted_at timestamptz,
   CONSTRAINT grar_role_format_chk CHECK (role ~ '^[a-z][a-z0-9-]*$')
 );
-CREATE UNIQUE INDEX IF NOT EXISTS grar_group_remote_application_role_uidx
-  ON profiles.group_remote_application_roles (permission_group_id, remote_application_id, role)
+CREATE UNIQUE INDEX IF NOT EXISTS grar_group_subject_uidx
+  ON profiles.group_remote_application_roles (permission_group_id, remote_application_id)
   WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS grar_remote_application_idx
   ON profiles.group_remote_application_roles (remote_application_id)
@@ -390,6 +397,10 @@ CREATE TABLE IF NOT EXISTS profiles.group_custom_roles (
   permission_group_id uuid NOT NULL REFERENCES profiles.permission_groups(id) ON DELETE CASCADE,
   role text NOT NULL,
   permissions text[] NOT NULL DEFAULT '{}',
+  -- #247: mirrors RoleDef.RequiresMFA for catalog roles — a custom role
+  -- granting sensitive perms can require MFA on the same assignment/redeem-time
+  -- gate (requireMFAForRoleAssignment), inert when TwoFactor.Mode == Disabled.
+  requires_mfa boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (permission_group_id, role),

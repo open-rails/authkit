@@ -85,6 +85,21 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"siws_domain_invalid":                   true, // solana routes emit authentication_failed
 		"siws_signature_invalid":                true, // solana routes emit invalid_signature
 		"siws_timestamp_invalid":                true, // solana routes emit challenge_expired
+		// #247: permission-group hardening — group/invite/api-key input errors are
+		// sentinels now (errors.Is, replacing strings.Contains) but the group
+		// routes still collapse them onto the generic invalid_request wire code.
+		"role_not_assignable":               true,
+		"invalid_role":                      true,
+		"unknown_role":                      true,
+		"missing_name":                      true,
+		"invalid_invite":                    true,
+		"invalid_expiry":                    true,
+		"unknown_group_persona":             true,
+		"custom_roles_not_supported":        true,
+		"custom_role_name_invalid":          true,
+		"custom_role_is_catalog_role":       true,
+		"custom_role_grant_cross_persona":   true,
+		"custom_role_grant_outside_catalog": true,
 	}
 
 	for _, code := range authkit.ErrorCodes() {

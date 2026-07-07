@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -46,11 +47,11 @@ func (s *Service) CreateGroupMembershipInvite(ctx context.Context, actorUserID, 
 	targetUserID = strings.TrimSpace(targetUserID)
 	role = strings.TrimSpace(role)
 	if actorUserID == "" || targetUserID == "" || role == "" {
-		return GroupMembershipInvite{}, errors.New("invalid_invite")
+		return GroupMembershipInvite{}, authkit.ErrInvalidInvite
 	}
 	sch := s.groupSchemaOrDefault()
 	if !s.validRoleForPersona(sch, persona, role) {
-		return GroupMembershipInvite{}, errors.New("invalid_role")
+		return GroupMembershipInvite{}, authkit.ErrInvalidRole
 	}
 	st := s.groupStore()
 	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
@@ -150,7 +151,7 @@ func (s *Service) AcceptGroupMembershipInvite(ctx context.Context, userID, invit
 	}
 	// A role requiring MFA can only be held by an enrolled user (checked at accept,
 	// not invite time, since enrollment can change in between).
-	if err := s.requireMFAForRoleAssignment(ctx, q, persona, userID, SubjectKindUser, role); err != nil {
+	if err := s.requireMFAForRoleAssignment(ctx, q, gid, persona, userID, SubjectKindUser, role); err != nil {
 		return err
 	}
 	return s.groupStore().AssignRole(ctx, gid, userID, SubjectKindUser, role)

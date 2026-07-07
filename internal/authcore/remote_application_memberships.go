@@ -59,7 +59,7 @@ func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role st
 		return err
 	}
 	if !s.validRoleForPersona(s.groupSchemaOrDefault(), persona, role) {
-		return fmt.Errorf("role %q is not assignable in a %q group", role, persona)
+		return fmt.Errorf("role %q is not assignable in a %q group: %w", role, persona, authkit.ErrRoleNotAssignable)
 	}
 	return s.groupStore().AssignRole(ctx, gid, strings.TrimSpace(appID), SubjectKindRemoteApp, role)
 }
@@ -81,7 +81,9 @@ func (s *Service) remoteApplicationRoles(ctx context.Context, appID string) ([]s
 	}
 	var roles []string
 	for _, a := range asg {
-		roles = append(roles, a.Roles...)
+		if a.Role != "" {
+			roles = append(roles, a.Role)
+		}
 	}
 	if len(roles) == 0 {
 		return nil, ErrNotGroupMember

@@ -141,6 +141,14 @@ func (s *Client) CleanupExpiredAuthState(ctx context.Context) error {
 	return s.impl.CleanupExpiredAuthState(ctx)
 }
 
+// CreatePermissionGroup creates a group instance, optionally seeding an owner.
+// #247: deliberately UNCHECKED — no actor-aware *As variant. Authorizing WHO
+// may create a group instance is the HOST's job in the embedded trust model
+// (calling this at all IS the authority); every RUNTIME mutation to an
+// existing instance (role assign/unassign, custom-role define/delete, invite
+// and API-key minting) goes through an actor-aware *As path instead. An *As
+// variant for creation itself is deferred to the Phase-2 remote transport
+// (#138), where host-trust no longer holds.
 func (s *Client) CreatePermissionGroup(ctx context.Context, req authkit.CreatePermissionGroupRequest) (string, error) {
 	return s.impl.CreatePermissionGroup(ctx, req)
 }

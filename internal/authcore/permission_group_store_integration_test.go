@@ -90,7 +90,7 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk: %v", err)
 	}
-	if len(asg) != 1 || asg[0].Persona != "org" || len(asg[0].Roles) != 1 || asg[0].Roles[0] != OwnerRoleName {
+	if len(asg) != 1 || asg[0].Persona != "org" || asg[0].Role != OwnerRoleName {
 		t.Fatalf("walk = %+v, want one org/owner assignment", asg)
 	}
 
@@ -115,7 +115,7 @@ func TestPermissionGroupStore_WalkAndAuthorize(t *testing.T) {
 	if err := tx.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&uid2); err != nil {
 		t.Fatalf("create user2: %v", err)
 	}
-	if err := st.UpsertCustomRole(ctx, orgID, "auditor", []string{"org:billing:read"}); err != nil {
+	if err := st.UpsertCustomRole(ctx, orgID, "auditor", []string{"org:billing:read"}, false); err != nil {
 		t.Fatalf("UpsertCustomRole: %v", err)
 	}
 	// before assignment: no authority.

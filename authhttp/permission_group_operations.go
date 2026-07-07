@@ -628,6 +628,13 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 // writeGroupOpError maps a core group-operation error to a wire response. An
 // unknown group / unknown instance_slug / absent invite resolves to 404; an invalid
 // role or malformed request to 400; everything else to a 500 database error.
+//
+// #247: every case below is a sentinel match (errors.Is) — the old fallback
+// classified the same conditions by strings.Contains(err.Error(), ...), which
+// silently stopped matching the moment a producer's message text drifted. Every
+// authcore call reachable from this file's handlers now returns one of these
+// sentinels instead of an ad hoc string, so this switch is exhaustive: an error
+// that matches none of them is a genuine unclassified failure (500).
 func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, authkit.ErrTwoFAEnrollmentRequired):
@@ -651,64 +658,81 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	case errors.Is(err, authkit.ErrInvalidRemoteApplication),
 		errors.Is(err, authkit.ErrReservedIssuer),
 		errors.Is(err, authkit.ErrInviteLinkExpired),
-		errors.Is(err, authkit.ErrInviteLinkRevoked):
+		errors.Is(err, authkit.ErrInviteLinkRevoked),
+		errors.Is(err, authkit.ErrRoleNotAssignable),
+		errors.Is(err, authkit.ErrInvalidRole),
+		errors.Is(err, authkit.ErrUnknownRole),
+		errors.Is(err, authkit.ErrMissingName),
+		errors.Is(err, authkit.ErrInvalidInvite),
+		errors.Is(err, authkit.ErrInvalidExpiry),
+		errors.Is(err, authkit.ErrUnknownGroupPersona),
+		errors.Is(err, authkit.ErrCustomRolesNotSupported),
+		errors.Is(err, authkit.ErrCustomRoleNameInvalid),
+		errors.Is(err, authkit.ErrCustomRoleIsCatalogRole),
+		errors.Is(err, authkit.ErrCustomRoleGrantCrossPersona),
+		errors.Is(err, authkit.ErrCustomRoleGrantOutsideCatalog):
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "not assignable"),
-		strings.Contains(msg, "invalid_role"),
-		strings.Contains(msg, "unknown_role"),
-		strings.Contains(msg, "missing_name"),
-		strings.Contains(msg, "invalid_invite"),
-		strings.Contains(msg, "invalid_expiry"):
-		badRequest(w, ErrInvalidRequest)
-	case strings.Contains(msg, "not found"):
-		notFound(w, ErrNotFound)
-	default:
-		serverErr(w, ErrDatabaseError)
-	}
+	serverErr(w, ErrDatabaseError)
 }
 
 // customRoleRequest is the body for defining a per-group custom role.
+// RequiresMFA (#247) mirrors RoleDef.RequiresMFA for catalog roles: a custom
+// role granting sensitive perms can require MFA on the same assignment/redeem
+// gate.
 type customRoleRequest struct {
 	Role        string   `json:"role"`
 	Permissions []string `json:"permissions"`
+	RequiresMFA bool     `json:"requires_mfa,omitempty"`
 }
 
 // groupCustomRoleDefine creates/updates a custom role in the group (custom-role
-// personas only). Validation failures (bad perm, cross-persona, persona disallows
-// custom roles) are client errors (400); an unknown resource is 404.
+// personas only). #247 SECURITY: redefining an existing role is a deferred
+// grant to every current holder, so this requires the SAME actor-authz
+// (capability + no-escalation, covering old ∪ new grants) as a direct role
+// assignment — DefineGroupCustomRole enforces it. Validation failures (bad
+// perm, cross-persona, persona disallows custom roles) are client errors (400);
+// an unknown resource is 404; an escalation attempt is 403.
 func (s *Service) groupCustomRoleDefine(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
 	var body customRoleRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Role) == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := s.svc.DefineGroupCustomRole(r.Context(), persona, instanceSlug, strings.TrimSpace(body.Role), body.Permissions); err != nil {
-		if errors.Is(err, authkit.ErrGroupNotFound) {
-			notFound(w, ErrNotFound)
-			return
-		}
-		badRequest(w, ErrInvalidRequest)
+	actor, ok := verify.ClaimsFromContext(r.Context())
+	if !ok || actor.UserID == "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	role := strings.TrimSpace(body.Role)
+	if err := s.svc.DefineGroupCustomRole(r.Context(), actor.UserID, persona, instanceSlug, role, body.Permissions, body.RequiresMFA); err != nil {
+		s.writeGroupOpError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"persona":       persona,
 		"instance_slug": instanceSlug,
-		"role":          strings.TrimSpace(body.Role),
+		"role":          role,
 		"permissions":   body.Permissions,
+		"requires_mfa":  body.RequiresMFA,
 	})
 }
 
-// groupCustomRoleDelete removes a custom role from the group.
+// groupCustomRoleDelete removes a custom role from the group. #247 SECURITY:
+// deleting a role is a deferred REVOKE from every current holder, gated by the
+// same actor-authz as define.
 func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, persona, instanceSlug, role string) {
 	if strings.TrimSpace(role) == "" {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if err := s.svc.DeleteGroupCustomRole(r.Context(), persona, instanceSlug, role); err != nil {
+	actor, ok := verify.ClaimsFromContext(r.Context())
+	if !ok || actor.UserID == "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	if err := s.svc.DeleteGroupCustomRole(r.Context(), actor.UserID, persona, instanceSlug, role); err != nil {
 		s.writeGroupOpError(w, err)
 		return
 	}

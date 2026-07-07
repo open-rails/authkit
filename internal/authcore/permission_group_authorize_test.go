@@ -5,11 +5,11 @@ import "testing"
 func TestResolveGrants_UnionDedupFailClosed(t *testing.T) {
 	s := tensorhubSchema(t)
 	asg := []GroupAssignment{
-		{Persona: "org", PermissionGroupID: "g_org", Roles: []string{"owner"}},    // org:*
-		{Persona: "repo", PermissionGroupID: "g_repo", Roles: []string{"writer"}}, // repo:repo:read, repo:repo:write
-		{Persona: "org", PermissionGroupID: "g_org", Roles: []string{"owner"}},    // duplicate -> deduped
-		{Persona: "ghost", PermissionGroupID: "g_x", Roles: []string{"owner"}},    // unknown persona -> nothing
-		{Persona: "repo", PermissionGroupID: "g_repo", Roles: []string{"nope"}},   // unknown role -> nothing
+		{Persona: "org", PermissionGroupID: "g_org", Role: "owner"},    // org:*
+		{Persona: "repo", PermissionGroupID: "g_repo", Role: "writer"}, // repo:repo:read, repo:repo:write
+		{Persona: "org", PermissionGroupID: "g_org", Role: "owner"},    // duplicate -> deduped
+		{Persona: "ghost", PermissionGroupID: "g_x", Role: "owner"},    // unknown persona -> nothing
+		{Persona: "repo", PermissionGroupID: "g_repo", Role: "nope"},   // unknown role -> nothing
 	}
 	got := s.ResolveGrants(asg, nil)
 	want := map[string]bool{"org:*": true, "repo:repo:read": true, "repo:repo:write": true}
@@ -29,7 +29,7 @@ func TestResolveGrants_UnionDedupFailClosed(t *testing.T) {
 // single-repo collaborator must be assigned IN the repo group. reach != capability.
 func TestCan_WalkUpAndNamespacePurity(t *testing.T) {
 	s := tensorhubSchema(t)
-	orgOwner := []GroupAssignment{{Persona: "org", PermissionGroupID: "g_org", Roles: []string{"owner"}}}
+	orgOwner := []GroupAssignment{{Persona: "org", PermissionGroupID: "g_org", Role: "owner"}}
 
 	if !s.Can(orgOwner, nil, "org:repo:read") {
 		t.Errorf("org owner (org:*) should cover org:repo:read (walk-up)")
@@ -45,7 +45,7 @@ func TestCan_WalkUpAndNamespacePurity(t *testing.T) {
 	}
 
 	// A repo collaborator covers repo perms but nothing org-scoped.
-	repoColl := []GroupAssignment{{Persona: "repo", PermissionGroupID: "g_repo", Roles: []string{"writer"}}}
+	repoColl := []GroupAssignment{{Persona: "repo", PermissionGroupID: "g_repo", Role: "writer"}}
 	if !s.Can(repoColl, nil, "repo:repo:write") {
 		t.Errorf("repo writer should cover repo:repo:write")
 	}
@@ -57,7 +57,7 @@ func TestCan_WalkUpAndNamespacePurity(t *testing.T) {
 func TestCan_RootIsModerationOnly(t *testing.T) {
 	s := tensorhubSchema(t)
 	// root owner = root:* — covers root: perms only.
-	rootOwner := []GroupAssignment{{Persona: "root", PermissionGroupID: "g_root", Roles: []string{"owner"}}}
+	rootOwner := []GroupAssignment{{Persona: "root", PermissionGroupID: "g_root", Role: "owner"}}
 	if !s.Can(rootOwner, nil, "root:users:ban") || !s.Can(rootOwner, nil, "root:orgs:delete") {
 		t.Errorf("root owner (root:*) should cover root: perms")
 	}
@@ -81,12 +81,12 @@ func TestResolveGrants_CustomRoles(t *testing.T) {
 		return nil, false
 	}
 	// org allows custom roles -> the custom "auditor" resolves.
-	orgCustom := []GroupAssignment{{Persona: "org", PermissionGroupID: "g_org", Roles: []string{"auditor"}}}
+	orgCustom := []GroupAssignment{{Persona: "org", PermissionGroupID: "g_org", Role: "auditor"}}
 	if !s.Can(orgCustom, custom, "org:billing:read") {
 		t.Errorf("custom org role should grant org:billing:read")
 	}
 	// repo disallows custom roles -> a non-catalog role contributes nothing.
-	repoCustom := []GroupAssignment{{Persona: "repo", PermissionGroupID: "g_repo", Roles: []string{"auditor"}}}
+	repoCustom := []GroupAssignment{{Persona: "repo", PermissionGroupID: "g_repo", Role: "auditor"}}
 	if s.Can(repoCustom, custom, "repo:repo:read") {
 		t.Errorf("repo disallows custom roles; the custom 'auditor' must be ignored")
 	}
@@ -97,7 +97,7 @@ func TestResolveGrants_CustomRoles(t *testing.T) {
 }
 
 func TestCan_FailClosedForSchemaDrift(t *testing.T) {
-	assignment := []GroupAssignment{{Persona: "org", PermissionGroupID: "g_org", Roles: []string{"billing"}}}
+	assignment := []GroupAssignment{{Persona: "org", PermissionGroupID: "g_org", Role: "billing"}}
 
 	removedRole := mustAuthzSchema(t,
 		PersonaDef{Name: "org", Parent: RootPersona},
