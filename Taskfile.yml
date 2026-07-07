@@ -46,11 +46,11 @@ tasks:
       - git diff --exit-code -- internal/db
 
   test:
-    desc: Run the full test suite against the compose Postgres (the `issuer` service)
+    desc: Run the full test suite (race detector) against the compose Postgres (the `issuer` service)
     env:
       AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
     cmds:
-      - go test -p 1 ./...
+      - go test -race -p 1 ./...
 
   test-fast:
     desc: Fast DB-free smoke (race detector, no Postgres). DB-backed tests skip.
