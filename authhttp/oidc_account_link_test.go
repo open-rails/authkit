@@ -21,13 +21,24 @@ import (
 // hostile/lying IdP take over the victim's account. The callback must refuse and
 // direct the user to the authenticated /oidc/link/start flow.
 
-// Deterministic, no DB: the shared outcome is a 409 with the stable code that
-// frontends route on.
+// Deterministic, no DB: JSON callers keep the 409 with the stable code that
+// frontends route on; browser navigations land on the frontend with the same
+// code in the fragment.
 func TestAccountExistsLinkRequiredOutcome(t *testing.T) {
+	s := newTestService(t)
+
 	w := httptest.NewRecorder()
-	accountExistsLinkRequired(w)
+	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
+	r.Header.Set("Accept", "application/json")
+	s.accountExistsLinkRequired(w, r, nil, "google")
 	require.Equal(t, http.StatusConflict, w.Code)
 	require.Contains(t, w.Body.String(), "account_exists_link_required")
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
+	s.accountExistsLinkRequired(w, r, nil, "google")
+	require.Equal(t, http.StatusFound, w.Code)
+	require.Contains(t, w.Header().Get("Location"), "error=account_exists_link_required")
 }
 
 func TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken(t *testing.T) {
@@ -40,8 +51,10 @@ func TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	s.handleOIDCLoginGET(w, r)
 
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Contains(t, w.Body.String(), "auth_required_for_link")
+	// Still rejected — as a browser navigation the refusal now lands on the
+	// frontend error fragment instead of a raw JSON body.
+	require.Equal(t, http.StatusFound, w.Code)
+	require.Contains(t, w.Header().Get("Location"), "error=auth_required_for_link")
 }
 
 func newAccountLinkPG(t *testing.T) *pgxpool.Pool {

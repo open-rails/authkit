@@ -38,7 +38,7 @@ func strptr(s string) *string {
 func (s *Service) handleOAuthLoginGET(w http.ResponseWriter, r *http.Request, provider string) {
 	claimsUserID := ""
 	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
-		unauthorized(w, ErrAuthRequiredForLink)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusUnauthorized, ErrAuthRequiredForLink)
 		return
 	}
 	s.startOAuthBrowserFlow(w, r, provider, claimsUserID, "", "", sanitizeReturnTo(r.URL.Query().Get("return_to")))
@@ -77,9 +77,20 @@ func (s *Service) handleOAuthStepUpStartPOST(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, stepUpUserID, stepUpReturnTo, returnTo string) {
+	// Plain GET logins are browser navigations; link/step-up starts (and any
+	// POST) are fetch calls that receive auth_url JSON below, so their errors
+	// stay JSON too.
+	browserNav := strings.TrimSpace(linkUserID) == "" && strings.TrimSpace(stepUpUserID) == "" && r.Method != http.MethodPost
+	fail := func(status int, code ErrorCode) {
+		if browserNav {
+			s.failBrowserFlow(w, r, nil, provider, status, code)
+			return
+		}
+		sendErr(w, status, code)
+	}
 	cfg, ok := s.oauth2Provider(provider)
 	if !ok {
-		badRequest(w, ErrUnknownProvider)
+		fail(http.StatusBadRequest, ErrUnknownProvider)
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCStart) {
@@ -87,7 +98,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 	}
 	rp, ok := s.oidcManager().Provider(cfg.Name)
 	if !ok || strings.TrimSpace(rp.ClientID) == "" {
-		badRequest(w, ErrUnknownProvider)
+		fail(http.StatusBadRequest, ErrUnknownProvider)
 		return
 	}
 
@@ -102,13 +113,13 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		var err error
 		verifier, challenge, err = oidckit.GeneratePKCE()
 		if err != nil {
-			serverErr(w, ErrPKCEGenerationFailed)
+			fail(http.StatusInternalServerError, ErrPKCEGenerationFailed)
 			return
 		}
 	}
 	ui := r.URL.Query().Get("ui")
 	if ui != "" && ui != "popup" {
-		badRequest(w, ErrInvalidUI)
+		fail(http.StatusBadRequest, ErrInvalidUI)
 		return
 	}
 	popupNonce := r.URL.Query().Get("popup_nonce")
@@ -131,7 +142,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		UI:                 ui,
 		PopupNonce:         popupNonce,
 	}); err != nil {
-		serverErr(w, ErrStateStoreFailed)
+		fail(http.StatusInternalServerError, ErrStateStoreFailed)
 		return
 	}
 
@@ -160,20 +171,24 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request, provider string) {
 	cfg, ok := s.oauth2Provider(provider)
 	if !ok {
-		badRequest(w, ErrUnknownProvider)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrUnknownProvider)
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCCallback) {
 		return
 	}
+	// The IdP echoes state on error redirects too; recover the flow context
+	// when this browser really started the flow, so the error lands where the
+	// flow expects it (popup message / step-up return / frontend fragment).
 	if qErr := r.URL.Query().Get("error"); qErr != "" {
-		badRequest(w, ErrorCode(qErr))
+		errSD := s.recoverCallbackState(w, r, cfg.Name)
+		s.failBrowserFlow(w, r, errSD, cfg.Name, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
 		return
 	}
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
-		badRequest(w, ErrInvalidRequest)
+		s.failBrowserFlow(w, r, nil, cfg.Name, http.StatusBadRequest, ErrInvalidRequest)
 		return
 	}
 
@@ -183,30 +198,30 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	cookieOK := stateCookieMatches(r, state)
 	clearStateCookie(w)
 	if !cookieOK {
-		badRequest(w, ErrInvalidState)
+		s.failBrowserFlow(w, r, nil, cfg.Name, http.StatusBadRequest, ErrInvalidState)
 		return
 	}
 
 	oidcCfg := s.oidcCfg()
 	sd, ok, err := consumeState(r.Context(), oidcCfg.StateCache, state)
 	if err != nil || !ok || sd.Provider != cfg.Name {
-		badRequest(w, ErrInvalidState)
+		s.failBrowserFlow(w, r, nil, cfg.Name, http.StatusBadRequest, ErrInvalidState)
 		return
 	}
 
 	rp, ok := oidcCfg.Manager.Provider(cfg.Name)
 	if !ok || strings.TrimSpace(rp.ClientID) == "" || strings.TrimSpace(rp.ClientSecret) == "" {
-		badRequest(w, ErrUnknownProvider)
+		s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusBadRequest, ErrUnknownProvider)
 		return
 	}
 	token, err := s.exchangeOAuthCode(r, cfg, rp.ClientID, rp.ClientSecret, code, sd.RedirectURI, sd.Verifier)
 	if err != nil {
-		unauthorized(w, ErrExchangeFailed)
+		s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusUnauthorized, ErrExchangeFailed)
 		return
 	}
 	info, err := s.fetchOAuthUserInfo(r, cfg, token)
 	if err != nil || strings.TrimSpace(info.Subject) == "" {
-		unauthorized(w, ErrUserinfoFailed)
+		s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusUnauthorized, ErrUserinfoFailed)
 		return
 	}
 
@@ -217,22 +232,22 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	userID, created, err := s.resolveOAuthUser(r, cfg, sd, info)
 	if err != nil {
 		if errors.Is(err, errProviderAlreadyLinked) {
-			badRequest(w, ErrProviderAlreadyLinked)
+			s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusBadRequest, ErrProviderAlreadyLinked)
 			return
 		}
 		if errors.Is(err, errAccountExistsLinkRequired) {
-			accountExistsLinkRequired(w)
+			s.accountExistsLinkRequired(w, r, &sd, cfg.Name)
 			return
 		}
 		if errors.Is(err, authkit.ErrRegistrationDisabled) {
-			registrationDisabled(w)
+			s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusForbidden, ErrRegistrationDisabled)
 			return
 		}
 		if errors.Is(err, errProviderLinkFailed) {
-			serverErr(w, ErrProviderLinkFailed)
+			s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusInternalServerError, ErrProviderLinkFailed)
 			return
 		}
-		serverErr(w, ErrUserCreationFailed)
+		s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusInternalServerError, ErrUserCreationFailed)
 		return
 	}
 	s.finishBrowserLogin(w, r, userID, info.Email, cfg.Name, "oauth_login:"+cfg.Name, created, sd)

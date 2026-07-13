@@ -74,8 +74,10 @@ func TestOIDCCallback_RejectsWithoutStateCookie(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback?state=abc&code=xyz", nil)
 	h.ServeHTTP(w, r)
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "invalid_state")
+	// Still rejected (F3); the browser navigation is walked back to the
+	// frontend with the rejection in the fragment instead of a raw JSON body.
+	require.Equal(t, http.StatusFound, w.Code)
+	require.Contains(t, w.Header().Get("Location"), "error=invalid_state")
 }
 
 func TestOIDCCallback_StateCookiePassesCookieGate(t *testing.T) {

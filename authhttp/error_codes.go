@@ -474,6 +474,11 @@ const (
 	// ErrProviderAlreadyLinked is the provider_already_linked AuthKit HTTP wire error code.
 	ErrProviderAlreadyLinked ErrorCode = "provider_already_linked"
 
+	// ErrProviderError is the provider_error AuthKit HTTP wire error code: an
+	// IdP reported a callback ?error= value that is not a clean token
+	// (sanitizeProviderErrorCode), so the raw value is not reflected.
+	ErrProviderError ErrorCode = "provider_error"
+
 	// ErrProviderLinkFailed is the provider_link_failed AuthKit HTTP wire error code.
 	ErrProviderLinkFailed ErrorCode = "provider_link_failed"
 

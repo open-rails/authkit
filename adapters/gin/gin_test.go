@@ -31,8 +31,18 @@ func TestMountHandlerViaFallback(t *testing.T) {
 	require.NoError(t, err)
 	router.NoRoute(Fallback(h))
 
+	// Browser navigations are walked back to the frontend with the error in
+	// the fragment; JSON negotiation keeps the legacy envelope. Both prove the
+	// mount served the route through the fallback.
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil))
+	require.Equal(t, http.StatusFound, rec.Code)
+	require.Contains(t, rec.Header().Get("Location"), "error=invalid_request")
+
+	rec = httptest.NewRecorder()
+	jsonReq := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
+	jsonReq.Header.Set("Accept", "application/json")
+	router.ServeHTTP(rec, jsonReq)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), `"code":"invalid_request"`)
 

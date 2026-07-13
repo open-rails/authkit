@@ -8,6 +8,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -212,7 +213,9 @@ func TestResolveOAuthUser_LinkFlow_IgnoresRegistrationDisabled(t *testing.T) {
 }
 
 // TestOAuthCallback_MissingStateOrCode exercises the browser callback
-// entrypoint's request-validation gate through the real router (no DB).
+// entrypoint's request-validation gate through the real router (no DB): a
+// browser navigation is walked back to the frontend with the error in the
+// fragment, while a JSON caller keeps the legacy envelope.
 func TestOAuthCallback_MissingStateOrCode(t *testing.T) {
 	s := newTestService(t)
 	// Register a github OAuth2 provider so the callback resolves past the
@@ -227,6 +230,19 @@ func TestOAuthCallback_MissingStateOrCode(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/github/callback", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusFound, w.Code)
+	target, err := url.Parse(w.Header().Get("Location"))
+	require.NoError(t, err)
+	require.Equal(t, "/login/callback", target.Path)
+	fragment, err := url.ParseQuery(target.Fragment)
+	require.NoError(t, err)
+	require.Equal(t, "invalid_request", fragment.Get("error"))
+	require.Equal(t, "login", fragment.Get("flow"))
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/oidc/github/callback", nil)
+	r.Header.Set("Accept", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)

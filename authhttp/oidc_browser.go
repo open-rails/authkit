@@ -22,7 +22,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Query().Get("link") == "1" || strings.EqualFold(r.URL.Query().Get("link"), "true") {
-		unauthorized(w, ErrAuthRequiredForLink)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusUnauthorized, ErrAuthRequiredForLink)
 		return
 	}
 	if s.rateLimited(w, r, RLOIDCStart) {
@@ -38,7 +38,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		var err error
 		verifier, challenge, err = oidckit.GeneratePKCE()
 		if err != nil {
-			serverErr(w, ErrPKCEGenerationFailed)
+			s.failBrowserFlow(w, r, nil, provider, http.StatusInternalServerError, ErrPKCEGenerationFailed)
 			return
 		}
 	}
@@ -47,13 +47,13 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	s.setStateCookie(w, r, state)
 	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
-		badRequest(w, ErrOIDCBeginFailed)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrOIDCBeginFailed)
 		return
 	}
 
 	ui := r.URL.Query().Get("ui")
 	if ui != "" && ui != "popup" {
-		badRequest(w, ErrInvalidUI)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrInvalidUI)
 		return
 	}
 	popupNonce := r.URL.Query().Get("popup_nonce")
@@ -68,7 +68,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 		UI:                 ui,
 		PopupNonce:         popupNonce,
 	}); err != nil {
-		serverErr(w, ErrStateStoreFailed)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusInternalServerError, ErrStateStoreFailed)
 		return
 	}
 
@@ -85,15 +85,19 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// The IdP echoes state on error redirects too; recover the flow context
+	// when this browser really started the flow, so the error lands where the
+	// flow expects it (popup message / step-up return / frontend fragment).
 	if qErr := r.URL.Query().Get("error"); qErr != "" {
-		badRequest(w, ErrorCode(qErr))
+		errSD := s.recoverCallbackState(w, r, provider)
+		s.failBrowserFlow(w, r, errSD, provider, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
 		return
 	}
 
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
-		badRequest(w, ErrInvalidRequest)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrInvalidRequest)
 		return
 	}
 
@@ -101,32 +105,32 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	cookieOK := stateCookieMatches(r, state)
 	clearStateCookie(w)
 	if !cookieOK {
-		badRequest(w, ErrInvalidState)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrInvalidState)
 		return
 	}
 
 	cfg := s.oidcCfg()
 	sd, ok, err := consumeState(r.Context(), cfg.StateCache, state)
 	if err != nil || !ok || sd.Provider != provider {
-		badRequest(w, ErrInvalidState)
+		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrInvalidState)
 		return
 	}
 
 	rpClient, err := cfg.Manager.GetRPWithRedirect(r.Context(), provider, sd.RedirectURI)
 	if err != nil {
-		badRequest(w, ErrUnknownProvider)
+		s.failBrowserFlow(w, r, &sd, provider, http.StatusBadRequest, ErrUnknownProvider)
 		return
 	}
 	issuer, ok := cfg.Manager.IssuerFor(provider)
 	if !ok {
-		badRequest(w, ErrUnknownProvider)
+		s.failBrowserFlow(w, r, &sd, provider, http.StatusBadRequest, ErrUnknownProvider)
 		return
 	}
 
 	ex := oidckit.DefaultExchanger
 	claims, err := ex(r.Context(), rpClient, provider, code, sd.Verifier, sd.Nonce)
 	if err != nil {
-		unauthorized(w, ErrOIDCExchangeFailed)
+		s.failBrowserFlow(w, r, &sd, provider, http.StatusUnauthorized, ErrOIDCExchangeFailed)
 		return
 	}
 	if s.completeOIDCStepUp(w, r, sd, provider, issuer, claims.Subject, claims.AuthTime) {
@@ -145,7 +149,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 	if sd.LinkUserID != "" {
 		if uid0, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject); err == nil && uid0 != "" && uid0 != sd.LinkUserID {
-			sendErr(w, http.StatusConflict, ErrProviderAlreadyLinked)
+			s.failBrowserFlow(w, r, &sd, provider, http.StatusConflict, ErrProviderAlreadyLinked)
 			return
 		}
 		userID = sd.LinkUserID
@@ -155,7 +159,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// was previously swallowed; failing closed matches the OAuth2 path).
 		if err := s.svc.LinkProviderByIssuer(r.Context(), userID, issuer, provider, claims.Subject, claims.Email); err != nil {
 			stdlog.Printf("[authkit/security] error: provider link write failed (user=%s issuer=%s); failing OIDC callback: %v", userID, issuer, err)
-			serverErr(w, ErrProviderLinkFailed)
+			s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrProviderLinkFailed)
 			return
 		}
 		if strings.TrimSpace(provUsername) != "" {
@@ -188,7 +192,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// /oidc/link/start flow.
 		if strings.TrimSpace(email) != "" {
 			if u, err := s.svc.GetUserByEmail(r.Context(), email); err == nil && u != nil {
-				accountExistsLinkRequired(w)
+				s.accountExistsLinkRequired(w, r, &sd, provider)
 				return
 			}
 		}
@@ -198,20 +202,20 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// carried from flow start; Open keeps the historical behavior.
 		if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeInviteOnly {
 			if strings.TrimSpace(email) == "" {
-				registrationDisabled(w)
+				s.failBrowserFlow(w, r, &sd, provider, http.StatusForbidden, ErrRegistrationDisabled)
 				return
 			}
 			allowed, err := s.svc.RegistrationAllowedForEmailWithInvite(r.Context(), email, sd.AccountInviteToken)
 			if err != nil {
-				serverErr(w, ErrDatabaseError)
+				s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrDatabaseError)
 				return
 			}
 			if !allowed {
-				registrationDisabled(w)
+				s.failBrowserFlow(w, r, &sd, provider, http.StatusForbidden, ErrRegistrationDisabled)
 				return
 			}
 		} else if s.publicRegistrationDisabled() {
-			registrationDisabled(w)
+			s.failBrowserFlow(w, r, &sd, provider, http.StatusForbidden, ErrRegistrationDisabled)
 			return
 		}
 		displayName := ""
@@ -221,7 +225,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		username := s.svc.DeriveUsernameForOAuth(r.Context(), provider, provUsername, email, displayName)
 		u, err := s.svc.CreateUser(r.Context(), email, username)
 		if err != nil || u == nil {
-			serverErr(w, ErrUserCreationFailed)
+			s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrUserCreationFailed)
 			return
 		}
 		userID = u.ID
@@ -233,7 +237,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 		if err := s.svc.ConsumeAccountRegistrationInvite(r.Context(), email, u.ID, sd.AccountInviteToken); err != nil {
-			serverErr(w, ErrUserCreationFailed)
+			s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrUserCreationFailed)
 			return
 		}
 		// Load-bearing link write (see explicit-link branch above): fail closed rather
@@ -242,7 +246,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// failure (logged CRITICAL); atomic create+link is the proper follow-up.
 		if err := s.svc.LinkProviderByIssuer(r.Context(), u.ID, issuer, provider, claims.Subject, claims.Email); err != nil {
 			stdlog.Printf("[authkit/security] CRITICAL: provider link write failed after user creation (orphan user=%s issuer=%s subject=%s); failing OIDC callback — manual cleanup may be required: %v", u.ID, issuer, claims.Subject, err)
-			serverErr(w, ErrProviderLinkFailed)
+			s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrProviderLinkFailed)
 			return
 		}
 		if strings.TrimSpace(provUsername) != "" {
@@ -266,24 +270,24 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
 		if errors.Is(err, authkit.ErrTwoFAEnrollmentRequired) {
-			s.write2FAEnrollmentRequired(w, r, userID)
+			s.browser2FAEnrollmentRequired(w, r, userID, providerName, sd)
 			return
 		}
 		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
+			s.failBrowserFlow(w, r, &sd, providerName, http.StatusUnauthorized, ErrUserBanned)
 			return
 		}
-		serverErr(w, ErrSessionIssueFailed)
+		s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrSessionIssueFailed)
 		return
 	}
 	extra["sid"] = sid
 	token, exp, err := s.svc.MintAccessToken(r.Context(), userID, extra)
 	if err != nil {
 		if errors.Is(err, authkit.ErrUserBanned) {
-			unauthorized(w, ErrUserBanned)
+			s.failBrowserFlow(w, r, &sd, providerName, http.StatusUnauthorized, ErrUserBanned)
 			return
 		}
-		serverErr(w, ErrTokenIssueFailed)
+		s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrTokenIssueFailed)
 		return
 	}
 
@@ -299,7 +303,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 	if sd.UI == "popup" {
 		targetOrigin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
 		if !ok {
-			serverErr(w, ErrInvalidBaseURL)
+			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrInvalidBaseURL)
 			return
 		}
 		payload := map[string]any{
@@ -311,11 +315,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 			"nonce":         sd.PopupNonce,
 		}
 		b, _ := json.Marshal(payload)
-		html := buildPopupHTML(b, targetOrigin)
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(html)
+		writePopupDocument(w, buildPopupHTML(b, targetOrigin))
 		return
 	}
 
@@ -341,9 +341,10 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 // to a local account. We refuse to silently link the identity (that is the
 // account-takeover vector) and signal that the user must sign in and link the
 // provider explicitly via the authenticated /oidc/link/start flow. 409 Conflict
-// with a stable machine-readable code so frontends can route to the link flow.
-func accountExistsLinkRequired(w http.ResponseWriter) {
-	sendErr(w, http.StatusConflict, ErrAccountExistsLinkRequired)
+// (JSON callers) / the browser error contract, with a stable machine-readable
+// code so frontends can route to the link flow.
+func (s *Service) accountExistsLinkRequired(w http.ResponseWriter, r *http.Request, sd *oidckit.StateData, provider string) {
+	s.failBrowserFlow(w, r, sd, provider, http.StatusConflict, ErrAccountExistsLinkRequired)
 }
 
 func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {

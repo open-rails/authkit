@@ -356,6 +356,33 @@ non-stripping proxies); `Wrap` decorates every mounted route. gin hosts mount
 it once via `router.NoRoute(authkitgin.Fallback(mount))` (or `gin.WrapH` on an
 explicit wildcard); any other router mounts it like any `http.Handler`.
 
+### Browser OIDC result contract
+
+The three routes under `OIDCPath` (`{provider}/login`, `{provider}/callback`,
+`{provider}/step-up/callback`) are browser navigations, so both outcomes are
+delivered to the SPA, never left as a raw response body on the backend URL:
+
+- Success: `302` to `Frontend.BaseURL + OIDCReturnPath` with
+  `#access_token=…&refresh_token=…&expires_in=…&provider=…[&return_to=…]`.
+- Error: `302` to the same route with
+  `#error=<code>&flow=login|link&provider=…[&return_to=…]`. Codes are the
+  stable wire codes (`access_denied`, `invalid_state`,
+  `account_exists_link_required`, …); an unparseable IdP `?error=` collapses
+  to `provider_error`. When the outcome is `2fa_enrollment_required` the
+  fragment also carries `enrollment_token`, `enrollment_expires_in` and
+  `allowed_methods` (deliberately NOT `access_token`: an enrollment-scoped
+  token must not be storable as a session by a fragment parser that only
+  looks for `access_token`).
+- Popup flows (`?ui=popup&popup_nonce=…` on login): the popup document
+  posts `{type: "AUTHKIT_OIDC_RESULT", access_token, …, nonce}` to the opener
+  on success and `{type: "AUTHKIT_OIDC_ERROR", error, flow, provider, nonce}`
+  on failure — distinct types, so an opener that only understands the success
+  shape can never misread an error as a login.
+- Step-up flows: failures redirect to the flow's `return_to` with
+  `?step_up=failed` (matching the existing success/failure redirects).
+- `format=json` or `Accept: application/json` keeps the legacy JSON error
+  envelope on every stage. Rate-limit rejections (429) always stay JSON.
+
 ### RBAC config and durability
 
 `Config.RBAC` is a single `[]authkit.PersonaDef` slice. Each persona is a

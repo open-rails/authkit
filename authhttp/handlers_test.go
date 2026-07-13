@@ -162,8 +162,17 @@ func TestOIDCHandler_Callback_MissingStateOrCode(t *testing.T) {
 	enableTestOIDCProvider(s)
 	h := s.OIDCHandler()
 
+	// Browser navigation: walked back to the frontend with the error fragment.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusFound, w.Code)
+	require.Contains(t, w.Header().Get("Location"), "error=invalid_request")
+
+	// JSON negotiation keeps the legacy envelope.
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/oidc/google/callback", nil)
+	r.Header.Set("Accept", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
@@ -174,8 +183,17 @@ func TestOIDCHandler_StepUpCallback_MissingStateOrCode(t *testing.T) {
 	enableTestOIDCProvider(s)
 	h := s.OIDCHandler()
 
+	// Pre-state failure: no StepUpReturnTo is recoverable, so the generic
+	// frontend error fragment is used.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/step-up/callback", nil)
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusFound, w.Code)
+	require.Contains(t, w.Header().Get("Location"), "error=invalid_request")
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/oidc/google/step-up/callback", nil)
+	r.Header.Set("Accept", "application/json")
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), `"code":"invalid_request"`)
