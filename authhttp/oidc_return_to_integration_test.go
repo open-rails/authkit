@@ -113,6 +113,7 @@ func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 	callbackReq.AddCookie(stateCookie)
 	h.ServeHTTP(callback, callbackReq)
 	require.Equal(t, http.StatusFound, callback.Code, callback.Body.String())
+	require.Equal(t, "no-store", callback.Header().Get("Cache-Control"), "token-bearing redirect must never be cached (RFC 6749 §5.1)")
 	require.True(t, sawTokenExchange)
 	require.True(t, sawUserInfo)
 

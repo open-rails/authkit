@@ -382,6 +382,11 @@ delivered to the SPA, never left as a raw response body on the backend URL:
   `?step_up=failed` (matching the existing success/failure redirects).
 - `format=json` or `Accept: application/json` keeps the legacy JSON error
   envelope on every stage. Rate-limit rejections (429) always stay JSON.
+- Browser results (fragment redirects and popup documents) are emitted with
+  `Cache-Control: no-store` (RFC 6749 §5.1) — they carry tokens.
+- The raw IdP `?error=`/`error_description` values are logged server-side
+  (`[authkit/oidc]`, quoted and truncated) for diagnostics; only the sanitized
+  code is ever reflected to the client.
 
 ### RBAC config and durability
 

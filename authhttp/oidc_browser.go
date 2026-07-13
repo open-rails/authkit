@@ -89,6 +89,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	// when this browser really started the flow, so the error lands where the
 	// flow expects it (popup message / step-up return / frontend fragment).
 	if qErr := r.URL.Query().Get("error"); qErr != "" {
+		logIdPCallbackError(provider, r)
 		errSD := s.recoverCallbackState(w, r, provider)
 		s.failBrowserFlow(w, r, errSD, provider, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
 		return
@@ -333,6 +334,9 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 	state := r.URL.Query().Get("state")
 	frag := buildAuthResultFragment(token, rt, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.svc.Config().Frontend.OIDCReturnPath, frag)
+	// RFC 6749 §5.1 hygiene: the Location fragment carries the session tokens —
+	// the response must never be cached.
+	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusFound)
 }
 

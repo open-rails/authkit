@@ -181,6 +181,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	// when this browser really started the flow, so the error lands where the
 	// flow expects it (popup message / step-up return / frontend fragment).
 	if qErr := r.URL.Query().Get("error"); qErr != "" {
+		logIdPCallbackError(cfg.Name, r)
 		errSD := s.recoverCallbackState(w, r, cfg.Name)
 		s.failBrowserFlow(w, r, errSD, cfg.Name, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
 		return

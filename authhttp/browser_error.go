@@ -3,6 +3,7 @@ package authhttp
 import (
 	"encoding/json"
 	"fmt"
+	stdlog "log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -105,15 +106,21 @@ func (s *Service) failBrowserFlowExtra(w http.ResponseWriter, r *http.Request, s
 		v.Set(k, extra.Get(k))
 	}
 	target := buildFrontendCallbackURL(s.svc.Config().Frontend.BaseURL, s.svc.Config().Frontend.OIDCReturnPath, "#"+v.Encode())
+	// RFC 6749 §5.1 hygiene: flow results must never be cached — the Location
+	// fragment can carry an enrollment token (and its success sibling carries
+	// session tokens).
+	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // writePopupDocument writes a self-posting popup HTML document with the CSP
 // that confines it to its inline script (shared by the success and error
-// popup emissions).
+// popup emissions). The document embeds flow results (tokens on success), so
+// it is marked uncacheable (RFC 6749 §5.1).
 func writePopupDocument(w http.ResponseWriter, html []byte) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(html)
 }
@@ -142,6 +149,27 @@ func sanitizeProviderErrorCode(raw string) ErrorCode {
 		}
 	}
 	return ErrorCode(raw)
+}
+
+// logIdPCallbackError records the raw provider-reported callback error for
+// diagnostics. The raw values are semi attacker-controlled (anyone can craft
+// a callback URL), so they are %q-quoted and truncated — logged, never
+// reflected: the wire code the user sees is sanitizeProviderErrorCode's
+// output.
+func logIdPCallbackError(provider string, r *http.Request) {
+	q := r.URL.Query()
+	stdlog.Printf("[authkit/oidc] provider callback error (provider=%q): error=%q error_description=%q error_uri=%q",
+		truncateForLog(provider, 64),
+		truncateForLog(q.Get("error"), 200),
+		truncateForLog(q.Get("error_description"), 200),
+		truncateForLog(q.Get("error_uri"), 200))
+}
+
+func truncateForLog(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 // recoverCallbackState loads flow context for a callback that carries a usable

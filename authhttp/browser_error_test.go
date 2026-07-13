@@ -61,6 +61,7 @@ func startBrowserLogin(t *testing.T, h http.Handler, extraQuery string) (string,
 func parseErrorFragment(t *testing.T, w *httptest.ResponseRecorder) url.Values {
 	t.Helper()
 	require.Equal(t, http.StatusFound, w.Code, w.Body.String())
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"), "flow results must never be cached (RFC 6749 §5.1)")
 	target, err := url.Parse(w.Header().Get("Location"))
 	require.NoError(t, err)
 	require.Equal(t, "/login/callback", target.Path)
@@ -140,6 +141,7 @@ func TestBrowserCallback_PopupFlow_EmitsErrorPostMessage(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Header().Get("Content-Type"), "text/html")
 	require.NotEmpty(t, w.Header().Get("Content-Security-Policy"))
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"), "popup documents embed flow results and must never be cached")
 	body := w.Body.String()
 	require.Contains(t, body, `"type":"AUTHKIT_OIDC_ERROR"`)
 	require.Contains(t, body, `"error":"access_denied"`)
@@ -288,6 +290,7 @@ func TestBrowserLoginStart_PopupError_EmitsPostMessage(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/oidc/nope/login?ui=popup&popup_nonce=n-9", nil))
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	body := w.Body.String()
 	require.Contains(t, body, `"type":"AUTHKIT_OIDC_ERROR"`)
 	require.Contains(t, body, `"nonce":"n-9"`)
