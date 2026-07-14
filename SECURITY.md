@@ -41,7 +41,7 @@ Four GitHub Actions workflows live in `.github/workflows/`:
 - `security.yaml` — runs `govulncheck`, `Trivy` (SCA + secret + misconfig), and
   `golangci-lint`. `govulncheck` and `Trivy` **gate** (fail the build) on a
   reachable known vulnerability / fixable HIGH+ finding; the tree is clean as of
-  the Go 1.26.4 + `quic-go` v0.57.0 bumps. `golangci-lint` is advisory
+  the Go 1.26.5 + `quic-go` v0.59.1 bumps. `golangci-lint` is advisory
   (non-blocking) until its backlog is cleared. The Go SAST baseline above stays
   advisory (SARIF to code scanning).
 - `sqlc.yml` — verifies generated `internal/db` code is in sync with the query files.

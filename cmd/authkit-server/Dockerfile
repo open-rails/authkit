@@ -1,6 +1,6 @@
-# Builder image tracks the go directive in go.mod (>= 1.26.4, required for the
+# Builder image tracks the go directive in go.mod (>= 1.26.5, required for the
 # crypto/x509 GO-2026-5037 fix). Keep these in lockstep.
-FROM golang:1.26.4 AS build
+FROM golang:1.26.5 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
