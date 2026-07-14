@@ -710,6 +710,16 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.SetEmailVerified(ctx, a.A0, a.A1)
 	},
+	"SignDocument": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 authkit.DocumentEnvelope `json:"envelope"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.SignDocument(ctx, a.A0)
+		return r0, err
+	},
 	"SoftDeleteUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 []string `json:"userIDs"`

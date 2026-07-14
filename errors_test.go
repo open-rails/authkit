@@ -14,9 +14,8 @@ func TestErrorForCode(t *testing.T) {
 			t.Errorf("ErrorForCode(%q) = %v, want %v", code, got, want)
 		}
 	}
-	// Uniqueness: no two sentinels collapsed onto one code. The var block in
-	// errors.go currently defines 68 sentinels — bump this if you add one.
-	if len(errorsByCode) != 68 {
+	// Uniqueness: no two sentinels collapsed onto one code.
+	if len(errorsByCode) != len(errorSentinels) {
 		t.Fatalf("registry has %d codes; a duplicate code (or a new sentinel) shifts this — see errors.go", len(errorsByCode))
 	}
 	// Unknown / empty codes resolve to nil so callers can fall back.

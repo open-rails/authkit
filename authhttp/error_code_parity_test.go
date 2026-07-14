@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/documents"
 )
 
 // #213 parity guard — the real invariant between the two code tables.
@@ -100,6 +101,20 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"custom_role_is_catalog_role":       true,
 		"custom_role_grant_cross_persona":   true,
 		"custom_role_grant_outside_catalog": true,
+	}
+	// Signed-document errors are surfaced by the generic management Client
+	// methods and documents/verify APIs, not by authhttp route handlers.
+	for _, sentinel := range []error{
+		documents.ErrInvalidReference, documents.ErrInvalidType, documents.ErrInvalidDigest,
+		documents.ErrDuplicateReference, documents.ErrTooManyReferences, documents.ErrReferencesTooLarge,
+		documents.ErrWrongTokenType, documents.ErrReservedAttribute, documents.ErrInvalidEnvelope,
+		documents.ErrPayloadTooLarge, documents.ErrMalformedJWS, documents.ErrWrongJOSEType,
+		documents.ErrUnsupportedAlgorithm, documents.ErrUnsupportedSigner, documents.ErrUnknownKey,
+		documents.ErrInvalidSignature, documents.ErrDigestMismatch, documents.ErrIssuerMismatch,
+		documents.ErrAudienceMismatch, documents.ErrTypeMismatch, documents.ErrUntrustedIssuer,
+		documents.ErrUnauthorized, documents.ErrNotFound, documents.ErrFetch, documents.ErrRedirect,
+	} {
+		managementOnly[sentinel.Error()] = true
 	}
 
 	for _, code := range authkit.ErrorCodes() {

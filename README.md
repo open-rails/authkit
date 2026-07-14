@@ -558,6 +558,32 @@ func mountAdvancedAuthExamples(
 }
 ```
 
+### Signed documents and delegated references
+
+AuthKit's `documents` package signs and verifies immutable, content-addressed
+JSON envelopes. The signed `iss`, `aud`, versioned `type` (for example
+`example.entitlements/v1`), and opaque `payload` are transport/trust metadata;
+only the receiving application owns payload schema, normalization,
+authorization semantics, and side effects.
+
+`(*embedded.Client).SignDocument` signs with the service's live AuthKit key.
+`documents.NewPublisher` serves the retained compact JWS at
+`/.well-known/authkit/documents/{digest}`, and `documents.NewResolver` performs
+an authenticated issuer-relative fetch before `verify.Verifier` checks the
+exact digest, issuer, audience, type, key, and signature. Publisher and resolver
+authorization callbacks should use the host's existing AuthKit machine
+credentials; nil authorization denies access.
+
+Delegated tokens pin documents with the top-level `documents` claim:
+
+```json
+{"documents":{"example.entitlements/v1":"sha256:<64 lowercase hex>"}}
+```
+
+Pre-launch consumers hard-cut from any application-specific
+`attributes.policy_digest` convention to `documents[type]`. AuthKit intentionally
+provides no compatibility alias and never interprets an application payload.
+
 Frontend code calls the AuthKit routes mounted by `MountHandler`:
 
 ```text

@@ -97,6 +97,7 @@ appears in consumer code. Renaming either is breaking.
 | `…/server` | `server` | **Experimental** | Management JSON handler over an `authkit.Client` — NOT covered until the standalone transport is proven (#202) |
 | `…/remote` | `remote` | **Experimental** | Remote `authkit.Client` over HTTP — NOT covered until the standalone transport is proven (#202) |
 | `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
+| `…/documents` | `documents` | Stable | Generic immutable signed-document envelopes, references, verification, authenticated publication, and resolution |
 | `…/jwtkit` | `jwtkit` | Advanced | Key management, signers, JWKS |
 | `…/authprovider` | `authprovider` | Stable | Provider descriptors / claim mapping |
 | `…/oidckit` | `oidckit` | Stable | OIDC RP client manager |
@@ -118,7 +119,7 @@ package name, is MAJOR.
 
 The root **`authkit`** package is the contract. It defines the **`Client` interface** —
 composed (#143) from cohesive topic interfaces (`Users`, `Passwords`, `Admin`, `Roles`,
-`Groups`, `Tokens`, `APIKeys`, `Sessions`, `Providers`, `RemoteApps`,
+`Groups`, `Tokens`, `Documents`, `APIKeys`, `Sessions`, `Providers`, `RemoteApps`,
 `Bootstrap`, `Senders`, `Entitlements`, `Maintenance`) so a host can depend on the slice
 it needs — plus the public data/result types, config, constants, sentinel errors, and the
 permission/API-key primitives. The concrete in-process implementation is the **`embedded`**
@@ -162,6 +163,13 @@ MintServiceJWT, MintDelegatedAccessToken, MintRemoteApplicationAccessToken, Mint
 ```
 with params `ServiceJWTMintOptions`, `DelegatedAccessParams`, `RemoteApplicationAccessParams`,
 `CustomJWTMintOptions`. `MaxCustomJWTLifetime = 1h` is a covered ceiling.
+
+**Signed-document API:** `(*embedded.Client).SignDocument` uses the current
+AuthKit signer and returns `documents.SignedDocument`. The dependency-light
+`documents` package owns `Reference`, `Envelope`, strict digest/type parsing,
+the authenticated well-known publisher/resolver, and stable document errors.
+`verify.Verifier.VerifyDocument` reuses the registered issuer/JWKS cache and
+key-rotation refresh. AuthKit treats `Envelope.Payload` as opaque JSON.
 
 **Passkeys are HTTP-transport-driven (no facade methods, by design).** The WebAuthn
 ceremony methods (`BeginPasskeyRegistration`/`Finish…`, `BeginPasskeyLogin`/`Finish…`,
@@ -208,7 +216,7 @@ a method is MAJOR. Illustrative grouping by concern: user lifecycle/admin (`Crea
 `GetUserBy{Email,Username,Phone,SolanaAddress}`, `BanUser`/`UnbanUser`,
 `{Soft,Hard,Restore}DeleteUsers`-style batch bulk mutations returning `[]OpResult` (#222),
 `AdminListUsers`/`AdminGetUser`/…); tokens
-(`Mint{Access,Service,Delegated,RemoteApplication,Custom}*` (#214)); passwords (`VerifyUserPassword`, `ChangePassword`,
+(`Mint{Access,Service,Delegated,RemoteApplication,Custom}*` (#214), `SignDocument`); passwords (`VerifyUserPassword`, `ChangePassword`,
 `UpsertPasswordHash`); RBAC/groups (`Can`, `AssignRolesBySlugAs`/`RemoveRolesBySlugAs`
 (batch, per-item authz, #222), `UpsertRoleBySlug`, `CreatePermissionGroup`, `EnsureRootGroup`, and the #134 invite
 links `CreateGroupInviteLink`/`ListGroupInviteLinks`/`RevokeGroupInviteLink`/
@@ -301,6 +309,7 @@ re-exports every name below, so token-issuing apps need no change.
 type Verifier; NewVerifier(opts ...VerifierOption) *Verifier
   WithAPIKeyPrefix, WithAlgorithms, WithAttributeHydration, WithAttributesPolicy,
   WithHTTPClient, WithPermissions, WithRequireMFAEnrollment, WithSSRFGuard, WithSkew
+(*Verifier).ValidateDocumentIssuer, (*Verifier).VerifyDocument
 (*Verifier).WithService(Enricher) attaches DB-backed enrichment
 type Claims (see §6.4); ClaimsFromContext, GetClaims, SetClaims
 Middleware: Required, Optional, RequiredServiceJWT, RequireACR, RequireAMR, RequireMFA,
@@ -331,7 +340,8 @@ funcs `PermMatches`, `PermWildcard="*"`; origin funcs
 
 ### 4.4 Other packages — exported surface (snapshot)
 
-- **`jwtkit`** (Advanced): `Signer`/`HeaderSigner`/`PublicKeySigner` interfaces;
+- **`jwtkit`** (Advanced): `Signer`/`HeaderSigner`/`PayloadSigner`/`PublicKeySigner`
+  interfaces; `SignPayloadWithType`, `ErrPayloadSignerRequired`;
   `RSASigner`/`NewRSASigner`, `Ed25519Signer`/`NewEd25519Signer`; `KeySource` +
   `StaticKeySource`, `NewStaticKeySourceFromPEM`, `ResolveKeySource(path, allowEphemeralDevKeys)`
   (#208: the reloadable/generated key-source machinery is unexported — reachable only through
@@ -629,9 +639,11 @@ resolved server-side via `/me` and route state. This compact shape is a covered 
 The Go view is `verify.Claims` (covered struct). Removing/retyping a field is MAJOR;
 adding a field is MINOR. Key fields: `UserID`, `SessionID`, `Entitlements`, `AMR`, `ACR`,
 `AuthTime`, `TwoFAEnrollment`, `Issuer`, `JTI`, `TokenTyp`, `TokenType`, `Permissions`,
-`Resources`, `DelegatedSubject`, `DelegatedRoles`, `Attributes`, `UserTier`,
+`Resources`, `DelegatedSubject`, `DelegatedRoles`, `Attributes`, `Documents`, `UserTier`,
 `RemoteApplicationID`/`Slug`. `Attributes` (the `attributes` claim) is the namespaced,
-opaque escape hatch AuthKit transports but never interprets.
+opaque escape hatch AuthKit transports but never interprets. Delegated-token
+`Documents` is the validated top-level `documents` map (versioned type -> exact
+`sha256:` digest); tokens without it remain valid.
 
 ### 6.5 API key format (covered)
 

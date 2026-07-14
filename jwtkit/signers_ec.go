@@ -66,3 +66,7 @@ func (s *ecdsaSigner) Sign(_ context.Context, claims jwt.MapClaims) (string, err
 func (s *ecdsaSigner) SignWithHeaders(_ context.Context, claims jwt.MapClaims, headers map[string]any) (string, error) {
 	return signWithHeaders(s.signingMethod(), s.key, s.kid, claims, headers)
 }
+
+func (s *ecdsaSigner) SignPayload(_ context.Context, payload []byte, headers map[string]any) (string, error) {
+	return signWithHeaders(s.signingMethod(), s.key, s.kid, exactClaims{payload: payload}, headers)
+}

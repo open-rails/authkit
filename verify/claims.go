@@ -8,6 +8,7 @@ import (
 	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/documents"
 )
 
 // Claims is a typed view of authenticated user information attached by middleware.
@@ -52,6 +53,7 @@ type Claims struct {
 	//               registry, or opt-in verify-time hydration).
 	// Reserved well-known keys: `tier` (opaque entitlement-tier string, surfaced
 	// as UserTier) and `roles` (uuid array, surfaced as DelegatedRoles).
+	// `documents` is forbidden here because it is a top-level signed claim.
 	// Everything else is free-form per consuming app. Values are kept as raw
 	// JSON so the receiver decodes each into its own typed schema; nil when the
 	// claim is absent.
@@ -65,6 +67,11 @@ type Claims struct {
 	// Nil when absent. Distinct from the native-user Roles claim, which a
 	// delegated token never carries.
 	DelegatedRoles []string
+
+	// Documents is the validated top-level `documents` claim on a delegated
+	// token: versioned document type -> canonical content digest. Payload schema
+	// and authorization remain application-owned.
+	Documents map[string]string
 
 	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
 	// AuthKit user access token; "delegated-access+jwt" identifies a delegated
@@ -171,8 +178,11 @@ type DelegatedPrincipal struct {
 	// Attributes is the issuer-asserted escape-hatch bag (#75): namespaced,
 	// OPAQUE, consumer-interpreted key/values, each INLINE or REFERENCE (see
 	// Claims.Attributes / Claims.AttributeReference). Reserved keys: `tier`
-	// (-> UserTier) and `roles` (-> Roles). Raw JSON values.
+	// (-> UserTier) and `roles` (-> Roles); `documents` is forbidden because it
+	// is a top-level signed claim. Raw JSON values.
 	Attributes map[string]json.RawMessage
+	// Documents are exact typed signed-document references carried by the token.
+	Documents map[string]string
 	// JTI is the token identifier (`jti` claim), when present.
 	JTI string
 	// UserTier is the resolved tier, sourced from `attributes.tier`.
@@ -207,10 +217,33 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 		DelegatedSubject: c.DelegatedSubject,
 		Permissions:      c.Permissions,
 		Attributes:       c.Attributes,
+		Documents:        c.Documents,
 		JTI:              c.JTI,
 		UserTier:         c.UserTier,
 		Roles:            c.DelegatedRoles,
 	}, true
+}
+
+// DocumentReference returns one validated typed document reference carried by
+// these claims. It does not fetch or interpret the referenced payload.
+func (c Claims) DocumentReference(documentType string) (documents.Reference, bool) {
+	documentType = strings.TrimSpace(documentType)
+	digest, ok := c.Documents[documentType]
+	if !ok {
+		return documents.Reference{}, false
+	}
+	reference := documents.Reference{Type: documentType, Digest: digest}
+	return reference, reference.Validate() == nil
+}
+
+func (p DelegatedPrincipal) DocumentReference(documentType string) (documents.Reference, bool) {
+	documentType = strings.TrimSpace(documentType)
+	digest, ok := p.Documents[documentType]
+	if !ok {
+		return documents.Reference{}, false
+	}
+	reference := documents.Reference{Type: documentType, Digest: digest}
+	return reference, reference.Validate() == nil
 }
 
 // DelegatedAccess is the canonical accessor for a delegated access token's

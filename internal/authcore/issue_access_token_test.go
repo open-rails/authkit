@@ -80,6 +80,7 @@ func TestMintAccessToken_ReservedClaimsDroppedFromExtra(t *testing.T) {
 		"plan":             "enterprise",
 		"delegated_sub":    "someone-else",
 		"attributes":       map[string]any{"is_admin": true},
+		"documents":        map[string]string{"example.entitlements/v1": "sha256:forged"},
 		"amr":              []string{"mfa"},
 		"acr":              "phr",
 		"auth_time":        1,
@@ -99,7 +100,7 @@ func TestMintAccessToken_ReservedClaimsDroppedFromExtra(t *testing.T) {
 	reserved := []string{
 		"roles", "permissions", "global_roles", "org_roles", "groups",
 		"email", "email_verified", "username", "discord_username",
-		"user_tier", "plan", "delegated_sub", "attributes",
+		"user_tier", "plan", "delegated_sub", "attributes", "documents",
 		"amr", "acr", "auth_time", "jti", "mfa_enrolled",
 	}
 	for _, k := range reserved {

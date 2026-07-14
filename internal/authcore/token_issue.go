@@ -53,6 +53,7 @@ var reservedAccessTokenClaims = map[string]struct{}{
 	"plan":             {},
 	"delegated_sub":    {},
 	"attributes":       {},
+	"documents":        {},
 	"amr":              {},
 	"acr":              {},
 	"auth_time":        {},

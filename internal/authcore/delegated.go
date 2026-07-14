@@ -3,11 +3,13 @@ package authcore
 import (
 	"context"
 	"errors"
-	authkit "github.com/open-rails/authkit"
+	"fmt"
 	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -62,6 +64,13 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	if strings.TrimSpace(p.DelegatedSubject) == "" {
 		return "", errors.New("delegated_sub required")
 	}
+	references, err := documents.NormalizeReferences(p.Documents)
+	if err != nil {
+		return "", err
+	}
+	if _, shadowsTopLevel := p.Attributes["documents"]; shadowsTopLevel {
+		return "", fmt.Errorf("%w: attributes.documents is reserved", documents.ErrReservedAttribute)
+	}
 
 	ttl := p.TTL
 	if ttl <= 0 {
@@ -89,6 +98,9 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 		if len(perms) > 0 {
 			claims["permissions"] = perms
 		}
+	}
+	if len(references) > 0 {
+		claims["documents"] = references
 	}
 	// Merge the typed Roles convenience into attributes.roles (typed field wins
 	// over any Attributes["roles"] the caller also set). Drop blanks so callers

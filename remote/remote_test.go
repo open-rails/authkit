@@ -1,13 +1,16 @@
 package remote_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/remote"
 	"github.com/open-rails/authkit/server"
 	"github.com/stretchr/testify/require"
@@ -19,6 +22,17 @@ import (
 // pointer results, and error IDENTITY — without the engine or a DB.
 type fakeClient struct {
 	authkit.Client
+}
+
+var documentWireErrors = []error{
+	documents.ErrInvalidReference, documents.ErrInvalidType, documents.ErrInvalidDigest,
+	documents.ErrDuplicateReference, documents.ErrTooManyReferences, documents.ErrReferencesTooLarge,
+	documents.ErrWrongTokenType, documents.ErrReservedAttribute, documents.ErrInvalidEnvelope,
+	documents.ErrPayloadTooLarge, documents.ErrMalformedJWS, documents.ErrWrongJOSEType,
+	documents.ErrUnsupportedAlgorithm, documents.ErrUnsupportedSigner, documents.ErrUnknownKey,
+	documents.ErrInvalidSignature, documents.ErrDigestMismatch, documents.ErrIssuerMismatch,
+	documents.ErrAudienceMismatch, documents.ErrTypeMismatch, documents.ErrUntrustedIssuer,
+	documents.ErrUnauthorized, documents.ErrNotFound, documents.ErrFetch, documents.ErrRedirect,
 }
 
 func (fakeClient) Can(_ context.Context, _, _, _, _, perm string) (bool, error) {
@@ -46,6 +60,20 @@ func (fakeClient) CreateUser(_ context.Context, email, username string) (*authki
 }
 func (fakeClient) MintAPIKey(_ context.Context, persona, instanceSlug, name, role, createdBy string, _ *time.Time) (authkit.APIKey, string, error) {
 	return authkit.APIKey{ID: "k1", Name: name, Role: role}, "secret-" + name, nil
+}
+func (fakeClient) MintDelegatedAccessToken(_ context.Context, params authkit.DelegatedAccessParams) (string, error) {
+	return params.Documents["example.entitlements/v1"], nil
+}
+func (fakeClient) SignDocument(_ context.Context, envelope authkit.DocumentEnvelope) (authkit.SignedDocument, error) {
+	for _, sentinel := range documentWireErrors {
+		if envelope.Type == sentinel.Error() {
+			return authkit.SignedDocument{}, fmt.Errorf("wrapped document error: %w", sentinel)
+		}
+	}
+	return authkit.SignedDocument{
+		CompactJWS: "signed", Reference: authkit.DocumentReference{Type: envelope.Type, Digest: "sha256:remote"},
+		SignedPayload: append([]byte(nil), envelope.Payload...),
+	}, nil
 }
 func (fakeClient) HasEmailSender() bool { return true }
 
@@ -80,6 +108,25 @@ func TestRemoteParity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "k1", key.ID)
 	require.Equal(t, "secret-ci", secret)
+
+	// New document fields survive the generated client/server transport.
+	digest, err := rc.MintDelegatedAccessToken(ctx, authkit.DelegatedAccessParams{
+		Documents: map[string]string{"example.entitlements/v1": "sha256:delegated"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "sha256:delegated", digest)
+	signed, err := rc.SignDocument(ctx, authkit.DocumentEnvelope{
+		Type: "example.entitlements/v1", Payload: json.RawMessage(`{"limit":7}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "example.entitlements/v1", signed.Reference.Type)
+	require.True(t, bytes.Equal([]byte(`{"limit":7}`), signed.SignedPayload))
+	for _, sentinel := range documentWireErrors {
+		t.Run(sentinel.Error(), func(t *testing.T) {
+			_, err := rc.SignDocument(ctx, authkit.DocumentEnvelope{Type: sentinel.Error()})
+			require.ErrorIs(t, err, sentinel)
+		})
+	}
 
 	// no-ctx / no-error method.
 	require.True(t, rc.HasEmailSender())

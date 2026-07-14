@@ -480,6 +480,13 @@ func (c *Client) SetEmailVerified(ctx context.Context, id string, v bool) error 
 	return c.call(ctx, "SetEmailVerified", args, nil)
 }
 
+func (c *Client) SignDocument(ctx context.Context, envelope authkit.DocumentEnvelope) (authkit.SignedDocument, error) {
+	args := map[string]any{"envelope": envelope}
+	var out authkit.SignedDocument
+	err := c.call(ctx, "SignDocument", args, &out)
+	return out, err
+}
+
 func (c *Client) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
 	args := map[string]any{"userIDs": userIDs}
 	var out []authkit.OpResult

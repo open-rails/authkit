@@ -1,9 +1,17 @@
 package authkit
 
-import "time"
+import (
+	"time"
+
+	"github.com/open-rails/authkit/documents"
+)
 
 // Contract DTOs relocated from internal/authcore (#138 inversion): plain data,
 // stdlib-only. The engine aliases these back.
+
+type DocumentReference = documents.Reference
+type DocumentEnvelope = documents.Envelope
+type SignedDocument = documents.SignedDocument
 
 type APIKey struct {
 	ID          string
@@ -135,6 +143,10 @@ type DelegatedAccessParams struct {
 	// permission strings (NOT OAuth's space-delimited `scope`). Receiving
 	// services validate these against their own permission set.
 	Permissions []string
+	// Documents becomes the top-level `documents` claim: versioned document
+	// type -> canonical sha256 digest. AuthKit transports and validates these
+	// references but does not resolve or interpret their payload schemas.
+	Documents map[string]string
 	// Attributes becomes the `attributes` claim: the canonical app-specific
 	// ESCAPE HATCH (#75). An object of issuer-asserted, NAMESPACED, OPAQUE
 	// key/values that AuthKit transports + optionally shape-validates but NEVER
@@ -147,9 +159,10 @@ type DelegatedAccessParams struct {
 	//               remote_application registered ahead of time (see the
 	//               attribute-def registry: Service.RegisterRemoteAppAttributeDef
 	//               / ResolveRemoteAppAttributeDef). Keeps tokens small.
-	// Reserved well-known keys: `tier` (opaque entitlement-tier string) and
-	// `roles` (a uuid array; prefer the typed Roles field below). Everything
-	// else is free-form per consuming app. Values are arbitrary JSON.
+	// Reserved well-known keys: `tier` (opaque entitlement-tier string), `roles`
+	// (a uuid array; prefer the typed Roles field below), and `documents` (use the
+	// top-level Documents field above). Everything else is free-form per consuming
+	// app. Values are arbitrary JSON.
 	Attributes map[string]any
 	// Roles is a convenience for emitting the delegated subject's role UUIDs into
 	// `attributes.roles` (a JSON array of UUID strings). Equivalent to setting

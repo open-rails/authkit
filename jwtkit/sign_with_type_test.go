@@ -75,3 +75,13 @@ func TestSignWithType(t *testing.T) {
 		}
 	})
 }
+
+func TestBuiltInSignerRejectsEmptyKID(t *testing.T) {
+	signer, err := NewRSASigner(2048, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := signer.Sign(context.Background(), jwt.MapClaims{"sub": "user"}); err == nil {
+		t.Fatal("Sign() accepted an empty kid")
+	}
+}

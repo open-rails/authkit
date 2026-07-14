@@ -136,6 +136,12 @@ type Tokens interface {
 	MintServiceJWT(ctx context.Context, opts ServiceJWTMintOptions) (string, ServiceJWTClaims, error)
 }
 
+// Documents signs immutable opaque JSON envelopes with the service's current
+// AuthKit key. Verification and resolution live in documents + verify.
+type Documents interface {
+	SignDocument(ctx context.Context, envelope DocumentEnvelope) (SignedDocument, error)
+}
+
 // APIKeys mints, lists, revokes, and resolves opaque API keys.
 type APIKeys interface {
 	MintAPIKey(ctx context.Context, persona, instanceSlug, name, role, createdBy string, expiresAt *time.Time) (APIKey, string, error)
@@ -232,6 +238,7 @@ type Client interface {
 	Roles
 	Groups
 	Tokens
+	Documents
 	APIKeys
 	Sessions
 	Providers

@@ -293,6 +293,10 @@ func (s *Client) MintServiceJWT(ctx context.Context, opts authkit.ServiceJWTMint
 	return s.impl.MintServiceJWT(ctx, opts)
 }
 
+func (s *Client) SignDocument(ctx context.Context, envelope authkit.DocumentEnvelope) (authkit.SignedDocument, error) {
+	return s.impl.SignDocument(ctx, envelope)
+}
+
 // Config returns the normalized host Config the engine was built from (#237).
 func (s *Client) Config() Config {
 	return s.impl.Config()

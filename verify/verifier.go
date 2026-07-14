@@ -15,6 +15,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -72,13 +73,13 @@ type Verifier struct {
 	// per request. fedFlight single-flights concurrent first-use of the same issuer.
 	negCache    map[string]time.Time
 	negCacheTTL time.Duration
-	fedFlight   map[string]*sync.WaitGroup
+	fedFlight   map[string]chan struct{}
 
 	// kidRefetch tracks the last forced JWKS refetch per issuer (driven by an
 	// unknown-kid for a KNOWN issuer) so a storm of bad kids can't hammer the
 	// JWKS endpoint. Guarded by a min-interval and single-flight.
 	kidRefetchAt     map[string]time.Time
-	kidRefetchFlight map[string]*sync.WaitGroup
+	kidRefetchFlight map[string]chan struct{}
 	kidRefetchMin    time.Duration
 
 	// Delegated-access-token validation hooks (optional). permValidator checks
@@ -372,9 +373,9 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		fedKnown:         map[string]bool{},
 		negCache:         map[string]time.Time{},
 		negCacheTTL:      5 * time.Second,
-		fedFlight:        map[string]*sync.WaitGroup{},
+		fedFlight:        map[string]chan struct{}{},
 		kidRefetchAt:     map[string]time.Time{},
-		kidRefetchFlight: map[string]*sync.WaitGroup{},
+		kidRefetchFlight: map[string]chan struct{}{},
 		kidRefetchMin:    30 * time.Second,
 	}
 	for _, o := range opts {
@@ -689,22 +690,25 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 	}
 	// Single-flight: if another goroutine is already loading this issuer, wait
 	// for it, then let the caller re-check the in-memory cache.
-	if wg, inflight := v.fedFlight[issuer]; inflight {
+	if done, inflight := v.fedFlight[issuer]; inflight {
 		v.mu.Unlock()
-		wg.Wait()
-		return true // caller retries matchIssuer; may still miss (load failed)
+		select {
+		case <-done:
+			return true // caller retries matchIssuer; may still miss (load failed)
+		case <-ctx.Done():
+			return false
+		}
 	}
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	v.fedFlight[issuer] = wg
+	done := make(chan struct{})
+	v.fedFlight[issuer] = done
 	aud := v.fedAudiences
 	v.mu.Unlock()
 
 	defer func() {
 		v.mu.Lock()
 		delete(v.fedFlight, issuer)
+		close(done)
 		v.mu.Unlock()
-		wg.Done()
 	}()
 
 	fi, err := src.GetRemoteApplication(ctx, issuer)
@@ -759,18 +763,28 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 		return Claims{}, err
 	}
 
-	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
-	// API key (`delegated_sub`) — never both. Reject the ambiguous case.
-	if strClaim(mapClaims, "sub") != "" && strClaim(mapClaims, "delegated_sub") != "" {
-		return Claims{}, errors.New("conflicting_subject")
-	}
-
 	tokenTyp := strings.TrimSpace(typ)
 	hasSub := strClaim(mapClaims, "sub") != ""
 	hasDelegatedSub := strClaim(mapClaims, "delegated_sub") != ""
 	isAccessTyp := strings.EqualFold(tokenTyp, AccessTokenType)
 	isDelegatedAccessTyp := strings.EqualFold(tokenTyp, DelegatedAccessTokenType)
 	isRemoteAppTyp := strings.EqualFold(tokenTyp, RemoteApplicationAccessTokenType)
+	documentReferences, hasDocumentReferences, err := documentReferencesClaim(tokenStr)
+	if err != nil {
+		return Claims{}, err
+	}
+	if hasReservedDocumentsAttribute(mapClaims) {
+		return Claims{}, documents.ErrReservedAttribute
+	}
+	if hasDocumentReferences && !isDelegatedAccessTyp {
+		return Claims{}, documents.ErrWrongTokenType
+	}
+
+	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
+	// API key (`delegated_sub`) — never both. Reject the ambiguous case.
+	if hasSub && hasDelegatedSub {
+		return Claims{}, errors.New("conflicting_subject")
+	}
 
 	// Remote application access token (#76): a remote_application acting AS
 	// ITSELF. Its identity is the VALIDATED `iss` (already mapped to a registered
@@ -825,9 +839,9 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 			return Claims{}, errors.New("delegated_access_has_roles")
 		}
 	}
-
 	cl := v.extractClaims(mapClaims)
 	cl.TokenTyp = tokenTyp
+	cl.Documents = documentReferences
 
 	// Delegated permission ceiling (#76 target model). A delegated access token's
 	// concrete `permissions` are a DOWN-SCOPING request bounded by the SIGNING
@@ -1070,6 +1084,15 @@ func strClaim(mc jwt.MapClaims, key string) string {
 	return v
 }
 
+func hasReservedDocumentsAttribute(mc jwt.MapClaims) bool {
+	attributes, ok := mc["attributes"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, reserved := attributes["documents"]
+	return reserved
+}
+
 func strSliceClaim(mc jwt.MapClaims, key string) []string {
 	switch rs := mc[key].(type) {
 	case []any:
@@ -1300,27 +1323,30 @@ func (v *Verifier) publicKeyFor(ctx context.Context, ie issuerEntry, kid string)
 func (v *Verifier) refetchForUnknownKID(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) bool {
 	v.mu.Lock()
 	// Coalesce concurrent unknown-kid storms onto a single in-flight refetch.
-	if wg, inflight := v.kidRefetchFlight[issuer]; inflight {
+	if done, inflight := v.kidRefetchFlight[issuer]; inflight {
 		v.mu.Unlock()
-		wg.Wait()
-		return true
+		select {
+		case <-done:
+			return true
+		case <-ctx.Done():
+			return false
+		}
 	}
 	// Min-interval guard: don't refetch more than once per kidRefetchMin.
 	if last, ok := v.kidRefetchAt[issuer]; ok && time.Since(last) < v.kidRefetchMin {
 		v.mu.Unlock()
 		return false
 	}
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	v.kidRefetchFlight[issuer] = wg
+	done := make(chan struct{})
+	v.kidRefetchFlight[issuer] = done
 	v.mu.Unlock()
 
 	defer func() {
 		v.mu.Lock()
 		v.kidRefetchAt[issuer] = time.Now()
 		delete(v.kidRefetchFlight, issuer)
+		close(done)
 		v.mu.Unlock()
-		wg.Done()
 	}()
 
 	_ = v.refreshIssuerKeys(ctx, issuer, ie, cacheTTL, maxStale)
@@ -1351,6 +1377,10 @@ func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
 	if iss == "" {
 		return false
 	}
+	return v.forceRefreshIssuer(context.Background(), iss)
+}
+
+func (v *Verifier) forceRefreshIssuer(ctx context.Context, iss string) bool {
 	ie := v.matchIssuer(iss)
 	if ie == nil {
 		return false
@@ -1374,7 +1404,7 @@ func (v *Verifier) forceRefreshForToken(tokenStr string) bool {
 	// hammers the JWKS endpoint: each verify failure would force its own fetch with
 	// no min-interval or coalescing. refetchForUnknownKID caps this at one fetch
 	// per issuer per kidRefetchMin and coalesces concurrent callers onto it.
-	return v.refetchForUnknownKID(context.Background(), iss, entry, cacheTTL, maxStale)
+	return v.refetchForUnknownKID(ctx, iss, entry, cacheTTL, maxStale)
 }
 
 func (v *Verifier) refreshIssuerKeys(ctx context.Context, issuer string, ie issuerEntry, cacheTTL, maxStale time.Duration) error {
