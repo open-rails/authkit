@@ -572,7 +572,10 @@ authorization semantics, and side effects.
 an authenticated issuer-relative fetch before `verify.Verifier` checks the
 exact digest, issuer, audience, type, key, and signature. Publisher and resolver
 authorization callbacks should use the host's existing AuthKit machine
-credentials; nil authorization denies access.
+credentials; nil authorization denies access. The digest identifies immutable
+signed payload bytes, while the compact JWS can change when those bytes are
+re-signed during key rotation, so publisher responses use a representation ETag
+and require cache revalidation.
 
 Delegated tokens pin documents with the top-level `documents` claim:
 
