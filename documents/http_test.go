@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -131,10 +132,13 @@ func TestPublisherProtocol(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || string(body) != document.CompactJWS || resp.Header.Get("Content-Type") != "application/jose" {
 		t.Fatalf("GET = %d %q", resp.StatusCode, body)
 	}
-	if !strings.Contains(resp.Header.Get("Cache-Control"), "private") || !strings.Contains(resp.Header.Get("Cache-Control"), "immutable") {
+	if !strings.Contains(resp.Header.Get("Cache-Control"), "private") || !strings.Contains(resp.Header.Get("Cache-Control"), "no-cache") {
 		t.Fatalf("cache control = %q", resp.Header.Get("Cache-Control"))
 	}
 	etag := resp.Header.Get("ETag")
+	if etag == strconv.Quote(document.Reference.Digest) {
+		t.Fatalf("ETag %q identifies payload digest, not compact JWS representation", etag)
+	}
 
 	req, _ := http.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("Authorization", machineAuthorization)
@@ -165,6 +169,59 @@ func TestPublisherProtocol(t *testing.T) {
 		t.Fatalf("unavailable status = %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestPublisherRepresentationRenewalInvalidatesETag(t *testing.T) {
+	sign := func(kid string) documents.SignedDocument {
+		t.Helper()
+		signer, err := jwtkit.NewRSASigner(2048, kid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		document, err := documents.Sign(context.Background(), signer, documents.Envelope{
+			Issuer: "https://issuer.example", Audiences: []string{"site-b"}, Type: "example.entitlements/v1", Payload: json.RawMessage(`{"limit":7}`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return document
+	}
+	oldDocument := sign("old-kid")
+	newDocument := sign("new-kid")
+	if oldDocument.Reference != newDocument.Reference || oldDocument.CompactJWS == newDocument.CompactJWS {
+		t.Fatalf("re-signing changed payload reference or retained representation")
+	}
+	current := oldDocument
+	handler := documents.NewPublisher(func(_ context.Context, digest string) (documents.SignedDocument, error) {
+		if digest != current.Reference.Digest {
+			return documents.SignedDocument{}, documents.ErrNotFound
+		}
+		return current, nil
+	}, requireMachine)
+	path := documents.PublicationPathPrefix + oldDocument.Reference.Digest
+	request := func(method, etag string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", machineAuthorization)
+		req.Header.Set("If-None-Match", etag)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	resp := request(http.MethodGet, "")
+	oldETag := resp.Header().Get("ETag")
+	current = newDocument
+
+	resp = request(http.MethodGet, oldETag)
+	newETag := resp.Header().Get("ETag")
+	if resp.Code != http.StatusOK || resp.Body.String() != newDocument.CompactJWS || newETag == oldETag {
+		t.Fatalf("renewed GET status=%d old_etag=%q new_etag=%q body=%q", resp.Code, oldETag, newETag, resp.Body.String())
+	}
+	resp = request(http.MethodHead, newETag)
+	if resp.Code != http.StatusNotModified || resp.Body.Len() != 0 {
+		t.Fatalf("conditional HEAD status=%d body=%q", resp.Code, resp.Body.String())
+	}
 }
 
 func TestResolverAuthenticatedFetchCacheAndCoalescing(t *testing.T) {

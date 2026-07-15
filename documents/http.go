@@ -24,7 +24,8 @@ const PublicationPathPrefix = "/.well-known/authkit/documents/"
 // denies; AuthKit does not define a document-specific credential.
 type AuthorizeRequest func(*http.Request) error
 
-// LookupDocument returns a previously signed immutable document by digest.
+// LookupDocument returns a retained document by its immutable payload digest.
+// Its compact JWS representation may change when the payload is re-signed.
 type LookupDocument func(context.Context, string) (SignedDocument, error)
 
 // NewPublisher returns the framework-neutral well-known publication handler.
@@ -64,9 +65,9 @@ func NewPublisher(lookup LookupDocument, authorize AuthorizeRequest) http.Handle
 			return
 		}
 
-		etag := strconv.Quote(digest)
+		etag := strconv.Quote(Digest([]byte(document.CompactJWS)))
 		w.Header().Set("Content-Type", "application/jose")
-		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		w.Header().Set("Cache-Control", "private, no-cache")
 		w.Header().Set("ETag", etag)
 		if etagMatches(r.Header.Get("If-None-Match"), etag) {
 			w.WriteHeader(http.StatusNotModified)
