@@ -54,7 +54,9 @@ func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 {
 		return BootstrapManifest{}, ErrInvalidBootstrapManifest
 	}
-	if err := validateBootstrapManifest(manifest); err != nil {
+	// Parse is env-less and structural-only; the https/private jwks_uri policy
+	// is enforced at apply time against the target service's environment (#257).
+	if err := validateBootstrapManifest(manifest, true); err != nil {
 		return BootstrapManifest{}, err
 	}
 	return manifest, nil
@@ -76,7 +78,7 @@ func (s *Service) ApplyBootstrapManifest(ctx context.Context, manifest Bootstrap
 	if err := s.requirePG(); err != nil {
 		return BootstrapManifestResult{}, err
 	}
-	if err := validateBootstrapManifest(manifest); err != nil {
+	if err := validateBootstrapManifest(manifest, s.isDevEnvironment()); err != nil {
 		return BootstrapManifestResult{}, err
 	}
 
@@ -286,7 +288,7 @@ func (s *Service) seedBootstrapRootRole(ctx context.Context, userID, slug string
 	return s.assignRoleBySlugGenesis(ctx, userID, slug)
 }
 
-func validateBootstrapManifest(manifest BootstrapManifest) error {
+func validateBootstrapManifest(manifest BootstrapManifest, allowInsecureJWKS bool) error {
 	for _, user := range manifest.Users {
 		username := strings.TrimSpace(user.Username)
 		if username == "" {
@@ -302,7 +304,7 @@ func validateBootstrapManifest(manifest BootstrapManifest) error {
 		if strings.TrimSpace(app.Slug) == "" || strings.TrimSpace(app.Issuer) == "" || app.Enabled == nil {
 			return ErrInvalidBootstrapManifest
 		}
-		if _, err := NormalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys); err != nil {
+		if _, err := NormalizeRemoteAppTrustSource(app.JWKSURI, "", app.PublicKeys, allowInsecureJWKS); err != nil {
 			return err
 		}
 	}
