@@ -213,7 +213,7 @@ func TestNormalizeRemoteAppTrustSource(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mode, err := NormalizeRemoteAppTrustSource(tc.jwksURI, tc.mode, tc.keys)
+			mode, err := NormalizeRemoteAppTrustSource(tc.jwksURI, tc.mode, tc.keys, false)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got mode %q", mode)

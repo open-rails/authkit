@@ -63,8 +63,9 @@ type RemoteAppKey = authkit.RemoteAppKey
 // NormalizeRemoteAppTrustSource validates the mutually-exclusive trust source of
 // a registration and returns the normalized mode. Empty mode is inferred: a key
 // list means static, otherwise jwks. It is the single validation gate so the XOR
-// rule cannot be bypassed.
-func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteAppKey) (string, error) {
+// rule cannot be bypassed. allowInsecureJWKS relaxes the https/private-address
+// jwks_uri checks — pass IsDevEnvironment(env) only, never true in production.
+func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteAppKey, allowInsecureJWKS bool) (string, error) {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	jwksURI = strings.TrimSpace(jwksURI)
 	if mode == "" {
@@ -82,7 +83,7 @@ func NormalizeRemoteAppTrustSource(jwksURI string, mode string, keys []RemoteApp
 		if len(keys) > 0 {
 			return "", fmt.Errorf("%w: jwks_uri and public_keys are mutually exclusive — register one trust source, never both", ErrInvalidRemoteApplication)
 		}
-		if err := validateJWKSURI(jwksURI); err != nil {
+		if err := validateJWKSURI(jwksURI, allowInsecureJWKS); err != nil {
 			return "", fmt.Errorf("%w: %v", ErrInvalidRemoteApplication, err)
 		}
 	case RemoteAppModeStatic:
@@ -151,10 +152,23 @@ func isCorePrivateIP(ip net.IP) bool {
 //
 // This is a syntactic check (no DNS resolution). The verifier's SSRF-guarding
 // dialer provides a second layer against DNS rebinding at fetch time.
-func validateJWKSURI(raw string) error {
+//
+// allowInsecure (#257, dev environments only): permits http and
+// loopback/private hosts for local federation; still requires a parseable
+// http(s) URL with a host.
+func validateJWKSURI(raw string, allowInsecure bool) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("jwks_uri is not a valid URL: %v", err)
+	}
+	if allowInsecure {
+		if u.Scheme != "https" && u.Scheme != "http" {
+			return fmt.Errorf("jwks_uri must use http or https, got %q", u.Scheme)
+		}
+		if u.Hostname() == "" {
+			return errors.New("jwks_uri must have a non-empty host")
+		}
+		return nil
 	}
 	if u.Scheme != "https" {
 		return fmt.Errorf("jwks_uri must use https, got %q", u.Scheme)
@@ -260,7 +274,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if err := validateRemoteAppSlug(slug); err != nil {
 		return nil, ErrInvalidRemoteApplication
 	}
-	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys)
+	mode, err := NormalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.isDevEnvironment())
 	if err != nil {
 		return nil, err
 	}

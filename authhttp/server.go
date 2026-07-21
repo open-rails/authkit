@@ -98,15 +98,21 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		}
 	}
 
-	ver := verify.NewVerifier(
-		verify.WithSkew(5*time.Second),
+	verOpts := []verify.VerifierOption{
+		verify.WithSkew(5 * time.Second),
 		verify.WithAPIKeyPrefix(cfg.APIKeys.Prefix),
-		verify.WithSSRFGuard(),
 		// #240: wire the documented per-request forced-2FA-enrollment gate from
 		// the host's TwoFactor policy. Required mode challenges every existing
 		// un-enrolled user on their next request, not just at mint time.
 		verify.WithRequireMFAEnrollment(cfg.TwoFactor.Mode == embedded.TwoFactorRequired),
-	)
+	}
+	// SSRF guard on JWKS fetches: mandatory in every non-dev environment.
+	// Dev carve-out (#257): local federation fetches JWKS from loopback/private
+	// addresses, which the guarded dialer would refuse.
+	if !embedded.IsDevEnvironment(cfg.Environment) {
+		verOpts = append(verOpts, verify.WithSSRFGuard())
+	}
+	ver := verify.NewVerifier(verOpts...)
 	_ = ver.AddIssuer(cfg.Token.Issuer, cfg.Token.ExpectedAudiences, verify.IssuerOptions{
 		RawKeys: coreSvc.PublicKeysByKID(),
 		IsLocal: true,

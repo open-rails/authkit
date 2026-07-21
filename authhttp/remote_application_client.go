@@ -25,6 +25,9 @@ type RemoteApplicationIssuersClient struct {
 	// request. The accept endpoint authorizes through the receiving
 	// permission-group route.
 	authToken string
+	// allowInsecureJWKS relaxes the pre-flight jwks_uri check for dev
+	// federation; the receiving server enforces its own environment policy.
+	allowInsecureJWKS bool
 }
 
 // RemoteApplicationIssuersClientOption configures a RemoteApplicationIssuersClient.
@@ -44,6 +47,13 @@ func WithRemoteApplicationIssuersHTTPClient(c *http.Client) RemoteApplicationIss
 // authenticate to the resource server's accept endpoint.
 func WithRemoteApplicationIssuersAuthToken(token string) RemoteApplicationIssuersClientOption {
 	return func(fc *RemoteApplicationIssuersClient) { fc.authToken = strings.TrimSpace(token) }
+}
+
+// WithRemoteApplicationIssuersInsecureJWKS permits non-HTTPS/private jwks_uri
+// values in the pre-flight check (#257, dev federation only); the receiving
+// server still enforces its own environment policy.
+func WithRemoteApplicationIssuersInsecureJWKS() RemoteApplicationIssuersClientOption {
+	return func(fc *RemoteApplicationIssuersClient) { fc.allowInsecureJWKS = true }
 }
 
 // NewRemoteApplicationIssuersClient creates a RemoteApplicationIssuersClient.
@@ -81,7 +91,7 @@ func (fc *RemoteApplicationIssuersClient) RegisterIssuer(ctx context.Context, ac
 	if strings.TrimSpace(reg.Slug) == "" || strings.TrimSpace(reg.Issuer) == "" {
 		return errors.New("slug and issuer are required")
 	}
-	if _, err := embedded.NormalizeRemoteAppTrustSource(reg.JWKSURI, "", reg.PublicKeys); err != nil {
+	if _, err := embedded.NormalizeRemoteAppTrustSource(reg.JWKSURI, "", reg.PublicKeys, fc.allowInsecureJWKS); err != nil {
 		return err
 	}
 
