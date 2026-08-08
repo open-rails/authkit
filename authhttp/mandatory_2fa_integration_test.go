@@ -108,6 +108,11 @@ func TestMFARequiredRoleLoginGate_HTTPRefresh(t *testing.T) {
 	optionalSrv, err := NewServer(newServerClient(t, mandatory2FATestConfig(), pool), WithoutRateLimiter())
 	require.NoError(t, err)
 
+	w = login(t, optionalSrv, "mfa-gate-role-disabled", unenrolledID)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"requires_2fa_enrollment":true`)
+	require.Contains(t, w.Body.String(), `"access_token"`)
+
 	w = serveJSON(optionalSrv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "2fa_enrollment_required")

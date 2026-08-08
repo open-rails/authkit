@@ -341,6 +341,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		// MintAccessToken, so it's gone.
 		sid, rt, accessTok, accessExp, _, issueErr := s.svc.IssueAuthenticatedSession(r.Context(), finalUserID, r.UserAgent(), nil, []string{"pwd"}, nil)
 		if issueErr != nil {
+			if errors.Is(issueErr, authkit.ErrTwoFAEnrollmentRequired) {
+				s.write2FAEnrollmentRequired(w, r, finalUserID)
+				return
+			}
 			if errors.Is(issueErr, authkit.ErrUserBanned) {
 				logLoginFailed(s, r, finalUserID, "user_banned")
 				unauthorized(w, ErrUserBanned)
