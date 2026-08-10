@@ -3,6 +3,8 @@ package authhttp
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/open-rails/authkit/embedded"
@@ -41,14 +43,14 @@ func TestMountPrefixNormalizationAndBoundary(t *testing.T) {
 		path        string
 		wantStatus  int
 	}{
-		{"trailing slash prefix serves identically to canonical", "/auth/", "/auth/api/v1/auth/capabilities", http.StatusOK},
-		{"double trailing slash prefix also normalizes", "/auth//", "/auth/api/v1/auth/capabilities", http.StatusOK},
-		{"canonical no-trailing-slash prefix unaffected", "/auth", "/auth/api/v1/auth/capabilities", http.StatusOK},
+		{"trailing slash prefix serves identically to canonical", "/auth/", "/auth/api/v1/capabilities", http.StatusOK},
+		{"double trailing slash prefix also normalizes", "/auth//", "/auth/api/v1/capabilities", http.StatusOK},
+		{"canonical no-trailing-slash prefix unaffected", "/auth", "/auth/api/v1/capabilities", http.StatusOK},
 		{"jwks rides under the mount prefix", "/auth", "/auth/.well-known/jwks.json", http.StatusOK},
-		{"non-matching path 404s cleanly", "/auth", "/other/api/v1/auth/capabilities", http.StatusNotFound},
-		{"prefix-boundary near-miss 404s", "/auth", "/authfoo/api/v1/auth/capabilities", http.StatusNotFound},
+		{"non-matching path 404s cleanly", "/auth", "/other/api/v1/capabilities", http.StatusNotFound},
+		{"prefix-boundary near-miss 404s", "/auth", "/authfoo/api/v1/capabilities", http.StatusNotFound},
 		{"bare prefix (no rest) 404s", "/auth", "/auth", http.StatusNotFound},
-		{"empty prefix unchanged", "", "/api/v1/auth/capabilities", http.StatusOK},
+		{"empty prefix unchanged", "", "/api/v1/capabilities", http.StatusOK},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,13 +75,13 @@ func TestMountAnchors(t *testing.T) {
 
 	h, err := MountHandler(svc, MountOptions{APIPrefix: "/"})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, "/auth/capabilities", nil).Code)
-	require.Equal(t, http.StatusNotFound, mountProbe(t, h, http.MethodGet, "/api/v1/auth/capabilities", nil).Code)
+	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, "/capabilities", nil).Code)
+	require.Equal(t, http.StatusNotFound, mountProbe(t, h, http.MethodGet, "/api/v1/capabilities", nil).Code)
 
 	// Group selection: a Groups list without the group drops its routes.
 	h, err = MountHandler(svc, MountOptions{Groups: []RouteGroup{RouteAuth}})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, "/api/v1/auth/capabilities", nil).Code)
+	require.Equal(t, http.StatusOK, mountProbe(t, h, http.MethodGet, "/api/v1/capabilities", nil).Code)
 	require.Equal(t, http.StatusNotFound, mountProbe(t, h, http.MethodGet, "/api/v1/me", nil).Code)
 }
 
@@ -138,4 +140,49 @@ func TestMountExcludeDoesNotAlterExemptDerivation(t *testing.T) {
 	require.NotEqual(t, http.StatusNotFound, rec.Code)
 	// And non-exempt routes are still gated.
 	require.Equal(t, http.StatusForbidden, mountProbe(t, h, http.MethodGet, "/authx/api/v1/me", auth).Code)
+}
+
+// muxParamRe fills ServeMux "{param}" wildcards with a literal so a pattern
+// can be probed as a concrete request path.
+var muxParamRe = regexp.MustCompile(`\{[^}]+\}`)
+
+// TestMountRouteTableNeverDoublesThePrefix (#265): every RouteSpec path must be
+// prefix-neutral. The capabilities spec shipped hardcoded as
+// "/auth/capabilities", so a host anchoring the JSON API at "/auth" (openrails
+// does exactly this) served it at /auth/auth/capabilities and the expected
+// /auth/capabilities 404'd. This walks the FULL route table mounted under an
+// /auth-style anchor and asserts (a) no joined pattern contains a doubled
+// segment, and (b) the mux resolves anchor+path to exactly that route.
+func TestMountRouteTableNeverDoublesThePrefix(t *testing.T) {
+	svc := newMountTestService(t)
+
+	h, err := MountHandler(svc, MountOptions{APIPrefix: "/auth"})
+	require.NoError(t, err)
+	mux, ok := h.(*http.ServeMux)
+	require.True(t, ok, "MountHandler without MountPrefix returns the bare mux")
+
+	walk := func(specs []RouteSpec, anchor string) {
+		for _, spec := range specs {
+			joined := joinRoutePath(anchor, spec.Path)
+			segs := strings.Split(strings.Trim(joined, "/"), "/")
+			for i := 1; i < len(segs); i++ {
+				require.NotEqual(t, segs[i-1], segs[i],
+					"%s %s: spec path %q doubles a segment under anchor %q — not mount-relative",
+					spec.Method, joined, spec.Path, anchor)
+			}
+			req := httptest.NewRequest(spec.Method, muxParamRe.ReplaceAllString(joined, "x"), nil)
+			_, pattern := mux.Handler(req)
+			require.Equal(t, spec.Method+" "+joined, pattern,
+				"%s %s did not resolve to its own registration", spec.Method, joined)
+		}
+	}
+	specs := svc.APIRoutes()
+	require.NotEmpty(t, specs)
+	walk(specs, "/auth")
+	walk(svc.OIDCBrowserRoutes(), DefaultOIDCPath)
+
+	// The historical bug shape must stay dead: nothing answers the doubled path.
+	req := httptest.NewRequest(http.MethodGet, "/auth/auth/capabilities", nil)
+	_, pattern := mux.Handler(req)
+	require.Empty(t, pattern, "doubled capabilities path must not resolve")
 }

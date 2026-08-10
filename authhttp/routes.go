@@ -107,7 +107,10 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	optional := verify.Optional(s.verifier)
 	lang := func(h http.Handler) http.Handler { return LanguageMiddleware(s.langCfg)(h) }
 	routes := []RouteSpec{
-		{Method: http.MethodGet, Path: "/auth/capabilities", Group: RouteAuth, Handler: http.HandlerFunc(s.handleCapabilitiesGET)},
+		// #265: prefix-neutral like every sibling — this spec shipped as
+		// "/auth/capabilities", which doubled to /auth/auth/capabilities (404)
+		// on hosts anchoring the API at an /auth-style prefix.
+		{Method: http.MethodGet, Path: "/capabilities", Group: RouteAuth, Handler: http.HandlerFunc(s.handleCapabilitiesGET)},
 
 		{Method: http.MethodPost, Path: "/token", Group: RouteAuth, Handler: http.HandlerFunc(s.handleAuthTokenPOST)},
 		{Method: http.MethodPost, Path: "/sessions/current", Group: RouteAuth, Handler: http.HandlerFunc(s.handleAuthSessionsCurrentPOST)},

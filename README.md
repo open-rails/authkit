@@ -661,6 +661,6 @@ GET  /api/v1/me
 POST /api/v1/passwordless/start
 POST /api/v1/passwordless/confirm
 POST /api/v1/register
-GET  /api/v1/auth/capabilities
+GET  /api/v1/capabilities
 POST /api/v1/oidc/{provider}/link/start
 ```
