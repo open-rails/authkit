@@ -130,6 +130,7 @@ type Groups interface {
 	EnsureRootGroup(ctx context.Context) (string, error)
 	SeedPermissionGroupContainment(ctx context.Context) error
 	ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error)
+	GroupInstanceForSlug(ctx context.Context, persona, instanceSlug string) (GroupInstance, error)
 	CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error)
 	RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error
 	AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error

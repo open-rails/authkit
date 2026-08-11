@@ -595,6 +595,9 @@ func (st *PermissionGroupStore) GroupMembers(ctx context.Context, groupID string
 // SubjectGroupMembership is one (persona, resource, role) a subject holds.
 type SubjectGroupMembership = authkit.SubjectGroupMembership
 
+// GroupInstance is a persona instance's own identity (#269).
+type GroupInstance = authkit.GroupInstance
+
 // SubjectGroups lists every group membership a subject holds (cross-persona),
 // the data behind /me/groups.
 func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error) {
@@ -603,7 +606,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 		return nil, err
 	}
 	rows, err := st.q.Query(ctx,
-		fmt.Sprintf(`SELECT g.persona, COALESCE(g.instance_slug, ''), g.display_name, a.role
+		fmt.Sprintf(`SELECT g.id::text, g.persona, COALESCE(g.instance_slug, ''), g.display_name, a.role
 		 FROM %s a
 		 JOIN profiles.permission_groups g ON g.id = a.permission_group_id
 		 WHERE a.%s = $1::uuid AND a.deleted_at IS NULL
@@ -615,12 +618,31 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 	var out []SubjectGroupMembership
 	for rows.Next() {
 		var m SubjectGroupMembership
-		if err := rows.Scan(&m.Persona, &m.InstanceSlug, &m.DisplayName, &m.Role); err != nil {
+		if err := rows.Scan(&m.GroupID, &m.Persona, &m.InstanceSlug, &m.DisplayName, &m.Role); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// GroupInstanceByID reads one group's own identity row (#269) — the descriptor
+// behind GET /<persona>/:instance_slug and the `group_id` on the creation
+// response. Takes an id the caller already resolved from (persona, slug), so
+// tombstone forwarding and the root singleton are handled once, upstream.
+func (st *PermissionGroupStore) GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error) {
+	var g GroupInstance
+	err := st.q.QueryRow(ctx,
+		`SELECT id::text, persona, COALESCE(instance_slug, ''), COALESCE(display_name, '')
+		   FROM profiles.permission_groups WHERE id = $1::uuid`,
+		groupID).Scan(&g.ID, &g.Persona, &g.InstanceSlug, &g.DisplayName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return GroupInstance{}, ErrGroupNotFound
+	}
+	if err != nil {
+		return GroupInstance{}, err
+	}
+	return g, nil
 }
 
 // DeleteCustomRole removes a per-group custom role (and its permissions).

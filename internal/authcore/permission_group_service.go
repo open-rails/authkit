@@ -237,15 +237,32 @@ func (s *Service) resolveGroupID(ctx context.Context, st *PermissionGroupStore, 
 }
 
 // ResolveGroupIDForSlug maps the API addressing key (persona, instanceSlug) to
-// the group's INTERNAL id. The id never goes on the wire — this is for callers
-// that must thread the controlling permission_group_id into a sibling resource
-// (e.g. a remote_application's permission_group_id, #111). ErrGroupNotFound if
-// no live group matches.
+// the group's INTERNAL id, for IN-PROCESS callers that must thread the
+// controlling permission_group_id into a sibling resource (e.g. a
+// remote_application's permission_group_id, #111). ErrGroupNotFound if no live
+// group matches. Out-of-process callers use GroupInstanceForSlug, which the
+// HTTP descriptor route exposes under an authorization gate (#269).
 func (s *Service) ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error) {
 	if err := s.requirePG(); err != nil {
 		return "", err
 	}
 	return s.resolveGroupID(ctx, s.groupStore(), persona, instanceSlug)
+}
+
+// GroupInstanceForSlug reads one instance's own identity — id, persona, slug,
+// display name (#269). This is the read behind GET /<persona>/:instance_slug:
+// the id is a JOIN KEY a host needs for its own ledger rows, never an address.
+// Authorization is the caller's job (the route gates on <persona>:settings:read).
+func (s *Service) GroupInstanceForSlug(ctx context.Context, persona, instanceSlug string) (GroupInstance, error) {
+	if err := s.requirePG(); err != nil {
+		return GroupInstance{}, err
+	}
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	if err != nil {
+		return GroupInstance{}, err
+	}
+	return st.GroupInstanceByID(ctx, gid)
 }
 
 // validRoleForPersona reports whether role is assignable in a group of persona: a

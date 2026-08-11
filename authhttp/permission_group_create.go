@@ -50,8 +50,13 @@ func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, pe
 	if res.Created {
 		status = http.StatusCreated
 	}
+	// group_id (#269): the instance's uuid, on BOTH outcomes. A host that owns
+	// the money for an instance has to be able to address it in its own ledger,
+	// and creation is where it learns the instance exists; the idempotent
+	// member re-run reports the same id rather than nothing.
 	writeJSON(w, status, map[string]any{
 		"ok":            true,
+		"group_id":      res.GroupID,
 		"persona":       persona,
 		"instance_slug": res.InstanceSlug,
 		"created":       res.Created,

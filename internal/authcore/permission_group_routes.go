@@ -22,6 +22,11 @@ func PermCredentialsRead(t string) string   { return t + ":credentials:read" }
 // grant it to other roles deliberately.
 func PermSettingsManage(t string) string { return t + ":settings:manage" }
 
+// PermSettingsRead gates reading the group's own identity descriptor (#269):
+// GET /<persona>/:instance_slug — id, slug, display name. The read symmetric of
+// PermSettingsManage; held by the owner via `<persona>:*`.
+func PermSettingsRead(t string) string { return t + ":settings:read" }
+
 // GeneratedRoute is one auto-generated management endpoint: addressed by the
 // RESOURCE's own id (:instance_slug), gated by Perm (a concrete <persona>:<res>:<act>).
 type GeneratedRoute struct {
@@ -53,6 +58,12 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 				// #264: group settings — slug rename (tombstone-forwarding)
 				// and display-name changes. Owner-controlled via the wildcard.
 				GeneratedRoute{persona, "PATCH", base, PermSettingsManage(persona)},
+				// #269: the instance's own identity descriptor — the read
+				// symmetric of the PATCH, and the only place a caller outside
+				// the process learns the group's uuid. Creation reports it
+				// once; this route is how it stays recoverable (and how an
+				// instance created before #269 becomes addressable at all).
+				GeneratedRoute{persona, "GET", base, PermSettingsRead(persona)},
 			)
 		}
 		// Listing the role catalog is part of visible role/member management;

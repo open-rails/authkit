@@ -181,6 +181,13 @@ func (c *Client) GetUserMetadata(ctx context.Context, userID string) (map[string
 	return out, err
 }
 
+func (c *Client) GroupInstanceForSlug(ctx context.Context, persona string, instanceSlug string) (authkit.GroupInstance, error) {
+	args := map[string]any{"persona": persona, "instanceSlug": instanceSlug}
+	var out authkit.GroupInstance
+	err := c.call(ctx, "GroupInstanceForSlug", args, &out)
+	return out, err
+}
+
 func (c *Client) HardDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
 	args := map[string]any{"userIDs": userIDs}
 	var out []authkit.OpResult
