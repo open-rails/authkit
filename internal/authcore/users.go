@@ -438,7 +438,9 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	if err := qtx.UserSetUsername(ctx, db.UserSetUsernameParams{ID: id, Username: &newUsername}); err != nil {
 		return err
 	}
-	// Audit row for the user rename.
+	// Audit row for the user rename. from_slug is the old username lowercased and
+	// NOT slugified — user_renames_from_slug_format_chk follows the username
+	// validators rather than the other way round (ak#273, migration 0006).
 	if err := qtx.UserRenameInsert(ctx, db.UserRenameInsertParams{UserID: id, FromSlug: strings.ToLower(strings.TrimSpace(oldUsername))}); err != nil {
 		return err
 	}
