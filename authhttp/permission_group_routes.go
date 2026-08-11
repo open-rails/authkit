@@ -236,6 +236,8 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			s.groupInviteLinkRevoke(w, r, gr.Persona, instanceSlug, pathParam(r, "link"))
 		case opGroupUpdate:
 			s.groupUpdate(w, r, gr.Persona, instanceSlug)
+		case opGroupRead:
+			s.groupInstanceDescriptor(w, r, gr.Persona, instanceSlug)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
 			sendErr(w, http.StatusNotImplemented, notImplemented)
@@ -267,6 +269,7 @@ const (
 	opInviteLinkMint
 	opInviteLinkRevoke
 	opGroupUpdate
+	opGroupRead
 )
 
 // classifyGeneratedRoute maps a generator route (its method + colon-param path)
@@ -275,8 +278,11 @@ const (
 func classifyGeneratedRoute(method, path string) generatedOp {
 	switch {
 	case strings.HasSuffix(path, "/:instance_slug"):
-		if method == http.MethodPatch {
+		switch method {
+		case http.MethodPatch:
 			return opGroupUpdate // #264 group settings: slug rename + display name
+		case http.MethodGet:
+			return opGroupRead // #269 instance descriptor: id + slug + display name
 		}
 		return opStub
 	case strings.HasSuffix(path, "/members/:user/roles/:role"):

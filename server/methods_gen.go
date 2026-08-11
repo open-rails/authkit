@@ -272,6 +272,17 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.GetUserMetadata(ctx, a.A0)
 		return r0, err
 	},
+	"GroupInstanceForSlug": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 string `json:"persona"`
+			A1 string `json:"instanceSlug"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.GroupInstanceForSlug(ctx, a.A0, a.A1)
+		return r0, err
+	},
 	"HardDeleteUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 []string `json:"userIDs"`

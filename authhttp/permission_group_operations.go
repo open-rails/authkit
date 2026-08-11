@@ -251,7 +251,10 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	}
 	data := make([]map[string]any, 0, len(groups))
 	for _, g := range groups {
-		data = append(data, map[string]any{"persona": g.Persona, "instance_slug": g.InstanceSlug, "role": g.Role})
+		// #269: the caller's OWN memberships carry the group uuid — they have
+		// already passed the only authorization that could gate it, and this is
+		// the discovery path a client uses to learn what it belongs to.
+		data = append(data, map[string]any{"group_id": g.GroupID, "persona": g.Persona, "instance_slug": g.InstanceSlug, "role": g.Role})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
@@ -782,6 +785,29 @@ func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "persona": persona, "instance_slug": instanceSlug, "role": role})
+}
+
+// groupInstanceDescriptor is the #269 instance-identity read
+// (GET /<persona>/{instance_slug}), gated by <persona>:settings:read — the read
+// symmetric of the #264 PATCH. It answers with the instance's own uuid, which is
+// the JOIN KEY a host needs to carry the group into its own (or a sibling
+// service's) ledger; every route stays slug-addressed, so the id is knowable
+// here and an address nowhere. A tombstoned slug forwards, and the descriptor
+// reports the group's CURRENT live slug — so a caller holding an old reference
+// learns the new one in the same call.
+func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
+	inst, err := s.svc.GroupInstanceForSlug(r.Context(), persona, instanceSlug)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"group_id":      inst.ID,
+		"persona":       inst.Persona,
+		"instance_slug": inst.InstanceSlug,
+		"display_name":  inst.DisplayName,
+	})
 }
 
 // groupUpdate is the #264 group-settings surface (PATCH /<persona>/{instance_slug}):

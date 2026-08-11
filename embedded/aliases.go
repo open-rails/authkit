@@ -176,6 +176,7 @@ var ValidatePhone = authcore.ValidatePhone
 var ValidateUsername = authcore.ValidateUsername
 var ValidationErrorCode = authcore.ValidationErrorCode
 var PermSettingsManage = authcore.PermSettingsManage
+var PermSettingsRead = authcore.PermSettingsRead
 var WithApplicationAdmission = authcore.WithApplicationAdmission
 var WithInstanceAdmission = authcore.WithInstanceAdmission
 var WithApplicationsHTTPClient = authcore.WithApplicationsHTTPClient

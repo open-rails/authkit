@@ -340,10 +340,26 @@ type GroupMember struct {
 }
 
 type SubjectGroupMembership struct {
+	// GroupID is the instance's internal uuid (#269). It is a JOIN KEY, not an
+	// address — every route stays slug-addressed — and it is reported only for
+	// the caller's OWN memberships.
+	GroupID      string
 	Persona      string
 	InstanceSlug string
 	DisplayName  string
 	Role         string
+}
+
+// GroupInstance is one persona instance's own identity (#269): the addressing
+// pair a caller already holds, plus the uuid a HOST needs to own rows about the
+// group in its own (or a sibling service's) ledger — openrails' `customer_id`
+// being the case that forced it. Group ids never appear in a PATH; this type is
+// how a caller who already has authority over an instance LEARNS its id.
+type GroupInstance struct {
+	ID           string
+	Persona      string
+	InstanceSlug string
+	DisplayName  string
 }
 
 type RemoteApplicationAccessParams struct {

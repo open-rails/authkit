@@ -342,6 +342,10 @@ func (s *Client) ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlu
 	return s.impl.ResolveGroupIDForSlug(ctx, persona, instanceSlug)
 }
 
+func (s *Client) GroupInstanceForSlug(ctx context.Context, persona, instanceSlug string) (authkit.GroupInstance, error) {
+	return s.impl.GroupInstanceForSlug(ctx, persona, instanceSlug)
+}
+
 func (s *Client) ResolveRemoteAppAttributeDef(ctx context.Context, appID, key string, version int32) (*authkit.RemoteAppAttributeDef, error) {
 	return s.impl.ResolveRemoteAppAttributeDef(ctx, appID, key, version)
 }

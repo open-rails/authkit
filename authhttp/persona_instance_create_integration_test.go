@@ -84,6 +84,7 @@ func newInstanceTestUser(t *testing.T, srv *Service, prefix string) (id, token s
 
 type instanceCreateResponse struct {
 	OK           bool   `json:"ok"`
+	GroupID      string `json:"group_id"`
 	Persona      string `json:"persona"`
 	InstanceSlug string `json:"instance_slug"`
 	Created      bool   `json:"created"`
@@ -117,6 +118,12 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &res))
 	require.True(t, res.Created)
 	require.Equal(t, "acme", res.InstanceSlug)
+	// #269: the instance's uuid rides the create response — it is the join key
+	// a host carries into its own ledger, and creation is where it learns the
+	// instance exists.
+	acmeID, err := client.ResolveGroupIDForSlug(ctx, "org", "acme")
+	require.NoError(t, err)
+	require.Equal(t, acmeID, res.GroupID)
 	can, err := client.Can(ctx, owner, embedded.SubjectKindUser, "org", "acme", "org:members:manage")
 	require.NoError(t, err)
 	require.True(t, can, "creator must hold the owner role in the created instance")
@@ -127,6 +134,9 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 	res = instanceCreateResponse{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &res))
 	require.False(t, res.Created)
+	// #269: the idempotent re-run is the bootstrap path — it reports the SAME
+	// id, not nothing.
+	require.Equal(t, acmeID, res.GroupID)
 
 	// Member re-run: a NON-owner member also gets the idempotent return.
 	member, memberToken := newInstanceTestUser(t, srv, "orgmember")
@@ -136,6 +146,7 @@ func TestInstanceCreate_CreateReservedPatternAndIdempotency(t *testing.T) {
 	res = instanceCreateResponse{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &res))
 	require.False(t, res.Created)
+	require.Equal(t, acmeID, res.GroupID)
 
 	// A stranger gets the conflict.
 	_, strangerToken := newInstanceTestUser(t, srv, "orgstranger")
@@ -312,4 +323,100 @@ func TestRemoteApplicationRoleRoute(t *testing.T) {
 	// the generated-route gate).
 	w = serveAuthJSON(srv, http.MethodPut, rolePath("approles", app.Slug, "member"), ``, otherToken)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+}
+
+// instanceDescriptorResponse is the #269 GET /<persona>/{instance_slug} body.
+type instanceDescriptorResponse struct {
+	OK           bool   `json:"ok"`
+	GroupID      string `json:"group_id"`
+	Persona      string `json:"persona"`
+	InstanceSlug string `json:"instance_slug"`
+	DisplayName  string `json:"display_name"`
+}
+
+// TestInstanceDescriptor_GroupIDIsKnowableAndGated is the #269 e2e: a host that
+// owns the money for an instance must be able to ADDRESS it in its own ledger,
+// so the instance's uuid is on the create response, stays recoverable through
+// the descriptor read, follows a rename, rides the caller's own /me/groups, and
+// is refused to a caller with no settings:read.
+func TestInstanceDescriptor_GroupIDIsKnowableAndGated(t *testing.T) {
+	srv, client := newInstanceCreateServer(t, WithoutRateLimiter())
+	ctx := context.Background()
+	_, ownerToken := newInstanceTestUser(t, srv, "orgdesc")
+
+	w := postOrg(srv, ownerToken, `{"slug":"ledger-co","display_name":"Ledger Co"}`)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	var created instanceCreateResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.NotEmpty(t, created.GroupID)
+
+	getDescriptor := func(token, path string) (*httptest.ResponseRecorder, instanceDescriptorResponse) {
+		rec := serveAuthJSON(srv, http.MethodGet, path, ``, token)
+		var out instanceDescriptorResponse
+		if rec.Code == http.StatusOK {
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		}
+		return rec, out
+	}
+
+	// The descriptor round-trips the id the create reported, and carries the
+	// display name so a host needs one call, not two.
+	rec, desc := getDescriptor(ownerToken, "/org/ledger-co")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, created.GroupID, desc.GroupID)
+	require.Equal(t, "org", desc.Persona)
+	require.Equal(t, "ledger-co", desc.InstanceSlug)
+	require.Equal(t, "Ledger Co", desc.DisplayName)
+
+	// A renamed slug FORWARDS (#264 tombstones): a caller holding a published
+	// reference gets the same id AND learns the current slug in one call.
+	w = serveAuthJSON(srv, http.MethodPatch, "/org/ledger-co", `{"slug":"ledger-inc"}`, ownerToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	rec, desc = getDescriptor(ownerToken, "/org/ledger-co")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, created.GroupID, desc.GroupID)
+	require.Equal(t, "ledger-inc", desc.InstanceSlug, "the descriptor reports the CURRENT slug")
+
+	// Gated on <persona>:settings:read: a plain member is refused the
+	// descriptor...
+	member, memberToken := newInstanceTestUser(t, srv, "orgdescmember")
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", "ledger-inc", member, embedded.SubjectKindUser, "member"))
+	rec, _ = getDescriptor(memberToken, "/org/ledger-inc")
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+
+	// ...but /me/groups still tells a subject the id of a group it belongs to:
+	// its own membership already passed the only authorization that could gate
+	// it, and this is the discovery path a client uses.
+	w = serveAuthJSON(srv, http.MethodGet, "/me/groups", ``, memberToken)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var mine struct {
+		Data []struct {
+			GroupID      string `json:"group_id"`
+			Persona      string `json:"persona"`
+			InstanceSlug string `json:"instance_slug"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &mine))
+	var found bool
+	for _, g := range mine.Data {
+		if g.Persona == "org" && g.InstanceSlug == "ledger-inc" {
+			require.Equal(t, created.GroupID, g.GroupID)
+			found = true
+		}
+	}
+	require.True(t, found, "the member's own group must appear on /me/groups with its id")
+
+	// An unknown slug is indistinguishable from no authority (403, not 404) —
+	// the generated gate answers before the read, so the surface cannot be used
+	// to enumerate which slugs exist.
+	rec, _ = getDescriptor(ownerToken, "/org/no-such-org")
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
+// TestInstanceDescriptor_RouteIsGeneratedPerPersona proves the descriptor is
+// part of the generated surface (one per non-root persona), not a fixed route.
+func TestInstanceDescriptor_RouteIsGeneratedPerPersona(t *testing.T) {
+	svc := newTestServiceWithRBAC(t, instanceCreateTestConfig().RBAC...)
+	requireRoute(t, svc.APIRoutes(RoutePermissionGroups), http.MethodGet, "/org/{instance_slug}")
+	requireNoRoute(t, svc.APIRoutes(RoutePermissionGroups), http.MethodGet, "/root/{instance_slug}")
 }

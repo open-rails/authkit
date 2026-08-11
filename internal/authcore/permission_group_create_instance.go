@@ -29,6 +29,11 @@ var (
 // CreateInstanceResult reports a generated-creation outcome. Created is false
 // when the slug already existed and the caller is a member (idempotent return).
 type CreateInstanceResult struct {
+	// GroupID is the new (or idempotently returned) instance's uuid (#269). It
+	// is populated on BOTH outcomes: the idempotent re-run is the bootstrap
+	// path, so an id only on Created=true would leave the re-runner with
+	// nothing. Empty only on error.
+	GroupID      string
 	InstanceSlug string
 	Created      bool
 }
@@ -89,26 +94,30 @@ func (s *Service) CreateInstanceForSubject(ctx context.Context, persona, instanc
 		return out, err
 	}
 
-	_, err := s.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{
+	gid, err := s.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{
 		Persona:        persona,
 		InstanceSlug:   slug,
 		DisplayName:    strings.TrimSpace(displayName),
 		OwnerSubjectID: ownerUserID,
 	})
 	if err == nil {
+		out.GroupID = gid
 		out.Created = true
 		return out, nil
 	}
 	// Create-or-return-if-member idempotency: a live-slug collision (unique
 	// violation) or a tombstoned slug both surface as "taken" — but if the
 	// caller is already a member of the LIVE group holding the slug, the
-	// creation is a re-run and succeeds idempotently.
+	// creation is a re-run and succeeds idempotently. The re-run reports the
+	// EXISTING group's id (#269) — it is the bootstrap path, and a caller that
+	// learns nothing from a re-run has to be able to create to function.
 	if isUniqueViolation(err, "permission_groups_persona_instance_uidx") || errors.Is(err, ErrGroupSlugTaken) {
-		member, merr := s.subjectMemberOfGroup(ctx, ownerUserID, persona, slug)
+		existing, member, merr := s.subjectMemberOfGroup(ctx, ownerUserID, persona, slug)
 		if merr != nil {
 			return out, merr
 		}
 		if member {
+			out.GroupID = existing
 			return out, nil // Created=false
 		}
 		return out, ErrGroupSlugTaken
@@ -138,18 +147,18 @@ func (s *Service) userHoldsRootRole(ctx context.Context, userID, role string) bo
 }
 
 // subjectMemberOfGroup reports whether the user holds a DIRECT role in the live
-// group addressed by (persona, slug).
-func (s *Service) subjectMemberOfGroup(ctx context.Context, userID, persona, slug string) (bool, error) {
+// group addressed by (persona, slug), and that group's id when they do.
+func (s *Service) subjectMemberOfGroup(ctx context.Context, userID, persona, slug string) (string, bool, error) {
 	groups, err := s.ListSubjectGroups(ctx, userID, SubjectKindUser)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	for _, g := range groups {
 		if g.Persona == persona && g.InstanceSlug == slug {
-			return true, nil
+			return g.GroupID, true, nil
 		}
 	}
-	return false, nil
+	return "", false, nil
 }
 
 // AssignRemoteApplicationRoleAs is the actor-aware remote-application role
