@@ -238,6 +238,8 @@ type ProfilesUser struct {
 	LastLogin *time.Time
 	// User communication/auth language, e.g. en, es, de, ko, zh
 	PreferredLanguage *string
+	// Host-supplied avatar URL/key string; blob storage is host-owned
+	AvatarUrl *string
 }
 
 type ProfilesUserPasskey struct {

@@ -81,7 +81,25 @@ func (s *Service) PermissionGroupRoutes() []RouteSpec {
 // from the declared schema. Split out from PermissionGroupRoutes so the route
 // TABLE is unit-testable against a schema profile with no middleware/DB.
 func (s *Service) permissionGroupRouteSpecs() []RouteSpec {
-	return generatedRouteSpecs(s, s.svc.PermissionGroupSchema().GeneratedRoutes())
+	schema := s.svc.PermissionGroupSchema()
+	specs := generatedRouteSpecs(s, schema.GeneratedRoutes())
+	// #263: the generated CREATION route — POST /<persona> — for personas that
+	// opt in. Not instance-addressed (no instance exists yet), so it is gated
+	// by authentication + velocity limits + the reserved-slug/admission policy
+	// in the core create path rather than an instance permission.
+	for _, persona := range schema.Personas() {
+		if !schema.CreationEnabled(persona) {
+			continue
+		}
+		persona := persona
+		specs = append(specs, RouteSpec{
+			Method:  http.MethodPost,
+			Path:    "/" + persona,
+			Group:   RoutePermissionGroups,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.groupInstanceCreate(w, r, persona) }),
+		})
+	}
+	return specs
 }
 
 func (s *Service) hasUserVisibleMemberships() bool {
@@ -208,6 +226,8 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			s.groupRemoteAppRegister(w, r, gr.Persona, instanceSlug)
 		case opRemoteAppDelete:
 			s.groupRemoteAppDelete(w, r, gr.Persona, instanceSlug, pathParam(r, "app"))
+		case opRemoteAppRoleAssign:
+			s.groupRemoteAppRole(w, r, gr.Persona, instanceSlug, pathParam(r, "app"), pathParam(r, "role"))
 		case opInviteLinkList:
 			s.groupInviteLinkList(w, r, gr.Persona, instanceSlug)
 		case opInviteLinkMint:
@@ -242,6 +262,7 @@ const (
 	opRemoteAppsList
 	opRemoteAppRegister
 	opRemoteAppDelete
+	opRemoteAppRoleAssign
 	opInviteLinkList
 	opInviteLinkMint
 	opInviteLinkRevoke
@@ -261,6 +282,13 @@ func classifyGeneratedRoute(method, path string) generatedOp {
 	case strings.HasSuffix(path, "/members/:user/roles/:role"):
 		if method == http.MethodPut {
 			return opMemberRoleAssign
+		}
+		return opStub
+	// #263: must precede the generic "/roles/:role" (custom-role delete) case,
+	// which would otherwise swallow this longer suffix.
+	case strings.HasSuffix(path, "/remote-applications/:app/roles/:role"):
+		if method == http.MethodPut {
+			return opRemoteAppRoleAssign
 		}
 		return opStub
 	case strings.HasSuffix(path, "/members/:user"):

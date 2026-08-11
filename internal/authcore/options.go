@@ -50,6 +50,16 @@ func WithApplicationAdmission(pred func(ctx context.Context, domain string) erro
 	return func(s *Service) { s.appAdmission = pred }
 }
 
+// WithInstanceAdmission injects the host admission predicate consulted before
+// any generated persona-instance creation (#263): MayCreateInstance(ctx,
+// persona, subject) — return a non-nil error to refuse (surfaced as
+// group_creation_refused). Mirrors WithApplicationAdmission's split: this is
+// where host-side COST gates plug in; authkit's own anti-squat gates (per-IP +
+// per-user creation velocity limits, reserved-slug escalation) apply regardless.
+func WithInstanceAdmission(pred func(ctx context.Context, persona, subject string) error) Option {
+	return func(s *Service) { s.instanceAdmission = pred }
+}
+
 // WithEntitlements sets the entitlements provider.
 func WithEntitlements(p EntitlementsProvider) Option { return func(s *Service) { s.entitlements = p } }
 

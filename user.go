@@ -27,6 +27,10 @@ type User struct {
 	// lookups leave it nil. Nullable — NULL/unset when the user has no stored
 	// language preference.
 	PreferredLanguage *string
+	// AvatarURL is the host-supplied avatar URL/key string (#262). Blob storage
+	// stays host-owned; authkit stores only this string. Populated by the by-ID
+	// lookup (UserByID) only, like PreferredLanguage.
+	AvatarURL *string
 }
 
 // UserRef is a slim user projection (id + display fields) returned by batch

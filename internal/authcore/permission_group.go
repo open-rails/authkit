@@ -134,6 +134,9 @@ type RoleDef struct {
 
 type PersonaCapabilities = authkit.PersonaCapabilities
 
+// InstanceCreationDef is the per-persona generated-creation config (#263).
+type InstanceCreationDef = authkit.InstanceCreationDef
+
 // PersonaDef declares one permission-group persona, which is also the first
 // permission segment. `Name == RootPersona` is the parentless singleton.
 type PersonaDef struct {
@@ -148,6 +151,10 @@ type PersonaDef struct {
 	// Default false (instant direct-add allowed; what root uses). This is a JOIN-time
 	// policy only — it does NOT affect changing or removing an existing member's role.
 	RequireConsent bool
+	// Creation opts the persona into the generated instance-creation route
+	// (#263): POST /<persona>, owner seeded from the authenticated user. Only
+	// root-parented personas may enable it (validated at schema build).
+	Creation InstanceCreationDef
 }
 
 // GroupSchema is the validated, immutable set of declared group personas — the
@@ -156,6 +163,9 @@ type PersonaDef struct {
 type GroupSchema struct {
 	types map[string]PersonaDef // effective defs (owner injected, roles deduped)
 	order []string              // persona names, sorted
+	// creationPatterns holds each creation-enabled persona's compiled, anchored
+	// SlugPattern (#263); personas with no extra pattern are absent.
+	creationPatterns map[string]*regexp.Regexp
 }
 
 // NewGroupSchema validates an app's declared personas and returns the schema, or
@@ -190,11 +200,56 @@ func NewGroupSchema(types ...PersonaDef) (*GroupSchema, error) {
 		return nil, err
 	}
 
+	if err := s.validateCreation(); err != nil {
+		return nil, err
+	}
+
 	for name := range s.types {
 		s.order = append(s.order, name)
 	}
 	sort.Strings(s.order)
 	return s, nil
+}
+
+// validateCreation checks each persona's InstanceCreationDef (#263): creation
+// is root-parented-persona-only (a nested instance would need parent addressing
+// and parent-scoped authorization this route deliberately does not carry),
+// SlugPattern must compile (anchored here), reserved slugs must be valid
+// instance slugs, and a named escalation role must exist in the ROOT catalog.
+func (s *GroupSchema) validateCreation() error {
+	for name, t := range s.types {
+		c := t.Creation
+		if !c.Enabled {
+			continue
+		}
+		if name == RootPersona {
+			return fmt.Errorf("group persona %q: the root singleton cannot enable instance creation", name)
+		}
+		if strings.TrimSpace(t.Parent) != RootPersona {
+			return fmt.Errorf("group persona %q: instance creation requires parent %q, got %q", name, RootPersona, t.Parent)
+		}
+		if p := strings.TrimSpace(c.SlugPattern); p != "" {
+			re, err := regexp.Compile("^(?:" + p + ")$")
+			if err != nil {
+				return fmt.Errorf("group persona %q: creation slug pattern %q: %w", name, p, err)
+			}
+			if s.creationPatterns == nil {
+				s.creationPatterns = map[string]*regexp.Regexp{}
+			}
+			s.creationPatterns[name] = re
+		}
+		for _, slug := range c.ReservedSlugs {
+			if err := validateGroupInstanceSlug(name, strings.TrimSpace(slug)); err != nil {
+				return fmt.Errorf("group persona %q: reserved slug: %w", name, err)
+			}
+		}
+		if role := strings.TrimSpace(c.ReservedEscalationRole); role != "" {
+			if _, ok := s.Role(RootPersona, role); !ok {
+				return fmt.Errorf("group persona %q: reserved-slug escalation role %q is not a root catalog role", name, role)
+			}
+		}
+	}
+	return nil
 }
 
 // normalizePersona validates a declared persona and injects the seeded owner
@@ -353,6 +408,29 @@ func (s *GroupSchema) Persona(name string) (PersonaDef, bool) {
 func (s *GroupSchema) RequireConsent(persona string) bool {
 	t, ok := s.types[persona]
 	return ok && t.RequireConsent
+}
+
+// CreationDef returns a persona's generated-creation config (#263); ok is false
+// for unknown personas.
+func (s *GroupSchema) CreationDef(persona string) (InstanceCreationDef, bool) {
+	t, ok := s.types[persona]
+	return t.Creation, ok
+}
+
+// CreationEnabled reports whether the persona has the generated creation route.
+func (s *GroupSchema) CreationEnabled(persona string) bool {
+	t, ok := s.types[persona]
+	return ok && t.Creation.Enabled
+}
+
+// creationSlugAllowed applies the persona's extra SlugPattern (#263); the
+// built-in instance-slug rule is enforced separately by the create path.
+func (s *GroupSchema) creationSlugAllowed(persona, slug string) bool {
+	re, ok := s.creationPatterns[persona]
+	if !ok {
+		return true
+	}
+	return re.MatchString(slug)
 }
 
 // Personas returns the declared persona names, sorted.

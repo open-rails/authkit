@@ -152,6 +152,10 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/me/group-invites/{id}/decline", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupInviteDecline))},
 		// #193 self-service leave: a user removes themself from a group with their own auth.
 		{Method: http.MethodDelete, Path: "/me/groups/{persona}/{instance_slug}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleMeGroupLeave))},
+		// #262 user-metadata surface (host-namespaced keys; authkit-internal
+		// flags are filtered from reads and rejected on writes).
+		{Method: http.MethodGet, Path: "/user/metadata", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserMetadataGET))},
+		{Method: http.MethodPatch, Path: "/user/metadata", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserMetadataPATCH))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
 		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},

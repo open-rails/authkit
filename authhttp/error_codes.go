@@ -255,8 +255,17 @@ const (
 	// ErrForbidden is the forbidden AuthKit HTTP wire error code.
 	ErrForbidden ErrorCode = "forbidden"
 
+	// ErrGroupCreationRefused is the group_creation_refused AuthKit HTTP wire error code.
+	ErrGroupCreationRefused ErrorCode = "group_creation_refused"
+
 	// ErrGroupSlugApplicationManaged is the group_slug_application_managed AuthKit HTTP wire error code.
 	ErrGroupSlugApplicationManaged ErrorCode = "group_slug_application_managed"
+
+	// ErrGroupSlugInvalid is the group_slug_invalid AuthKit HTTP wire error code.
+	ErrGroupSlugInvalid ErrorCode = "group_slug_invalid"
+
+	// ErrGroupSlugReserved is the group_slug_reserved AuthKit HTTP wire error code.
+	ErrGroupSlugReserved ErrorCode = "group_slug_reserved"
 
 	// ErrGroupSlugTaken is the group_slug_taken AuthKit HTTP wire error code.
 	ErrGroupSlugTaken ErrorCode = "group_slug_taken"
@@ -383,6 +392,9 @@ const (
 
 	// ErrMemberRolesLookupFailed is the member_roles_lookup_failed AuthKit HTTP wire error code.
 	ErrMemberRolesLookupFailed ErrorCode = "member_roles_lookup_failed"
+
+	// ErrMetadataKeyReserved is the metadata_key_reserved AuthKit HTTP wire error code.
+	ErrMetadataKeyReserved ErrorCode = "metadata_key_reserved"
 
 	// ErrMissingFields is the missing_fields AuthKit HTTP wire error code.
 	ErrMissingFields ErrorCode = "missing_fields"

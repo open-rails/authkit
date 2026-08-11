@@ -25,6 +25,7 @@ type userMeResponse struct {
 	Roles                             *[]string                       `json:"roles,omitempty"`
 	Entitlements                      []string                        `json:"entitlements"`
 	Biography                         *string                         `json:"biography,omitempty"`
+	AvatarURL                         *string                         `json:"avatar_url,omitempty"`
 	UserAliases                       []string                        `json:"user_aliases,omitempty"`
 	PreferredLanguage                 *string                         `json:"preferred_language,omitempty"`
 	CreatedAt                         *string                         `json:"created_at,omitempty"`
@@ -36,6 +37,10 @@ type userMeResponse struct {
 	MFAEnabled                        bool                            `json:"mfa_enabled"`
 	MFASatisfied                      bool                            `json:"mfa_satisfied"`
 	MFAAllowedMethods                 []string                        `json:"mfa_allowed_methods,omitempty"`
+	// Availability surfaces cooldown-gated action availability (#262) — e.g.
+	// update_username — so clients can ask BEFORE trying instead of probing the
+	// PATCH 429 path.
+	Availability []ActionAvailability `json:"availability,omitempty"`
 }
 
 func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +160,14 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		meEmail = *adminUser.Email
 	}
 
+	// #262: cooldown-gated action availability, so clients can ask before
+	// trying. Same computation the PATCH /user/username 429 path uses; a
+	// lookup failure degrades to omitting the entry rather than failing /me.
+	var availability []ActionAvailability
+	if renameSeconds, renameErr := s.svc.TimeUntilUsernameRenameAvailable(r.Context(), adminUser.ID, time.Now()); renameErr == nil {
+		availability = append(availability, cooldownAvailability(ActionUpdateUsername, renameSeconds, 72*time.Hour, time.Now()))
+	}
+
 	resp := userMeResponse{
 		ID:                                adminUser.ID,
 		Email:                             adminUser.Email,
@@ -171,6 +184,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		Roles:                             rolesPtr,
 		Entitlements:                      adminUser.Entitlements,
 		Biography:                         adminUser.Biography,
+		AvatarURL:                         adminUser.AvatarURL,
 		UserAliases:                       userAliases,
 		PreferredLanguage:                 preferredLanguage,
 		CreatedAt:                         createdAt,
@@ -182,6 +196,7 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		MFAEnabled:                        mfa.Enabled,
 		MFASatisfied:                      mfa.Satisfied,
 		MFAAllowedMethods:                 mfa.AllowedMethods,
+		Availability:                      availability,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

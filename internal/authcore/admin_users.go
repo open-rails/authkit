@@ -269,7 +269,7 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 		EmailVerified: u.EmailVerified, PhoneVerified: u.PhoneVerified,
 		BannedAt: u.BannedAt, BannedUntil: u.BannedUntil, BanReason: u.BanReason, BannedBy: u.BannedBy, DeletedAt: u.DeletedAt,
 		Biography: u.Biography, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLogin: u.LastLogin,
-		PreferredLanguage: u.PreferredLanguage,
+		PreferredLanguage: u.PreferredLanguage, AvatarURL: u.AvatarURL,
 	}
 	a.Roles, a.RemovedRoles = s.rootRoleSlugsByUser(ctx, id)
 	a.Entitlements = s.ListEntitlements(ctx, id)
