@@ -217,6 +217,20 @@ func TestRefreshCookie_SourceResolutionAndGates(t *testing.T) {
 	rotated := refreshCookieOf(t, ok)
 	require.NotNil(t, rotated)
 
+	// An Origin matching the host the request was ADDRESSED to is same-origin
+	// even when it is not the configured Frontend.BaseURL — a deployment reached
+	// by an alias, or by 127.0.0.1 while BaseURL says localhost. Caught against
+	// a live server: gating on the configured host alone refused every real
+	// refresh on the dev stack.
+	viaHost := postCookieJSON(h, "/api/v1/token", `{"grant_type":"refresh_token"}`, func(r *http.Request) {
+		r.Host = "127.0.0.1:8818"
+		r.Header.Set("Origin", "http://127.0.0.1:8818")
+		r.AddCookie(rotated)
+	})
+	require.Equal(t, http.StatusOK, viaHost.Code, viaHost.Body.String())
+	rotated = refreshCookieOf(t, viaHost)
+	require.NotNil(t, rotated)
+
 	// Body wins over cookie: a client mid-migration still holds the token the
 	// server last rotated, and preferring the cookie would spend a credential
 	// it does not know was spent. Here the body carries the CURRENT token and

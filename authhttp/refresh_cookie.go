@@ -149,10 +149,19 @@ func (s *Service) refreshTokenFromRequest(r *http.Request, body string) (string,
 // honored. SameSite=Lax already blocks the cross-site POST; this is the belt
 // for clients and proxies that strip it.
 //
-// Compared by HOST, not by full origin: a TLS-terminating proxy leaves r.TLS
-// nil, so a scheme comparison would reject every real production request while
+// The test is Origin's HOST against the host the request was addressed to, or
+// the configured Frontend.BaseURL's. Both are needed and neither alone is
+// enough: r.Host covers a deployment reached by an alias or by 127.0.0.1 when
+// BaseURL says localhost, and the configured host covers a proxy that rewrites
+// Host. HOST, not full origin, because a TLS-terminating proxy leaves r.TLS nil
+// and a scheme comparison would then reject every real production request while
 // the browser correctly reports https. X-Forwarded-* is never consulted — it is
-// attacker-settable, and a cross-site request could declare itself same-origin.
+// attacker-settable and would let a cross-site request declare itself
+// same-origin.
+//
+// A browser will not let a cross-site page forge Origin, and an off-browser
+// caller that forges both does not hold the victim's cookie, so this is a sound
+// same-origin test rather than a guess.
 //
 // Absent Origin is allowed: same-origin top-level navigations and non-browser
 // callers legitimately omit it, and refusing them breaks flows this change
@@ -166,11 +175,13 @@ func (s *Service) cookieOriginAllowed(r *http.Request) bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	want := r.Host
-	if configured, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL); ok {
-		if cu, err := url.Parse(configured); err == nil && cu.Host != "" {
-			want = cu.Host
-		}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
 	}
-	return strings.EqualFold(u.Host, want)
+	configured, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
+	if !ok {
+		return false
+	}
+	cu, err := url.Parse(configured)
+	return err == nil && cu.Host != "" && strings.EqualFold(u.Host, cu.Host)
 }
