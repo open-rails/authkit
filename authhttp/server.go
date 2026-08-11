@@ -179,6 +179,30 @@ func (s *Service) validate(cfg embedded.Config) error {
 			return fmt.Errorf("authkit: Environment %q is production-like and requires a Redis-compatible ephemeral store — pass authhttp.WithRedis(...); a memory store is dev-only", cfg.Environment)
 		}
 	}
+	// #260: the published-document surface is never public and never dead
+	// config. Providers with no authorized readers would mount a route that
+	// 401s everyone; reader slugs with no providers declare a surface that
+	// does not exist. Both refuse at construction.
+	if len(s.documentProviders) > 0 && len(cfg.Documents.ReaderSlugs) == 0 {
+		return fmt.Errorf("authkit: WithDocuments providers are wired but Config.Documents.ReaderSlugs is empty — publication is never public; declare which remote-application slugs may read")
+	}
+	if len(s.documentProviders) == 0 && len(cfg.Documents.ReaderSlugs) > 0 {
+		return fmt.Errorf("authkit: Config.Documents.ReaderSlugs is set but no document providers are wired — pass authhttp.WithDocuments(...) or drop the dead config")
+	}
+	seenDocumentTypes := make(map[string]bool, len(s.documentProviders))
+	for _, p := range s.documentProviders {
+		if p == nil {
+			return fmt.Errorf("authkit: WithDocuments received a nil provider")
+		}
+		ref := p.Reference()
+		if err := ref.Validate(); err != nil {
+			return fmt.Errorf("authkit: WithDocuments provider has an invalid reference %+v: %w", ref, err)
+		}
+		if seenDocumentTypes[ref.Type] {
+			return fmt.Errorf("authkit: WithDocuments received two providers for document type %q", ref.Type)
+		}
+		seenDocumentTypes[ref.Type] = true
+	}
 	return nil
 }
 

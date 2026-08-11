@@ -24,6 +24,15 @@ const (
 	// (register / rotate / repoint). Mounted only when the host enables
 	// Config.Applications.SelfRegistration.
 	RouteApplications RouteGroup = "applications"
+	// RouteDelegated is the #261 delegated-token mint surface
+	// (POST /delegated/token). Mounted only when Config.Delegated declares an
+	// audience allowlist.
+	RouteDelegated RouteGroup = "delegated"
+	// RouteDocuments is the #260 published signed-document surface
+	// (GET|HEAD /.well-known/authkit/documents/{digest} — root-anchored like
+	// JWKS, not under the API prefix). Mounted only when document providers
+	// are wired via WithDocuments.
+	RouteDocuments RouteGroup = "documents"
 )
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
@@ -206,6 +215,11 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		// Tier changes are an admin act; mounted regardless of self-registration
 		// (manual registrations carry tiers too).
 		{Method: http.MethodPost, Path: "/admin/applications/{slug}/tier", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootCredentialsManage, s.handleAdminApplicationTierPOST)},
+
+		// #261 delegated-token mint: authenticated users exchange their session
+		// for a short-lived delegated token aimed at the configured audiences.
+		// Mounted only when Config.Delegated is enabled (see filter below).
+		{Method: http.MethodPost, Path: "/delegated/token", Group: RouteDelegated, Handler: required(http.HandlerFunc(s.handleDelegatedTokenPOST))},
 	}
 
 	// Passkey routes are mounted only when passkeys are configured. Without a
@@ -221,9 +235,13 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	solanaEnabled := strings.TrimSpace(cfg.SolanaNetwork) != ""
 	oidcEnabled := len(s.authProviders()) > 0
 	applicationsEnabled := cfg.Applications.SelfRegistration
+	delegatedEnabled := len(cfg.Delegated.Audiences) > 0
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {
+			continue
+		}
+		if route.Group == RouteDelegated && !delegatedEnabled {
 			continue
 		}
 		if isPasskeyPath(route.Path) && !passkeysEnabled {

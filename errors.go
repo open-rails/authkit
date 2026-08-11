@@ -224,6 +224,7 @@ var sentinelHTTPStatus = map[error]int{
 	documents.ErrAudienceMismatch:     http.StatusBadRequest,
 	documents.ErrTypeMismatch:         http.StatusBadRequest,
 	documents.ErrUntrustedIssuer:      http.StatusForbidden,
+	documents.ErrDigestCollision:      http.StatusConflict,
 	documents.ErrUnauthorized:         http.StatusUnauthorized,
 	documents.ErrNotFound:             http.StatusNotFound,
 	documents.ErrFetch:                http.StatusBadGateway,
@@ -310,6 +311,8 @@ var errorSentinels = []error{
 	documents.ErrInvalidSignature, documents.ErrDigestMismatch, documents.ErrIssuerMismatch,
 	documents.ErrAudienceMismatch, documents.ErrTypeMismatch, documents.ErrUntrustedIssuer,
 	documents.ErrUnauthorized, documents.ErrNotFound, documents.ErrFetch, documents.ErrRedirect,
+	// #260: authkit-owned signed-document store.
+	documents.ErrDigestCollision,
 }
 
 // errorsByCode is built once from every sentinel in errorSentinels.

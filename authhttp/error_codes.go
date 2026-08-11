@@ -144,6 +144,18 @@ const (
 	// ErrDeleteRoleFailed is the delete_role_failed AuthKit HTTP wire error code.
 	ErrDeleteRoleFailed ErrorCode = "delete_role_failed"
 
+	// ErrDelegatedAttributesUnavailable is the delegated_attributes_unavailable AuthKit HTTP wire error code.
+	ErrDelegatedAttributesUnavailable ErrorCode = "delegated_attributes_unavailable"
+
+	// ErrDelegatedDocumentUnavailable is the delegated_document_unavailable AuthKit HTTP wire error code.
+	ErrDelegatedDocumentUnavailable ErrorCode = "delegated_document_unavailable"
+
+	// ErrDelegatedMintFailed is the delegated_mint_failed AuthKit HTTP wire error code.
+	ErrDelegatedMintFailed ErrorCode = "delegated_mint_failed"
+
+	// ErrDocumentDigestCollision is the document_digest_collision AuthKit HTTP wire error code.
+	ErrDocumentDigestCollision ErrorCode = "document_digest_collision"
+
 	// ErrDisableTwoFAFailed is the disable_2fa_failed AuthKit HTTP wire error code.
 	ErrDisableTwoFAFailed ErrorCode = "disable_2fa_failed"
 
@@ -278,6 +290,9 @@ const (
 
 	// ErrInvalidBaseURL is the invalid_base_url AuthKit HTTP wire error code.
 	ErrInvalidBaseURL ErrorCode = "invalid_base_url"
+
+	// ErrInvalidAudiences is the invalid_audiences AuthKit HTTP wire error code.
+	ErrInvalidAudiences ErrorCode = "invalid_audiences"
 
 	// ErrInvalidChallenge is the invalid_challenge AuthKit HTTP wire error code.
 	ErrInvalidChallenge ErrorCode = "invalid_challenge"

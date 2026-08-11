@@ -101,6 +101,11 @@ func normalizeConfig(cfg Config) (Config, error) {
 		return Config{}, err
 	}
 
+	if cfg.Delegated, err = normalizeDelegatedConfig(cfg.Delegated); err != nil {
+		return Config{}, err
+	}
+	cfg.Documents.ReaderSlugs = normalizeDedupStrings(cfg.Documents.ReaderSlugs)
+
 	cfg.TwoFactor.Mode = normalizeTwoFactorMode(cfg.TwoFactor.Mode)
 	cfg.TwoFactor.Methods = append([]TwoFactorMethod(nil), cfg.TwoFactor.Methods...)
 

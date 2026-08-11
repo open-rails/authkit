@@ -38,6 +38,9 @@ const (
 	// IS a claim), keyed per-IP and per-user.
 	RLGroupCreate = "group_create"
 
+	// #261 delegated-token mint (authenticated; bounds signing cost per IP).
+	RLDelegatedTokenMint = "delegated_token_mint"
+
 	RLPasswordResetRequest = "auth_pwd_reset_request"
 	RLPasswordResetConfirm = "auth_pwd_reset_confirm"
 	RLEmailVerifyRequest   = "auth_email_verify_request"

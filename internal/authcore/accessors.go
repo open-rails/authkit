@@ -85,6 +85,12 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 	return s.entitlements
 }
 
+// DelegatedAttributesProvider returns the host-injected delegated-token
+// attribute provider (#261), nil when none was wired.
+func (s *Service) DelegatedAttributesProvider() DelegatedAttributeProvider {
+	return s.delegatedAttributes
+}
+
 // --- Refresh tokens are implemented via server-side sessions in service_sessions.go ---
 
 // Config returns THE configuration (#237): the host Config, normalized once at
