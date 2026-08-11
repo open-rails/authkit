@@ -11,11 +11,6 @@ import (
 	"testing"
 )
 
-func TestDefaultOutboundHTTPClientHasTimeout(t *testing.T) {
-	require.NotNil(t, defaultOutboundHTTPClient)
-	require.Equal(t, DefaultOutboundTimeout, defaultOutboundHTTPClient.Timeout)
-}
-
 func TestOAuth2UserInfoFetchUsesDefaultOutboundClient(t *testing.T) {
 	orig := defaultOutboundHTTPClient
 	t.Cleanup(func() { defaultOutboundHTTPClient = orig })

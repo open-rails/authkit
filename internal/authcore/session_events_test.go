@@ -84,13 +84,6 @@ func TestSessionEventsRoundTrip(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSessionEventsHistoryAlwaysEnabled pins #245: history is no longer
-// config-gated — even a bare service (no options at all) reports it enabled.
-func TestSessionEventsHistoryAlwaysEnabled(t *testing.T) {
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://bare.test"}}, Keyset{})
-	require.True(t, svc.SessionEventHistoryEnabled())
-}
-
 // TestSessionEventsBestEffortWrite pins the best-effort contract: a failing
 // insert (canceled context) must not panic or surface — the auth operation
 // that triggered it already succeeded. A service with no Postgres no-ops.

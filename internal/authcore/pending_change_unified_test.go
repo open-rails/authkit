@@ -45,6 +45,10 @@ func TestPendingChangeUnifiedRoundTrip(t *testing.T) {
 		if svc.pendingChangeUsernameTaken(ctx, "reguser") {
 			t.Fatal("username index should be cleared after delete")
 		}
+		// Deleting when nothing is pending must be a no-op, not an error.
+		if err := svc.DeletePendingRegistrationByEmail(ctx, "reg@example.com"); err != nil {
+			t.Fatalf("delete of absent pending registration must be a no-op: %v", err)
+		}
 	})
 
 	t.Run("register_phone", func(t *testing.T) {

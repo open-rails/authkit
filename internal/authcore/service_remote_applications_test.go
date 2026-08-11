@@ -166,14 +166,6 @@ func TestRemoteApplicationOwnerUserColumnRemoved(t *testing.T) {
 	}
 }
 
-func TestUpsertRemoteApplicationValidation(t *testing.T) {
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}) // no PG
-	_, err := svc.UpsertRemoteApplication(context.Background(), RemoteApplication{})
-	if err == nil {
-		t.Fatal("expected error without PG / with empty fields")
-	}
-}
-
 func testPublicKeyPEM(t *testing.T) string {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

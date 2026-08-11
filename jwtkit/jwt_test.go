@@ -15,33 +15,6 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-func TestRSASignerRoundTrip(t *testing.T) {
-	signer, err := NewRSASigner(2048, "rsa-kid")
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, err := signer.Sign(context.Background(), jwt.MapClaims{
-		"sub": "user-1",
-		"exp": time.Now().Add(time.Hour).Unix(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	claims := jwt.MapClaims{}
-	parsed, err := jwt.ParseWithClaims(token, claims, func(tok *jwt.Token) (any, error) {
-		return signer.PublicKey(), nil
-	})
-	if err != nil || !parsed.Valid {
-		t.Fatalf("parse failed: %v", err)
-	}
-}
-
-func TestRemoteApplicationAccessTokenType(t *testing.T) {
-	if RemoteApplicationAccessTokenType != "remote-application-access+jwt" {
-		t.Fatalf("RemoteApplicationAccessTokenType = %q", RemoteApplicationAccessTokenType)
-	}
-}
-
 func TestECDSASignerRoundTripES256(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

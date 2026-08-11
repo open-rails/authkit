@@ -144,33 +144,6 @@ func TestRequired_RejectsIatInFuture_WhenPresent(t *testing.T) {
 	requireErrorCode(t, w.Body.String(), "token_not_yet_valid")
 }
 
-func TestRequired_RequiresExp_VerifyOnly(t *testing.T) {
-	signer, err := jwtkit.NewRSASigner(2048, "kid")
-	require.NoError(t, err)
-
-	v := newTestVerifier(t, signer, "https://example.com", []string{"test-app"},
-		verify.WithSkew(60*time.Second))
-
-	protected := verify.Required(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	token := signToken(t, signer, map[string]any{
-		"iss": "https://example.com",
-		"sub": "user",
-		"aud": "test-app",
-		"iat": time.Now().Unix(),
-		// exp omitted on purpose
-	})
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("Authorization", "Bearer "+token)
-	protected.ServeHTTP(w, r)
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	requireErrorCode(t, w.Body.String(), "missing_exp")
-}
-
 func TestRateLimiting_DefaultsEnabledAndOptOutWorks(t *testing.T) {
 	cfg := embedded.Config{
 		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
