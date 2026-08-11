@@ -212,6 +212,16 @@ type ProfilesSessionEvent struct {
 	UserAgent  *string
 }
 
+// AuthKit-published immutable signed documents (ak#260), served at /.well-known/authkit/documents/{digest}. Digest = sha256 over signed_payload; compact_jws may be re-signed on key rotation, payload/type never change.
+type ProfilesSignedDocument struct {
+	Digest        string
+	DocumentType  string
+	CompactJws    string
+	SignedPayload []byte
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type ProfilesUser struct {
 	ID            string
 	Email         *string

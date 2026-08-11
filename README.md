@@ -587,6 +587,43 @@ Pre-launch consumers hard-cut from any application-specific
 `attributes.policy_digest` convention to `documents[type]`. AuthKit intentionally
 provides no compatibility alias and never interprets an application payload.
 
+### Owned document publishing and the delegated mint route (#260/#261)
+
+`documents.NewService` runs the whole publish lifecycle over an AuthKit-owned
+Postgres table (migration `0005_signed_documents`): sign → verify → persist →
+re-read → re-verify at boot, digest-stable re-signature on key rotation, and
+`ErrDigestCollision` on any payload/type change under an existing digest. The
+host supplies only its compiled payload:
+
+```go
+docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
+    Type: "example.entitlements/v1", Payload: payload,
+    Issuer: cfg.Token.Issuer, Audiences: cfg.Delegated.Audiences,
+    Signer: client, Postgres: pool, Schema: client.Schema(),
+})
+srv, err := authhttp.NewServer(client, authhttp.WithDocuments(docSvc))
+```
+
+`MountHandler` then serves `GET|HEAD /.well-known/authkit/documents/{digest}`
+(root-anchored, `RouteDocuments`). Reader authorization is config —
+`Config.Documents.ReaderSlugs` names the remote applications allowed to fetch;
+publication is never public and a providers/readers mismatch refuses at boot.
+
+`POST /delegated/token` (`RouteDelegated`, mounted when
+`Config.Delegated.Audiences` is set) mints delegated tokens for the
+authenticated user: audience-subset clamp, request TTL clamped into the
+boot-validated `TTLFloor <= TTLDefault <= TTLCeiling` triple (an inconsistent
+triple never boots), document digests stamped from every `WithDocuments`
+provider, and post-mint signing-KID reconciliation so a stamped document always
+verifies against the token's key. Host semantics enter through ONE seam:
+
+```go
+embedded.WithDelegatedAttributes(func(ctx context.Context, userID string) (map[string]any, map[string]string, error) {
+    tier := billing.ResolveEffectiveTier(ctx, userID) // host-owned meaning
+    return map[string]any{"entitlement": tier}, nil, nil
+})
+```
+
 ### Application self-registration (#264)
 
 Enable with `Config.Applications = ApplicationsConfig{SelfRegistration: true,

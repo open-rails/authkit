@@ -40,6 +40,10 @@ type Service struct {
 	engineOpts        []embedded.Option
 	engineOptsAllowed bool
 	langCfg           *LanguageConfig
+	// documentProviders are the published-document services wired via
+	// WithDocuments (#260): served by the RouteDocuments mount and stamped +
+	// KID-reconciled by the delegated-token mint route (#261).
+	documentProviders []DocumentProvider
 }
 
 // failClosedBuckets are the credential-VERIFICATION endpoints where the secret

@@ -48,6 +48,11 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		// #263 instance creation is a claim too — same velocity class.
 		RLGroupCreate: {Limit: 12, Window: 24 * time.Hour},
 
+		// #261 delegated-token mint: authenticated, but each call is a signing
+		// operation — generous for clients refreshing short-lived tokens,
+		// bounded against a runaway loop.
+		RLDelegatedTokenMint: {Limit: 60, Window: time.Minute},
+
 		// Password reset + verification
 		RLPasswordResetRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordResetConfirm: {Limit: 10, Window: 10 * time.Minute},

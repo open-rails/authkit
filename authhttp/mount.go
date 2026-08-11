@@ -19,6 +19,9 @@ const (
 	DefaultAPIPrefix = "/api/v1"
 	DefaultOIDCPath  = "/oidc"
 	JWKSPath         = "/.well-known/jwks.json"
+	// DocumentsPath is the root-anchored published-document surface (#260).
+	// Addressable in ExcludeRoutes as GET DocumentsPath (dropping GET+HEAD).
+	DocumentsPath = "/.well-known/authkit/documents/{digest}"
 )
 
 // RouteRef identifies a route by HTTP method and prefix-neutral RouteSpec path
@@ -93,6 +96,15 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 	mux := http.NewServeMux()
 	if !excluded[RouteRef{Method: http.MethodGet, Path: JWKSPath}] {
 		mux.Handle("GET "+JWKSPath, svc.JWKSHandler())
+	}
+	// #260: published signed documents are root-anchored by protocol (#254 —
+	// resolvers derive the URL from the issuer), like JWKS. Mounted when
+	// providers are wired (WithDocuments) and the group is selected; the
+	// handler itself enforces GET/HEAD and reader authorization.
+	if len(svc.documentProviders) > 0 &&
+		(opts.Groups == nil || routeGroupSet(opts.Groups)(RouteDocuments)) &&
+		!excluded[RouteRef{Method: http.MethodGet, Path: DocumentsPath}] {
+		mux.Handle(DocumentsPath, svc.documentsHandler())
 	}
 
 	mount := func(specs []RouteSpec, anchor string) {

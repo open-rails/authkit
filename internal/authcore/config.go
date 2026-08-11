@@ -38,6 +38,20 @@ type Config struct {
 	// (the manual/bootstrap registration paths are unaffected).
 	Applications ApplicationsConfig
 
+	// Delegated configures the delegated-token mint route (#261): the audience
+	// allowlist and the TTL floor/default/ceiling. Zero value = the route is
+	// not mounted. An internally inconsistent triple refuses at construction —
+	// never a silent clamp of the configuration itself (request-time TTLs ARE
+	// clamped into the validated bounds).
+	Delegated DelegatedConfig
+
+	// Documents configures the published signed-document surface (#260):
+	// which remote-application reader slugs may fetch published documents from
+	// GET|HEAD /.well-known/authkit/documents/{digest}. Publication is never
+	// public — an empty list with a mounted documents surface refuses at
+	// construction (authhttp.NewServer), fail-closed like the publisher itself.
+	Documents DocumentsConfig
+
 	// Environment is a host-provided runtime mode string used for dev/prod
 	// behavior checks via IsDevEnvironment, the single classifier (#231): only
 	// "dev", "development", "local", "test" (and empty, preserving zero-config
@@ -87,6 +101,35 @@ type ApplicationsConfig struct {
 	// Required when SelfRegistration is set; must be a declared non-root
 	// persona whose Parent is the root persona.
 	OrgPersona string
+}
+
+// DelegatedConfig configures the delegated-token mint route (#261,
+// POST /delegated/token under the API prefix). All four knobs are DATA: the
+// mint mechanics (audience-subset clamp, TTL clamp, document stamping, KID
+// reconciliation) live in AuthKit; the host contributes only an attribute
+// provider (WithDelegatedAttributes) and optional document providers
+// (authhttp.WithDocuments).
+type DelegatedConfig struct {
+	// Audiences is the allowlist. Requested audiences must be a subset; an
+	// empty request receives the full list. Empty = the route is disabled.
+	Audiences []string
+	// TTLFloor/TTLDefault/TTLCeiling bound the minted token TTL. Unset fields
+	// default to 60s / 15m / 1h. After defaulting, the triple must satisfy
+	// 0 < floor <= default <= ceiling or construction refuses (#231 house
+	// style: an impossible configuration never boots).
+	TTLFloor   time.Duration
+	TTLDefault time.Duration
+	TTLCeiling time.Duration
+}
+
+// DocumentsConfig configures reader authorization for the published
+// signed-document surface (#260).
+type DocumentsConfig struct {
+	// ReaderSlugs are the remote-application slugs allowed to fetch published
+	// documents. Authorization is config, not a host callback: a request must
+	// authenticate as one of these remote applications. Empty + a mounted
+	// documents surface is a construction error, never a public route.
+	ReaderSlugs []string
 }
 
 // NOTE (#264 ruling 5, simplified): re-verification cadence and dormancy
