@@ -102,14 +102,14 @@ type Service struct {
 	// keys is read per-operation (ActiveSigner/PublicKeys), never snapshotted:
 	// a live jwtkit.KeySource (e.g. the reloadable file source) hot-swaps keys
 	// behind an atomic pointer, and the Service must observe every swap (#238).
-	keys              jwtkit.KeySource
-	email             EmailSender
-	sms               SMSSender
-	pg                *pgxpool.Pool
-	q                 *db.Queries
-	schema            string       // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema       *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
-	entitlements      EntitlementsProvider
+	keys         jwtkit.KeySource
+	email        EmailSender
+	sms          SMSSender
+	pg           *pgxpool.Pool
+	q            *db.Queries
+	schema       string       // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema  *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
+	entitlements EntitlementsProvider
 	// delegatedAttributes is the host-injected attribute provider for the
 	// delegated-token mint route (#261). Nil = mint without host attributes.
 	delegatedAttributes DelegatedAttributeProvider
@@ -137,7 +137,7 @@ type Service struct {
 	// instance creation (#263) — MayCreateInstance consults it. Same anti-squat
 	// split as appAdmission: authkit owns velocity limits, the host owns cost
 	// gates. Nil = allow.
-	instanceAdmission func(ctx context.Context, persona, subject string) error
+	instanceAdmission func(ctx context.Context, persona, instanceSlug, subject string) error
 
 	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
 	// run, SMS is considered available whenever a sender is configured (legacy

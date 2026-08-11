@@ -39,12 +39,14 @@ type CreateInstanceResult struct {
 }
 
 // MayCreateInstance consults the host admission seam (#263). A nil predicate
-// allows; a predicate error is wrapped as ErrGroupCreationRefused.
-func (s *Service) MayCreateInstance(ctx context.Context, persona, subject string) error {
+// allows; a predicate error is wrapped as ErrGroupCreationRefused. The seam
+// sees the normalized slug (#269) so a host can refuse a specific namespace
+// outright, not merely price the attempt.
+func (s *Service) MayCreateInstance(ctx context.Context, persona, instanceSlug, subject string) error {
 	if s.instanceAdmission == nil {
 		return nil
 	}
-	if err := s.instanceAdmission(ctx, persona, subject); err != nil {
+	if err := s.instanceAdmission(ctx, persona, instanceSlug, subject); err != nil {
 		return fmt.Errorf("%w: %w", ErrGroupCreationRefused, err)
 	}
 	return nil
@@ -90,7 +92,7 @@ func (s *Service) CreateInstanceForSubject(ctx context.Context, persona, instanc
 	}
 
 	// Host cost gate (anti-squat split: velocity is authkit's, cost is the host's).
-	if err := s.MayCreateInstance(ctx, persona, ownerUserID); err != nil {
+	if err := s.MayCreateInstance(ctx, persona, slug, ownerUserID); err != nil {
 		return out, err
 	}
 

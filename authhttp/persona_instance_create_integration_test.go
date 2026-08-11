@@ -227,9 +227,18 @@ func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
 	ctx := context.Background()
 	refuse := errors.New("payment required")
 	var refusedSubject string
+	// #269: the seam also sees the normalized SLUG, so a host can refuse a
+	// namespace outright — "never creatable through this route, by anyone" is
+	// not expressible with ReservedSlugs, which only escalates.
 	client := newServerClient(t, instanceCreateTestConfig(), pool,
-		embedded.WithInstanceAdmission(func(_ context.Context, persona, subject string) error {
-			if persona == "org" && subject == refusedSubject {
+		embedded.WithInstanceAdmission(func(_ context.Context, persona, instanceSlug, subject string) error {
+			if persona != "org" {
+				return nil
+			}
+			if instanceSlug == "bootstrap-owned" {
+				return errors.New("namespace is owned by the platform bootstrap")
+			}
+			if subject == refusedSubject {
 				return refuse
 			}
 			return nil
@@ -252,6 +261,15 @@ func TestInstanceCreate_HostAdmissionSeam(t *testing.T) {
 	_, allowedToken := newInstanceTestUser(t, srv, "orgallowed")
 	w = postOrg(srv, allowedToken, `{"slug":"allowed-co"}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+	// #269: the slug-scoped refusal binds EVERY caller, including one the
+	// subject-scoped rule would have admitted, and it survives case
+	// normalization (the seam sees the normalized slug, not the raw body).
+	for _, body := range []string{`{"slug":"bootstrap-owned"}`, `{"slug":"BOOTSTRAP-OWNED"}`} {
+		w = postOrg(srv, allowedToken, body)
+		require.Equalf(t, http.StatusForbidden, w.Code, "%s: %s", body, w.Body.String())
+		require.Contains(t, w.Body.String(), string(ErrGroupCreationRefused))
+	}
 }
 
 func TestRemoteApplicationRoleRoute(t *testing.T) {
