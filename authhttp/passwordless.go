@@ -132,7 +132,7 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 	if strings.TrimSpace(result.ReturnTo) != "" {
 		extra = map[string]any{"return_to": result.ReturnTo}
 	}
-	writeAccessTokenJSON(w, http.StatusOK, tokens, extra)
+	s.writeAccessTokenJSON(w, r, http.StatusOK, tokens, extra)
 }
 
 func passwordlessIdentifier(identifier, email, phone string) string {

@@ -12,10 +12,12 @@ import (
 )
 
 type authTokensResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int64  `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int64  `json:"expires_in"`
+	// RefreshToken is omitted when MountOptions.RefreshCookie is on — the
+	// token then rides an HttpOnly cookie instead of the body (ak#271).
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
 func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
@@ -210,20 +212,37 @@ func newAuthTokens(access, refresh string, exp time.Time) authTokensResponse {
 	}
 }
 
+// deliverRefreshToken routes the refresh token to whichever transport this
+// mount declared. With MountOptions.RefreshCookie on it moves to an HttpOnly
+// cookie and leaves the envelope, so nothing downstream can leak it into a
+// body, a URL fragment or a postMessage payload; otherwise the envelope is
+// returned untouched. EVERY session-establishing response goes through here.
+func (s *Service) deliverRefreshToken(w http.ResponseWriter, r *http.Request, tokens authTokensResponse) authTokensResponse {
+	if _, ok := refreshCookieEnabled(r); !ok {
+		return tokens
+	}
+	s.setRefreshCookie(w, r, tokens.RefreshToken)
+	tokens.RefreshToken = ""
+	return tokens
+}
+
 // writeAccessTokenJSON marshals the token-pair envelope (the four §6.3 fields)
 // plus any extra top-level fields (e.g. return_to, created, user) at the given
 // status — replacing the hand-built map[string]any literals scattered across the
 // session-establishing handlers.
-func writeAccessTokenJSON(w http.ResponseWriter, status int, tokens authTokensResponse, extra map[string]any) {
+func (s *Service) writeAccessTokenJSON(w http.ResponseWriter, r *http.Request, status int, tokens authTokensResponse, extra map[string]any) {
+	tokens = s.deliverRefreshToken(w, r, tokens)
 	if len(extra) == 0 {
 		writeJSON(w, status, tokens)
 		return
 	}
 	body := map[string]any{
-		"access_token":  tokens.AccessToken,
-		"token_type":    tokens.TokenType,
-		"expires_in":    tokens.ExpiresIn,
-		"refresh_token": tokens.RefreshToken,
+		"access_token": tokens.AccessToken,
+		"token_type":   tokens.TokenType,
+		"expires_in":   tokens.ExpiresIn,
+	}
+	if tokens.RefreshToken != "" {
+		body["refresh_token"] = tokens.RefreshToken
 	}
 	for k, v := range extra {
 		body[k] = v

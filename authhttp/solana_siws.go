@@ -133,7 +133,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 		go s.svc.SendWelcome(context.Background(), userID)
 	}
 
-	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(accessToken, refreshToken, expiresAt), map[string]any{
+	s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(accessToken, refreshToken, expiresAt), map[string]any{
 		"created": created,
 		"user": map[string]any{
 			"id":             userID,

@@ -363,7 +363,8 @@ The three routes under `OIDCPath` (`{provider}/login`, `{provider}/callback`,
 delivered to the SPA, never left as a raw response body on the backend URL:
 
 - Success: `302` to `Frontend.BaseURL + OIDCReturnPath` with
-  `#access_token=…&refresh_token=…&expires_in=…&provider=…[&return_to=…]`.
+  `#access_token=…&refresh_token=…&expires_in=…&provider=…[&return_to=…]`
+  (no `refresh_token` under `MountOptions.RefreshCookie` — see below).
 - Error: `302` to the same route with
   `#error=<code>&flow=login|link&provider=…[&return_to=…]`. Codes are the
   stable wire codes (`access_denied`, `invalid_state`,
@@ -387,6 +388,37 @@ delivered to the SPA, never left as a raw response body on the backend URL:
 - The raw IdP `?error=`/`error_description` values are logged server-side
   (`[authkit/oidc]`, quoted and truncated) for diagnostics; only the sanitized
   code is ever reflected to the client.
+
+### Refresh token in an HttpOnly cookie (ak#271)
+
+`MountOptions{RefreshCookie: true}` moves the rotating refresh token out of
+every response body into an `HttpOnly` + `Secure` + `SameSite=Lax` cookie named
+`authkit_rt`. **Off by default** — a host that does not set it sees byte-identical
+behaviour.
+
+```go
+h, err := authhttp.MountHandler(srv, authhttp.MountOptions{RefreshCookie: true})
+```
+
+| Aspect | Behaviour |
+| --- | --- |
+| Issue | All ten session-establishing responses (password / passwordless / passkeys / SIWS / 2FA verify / email+phone verify / registration auto-login / refresh rotation / OIDC popup / OIDC fragment) set the cookie and omit `refresh_token` from the body, the fragment and the postMessage payload. |
+| Consume | `POST /token` and `POST /sessions/current` take the body's `refresh_token` when present, the cookie otherwise. A cookie-only client sends an empty `refresh_token` and gets a rotation, not a `400`. |
+| Clear | `DELETE /logout`, and a refresh that fails with `user_banned`. **Never** on the unknown-token `401` — staleness and death are indistinguishable there, and clearing would destroy a still-live jar value over a transient failure. |
+| `Path` | The mount's API anchor (`MountPrefix + APIPrefix`, e.g. `/api/v1`) — the narrowest prefix covering both consuming routes. Keeps the cookie off the SPA document and its assets. |
+| `SameSite` | `Lax`, never `Strict`. The OIDC tail is a cross-site top-level GET from the IdP, and emailed verification links land the same way; `Strict` withholds the cookie there and the first refresh fails. Lax still blocks the cross-site POST a CSRF would need. |
+| `Secure` | Derived like the OAuth state cookie: HTTPS `Frontend.BaseURL`, or the request's own TLS. Plain-http local dev gets a non-Secure cookie so the flow still works. |
+
+Two gates apply to a **cookie-sourced** credential only (a body token is not
+CSRF-relevant): a present-but-mismatched `Origin` is refused, and duplicate
+`authkit_rt` cookies fail closed — a sibling host that can set `Domain=<parent>`
+would otherwise plant a value that sorts ahead of the host-only one and silently
+swap the session. Both refusals leave the session alive and the cookie untouched.
+
+**Requirement:** the SPA and this mount must share an origin, or the cookie never
+reaches the refresh call. **Not fixed:** script running in a live tab can still
+call the refresh route. This removes theft-and-replay from elsewhere, not abuse
+from inside the victim's own tab.
 
 ### RBAC config and durability
 

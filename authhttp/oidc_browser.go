@@ -301,19 +301,27 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 		s.svc.SendWelcome(r.Context(), userID)
 	}
 
+	// ak#271: the popup document and the fragment redirect both hand the
+	// browser its tokens in script-readable form by design. The ACCESS token
+	// has to stay there — it is short-lived and the SPA builds the
+	// Authorization header from it — but the durable refresh token moves to
+	// the cookie, which these same-origin responses can set.
 	if sd.UI == "popup" {
 		targetOrigin, ok := originFromBaseURL(s.svc.Config().Frontend.BaseURL)
 		if !ok {
 			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrInvalidBaseURL)
 			return
 		}
+		deliveredRT := s.deliverRefreshToken(w, r, newAuthTokens(token, rt, exp)).RefreshToken
 		payload := map[string]any{
-			"type":          "AUTHKIT_OIDC_RESULT",
-			"access_token":  token,
-			"refresh_token": rt,
-			"expires_in":    int64(time.Until(exp).Seconds()),
-			"provider":      providerName,
-			"nonce":         sd.PopupNonce,
+			"type":         "AUTHKIT_OIDC_RESULT",
+			"access_token": token,
+			"expires_in":   int64(time.Until(exp).Seconds()),
+			"provider":     providerName,
+			"nonce":        sd.PopupNonce,
+		}
+		if deliveredRT != "" {
+			payload["refresh_token"] = deliveredRT
 		}
 		b, _ := json.Marshal(payload)
 		writePopupDocument(w, buildPopupHTML(b, targetOrigin))
@@ -321,7 +329,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 	}
 
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(token, rt, exp), map[string]any{
+		s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(token, rt, exp), map[string]any{
 			"user": map[string]any{"id": userID, "email": email},
 		})
 		return
@@ -332,7 +340,8 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 		base = "/"
 	}
 	state := r.URL.Query().Get("state")
-	frag := buildAuthResultFragment(token, rt, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
+	fragmentRT := s.deliverRefreshToken(w, r, newAuthTokens(token, rt, exp)).RefreshToken
+	frag := buildAuthResultFragment(token, fragmentRT, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.svc.Config().Frontend.OIDCReturnPath, frag)
 	// RFC 6749 §5.1 hygiene: the Location fragment carries the session tokens —
 	// the response must never be cached.
@@ -366,7 +375,11 @@ func buildFrontendCallbackURL(baseURL, callbackPath, fragment string) string {
 func buildAuthResultFragment(accessToken, refreshToken string, expiresIn int64, provider, state, returnTo string) string {
 	v := url.Values{}
 	v.Set("access_token", accessToken)
-	v.Set("refresh_token", refreshToken)
+	// Empty when the refresh token was delivered as a cookie (ak#271): a
+	// `refresh_token=` in the URL fragment is a lie the SPA would store.
+	if refreshToken != "" {
+		v.Set("refresh_token", refreshToken)
+	}
 	v.Set("expires_in", fmt.Sprint(expiresIn))
 	v.Set("provider", provider)
 	v.Set("state", state)

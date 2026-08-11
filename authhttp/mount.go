@@ -58,6 +58,23 @@ type MountOptions struct {
 	// Wrap decorates every RouteSpec-backed handler (API + browser OIDC) at
 	// mount time. JWKS is not wrapped (it carries no RouteSpec).
 	Wrap func(RouteSpec, http.Handler) http.Handler
+	// RefreshCookie (ak#271) delivers the rotating refresh token as an
+	// HttpOnly+Secure+SameSite=Lax cookie (RefreshCookieName) instead of a JSON
+	// body field, so an injected script cannot read the durable credential.
+	// OFF by default: a host that leaves this false gets byte-identical
+	// behaviour, refresh_token in every body as before.
+	//
+	// When on, every session-establishing response sets the cookie and omits
+	// refresh_token from its body/fragment/postMessage payload; POST /token and
+	// POST /sessions/current accept the cookie when the body carries no token
+	// (body still wins, so a mid-migration client is never stranded); and
+	// DELETE /logout clears it. The cookie is Path-scoped to this mount's API
+	// anchor — the only two routes that read a refresh token live there and
+	// share no tighter prefix — so it never rides the SPA document or assets.
+	//
+	// Browser-facing by construction: the host must serve the SPA and this
+	// mount on the SAME origin, or the cookie never reaches the refresh call.
+	RefreshCookie bool
 }
 
 // MountHandler returns the full AuthKit surface — JSON API, browser OIDC, and
@@ -127,10 +144,25 @@ func MountHandler(svc *Service, opts MountOptions) (h http.Handler, err error) {
 		mount(svc.OIDCBrowserRoutes(), oidcPath)
 	}
 
-	if mountPrefix == "" {
-		return mux, nil
+	var handler http.Handler = mux
+	if opts.RefreshCookie {
+		handler = withRefreshCookiePolicy(handler, refreshCookiePolicy{path: refreshCookiePath(mountPrefix, apiPrefix)})
 	}
-	return mountAt(mountPrefix, mux), nil
+	if mountPrefix == "" {
+		return handler, nil
+	}
+	return mountAt(mountPrefix, handler), nil
+}
+
+// refreshCookiePath anchors the refresh cookie at the mount's API prefix — the
+// narrowest Path that covers both refresh-consuming routes (POST /token and
+// POST /sessions/current, which share no tighter prefix).
+func refreshCookiePath(mountPrefix, apiPrefix string) string {
+	p := mountPrefix + strings.TrimSuffix(apiPrefix, "/")
+	if p == "" {
+		return "/"
+	}
+	return p
 }
 
 // normalizeMountPrefix trims trailing slashes (so "/auth/" and "/auth//" both

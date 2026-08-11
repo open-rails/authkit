@@ -2,7 +2,6 @@ package authhttp
 
 import (
 	"net/http"
-	"strings"
 )
 
 func (s *Service) handleAuthSessionsCurrentPOST(w http.ResponseWriter, r *http.Request) {
@@ -12,11 +11,18 @@ func (s *Service) handleAuthSessionsCurrentPOST(w http.ResponseWriter, r *http.R
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.RefreshToken) == "" {
+	if err := decodeJSON(r, &body); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	sid, err := s.svc.ResolveSessionByRefresh(r.Context(), body.RefreshToken)
+	// ak#271: body first, HttpOnly cookie as the fallback — a cookie-only
+	// client has no token to send.
+	refreshToken, ok := s.refreshTokenFromRequest(r, body.RefreshToken)
+	if !ok {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	sid, err := s.svc.ResolveSessionByRefresh(r.Context(), refreshToken)
 	if err != nil || sid == "" {
 		unauthorized(w, ErrInvalidRefreshToken)
 		return
