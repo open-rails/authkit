@@ -9,8 +9,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,6 +26,7 @@ type meProfileShape struct {
 	ID           string                `json:"id"`
 	AvatarURL    *string               `json:"avatar_url"`
 	Availability []meAvailabilityShape `json:"availability"`
+	UserAliases  []string              `json:"user_aliases"`
 }
 
 func meAvailabilityFor(t *testing.T, shape meProfileShape, action string) meAvailabilityShape {
@@ -45,7 +48,15 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.NoError(t, err)
 
 	email := uniqueEmail("profile-surface")
-	username := "profilesurface" + uniqueSuffix()
+	// ak#273: the CURRENT username deliberately carries an underscore and
+	// uppercase — both admitted by authcore.ValidateUsername — because the rename
+	// below records lower(current username) as user_renames.from_slug. Under the
+	// 0001 predicate that INSERT violated user_renames_from_slug_format_chk and
+	// took the whole rename transaction with it, so this account could never be
+	// renamed. Keep the shape: it is the regression pin.
+	require.NoError(t, authcore.ValidateUsername("Profile_Surface"),
+		"ak#273: this pin only means something while ValidateUsername still admits '_' and uppercase")
+	username := "Profile_Surface" + uniqueSuffix()
 	user, err := srv.svc.CreateUser(ctx, email, username)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
@@ -122,6 +133,9 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.Nil(t, me.AvatarURL)
 
 	// --- cooldown: after a rename, /me reports the wait BEFORE a client tries -
+	// ak#273: the account being renamed here holds an underscore + uppercase
+	// username, so this PATCH is also the regression pin for the rename-history
+	// CHECK. Before migration 0006 it answered 400 failed_to_update_username.
 	w = serveAuthJSON(srv, http.MethodPatch, "/user/username", `{"username":"px`+uniqueSuffix()+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, token)
@@ -131,4 +145,7 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	avail = meAvailabilityFor(t, me, ActionUpdateUsername)
 	require.False(t, avail.Allowed)
 	require.Positive(t, avail.RetryAfterSeconds)
+	// The alias is the old username LOWERCASED, not slugified: ak#273 chose
+	// "constraint follows validator", so '_' survives into the published alias.
+	require.Contains(t, me.UserAliases, strings.ToLower(username))
 }

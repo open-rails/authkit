@@ -300,8 +300,9 @@ type ProfilesUserProvider struct {
 }
 
 type ProfilesUserRename struct {
-	ID        int64
-	UserID    string
+	ID     int64
+	UserID string
+	// The user's previous username, lowercased and never slugified — the alias GET /me publishes as user_aliases. Charset follows authcore.ValidateUsername / validateImportUsername (ak#273).
 	FromSlug  string
 	RenamedAt time.Time
 }
