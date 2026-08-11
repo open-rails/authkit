@@ -173,6 +173,14 @@ func (s *Client) UsersByIDs(ctx context.Context, ids []string) (map[string]authk
 	return s.impl.UsersByIDs(ctx, ids)
 }
 
+func (s *Client) PublicUsersByIDs(ctx context.Context, ids []string) (map[string]authkit.PublicUserRef, error) {
+	return s.impl.PublicUsersByIDs(ctx, ids)
+}
+
+func (s *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+	return s.impl.UserLivenessByIDs(ctx, ids)
+}
+
 func (s *Client) ProviderUsernames(ctx context.Context, userIDs []string, provider string) (map[string]string, error) {
 	return s.impl.ProviderUsernames(ctx, userIDs, provider)
 }

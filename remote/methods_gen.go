@@ -370,6 +370,13 @@ func (c *Client) ProviderUsernames(ctx context.Context, userIDs []string, provid
 	return out, err
 }
 
+func (c *Client) PublicUsersByIDs(ctx context.Context, ids []string) (map[string]authkit.PublicUserRef, error) {
+	args := map[string]any{"ids": ids}
+	var out map[string]authkit.PublicUserRef
+	err := c.call(ctx, "PublicUsersByIDs", args, &out)
+	return out, err
+}
+
 func (c *Client) RedeemGroupInviteLink(ctx context.Context, code string, redeemerUserID string) (authkit.RedeemGroupInviteLinkResult, error) {
 	args := map[string]any{"code": code, "redeemerUserID": redeemerUserID}
 	var out authkit.RedeemGroupInviteLinkResult
@@ -558,6 +565,13 @@ func (c *Client) UpsertRemoteApplication(ctx context.Context, in authkit.RemoteA
 func (c *Client) UpsertRoleBySlug(ctx context.Context, name string, slug string, description *string) error {
 	args := map[string]any{"name": name, "slug": slug, "description": description}
 	return c.call(ctx, "UpsertRoleBySlug", args, nil)
+}
+
+func (c *Client) UserLivenessByIDs(ctx context.Context, ids []string) (map[string]authkit.UserLiveness, error) {
+	args := map[string]any{"ids": ids}
+	var out map[string]authkit.UserLiveness
+	err := c.call(ctx, "UserLivenessByIDs", args, &out)
+	return out, err
 }
 
 func (c *Client) UsersByIDs(ctx context.Context, ids []string) (map[string]authkit.UserRef, error) {

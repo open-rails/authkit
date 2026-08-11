@@ -689,6 +689,53 @@ true}` frees it — safe only for names nothing ever referenced, and that
 judgment is the host's. Slug renames are velocity-capped per user + per IP
 (`group_settings` bucket) — a rename is a claim.
 
+### Liveness-aware verification (#267)
+
+`VerifyRequest` / `Required` are STATELESS by design (#215): a banned or deleted
+user keeps a valid access token until it expires (≤1 access TTL). For a
+privileged surface that cannot accept that window, wire a liveness source once
+and mount the live gate instead:
+
+```go
+verifier.WithLiveness(client) // any authkit.Client — embedded or remote
+
+admin := router.Group("/api/v1/admin", authkitgin.RequiredLive(verifier))
+```
+
+* `verify.RequiredLive` / `RequiredLiveUser` (and the `authkitgin` twins) — 401
+  on a banned, deleted, reserved or unknown account, on the user's NEXT request.
+* Claims handed downstream carry `Username`, `Email` and `EmailVerified` FRESH
+  as of that lookup. Do not call the admin directory per request to refresh
+  display fields; roles and entitlements have their own live reads
+  (`RoleSlugsByUsers`, `Allow`, `ListEntitlements`).
+* `verifier.AllowLive(ctx, client, claims, perm, scope)` is `verify.Allow` with
+  the liveness precondition — "live AND permitted" in one call, so a banned user
+  who still holds a permission assignment is denied. `verifier.IsLive` is the
+  bare predicate.
+* **Fail-closed, no cache.** A lookup error denies. Exactly one
+  `UserLivenessByIDs` call per gated request, no memoization — any cache
+  reintroduces the staleness window the gate exists to close. Mounting
+  `RequiredLive` without `WithLiveness` PANICS at mount rather than silently
+  degrading to the weaker gate.
+
+### Public-safe user projections (#268)
+
+Two batch projections, one query each, differing only in who may see the result:
+
+| method | type | use |
+|---|---|---|
+| `UsersByIDs` | `UserRef{ID, Username, Email}` | PRIVILEGED — admin surfaces, the account's own views |
+| `PublicUsersByIDs` | `PublicUserRef{ID, Username, AvatarURL, Biography, CreatedAt, Deleted}` | rendering users to other users |
+
+`PublicUserRef` has no email field at all, so a resolved author nests straight
+into a response body. Soft-deleted users come back as TOMBSTONES (`Deleted` set,
+display fields blank); banned users come back normally (a ban is an access
+decision, not a visibility one); unknown ids are absent.
+`ref.DisplayName()` / `authkit.PublicDisplayName(refs, id)` render
+`user-<id8>` for tombstoned and unresolved ids, so the call site needs no
+fallback branch. Derived assets (thumbnail sizes, CDN rewrites) stay host-owned
+— authkit stores one avatar string.
+
 Frontend code calls the AuthKit routes mounted by `MountHandler`:
 
 ```text

@@ -48,6 +48,10 @@ type Verifier struct {
 
 	enrich Enricher
 
+	// liveness is the optional account-liveness backend for VerifyRequestLive /
+	// RequiredLive (#267). Nil on the stateless default path; guarded by mu.
+	liveness LivenessSource
+
 	// requireMFAEnrollment, when set, turns on the per-request forced-2FA-enrollment
 	// gate in VerifyRequest (#148). Set from TwoFactor.Mode == Required.
 	requireMFAEnrollment bool

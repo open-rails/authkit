@@ -13,6 +13,8 @@ var QueryText = map[string]string{
 	"UserByEmail":                userByEmail,
 	"UserByUsername":             userByUsername,
 	"IdentityUsersByIDs":         identityUsersByIDs,
+	"IdentityPublicUsersByIDs":   identityPublicUsersByIDs,
+	"IdentityUserLivenessByIDs":  identityUserLivenessByIDs,
 	"SessionByCurrentTokenHash":  sessionByCurrentTokenHash,
 	"SessionByPreviousTokenHash": sessionByPreviousTokenHash,
 	"SessionsListByUser":         sessionsListByUser,

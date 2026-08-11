@@ -208,6 +208,9 @@ Adoption count alone is NOT a criterion for adding or removing a method.
 - **Exclusions (never batch)**: request-scoped single-subject auth primitives — `Verify`/`VerifyRequest`,
   password login, `MintAccessToken`, `Can(subject, …)`, `ResolveAPIKey`, refresh exchange. They are
   inherently one-principal/one-request; batching them puts partial-failure ambiguity on the auth path.
+  The exclusion is about the DECISION, not the read behind it: `UserLivenessByIDs` (#267) is a
+  collection read and batch-native, even though its hot caller (`VerifyRequestLive`) passes one id —
+  a map read either yields the verdict or does not, so there is no partial-failure ambiguity to carry.
 
 **`Client` interface methods** (covered) — the curated embedder surface, defined on
 `authkit.Client` (and its topic interfaces) and implemented by `*embedded.Client`. Adding
@@ -228,7 +231,9 @@ exchange, which is HTTP-only per the note above); bootstrap; and accessors (`JWK
 covered; the implementation methods on `internal/authcore.Service` (beyond what `Client`
 exposes) are **not**. (Method names above are illustrative; `client.go` is authoritative.)
 
-**Domain & result types** (covered): `User`, `AdminUser`, `AdminUserStatus`,
+**Domain & result types** (covered): `User`, `UserRef`, `PublicUserRef` (#268 — a widening of
+this type is BREAKING in spirit as well as version: it is the public-safe projection, and it
+may never acquire an email-shaped field), `UserLiveness` (#267), `AdminUser`, `AdminUserStatus`,
 `AdminUserSort`, `AdminListUsersResult`, `AdminUserListOptions`, `AdminRecoverUserInput`,
 `ImportUserInput`, `Session`, `SessionFreshness`, `SessionRevokeReason`,
 `SessionEventType`, `AuthSessionEvent`, `PendingRegistration`, `PendingChangeKind`,
