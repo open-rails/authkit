@@ -78,11 +78,15 @@ type RemoteApplication struct {
 	Tier string
 	// TrustRoot is what can rotate this application's keys (#264):
 	// ApplicationTrustRootManual (admin/bootstrap-managed),
-	// ApplicationTrustRootDomain (re-fetching the application.json at
-	// https://<slug>/ re-proves control and adopts current keys), or
+	// ApplicationTrustRootDomain (re-fetching Domain's application.json
+	// re-proves control and adopts current keys), or
 	// ApplicationTrustRootUser (the owning user's authenticated session).
 	// Never the keypair alone.
 	TrustRoot string
+	// Domain is the trust-root location for domain-rooted applications (the
+	// canonical registration input; empty otherwise). Domains and slugs are
+	// SEPARATE: the domain proves identity, the slug is a claimed handle.
+	Domain string
 	// DocumentEndpoint is the application's optional signed-document base URL
 	// declared in its application.json.
 	DocumentEndpoint string
@@ -114,7 +118,9 @@ const ApplicationWellKnownPath = "/.well-known/authkit/application.json"
 // application serves at https://<domain>/.well-known/authkit/application.json.
 // Unknown fields are ignored (forward-compatible).
 type ApplicationDocument struct {
-	// Slug must equal the serving domain (dev-like environments may override).
+	// Slug is the REQUESTED handle — a free claim through the same
+	// availability + anti-squat gates as any org (slugs and domains are
+	// separate). Empty defaults to the serving domain's hostname.
 	Slug string `json:"slug"`
 	// DisplayName is free-form, non-unique metadata.
 	DisplayName string `json:"display_name,omitempty"`

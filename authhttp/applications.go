@@ -36,6 +36,7 @@ func applicationJSON(app authkit.RemoteApplication) map[string]any {
 		"jwks_uri":          app.JWKSURI,
 		"tier":              app.Tier,
 		"trust_root":        app.TrustRoot,
+		"domain":            app.Domain,
 		"enabled":           app.Enabled,
 		"document_endpoint": app.DocumentEndpoint,
 		"created_at":        app.CreatedAt,
@@ -74,6 +75,8 @@ func (s *Service) writeApplicationError(w http.ResponseWriter, err error) {
 		sendErr(w, http.StatusConflict, ErrApplicationSlugConflict)
 	case errors.Is(err, authkit.ErrApplicationIssuerConflict):
 		sendErr(w, http.StatusConflict, ErrApplicationIssuerConflict)
+	case errors.Is(err, authkit.ErrApplicationDomainConflict):
+		sendErr(w, http.StatusConflict, ErrApplicationDomainConflict)
 	case errors.Is(err, authkit.ErrApplicationNotDomainRooted):
 		sendErr(w, http.StatusConflict, ErrApplicationNotDomainRooted)
 	case errors.Is(err, authkit.ErrApplicationSignatureStale):

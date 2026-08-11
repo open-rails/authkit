@@ -44,8 +44,9 @@ func TestResolveApplicationDomain(t *testing.T) {
 	prod := newAppTestService(t, "production")
 
 	t.Run("prod accepts bare public dns names only", func(t *testing.T) {
-		host, fetchURL, err := prod.resolveApplicationDomain("Cozy.Art")
+		canonical, host, fetchURL, err := prod.resolveApplicationDomain("Cozy.Art")
 		require.NoError(t, err)
+		require.Equal(t, "cozy.art", canonical)
 		require.Equal(t, "cozy.art", host)
 		require.Equal(t, "https://cozy.art"+ApplicationWellKnownPath, fetchURL)
 
@@ -54,18 +55,19 @@ func TestResolveApplicationDomain(t *testing.T) {
 			"127.0.0.1", "10.0.0.4", "localhost", "metadata.google.internal",
 			"host.docker.internal", "single-label", "co..zy.art", "-cozy.art",
 		} {
-			_, _, err := prod.resolveApplicationDomain(bad)
+			_, _, _, err := prod.resolveApplicationDomain(bad)
 			require.ErrorIs(t, err, ErrApplicationDomainInvalid, "input %q", bad)
 		}
 	})
 
 	t.Run("dev additionally accepts loopback base urls", func(t *testing.T) {
-		host, fetchURL, err := dev.resolveApplicationDomain("http://127.0.0.1:8080")
+		canonical, host, fetchURL, err := dev.resolveApplicationDomain("http://127.0.0.1:8080")
 		require.NoError(t, err)
+		require.Equal(t, "http://127.0.0.1:8080", canonical, "dev canonical keeps scheme+port so distinct rigs stay distinct roots")
 		require.Equal(t, "127.0.0.1", host)
 		require.Equal(t, "http://127.0.0.1:8080"+ApplicationWellKnownPath, fetchURL)
 
-		_, _, err = dev.resolveApplicationDomain("http://127.0.0.1:8080/some/path")
+		_, _, _, err = dev.resolveApplicationDomain("http://127.0.0.1:8080/some/path")
 		require.ErrorIs(t, err, ErrApplicationDomainInvalid)
 	})
 }
@@ -99,23 +101,26 @@ func TestValidateApplicationDocument(t *testing.T) {
 		require.Equal(t, "cozy.art", got.Slug)
 	})
 
-	t.Run("prod rejects slug/issuer not matching the proven domain", func(t *testing.T) {
+	t.Run("slug is a free claim; issuer host is NOT", func(t *testing.T) {
+		// Slugs and domains are separate: any valid slug may be requested.
 		doc := base()
-		doc.Slug = "other.example"
-		_, err := prod.validateApplicationDocument(doc, "cozy.art")
-		require.ErrorIs(t, err, ErrApplicationDocumentInvalid)
+		doc.Slug = "cozy-creator"
+		got, err := prod.validateApplicationDocument(doc, "cozy.art")
+		require.NoError(t, err)
+		require.Equal(t, "cozy-creator", got.Slug)
 
+		// The issuer stays bound to the PROVEN domain (trust, not naming).
 		doc = base()
 		doc.Issuer = "https://evil.example/oidc"
 		_, err = prod.validateApplicationDocument(doc, "cozy.art")
 		require.ErrorIs(t, err, ErrApplicationDocumentInvalid)
 
-		// Dev-like environments allow both (loopback rigs pick their slugs).
+		// Dev-like environments relax the issuer binding for loopback rigs.
 		doc = base()
 		doc.Slug = "rig-a"
 		doc.Issuer = "http://127.0.0.1:9999"
 		doc.JWKSURI = "http://127.0.0.1:9999/jwks.json"
-		got, err := dev.validateApplicationDocument(doc, "127.0.0.1")
+		got, err = dev.validateApplicationDocument(doc, "127.0.0.1")
 		require.NoError(t, err)
 		require.Equal(t, "rig-a", got.Slug)
 	})

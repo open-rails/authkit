@@ -43,6 +43,8 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		// but cooled down; each attempt costs the caller a domain fetch.
 		RLApplicationRegister: {Limit: 30, Window: time.Hour},
 		RLApplicationRotate:   {Limit: 30, Window: time.Hour},
+		// Slug renames are claims — velocity-capped per user and per IP.
+		RLGroupSettings: {Limit: 12, Window: 24 * time.Hour},
 
 		// Password reset + verification
 		RLPasswordResetRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},

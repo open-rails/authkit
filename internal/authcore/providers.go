@@ -220,4 +220,3 @@ func (s *Service) setProviderUsername(ctx context.Context, userID, issuer, subje
 	}
 	return s.q.UserProviderSetUsername(ctx, db.UserProviderSetUsernameParams{UserID: userID, Issuer: issuer, Subject: subject, Username: username})
 }
-

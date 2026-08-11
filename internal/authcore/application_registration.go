@@ -12,7 +12,10 @@ package authcore
 //
 // Registration buys EXISTENCE only (tier `registered`: authenticate + serve/
 // fetch documents); `approved` is an admin act on the host. Identity is the
-// uuidv7 row id; the slug is the meaningful unique handle (= the domain).
+// uuidv7 row id. SLUGS AND DOMAINS ARE SEPARATE: the domain is the trust root
+// and the re-registration key; the slug is a freely CLAIMED handle (requested
+// in application.json, defaulting to the domain's hostname) that passes the
+// same availability + anti-squat gates as any org slug.
 
 import (
 	"context"
@@ -42,6 +45,7 @@ import (
 var (
 	ErrApplicationRegistrationDisabled = authkit.ErrApplicationRegistrationDisabled
 	ErrApplicationDomainInvalid        = authkit.ErrApplicationDomainInvalid
+	ErrApplicationDomainConflict       = authkit.ErrApplicationDomainConflict
 	ErrApplicationDocumentFetchFailed  = authkit.ErrApplicationDocumentFetchFailed
 	ErrApplicationDocumentInvalid      = authkit.ErrApplicationDocumentInvalid
 	ErrApplicationSlugConflict         = authkit.ErrApplicationSlugConflict
@@ -135,48 +139,51 @@ func guardedDialContext(ctx context.Context, network, addr string) (net.Conn, er
 	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 }
 
-// resolveApplicationDomain normalizes the registration `domain` input into the
-// canonical host (the slug for domain-registered applications) and the
+// resolveApplicationDomain normalizes the registration `domain` input into
+// the CANONICAL domain (the stored trust-root key), the hostname, and the
 // document fetch URL.
 //
 // Outside dev-like environments the input must be a bare lowercase DNS name —
 // no scheme, port, path, userinfo, or IP literal — and the fetch is always
-// https. Dev-like environments additionally accept a full http(s) base URL
-// (e.g. http://127.0.0.1:8080) for loopback rigs; that is the #257-style dev
-// carve-out, and 127.0.0.1 obviously cannot domain-prove anything in prod.
-func (s *Service) resolveApplicationDomain(domain string) (host, fetchURL string, err error) {
+// https (canonical == host). Dev-like environments additionally accept a full
+// http(s) base URL (e.g. http://127.0.0.1:8080) for loopback rigs — the
+// canonical form keeps scheme+port so distinct rigs stay distinct roots; that
+// is the #257-style dev carve-out, and 127.0.0.1 obviously cannot
+// domain-prove anything in prod.
+func (s *Service) resolveApplicationDomain(domain string) (canonical, host, fetchURL string, err error) {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
-		return "", "", fmt.Errorf("%w: domain is required", ErrApplicationDomainInvalid)
+		return "", "", "", fmt.Errorf("%w: domain is required", ErrApplicationDomainInvalid)
 	}
 	isDev := s.isDevEnvironment()
 	if strings.Contains(domain, "://") {
 		if !isDev {
-			return "", "", fmt.Errorf("%w: domain must be a bare DNS name (no scheme)", ErrApplicationDomainInvalid)
+			return "", "", "", fmt.Errorf("%w: domain must be a bare DNS name (no scheme)", ErrApplicationDomainInvalid)
 		}
 		u, err := url.Parse(domain)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
 			(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil {
-			return "", "", fmt.Errorf("%w: dev domain must be a plain http(s) base URL", ErrApplicationDomainInvalid)
+			return "", "", "", fmt.Errorf("%w: dev domain must be a plain http(s) base URL", ErrApplicationDomainInvalid)
 		}
-		return strings.ToLower(u.Hostname()), u.Scheme + "://" + u.Host + ApplicationWellKnownPath, nil
+		canonical = u.Scheme + "://" + strings.ToLower(u.Host)
+		return canonical, strings.ToLower(u.Hostname()), canonical + ApplicationWellKnownPath, nil
 	}
 	host = strings.ToLower(domain)
 	if strings.ContainsAny(host, "/@:? #") {
-		return "", "", fmt.Errorf("%w: domain must be a bare DNS name", ErrApplicationDomainInvalid)
+		return "", "", "", fmt.Errorf("%w: domain must be a bare DNS name", ErrApplicationDomainInvalid)
 	}
 	if err := validateRemoteAppSlug(host); err != nil {
-		return "", "", fmt.Errorf("%w: %q is not a valid DNS name", ErrApplicationDomainInvalid, domain)
+		return "", "", "", fmt.Errorf("%w: %q is not a valid DNS name", ErrApplicationDomainInvalid, domain)
 	}
 	if !isDev {
 		if net.ParseIP(host) != nil {
-			return "", "", fmt.Errorf("%w: IP literals cannot domain-prove", ErrApplicationDomainInvalid)
+			return "", "", "", fmt.Errorf("%w: IP literals cannot domain-prove", ErrApplicationDomainInvalid)
 		}
 		if isInternalHostname(host) || !strings.Contains(host, ".") {
-			return "", "", fmt.Errorf("%w: %q is not a public DNS name", ErrApplicationDomainInvalid, host)
+			return "", "", "", fmt.Errorf("%w: %q is not a public DNS name", ErrApplicationDomainInvalid, host)
 		}
 	}
-	return host, "https://" + host + ApplicationWellKnownPath, nil
+	return host, host, "https://" + host + ApplicationWellKnownPath, nil
 }
 
 // fetchApplicationDocument GETs the well-known application.json. The fetch is
@@ -223,17 +230,16 @@ type normalizedApplication struct {
 }
 
 // validateApplicationDocument enforces the document contract against the
-// PROVEN host: slug == domain and issuer host == domain outside dev-like
-// environments (a domain proof must never mint authority over someone else's
-// issuer namespace), exactly one trust source, and public https URLs.
+// PROVEN host: issuer host == domain outside dev-like environments (a domain
+// proof must never mint authority over someone else's issuer namespace),
+// exactly one trust source, and public https URLs. The slug is a FREE CLAIM
+// (defaulting to the hostname) — availability is checked at claim time, not
+// here.
 func (s *Service) validateApplicationDocument(doc *ApplicationDocument, host string) (*normalizedApplication, error) {
 	isDev := s.isDevEnvironment()
 	slug := strings.ToLower(strings.TrimSpace(doc.Slug))
 	if slug == "" {
 		slug = host
-	}
-	if !isDev && slug != host {
-		return nil, fmt.Errorf("%w: slug %q must equal the serving domain %q", ErrApplicationDocumentInvalid, slug, host)
 	}
 	if err := validateRemoteAppSlug(slug); err != nil {
 		return nil, fmt.Errorf("%w: invalid slug %q", ErrApplicationDocumentInvalid, slug)
@@ -325,12 +331,12 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	if err != nil {
 		return nil, err
 	}
-	host, fetchURL, err := s.resolveApplicationDomain(domain)
+	canonical, host, fetchURL, err := s.resolveApplicationDomain(domain)
 	if err != nil {
 		return nil, err
 	}
 	if s.appAdmission != nil {
-		if err := s.appAdmission(ctx, host); err != nil {
+		if err := s.appAdmission(ctx, canonical); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrApplicationRegistrationDisabled, err)
 		}
 	}
@@ -352,15 +358,14 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	q := db.New(dbtx)
 	st := NewPermissionGroupStore(dbtx)
 
-	existing, err := q.RemoteApplicationBySlugForUpdate(ctx, app.Slug)
+	// Idempotent re-registration is keyed by the DOMAIN (the trust root). The
+	// slug was claimed at first registration and is NOT changed by a refresh —
+	// the document's slug field only matters for the initial claim.
+	existing, err := q.RemoteApplicationByDomainForUpdate(ctx, canonical)
 	switch {
 	case err == nil:
-		// Idempotent re-registration. Only a domain-rooted row may be
-		// refreshed by a domain proof: manual/bootstrap and user-rooted
-		// registrations are controlled elsewhere, and letting a domain fetch
-		// overwrite them would be a takeover.
 		if existing.TrustRoot != ApplicationTrustRootDomain {
-			return nil, ErrApplicationSlugConflict
+			return nil, ErrApplicationDomainConflict
 		}
 		row, err := q.RemoteApplicationDomainRefresh(ctx, db.RemoteApplicationDomainRefreshParams{
 			Issuer:           app.Issuer,
@@ -369,7 +374,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 			PublicKeys:       app.KeysJSON,
 			DisplayName:      app.DisplayName,
 			DocumentEndpoint: app.DocumentEndpoint,
-			Slug:             app.Slug,
+			Domain:           canonical,
 		})
 		if isUniqueViolation(err, "issuer") {
 			return nil, ErrApplicationIssuerConflict
@@ -406,8 +411,14 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 		return nil, err
 	}
 
-	// The org's instance slug mirrors the application slug; it must be
-	// claimable — not held live and not tombstoned to another group.
+	// First registration CLAIMS the requested slug — the same availability +
+	// anti-squat gates as any org: free in the application namespace AND in
+	// the org persona namespace (live groups + tombstones).
+	if _, err := q.RemoteApplicationBySlugForUpdate(ctx, app.Slug); err == nil {
+		return nil, ErrApplicationSlugConflict
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 	if available, err := st.InstanceSlugAvailable(ctx, td.Name, app.Slug); err != nil {
 		return nil, err
 	} else if !available {
@@ -432,12 +443,17 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 		Mode:              app.Mode,
 		PublicKeys:        app.KeysJSON,
 		DisplayName:       app.DisplayName,
+		Domain:            canonical,
 		DocumentEndpoint:  app.DocumentEndpoint,
 	})
-	if isUniqueViolation(err, "issuer") {
+	switch {
+	case isUniqueViolation(err, "issuer"):
 		return nil, ErrApplicationIssuerConflict
-	}
-	if err != nil {
+	case isUniqueViolation(err, "domain"):
+		return nil, ErrApplicationDomainConflict
+	case isUniqueViolation(err, "slug"):
+		return nil, ErrApplicationSlugConflict
+	case err != nil:
 		return nil, err
 	}
 	// Service-owned org: the application principal owns its own group. Zero
@@ -661,18 +677,17 @@ func (s *Service) RotateApplicationSigned(ctx context.Context, slug, compactJWS 
 	return remoteAppFromRow(remoteAppRow(row)), nil
 }
 
-// RepointApplicationSigned moves a domain-rooted application to a NEW domain
-// (the application.json re-point): a JWS signed by a currently-trusted key
-// requests the move, and a fresh fetch of the NEW domain's application.json
-// proves control of it. The uuid (and the service-owned org) are stable; the
-// slug becomes the new domain, and the org's instance slug follows it with the
-// old slug tombstoned + forwarding.
+// RepointApplicationSigned moves a domain-rooted application's TRUST ROOT to
+// a NEW domain (the application.json re-point): a JWS signed by a
+// currently-trusted key requests the move, and a fresh fetch of the NEW
+// domain's application.json proves control of it. uuid, slug, and the
+// service-owned org are all stable — the slug is a claimed handle, not the
+// domain.
 func (s *Service) RepointApplicationSigned(ctx context.Context, slug, compactJWS string) (*RegisteredApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	td, err := s.applicationsEnabled()
-	if err != nil {
+	if _, err := s.applicationsEnabled(); err != nil {
 		return nil, err
 	}
 	app, err := s.GetRemoteApplicationBySlug(ctx, slug)
@@ -689,12 +704,12 @@ func (s *Service) RepointApplicationSigned(ctx context.Context, slug, compactJWS
 	if err != nil {
 		return nil, err
 	}
-	host, fetchURL, err := s.resolveApplicationDomain(req.Domain)
+	canonical, host, fetchURL, err := s.resolveApplicationDomain(req.Domain)
 	if err != nil {
 		return nil, err
 	}
-	if host == app.Slug {
-		return nil, fmt.Errorf("%w: already registered on %q", ErrApplicationDomainInvalid, host)
+	if canonical == app.Domain {
+		return nil, fmt.Errorf("%w: already rooted at %q", ErrApplicationDomainInvalid, canonical)
 	}
 	doc, err := s.fetchApplicationDocument(ctx, fetchURL)
 	if err != nil {
@@ -714,15 +729,8 @@ func (s *Service) RepointApplicationSigned(ctx context.Context, slug, compactJWS
 	q := db.New(dbtx)
 	st := NewPermissionGroupStore(dbtx)
 
-	// The new slug must be free on BOTH namespaces: applications and orgs.
-	if _, err := q.RemoteApplicationBySlugForUpdate(ctx, napp.Slug); err == nil {
-		return nil, ErrApplicationSlugConflict
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
-
 	row, err := q.RemoteApplicationRepoint(ctx, db.RemoteApplicationRepointParams{
-		NewSlug:          napp.Slug,
+		NewDomain:        canonical,
 		Issuer:           napp.Issuer,
 		JwksUri:          napp.JWKSURI,
 		Mode:             napp.Mode,
@@ -731,30 +739,20 @@ func (s *Service) RepointApplicationSigned(ctx context.Context, slug, compactJWS
 		DocumentEndpoint: napp.DocumentEndpoint,
 		Slug:             app.Slug,
 	})
-	if isUniqueViolation(err, "issuer") {
+	switch {
+	case isUniqueViolation(err, "issuer"):
 		return nil, ErrApplicationIssuerConflict
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
+	case isUniqueViolation(err, "domain"):
+		return nil, ErrApplicationDomainConflict
+	case errors.Is(err, pgx.ErrNoRows):
 		return nil, ErrRemoteApplicationNotFound
-	}
-	if err != nil {
+	case err != nil:
 		return nil, err
 	}
 
-	// Follow the org slug when it mirrors the old domain; the old slug is
-	// tombstoned and forwards (published references keep resolving).
 	orgPersona, orgSlug, err := groupAddressByID(ctx, dbtx, row.PermissionGroupID)
 	if err != nil {
 		return nil, err
-	}
-	if orgPersona == td.Name && orgSlug == app.Slug {
-		if err := st.RenameGroupSlug(ctx, row.PermissionGroupID, orgPersona, orgSlug, napp.Slug); err != nil {
-			if errors.Is(err, ErrGroupSlugTaken) {
-				return nil, ErrApplicationSlugConflict
-			}
-			return nil, err
-		}
-		orgSlug = napp.Slug
 	}
 	if row.PermissionGroupID != "" {
 		if err := st.SetGroupDisplayName(ctx, row.PermissionGroupID, napp.DisplayName); err != nil {

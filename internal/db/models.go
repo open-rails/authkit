@@ -181,7 +181,9 @@ type ProfilesRemoteApplication struct {
 	// registered (self-registered; zero default capability) | approved (admin act on the host).
 	Tier string
 	// What rotates the keys: manual | domain | user. Never the keypair alone.
-	TrustRoot        string
+	TrustRoot string
+	// Trust-root location for domain-rooted applications (canonical registration input; empty otherwise). Separate from slug — the domain proves identity, the slug is a claimed handle.
+	Domain           string
 	DocumentEndpoint string
 	// Last successful trust-root proof (domain fetch). Re-verification cadence is host policy (host sweepers disable stale registered-tier apps; re-registration re-proves and re-enables).
 	RootVerifiedAt *time.Time

@@ -66,6 +66,9 @@ const (
 	// ErrApplicationDocumentInvalid is the application_document_invalid AuthKit HTTP wire error code.
 	ErrApplicationDocumentInvalid ErrorCode = "application_document_invalid"
 
+	// ErrApplicationDomainConflict is the application_domain_conflict AuthKit HTTP wire error code.
+	ErrApplicationDomainConflict ErrorCode = "application_domain_conflict"
+
 	// ErrApplicationDomainInvalid is the application_domain_invalid AuthKit HTTP wire error code.
 	ErrApplicationDomainInvalid ErrorCode = "application_domain_invalid"
 

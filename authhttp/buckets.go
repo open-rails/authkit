@@ -31,6 +31,9 @@ const (
 	// #264 application self-registration (per-IP AND per-domain/slug keys).
 	RLApplicationRegister = "application_register"
 	RLApplicationRotate   = "application_rotate"
+	// #264 anti-squat velocity: group settings (slug rename IS a claim),
+	// keyed per-IP and per-user.
+	RLGroupSettings = "group_settings"
 
 	RLPasswordResetRequest = "auth_pwd_reset_request"
 	RLPasswordResetConfirm = "auth_pwd_reset_confirm"

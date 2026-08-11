@@ -13,6 +13,7 @@ import (
 var (
 	ErrApplicationDocumentFetchFailed    = errors.New("application_document_fetch_failed")
 	ErrApplicationDocumentInvalid        = errors.New("application_document_invalid")
+	ErrApplicationDomainConflict         = errors.New("application_domain_conflict")
 	ErrApplicationDomainInvalid          = errors.New("application_domain_invalid")
 	ErrApplicationIssuerConflict         = errors.New("application_issuer_conflict")
 	ErrApplicationNotDomainRooted        = errors.New("application_not_domain_rooted")
@@ -151,6 +152,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrRemoteApplicationNotFound:   http.StatusNotFound,
 	ErrInviteLinkNotFound:          http.StatusNotFound,
 	// 409 — conflicts with current state.
+	ErrApplicationDomainConflict:   http.StatusConflict,
 	ErrApplicationIssuerConflict:   http.StatusConflict,
 	ErrApplicationNotDomainRooted:  http.StatusConflict,
 	ErrApplicationSlugConflict:     http.StatusConflict,
@@ -258,7 +260,7 @@ func ErrorCodes() []string {
 // a new sentinel needs a line here too; the uniqueness check in errors_test.go
 // fails loudly if two share a code.
 var errorSentinels = []error{
-	ErrApplicationDocumentFetchFailed, ErrApplicationDocumentInvalid, ErrApplicationDomainInvalid,
+	ErrApplicationDocumentFetchFailed, ErrApplicationDocumentInvalid, ErrApplicationDomainConflict, ErrApplicationDomainInvalid,
 	ErrApplicationIssuerConflict, ErrApplicationNotDomainRooted, ErrApplicationRegistrationDisabled,
 	ErrApplicationSignatureInvalid, ErrApplicationSignatureStale, ErrApplicationSlugConflict,
 	ErrApplicationTierInvalid, ErrGroupSlugApplicationManaged, ErrGroupSlugTaken,

@@ -266,6 +266,7 @@ func remoteAppFromRow(row remoteAppRow) *RemoteApplication {
 		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode,
 		PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled,
 		DisplayName: row.DisplayName, Tier: row.Tier, TrustRoot: row.TrustRoot,
+		Domain:           row.Domain,
 		DocumentEndpoint: row.DocumentEndpoint,
 		CreatedAt:        row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
@@ -414,7 +415,7 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, i
 	q := db.ForSchema(s.pg, s.dbSchema())
 	rows, err := q.Query(ctx,
 		`SELECT id::text, slug, COALESCE(permission_group_id::text, ''), issuer, COALESCE(jwks_uri,''),
-		        mode, public_keys, enabled, display_name, tier, trust_root, document_endpoint,
+		        mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint,
 		        root_verified_at, created_at, updated_at
 		 FROM profiles.remote_applications
 		 WHERE permission_group_id = $1::uuid
@@ -432,7 +433,7 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, i
 		)
 		if err := rows.Scan(&ra.ID, &ra.Slug, &ra.PermissionGroupID, &ra.Issuer, &ra.JWKSURI,
 			&ra.Mode, &rawKeys, &ra.Enabled, &ra.DisplayName, &ra.Tier, &ra.TrustRoot,
-			&ra.DocumentEndpoint, &verifiedAt,
+			&ra.Domain, &ra.DocumentEndpoint, &verifiedAt,
 			&ra.CreatedAt, &ra.UpdatedAt); err != nil {
 			return nil, err
 		}

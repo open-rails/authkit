@@ -509,7 +509,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | DELETE | `/admin/users/{user_id}` | admin | `root:users:delete` |
 | POST | `/admin/users/{user_id}/restore` | admin | `root:users:delete` |
 | POST | `/admin/applications/{slug}/tier` | admin | `root:credentials:manage` (#264 — tier `registered`\|`approved`) |
-| POST | `/applications/register` | applications | none (#264 — the server-side domain fetch is the proof; mounted only with `Applications.SelfRegistration`) |
+| POST | `/applications/register` | applications | none (#264 — the server-side domain fetch is the proof; the slug is a separately claimed handle; mounted only with `Applications.SelfRegistration`) |
 | POST | `/applications/{slug}/rotate` | applications | per-message JWS (#264) |
 | POST | `/applications/{slug}/repoint` | applications | per-message JWS + new-domain proof (#264) |
 

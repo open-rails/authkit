@@ -1,9 +1,10 @@
 -- ak#264: application self-registration + naming doctrine.
 --
 -- Identity is the uuid (v7, both tables already key on it); slugs are meaningful
--- unique HANDLES (GitHub model). Applications earn slug = domain by domain proof,
--- so slugs (and permission-group instance slugs, where each application's
--- service-owned org mirrors its domain) must admit dotted DNS names.
+-- unique HANDLES (GitHub model), claimed freely through the same availability +
+-- anti-squat gates as any org. Slugs and domains are SEPARATE: the domain is the
+-- application's TRUST ROOT (identity proof + key rotation via re-fetch), never
+-- its handle. Slug rules admit dotted names (the default claim is the domain).
 
 -- permission_groups: first-class display name (free-form, non-unique, renameable
 -- at will — vanity naming lives here, never on the slug) + domain-shaped slugs.
@@ -52,15 +53,23 @@ COMMENT ON TABLE profiles.permission_group_slug_tombstones IS
 --   tier        registered (self-registered: exists, authenticates, serves/fetches
 --               documents — zero default capability) | approved (admin act).
 --   trust_root  what can rotate the keys: manual (admin/bootstrap-managed),
---               domain (re-fetching https://<slug>/.well-known/authkit/application.json
---               re-proves control and adopts current keys), user (the owning
---               user's authenticated session). NEVER the keypair alone.
+--               domain (re-fetching the stored domain's
+--               /.well-known/authkit/application.json re-proves control and
+--               adopts current keys), user (the owning user's authenticated
+--               session). NEVER the keypair alone.
 ALTER TABLE profiles.remote_applications
   ADD COLUMN IF NOT EXISTS display_name text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS tier text NOT NULL DEFAULT 'approved',
   ADD COLUMN IF NOT EXISTS trust_root text NOT NULL DEFAULT 'manual',
+  ADD COLUMN IF NOT EXISTS domain text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS document_endpoint text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS root_verified_at timestamptz;
+
+-- One application per proven domain: the domain is the re-registration key
+-- (create-or-reprove idempotency) and the recovery root.
+CREATE UNIQUE INDEX IF NOT EXISTS remote_applications_domain_uidx
+  ON profiles.remote_applications (domain)
+  WHERE domain <> '';
 
 ALTER TABLE profiles.remote_applications
   ADD CONSTRAINT remote_applications_tier_chk CHECK (tier IN ('registered', 'approved')),
@@ -79,5 +88,7 @@ COMMENT ON COLUMN profiles.remote_applications.tier IS
   'registered (self-registered; zero default capability) | approved (admin act on the host).';
 COMMENT ON COLUMN profiles.remote_applications.trust_root IS
   'What rotates the keys: manual | domain | user. Never the keypair alone.';
+COMMENT ON COLUMN profiles.remote_applications.domain IS
+  'Trust-root location for domain-rooted applications (canonical registration input; empty otherwise). Separate from slug — the domain proves identity, the slug is a claimed handle.';
 COMMENT ON COLUMN profiles.remote_applications.root_verified_at IS
   'Last successful trust-root proof (domain fetch). Re-verification cadence is host policy (host sweepers disable stale registered-tier apps; re-registration re-proves and re-enables).';

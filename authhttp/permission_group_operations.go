@@ -759,6 +759,18 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, persona, i
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
+	// #264 anti-squat velocity: a slug rename is a CLAIM — capped per IP and
+	// per user (authkit owns anti-spam velocity; cost gates are the host's).
+	if req.Slug != nil {
+		if s.rateLimited(w, r, RLGroupSettings) {
+			return
+		}
+		if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+			if s.rateLimitedByIdentifier(w, r, RLGroupSettings, claims.UserID) {
+				return
+			}
+		}
+	}
 	if req.DisplayName != nil && len(*req.DisplayName) > 256 {
 		badRequest(w, ErrInvalidRequest)
 		return

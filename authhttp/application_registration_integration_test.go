@@ -5,8 +5,8 @@ package authhttp
 // server. Covers the whole doctrine: domain-proof registration with a
 // service-owned org, idempotent re-registration, ROTATION-FROM-ROOT (old
 // keypair gone entirely — the fresh domain proof adopts the new keys),
-// convenience JWS rotation, signed repoint with tombstone-forwarding org
-// rename, host-sweeper disable + re-proof recovery, and the admin tier act.
+// convenience JWS rotation, signed repoint (trust root moves; slug/org
+// stable), host-sweeper disable + re-proof recovery, and the admin tier act.
 // Skips without AUTHKIT_TEST_DATABASE_URL.
 
 import (
@@ -195,12 +195,11 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.Contains(t, rec.Body.String(), "application_signature_stale")
 
-	// ---- repoint: signed request + fresh proof of the NEW domain ----
-	slug2 := "app2-" + suffix
+	// ---- repoint: the TRUST ROOT moves to a new domain; uuid, slug, and the
+	// org are all stable (slugs and domains are separate) ----
 	docSrv2 := newDocServer(t)
 	docSrv2.set(authkit.ApplicationDocument{
-		Slug:        slug2,
-		DisplayName: "App2 " + suffix,
+		DisplayName: "App " + suffix + " moved",
 		Issuer:      docSrv2.srv.URL,
 		PublicKeys:  []authkit.RemoteAppKey{staticKey(t, keyC)},
 	})
@@ -210,27 +209,31 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	})
 	rec, body = postJSON(t, h, "/api/v1/applications/"+slug+"/repoint", map[string]any{"jws": repoint})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	require.Equal(t, slug2, body["application"].(map[string]any)["slug"])
+	require.Equal(t, slug, body["application"].(map[string]any)["slug"], "slug is a claimed handle, stable across repoint")
 	require.Equal(t, appID, body["application"].(map[string]any)["id"], "uuid stable across repoint")
-	require.Equal(t, slug2, body["org"].(map[string]any)["instance_slug"], "org slug follows the domain")
+	require.Equal(t, docSrv2.srv.URL, body["application"].(map[string]any)["domain"], "trust root moved")
+	require.Equal(t, slug, body["org"].(map[string]any)["instance_slug"], "org unchanged")
 
-	// The old org slug is tombstoned and FORWARDS to the same group.
-	gidNew, err := core.ResolveGroupIDForSlug(ctx, "org", slug2)
-	require.NoError(t, err)
-	gidOld, err := core.ResolveGroupIDForSlug(ctx, "org", slug)
-	require.NoError(t, err, "renamed-away slug must forward, not 404")
-	require.Equal(t, gidNew, gidOld)
+	// The OLD domain is free again: a new registrant there gets a NEW identity.
+	docSrv.set(authkit.ApplicationDocument{
+		Slug:       "newowner-" + suffix,
+		Issuer:     docSrv.srv.URL + "/other", // distinct issuer
+		PublicKeys: []authkit.RemoteAppKey{staticKey(t, keyA)},
+	})
+	rec, body = postJSON(t, h, "/api/v1/applications/register", map[string]any{"domain": docSrv.srv.URL})
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	require.NotEqual(t, appID, body["application"].(map[string]any)["id"], "a re-registered old domain is a fresh identity")
 
 	// ---- host sweeper disables a stale registration; re-proof re-enables ----
 	// (#264 ruling 5, simplified: re-verification cadence is HOST policy — the
 	// host reads RootVerifiedAt and calls SetApplicationEnabled.)
-	ra, err = core.SetApplicationEnabled(ctx, slug2, false)
+	ra, err = core.SetApplicationEnabled(ctx, slug, false)
 	require.NoError(t, err)
 	require.False(t, ra.Enabled)
 
 	// A disabled app's keys are no longer trusted for signed requests.
-	rec, _ = postJSON(t, h, "/api/v1/applications/"+slug2+"/rotate", map[string]any{"jws": signAppJWS(t, keyC, map[string]any{
-		"op": "rotate", "slug": slug2, "aud": cfg.Token.Issuer, "iat": time.Now().Unix(),
+	rec, _ = postJSON(t, h, "/api/v1/applications/"+slug+"/rotate", map[string]any{"jws": signAppJWS(t, keyC, map[string]any{
+		"op": "rotate", "slug": slug, "aud": cfg.Token.Issuer, "iat": time.Now().Unix(),
 		"public_keys": []map[string]string{{"kid": "key-c", "public_key_pem": staticKey(t, keyC).PublicKeyPEM}},
 	})})
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -238,16 +241,16 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	// Recovery is the trust root: re-register (fresh domain proof).
 	rec, _ = postJSON(t, h, "/api/v1/applications/register", map[string]any{"domain": docSrv2.srv.URL})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	ra, err = core.GetRemoteApplicationBySlug(ctx, slug2)
+	ra, err = core.GetRemoteApplicationBySlug(ctx, slug)
 	require.NoError(t, err)
 	require.True(t, ra.Enabled, "re-proving the root re-enables the application")
 
 	// ---- approval is an admin act ----
-	ra2, err := core.SetApplicationTier(ctx, slug2, "approved")
+	ra2, err := core.SetApplicationTier(ctx, slug, "approved")
 	require.NoError(t, err)
 	require.Equal(t, "approved", ra2.Tier)
 
-	_, err = core.SetApplicationTier(ctx, slug2, "funded")
+	_, err = core.SetApplicationTier(ctx, slug, "funded")
 	require.ErrorIs(t, err, authkit.ErrApplicationTierInvalid)
 }
 
