@@ -188,7 +188,8 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 				serverErr(w, ErrTokenIssueFailed)
 				return
 			}
-			tokens = &tokenSet
+			delivered := s.deliverRefreshToken(w, r, tokenSet)
+			tokens = &delivered
 		}
 
 		writeJSON(w, http.StatusAccepted, newRegistrationResponse(username, nil, &identifier, nextAction, tokens))
@@ -251,7 +252,8 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 			serverErr(w, ErrTokenIssueFailed)
 			return
 		}
-		tokens = &tokenSet
+		delivered := s.deliverRefreshToken(w, r, tokenSet)
+		tokens = &delivered
 	}
 
 	writeJSON(w, http.StatusAccepted, newRegistrationResponse(username, &identifier, nil, nextAction, tokens))

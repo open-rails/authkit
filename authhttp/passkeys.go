@@ -98,7 +98,7 @@ func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Re
 	ua := r.UserAgent()
 	ip := remoteIP(r)
 	s.svc.LogSessionCreated(r.Context(), result.UserID, "passkey_login", result.SessionID, &ip, &ua)
-	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(result.AccessToken, result.RefreshToken, result.ExpiresAt), nil)
+	s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(result.AccessToken, result.RefreshToken, result.ExpiresAt), nil)
 }
 
 func (s *Service) handlePasskeysGET(w http.ResponseWriter, r *http.Request) {

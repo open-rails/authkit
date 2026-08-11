@@ -357,7 +357,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		ip := remoteIP(r)
 		uaPtr, ipPtr := &ua, &ip
 		s.svc.LogSessionCreated(r.Context(), finalUserID, "password_login", sid, ipPtr, uaPtr)
-		writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(accessTok, rt, accessExp), nil)
+		s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(accessTok, rt, accessExp), nil)
 		return
 	}
 

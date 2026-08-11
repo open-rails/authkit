@@ -86,7 +86,7 @@ func (s *Service) handleUser2FAVerifyPOST(w http.ResponseWriter, r *http.Request
 	uaPtr, ipPtr := &ua, &ip
 	s.svc.LogSessionCreated(r.Context(), userID, "password_login_2fa", sid, ipPtr, uaPtr)
 
-	writeAccessTokenJSON(w, http.StatusOK, newAuthTokens(token, rt, exp), nil)
+	s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(token, rt, exp), nil)
 }
 
 func (s *Service) handleUser2FAChallengePOST(w http.ResponseWriter, r *http.Request) {

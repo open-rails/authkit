@@ -27,5 +27,8 @@ func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, ErrFailedToLogout)
 		return
 	}
+	// ak#271: the server-side session is gone, so the jar value must go too —
+	// otherwise the browser keeps posting a dead credential forever.
+	s.clearRefreshCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
