@@ -118,15 +118,33 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 			return "", fmt.Errorf("resolve %q parent: %w", parentPersona, err)
 		}
 	}
-	id, err := st.CreateGroup(ctx, req.Persona, parentID, req.InstanceSlug)
+	// #264: a tombstoned slug is permanently reserved to the group that
+	// renamed away from it — never claimable by a NEW group.
+	if req.Persona != RootPersona {
+		if tombstoned, err := st.slugTombstoneTarget(ctx, req.Persona, req.InstanceSlug); err != nil {
+			return "", err
+		} else if tombstoned != "" {
+			return "", ErrGroupSlugTaken
+		}
+	}
+	id, err := st.CreateGroupNamed(ctx, req.Persona, parentID, req.InstanceSlug, strings.TrimSpace(req.DisplayName))
 	if err != nil {
 		return "", err
 	}
 	if req.OwnerSubjectID != "" {
-		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(tx, s.dbSchema()), id, req.Persona, req.OwnerSubjectID, SubjectKindUser, OwnerRoleName); err != nil {
+		// #264 service-owned orgs: the owner may be a user (default) or a
+		// remote-application principal.
+		ownerKind := strings.TrimSpace(req.OwnerSubjectKind)
+		if ownerKind == "" {
+			ownerKind = SubjectKindUser
+		}
+		if _, _, err := groupRoleTable(ownerKind); err != nil {
+			return "", err
+		}
+		if err := s.requireMFAForRoleAssignment(ctx, db.ForSchema(tx, s.dbSchema()), id, req.Persona, req.OwnerSubjectID, ownerKind, OwnerRoleName); err != nil {
 			return "", fmt.Errorf("seed owner: %w", err)
 		}
-		if err := st.AssignRole(ctx, id, req.OwnerSubjectID, SubjectKindUser, OwnerRoleName); err != nil {
+		if err := st.AssignRole(ctx, id, req.OwnerSubjectID, ownerKind, OwnerRoleName); err != nil {
 			return "", fmt.Errorf("seed owner: %w", err)
 		}
 	}
@@ -134,6 +152,74 @@ func (s *Service) CreatePermissionGroup(ctx context.Context, req CreatePermissio
 		return "", err
 	}
 	return id, nil
+}
+
+// SetPermissionGroupDisplayName updates a group's free-form, non-unique
+// display name (#264 naming doctrine: vanity naming lives here, renameable at
+// will; the slug stays the unique handle). Callers gate authorization.
+func (s *Service) SetPermissionGroupDisplayName(ctx context.Context, persona, instanceSlug, displayName string) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	st := s.groupStore()
+	gid, err := s.resolveGroupID(ctx, st, persona, instanceSlug)
+	if err != nil {
+		return err
+	}
+	return st.SetGroupDisplayName(ctx, gid, truncateDisplayName(displayName))
+}
+
+// RenamePermissionGroupSlug renames a group's instance slug (#264). The old
+// slug is tombstoned — permanently reserved to this group and FORWARDING to it
+// through slug resolution — so published references keep working and the slug
+// can never be re-claimed by someone else (repojacking prevention). A group
+// whose slug mirrors a domain-rooted application's proven domain renames only
+// via the application repoint flow. Authorization (owner-controlled,
+// tier-gated) is the caller's job.
+func (s *Service) RenamePermissionGroupSlug(ctx context.Context, persona, instanceSlug, newSlug string) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	persona = strings.TrimSpace(persona)
+	instanceSlug = strings.TrimSpace(instanceSlug)
+	newSlug = strings.ToLower(strings.TrimSpace(newSlug))
+	if persona == RootPersona {
+		return fmt.Errorf("the root group has no slug: %w", authkit.ErrUnknownGroupPersona)
+	}
+	if err := validateGroupInstanceSlug(persona, newSlug); err != nil {
+		return err
+	}
+	if newSlug == instanceSlug {
+		return nil
+	}
+
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
+	gid, err := st.GroupByLiveInstanceSlug(ctx, persona, instanceSlug)
+	if err != nil {
+		return err
+	}
+	// Domain-rooted application orgs keep slug = domain; renaming them here
+	// would desynchronize the proven identity.
+	var managed bool
+	if err := db.ForSchema(tx, s.dbSchema()).QueryRow(ctx,
+		`SELECT EXISTS (
+		   SELECT 1 FROM profiles.remote_applications
+		    WHERE permission_group_id = $1::uuid AND trust_root = 'domain' AND slug = $2
+		 )`, gid, instanceSlug).Scan(&managed); err != nil {
+		return err
+	}
+	if managed {
+		return ErrGroupSlugApplicationManaged
+	}
+	if err := st.RenameGroupSlug(ctx, gid, persona, instanceSlug, newSlug); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // resolveGroupID maps (persona, instance_slug) to an internal id; the root persona is
@@ -231,6 +317,40 @@ func (s *Service) RemoveGroupSubject(ctx context.Context, persona, instanceSlug,
 		return err
 	}
 	return st.UnassignSubject(ctx, gid, subjectID, subjectKind)
+}
+
+// DeletePermissionGroupOptions controls the delete-time naming rule (#264).
+type DeletePermissionGroupOptions = authkit.DeletePermissionGroupOptions
+
+// DeletePermissionGroup deletes a group instance (children, role assignments,
+// api keys, and remote applications cascade). Delete-time naming rule (#264
+// ruling 5): by DEFAULT the slug is TOMBSTONED to the group uuid forever —
+// fail-safe, published references can never be re-claimed. Passing
+// ReleaseSlug frees the name instead; that is safe ONLY for names nothing
+// ever referenced, and the judgment is the host's. authkit itself never
+// deletes a group — dormancy policy is entirely host-side.
+func (s *Service) DeletePermissionGroup(ctx context.Context, persona, instanceSlug string, opts DeletePermissionGroupOptions) error {
+	if err := s.requirePG(); err != nil {
+		return err
+	}
+	persona = strings.TrimSpace(persona)
+	if persona == RootPersona {
+		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
+	}
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	st := NewPermissionGroupStore(db.ForSchema(tx, s.dbSchema()))
+	gid, err := st.GroupByLiveInstanceSlug(ctx, persona, strings.TrimSpace(instanceSlug))
+	if err != nil {
+		return err
+	}
+	if err := st.DeleteGroup(ctx, gid, opts.ReleaseSlug); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Can is the Service-level authorization check: resolve the group addressed by

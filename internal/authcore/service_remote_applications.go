@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -19,11 +20,12 @@ import (
 )
 
 // remoteAppSlugRe validates a remote_application slug: lowercase alnum with
-// internal hyphens.
-var remoteAppSlugRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+// internal hyphens/dots (#264: domain-registered applications use slug =
+// domain, so slugs are DNS-name shaped; max 253, no consecutive dots).
+var remoteAppSlugRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
 func validateRemoteAppSlug(slug string) error {
-	if slug == "" || len(slug) > 63 || !remoteAppSlugRe.MatchString(slug) {
+	if slug == "" || len(slug) > 253 || !remoteAppSlugRe.MatchString(slug) || strings.Contains(slug, "..") {
 		return ErrInvalidRemoteApplication
 	}
 	return nil
@@ -177,9 +179,23 @@ func validateJWKSURI(raw string, allowInsecure bool) error {
 	if host == "" {
 		return errors.New("jwks_uri must have a non-empty host")
 	}
-	// Block well-known internal hostnames by name (case-insensitive).
-	// Covers localhost, cloud-metadata aliases, Docker/Podman host-access
-	// magic names, and any *.docker.internal / *.containers.internal suffix.
+	if isInternalHostname(host) {
+		return fmt.Errorf("jwks_uri host %q is not a public address", host)
+	}
+	// If the host is a literal IP, reject private/reserved ranges immediately.
+	if ip := net.ParseIP(host); ip != nil {
+		if isCorePrivateIP(ip) {
+			return fmt.Errorf("jwks_uri %q resolves to a private/reserved IP — not allowed", host)
+		}
+	}
+	return nil
+}
+
+// isInternalHostname blocks well-known internal hostnames by name
+// (case-insensitive). Covers localhost, cloud-metadata aliases, Docker/Podman
+// host-access magic names, and any *.docker.internal / *.containers.internal
+// suffix.
+func isInternalHostname(host string) bool {
 	lower := strings.ToLower(host)
 	switch {
 	case lower == "localhost",
@@ -197,15 +213,9 @@ func validateJWKSURI(raw string, allowInsecure bool) error {
 		// Podman / newer OCI runtimes
 		lower == "host.containers.internal",
 		strings.HasSuffix(lower, ".containers.internal"):
-		return fmt.Errorf("jwks_uri host %q is not a public address", host)
+		return true
 	}
-	// If the host is a literal IP, reject private/reserved ranges immediately.
-	if ip := net.ParseIP(host); ip != nil {
-		if isCorePrivateIP(ip) {
-			return fmt.Errorf("jwks_uri %q resolves to a private/reserved IP — not allowed", host)
-		}
-	}
-	return nil
+	return false
 }
 
 // validatePublicKeyPEM accepts PKIX ("PUBLIC KEY") and PKCS1 ("RSA PUBLIC
@@ -246,8 +256,24 @@ func decodeRemoteAppKeys(raw []byte) []RemoteAppKey {
 // in authkit (core-free) and re-exported here.
 type RemoteApplication = authkit.RemoteApplication
 
-func remoteAppFromUpsert(row db.RemoteApplicationUpsertRow) *RemoteApplication {
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+// remoteAppRow is the canonical remote_application projection every sqlc query
+// returns; the per-query row structs are field-identical and convert directly.
+type remoteAppRow = db.RemoteApplicationBySlugRow
+
+func remoteAppFromRow(row remoteAppRow) *RemoteApplication {
+	ra := &RemoteApplication{
+		ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID,
+		Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode,
+		PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled,
+		DisplayName: row.DisplayName, Tier: row.Tier, TrustRoot: row.TrustRoot,
+		Domain:           row.Domain,
+		DocumentEndpoint: row.DocumentEndpoint,
+		CreatedAt:        row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+	if row.RootVerifiedAt != nil {
+		ra.RootVerifiedAt = *row.RootVerifiedAt
+	}
+	return ra
 }
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
@@ -305,7 +331,7 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 	if err != nil {
 		return nil, err
 	}
-	return remoteAppFromUpsert(row), nil
+	return remoteAppFromRow(remoteAppRow(row)), nil
 }
 
 // GetRemoteApplication returns a remote_application by OIDC issuer URL.
@@ -324,7 +350,7 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return remoteAppFromRow(remoteAppRow(row)), nil
 }
 
 // GetRemoteApplicationBySlug returns a remote_application by slug.
@@ -343,7 +369,7 @@ func (s *Service) GetRemoteApplicationBySlug(ctx context.Context, slug string) (
 	if err != nil {
 		return nil, err
 	}
-	return &RemoteApplication{ID: row.ID, Slug: row.Slug, PermissionGroupID: row.PermissionGroupID, Issuer: row.Issuer, JWKSURI: row.JwksUri, Mode: row.Mode, PublicKeys: decodeRemoteAppKeys(row.PublicKeys), Enabled: row.Enabled, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return remoteAppFromRow(row), nil
 }
 
 // ListRemoteApplications returns registered remote_applications. When activeOnly
@@ -359,7 +385,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, PermissionGroupID: r.PermissionGroupID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+			out = append(out, *remoteAppFromRow(remoteAppRow(r)))
 		}
 		return out, nil
 	}
@@ -368,7 +394,7 @@ func (s *Service) ListRemoteApplications(ctx context.Context, activeOnly bool) (
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, RemoteApplication{ID: r.ID, Slug: r.Slug, PermissionGroupID: r.PermissionGroupID, Issuer: r.Issuer, JWKSURI: r.JwksUri, Mode: r.Mode, PublicKeys: decodeRemoteAppKeys(r.PublicKeys), Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt})
+		out = append(out, *remoteAppFromRow(remoteAppRow(r)))
 	}
 	return out, nil
 }
@@ -389,7 +415,8 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, i
 	q := db.ForSchema(s.pg, s.dbSchema())
 	rows, err := q.Query(ctx,
 		`SELECT id::text, slug, COALESCE(permission_group_id::text, ''), issuer, COALESCE(jwks_uri,''),
-		        mode, public_keys, enabled, created_at, updated_at
+		        mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint,
+		        root_verified_at, created_at, updated_at
 		 FROM profiles.remote_applications
 		 WHERE permission_group_id = $1::uuid
 		 ORDER BY created_at DESC`, gid)
@@ -400,15 +427,20 @@ func (s *Service) ListRemoteApplicationsForGroup(ctx context.Context, persona, i
 	out := make([]RemoteApplication, 0)
 	for rows.Next() {
 		var (
-			ra      RemoteApplication
-			rawKeys []byte
+			ra         RemoteApplication
+			rawKeys    []byte
+			verifiedAt *time.Time
 		)
 		if err := rows.Scan(&ra.ID, &ra.Slug, &ra.PermissionGroupID, &ra.Issuer, &ra.JWKSURI,
-			&ra.Mode, &rawKeys, &ra.Enabled,
+			&ra.Mode, &rawKeys, &ra.Enabled, &ra.DisplayName, &ra.Tier, &ra.TrustRoot,
+			&ra.Domain, &ra.DocumentEndpoint, &verifiedAt,
 			&ra.CreatedAt, &ra.UpdatedAt); err != nil {
 			return nil, err
 		}
 		ra.PublicKeys = decodeRemoteAppKeys(rawKeys)
+		if verifiedAt != nil {
+			ra.RootVerifiedAt = *verifiedAt
+		}
 		out = append(out, ra)
 	}
 	return out, rows.Err()

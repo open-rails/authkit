@@ -587,6 +587,71 @@ Pre-launch consumers hard-cut from any application-specific
 `attributes.policy_digest` convention to `documents[type]`. AuthKit intentionally
 provides no compatibility alias and never interprets an application payload.
 
+### Application self-registration (#264)
+
+Enable with `Config.Applications = ApplicationsConfig{SelfRegistration: true,
+OrgPersona: "org"}` (OrgPersona: a declared non-root persona parented by root).
+Routes mount only when enabled (`RouteApplications` group):
+
+```text
+POST /api/v1/applications/register          {"domain": "cozy.art"}
+POST /api/v1/applications/{slug}/rotate     {"jws": "<compact JWS>"}
+POST /api/v1/applications/{slug}/repoint    {"jws": "<compact JWS>"}
+POST /api/v1/admin/applications/{slug}/tier {"tier": "approved"}   (root:credentials:manage)
+```
+
+**Registration.** The server fetches
+`https://<domain>/.well-known/authkit/application.json` — that fetch IS the
+domain-control proof (https-only, redirect-refusing, SSRF-guarded outside
+dev-like environments; dev accepts an `http://127.0.0.1:<port>` base URL, and
+the manual/bootstrap path remains the loopback escape hatch). SLUGS AND
+DOMAINS ARE SEPARATE: the domain is the trust root and the re-registration
+key; the document's `slug` field is a REQUESTED handle (defaulting to the
+hostname) claimed through the same availability + anti-squat gates as any org
+slug — `cozy.art` can claim `cozy-creator`. The document also declares
+`issuer` (host must equal the proven domain outside dev), exactly one of
+`jwks_uri`/`public_keys`, and optional `display_name` / `document_endpoint`.
+Result: a `remote_applications` row (uuidv7 identity, tier `registered`,
+trust root `domain`) plus a SERVICE-OWNED org — an `OrgPersona` group whose
+instance slug is the claimed slug, owned by the application principal itself.
+Re-registering the same domain is idempotent: it re-proves the root and
+refreshes issuer/keys/config from the re-fetched document (the boot-time
+self-heal); the slug is never changed by a refresh. Per-IP and per-domain
+rate limits apply (`application_register` bucket);
+`embedded.WithApplicationAdmission` injects a host admission predicate — cost
+gates (allowances, card-on-file) are the host's, anti-spam velocity caps are
+authkit's.
+
+**Rotation doctrine.** The trust root — domain control, or the owning user
+account — rotates keys; the keypair alone NEVER does. If every old key is
+gone, re-registration adopts whatever the document declares now. The signed
+paths are conveniences: `rotate` (replace the trust source) and `repoint`
+(move the trust root to a new domain, proven by fetching the new domain's
+document; uuid, slug, and org are all stable)
+accept an ACME-style compact JWS signed by a currently-trusted key — JOSE `typ`
+`authkit-application-request+jws`, payload `{"op","slug","aud","iat",...}` with
+`aud` = this platform's issuer and `iat` within ±5 minutes (anti-replay; both
+operations are idempotent within the window). A disabled application's keys are
+not trusted — recovery is always the trust root.
+
+**Tiers.** `registered` buys existence only: authenticate + serve/fetch
+documents. `approved` is an admin act (`SetApplicationTier`). Re-verification
+cadence and dormancy are HOST policy: sweepers read `RootVerifiedAt` and call
+`SetApplicationEnabled`; authkit ships no clocks or background jobs.
+
+**Naming doctrine.** uuidv7 is the only join key; slugs are meaningful unique
+handles claimed like usernames (GitHub model); `display_name` is free-form non-unique metadata on
+both applications and permission groups. `PATCH /api/v1/<persona>/{slug}`
+(gated `<persona>:settings:manage`; owners hold it via the wildcard) renames a
+group slug or updates its display name. A renamed-away slug is TOMBSTONED:
+permanently reserved to the same group and forwarding through slug resolution,
+so published references keep working and nobody can ever re-claim it (the group
+may reclaim its own tombstone by renaming back). `DeletePermissionGroup`
+tombstones the slug by default; `DeletePermissionGroupOptions{ReleaseSlug:
+true}` frees it — safe only for names nothing ever referenced, and that
+judgment is the host's. Slug renames are velocity-capped per user + per IP
+(`group_settings` bucket) — a rename is a claim.
+
 Frontend code calls the AuthKit routes mounted by `MountHandler`:
 
 ```text

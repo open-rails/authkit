@@ -421,3 +421,60 @@ func (s *Client) ValidateVerificationConfiguration() error {
 func (s *Client) VerifyUserPassword(ctx context.Context, userID, pass string) bool {
 	return s.impl.VerifyUserPassword(ctx, userID, pass)
 }
+
+// Application self-registration (#264).
+
+// RegisterApplicationFromDomain runs the domain-proof registration flow:
+// fetch + validate https://<domain>/.well-known/authkit/application.json,
+// then create (or idempotently refresh) the application and its service-owned
+// org. See authhttp's POST /applications/register for the wire surface.
+func (s *Client) RegisterApplicationFromDomain(ctx context.Context, domain string) (*authkit.RegisteredApplication, error) {
+	return s.impl.RegisterApplicationFromDomain(ctx, domain)
+}
+
+// RotateApplicationSigned applies an old-key-signs-new trust-source rotation
+// from a compact JWS signed by a currently-trusted application key. The trust
+// root (domain / owning user) always remains able to rotate without it.
+func (s *Client) RotateApplicationSigned(ctx context.Context, slug, compactJWS string) (*authkit.RemoteApplication, error) {
+	return s.impl.RotateApplicationSigned(ctx, slug, compactJWS)
+}
+
+// RepointApplicationSigned moves a domain-rooted application to a new domain:
+// signed request + fresh domain proof of the new location.
+func (s *Client) RepointApplicationSigned(ctx context.Context, slug, compactJWS string) (*authkit.RegisteredApplication, error) {
+	return s.impl.RepointApplicationSigned(ctx, slug, compactJWS)
+}
+
+// SetApplicationTier sets an application's capability tier
+// (registered|approved). Approval is an admin act on the host.
+func (s *Client) SetApplicationTier(ctx context.Context, slug, tier string) (*authkit.RemoteApplication, error) {
+	return s.impl.SetApplicationTier(ctx, slug, tier)
+}
+
+// SetPermissionGroupDisplayName updates a group's free-form, non-unique
+// display name (#264 naming doctrine). Authorization is the caller's job.
+func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, persona, instanceSlug, displayName string) error {
+	return s.impl.SetPermissionGroupDisplayName(ctx, persona, instanceSlug, displayName)
+}
+
+// RenamePermissionGroupSlug renames a group's instance slug, tombstoning the
+// old slug (permanently reserved + forwarding through slug resolution).
+// Authorization (owner-controlled, tier-gated) is the caller's job.
+func (s *Client) RenamePermissionGroupSlug(ctx context.Context, persona, instanceSlug, newSlug string) error {
+	return s.impl.RenamePermissionGroupSlug(ctx, persona, instanceSlug, newSlug)
+}
+
+// DeletePermissionGroup deletes a group instance. By default the slug is
+// TOMBSTONED to the group uuid forever (fail-safe); opts.ReleaseSlug frees it
+// instead — safe ONLY for names nothing ever referenced, and that judgment is
+// the host's. authkit never deletes a group on its own.
+func (s *Client) DeletePermissionGroup(ctx context.Context, persona, instanceSlug string, opts authkit.DeletePermissionGroupOptions) error {
+	return s.impl.DeletePermissionGroup(ctx, persona, instanceSlug, opts)
+}
+
+// SetApplicationEnabled enables/disables an application registration — the
+// primitive host dormancy/re-verification sweepers act with (re-registration
+// via domain proof also re-enables).
+func (s *Client) SetApplicationEnabled(ctx context.Context, slug string, enabled bool) (*authkit.RemoteApplication, error) {
+	return s.impl.SetApplicationEnabled(ctx, slug, enabled)
+}

@@ -11,6 +11,7 @@ import authcore "github.com/open-rails/authkit/internal/authcore"
 // also picks these up on a full regen).
 
 type APIKeysConfig = authcore.APIKeysConfig
+type ApplicationsConfig = authcore.ApplicationsConfig
 type AdminRecoverUserInput = authcore.AdminRecoverUserInput
 type AuthSessionEvent = authcore.AuthSessionEvent
 type Config = authcore.Config
@@ -53,6 +54,12 @@ type ValidationError = authcore.ValidationError
 type VerificationMessage = authcore.VerificationMessage
 
 // Re-exported constants.
+const ApplicationTierRegistered = authcore.ApplicationTierRegistered
+const ApplicationTierApproved = authcore.ApplicationTierApproved
+const ApplicationTrustRootManual = authcore.ApplicationTrustRootManual
+const ApplicationTrustRootDomain = authcore.ApplicationTrustRootDomain
+const ApplicationTrustRootUser = authcore.ApplicationTrustRootUser
+const ApplicationWellKnownPath = authcore.ApplicationWellKnownPath
 const AssuranceLevelMFA = authcore.AssuranceLevelMFA
 const AssuranceLevelPassword = authcore.AssuranceLevelPassword
 const DefaultBootstrapManifestPath = authcore.DefaultBootstrapManifestPath
@@ -161,6 +168,9 @@ var ValidatePermission = authcore.ValidatePermission
 var ValidatePhone = authcore.ValidatePhone
 var ValidateUsername = authcore.ValidateUsername
 var ValidationErrorCode = authcore.ValidationErrorCode
+var PermSettingsManage = authcore.PermSettingsManage
+var WithApplicationAdmission = authcore.WithApplicationAdmission
+var WithApplicationsHTTPClient = authcore.WithApplicationsHTTPClient
 var WithEmailSender = authcore.WithEmailSender
 var WithEntitlements = authcore.WithEntitlements
 var WithPostgres = authcore.WithPostgres

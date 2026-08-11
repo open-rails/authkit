@@ -136,6 +136,15 @@ type ProfilesPermissionGroup struct {
 	InstanceSlug *string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	DisplayName  string
+}
+
+// Renamed-away instance slugs, permanently reserved to their group; slug->id resolution forwards through them.
+type ProfilesPermissionGroupSlugTombstone struct {
+	Persona           string
+	Slug              string
+	PermissionGroupID string
+	CreatedAt         time.Time
 }
 
 type ProfilesRefreshSession struct {
@@ -168,6 +177,16 @@ type ProfilesRemoteApplication struct {
 	UpdatedAt  time.Time
 	// Required controlling permission-group. Authority comes from group_remote_application_roles and the parent walk.
 	PermissionGroupID string
+	DisplayName       string
+	// registered (self-registered; zero default capability) | approved (admin act on the host).
+	Tier string
+	// What rotates the keys: manual | domain | user. Never the keypair alone.
+	TrustRoot string
+	// Trust-root location for domain-rooted applications (canonical registration input; empty otherwise). Separate from slug — the domain proves identity, the slug is a claimed handle.
+	Domain           string
+	DocumentEndpoint string
+	// Last successful trust-root proof (domain fetch). Re-verification cadence is host policy (host sweepers disable stale registered-tier apps; re-registration re-proves and re-enables).
+	RootVerifiedAt *time.Time
 }
 
 // Reference-mode attribute definitions: opaque JSON by remote application, key, and version.

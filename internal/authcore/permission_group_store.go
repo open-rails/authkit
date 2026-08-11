@@ -39,6 +39,15 @@ func groupRoleTable(subjectKind string) (table, subjectColumn string, err error)
 // live permission-group.
 var ErrGroupNotFound = authkit.ErrGroupNotFound
 
+// ErrGroupSlugTaken: the requested instance slug is held live by another group
+// or tombstoned to one (#264 — renamed-away slugs are never reclaimable).
+var ErrGroupSlugTaken = authkit.ErrGroupSlugTaken
+
+// ErrGroupSlugApplicationManaged: the group's slug mirrors a domain-rooted
+// application's slug (= its proven domain); it renames only through the
+// application repoint flow, never directly.
+var ErrGroupSlugApplicationManaged = authkit.ErrGroupSlugApplicationManaged
+
 // PermissionGroupStore is the database access layer for permission-groups. It
 // holds a db.DBTX (a *pgxpool.Pool or a pgx.Tx), so callers choose the txn scope.
 type PermissionGroupStore struct {
@@ -84,22 +93,174 @@ func (st *PermissionGroupStore) SeedContainment(ctx context.Context, schema *Gro
 // SHOULD also pre-validate via GroupSchema.ValidateParent for a clear error
 // before hitting the DB.
 func (st *PermissionGroupStore) CreateGroup(ctx context.Context, persona, parentID, instanceSlug string) (string, error) {
+	return st.CreateGroupNamed(ctx, persona, parentID, instanceSlug, "")
+}
+
+// CreateGroupNamed is CreateGroup with a first-class display name (#264):
+// free-form, non-unique vanity metadata (the slug stays the unique handle).
+func (st *PermissionGroupStore) CreateGroupNamed(ctx context.Context, persona, parentID, instanceSlug, displayName string) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
-		`INSERT INTO profiles.permission_groups (persona, parent_id, instance_slug)
-		 VALUES ($1, NULLIF($2,'')::uuid, NULLIF($3,''))
+		`INSERT INTO profiles.permission_groups (persona, parent_id, instance_slug, display_name)
+		 VALUES ($1, NULLIF($2,'')::uuid, NULLIF($3,''), $4)
 		 RETURNING id::text`,
-		persona, parentID, instanceSlug).Scan(&id)
+		persona, parentID, instanceSlug, displayName).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("create %q group: %w", persona, err)
 	}
 	return id, nil
 }
 
+// SetGroupDisplayName updates a group's free-form display name.
+func (st *PermissionGroupStore) SetGroupDisplayName(ctx context.Context, groupID, displayName string) error {
+	_, err := st.q.Exec(ctx,
+		`UPDATE profiles.permission_groups SET display_name = $2 WHERE id = $1::uuid`,
+		groupID, displayName)
+	return err
+}
+
+// DeleteGroup deletes a group row (FKs cascade) applying the #264 ruling-5
+// naming rule: by DEFAULT the group's live slug is TOMBSTONED to its uuid
+// forever (and any tombstones it already held survive — no FK). releaseSlug
+// releases everything instead (live slug free, own tombstones dropped);
+// release is safe ONLY for names nothing ever referenced, and that judgment
+// is the host's.
+func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string, releaseSlug bool) error {
+	var (
+		persona string
+		slug    *string
+	)
+	err := st.q.QueryRow(ctx,
+		`SELECT persona, instance_slug FROM profiles.permission_groups
+		 WHERE id = $1::uuid FOR UPDATE`, groupID).Scan(&persona, &slug)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrGroupNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if releaseSlug {
+		if _, err := st.q.Exec(ctx,
+			`DELETE FROM profiles.permission_group_slug_tombstones WHERE permission_group_id = $1::uuid`,
+			groupID); err != nil {
+			return err
+		}
+	} else if slug != nil && *slug != "" {
+		if _, err := st.q.Exec(ctx,
+			`INSERT INTO profiles.permission_group_slug_tombstones (persona, slug, permission_group_id)
+			 VALUES ($1, $2, $3::uuid)
+			 ON CONFLICT (persona, slug) DO NOTHING`, persona, *slug, groupID); err != nil {
+			return err
+		}
+	}
+	_, err = st.q.Exec(ctx, `DELETE FROM profiles.permission_groups WHERE id = $1::uuid`, groupID)
+	return err
+}
+
+// slugTombstoneTarget returns the group id a tombstoned (persona, slug) is
+// permanently reserved to, or "" when no tombstone exists.
+func (st *PermissionGroupStore) slugTombstoneTarget(ctx context.Context, persona, slug string) (string, error) {
+	var id string
+	err := st.q.QueryRow(ctx,
+		`SELECT permission_group_id::text FROM profiles.permission_group_slug_tombstones
+		 WHERE persona = $1 AND slug = $2`, persona, slug).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// InstanceSlugAvailable reports whether (persona, slug) can be claimed by a NEW
+// group: no live group holds it and no tombstone reserves it (#264 — a
+// renamed-away slug is never reclaimable by anyone else).
+func (st *PermissionGroupStore) InstanceSlugAvailable(ctx context.Context, persona, slug string) (bool, error) {
+	if _, err := st.GroupByLiveInstanceSlug(ctx, persona, slug); err == nil {
+		return false, nil
+	} else if !errors.Is(err, ErrGroupNotFound) {
+		return false, err
+	}
+	target, err := st.slugTombstoneTarget(ctx, persona, slug)
+	if err != nil {
+		return false, err
+	}
+	return target == "", nil
+}
+
+// RenameGroupSlug renames a group's instance slug (#264 naming doctrine). The
+// old slug is TOMBSTONED: permanently reserved to this group and forwarding to
+// it at resolution time. The new slug must be free — not held live and not
+// tombstoned to another group; the group MAY reclaim its own tombstone (the
+// tombstone row is deleted, the slug is live again).
+func (st *PermissionGroupStore) RenameGroupSlug(ctx context.Context, groupID, persona, oldSlug, newSlug string) error {
+	if _, err := st.GroupByLiveInstanceSlug(ctx, persona, newSlug); err == nil {
+		return ErrGroupSlugTaken
+	} else if !errors.Is(err, ErrGroupNotFound) {
+		return err
+	}
+	target, err := st.slugTombstoneTarget(ctx, persona, newSlug)
+	if err != nil {
+		return err
+	}
+	switch target {
+	case "":
+	case groupID: // reclaiming its own tombstone
+		if _, err := st.q.Exec(ctx,
+			`DELETE FROM profiles.permission_group_slug_tombstones
+			 WHERE persona = $1 AND slug = $2`, persona, newSlug); err != nil {
+			return err
+		}
+	default:
+		return ErrGroupSlugTaken
+	}
+	tag, err := st.q.Exec(ctx,
+		`UPDATE profiles.permission_groups SET instance_slug = $2 WHERE id = $1::uuid`,
+		groupID, newSlug)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrGroupNotFound
+	}
+	_, err = st.q.Exec(ctx,
+		`INSERT INTO profiles.permission_group_slug_tombstones (persona, slug, permission_group_id)
+		 VALUES ($1, $2, $3::uuid)
+		 ON CONFLICT (persona, slug) DO NOTHING`,
+		persona, oldSlug, groupID)
+	return err
+}
+
 // GroupByInstanceSlug resolves a group by its API addressing key (persona,
 // instance_slug) — the route layer's (persona, instance_slug). Returns the internal
-// id, which never leaves authkit.
+// id, which never leaves authkit. A renamed-away slug FORWARDS: tombstones
+// (#264) resolve to the group that renamed away from them, so every
+// slug-routed consumer surface follows renames for free. Live slugs win.
 func (st *PermissionGroupStore) GroupByInstanceSlug(ctx context.Context, persona, instanceSlug string) (string, error) {
+	var id string
+	err := st.q.QueryRow(ctx,
+		`SELECT id FROM (
+		   SELECT id::text AS id, 0 AS pri FROM profiles.permission_groups
+		    WHERE persona = $1 AND instance_slug = $2
+		   UNION ALL
+		   SELECT g.id::text, 1 FROM profiles.permission_group_slug_tombstones ts
+		     JOIN profiles.permission_groups g ON g.id = ts.permission_group_id
+		    WHERE ts.persona = $1 AND ts.slug = $2
+		 ) c ORDER BY pri LIMIT 1`,
+		persona, instanceSlug).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrGroupNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// GroupByLiveInstanceSlug resolves (persona, instance_slug) WITHOUT tombstone
+// forwarding — the group currently holding the slug, or ErrGroupNotFound.
+func (st *PermissionGroupStore) GroupByLiveInstanceSlug(ctx context.Context, persona, instanceSlug string) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
 		`SELECT id::text FROM profiles.permission_groups
@@ -442,7 +603,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 		return nil, err
 	}
 	rows, err := st.q.Query(ctx,
-		fmt.Sprintf(`SELECT g.persona, COALESCE(g.instance_slug, ''), a.role
+		fmt.Sprintf(`SELECT g.persona, COALESCE(g.instance_slug, ''), g.display_name, a.role
 		 FROM %s a
 		 JOIN profiles.permission_groups g ON g.id = a.permission_group_id
 		 WHERE a.%s = $1::uuid AND a.deleted_at IS NULL
@@ -454,7 +615,7 @@ func (st *PermissionGroupStore) SubjectGroups(ctx context.Context, subjectID, su
 	var out []SubjectGroupMembership
 	for rows.Next() {
 		var m SubjectGroupMembership
-		if err := rows.Scan(&m.Persona, &m.InstanceSlug, &m.Role); err != nil {
+		if err := rows.Scan(&m.Persona, &m.InstanceSlug, &m.DisplayName, &m.Role); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

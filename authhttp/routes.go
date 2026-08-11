@@ -20,6 +20,10 @@ const (
 	RouteAdmin            RouteGroup = "admin"
 	RoutePermissionGroups RouteGroup = "permission_groups"
 	RouteBrowserOIDC      RouteGroup = "browser_oidc"
+	// RouteApplications is the #264 application self-registration surface
+	// (register / rotate / repoint). Mounted only when the host enables
+	// Config.Applications.SelfRegistration.
+	RouteApplications RouteGroup = "applications"
 )
 
 // RouteSpec is a concrete, prefix-neutral route with its AuthKit handler
@@ -185,6 +189,16 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
+
+		// #264 application self-registration: unauthenticated by design — the
+		// domain proof / per-message JWS is the authentication. Mounted only
+		// when Applications.SelfRegistration is enabled (see filter below).
+		{Method: http.MethodPost, Path: "/applications/register", Group: RouteApplications, Handler: http.HandlerFunc(s.handleApplicationRegisterPOST)},
+		{Method: http.MethodPost, Path: "/applications/{slug}/rotate", Group: RouteApplications, Handler: http.HandlerFunc(s.handleApplicationRotatePOST)},
+		{Method: http.MethodPost, Path: "/applications/{slug}/repoint", Group: RouteApplications, Handler: http.HandlerFunc(s.handleApplicationRepointPOST)},
+		// Tier changes are an admin act; mounted regardless of self-registration
+		// (manual registrations carry tiers too).
+		{Method: http.MethodPost, Path: "/admin/applications/{slug}/tier", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootCredentialsManage, s.handleAdminApplicationTierPOST)},
 	}
 
 	// Passkey routes are mounted only when passkeys are configured. Without a
@@ -199,6 +213,7 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	twoFactorEnabled := s.svc.TwoFactorEnabled()
 	solanaEnabled := strings.TrimSpace(cfg.SolanaNetwork) != ""
 	oidcEnabled := len(s.authProviders()) > 0
+	applicationsEnabled := cfg.Applications.SelfRegistration
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {
@@ -220,6 +235,9 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 			continue
 		}
 		if isOIDCPath(route.Path) && !oidcEnabled {
+			continue
+		}
+		if isApplicationsPath(route.Path) && !applicationsEnabled {
 			continue
 		}
 		route.Handler = lang(route.Handler)
@@ -261,6 +279,10 @@ func isSolanaPath(path string) bool {
 
 func isOIDCPath(path string) bool {
 	return strings.HasPrefix(path, "/oidc/")
+}
+
+func isApplicationsPath(path string) bool {
+	return strings.HasPrefix(path, "/applications/")
 }
 
 // OIDCBrowserRoutes returns browser redirect routes with no mount prefix.

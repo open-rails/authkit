@@ -60,6 +60,39 @@ const (
 	// ErrAddressRequired is the address_required AuthKit HTTP wire error code.
 	ErrAddressRequired ErrorCode = "address_required"
 
+	// ErrApplicationDocumentFetchFailed is the application_document_fetch_failed AuthKit HTTP wire error code.
+	ErrApplicationDocumentFetchFailed ErrorCode = "application_document_fetch_failed"
+
+	// ErrApplicationDocumentInvalid is the application_document_invalid AuthKit HTTP wire error code.
+	ErrApplicationDocumentInvalid ErrorCode = "application_document_invalid"
+
+	// ErrApplicationDomainConflict is the application_domain_conflict AuthKit HTTP wire error code.
+	ErrApplicationDomainConflict ErrorCode = "application_domain_conflict"
+
+	// ErrApplicationDomainInvalid is the application_domain_invalid AuthKit HTTP wire error code.
+	ErrApplicationDomainInvalid ErrorCode = "application_domain_invalid"
+
+	// ErrApplicationIssuerConflict is the application_issuer_conflict AuthKit HTTP wire error code.
+	ErrApplicationIssuerConflict ErrorCode = "application_issuer_conflict"
+
+	// ErrApplicationNotDomainRooted is the application_not_domain_rooted AuthKit HTTP wire error code.
+	ErrApplicationNotDomainRooted ErrorCode = "application_not_domain_rooted"
+
+	// ErrApplicationRegistrationDisabled is the application_registration_disabled AuthKit HTTP wire error code.
+	ErrApplicationRegistrationDisabled ErrorCode = "application_registration_disabled"
+
+	// ErrApplicationSignatureInvalid is the application_signature_invalid AuthKit HTTP wire error code.
+	ErrApplicationSignatureInvalid ErrorCode = "application_signature_invalid"
+
+	// ErrApplicationSignatureStale is the application_signature_stale AuthKit HTTP wire error code.
+	ErrApplicationSignatureStale ErrorCode = "application_signature_stale"
+
+	// ErrApplicationSlugConflict is the application_slug_conflict AuthKit HTTP wire error code.
+	ErrApplicationSlugConflict ErrorCode = "application_slug_conflict"
+
+	// ErrApplicationTierInvalid is the application_tier_invalid AuthKit HTTP wire error code.
+	ErrApplicationTierInvalid ErrorCode = "application_tier_invalid"
+
 	// ErrAssignRoleFailed is the assign_role_failed AuthKit HTTP wire error code.
 	ErrAssignRoleFailed ErrorCode = "assign_role_failed"
 
@@ -221,6 +254,12 @@ const (
 
 	// ErrForbidden is the forbidden AuthKit HTTP wire error code.
 	ErrForbidden ErrorCode = "forbidden"
+
+	// ErrGroupSlugApplicationManaged is the group_slug_application_managed AuthKit HTTP wire error code.
+	ErrGroupSlugApplicationManaged ErrorCode = "group_slug_application_managed"
+
+	// ErrGroupSlugTaken is the group_slug_taken AuthKit HTTP wire error code.
+	ErrGroupSlugTaken ErrorCode = "group_slug_taken"
 
 	// ErrHashFailed is the hash_failed AuthKit HTTP wire error code.
 	ErrHashFailed ErrorCode = "hash_failed"

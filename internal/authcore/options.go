@@ -1,6 +1,9 @@
 package authcore
 
 import (
+	"context"
+	"net/http"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/internal/db"
@@ -27,6 +30,24 @@ func WithPostgres(pool *pgxpool.Pool) Option {
 // type assertion (EphemeralRedisClient), not a mode string (#236).
 func WithEphemeralStore(store EphemeralStore) Option {
 	return func(s *Service) { s.ephemeralStore = store }
+}
+
+// WithApplicationsHTTPClient overrides the outbound HTTP client used by
+// application self-registration (#264) for application.json and JWKS fetches.
+// The default is timeout-bounded, refuses redirects, and SSRF-guards its dials
+// outside dev-like environments — override only for tests or custom transport
+// needs (proxy, mTLS).
+func WithApplicationsHTTPClient(c *http.Client) Option {
+	return func(s *Service) { s.appHTTPClient = c }
+}
+
+// WithApplicationAdmission injects a host admission predicate consulted before
+// any application self-registration fetch (#264): return a non-nil error to
+// refuse the attempt (surfaced as registration-disabled). This is where
+// host-side anti-squat cost gates plug in; authkit's own gates (rate limits,
+// domain proof) apply regardless.
+func WithApplicationAdmission(pred func(ctx context.Context, domain string) error) Option {
+	return func(s *Service) { s.appAdmission = pred }
 }
 
 // WithEntitlements sets the entitlements provider.
