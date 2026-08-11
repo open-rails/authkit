@@ -11,3 +11,9 @@ remote_applications:
     issuer: https://tensorhub.example
     jwks_uri: https://tensorhub.example/.well-known/jwks.json
     enabled: true
+
+# Dev-only fixtures (#266) — read at every boot (not part of the apply-once
+# seed) and honored only when AUTHKIT_ENV is a dev env; a non-dev boot with
+# this section set REFUSES to start.
+# dev:
+#   static_entitlements: [pro, beta]

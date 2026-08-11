@@ -36,13 +36,13 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | Var | Required | Default | Meaning |
 |---|---|---|---|
 | `AUTHKIT_ISSUER` | yes | — | Token issuer (`iss`) |
-| `DB_URL` / `DATABASE_URL` | yes | — | Postgres DSN |
+| `DB_URL` / `DATABASE_URL` | yes | — | Postgres DSN. Set exactly one — both set refuses to boot (#266) |
 | `AUTHKIT_MGMT_TOKEN` | prod | — | Bearer credential for the management API. Outside dev, the management API is **disabled** unless set (fail-closed). |
 | `AUTHKIT_LISTEN_ADDR` | no | `:8080` | Listen address |
 | `AUTHKIT_AUDIENCES` | no | `authkit` | Comma-separated token audiences |
 | `AUTHKIT_KEYS_PATH` | no | `/vault/auth` | Directory containing `keys.json` (and `totp.key`) |
-| `ACTIVE_KEY_ID` / `ACTIVE_PRIVATE_KEY_PEM` | no | — | Inline signing key material; wins over `keys.json` when set (both required together) |
-| `PUBLIC_KEYS` | no | — | JSON map `kid -> public-key PEM` of extra verification keys kept in the JWKS (rotation) |
+| `AUTHKIT_ACTIVE_KEY_ID` / `AUTHKIT_ACTIVE_PRIVATE_KEY_PEM` | no | — | Inline signing key material; wins over `keys.json` when set (both required together) |
+| `AUTHKIT_PUBLIC_KEYS` | no | — | JSON map `kid -> public-key PEM` of extra verification keys kept in the JWKS (rotation) |
 | `AUTHKIT_SCHEMA` | no | `profiles` | Postgres schema |
 | `AUTHKIT_ENV` | no | `dev` | Only `dev`/`development`/`local`/`test` are dev; **everything else — incl. `staging` — is prod-like** (#231). Non-dev requires real keys, Redis, and a management token |
 | `AUTHKIT_REDIS_ADDR` | no | — | Redis address (ephemeral store + OIDC/SIWS state); pair with `AUTHKIT_REDIS_PASSWORD` when the server requires auth |
@@ -63,7 +63,7 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `AUTHKIT_PASSKEY_RP_DISPLAY_NAME` | no | issuer | WebAuthn relying-party display name |
 | `AUTHKIT_PASSKEY_ORIGINS` | no | issuer origin | Comma-separated allowed WebAuthn origins (must match RPID or a subdomain) |
 | `AUTHKIT_LANGUAGES` | no | `en` | Comma-separated supported UI languages (`?lang` / `Accept-Language` negotiation) |
-| `AUTHKIT_DEFAULT_LANGUAGE` | no | `en` | Fallback language when the request carries none |
+| `AUTHKIT_DEFAULT_LANGUAGE` | no | `en` | Fallback language when the request carries none. Must be in `AUTHKIT_LANGUAGES` — an effective default outside the supported set refuses to boot (#266) |
 | `AUTHKIT_BOOTSTRAP_PATH` | no | — | Path to a bootstrap manifest (YAML; see `bootstrap.example.yaml` at the repo root). Applied **at most once** at startup (DB-marked apply-once); restarts skip it. It is a **genesis seed**: on a non-empty database without the marker (users/remote apps already exist) the server refuses to boot — unset the var for such deployments. |
 
 ### Dev-only (honored only when `AUTHKIT_ENV` is a dev env)
@@ -75,7 +75,13 @@ are never reachable in production (fail-closed).
 | Var | Default | Meaning |
 |---|---|---|
 | `AUTHKIT_DEV_MINT_SECRET` | — | Enables `POST {prefix}/dev/mint` (mint arbitrary access tokens) when set; shared-secret gated |
-| `AUTHKIT_STATIC_ENTITLEMENTS` | — | Comma-separated entitlements seeded into every access token (billing/entitlement E2E) |
+
+Static dev entitlements (seeded into every access token for billing/entitlement
+E2E) moved from the former `AUTHKIT_STATIC_ENTITLEMENTS` env CSV into the
+bootstrap manifest's `dev.static_entitlements` section (#266) — reviewable YAML,
+read at every boot (not part of the apply-once seed). Honored only in a dev
+env; a **non-dev boot with the section set refuses to start**. A fixtures-only
+manifest (just `dev:`) seeds nothing and skips the apply-once genesis path.
 
 `GET {prefix}/dev/whoami` (reflect the resolved principal) is served whenever the
 env is dev. In dev with no `AUTHKIT_MGMT_TOKEN`, the management API is also exposed
@@ -92,10 +98,26 @@ auto-generated dev signing keys (persisted under `.runtime/authkit/`). In any
 non-dev env with no keys configured, the server **refuses to boot**.
 
 JWT key material maps env → the explicit key-source config (#231): when
-`ACTIVE_KEY_ID` / `ACTIVE_PRIVATE_KEY_PEM` (plus optional `PUBLIC_KEYS`) are
-set, the binary builds a `jwtkit.NewStaticKeySourceFromPEM(...)` and passes it
-as `Keys.Source`; otherwise it passes `AUTHKIT_KEYS_PATH` as `Keys.Path` and
-the engine loads `<path>/keys.json` (hot-reloaded on rotation).
+`AUTHKIT_ACTIVE_KEY_ID` / `AUTHKIT_ACTIVE_PRIVATE_KEY_PEM` (plus optional
+`AUTHKIT_PUBLIC_KEYS`) are set, the binary builds a
+`jwtkit.NewStaticKeySourceFromPEM(...)` and passes it as `Keys.Source`;
+otherwise it passes `AUTHKIT_KEYS_PATH` as `Keys.Path` and the engine loads
+`<path>/keys.json` (hot-reloaded on rotation).
+
+**Env naming (#266):** every env var this binary reads carries the `AUTHKIT_`
+prefix — unprefixed names are collision magnets in shared-env containers. The
+one exception is the platform-conventional `DB_URL`/`DATABASE_URL` DSN pair
+(setting both refuses to boot). A guard test (`env_doctrine_test.go`,
+`TestBinaryEnvNamesAreAuthkitPrefixed`) enforces the prefix.
+
+**Policy stays env-owned (#266, item 5 decision):** runtime policy knobs —
+`AUTHKIT_REGISTRATION_VERIFICATION`, `AUTHKIT_2FA_MODE`, `AUTHKIT_2FA_METHODS`
+— remain env config on this binary (embedded hosts pass them as
+`embedded.Config` fields). The bootstrap manifest stays genesis-scoped:
+identity seed data (users, remote applications) plus dev fixtures. Policy does
+NOT move into the manifest — the manifest is apply-once, policy is per-boot,
+and blending the two lifetimes would make the manifest a second, stale config
+channel.
 
 ## Run
 

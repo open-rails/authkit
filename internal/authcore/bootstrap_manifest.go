@@ -51,7 +51,7 @@ func ParseBootstrapManifestYAML(raw []byte) (BootstrapManifest, error) {
 	if err := dec.Decode(&manifest); err != nil {
 		return BootstrapManifest{}, err
 	}
-	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 {
+	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 && len(manifest.Dev.StaticEntitlements) == 0 {
 		return BootstrapManifest{}, ErrInvalidBootstrapManifest
 	}
 	// Parse is env-less and structural-only; the https/private jwks_uri policy

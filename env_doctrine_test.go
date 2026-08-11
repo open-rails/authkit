@@ -13,6 +13,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -172,6 +173,89 @@ func TestSingleDevProdClassifier(t *testing.T) {
 
 	if len(violations) > 0 {
 		t.Fatalf("inline dev/prod classification (#231) — route the decision through authcore.IsDevEnvironment instead:\n  %s",
+			strings.Join(violations, "\n  "))
+	}
+}
+
+// #266 env doctrine, third leg: every env var the BINARY reads is
+// AUTHKIT_-prefixed. Unprefixed names are collision magnets in shared-env
+// containers (ACTIVE_KEY_ID / PUBLIC_KEYS once shipped bare). Exceptions are
+// listed with an explicit justification — the default is the prefix.
+var binaryEnvNameAllowlist = map[string]string{
+	"DB_URL":       "platform-conventional Postgres DSN name (both-set with DATABASE_URL refuses at boot, #266)",
+	"DATABASE_URL": "platform-conventional Postgres DSN name (both-set with DB_URL refuses at boot, #266)",
+}
+
+// envNameShape matches SCREAMING_SNAKE literals (at least one underscore), the
+// shape of an env-var name; short flag-ish literals ("POST", ":8080") don't match.
+var envNameShape = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$`)
+
+func TestBinaryEnvNamesAreAuthkitPrefixed(t *testing.T) {
+	fset := token.NewFileSet()
+	var violations []string
+
+	// envReaderCallee reports whether the called function reads env: os.Getenv /
+	// os.LookupEnv, or a binary-local helper following the env* / *Env naming
+	// convention (envOr, envDuration, envInt, envBool, firstEnv, ...).
+	envReaderCallee := func(fun ast.Expr) bool {
+		switch f := fun.(type) {
+		case *ast.SelectorExpr:
+			ident, ok := f.X.(*ast.Ident)
+			return ok && ident.Name == "os" && envReadForbidden[f.Sel.Name]
+		case *ast.Ident:
+			return strings.HasPrefix(f.Name, "env") || strings.HasSuffix(f.Name, "Env")
+		}
+		return false
+	}
+
+	err := filepath.WalkDir("cmd", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := filepath.ToSlash(path)
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+			return nil
+		}
+
+		f, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return perr
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || !envReaderCallee(call.Fun) {
+				return true
+			}
+			for _, arg := range call.Args {
+				bl, ok := arg.(*ast.BasicLit)
+				if !ok || bl.Kind != token.STRING {
+					continue
+				}
+				name := strings.Trim(bl.Value, "`\"")
+				if !envNameShape.MatchString(name) {
+					continue
+				}
+				if strings.HasPrefix(name, "AUTHKIT_") {
+					continue
+				}
+				if _, ok := binaryEnvNameAllowlist[name]; ok {
+					continue
+				}
+				violations = append(violations, fset.Position(bl.Pos()).String()+": env var "+name)
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+
+	if len(violations) > 0 {
+		t.Fatalf("unprefixed binary env names (#266) — rename to AUTHKIT_* or allowlist with justification:\n  %s",
 			strings.Join(violations, "\n  "))
 	}
 }
