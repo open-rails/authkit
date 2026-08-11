@@ -191,7 +191,7 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 		"iat":         time.Now().Add(-time.Hour).Unix(),
 		"public_keys": []map[string]string{{"kid": "key-c", "public_key_pem": staticKey(t, keyC).PublicKeyPEM}},
 	})
-	rec, body = postJSON(t, h, "/api/v1/applications/"+slug+"/rotate", map[string]any{"jws": stale})
+	rec, _ = postJSON(t, h, "/api/v1/applications/"+slug+"/rotate", map[string]any{"jws": stale})
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.Contains(t, rec.Body.String(), "application_signature_stale")
 
