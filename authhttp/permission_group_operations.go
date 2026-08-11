@@ -495,6 +495,34 @@ func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, p
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "slug": slug})
 }
 
+// groupRemoteAppRole assigns (or replaces) a remote application's single role
+// in the group (#263) — the SubjectKindRemoteApp symmetric of the member-role
+// route, gated <persona>:credentials:manage by the generated route table. The
+// :app slug must resolve to an application controlled by the addressed group.
+func (s *Service) groupRemoteAppRole(w http.ResponseWriter, r *http.Request, persona, instanceSlug, appSlug, role string) {
+	if appSlug == "" || role == "" {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	actor, ok := verify.ClaimsFromContext(r.Context())
+	if !ok || actor.UserID == "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	// Actor-aware assignment: capability (credentials:manage) + no-escalation.
+	if err := s.svc.AssignRemoteApplicationRoleAs(r.Context(), actor.UserID, persona, instanceSlug, appSlug, role); err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"persona":       persona,
+		"instance_slug": instanceSlug,
+		"app":           appSlug,
+		"role":          role,
+	})
+}
+
 func remoteAppJSON(ra *authkit.RemoteApplication) map[string]any {
 	return map[string]any{
 		"id":       ra.ID,
@@ -653,6 +681,14 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	case errors.Is(err, authkit.ErrGroupSlugTaken):
 		sendErr(w, http.StatusConflict, ErrGroupSlugTaken)
 		return
+	case errors.Is(err, authkit.ErrGroupSlugReserved):
+		// #263: reserved slug without the escalation role.
+		forbidden(w, ErrGroupSlugReserved)
+		return
+	case errors.Is(err, authkit.ErrGroupCreationRefused):
+		// #263: the host admission seam refused the creation (cost gate).
+		forbidden(w, ErrGroupCreationRefused)
+		return
 	case errors.Is(err, authkit.ErrGroupSlugApplicationManaged):
 		sendErr(w, http.StatusConflict, ErrGroupSlugApplicationManaged)
 		return
@@ -660,6 +696,9 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		errors.Is(err, authkit.ErrInsufficientRoleAuthority),
 		errors.Is(err, authkit.ErrRoleAssignmentEscalation):
 		forbidden(w, ErrForbidden)
+		return
+	case errors.Is(err, authkit.ErrGroupSlugInvalid):
+		badRequest(w, ErrGroupSlugInvalid)
 		return
 	case errors.Is(err, authkit.ErrInvalidRemoteApplication),
 		errors.Is(err, authkit.ErrReservedIssuer),

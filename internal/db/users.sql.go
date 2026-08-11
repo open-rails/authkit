@@ -140,7 +140,7 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language, avatar_url
 FROM profiles.users WHERE id = $1
 `
 
@@ -161,6 +161,7 @@ type UserByIDRow struct {
 	UpdatedAt         time.Time
 	LastLogin         *time.Time
 	PreferredLanguage *string
+	AvatarUrl         *string
 }
 
 // User-row queries (core/service.go).
@@ -188,6 +189,7 @@ func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) 
 		&i.UpdatedAt,
 		&i.LastLogin,
 		&i.PreferredLanguage,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -590,6 +592,23 @@ UPDATE profiles.users SET deleted_at = NULL, updated_at = now() WHERE id = $1
 func (q *Queries) UserRestore(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, userRestore, id)
 	return err
+}
+
+const userSetAvatarURL = `-- name: UserSetAvatarURL :execrows
+UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1
+`
+
+type UserSetAvatarURLParams struct {
+	ID        string
+	AvatarUrl *string
+}
+
+func (q *Queries) UserSetAvatarURL(ctx context.Context, arg UserSetAvatarURLParams) (int64, error) {
+	result, err := q.db.Exec(ctx, userSetAvatarURL, arg.ID, arg.AvatarUrl)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const userSetBiography = `-- name: UserSetBiography :exec

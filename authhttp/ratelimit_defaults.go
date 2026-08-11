@@ -45,6 +45,8 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		RLApplicationRotate:   {Limit: 30, Window: time.Hour},
 		// Slug renames are claims — velocity-capped per user and per IP.
 		RLGroupSettings: {Limit: 12, Window: 24 * time.Hour},
+		// #263 instance creation is a claim too — same velocity class.
+		RLGroupCreate: {Limit: 12, Window: 24 * time.Hour},
 
 		// Password reset + verification
 		RLPasswordResetRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
@@ -57,6 +59,7 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		// User changes
 		RLUserPasswordChange:     {Limit: 6, Window: time.Hour},
 		RLUserMe:                 {Limit: 120, Window: time.Minute},
+		RLUserMetadata:           {Limit: 60, Window: time.Minute},
 		RLUserUpdateUsername:     {Limit: 12, Window: time.Hour},
 		RLUserPreferredLanguage:  {Limit: 24, Window: time.Hour},
 		RLUserUpdateEmail:        {Limit: 12, Window: time.Hour},

@@ -11,20 +11,26 @@ import (
 // engine and (Phase 2) the remote SDK so errors.Is works across transports
 // (#138 contract inversion). internal/authcore aliases these.
 var (
-	ErrApplicationDocumentFetchFailed    = errors.New("application_document_fetch_failed")
-	ErrApplicationDocumentInvalid        = errors.New("application_document_invalid")
-	ErrApplicationDomainConflict         = errors.New("application_domain_conflict")
-	ErrApplicationDomainInvalid          = errors.New("application_domain_invalid")
-	ErrApplicationIssuerConflict         = errors.New("application_issuer_conflict")
-	ErrApplicationNotDomainRooted        = errors.New("application_not_domain_rooted")
-	ErrApplicationRegistrationDisabled   = errors.New("application_registration_disabled")
-	ErrApplicationSignatureInvalid       = errors.New("application_signature_invalid")
-	ErrApplicationSignatureStale         = errors.New("application_signature_stale")
-	ErrApplicationSlugConflict           = errors.New("application_slug_conflict")
-	ErrApplicationTierInvalid            = errors.New("application_tier_invalid")
-	ErrBootstrapDatabaseNotEmpty         = errors.New("bootstrap_database_not_empty")
-	ErrGroupSlugApplicationManaged       = errors.New("group_slug_application_managed")
-	ErrGroupSlugTaken                    = errors.New("group_slug_taken")
+	ErrApplicationDocumentFetchFailed  = errors.New("application_document_fetch_failed")
+	ErrApplicationDocumentInvalid      = errors.New("application_document_invalid")
+	ErrApplicationDomainConflict       = errors.New("application_domain_conflict")
+	ErrApplicationDomainInvalid        = errors.New("application_domain_invalid")
+	ErrApplicationIssuerConflict       = errors.New("application_issuer_conflict")
+	ErrApplicationNotDomainRooted      = errors.New("application_not_domain_rooted")
+	ErrApplicationRegistrationDisabled = errors.New("application_registration_disabled")
+	ErrApplicationSignatureInvalid     = errors.New("application_signature_invalid")
+	ErrApplicationSignatureStale       = errors.New("application_signature_stale")
+	ErrApplicationSlugConflict         = errors.New("application_slug_conflict")
+	ErrApplicationTierInvalid          = errors.New("application_tier_invalid")
+	ErrBootstrapDatabaseNotEmpty       = errors.New("bootstrap_database_not_empty")
+	ErrGroupSlugApplicationManaged     = errors.New("group_slug_application_managed")
+	ErrGroupSlugTaken                  = errors.New("group_slug_taken")
+	// #263 generated persona-instance creation.
+	ErrGroupSlugReserved    = errors.New("group_slug_reserved")
+	ErrGroupSlugInvalid     = errors.New("group_slug_invalid")
+	ErrGroupCreationRefused = errors.New("group_creation_refused")
+	// #262 first-class avatar URL field.
+	ErrAvatarURLInvalid                  = errors.New("avatar_url_invalid")
 	ErrCannotRemoveLastAdminRole         = errors.New("cannot_remove_last_admin_role")
 	ErrAccountRegistrationInviteConsumed = errors.New("account_registration_invite_consumed")
 	ErrAccountRegistrationInviteExpired  = errors.New("account_registration_invite_expired")
@@ -144,6 +150,8 @@ var sentinelHTTPStatus = map[error]int{
 	ErrExternalInvitesDisabled:         http.StatusForbidden,
 	ErrInsufficientRoleAuthority:       http.StatusForbidden,
 	ErrRoleAssignmentEscalation:        http.StatusForbidden,
+	ErrGroupSlugReserved:               http.StatusForbidden,
+	ErrGroupCreationRefused:            http.StatusForbidden,
 	// 404 — subject not found.
 	ErrUserNotFound:                http.StatusNotFound,
 	ErrPendingRegistrationNotFound: http.StatusNotFound,
@@ -172,6 +180,8 @@ var sentinelHTTPStatus = map[error]int{
 	ErrApplicationDomainInvalid:       http.StatusBadRequest,
 	ErrApplicationTierInvalid:         http.StatusBadRequest,
 	ErrInvalidUntil:                   http.StatusBadRequest,
+	ErrAvatarURLInvalid:               http.StatusBadRequest,
+	ErrGroupSlugInvalid:               http.StatusBadRequest,
 	ErrEmailInUse:                     http.StatusBadRequest,
 	ErrPhoneInUse:                     http.StatusBadRequest,
 	ErrEntitlementFilterUnavailable:   http.StatusBadRequest,
@@ -264,6 +274,7 @@ var errorSentinels = []error{
 	ErrApplicationIssuerConflict, ErrApplicationNotDomainRooted, ErrApplicationRegistrationDisabled,
 	ErrApplicationSignatureInvalid, ErrApplicationSignatureStale, ErrApplicationSlugConflict,
 	ErrApplicationTierInvalid, ErrGroupSlugApplicationManaged, ErrGroupSlugTaken,
+	ErrGroupSlugReserved, ErrGroupSlugInvalid, ErrGroupCreationRefused, ErrAvatarURLInvalid,
 	ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
 	ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
 	ErrAccountRegistrationInviteRevoked, ErrCustomClaimsReserved,

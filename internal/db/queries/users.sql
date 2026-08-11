@@ -5,7 +5,7 @@
 -- caller breaks) so callers that already load the user row — e.g. GET /me — read
 -- the language off this row instead of issuing a separate UserPreferredLanguage
 -- query (#228).
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language, avatar_url
 FROM profiles.users WHERE id = $1;
 
 -- name: UserByEmail :one
@@ -135,6 +135,9 @@ UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified =
 
 -- name: UserSetBiography :exec
 UPDATE profiles.users SET biography = $2, updated_at = NOW() WHERE id = $1;
+
+-- name: UserSetAvatarURL :execrows
+UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserPasswordRow :one
 SELECT password_hash, hash_algo, COALESCE(hash_params, '{}'::jsonb)::jsonb AS hash_params

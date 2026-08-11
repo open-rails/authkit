@@ -130,6 +130,11 @@ type Service struct {
 	// before any registration fetch (#264 anti-squat doctrine: cost gates live
 	// in the host — authkit never learns what a credit card is). Nil = allow.
 	appAdmission func(ctx context.Context, domain string) error
+	// instanceAdmission is the host admission seam for generated persona-
+	// instance creation (#263) — MayCreateInstance consults it. Same anti-squat
+	// split as appAdmission: authkit owns velocity limits, the host owns cost
+	// gates. Nil = allow.
+	instanceAdmission func(ctx context.Context, persona, subject string) error
 
 	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
 	// run, SMS is considered available whenever a sender is configured (legacy

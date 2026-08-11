@@ -1,0 +1,59 @@
+package authhttp
+
+// #263: the generated persona-instance CREATION route — POST /<persona> for
+// personas whose InstanceCreationDef opts in. An authenticated USER creates a
+// group instance and is seeded as its owner; slug pattern, reserved-slug
+// escalation, the host admission seam, and create-or-return-if-member
+// idempotency live in the core create path (CreateInstanceForSubject). AuthKit
+// owns the anti-squat velocity limits here (per-IP + per-user); host cost
+// gates plug in via WithInstanceAdmission.
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/open-rails/authkit/verify"
+)
+
+type groupInstanceCreateRequest struct {
+	Slug        string `json:"slug"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
+func (s *Service) groupInstanceCreate(w http.ResponseWriter, r *http.Request, persona string) {
+	claims, ok := verify.ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == "" {
+		// Instance ownership needs a user subject; machine principals cannot
+		// create through this route.
+		unauthorized(w, ErrNotAuthenticated)
+		return
+	}
+	var body groupInstanceCreateRequest
+	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Slug) == "" {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	// Anti-squat velocity: a create IS a claim — capped per IP and per user
+	// (authkit owns velocity; cost gates are the host's, via the admission seam).
+	if s.rateLimited(w, r, RLGroupCreate) {
+		return
+	}
+	if s.rateLimitedByIdentifier(w, r, RLGroupCreate, claims.UserID) {
+		return
+	}
+	res, err := s.svc.CreateInstanceForSubject(r.Context(), persona, body.Slug, body.DisplayName, claims.UserID)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
+	status := http.StatusOK
+	if res.Created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, map[string]any{
+		"ok":            true,
+		"persona":       persona,
+		"instance_slug": res.InstanceSlug,
+		"created":       res.Created,
+	})
+}

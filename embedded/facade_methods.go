@@ -181,6 +181,10 @@ func (s *Client) GetUserMetadata(ctx context.Context, userID string) (map[string
 	return s.impl.GetUserMetadata(ctx, userID)
 }
 
+func (s *Client) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
+	return s.impl.UpdateAvatarURL(ctx, id, avatarURL)
+}
+
 func (s *Client) GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error) {
 	return s.impl.GetRemoteApplication(ctx, issuer)
 }

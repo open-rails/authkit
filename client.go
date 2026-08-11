@@ -38,6 +38,10 @@ type Users interface {
 	RestoreUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	SetEmailVerified(ctx context.Context, id string, v bool) error
 	UpdateBiography(ctx context.Context, id string, bio *string) error
+	// UpdateAvatarURL sets (or clears, with nil) the user's avatar URL/key
+	// string (#262). Blob storage/validation is the host's job — authkit stores
+	// the string and serves it on GET /me.
+	UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error
 	UpdateEmail(ctx context.Context, id, email string) error
 	UpdateUsername(ctx context.Context, id, username string) error
 	UpdateImportedUser(ctx context.Context, userID string, input ImportUserInput) (*User, error)

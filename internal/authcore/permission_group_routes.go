@@ -81,6 +81,9 @@ func (s *GroupSchema) GeneratedRoutes() []GeneratedRoute {
 				GeneratedRoute{persona, "GET", base + "/remote-applications", rd},
 				GeneratedRoute{persona, "POST", base + "/remote-applications", mg},
 				GeneratedRoute{persona, "DELETE", base + "/remote-applications/:app", mg},
+				// #263: remote-application role assignment — the
+				// SubjectKindRemoteApp symmetric of the member-role route.
+				GeneratedRoute{persona, "PUT", base + "/remote-applications/:app/roles/:role", mg},
 			)
 		}
 		// Invite-LINK routes (#134): mint / list / revoke a high-entropy invite

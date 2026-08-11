@@ -23,7 +23,7 @@ import (
 type User = authkit.User
 
 func userFromByIDRow(r db.UserByIDRow) *User {
-	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage}
+	return &User{ID: r.ID, Email: r.Email, PhoneNumber: r.PhoneNumber, Username: r.Username, EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, BannedAt: r.BannedAt, BannedUntil: r.BannedUntil, BanReason: r.BanReason, BannedBy: r.BannedBy, DeletedAt: r.DeletedAt, Biography: r.Biography, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastLogin: r.LastLogin, PreferredLanguage: r.PreferredLanguage, AvatarURL: r.AvatarUrl}
 }
 
 func userFromByEmailRow(r db.UserByEmailRow) *User {
@@ -473,6 +473,38 @@ func (s *Service) updateBiography(ctx context.Context, id string, bio *string) e
 // UpdateBiography sets a user's biography.
 func (s *Service) UpdateBiography(ctx context.Context, id string, bio *string) error {
 	return s.updateBiography(ctx, id, bio)
+}
+
+// maxAvatarURLLen caps the stored avatar URL/key string (#262) — a sanity
+// bound, not format validation: hosts may store URLs or opaque object keys.
+const maxAvatarURLLen = 2048
+
+// UpdateAvatarURL sets (nil clears) a user's avatar URL/key string (#262).
+// Blob storage and content validation are host-owned; authkit stores the
+// string verbatim (trimmed) and serves it on GET /me.
+func (s *Service) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
+	if s.pg == nil {
+		return nil
+	}
+	if avatarURL != nil {
+		trimmed := strings.TrimSpace(*avatarURL)
+		if trimmed == "" {
+			avatarURL = nil
+		} else {
+			if len(trimmed) > maxAvatarURLLen || strings.ContainsAny(trimmed, "\n\r") {
+				return authkit.ErrAvatarURLInvalid
+			}
+			avatarURL = &trimmed
+		}
+	}
+	n, err := s.q.UserSetAvatarURL(ctx, db.UserSetAvatarURLParams{ID: id, AvatarUrl: avatarURL})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 // IsUserAllowed reports whether a user exists and passes access/ban checks.

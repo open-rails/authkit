@@ -516,6 +516,11 @@ func (c *Client) UnlinkProvider(ctx context.Context, userID string, provider str
 	return c.call(ctx, "UnlinkProvider", args, nil)
 }
 
+func (c *Client) UpdateAvatarURL(ctx context.Context, id string, avatarURL *string) error {
+	args := map[string]any{"id": id, "avatarURL": avatarURL}
+	return c.call(ctx, "UpdateAvatarURL", args, nil)
+}
+
 func (c *Client) UpdateBiography(ctx context.Context, id string, bio *string) error {
 	args := map[string]any{"id": id, "bio": bio}
 	return c.call(ctx, "UpdateBiography", args, nil)

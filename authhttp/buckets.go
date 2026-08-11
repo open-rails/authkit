@@ -34,6 +34,9 @@ const (
 	// #264 anti-squat velocity: group settings (slug rename IS a claim),
 	// keyed per-IP and per-user.
 	RLGroupSettings = "group_settings"
+	// #263 anti-squat velocity: generated persona-instance creation (a create
+	// IS a claim), keyed per-IP and per-user.
+	RLGroupCreate = "group_create"
 
 	RLPasswordResetRequest = "auth_pwd_reset_request"
 	RLPasswordResetConfirm = "auth_pwd_reset_confirm"
@@ -47,6 +50,7 @@ const (
 
 	RLUserPasswordChange    = "auth_user_password_change"
 	RLUserMe                = "auth_user_me"
+	RLUserMetadata          = "auth_user_metadata"
 	RLUserUpdateUsername    = "auth_user_update_username"
 	RLUserPreferredLanguage = "auth_user_preferred_language"
 	RLUserUpdateEmail       = "auth_user_update_email"

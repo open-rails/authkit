@@ -73,6 +73,7 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"group_invite_link_expired":             true, // group routes emit invalid_request
 		"group_invite_link_not_found":           true, // group routes emit not_found
 		"group_invite_link_revoked":             true, // group routes emit invalid_request
+		"avatar_url_invalid":                    true, // UpdateAvatarURL is Go-API/management only (#262)
 		"missing_signer":                        true, // verify-only misconfig, construction/Go-API
 		"not_group_member":                      true, // no authhttp route surfaces it; management/Go-API only
 		"passkey_clone_detected":                true, // passkey login surfaces invalid_credentials

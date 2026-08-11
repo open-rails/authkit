@@ -421,6 +421,8 @@ type AdminUser struct {
 	// the loaded user row, so callers (e.g. GET /me) need not issue a separate
 	// language read (#228). Omitted from JSON when unset.
 	PreferredLanguage *string `json:"preferred_language,omitempty"`
+	// AvatarURL is the host-supplied avatar URL/key string (#262).
+	AvatarURL *string `json:"avatar_url,omitempty"`
 }
 
 type AdminListUsersResult struct {
