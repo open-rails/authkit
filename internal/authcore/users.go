@@ -83,6 +83,17 @@ func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
 	return userFromByIDRow(r), nil
 }
 
+// livenessAllowed is THE account-liveness policy, in one place: a loaded user
+// row passes only when it is not soft-deleted, not reserved, and not banned.
+// Both gates evaluate it — ensureUserAccess for the single-user login/refresh
+// path (which resolves `reserved` with its own query) and UserLivenessByIDs for
+// the batch per-request path (#267, which resolves it in the same query) — so
+// the two can never disagree about who is live. autoUnbanIfExpired must already
+// have run on u, since an expired temporary ban is allowed.
+func livenessAllowed(u *User, reserved bool) bool {
+	return u != nil && u.DeletedAt == nil && !reserved && !isUserBanned(u)
+}
+
 func (s *Service) ensureUserAccess(ctx context.Context, u *User) error {
 	if u == nil {
 		return jwt.ErrTokenInvalidClaims
@@ -90,13 +101,17 @@ func (s *Service) ensureUserAccess(ctx context.Context, u *User) error {
 	if u.DeletedAt != nil {
 		return ErrUserBanned
 	}
-	if reserved, err := s.IsUserReserved(ctx, strings.TrimSpace(u.ID)); err == nil && reserved {
+	reserved, err := s.IsUserReserved(ctx, strings.TrimSpace(u.ID))
+	if err != nil {
+		reserved = false
+	}
+	if reserved {
 		return ErrUserBanned
 	}
 	if err := s.autoUnbanIfExpired(ctx, u); err != nil {
 		return err
 	}
-	if isUserBanned(u) {
+	if !livenessAllowed(u, reserved) {
 		return ErrUserBanned
 	}
 	return nil

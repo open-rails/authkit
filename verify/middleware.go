@@ -25,6 +25,13 @@ func (e *authError) Error() string { return e.reason }
 // native-user path is stateless: it does ZERO DB lookups (#215) — no ban gate,
 // no role/email/provider re-enrichment. Ban/deleted is enforced at token mint
 // (login + refresh); the short access TTL bounds the residual window (#90).
+//
+// That statelessness is now an explicit OPT-OUT, not the only option (#267): a
+// privileged surface that cannot accept the residual window calls
+// VerifyRequestLive (or mounts RequiredLive) and gets the same pipeline plus a
+// per-request account-liveness gate and fresh identity claims. Choose this one
+// deliberately — for genuinely stateless verifiers, and for read paths where a
+// ≤1-TTL window is acceptable.
 func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 	tokenStr := bearerToken(r.Header.Get("Authorization"))
 	if tokenStr == "" {

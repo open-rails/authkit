@@ -7,7 +7,117 @@ package db
 
 import (
 	"context"
+	"time"
 )
+
+const identityPublicUsersByIDs = `-- name: IdentityPublicUsersByIDs :many
+SELECT id, username, avatar_url, biography, created_at, deleted_at
+FROM profiles.users
+WHERE id = ANY($1::uuid[])
+`
+
+type IdentityPublicUsersByIDsRow struct {
+	ID        string
+	Username  *string
+	AvatarUrl *string
+	Biography *string
+	CreatedAt time.Time
+	DeletedAt *time.Time
+}
+
+// The PUBLIC-safe display projection (#268): no email column is selected, so a
+// caller cannot leak one by forgetting a tag. Soft-deleted rows ARE returned —
+// the Go layer tombstones them — so a reference to a deleted author resolves to
+// a stable placeholder instead of silently vanishing.
+func (q *Queries) IdentityPublicUsersByIDs(ctx context.Context, ids []string) ([]IdentityPublicUsersByIDsRow, error) {
+	rows, err := q.db.Query(ctx, identityPublicUsersByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IdentityPublicUsersByIDsRow
+	for rows.Next() {
+		var i IdentityPublicUsersByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.AvatarUrl,
+			&i.Biography,
+			&i.CreatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const identityUserLivenessByIDs = `-- name: IdentityUserLivenessByIDs :many
+SELECT id, username, email, email_verified, avatar_url,
+       banned_at, banned_until, ban_reason, banned_by, deleted_at,
+       (CASE
+          WHEN jsonb_typeof(COALESCE(metadata, '{}'::jsonb)->'reserved')='boolean'
+          THEN (COALESCE(metadata, '{}'::jsonb)->>'reserved')::boolean
+          ELSE false
+        END)::boolean AS reserved
+FROM profiles.users
+WHERE id = ANY($1::uuid[])
+`
+
+type IdentityUserLivenessByIDsRow struct {
+	ID            string
+	Username      *string
+	Email         *string
+	EmailVerified bool
+	AvatarUrl     *string
+	BannedAt      *time.Time
+	BannedUntil   *time.Time
+	BanReason     *string
+	BannedBy      *string
+	DeletedAt     *time.Time
+	Reserved      bool
+}
+
+// The batch account-liveness read behind verify's liveness gate (#267): the ban/
+// delete/reserve columns AND the fresh identity fields, in ONE query, so a host
+// never needs an admin-privileged user read to refresh display claims. The
+// reserved expression mirrors UserIsReserved (owner_namespace.sql) so the two
+// cannot disagree about what "reserved" means.
+func (q *Queries) IdentityUserLivenessByIDs(ctx context.Context, ids []string) ([]IdentityUserLivenessByIDsRow, error) {
+	rows, err := q.db.Query(ctx, identityUserLivenessByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IdentityUserLivenessByIDsRow
+	for rows.Next() {
+		var i IdentityUserLivenessByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.EmailVerified,
+			&i.AvatarUrl,
+			&i.BannedAt,
+			&i.BannedUntil,
+			&i.BanReason,
+			&i.BannedBy,
+			&i.DeletedAt,
+			&i.Reserved,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const identityUsersByIDs = `-- name: IdentityUsersByIDs :many
 

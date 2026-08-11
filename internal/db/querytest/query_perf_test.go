@@ -69,6 +69,23 @@ func TestQueryPerformance(t *testing.T) {
 			ForbidSeqScan: []string{"users"},
 		},
 		{
+			// #268 public display projection — same id-array access path, wider
+			// projection (avatar/biography). Gated so the extra columns can never
+			// turn the batch author read into a heap-heavy scan.
+			Name: "public_users_by_id_array", MaxExecutionMS: 100, MaxSharedReadBlocks: 64,
+			SQL:           db.QueryText["IdentityPublicUsersByIDs"],
+			Args:          []any{[]string{perfUserID(1), perfUserID(scale / 2), perfUserID(hot)}},
+			ForbidSeqScan: []string{"users"},
+		},
+		{
+			// #267 liveness gate — this one runs on EVERY request through a
+			// liveness-gated route, so its plan matters more than the other two.
+			Name: "user_liveness_by_id_array", MaxExecutionMS: 100, MaxSharedReadBlocks: 64,
+			SQL:           db.QueryText["IdentityUserLivenessByIDs"],
+			Args:          []any{[]string{perfUserID(hot)}},
+			ForbidSeqScan: []string{"users"},
+		},
+		{
 			Name: "session_by_current_hash", MaxExecutionMS: 50, MaxSharedReadBlocks: 16,
 			SQL: db.QueryText["SessionByCurrentTokenHash"], Args: []any{tokenHash(hot), perfIssuer},
 			ForbidSeqScan: []string{"refresh_sessions"},

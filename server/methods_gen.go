@@ -540,6 +540,16 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.ProviderUsernames(ctx, a.A0, a.A1)
 		return r0, err
 	},
+	"PublicUsersByIDs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 []string `json:"ids"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.PublicUsersByIDs(ctx, a.A0)
+		return r0, err
+	},
 	"RedeemGroupInviteLink": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"code"`
@@ -857,6 +867,16 @@ var generatedMethods = map[string]MethodFunc{
 			return nil, err
 		}
 		return nil, c.UpsertRoleBySlug(ctx, a.A0, a.A1, a.A2)
+	},
+	"UserLivenessByIDs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 []string `json:"ids"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.UserLivenessByIDs(ctx, a.A0)
+		return r0, err
 	},
 	"UsersByIDs": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {

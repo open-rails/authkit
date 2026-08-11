@@ -55,7 +55,26 @@ type Users interface {
 	// removed authkit/identity store; writes go through UpdateUsername/UpdateEmail,
 	// which enforce the rename cooldown + validation raw table writes skip.)
 	// Returns map[id]UserRef (#219/#220): O(1) single-item access, missing IDs absent.
+	//
+	// PRIVILEGED — the projection carries Email. Render other users with
+	// PublicUsersByIDs.
 	UsersByIDs(ctx context.Context, ids []string) (map[string]UserRef, error)
+	// PublicUsersByIDs is the PUBLIC-SAFE twin of UsersByIDs (#268): the same
+	// one-query batch shape, projected to PublicUserRef — which has NO email
+	// field — so a resolved author can be nested straight into a response body.
+	// Soft-deleted users come back as tombstones (display fields blanked,
+	// Deleted set); banned users come back normally, because a ban is an access
+	// decision, not a visibility one; unknown ids are absent, and
+	// PublicDisplayName covers them.
+	PublicUsersByIDs(ctx context.Context, ids []string) (map[string]PublicUserRef, error)
+	// UserLivenessByIDs is the batch account-liveness read behind verify's
+	// per-request liveness gate (#267): the same ban/deleted/reserved verdict
+	// that guards token mint, plus the identity fields (username, email,
+	// email_verified, avatar) fresh as of that lookup — so a host has no reason
+	// to call the admin directory to refresh display claims on a hot path.
+	// Errors PROPAGATE so authorization callers fail closed; unknown ids are
+	// absent from the map and a gate must treat that as a denial.
+	UserLivenessByIDs(ctx context.Context, ids []string) (map[string]UserLiveness, error)
 }
 
 // Passwords is the password credential surface: change, import, verify.
