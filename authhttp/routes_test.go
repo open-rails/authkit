@@ -59,7 +59,7 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireNoRoute(t, permissions, http.MethodPost, "/password/login")
 
 	requireRoute(t, s.APIRoutes(RouteAccount), http.MethodGet, "/me/permissions")
-	requireRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/auth/capabilities")
+	requireRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/capabilities")
 	requireNoRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/identity-providers")
 	requireNoRoute(t, s.Routes().DefaultAPI(), http.MethodGet, "/providers")
 }
@@ -168,7 +168,7 @@ func newRouteFeatureTestService(t *testing.T, configure func(*authcore.Config)) 
 func TestCapabilitiesEndpoint(t *testing.T) {
 	s := newTestService(t)
 	rec := httptest.NewRecorder()
-	s.handleCapabilitiesGET(rec, httptest.NewRequest(http.MethodGet, "/auth/capabilities", nil))
+	s.handleCapabilitiesGET(rec, httptest.NewRequest(http.MethodGet, "/capabilities", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NotEmpty(t, rec.Header().Get("ETag"))
