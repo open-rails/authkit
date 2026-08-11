@@ -302,6 +302,23 @@ type CreatePermissionGroupRequest struct {
 	ParentPersona      string
 	ParentInstanceSlug string
 	OwnerSubjectID     string
+	// OwnerSubjectKind selects the owner principal kind: "user" (default) or
+	// "remote_application" (#264 service-owned orgs — an application principal
+	// owning its own permission group).
+	OwnerSubjectKind string
+	// DisplayName is free-form, non-unique group metadata (#264 naming
+	// doctrine: vanity naming lives here, never on the slug).
+	DisplayName string
+}
+
+// DeletePermissionGroupOptions controls the delete-time naming rule (#264):
+// by DEFAULT a deleted group's slug is TOMBSTONED to its uuid forever
+// (fail-safe — published references can never be re-claimed by someone else).
+// ReleaseSlug frees the name (and drops the group's own tombstones) instead;
+// that is safe ONLY for names nothing ever referenced, and the judgment is
+// the host's. authkit never deletes a group on its own.
+type DeletePermissionGroupOptions struct {
+	ReleaseSlug bool
 }
 
 type GroupMember struct {
@@ -313,6 +330,7 @@ type GroupMember struct {
 type SubjectGroupMembership struct {
 	Persona      string
 	InstanceSlug string
+	DisplayName  string
 	Role         string
 }
 

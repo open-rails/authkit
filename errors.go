@@ -11,7 +11,19 @@ import (
 // engine and (Phase 2) the remote SDK so errors.Is works across transports
 // (#138 contract inversion). internal/authcore aliases these.
 var (
+	ErrApplicationDocumentFetchFailed    = errors.New("application_document_fetch_failed")
+	ErrApplicationDocumentInvalid        = errors.New("application_document_invalid")
+	ErrApplicationDomainInvalid          = errors.New("application_domain_invalid")
+	ErrApplicationIssuerConflict         = errors.New("application_issuer_conflict")
+	ErrApplicationNotDomainRooted        = errors.New("application_not_domain_rooted")
+	ErrApplicationRegistrationDisabled   = errors.New("application_registration_disabled")
+	ErrApplicationSignatureInvalid       = errors.New("application_signature_invalid")
+	ErrApplicationSignatureStale         = errors.New("application_signature_stale")
+	ErrApplicationSlugConflict           = errors.New("application_slug_conflict")
+	ErrApplicationTierInvalid            = errors.New("application_tier_invalid")
 	ErrBootstrapDatabaseNotEmpty         = errors.New("bootstrap_database_not_empty")
+	ErrGroupSlugApplicationManaged       = errors.New("group_slug_application_managed")
+	ErrGroupSlugTaken                    = errors.New("group_slug_taken")
 	ErrCannotRemoveLastAdminRole         = errors.New("cannot_remove_last_admin_role")
 	ErrAccountRegistrationInviteConsumed = errors.New("account_registration_invite_consumed")
 	ErrAccountRegistrationInviteExpired  = errors.New("account_registration_invite_expired")
@@ -113,21 +125,24 @@ func CodeForError(err error) string {
 // management transport's historical classification of domain errors.
 var sentinelHTTPStatus = map[error]int{
 	// 401 — authentication failures.
-	ErrUserBanned:            http.StatusUnauthorized,
-	ErrPasswordResetRequired: http.StatusUnauthorized,
-	ErrSIWSChallengeNotFound: http.StatusUnauthorized,
-	ErrSIWSChallengeExpired:  http.StatusUnauthorized,
-	ErrSIWSSignatureInvalid:  http.StatusUnauthorized,
-	ErrSIWSDomainInvalid:     http.StatusUnauthorized,
-	ErrSIWSTimestampInvalid:  http.StatusUnauthorized,
+	ErrApplicationSignatureInvalid: http.StatusUnauthorized,
+	ErrApplicationSignatureStale:   http.StatusUnauthorized,
+	ErrUserBanned:                  http.StatusUnauthorized,
+	ErrPasswordResetRequired:       http.StatusUnauthorized,
+	ErrSIWSChallengeNotFound:       http.StatusUnauthorized,
+	ErrSIWSChallengeExpired:        http.StatusUnauthorized,
+	ErrSIWSSignatureInvalid:        http.StatusUnauthorized,
+	ErrSIWSDomainInvalid:           http.StatusUnauthorized,
+	ErrSIWSTimestampInvalid:        http.StatusUnauthorized,
 	// 403 — authenticated but not allowed.
-	ErrRegistrationDisabled:      http.StatusForbidden,
-	ErrPasswordlessDisabled:      http.StatusForbidden,
-	ErrTwoFAEnrollmentRequired:   http.StatusForbidden,
-	ErrStepUpRequired:            http.StatusForbidden,
-	ErrExternalInvitesDisabled:   http.StatusForbidden,
-	ErrInsufficientRoleAuthority: http.StatusForbidden,
-	ErrRoleAssignmentEscalation:  http.StatusForbidden,
+	ErrApplicationRegistrationDisabled: http.StatusForbidden,
+	ErrRegistrationDisabled:            http.StatusForbidden,
+	ErrPasswordlessDisabled:            http.StatusForbidden,
+	ErrTwoFAEnrollmentRequired:         http.StatusForbidden,
+	ErrStepUpRequired:                  http.StatusForbidden,
+	ErrExternalInvitesDisabled:         http.StatusForbidden,
+	ErrInsufficientRoleAuthority:       http.StatusForbidden,
+	ErrRoleAssignmentEscalation:        http.StatusForbidden,
 	// 404 — subject not found.
 	ErrUserNotFound:                http.StatusNotFound,
 	ErrPendingRegistrationNotFound: http.StatusNotFound,
@@ -136,16 +151,24 @@ var sentinelHTTPStatus = map[error]int{
 	ErrRemoteApplicationNotFound:   http.StatusNotFound,
 	ErrInviteLinkNotFound:          http.StatusNotFound,
 	// 409 — conflicts with current state.
-	ErrEmailAlreadyVerified:      http.StatusConflict,
-	ErrPhoneAlreadyVerified:      http.StatusConflict,
-	ErrCannotRemoveLastAdminRole: http.StatusConflict,
-	ErrWalletAlreadyLinked:       http.StatusConflict,
-	ErrProviderAlreadyLinked:     http.StatusConflict,
+	ErrApplicationIssuerConflict:   http.StatusConflict,
+	ErrApplicationNotDomainRooted:  http.StatusConflict,
+	ErrApplicationSlugConflict:     http.StatusConflict,
+	ErrGroupSlugApplicationManaged: http.StatusConflict,
+	ErrGroupSlugTaken:              http.StatusConflict,
+	ErrEmailAlreadyVerified:        http.StatusConflict,
+	ErrPhoneAlreadyVerified:        http.StatusConflict,
+	ErrCannotRemoveLastAdminRole:   http.StatusConflict,
+	ErrWalletAlreadyLinked:         http.StatusConflict,
+	ErrProviderAlreadyLinked:       http.StatusConflict,
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
 	// 429 — rate limits.
 	ErrRenameRateLimited: http.StatusTooManyRequests,
 	// 400 — malformed / invalid input.
+	ErrApplicationDocumentInvalid:     http.StatusBadRequest,
+	ErrApplicationDomainInvalid:       http.StatusBadRequest,
+	ErrApplicationTierInvalid:         http.StatusBadRequest,
 	ErrInvalidUntil:                   http.StatusBadRequest,
 	ErrEmailInUse:                     http.StatusBadRequest,
 	ErrPhoneInUse:                     http.StatusBadRequest,
@@ -194,10 +217,11 @@ var sentinelHTTPStatus = map[error]int{
 	documents.ErrFetch:                http.StatusBadGateway,
 	documents.ErrRedirect:             http.StatusBadGateway,
 	// 502/503 — delivery/dependency failures.
-	ErrEmailDeliveryFailed:    http.StatusBadGateway,
-	ErrSMSDeliveryFailed:      http.StatusBadGateway,
-	ErrEmailSenderUnavailable: http.StatusServiceUnavailable,
-	ErrSMSSenderUnavailable:   http.StatusServiceUnavailable,
+	ErrApplicationDocumentFetchFailed: http.StatusBadGateway,
+	ErrEmailDeliveryFailed:            http.StatusBadGateway,
+	ErrSMSDeliveryFailed:              http.StatusBadGateway,
+	ErrEmailSenderUnavailable:         http.StatusServiceUnavailable,
+	ErrSMSSenderUnavailable:           http.StatusServiceUnavailable,
 }
 
 // HTTPStatus maps an error to its HTTP status and wire code (#213): the ONE
@@ -234,6 +258,10 @@ func ErrorCodes() []string {
 // a new sentinel needs a line here too; the uniqueness check in errors_test.go
 // fails loudly if two share a code.
 var errorSentinels = []error{
+	ErrApplicationDocumentFetchFailed, ErrApplicationDocumentInvalid, ErrApplicationDomainInvalid,
+	ErrApplicationIssuerConflict, ErrApplicationNotDomainRooted, ErrApplicationRegistrationDisabled,
+	ErrApplicationSignatureInvalid, ErrApplicationSignatureStale, ErrApplicationSlugConflict,
+	ErrApplicationTierInvalid, ErrGroupSlugApplicationManaged, ErrGroupSlugTaken,
 	ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
 	ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
 	ErrAccountRegistrationInviteRevoked, ErrCustomClaimsReserved,

@@ -650,6 +650,12 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		// authority, the operation is just unsafe, so 409 not 403.
 		sendErr(w, http.StatusConflict, ErrCannotRemoveLastOwner)
 		return
+	case errors.Is(err, authkit.ErrGroupSlugTaken):
+		sendErr(w, http.StatusConflict, ErrGroupSlugTaken)
+		return
+	case errors.Is(err, authkit.ErrGroupSlugApplicationManaged):
+		sendErr(w, http.StatusConflict, ErrGroupSlugApplicationManaged)
+		return
 	case errors.Is(err, authkit.ErrExternalInvitesDisabled),
 		errors.Is(err, authkit.ErrInsufficientRoleAuthority),
 		errors.Is(err, authkit.ErrRoleAssignmentEscalation):
@@ -737,4 +743,48 @@ func (s *Service) groupCustomRoleDelete(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "persona": persona, "instance_slug": instanceSlug, "role": role})
+}
+
+// groupUpdate is the #264 group-settings surface (PATCH /<persona>/{instance_slug}):
+// display-name changes and slug renames, gated by <persona>:settings:manage
+// (the owner holds it via the wildcard). A rename tombstones the old slug —
+// permanently reserved to this group, forwarding through slug resolution — so
+// published references keep resolving and nobody can ever re-claim it.
+func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
+	var req struct {
+		Slug        *string `json:"slug"`
+		DisplayName *string `json:"display_name"`
+	}
+	if err := decodeJSON(r, &req); err != nil || (req.Slug == nil && req.DisplayName == nil) {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if req.DisplayName != nil && len(*req.DisplayName) > 256 {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	slug := instanceSlug
+	if req.Slug != nil {
+		newSlug := strings.ToLower(strings.TrimSpace(*req.Slug))
+		if newSlug == "" {
+			badRequest(w, ErrInvalidRequest)
+			return
+		}
+		if err := s.svc.RenamePermissionGroupSlug(r.Context(), persona, instanceSlug, newSlug); err != nil {
+			s.writeGroupOpError(w, err)
+			return
+		}
+		slug = newSlug
+	}
+	if req.DisplayName != nil {
+		if err := s.svc.SetPermissionGroupDisplayName(r.Context(), persona, slug, *req.DisplayName); err != nil {
+			s.writeGroupOpError(w, err)
+			return
+		}
+	}
+	resp := map[string]any{"ok": true, "persona": persona, "instance_slug": slug}
+	if req.DisplayName != nil {
+		resp["display_name"] = strings.TrimSpace(*req.DisplayName)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

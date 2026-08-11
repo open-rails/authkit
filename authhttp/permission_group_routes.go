@@ -214,6 +214,8 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			s.groupInviteLinkMint(w, r, gr.Persona, instanceSlug, claims.UserID)
 		case opInviteLinkRevoke:
 			s.groupInviteLinkRevoke(w, r, gr.Persona, instanceSlug, pathParam(r, "link"))
+		case opGroupUpdate:
+			s.groupUpdate(w, r, gr.Persona, instanceSlug)
 		default:
 			// roles-define (POST/DELETE /roles): not wired yet.
 			sendErr(w, http.StatusNotImplemented, notImplemented)
@@ -243,6 +245,7 @@ const (
 	opInviteLinkList
 	opInviteLinkMint
 	opInviteLinkRevoke
+	opGroupUpdate
 )
 
 // classifyGeneratedRoute maps a generator route (its method + colon-param path)
@@ -250,6 +253,11 @@ const (
 // method disambiguates GET vs POST /members. Unknown shapes are opStub (=> 501).
 func classifyGeneratedRoute(method, path string) generatedOp {
 	switch {
+	case strings.HasSuffix(path, "/:instance_slug"):
+		if method == http.MethodPatch {
+			return opGroupUpdate // #264 group settings: slug rename + display name
+		}
+		return opStub
 	case strings.HasSuffix(path, "/members/:user/roles/:role"):
 		if method == http.MethodPut {
 			return opMemberRoleAssign

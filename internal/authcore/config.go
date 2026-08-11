@@ -33,6 +33,11 @@ type Config struct {
 	// schema plus per-persona role catalogs. Empty yields root-only.
 	RBAC []PersonaDef
 
+	// Applications configures application self-registration (#264): domain-
+	// proven remote applications with service-owned orgs. Zero value = disabled
+	// (the manual/bootstrap registration paths are unaffected).
+	Applications ApplicationsConfig
+
 	// Environment is a host-provided runtime mode string used for dev/prod
 	// behavior checks via IsDevEnvironment, the single classifier (#231): only
 	// "dev", "development", "local", "test" (and empty, preserving zero-config
@@ -63,6 +68,31 @@ type Config struct {
 	// days — the deliberate ceiling; any negative value keeps events forever.
 	SessionEventRetention time.Duration
 }
+
+// ApplicationsConfig configures application self-registration (#264).
+//
+// The trust root is domain control (or an owning user account) — never the
+// keypair alone: registration fetches
+// https://<domain>/.well-known/authkit/application.json server-side, and that
+// fetch IS the domain-control proof. Re-registration of the same domain
+// re-proves the root and adopts the document's current keys (the boot-time
+// self-heal and the rotation-from-root path).
+type ApplicationsConfig struct {
+	// SelfRegistration enables the POST /applications/register surface (and
+	// the signed rotate/repoint routes). Off by default.
+	SelfRegistration bool
+	// OrgPersona is the declared RBAC persona under which each self-registered
+	// application's SERVICE-OWNED org is created (instance_slug = the
+	// application slug; the application principal is seeded as its owner).
+	// Required when SelfRegistration is set; must be a declared non-root
+	// persona whose Parent is the root persona.
+	OrgPersona string
+}
+
+// NOTE (#264 ruling 5, simplified): re-verification cadence and dormancy
+// scheduling are HOST policy — host sweepers read RootVerifiedAt and call
+// SetApplicationEnabled / DeletePermissionGroup; authkit ships no TTL
+// machinery or background jobs of its own.
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
 type TokenConfig struct {

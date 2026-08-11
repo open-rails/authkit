@@ -38,6 +38,12 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 			Window: time.Hour,
 		},
 
+		// #264 application self-registration. Registration is a boot-time
+		// self-heal consumers may retry, so the window is generous per hour
+		// but cooled down; each attempt costs the caller a domain fetch.
+		RLApplicationRegister: {Limit: 30, Window: time.Hour},
+		RLApplicationRotate:   {Limit: 30, Window: time.Hour},
+
 		// Password reset + verification
 		RLPasswordResetRequest: {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
 		RLPasswordResetConfirm: {Limit: 10, Window: 10 * time.Minute},

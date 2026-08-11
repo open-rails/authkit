@@ -508,6 +508,10 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/admin/users/{user_id}/sessions/revoke` | admin | `root:users:recover` |
 | DELETE | `/admin/users/{user_id}` | admin | `root:users:delete` |
 | POST | `/admin/users/{user_id}/restore` | admin | `root:users:delete` |
+| POST | `/admin/applications/{slug}/tier` | admin | `root:credentials:manage` (#264 — tier `registered`\|`approved`) |
+| POST | `/applications/register` | applications | none (#264 — the server-side domain fetch is the proof; mounted only with `Applications.SelfRegistration`) |
+| POST | `/applications/{slug}/rotate` | applications | per-message JWS (#264) |
+| POST | `/applications/{slug}/repoint` | applications | per-message JWS + new-domain proof (#264) |
 
 ### 5.4 Generated permission-group routes (covered, schema-derived)
 
@@ -538,6 +542,7 @@ cross-persona `GET /me/groups` and `POST /invites/redeem` are always present.
 | GET | `/{persona}/{instance_slug}/invites/links` | yes (#134 — list invite links) |
 | POST | `/{persona}/{instance_slug}/invites/links` | yes (#134 — mint; returns the code once) |
 | DELETE | `/{persona}/{instance_slug}/invites/links/{link}` | yes (#134 — revoke) |
+| PATCH | `/{persona}/{instance_slug}` | yes (#264 — group settings: slug rename with tombstone-forwarding, display name; gated `<persona>:settings:manage`) |
 
 > The custom-role **define/delete** routes return `501 not_implemented`. Promoting them
 > from 501 to a working response is **not** breaking; the `not_implemented` code on those

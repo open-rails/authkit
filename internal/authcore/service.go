@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"fmt"
 	stdlog "log"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -119,6 +120,16 @@ type Service struct {
 	// read it — there is no parallel flat options struct.
 	cfg            Config
 	verifyWarnOnce sync.Once
+
+	// appHTTPClient overrides the outbound client used for application
+	// self-registration fetches (application.json, JWKS during signed
+	// rotation). Nil builds the default: timeout-bounded, redirect-refusing,
+	// SSRF-guarded outside dev-like environments (#264).
+	appHTTPClient *http.Client
+	// appAdmission is the optional host-injected admission predicate consulted
+	// before any registration fetch (#264 anti-squat doctrine: cost gates live
+	// in the host — authkit never learns what a credit card is). Nil = allow.
+	appAdmission func(ctx context.Context, domain string) error
 
 	// SMS deliverability health, populated by CheckSMSHealth. Until a check has
 	// run, SMS is considered available whenever a sender is configured (legacy

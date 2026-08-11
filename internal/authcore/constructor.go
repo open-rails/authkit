@@ -234,6 +234,20 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 		return nil, fmt.Errorf("permission-group schema: %w", gerr)
 	}
 
+	// #264: application self-registration needs a declared org persona to hang
+	// service-owned orgs off; a bad reference fails construction, not the
+	// first registration.
+	if norm.Applications.SelfRegistration {
+		persona := strings.TrimSpace(norm.Applications.OrgPersona)
+		td, ok := gs.Persona(persona)
+		if !ok || persona == RootPersona {
+			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q is not a declared non-root persona", persona)
+		}
+		if td.Parent != RootPersona {
+			return nil, fmt.Errorf("authkit: Applications.OrgPersona %q must be parented by %q (got %q)", persona, RootPersona, td.Parent)
+		}
+	}
+
 	// pg is positional but MAY be nil at the core layer (verify-only construction
 	// or config-only unit tests need no store); WithPostgres(nil) is a no-op, so a
 	// nil pg simply yields a Service with no querier. The mandatory-Postgres

@@ -28,6 +28,10 @@ const (
 	RLAuthSessionsRevoke       = "auth_sessions_revoke"
 	RLAuthSessionsRevokeAll    = "auth_sessions_revoke_all"
 
+	// #264 application self-registration (per-IP AND per-domain/slug keys).
+	RLApplicationRegister = "application_register"
+	RLApplicationRotate   = "application_rotate"
+
 	RLPasswordResetRequest = "auth_pwd_reset_request"
 	RLPasswordResetConfirm = "auth_pwd_reset_confirm"
 	RLEmailVerifyRequest   = "auth_email_verify_request"
