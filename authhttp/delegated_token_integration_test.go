@@ -20,6 +20,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/open-rails/authkit/documents"
@@ -166,6 +167,21 @@ func TestDelegatedTokenRoute_EndToEnd(t *testing.T) {
 	require.Equal(t, "pro", attributes["entitlement"])
 	iat, exp := int64(claims["iat"].(float64)), int64(claims["exp"].(float64))
 	require.Equal(t, int64((15*time.Minute)/time.Second), exp-iat, "default TTL")
+
+	// ak#270: the route's tokens are revocable by id — a jti is always
+	// stamped and is fresh per mint, so a receiving service (tensorhub) can
+	// deny a single delegated token instead of the whole session.
+	firstJTI, _ := claims["jti"].(string)
+	_, err = uuid.Parse(firstJTI)
+	require.NoError(t, err, "jti %q is not a uuid", firstJTI)
+	again := postDelegatedToken(h, `{}`, userToken)
+	require.Equal(t, http.StatusOK, again.Code, again.Body.String())
+	var reminted struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(again.Body.Bytes(), &reminted))
+	require.NotEqual(t, firstJTI, unverifiedClaims(t, reminted.Token)["jti"],
+		"a re-mint must not reuse the previous jti")
 
 	// The stamped document is resolvable end-to-end by the configured reader.
 	readerToken := registerDocumentReader(t, client, "tensorhub-"+suffix, "https://tensorhub-"+suffix+".example")

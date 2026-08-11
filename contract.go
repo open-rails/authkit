@@ -182,7 +182,10 @@ type DelegatedAccessParams struct {
 	Roles []string
 	// TTL is the token lifetime. Defaults to 15m when zero.
 	TTL time.Duration
-	// JTI, when set, becomes the `jti` claim (token identifier). Optional.
+	// JTI becomes the `jti` claim (token identifier). Optional to SET, but
+	// always PRESENT on the minted token: when empty the minter generates a
+	// fresh uuidv7, so a receiving service can revoke any delegated token by
+	// id without a per-issuer "does this one have a jti" carve-out.
 	JTI string
 	// NotBefore, when set, becomes the `nbf` claim. Optional.
 	NotBefore time.Time
