@@ -56,12 +56,6 @@ type AuthVerificationCapabilities struct {
 	Registration string `json:"registration"`
 }
 
-func (s *Service) handleProvidersGET(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"providers": s.providerSummaries(),
-	})
-}
-
 func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, _ *http.Request) {
 	caps := s.capabilities()
 	body, _ := json.Marshal(caps)

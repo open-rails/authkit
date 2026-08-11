@@ -1,9 +1,6 @@
 package authhttp
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/open-rails/authkit/authprovider"
@@ -132,34 +129,3 @@ func testBuiltInProvider(t *testing.T, name, clientID, secret string) authprovid
 	return p
 }
 
-func TestProvidersGETReturnsConfiguredProvidersOnly(t *testing.T) {
-	s := &Service{
-		authProvidersByName: map[string]authprovider.Provider{
-			"google": {
-				Name:     "google",
-				Kind:     authprovider.KindOIDC,
-				Issuer:   "https://accounts.google.com",
-				ClientID: "google-client",
-				ClientSecret: authprovider.ClientSecret{
-					Value: "google-secret",
-				},
-			},
-		},
-	}
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/identity-providers", nil)
-	s.handleProvidersGET(w, r)
-	require.Equal(t, http.StatusOK, w.Code)
-
-	var body struct {
-		Providers []AuthProviderSummary `json:"providers"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Len(t, body.Providers, 1)
-	require.Equal(t, "google", body.Providers[0].ID)
-	require.Equal(t, "Google", body.Providers[0].Name)
-	require.True(t, body.Providers[0].SupportsLogin)
-	require.True(t, body.Providers[0].SupportsRegistration)
-	require.True(t, body.Providers[0].SupportsLink)
-}

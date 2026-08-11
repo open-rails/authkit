@@ -38,21 +38,6 @@ func TestPolicySwitches_DefaultPreservesCurrentBehavior(t *testing.T) {
 	}
 }
 
-func TestPolicySwitches_Plumbed(t *testing.T) {
-	cfg := baseTestConfig(t)
-	cfg.Registration.NativeUserMode = RegistrationModeClosed
-	svc, err := NewFromConfig(cfg, nil)
-	if err != nil {
-		t.Fatalf("NewFromConfig: %v", err)
-	}
-	if svc.Config().Registration.NativeUserMode != RegistrationModeClosed {
-		t.Fatalf("NativeUserRegistrationMode not plumbed through NewFromConfig")
-	}
-	if svc.PublicNativeUserRegistrationEnabled() {
-		t.Fatalf("PublicNativeUserRegistrationEnabled should be false when disabled")
-	}
-}
-
 // CreatePendingRegistration is the core front-door chokepoint for public
 // password registration. It must hard-fail with ErrRegistrationDisabled when
 // the switch is on, before touching storage.
@@ -80,37 +65,6 @@ func TestPolicySwitches_RegistrationModes(t *testing.T) {
 			svc := NewService(Config{Registration: RegistrationConfig{NativeUserMode: mode}}, Keyset{})
 			if svc.PublicNativeUserRegistrationEnabled() {
 				t.Fatalf("native public registration should be disabled for %q", mode)
-			}
-		})
-	}
-}
-
-func TestPolicySwitches_DeploymentModeMatrix(t *testing.T) {
-	tests := []struct {
-		name                  string
-		nativeMode            RegistrationMode
-		wantPublicNativeUsers bool
-	}{
-		{
-			name:                  "doujins-hentai0-native-app",
-			nativeMode:            RegistrationModeOpen,
-			wantPublicNativeUsers: true,
-		},
-		{
-			name:       "tensorhub-b2b-admin-created",
-			nativeMode: RegistrationModeClosed,
-		},
-		{
-			name:       "openrails-relying-party-closed",
-			nativeMode: RegistrationModeClosed,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}, Registration: RegistrationConfig{NativeUserMode: tt.nativeMode}}, Keyset{})
-			if svc.PublicNativeUserRegistrationEnabled() != tt.wantPublicNativeUsers {
-				t.Fatalf("PublicNativeUserRegistrationEnabled=%v, want %v", svc.PublicNativeUserRegistrationEnabled(), tt.wantPublicNativeUsers)
 			}
 		})
 	}

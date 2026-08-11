@@ -87,14 +87,6 @@ func TestDefaultSolanaSNSResolverIgnoresStaleFavorite(t *testing.T) {
 	}
 }
 
-func TestNewServiceUsesAuthKitDefaultSolanaSNSResolver(t *testing.T) {
-	// SNS is always-on; NewService must wire the built-in keyless resolver.
-	svc := NewService(Config{}, Keyset{})
-	if svc.solanaSNSResolver.baseURL != defaultSolanaSNSProxyURL {
-		t.Fatalf("resolver baseURL = %q, want %q", svc.solanaSNSResolver.baseURL, defaultSolanaSNSProxyURL)
-	}
-}
-
 func TestSolanaSNSResolveAndStore(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()

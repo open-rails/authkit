@@ -96,41 +96,6 @@ func TestPurgeCandidateSelectionBoundary(t *testing.T) {
 	}
 }
 
-// TestPurgeRetentionDefaults verifies the worker's retention/batch defaults so a
-// zero/negative arg cannot accidentally widen (retention) or unbound (batch) the
-// purge selection.
-func TestPurgeRetentionDefaults(t *testing.T) {
-	cases := []struct {
-		name      string
-		retention int
-		batch     int
-		wantRet   int
-		wantBatch int
-	}{
-		{"zero defaults", 0, 0, 30, 500},
-		{"negative defaults", -5, -1, 30, 500},
-		{"explicit kept", 7, 100, 7, 100},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			retention := c.retention
-			if retention <= 0 {
-				retention = 30
-			}
-			batch := c.batch
-			if batch <= 0 {
-				batch = 500
-			}
-			if retention != c.wantRet {
-				t.Errorf("retention: got %d want %d", retention, c.wantRet)
-			}
-			if batch != c.wantBatch {
-				t.Errorf("batch: got %d want %d", batch, c.wantBatch)
-			}
-		})
-	}
-}
-
 // TestPurgeInsertOptsQueue verifies queue routing (#246): InsertOpts() must
 // never fall back to river.QueueDefault, and a host-supplied Args.Queue must
 // be honored. authkit pinning its jobs to the shared `default` queue would

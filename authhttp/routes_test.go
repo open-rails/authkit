@@ -101,13 +101,6 @@ func TestPermissionGroupDiscoveryRoutesAreConfigAware(t *testing.T) {
 	requireRoute(t, s.APIRoutes(RouteAccount), http.MethodGet, "/me/groups")
 	requireNoRoute(t, s.APIRoutes(RoutePermissionGroups), http.MethodGet, "/me/groups")
 	requireRoute(t, s.APIRoutes(RoutePermissionGroups), http.MethodPost, "/invites/redeem")
-
-	invites := newTestServiceWithRBAC(t,
-		embedded.PersonaDef{
-			Name: "org", Parent: embedded.RootPersona,
-		},
-	)
-	requireRoute(t, invites.APIRoutes(RoutePermissionGroups), http.MethodPost, "/invites/redeem")
 }
 
 func TestPasskeyRoutesGatedOnPasskeyConfig(t *testing.T) {

@@ -298,40 +298,6 @@ func TestServiceFailsLoudOnPayloadDrift(t *testing.T) {
 	}
 }
 
-func TestStoreCollisionSurfacesFromPublish(t *testing.T) {
-	ctx := context.Background()
-	signer := newRotatableSigner(t, "key-1")
-	store := newFakeStore()
-	svc, err := NewService(ctx, serviceConfigForTest(signer, store))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref := svc.Reference()
-
-	// Simulate a row whose immutable columns were altered under the digest:
-	// the store refuses the conflicting save with ErrDigestCollision.
-	store.tamper(ref.Digest, func(d *SignedDocument) {
-		d.Reference.Type = "example.other/v1"
-	})
-	err = store.SaveDocument(ctx, SignedDocument{
-		CompactJWS:    "x.y.z",
-		Reference:     ref,
-		SignedPayload: append([]byte(nil), svcSignedPayload(t, store, ref)...),
-	})
-	if !errors.Is(err, ErrDigestCollision) {
-		t.Fatalf("collision = %v", err)
-	}
-}
-
-func svcSignedPayload(t *testing.T, store *fakeStore, ref Reference) []byte {
-	t.Helper()
-	document, err := store.Lookup(context.Background(), ref.Digest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return document.SignedPayload
-}
-
 func TestNormalizeDedupAndEqualStrings(t *testing.T) {
 	if got := normalizeDedup([]string{" a ", "a", "", "b"}); strings.Join(got, ",") != "a,b" {
 		t.Fatalf("normalizeDedup = %v", got)

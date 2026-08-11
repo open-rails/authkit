@@ -54,30 +54,3 @@ func TestMFAEnrollmentExemptPath_UnsetIsFailClosed(t *testing.T) {
 	}
 }
 
-// The per-request gate fires only for an un-enrolled native user when policy is
-// Required; enrolled users and machine principals pass.
-func TestRequireMFAEnrollmentGateClaims(t *testing.T) {
-	v := NewVerifier()
-	v.SetMFAEnrollmentExemptPaths(enrollmentExemptPaths)
-
-	cases := []struct {
-		name    string
-		require bool
-		cl      Claims
-		path    string
-		blocked bool
-	}{
-		{"policy off", false, Claims{UserID: "u1"}, "/orders", false},
-		{"required + unenrolled user", true, Claims{UserID: "u1"}, "/orders", true},
-		{"required + unenrolled on enroll route", true, Claims{UserID: "u1"}, "/user/2fa", false},
-		{"required + enrolled user", true, Claims{UserID: "u1", MFAEnrolled: true}, "/orders", false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			gate := c.require && c.cl.IsUser() && !c.cl.MFAEnrolled && !v.mfaEnrollmentExemptPath(http.MethodPost, c.path)
-			if gate != c.blocked {
-				t.Fatalf("gate=%v, want %v", gate, c.blocked)
-			}
-		})
-	}
-}

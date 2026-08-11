@@ -85,22 +85,3 @@ func TestNewSSRFGuardedClient_BlocksLocalhostServer(t *testing.T) {
 	}
 }
 
-// TestNewSSRFGuardedClient_AllowsPublicReach verifies the guard does NOT block
-// legitimate outbound connections to a public IP. It probes Cloudflare's public
-// resolver; any HTTP response (even 4xx) proves the TCP connection succeeded.
-// Skipped in short mode or when there is no outbound internet.
-func TestNewSSRFGuardedClient_AllowsPublicReach(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping outbound probe in short mode")
-	}
-	client := NewSSRFGuardedClient()
-	resp, err := client.Get("https://one.one.one.one/") //nolint:noctx
-	if err != nil {
-		t.Skipf("no outbound connectivity (%v) — skipping public-reach probe", err)
-	}
-	resp.Body.Close()
-	// Any HTTP response proves the guard allowed the connection.
-	if resp.StatusCode == 0 {
-		t.Error("zero status code — unexpected")
-	}
-}

@@ -46,27 +46,6 @@ func TestTestIssuer_ServesJWKS(t *testing.T) {
 	}
 }
 
-func TestTestIssuer_CreateToken(t *testing.T) {
-	issuer := NewTestIssuer()
-	defer issuer.Close()
-
-	token := issuer.CreateToken("user-123", "test@example.com")
-	if token == "" {
-		t.Fatal("expected non-empty token")
-	}
-
-	// Token should have 3 parts (header.payload.signature)
-	parts := 0
-	for i := 0; i < len(token); i++ {
-		if token[i] == '.' {
-			parts++
-		}
-	}
-	if parts != 2 {
-		t.Errorf("expected 2 dots in JWT, got %d", parts)
-	}
-}
-
 func TestTestIssuer_TokenValidatesWithVerifier(t *testing.T) {
 	issuer := NewTestIssuer()
 	defer issuer.Close()

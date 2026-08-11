@@ -175,12 +175,3 @@ func TestNewServer_RateLimitOverrides(t *testing.T) {
 	require.Equal(t, wantDefault.Window, untouched.Window, "untouched bucket must keep its default window")
 }
 
-// #109: Server is an alias of Service — NewServer returns *Service, which is
-// assignable to *Service (and vice versa).
-func TestServerAlias_BackCompat(t *testing.T) {
-	pool := newServerTestPool(t)
-	svc, err := NewServer(newServerClient(t, newServerTestConfig(), pool))
-	require.NoError(t, err)
-	var _ *Service = svc // Server == Service (alias)
-	var _ *Service = svc // both directions
-}

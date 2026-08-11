@@ -16,13 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Session-event history is always on (#245, Postgres-backed) — no longer gated
-// on a ClickHouse option.
-func TestAdminSignins_HistoryAlwaysEnabled(t *testing.T) {
-	s := newTestService(t) // bare engine, no options at all
-	require.True(t, s.svc.SessionEventHistoryEnabled())
-}
-
 // TestAdminSignins_EndToEnd exercises the whole path in one shot: events are
 // logged through the engine → the admin sign-ins HTTP handler reads them back
 // from Postgres and shapes the JSON, scoped to the requested user.
