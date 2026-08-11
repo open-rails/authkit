@@ -615,7 +615,10 @@ authenticated user: audience-subset clamp, request TTL clamped into the
 boot-validated `TTLFloor <= TTLDefault <= TTLCeiling` triple (an inconsistent
 triple never boots), document digests stamped from every `WithDocuments`
 provider, and post-mint signing-KID reconciliation so a stamped document always
-verifies against the token's key. Host semantics enter through ONE seam:
+verifies against the token's key. Every delegated token carries a fresh uuidv7
+`jti` (ak#270), so a receiving service can revoke one token by id rather than
+the whole session; `DelegatedAccessParams.JTI` still lets a caller pin its own.
+Host semantics enter through ONE seam:
 
 ```go
 embedded.WithDelegatedAttributes(func(ctx context.Context, userID string) (map[string]any, map[string]string, error) {

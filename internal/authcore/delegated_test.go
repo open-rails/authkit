@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // writeServiceKeysJSON renders a {active_key_id, active_private_key_pem,
@@ -94,6 +95,35 @@ func TestServiceMintDelegatedRoundTrip(t *testing.T) {
 	}
 	if _, hasSub := claims["sub"]; hasSub {
 		t.Fatal("delegated token must not carry sub")
+	}
+
+	// ak#270: every delegated token is revocable by id.
+	jti, _ := claims["jti"].(string)
+	if _, err := uuid.Parse(jti); err != nil {
+		t.Fatalf("jti %q is not a uuid: %v", jti, err)
+	}
+
+	second, err := svc.MintDelegatedAccessToken(context.Background(), DelegatedAccessParams{
+		Audiences:        []string{"tensorhub"},
+		DelegatedSubject: "user-123",
+	})
+	if err != nil {
+		t.Fatalf("second mint: %v", err)
+	}
+	if other := verifyAgainstServiceJWKS(t, svc, second)["jti"]; other == jti {
+		t.Fatalf("two mints share a jti: %v", other)
+	}
+
+	explicit, err := svc.MintDelegatedAccessToken(context.Background(), DelegatedAccessParams{
+		Audiences:        []string{"tensorhub"},
+		DelegatedSubject: "user-123",
+		JTI:              "  caller-chosen  ",
+	})
+	if err != nil {
+		t.Fatalf("explicit-jti mint: %v", err)
+	}
+	if got := verifyAgainstServiceJWKS(t, svc, explicit)["jti"]; got != "caller-chosen" {
+		t.Fatalf("explicit JTI did not win: %v", got)
 	}
 }
 

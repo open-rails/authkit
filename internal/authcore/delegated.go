@@ -130,9 +130,16 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	if len(attributes) > 0 {
 		claims["attributes"] = attributes
 	}
-	if j := strings.TrimSpace(p.JTI); j != "" {
-		claims["jti"] = j
+	// `jti` is ALWAYS present: a receiver can only gate a revocation deny-list
+	// on the claim if every delegated token authkit signs carries one. An
+	// explicit p.JTI wins; otherwise mint a fresh uuidv7.
+	jti := strings.TrimSpace(p.JTI)
+	if jti == "" {
+		if jti, err = newUUIDV7String(); err != nil {
+			return "", fmt.Errorf("delegated jti: %w", err)
+		}
 	}
+	claims["jti"] = jti
 	if !p.NotBefore.IsZero() {
 		claims["nbf"] = p.NotBefore.Unix()
 	}
