@@ -36,6 +36,18 @@ type APIKeyMintOptions struct {
 type BootstrapManifest struct {
 	Users              []BootstrapManifestUser              `json:"users" yaml:"users"`
 	RemoteApplications []BootstrapManifestRemoteApplication `json:"remote_applications" yaml:"remote_applications"`
+	// Dev carries dev-only runtime fixtures (#266). NOT part of the apply-once
+	// reconcile: hosts read it at every boot and honor it only in a dev
+	// environment (fail-closed).
+	Dev BootstrapManifestDev `json:"dev,omitempty" yaml:"dev,omitempty"`
+}
+
+// BootstrapManifestDev is the dev-only fixture section of a bootstrap manifest.
+type BootstrapManifestDev struct {
+	// StaticEntitlements are entitlement names seeded into every access token
+	// via a static EntitlementsProvider — billing/entitlement E2E fixtures as
+	// reviewable YAML (formerly the AUTHKIT_STATIC_ENTITLEMENTS env CSV, #266).
+	StaticEntitlements []string `json:"static_entitlements,omitempty" yaml:"static_entitlements,omitempty"`
 }
 
 type BootstrapManifestUser struct {

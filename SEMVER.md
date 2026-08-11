@@ -737,7 +737,7 @@ When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
 
 Hosts with in-memory key material pass an explicit `Keys.Source`
 (`jwtkit.NewStaticKeySourceFromPEM` / `jwtkit.StaticKeySource`). The standalone
-binary still honors `ACTIVE_KEY_ID`/`ACTIVE_PRIVATE_KEY_PEM`/`PUBLIC_KEYS` and
+binary still honors `AUTHKIT_ACTIVE_KEY_ID`/`AUTHKIT_ACTIVE_PRIVATE_KEY_PEM`/`AUTHKIT_PUBLIC_KEYS` and
 `AUTHKIT_KEYS_PATH` — read in `cmd/authkit-server`, not the library.
 
 The default path, the file envelope shape, and the fail-closed no-keys hard error

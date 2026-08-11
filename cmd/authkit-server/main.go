@@ -30,6 +30,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -80,20 +81,24 @@ type config struct {
 	defaultLanguage   string
 	bootstrapPath     string // startup-once bootstrap manifest (YAML); "" => none
 	// Inline JWT key material (#231): the LIBRARY reads no env, so the binary
-	// reads ACTIVE_KEY_ID / ACTIVE_PRIVATE_KEY_PEM / PUBLIC_KEYS here — once, at
-	// the binary boundary — and passes an explicit KeySource in.
+	// reads AUTHKIT_ACTIVE_KEY_ID / AUTHKIT_ACTIVE_PRIVATE_KEY_PEM /
+	// AUTHKIT_PUBLIC_KEYS here — once, at the binary boundary — and passes an
+	// explicit KeySource in.
 	activeKeyID         string
 	activePrivateKeyPEM string
 	publicKeysPEM       map[string]string // kid -> public-key PEM (retired keys kept in JWKS)
-	// Dev-only integration-test knobs (honored only when env is a dev env, #194).
-	devMintSecret      string   // enables POST {prefix}/dev/mint when set
-	staticEntitlements []string // seeded into access tokens for billing/entitlement E2E
+	// Dev-only integration-test knob (honored only when env is a dev env, #194).
+	devMintSecret string // enables POST {prefix}/dev/mint when set
 }
 
 func loadConfig() (*config, error) {
+	dbURL, err := dbURLFromEnv()
+	if err != nil {
+		return nil, err
+	}
 	c := &config{
 		listenAddr:     envOr("AUTHKIT_LISTEN_ADDR", ":8080"),
-		dbURL:          firstEnv("DB_URL", "DATABASE_URL"),
+		dbURL:          dbURL,
 		issuer:         strings.TrimRight(envOr("AUTHKIT_ISSUER", ""), "/"),
 		audiences:      splitCSV(envOr("AUTHKIT_AUDIENCES", "authkit")),
 		keysPath:       strings.TrimSpace(os.Getenv("AUTHKIT_KEYS_PATH")),
@@ -110,10 +115,9 @@ func loadConfig() (*config, error) {
 		// "required" verification with no sender is unsatisfiable. Operators set
 		// this once they wire a sender (senders are an embedded.New option).
 		regVerify:           strings.ToLower(envOr("AUTHKIT_REGISTRATION_VERIFICATION", "none")),
-		activeKeyID:         strings.TrimSpace(os.Getenv("ACTIVE_KEY_ID")),
-		activePrivateKeyPEM: strings.TrimSpace(os.Getenv("ACTIVE_PRIVATE_KEY_PEM")),
+		activeKeyID:         strings.TrimSpace(os.Getenv("AUTHKIT_ACTIVE_KEY_ID")),
+		activePrivateKeyPEM: strings.TrimSpace(os.Getenv("AUTHKIT_ACTIVE_PRIVATE_KEY_PEM")),
 		devMintSecret:       strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
-		staticEntitlements:  splitCSV(os.Getenv("AUTHKIT_STATIC_ENTITLEMENTS")),
 		trustedProxies:      splitCSV(os.Getenv("AUTHKIT_TRUSTED_PROXIES")),
 		twoFAMode:           strings.ToLower(strings.TrimSpace(os.Getenv("AUTHKIT_2FA_MODE"))),
 		twoFAMethods:        splitCSV(strings.ToLower(os.Getenv("AUTHKIT_2FA_METHODS"))),
@@ -130,7 +134,6 @@ func loadConfig() (*config, error) {
 	if c.dbURL == "" {
 		return nil, errors.New("DB_URL (or DATABASE_URL) is required")
 	}
-	var err error
 	if c.accessTokenTTL, err = envDuration("AUTHKIT_ACCESS_TOKEN_TTL"); err != nil {
 		return nil, err
 	}
@@ -155,12 +158,44 @@ func loadConfig() (*config, error) {
 			return nil, fmt.Errorf("invalid AUTHKIT_2FA_METHODS entry %q (want a comma-separated subset of email,sms,totp)", m)
 		}
 	}
-	if raw := strings.TrimSpace(os.Getenv("PUBLIC_KEYS")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("AUTHKIT_PUBLIC_KEYS")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.publicKeysPEM); err != nil {
-			return nil, fmt.Errorf("parse PUBLIC_KEYS JSON (kid -> public-key PEM): %w", err)
+			return nil, fmt.Errorf("parse AUTHKIT_PUBLIC_KEYS JSON (kid -> public-key PEM): %w", err)
+		}
+	}
+	// #266: the one enum pair that skipped the house-style boot refusal. The
+	// library quietly falls back to "en" when the effective default is outside
+	// the supported set — refuse at boot instead of serving a language nobody
+	// configured.
+	if len(c.languages) > 0 || c.defaultLanguage != "" {
+		supported := c.languages
+		if len(supported) == 0 {
+			supported = []string{"en"}
+		}
+		def := c.defaultLanguage
+		if def == "" {
+			def = "en"
+		}
+		if !slices.Contains(supported, def) {
+			return nil, fmt.Errorf("AUTHKIT_DEFAULT_LANGUAGE %q is not in AUTHKIT_LANGUAGES %v (set it to one of the supported languages)", def, supported)
 		}
 	}
 	return c, nil
+}
+
+// dbURLFromEnv resolves the Postgres DSN from DB_URL / DATABASE_URL. Setting
+// both is a loud configuration error, not a silent precedence pick (#266 —
+// same discipline as the AUTHKIT_REDIS_URL/AUTHKIT_REDIS_ADDR pair).
+func dbURLFromEnv() (string, error) {
+	dbURL := strings.TrimSpace(os.Getenv("DB_URL"))
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if dbURL != "" && databaseURL != "" {
+		return "", errors.New("set DB_URL or DATABASE_URL, not both")
+	}
+	if dbURL == "" {
+		dbURL = databaseURL
+	}
+	return dbURL, nil
 }
 
 func main() {
@@ -227,15 +262,32 @@ func run() error {
 	// dev; everything else (incl. staging) is prod-like/fail-closed.
 	devMode := embedded.IsDevEnvironment(cfg.env)
 
+	// Bootstrap manifest, loaded up front (#266): the dev fixture section feeds
+	// engine options at construction; the seed sections are applied (apply-once)
+	// after the engine is built. Dev fixtures in a non-dev env refuse to boot —
+	// entitlements seeded into every token would be a billing bypass in prod.
+	var manifest *authkit.BootstrapManifest
+	if cfg.bootstrapPath != "" {
+		m, err := embedded.LoadBootstrapManifestFile(cfg.bootstrapPath)
+		if err != nil {
+			return fmt.Errorf("load bootstrap manifest %s: %w", cfg.bootstrapPath, err)
+		}
+		manifest = &m
+	}
+	if manifest != nil && len(manifest.Dev.StaticEntitlements) > 0 && !devMode {
+		return fmt.Errorf("bootstrap manifest %s sets dev.static_entitlements but AUTHKIT_ENV=%q is not a dev environment", cfg.bootstrapPath, cfg.env)
+	}
+
 	// Key resolution (#231): env is read ONLY here, at the binary boundary.
-	// Inline env key material (ACTIVE_KEY_ID/ACTIVE_PRIVATE_KEY_PEM/PUBLIC_KEYS)
-	// wins; otherwise the engine loads <keysPath>/keys.json, and ONLY a dev env
-	// opts in to ephemeral generated keys. Prod with no keys refuses to boot.
+	// Inline env key material (AUTHKIT_ACTIVE_KEY_ID/AUTHKIT_ACTIVE_PRIVATE_KEY_PEM/
+	// AUTHKIT_PUBLIC_KEYS) wins; otherwise the engine loads <keysPath>/keys.json,
+	// and ONLY a dev env opts in to ephemeral generated keys. Prod with no keys
+	// refuses to boot.
 	keysCfg := embedded.KeysConfig{Path: cfg.keysPath, AllowEphemeralDevKeys: devMode}
 	if cfg.activeKeyID != "" || cfg.activePrivateKeyPEM != "" {
 		ks, err := jwtkit.NewStaticKeySourceFromPEM(cfg.activeKeyID, cfg.activePrivateKeyPEM, cfg.publicKeysPEM)
 		if err != nil {
-			return fmt.Errorf("load JWT keys from ACTIVE_KEY_ID/ACTIVE_PRIVATE_KEY_PEM: %w", err)
+			return fmt.Errorf("load JWT keys from AUTHKIT_ACTIVE_KEY_ID/AUTHKIT_ACTIVE_PRIVATE_KEY_PEM: %w", err)
 		}
 		keysCfg = embedded.KeysConfig{Source: ks}
 	}
@@ -304,8 +356,8 @@ func run() error {
 			Default:   cfg.defaultLanguage,
 		}))
 	}
-	if devMode && len(cfg.staticEntitlements) > 0 {
-		engineOpts = append(engineOpts, embedded.WithEntitlements(staticDevEntitlements{names: cfg.staticEntitlements}))
+	if devMode && manifest != nil && len(manifest.Dev.StaticEntitlements) > 0 {
+		engineOpts = append(engineOpts, embedded.WithEntitlements(staticDevEntitlements{names: manifest.Dev.StaticEntitlements}))
 	}
 
 	client, err := embedded.New(coreCfg, pg, engineOpts...)
@@ -314,13 +366,11 @@ func run() error {
 	}
 
 	// Startup-once bootstrap manifest (#236): seed initial users / remote apps
-	// from a YAML file. Apply-once is DB-marked, so restarts are no-ops.
-	if cfg.bootstrapPath != "" {
-		manifest, err := embedded.LoadBootstrapManifestFile(cfg.bootstrapPath)
-		if err != nil {
-			return fmt.Errorf("load bootstrap manifest %s: %w", cfg.bootstrapPath, err)
-		}
-		res, err := client.ApplyBootstrapManifest(ctx, manifest, authkit.BootstrapReconcileOptions{StartupOnly: true})
+	// from a YAML file. Apply-once is DB-marked, so restarts are no-ops. A
+	// fixtures-only manifest (just `dev:`) seeds nothing, so it skips the
+	// apply — and with it the genesis non-empty-database refusal.
+	if manifest != nil && (len(manifest.Users) > 0 || len(manifest.RemoteApplications) > 0) {
+		res, err := client.ApplyBootstrapManifest(ctx, *manifest, authkit.BootstrapReconcileOptions{StartupOnly: true})
 		if err != nil {
 			return fmt.Errorf("apply bootstrap manifest %s: %w", cfg.bootstrapPath, err)
 		}
@@ -411,7 +461,10 @@ func run() error {
 // runMigrateCmd applies the Postgres schema and exits. It needs only the DB DSN
 // (no issuer/keys), so prod can run it as a one-shot job separate from serving.
 func runMigrateCmd() error {
-	dbURL := firstEnv("DB_URL", "DATABASE_URL")
+	dbURL, err := dbURLFromEnv()
+	if err != nil {
+		return err
+	}
 	if dbURL == "" {
 		return errors.New("DB_URL (or DATABASE_URL) is required")
 	}
@@ -589,15 +642,6 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
-}
-
-func firstEnv(keys ...string) string {
-	for _, k := range keys {
-		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func envDuration(key string) (time.Duration, error) {
