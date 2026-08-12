@@ -139,7 +139,20 @@ func WithSkew(d time.Duration) VerifierOption {
 	return func(v *Verifier) { v.skew = d }
 }
 
-// WithAlgorithms sets the allowed JWS algorithms. Default: ["RS256"].
+// WithAlgorithms REPLACES the allowed JWS algorithm set; it does not add to it.
+//
+// The default is ["RS256", "ES256", "ES384", "ES512", "EdDSA"], not ["RS256"].
+// The breadth is deliberate: federated and remote-application issuers
+// legitimately sign with EC or Ed25519 keys and must verify out of the box.
+// Narrow it only if you control every issuer this Verifier accepts.
+//
+// The list is a pure allow-list checked in keyForToken, so "none" and the
+// symmetric HS* algorithms are absent from the default and rejected there. A
+// caller who adds them anyway does not open an algorithm-confusion hole:
+// authkit only ever hands the parser an asymmetric public key, which
+// golang-jwt's HMAC and none signing methods refuse as the wrong key type.
+//
+// Passing an empty list rejects every token (fail closed).
 func WithAlgorithms(algs ...string) VerifierOption {
 	return func(v *Verifier) { v.algorithms = algs }
 }
