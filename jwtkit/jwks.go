@@ -226,20 +226,55 @@ func curveForCRV(crv string) (elliptic.Curve, error) {
 }
 
 // ServeJWKS writes JWKS JSON to the ResponseWriter.
+//
+// A JWKS endpoint is fetched constantly by every verifier and normally sits
+// behind a CDN or proxy, so the caching contract is part of the contract:
+//
+//   - ETag and Cache-Control are set BEFORE the conditional branch, so the 304
+//     carries them too. RFC 7232 requires the validator on a 304; dropping it
+//     makes an intermediary discard its entry and refetch, which is the opposite
+//     of what the conditional request was for.
+//   - If-None-Match is matched per RFC 7232 §3.2 — "*", a comma-separated
+//     candidate list, and the weak "W/" prefix (If-None-Match uses the weak
+//     comparison function). The previous exact-string compare silently disabled
+//     caching for any standards-compliant client that sent one of those.
+//   - X-Content-Type-Options: nosniff, so a browser cannot be steered into
+//     treating the document as anything but JSON.
 func ServeJWKS(w http.ResponseWriter, r *http.Request, ks JWKS) {
 	b, _ := json.Marshal(ks)
 	sum := sha256.Sum256(b)
 	etag := "\"" + hex.EncodeToString(sum[:]) + "\""
 
-	if inm := r.Header.Get("If-None-Match"); inm != "" && inm == etag {
+	h := w.Header()
+	h.Set("Cache-Control", "public, max-age=300, must-revalidate")
+	h.Set("ETag", etag)
+	h.Set("X-Content-Type-Options", "nosniff")
+
+	if inm := r.Header.Get("If-None-Match"); inm != "" && etagMatches(inm, etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate")
-	w.Header().Set("ETag", etag)
+	h.Set("Content-Type", "application/json")
 	_, _ = w.Write(b)
+}
+
+// etagMatches reports whether an If-None-Match header value matches etag, using
+// the weak comparison RFC 7232 §2.3.2 specifies for If-None-Match: "*" matches
+// any current representation, the value is a comma-separated list, and a "W/"
+// prefix on either side is ignored.
+func etagMatches(ifNoneMatch, etag string) bool {
+	ifNoneMatch = strings.TrimSpace(ifNoneMatch)
+	if ifNoneMatch == "*" {
+		return true
+	}
+	etag = strings.TrimPrefix(etag, "W/")
+	for candidate := range strings.SplitSeq(ifNoneMatch, ",") {
+		if strings.TrimPrefix(strings.TrimSpace(candidate), "W/") == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func base64URLEncode(i *big.Int) string {
