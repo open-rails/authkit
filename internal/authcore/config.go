@@ -148,6 +148,15 @@ type TokenConfig struct {
 	// applies the default of 3; any negative value (e.g. -1) means unlimited.
 	// Eviction is always evict-oldest.
 	SessionMaxPerUser int
+	// RefreshRotationGrace is how long a just-rotated refresh token keeps being
+	// answered with the successor it rotated into, instead of being read as
+	// reuse and revoking the family (ak#274). It exists for the race in which
+	// two holders of ONE token refresh at once — a shared credential file, a
+	// retried request, a response lost in flight — which is otherwise
+	// indistinguishable from theft and is punished as theft. 0 (unset) applies
+	// the default of 30s; any negative value disables the window and restores
+	// strictly single-use rotation.
+	RefreshRotationGrace time.Duration
 }
 
 // FrontendConfig describes host-owned frontend routes.

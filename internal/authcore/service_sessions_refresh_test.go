@@ -12,14 +12,22 @@ import (
 // pool, so ExchangeRefreshToken (which mints an access token after rotating) works
 // end to end.
 func keyedServiceWithPG(t *testing.T) *Service {
+	return keyedServiceWithPGGrace(t, 0)
+}
+
+// keyedServiceWithPGGrace is keyedServiceWithPG with an explicit rotation grace
+// window (ak#274): 0 takes the 30s default, negative makes rotation strictly
+// single-use.
+func keyedServiceWithPGGrace(t *testing.T, grace time.Duration) *Service {
 	t.Helper()
 	pool := testPG(t)
 	ks := testKeySource(t)
 	svc, err := NewFromConfig(Config{
 		Token: TokenConfig{
-			Issuer:            "https://issuer.test",
-			IssuedAudiences:   []string{"app"},
-			ExpectedAudiences: []string{"app"},
+			Issuer:               "https://issuer.test",
+			IssuedAudiences:      []string{"app"},
+			ExpectedAudiences:    []string{"app"},
+			RefreshRotationGrace: grace,
 		},
 		Keys: KeysConfig{Source: ks},
 	}, pool)
@@ -42,8 +50,13 @@ func mkRefreshTestUser(t *testing.T, ctx context.Context, svc *Service, tag stri
 
 // TestExchangeRefreshToken_RotateAndReuse: a successful exchange invalidates the old
 // token; replaying the old token trips reuse detection and revokes the family.
+//
+// Pinned with the ak#274 grace window OFF, which is what this test has always been
+// about: strictly single-use rotation. Inside a live grace window the same replay is
+// re-delivery of one credential instead, and that is pinned end-to-end in
+// authhttp/refresh_rotation_grace_integration_test.go.
 func TestExchangeRefreshToken_RotateAndReuse(t *testing.T) {
-	svc := keyedServiceWithPG(t)
+	svc := keyedServiceWithPGGrace(t, -1)
 	ctx := context.Background()
 	uid := mkRefreshTestUser(t, ctx, svc, "rotate")
 
@@ -69,8 +82,13 @@ func TestExchangeRefreshToken_RotateAndReuse(t *testing.T) {
 // TestExchangeRefreshToken_ConcurrentSingleWinner: two concurrent exchanges of the
 // same valid token must yield EXACTLY ONE success — the CAS prevents the old
 // double-mint where both calls minted a valid refresh token from one read.
+//
+// The CAS is still the single writer under ak#274; what changed is only what the
+// LOSER is told. With the grace window off the loser is refused, which is the
+// property this test exists for; with it on the loser is handed the winner's
+// successor, pinned in authhttp/refresh_rotation_grace_integration_test.go.
 func TestExchangeRefreshToken_ConcurrentSingleWinner(t *testing.T) {
-	svc := keyedServiceWithPG(t)
+	svc := keyedServiceWithPGGrace(t, -1)
 	ctx := context.Background()
 	uid := mkRefreshTestUser(t, ctx, svc, "concurrent")
 

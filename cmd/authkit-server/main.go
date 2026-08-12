@@ -71,15 +71,17 @@ type config struct {
 	accessTokenTTL    time.Duration // 0 => library default (15m)
 	refreshTokenTTL   time.Duration // 0 => indefinite sessions
 	sessionMaxPerUser int           // 0 => default 3; -1 => unlimited
-	verifySendTimeout time.Duration // per email/SMS send bound; 0 => 15s
-	twoFAMode         string        // disabled|optional|required ("" => optional)
-	twoFAMethods      []string      // subset of email,sms,totp ("" => all)
-	passkeyRPID       string
-	passkeyRPName     string
-	passkeyOrigins    []string
-	languages         []string // supported UI languages ("" => en-only)
-	defaultLanguage   string
-	bootstrapPath     string // startup-once bootstrap manifest (YAML); "" => none
+	// 0 => default 30s; negative => strictly single-use rotation (ak#274).
+	refreshRotationGrace time.Duration
+	verifySendTimeout    time.Duration // per email/SMS send bound; 0 => 15s
+	twoFAMode            string        // disabled|optional|required ("" => optional)
+	twoFAMethods         []string      // subset of email,sms,totp ("" => all)
+	passkeyRPID          string
+	passkeyRPName        string
+	passkeyOrigins       []string
+	languages            []string // supported UI languages ("" => en-only)
+	defaultLanguage      string
+	bootstrapPath        string // startup-once bootstrap manifest (YAML); "" => none
 	// Inline JWT key material (#231): the LIBRARY reads no env, so the binary
 	// reads AUTHKIT_ACTIVE_KEY_ID / AUTHKIT_ACTIVE_PRIVATE_KEY_PEM /
 	// AUTHKIT_PUBLIC_KEYS here — once, at the binary boundary — and passes an
@@ -144,6 +146,9 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 	if c.sessionMaxPerUser, err = envInt("AUTHKIT_SESSION_MAX_PER_USER"); err != nil {
+		return nil, err
+	}
+	if c.refreshRotationGrace, err = envDuration("AUTHKIT_REFRESH_ROTATION_GRACE"); err != nil {
 		return nil, err
 	}
 	switch c.twoFAMode {
@@ -323,6 +328,7 @@ func run() error {
 			AccessTokenDuration:  cfg.accessTokenTTL,
 			RefreshTokenDuration: cfg.refreshTokenTTL,
 			SessionMaxPerUser:    cfg.sessionMaxPerUser,
+			RefreshRotationGrace: cfg.refreshRotationGrace,
 		},
 		Keys: keysCfg,
 		Registration: embedded.RegistrationConfig{

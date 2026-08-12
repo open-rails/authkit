@@ -42,7 +42,8 @@ func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCu
 }
 
 const sessionByPreviousTokenHash = `-- name: SessionByPreviousTokenHash :one
-SELECT id::text, user_id, family_id::text
+SELECT id::text, user_id, family_id::text, auth_methods, expires_at,
+       current_token_hash, previous_successor_sealed, previous_rotated_at
 FROM profiles.refresh_sessions
 WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
 `
@@ -53,15 +54,32 @@ type SessionByPreviousTokenHashParams struct {
 }
 
 type SessionByPreviousTokenHashRow struct {
-	ID       string
-	UserID   string
-	FamilyID string
+	ID                      string
+	UserID                  string
+	FamilyID                string
+	AuthMethods             []string
+	ExpiresAt               *time.Time
+	CurrentTokenHash        []byte
+	PreviousSuccessorSealed []byte
+	PreviousRotatedAt       *time.Time
 }
 
+// Also feeds the ak#274 grace path, which needs the sealed successor, the hash it
+// must verify against, when it was sealed, and the session's auth methods + expiry
+// so a grace re-delivery runs exactly the gates a normal exchange runs.
 func (q *Queries) SessionByPreviousTokenHash(ctx context.Context, arg SessionByPreviousTokenHashParams) (SessionByPreviousTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, sessionByPreviousTokenHash, arg.PreviousTokenHash, arg.Issuer)
 	var i SessionByPreviousTokenHashRow
-	err := row.Scan(&i.ID, &i.UserID, &i.FamilyID)
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FamilyID,
+		&i.AuthMethods,
+		&i.ExpiresAt,
+		&i.CurrentTokenHash,
+		&i.PreviousSuccessorSealed,
+		&i.PreviousRotatedAt,
+	)
 	return i, err
 }
 
@@ -245,14 +263,16 @@ func (q *Queries) SessionRevokeByIDForUser(ctx context.Context, arg SessionRevok
 
 const sessionRotate = `-- name: SessionRotate :execrows
 UPDATE profiles.refresh_sessions
-SET previous_token_hash = current_token_hash, current_token_hash = $1, last_used_at = now(), user_agent = $2, ip_addr = $3
-WHERE id = $4 AND current_token_hash = $5 AND revoked_at IS NULL
+SET previous_token_hash = current_token_hash, current_token_hash = $1, last_used_at = now(), user_agent = $2, ip_addr = $3,
+    previous_successor_sealed = $4, previous_rotated_at = now()
+WHERE id = $5 AND current_token_hash = $6 AND revoked_at IS NULL
 `
 
 type SessionRotateParams struct {
 	NewTokenHash             []byte
 	UserAgent                *string
 	IpAddr                   *string
+	PreviousSuccessorSealed  []byte
 	ID                       string
 	ExpectedCurrentTokenHash []byte
 }
@@ -261,11 +281,14 @@ type SessionRotateParams struct {
 // one the caller read. 0 rows affected means another concurrent refresh already
 // rotated this session (or it was revoked) — the caller must treat that as a lost
 // race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
+// previous_successor_sealed/previous_rotated_at record what the token being demoted
+// to `previous` rotated INTO, so the ak#274 grace window can re-deliver it.
 func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) (int64, error) {
 	result, err := q.db.Exec(ctx, sessionRotate,
 		arg.NewTokenHash,
 		arg.UserAgent,
 		arg.IpAddr,
+		arg.PreviousSuccessorSealed,
 		arg.ID,
 		arg.ExpectedCurrentTokenHash,
 	)
