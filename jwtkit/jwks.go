@@ -93,7 +93,11 @@ func JWKToPublicKey(j JWK) (crypto.PublicKey, error) {
 		if !eInt.IsInt64() {
 			return nil, errors.New("bad_rsa_exponent")
 		}
-		return &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(eInt.Int64())}, nil
+		pub := &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(eInt.Int64())}
+		if err := validateRSAPublicKey(pub); err != nil {
+			return nil, err
+		}
+		return pub, nil
 	case "EC":
 		curve, err := curveForCRV(j.Crv)
 		if err != nil {
@@ -107,11 +111,15 @@ func JWKToPublicKey(j JWK) (crypto.PublicKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ecdsa.PublicKey{
+		pub := &ecdsa.PublicKey{
 			Curve: curve,
 			X:     new(big.Int).SetBytes(xBytes),
 			Y:     new(big.Int).SetBytes(yBytes),
-		}, nil
+		}
+		if err := validateECPublicKey(pub); err != nil {
+			return nil, err
+		}
+		return pub, nil
 	case "OKP":
 		if strings.ToUpper(strings.TrimSpace(j.Crv)) != "ED25519" {
 			return nil, fmt.Errorf("%w: %s", ErrUnsupportedJWK, j.Crv)
@@ -157,6 +165,51 @@ func JWKSToPublicKeys(ks JWKS) (map[string]crypto.PublicKey, error) {
 		return nil, errors.New("empty_jwks")
 	}
 	return out, nil
+}
+
+const (
+	// minRSABits is the smallest RSA modulus accepted from a JWKS: the NIST /
+	// RFC 7518 floor. A 1024-bit modulus is factorable by a well-resourced
+	// attacker, so accepting one means accepting forged tokens.
+	minRSABits = 2048
+	// maxRSABits bounds the modulus so a hostile JWKS cannot make every
+	// verification pathologically expensive (modexp is quadratic in the modulus).
+	maxRSABits = 8192
+)
+
+// validateRSAPublicKey rejects weak or degenerate RSA keys before they reach the
+// verifier. JWKToPublicKey previously accepted whatever modulus the document
+// supplied, so a misconfigured — or attacker-influenced — issuer could publish a
+// trivially factorable key and have tokens signed with it verify.
+func validateRSAPublicKey(pub *rsa.PublicKey) error {
+	if pub == nil || pub.N == nil || pub.N.Sign() <= 0 {
+		return errors.New("invalid_rsa_modulus")
+	}
+	if bits := pub.N.BitLen(); bits < minRSABits {
+		return fmt.Errorf("rsa_key_too_small: %d bits (min %d)", bits, minRSABits)
+	} else if bits > maxRSABits {
+		return fmt.Errorf("rsa_key_too_large: %d bits (max %d)", bits, maxRSABits)
+	}
+	// e = 1 is the identity map and an even exponent is never a valid RSA
+	// exponent; both make "verification" meaningless rather than merely weak.
+	if pub.E < 3 || pub.E%2 == 0 {
+		return fmt.Errorf("invalid_rsa_exponent: %d", pub.E)
+	}
+	return nil
+}
+
+// validateECPublicKey confirms the (X, Y) the JWKS supplied is a real point on
+// the named curve. An off-curve or identity point is the invalid-curve attack
+// vector; ecdsa.PublicKey.ECDH does the on-curve check and the coordinate-range
+// check for us, and is already the idiom this file uses in PublicToJWK.
+func validateECPublicKey(pub *ecdsa.PublicKey) error {
+	if pub == nil || pub.Curve == nil {
+		return errors.New("invalid_ec_point")
+	}
+	if _, err := pub.ECDH(); err != nil {
+		return fmt.Errorf("ec_point_not_on_curve: %w", err)
+	}
+	return nil
 }
 
 func curveForCRV(crv string) (elliptic.Curve, error) {
