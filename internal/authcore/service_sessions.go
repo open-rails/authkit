@@ -2,6 +2,7 @@ package authcore
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
 	stdlog "log"
@@ -163,65 +164,23 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	// Try current hash
 	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
 	if err != nil {
-		// Maybe reuse of previous token -> revoke family
-		if prev, e2 := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.cfg.Token.Issuer}); e2 == nil {
-			s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
-			return "", time.Time{}, "", errors.New("refresh token reuse detected")
-		}
-		return "", time.Time{}, "", errors.New("invalid refresh token")
+		// No longer current: either a concurrent refresh demoted it a moment ago
+		// (grace re-delivery) or it is genuine reuse (family revoke).
+		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h)
 	}
 	sid, uid := cur.ID, cur.UserID
 
-	// Load + gate the user row ONCE for the whole issue path (#227). Previously the
-	// banned/deleted/reserved gate, the ID-token email, the "still allowed" recheck,
-	// and the access-token mint each independently re-read profiles.users (and
-	// recomputed MFAStatus), so a single refresh read the user row 3×+ and MFA 2×.
-	// Here we read the row once, gate it once, compute MFA once, and thread both
-	// through the rest of the flow.
+	// Gate the identity and mint the new access token BEFORE rotating the refresh
+	// session (issueSessionAccessToken reads the user row and MFA status once each,
+	// #227; the ErrUserBanned and session-MFA gates fire at exactly this point, and
+	// an ErrTwoFAEnrollmentRequired still carries the userID so the refresh handler
+	// can hand back a usable enrollment token instead of a dead-end 403, #148 note b).
 	//
-	// ensureUserAccess still rejects banned/deleted/reserved users with ErrUserBanned
-	// at this exact point — the security invariant is unchanged (and BanUser already
-	// revokes a banned user's sessions, so their refresh token usually fails the
-	// session lookup above first; this gate is the backstop). This single gate
-	// subsumes the former trailing IsUserAllowed recheck, which applied identical
-	// allow/deny logic to a SECOND read of the same row: with the row loaded once it
-	// could only diverge on a concurrent ban landing mid-refresh (already handled by
-	// BanUser's revoke) or a transient error on the redundant re-read — the latter
-	// would have wrongly revoked every session on a DB blip.
-	u, err := s.getUserByID(ctx, uid)
-	if err != nil || u == nil {
-		return "", time.Time{}, "", errOrUnauthorized(err)
-	}
-	if err := s.ensureUserAccess(ctx, u); err != nil {
-		return "", time.Time{}, "", err
-	}
-
-	mfa, mfaErr := s.MFAStatus(ctx, uid)
-	if err := s.requireSessionMFAStateWith(ctx, uid, cur.AuthMethods, mfa, mfaErr); err != nil {
-		// Carry the userID so the refresh handler can hand back a usable
-		// enrollment token instead of a dead-end 403 (#148, note b).
-		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
-			return "", time.Time{}, "", &TwoFAEnrollmentRequiredError{UserID: uid}
-		}
-		return "", time.Time{}, "", err
-	}
-
-	// (The former separate UserByID read here existed only to source an ID-token
-	// email that MintAccessToken then ignored — profile claims no longer ride in the
-	// access token — so it is dropped entirely; u already holds u.Email if ever needed.)
-
-	// Mint the new access token BEFORE rotating the refresh session. Minting reads
-	// only pre-rotation state (identity, session freshness via sid, entitlements), so
-	// the token is identical either way — but ordering the fallible mint first means a
-	// mint failure leaves the session un-rotated and the caller's current refresh token
-	// still valid (a retry succeeds), instead of stranding them on the now-"previous"
-	// token and tripping reuse-detection (family revoke) on the next attempt.
-	claims := map[string]any{"sid": sid}
-	var mfaForToken *MFAStatus
-	if mfaErr == nil {
-		mfaForToken = &mfa
-	}
-	accessToken, exp, err := s.mintAccessTokenForUser(ctx, u, mfaForToken, claims, s.cfg.Token.AccessTokenDuration)
+	// Minting reads only pre-rotation state, so the token is identical either way —
+	// but ordering the fallible mint first means a mint failure leaves the session
+	// un-rotated and the caller's current refresh token still valid (a retry
+	// succeeds), instead of stranding them on the now-"previous" token.
+	accessToken, exp, err := s.issueSessionAccessToken(ctx, uid, sid, cur.AuthMethods)
 	if err != nil {
 		return "", time.Time{}, "", err
 	}
@@ -229,8 +188,13 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	// Rotate: set previous = current, current = new — as an atomic compare-and-swap
 	// conditioned on the current hash we just read (h). If 0 rows change, another
 	// concurrent refresh already rotated this session (benign double-submit) or it
-	// was revoked; reject cleanly (the already-minted token is simply discarded) and
-	// WITHOUT triggering family revoke (losing the race is not token reuse).
+	// was revoked; the already-minted token is discarded and the caller is answered
+	// from the grace path below — never from family revoke (losing the race is not
+	// token reuse).
+	//
+	// The rotation also seals the successor under the token it replaces (ak#274), so
+	// that a racer who presents the same predecessor an instant from now is handed
+	// THIS successor rather than a second chain of its own.
 	newTok := randB64(32)
 	newHash := s.hashRefresh(newTok)
 	rotated, err := s.q.SessionRotate(ctx, db.SessionRotateParams{
@@ -239,15 +203,156 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		IpAddr:                   ipText(ip),
 		ID:                       sid,
 		ExpectedCurrentTokenHash: h,
+		PreviousSuccessorSealed:  sealGraceSuccessor(refreshToken, newTok),
 	})
 	if err != nil {
 		return "", time.Time{}, "", err
 	}
 	if rotated == 0 {
-		return "", time.Time{}, "", errors.New("invalid refresh token")
+		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h)
 	}
 
 	return accessToken, exp, newTok, nil
+}
+
+// exchangeDemotedRefreshToken answers a token that is no longer `current`. Two
+// causes reach here and they are NOT the same event:
+//
+//   - A concurrent refresh of the SAME token demoted it a moment ago — a shared
+//     credential file, a retried request, a response lost in flight. Inside the
+//     grace window the sealed successor opens and hashes to the row's current
+//     hash, which proves this exact token rotated into it. Handing that successor
+//     back is re-delivery of ONE credential, not a fork: every racer converges on
+//     the same token, which is why a five-way race no longer leaves four dead
+//     credentials and a revoked family behind it.
+//   - Anything else is reuse, and the family is revoked exactly as before. A
+//     stolen token replayed after the window is still caught, so the window is a
+//     bounded delay in detection, never an exemption from it.
+//
+// Minting a FRESH successor for the loser instead would look equally friendly for
+// two racers and fail for three: `previous` holds one token, so the second grace
+// hit would push the first racer's own token out of both slots and strand it. The
+// idempotent shape is the one that scales past two.
+func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte) (string, time.Time, string, error) {
+	prev, err := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.cfg.Token.Issuer})
+	if err != nil {
+		return "", time.Time{}, "", errors.New("invalid refresh token")
+	}
+	successor, ok := s.graceSuccessorFor(refreshToken, prev)
+	if !ok {
+		s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
+		return "", time.Time{}, "", errors.New("refresh token reuse detected")
+	}
+	accessToken, exp, err := s.issueSessionAccessToken(ctx, prev.UserID, prev.ID, prev.AuthMethods)
+	if err != nil {
+		return "", time.Time{}, "", err
+	}
+	return accessToken, exp, successor, nil
+}
+
+// graceSuccessorFor decides whether a demoted token is inside its rotation grace
+// window and, if so, recovers the successor it rotated into. Every gate must hold:
+// the window is enabled, the row carries a seal from a rotation that recorded one,
+// the rotation is recent, the session has not expired, and — the load-bearing
+// check — the unsealed value hashes to the row's CURRENT token hash. That last one
+// makes the whole thing self-verifying: a seal that does not open to the live
+// successor is not accepted on the strength of the timestamp alone.
+func (s *Service) graceSuccessorFor(presented string, prev db.SessionByPreviousTokenHashRow) (string, bool) {
+	window := s.cfg.Token.RefreshRotationGrace
+	if window <= 0 || len(prev.PreviousSuccessorSealed) == 0 || prev.PreviousRotatedAt == nil {
+		return "", false
+	}
+	now := time.Now()
+	if now.Sub(*prev.PreviousRotatedAt) > window {
+		return "", false
+	}
+	if prev.ExpiresAt != nil && !prev.ExpiresAt.After(now) {
+		return "", false
+	}
+	successor := openGraceSuccessor(presented, prev.PreviousSuccessorSealed)
+	if !hmac.Equal(s.hashRefresh(successor), prev.CurrentTokenHash) {
+		return "", false
+	}
+	return successor, true
+}
+
+// issueSessionAccessToken runs the identity gates for an EXISTING session and mints
+// its access token, with the session id riding as the "sid" claim. Both refresh
+// paths — normal rotation and grace re-delivery — go through here, so they cannot
+// drift apart on who is allowed to hold a token.
+//
+// The user row and MFAStatus are read exactly ONCE (#227): the gate, the mint and
+// the former trailing IsUserAllowed recheck used to re-read the same row 3×+. That
+// recheck is deliberately gone — it applied identical allow/deny logic to a SECOND
+// read and could only diverge on a ban landing mid-refresh (BanUser already revokes
+// the sessions) or on a transient DB error, where it would have wrongly revoked
+// everything. ensureUserAccess still rejects banned/deleted/reserved users with
+// ErrUserBanned at exactly this point.
+func (s *Service) issueSessionAccessToken(ctx context.Context, userID, sessionID string, authMethods []string) (string, time.Time, error) {
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil {
+		return "", time.Time{}, errOrUnauthorized(err)
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		return "", time.Time{}, err
+	}
+	mfa, mfaErr := s.MFAStatus(ctx, userID)
+	if err := s.requireSessionMFAStateWith(ctx, userID, authMethods, mfa, mfaErr); err != nil {
+		if errors.Is(err, ErrTwoFAEnrollmentRequired) {
+			return "", time.Time{}, &TwoFAEnrollmentRequiredError{UserID: userID}
+		}
+		return "", time.Time{}, err
+	}
+	var mfaForToken *MFAStatus
+	if mfaErr == nil {
+		mfaForToken = &mfa
+	}
+	return s.mintAccessTokenForUser(ctx, u, mfaForToken, map[string]any{"sid": sessionID}, s.cfg.Token.AccessTokenDuration)
+}
+
+// graceSealDomain separates the seal keystream from hashRefresh's bare SHA-256 of
+// the same token, so the hash the database stores can never double as the key that
+// opens the seal.
+const graceSealDomain = "authkit:refresh-rotation-grace:v1"
+
+// sealGraceSuccessor wraps a freshly minted successor under a keystream derived
+// from the token it replaces.
+//
+// The point of the construction is WHO can open it. The predecessor is 256 bits of
+// randomness the database never stores — only its SHA-256 — so a dump of
+// refresh_sessions yields the seal and a hash and unseals nothing; at-rest hashing
+// is exactly as strong as it was before this column existed. The only party who can
+// open the seal is one already presenting the predecessor, which is already the
+// credential the successor continues. Re-delivery therefore grants no capability
+// the presented token did not already carry, and the seal is one-time by
+// construction: each predecessor is used as a key exactly once.
+func sealGraceSuccessor(predecessor, successor string) []byte {
+	ks := graceKeystream(predecessor, len(successor))
+	out := make([]byte, len(successor))
+	for i := range out {
+		out[i] = successor[i] ^ ks[i]
+	}
+	return out
+}
+
+func openGraceSuccessor(predecessor string, sealed []byte) string {
+	ks := graceKeystream(predecessor, len(sealed))
+	out := make([]byte, len(sealed))
+	for i := range out {
+		out[i] = sealed[i] ^ ks[i]
+	}
+	return string(out)
+}
+
+func graceKeystream(predecessor string, n int) []byte {
+	out := make([]byte, 0, n+sha256.Size)
+	for block := byte(0); len(out) < n; block++ {
+		m := hmac.New(sha256.New, []byte(predecessor))
+		m.Write([]byte(graceSealDomain))
+		m.Write([]byte{block})
+		out = m.Sum(out)
+	}
+	return out[:n]
 }
 
 // IssueAuthenticatedSession creates a refresh session AND mints its paired access

@@ -56,6 +56,7 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `AUTHKIT_ACCESS_TOKEN_TTL` | no | `15m` | Access-token lifetime (Go duration) |
 | `AUTHKIT_REFRESH_TOKEN_TTL` | no | — | Refresh-token lifetime (Go duration). Unset ⇒ indefinite sessions |
 | `AUTHKIT_SESSION_MAX_PER_USER` | no | `3` | Max concurrent refresh sessions per user (evict-oldest). `-1` ⇒ unlimited |
+| `AUTHKIT_REFRESH_ROTATION_GRACE` | no | `30s` | How long a just-rotated refresh token is still answered with the successor it rotated into, so two holders of one token do not revoke each other's family (ak#274). Negative ⇒ strictly single-use rotation |
 | `AUTHKIT_VERIFICATION_SEND_TIMEOUT` | no | `15s` | Per email/SMS provider-send bound (verification codes, reset links, login codes) |
 | `AUTHKIT_2FA_MODE` | no | `optional` | `disabled` / `optional` / `required` |
 | `AUTHKIT_2FA_METHODS` | no | all | Comma-separated subset of `email,sms,totp` |

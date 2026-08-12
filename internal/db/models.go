@@ -162,6 +162,10 @@ type ProfilesRefreshSession struct {
 	UserAgent           *string
 	IpAddr              *string
 	AuthMethods         []string
+	// Successor refresh token, XOR-sealed under SHA-256(predecessor || domain separator). Readable only by a caller holding the predecessor token; the database alone cannot unseal it (ak#274).
+	PreviousSuccessorSealed []byte
+	// When previous_token_hash last became previous. Bounds the rotation grace window (ak#274).
+	PreviousRotatedAt *time.Time
 }
 
 // Federation principals: external systems that authenticate by signing JWTs verified against configured keys.

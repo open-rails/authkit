@@ -69,6 +69,12 @@ func normalizeConfig(cfg Config) (Config, error) {
 	if cfg.Token.SessionMaxPerUser == 0 {
 		cfg.Token.SessionMaxPerUser = 3
 	}
+	// 0 (unset) => default 30s; negative => disabled (session code treats <=0 as off).
+	// Long enough to cover a concurrent refresh that is already in flight, short
+	// enough that a stolen token is still detected on the victim's next use.
+	if cfg.Token.RefreshRotationGrace == 0 {
+		cfg.Token.RefreshRotationGrace = 30 * time.Second
+	}
 	if cfg.Token.AccessTokenDuration == 0 {
 		// Short default bounds revocation lag (logout / ban / password-change)
 		// to one TTL window; refresh-token rotation re-issues silently. See

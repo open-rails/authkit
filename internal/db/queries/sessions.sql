@@ -20,7 +20,11 @@ WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 
 -- name: SessionByPreviousTokenHash :one
-SELECT id::text, user_id, family_id::text
+-- Also feeds the ak#274 grace path, which needs the sealed successor, the hash it
+-- must verify against, when it was sealed, and the session's auth methods + expiry
+-- so a grace re-delivery runs exactly the gates a normal exchange runs.
+SELECT id::text, user_id, family_id::text, auth_methods, expires_at,
+       current_token_hash, previous_successor_sealed, previous_rotated_at
 FROM profiles.refresh_sessions
 WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL;
 
@@ -29,8 +33,11 @@ WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL;
 -- one the caller read. 0 rows affected means another concurrent refresh already
 -- rotated this session (or it was revoked) — the caller must treat that as a lost
 -- race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
+-- previous_successor_sealed/previous_rotated_at record what the token being demoted
+-- to `previous` rotated INTO, so the ak#274 grace window can re-deliver it.
 UPDATE profiles.refresh_sessions
-SET previous_token_hash = current_token_hash, current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(), user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr)
+SET previous_token_hash = current_token_hash, current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(), user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr),
+    previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now()
 WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash) AND revoked_at IS NULL;
 
 -- name: SessionsListByUser :many
