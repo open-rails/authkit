@@ -17,6 +17,7 @@ import (
 var (
 	ErrSIWSChallengeNotFound = authkit.ErrSIWSChallengeNotFound
 	ErrSIWSChallengeExpired  = authkit.ErrSIWSChallengeExpired
+	ErrSIWSChallengeMismatch = authkit.ErrSIWSChallengeMismatch
 	ErrSIWSAddressMismatch   = authkit.ErrSIWSAddressMismatch
 	ErrSIWSDomainInvalid     = authkit.ErrSIWSDomainInvalid
 	ErrSIWSTimestampInvalid  = authkit.ErrSIWSTimestampInvalid
@@ -299,6 +300,21 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 		return fmt.Errorf("%w: %v", ErrSIWSDomainInvalid, err)
 	}
 
+	// Bind the chainId and URI the wallet actually signed to the ones the server
+	// issued. #51 hardened SIWS but left these two fields unbound, so a message
+	// signed for devnet, or naming a different URI, still authenticated against a
+	// mainnet challenge. The nonce is single-use and the signer owns the key, so
+	// this is not an impersonation vector — it closes a cross-network /
+	// cross-context replay gap. Enforced only for fields the SERVER set, the same
+	// discipline the domain check uses, so a wallet that omits an optional field
+	// the server never issued is not falsely rejected.
+	if err := bindChallengeField("chain id", challengeData.Input.ChainID, parsedInput.ChainID); err != nil {
+		return err
+	}
+	if err := bindChallengeField("uri", challengeData.Input.URI, parsedInput.URI); err != nil {
+		return err
+	}
+
 	// Verify the message timestamps (issuedAt skew, notBefore, expirationTime).
 	if err := siws.ValidateTimestamps(parsedInput); err != nil {
 		return fmt.Errorf("%w: %v", ErrSIWSTimestampInvalid, err)
@@ -322,6 +338,19 @@ func verifySIWSChallenge(challengeData siws.ChallengeData, parsedInput siws.Sign
 // public key, it is consistent with the account address. The address (base58 of
 // the Ed25519 public key) remains the source of truth for verification and the
 // provider link; this only rejects an inconsistent client payload.
+// bindChallengeField requires the signed message to carry the same value the
+// server issued for an optional SIWS field. A field the server did not set is
+// unbound: the wallet may send anything, including nothing.
+func bindChallengeField(name string, issued, signed *string) error {
+	if issued == nil || *issued == "" {
+		return nil
+	}
+	if signed == nil || *signed != *issued {
+		return fmt.Errorf("%w: %s mismatch", ErrSIWSChallengeMismatch, name)
+	}
+	return nil
+}
+
 func validateSolanaPublicKey(account siws.AccountInfo) error {
 	if len(account.PublicKey) == 0 {
 		return nil
