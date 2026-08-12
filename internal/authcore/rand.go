@@ -3,6 +3,7 @@ package authcore
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"math/big"
@@ -58,6 +59,15 @@ func randAlphanumeric(n int) string {
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+// secretHashEqual compares two sha256Hex digests of one-time secrets without
+// short-circuiting on the first differing byte. Differing lengths compare
+// unequal. Behaviourally identical to ==; the point is that whether a given
+// secret comparison is constant-time stops being a per-call-site judgement.
+// api_keys.go and the OAuth state cookie already compare this way.
+func secretHashEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // randAlphanumericUppercase generates a random uppercase alphanumeric string (A-Z, 0-9)

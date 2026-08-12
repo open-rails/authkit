@@ -66,3 +66,35 @@ func TestConsumeMFAStepUpCode_AtomicSingleUse(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok, "step-up code must be single-use")
 }
+
+// Verify2FAChallenge is the third site whose digest comparison went constant-time
+// (ak#275, ae/2fa-constant-time-compare). It had no coverage at all; this pins the
+// accept/reject behaviour the switch to secretHashEqual must not change. Unlike the
+// code paths above the challenge is NOT consumed on a wrong guess, so a rejected
+// attempt must leave the real challenge still redeemable.
+func TestVerify2FAChallenge_AcceptsIssuedRejectsOther(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithEphemeralStore(memorystore.NewKV()))
+
+	userID := "user-challenge"
+	challenge, err := svc.Create2FAChallenge(ctx, userID)
+	require.NoError(t, err)
+	require.NotEmpty(t, challenge)
+
+	ok, err := svc.Verify2FAChallenge(ctx, userID, challenge+"x")
+	require.NoError(t, err)
+	require.False(t, ok, "a challenge sharing a long prefix must still be rejected")
+
+	ok, err = svc.Verify2FAChallenge(ctx, userID, "")
+	require.NoError(t, err)
+	require.False(t, ok, "an empty challenge must be rejected")
+
+	ok, err = svc.Verify2FAChallenge(ctx, userID, challenge)
+	require.NoError(t, err)
+	require.True(t, ok, "the issued challenge must still verify after failed attempts")
+
+	require.NoError(t, svc.Clear2FAChallenge(ctx, userID))
+	ok, err = svc.Verify2FAChallenge(ctx, userID, challenge)
+	require.NoError(t, err)
+	require.False(t, ok, "a cleared challenge must not verify")
+}

@@ -471,7 +471,7 @@ func (s *Service) consumeMFACode(ctx context.Context, userID, codeHash string) (
 	if err != nil || !ok {
 		return false, nil
 	}
-	if data.CodeHash != codeHash {
+	if !secretHashEqual(data.CodeHash, codeHash) {
 		return false, nil
 	}
 	return true, nil
@@ -490,7 +490,7 @@ func (s *Service) consumeMFAStepUpCode(ctx context.Context, userID, sessionID, c
 	if err != nil || !ok {
 		return false, nil
 	}
-	if data.CodeHash != codeHash {
+	if !secretHashEqual(data.CodeHash, codeHash) {
 		return false, nil
 	}
 	if method != "" && !strings.EqualFold(strings.TrimSpace(data.Method), strings.TrimSpace(method)) {

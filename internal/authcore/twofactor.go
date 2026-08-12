@@ -486,7 +486,7 @@ func (s *Service) Verify2FAChallenge(ctx context.Context, userID, challenge stri
 	if err != nil || !ok {
 		return false, err
 	}
-	return stored == sha256Hex(challenge), nil
+	return secretHashEqual(stored, sha256Hex(challenge)), nil
 }
 
 // Clear2FAChallenge removes the stored challenge after successful 2FA verification.
