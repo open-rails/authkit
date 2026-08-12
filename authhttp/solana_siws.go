@@ -119,7 +119,7 @@ func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) 
 			unauthorized(w, ErrInvalidSignature)
 		case errors.Is(err, authkit.ErrSIWSAddressMismatch):
 			badRequest(w, ErrAddressMismatch)
-		case errors.Is(err, authkit.ErrSIWSDomainInvalid):
+		case errors.Is(err, authkit.ErrSIWSDomainInvalid), errors.Is(err, authkit.ErrSIWSChallengeMismatch):
 			unauthorized(w, ErrAuthenticationFailed)
 		case errors.Is(err, authkit.ErrSIWSTimestampInvalid):
 			unauthorized(w, ErrChallengeExpired)
@@ -166,7 +166,7 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 			unauthorized(w, ErrInvalidSignature)
 		case errors.Is(err, authkit.ErrSIWSAddressMismatch):
 			badRequest(w, ErrAddressMismatch)
-		case errors.Is(err, authkit.ErrSIWSDomainInvalid):
+		case errors.Is(err, authkit.ErrSIWSDomainInvalid), errors.Is(err, authkit.ErrSIWSChallengeMismatch):
 			unauthorized(w, ErrAuthenticationFailed)
 		case errors.Is(err, authkit.ErrWalletAlreadyLinked):
 			sendErr(w, http.StatusConflict, ErrWalletAlreadyLinked)

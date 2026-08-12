@@ -92,6 +92,7 @@ var (
 	ErrVerificationLinkExpired           = errors.New("verification_link_expired")
 	ErrSIWSAddressMismatch               = errors.New("siws_address_mismatch")
 	ErrSIWSChallengeExpired              = errors.New("siws_challenge_expired")
+	ErrSIWSChallengeMismatch             = errors.New("siws_challenge_mismatch")
 	ErrSIWSChallengeNotFound             = errors.New("siws_challenge_not_found")
 	ErrSIWSDomainInvalid                 = errors.New("siws_domain_invalid")
 	ErrSIWSSignatureInvalid              = errors.New("siws_signature_invalid")
@@ -138,6 +139,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrPasswordResetRequired:       http.StatusUnauthorized,
 	ErrSIWSChallengeNotFound:       http.StatusUnauthorized,
 	ErrSIWSChallengeExpired:        http.StatusUnauthorized,
+	ErrSIWSChallengeMismatch:       http.StatusUnauthorized,
 	ErrSIWSSignatureInvalid:        http.StatusUnauthorized,
 	ErrSIWSDomainInvalid:           http.StatusUnauthorized,
 	ErrSIWSTimestampInvalid:        http.StatusUnauthorized,
@@ -291,7 +293,7 @@ var errorSentinels = []error{
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
 	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
-	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
+	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked,
 	ErrProviderAlreadyLinked,
 	// #247: permission-group hardening — role-assignability + custom-role +

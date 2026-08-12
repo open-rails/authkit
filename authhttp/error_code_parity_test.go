@@ -83,6 +83,7 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"reserved_issuer":                       true, // remote-app routes emit invalid_request
 		"siws_address_mismatch":                 true, // solana routes emit address_mismatch
 		"siws_challenge_expired":                true, // solana routes emit challenge_expired
+		"siws_challenge_mismatch":               true, // solana routes emit authentication_failed
 		"siws_challenge_not_found":              true, // solana routes emit challenge_expired
 		"siws_domain_invalid":                   true, // solana routes emit authentication_failed
 		"siws_signature_invalid":                true, // solana routes emit invalid_signature
