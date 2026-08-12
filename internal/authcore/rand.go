@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"math/big"
 )
 
 // Random token / code generation and a hashing helper shared across the
@@ -16,14 +17,31 @@ func randB64(n int) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// randInt returns a uniformly distributed integer in [0, max). max must be
+// positive; rand.Int panics otherwise, which is the right answer — silently
+// returning 0 would make randAlphanumeric emit "000000".
+//
+// It replaces a hand-rolled `n % max` over four random bytes. That reduction
+// was biased for any max that is not a power of two (negligibly so at max=10 —
+// 2^32 mod 10 = 6 over 2^32 draws — so this is a correctness fix, not an
+// exploitable one), and it carried a real defect: the sign fold
+// `if n < 0 { n = -n }` is dead on a 64-bit int, but on a 32-bit int the shift
+// overflows into the sign bit and negating MinInt32 stays negative, so randInt
+// could return a NEGATIVE digit and randAlphanumeric would splice a non-digit
+// character into a verification code.
+//
+// crypto/rand.Int does uniform rejection sampling, so uniformity is a property
+// of the construction rather than something a statistical test has to chase.
 func randInt(max int) int {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	n := int(b[0]) | int(b[1])<<8 | int(b[2])<<16 | int(b[3])<<24
-	if n < 0 {
-		n = -n
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		// Unreachable on go1.26 — crypto/rand.Reader never returns an error, it
+		// crashes the process. Handled only because rand.Int carries an error in
+		// its signature, and a panic is the only answer that cannot hand a caller
+		// a predictable verification code.
+		panic("authkit: secure RNG unavailable while generating a code: " + err.Error())
 	}
-	return n % max
+	return int(n.Int64())
 }
 
 // randAlphanumeric generates a random numeric code of length n.
