@@ -37,7 +37,7 @@ jobs:
   # govulncheck — dependency vulnerability scanning against the Go vuln DB
   # (call-graph aware: only reports vulns this module actually reaches).
   # Fails the build on any KNOWN vulnerability reachable from this module's code.
-  # The tree is clean as of the Go 1.26.5 / quic-go v0.59.1 bumps.
+  # The tree is clean as of the Go 1.26.6 / x/net v0.56.0 bumps.
   # ---------------------------------------------------------------------------
   govulncheck:
     name: govulncheck
@@ -49,7 +49,7 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
