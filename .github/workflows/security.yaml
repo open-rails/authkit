@@ -3,8 +3,8 @@ name: Security Scan
 # Supply-chain / dependency / SCA security scanning, bringing AuthKit to parity
 # with the OpenRails security pipeline. This complements (does not replace) the
 # Go SAST baseline that already lives in:
-#   - go-sast.yml  — gosec (SARIF) + go vet + staticcheck
-#   - codeql.yml   — CodeQL dataflow/taint analysis
+#   - go-sast.yaml  — gosec (SARIF) + go vet + staticcheck
+#   - codeql.yaml   — CodeQL dataflow/taint analysis
 # Here we add the scanners those two don't cover: dependency CVEs (govulncheck),
 # software-composition + secret + misconfig scanning (Trivy), and lint quality
 # (golangci-lint, advisory).

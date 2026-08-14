@@ -36,8 +36,8 @@ Workflows
 
 Four GitHub Actions workflows live in `.github/workflows/`:
 
-- `go-sast.yml` — runs `gosec` (SARIF) and `staticcheck + go vet` as separate jobs.
-- `codeql.yml` — runs CodeQL analysis for Go.
+- `go-sast.yaml` — runs `gosec` (SARIF) and `staticcheck + go vet` as separate jobs.
+- `codeql.yaml` — runs CodeQL analysis for Go.
 - `security.yaml` — runs `govulncheck`, `Trivy` (SCA + secret + misconfig), and
   `golangci-lint`. `govulncheck` and `Trivy` **gate** (fail the build) on a
   reachable known vulnerability / fixable HIGH+ finding; the tree is clean as of

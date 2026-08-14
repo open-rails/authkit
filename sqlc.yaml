@@ -4,7 +4,7 @@
 # source of truth is the numbered migration files in migrations/postgres/.
 # Generated code is committed at internal/db (package db) and never hand-edited.
 #
-# Workflow (always run as a pair; see Taskfile.yml):
+# Workflow (always run as a pair; see Taskfile.yaml):
 #   task sqlc        # sqlc generate + sqlc vet
 #
 # Type mapping policy: uuid -> string (the Go API passes uuids as strings,
