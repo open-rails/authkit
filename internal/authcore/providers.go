@@ -37,6 +37,7 @@ func (s *Service) ProviderUsernames(ctx context.Context, userIDs []string, provi
 		`SELECT DISTINCT ON (user_id) user_id::text, profile->>'username' AS username
 		   FROM profiles.user_providers
 		  WHERE user_id = ANY($1::uuid[]) AND provider_slug = $2
+		    AND verified_at IS NOT NULL
 		  ORDER BY user_id, created_at DESC`,
 		userIDs, provider)
 	if err != nil {
@@ -115,6 +116,27 @@ func (s *Service) UnlinkProviderUnlessLast(ctx context.Context, userID, provider
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.qtx(tx)
+	_, unverifiedErr := q.UserProviderUnverifiedForUpdate(ctx, db.UserProviderUnverifiedForUpdateParams{
+		UserID:       userID,
+		ProviderSlug: &provider,
+	})
+	if unverifiedErr != nil && !errors.Is(unverifiedErr, pgx.ErrNoRows) {
+		return false, unverifiedErr
+	}
+	// An imported provider claim is visible so the user can verify or remove it,
+	// but it is not a login method. Removing it therefore cannot strip the last
+	// credential and must not be rejected by the credential-count guard below.
+	// Lock only unverified rows here so verified-provider unlinks retain the
+	// established all-provider lock order below.
+	if unverifiedErr == nil {
+		if err := q.UserProviderDeleteBySlug(ctx, db.UserProviderDeleteBySlugParams{UserID: userID, ProviderSlug: &provider}); err != nil {
+			return false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	links, err := q.UserProviderCountForUpdate(ctx, userID)
 	if err != nil {
 		return false, err
@@ -168,14 +190,15 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 	// The upsert's ON CONFLICT (issuer, subject) DO UPDATE is constrained to the same user_id,
 	// so a subject already owned by a DIFFERENT user yields zero affected rows (no cross-user
 	// write) and RETURNING produces pgx.ErrNoRows — surfaced as a 409-class conflict.
-	if _, err := qtx.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+	linked, err := qtx.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
 		ID:              providerID,
 		UserID:          userID,
 		Issuer:          issuer,
 		ProviderSlug:    &providerSlug,
 		Subject:         subject,
 		EmailAtProvider: email,
-	}); err != nil {
+	})
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return authkit.ErrProviderAlreadyLinked
 		}
@@ -185,7 +208,7 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 		return err
 	}
 
-	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() {
+	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() && linked.VerifiedAt != nil {
 		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
 	}
 	return nil

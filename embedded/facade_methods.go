@@ -6,11 +6,12 @@ package embedded
 import (
 	"context"
 	"crypto"
+	"time"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/jwtkit"
-	"time"
 )
 
 func (s *Client) AdminCountUsers(ctx context.Context, opts authkit.AdminUserListOptions) (int64, error) {
@@ -227,6 +228,10 @@ func (s *Client) HasSMSSender() bool {
 
 func (s *Client) ImportUsers(ctx context.Context, inputs []authkit.ImportUserInput) (authkit.ImportUsersResult, error) {
 	return s.impl.ImportUsers(ctx, inputs)
+}
+
+func (s *Client) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []authkit.ImportUnverifiedSolanaLinkInput) (authkit.ImportUnverifiedSolanaLinksResult, error) {
+	return s.impl.ImportUnverifiedSolanaLinks(ctx, inputs)
 }
 
 func (s *Client) IsUserAllowed(ctx context.Context, userID string) (bool, error) {

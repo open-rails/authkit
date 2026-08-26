@@ -301,6 +301,7 @@ type ProfilesUserProvider struct {
 	EmailAtProvider *string
 	Profile         []byte
 	CreatedAt       time.Time
+	VerifiedAt      *time.Time
 }
 
 type ProfilesUserRename struct {

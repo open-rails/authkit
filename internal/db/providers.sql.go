@@ -11,7 +11,9 @@ import (
 )
 
 const providerLinkByIssuer = `-- name: ProviderLinkByIssuer :one
-SELECT user_id, email_at_provider FROM profiles.user_providers WHERE issuer = $1 AND subject = $2
+SELECT user_id, email_at_provider
+FROM profiles.user_providers
+WHERE issuer = $1 AND subject = $2 AND verified_at IS NOT NULL
 `
 
 type ProviderLinkByIssuerParams struct {
@@ -31,8 +33,34 @@ func (q *Queries) ProviderLinkByIssuer(ctx context.Context, arg ProviderLinkByIs
 	return i, err
 }
 
+const providerLinkByIssuerAny = `-- name: ProviderLinkByIssuerAny :one
+SELECT user_id, email_at_provider, verified_at
+FROM profiles.user_providers
+WHERE issuer = $1 AND subject = $2
+`
+
+type ProviderLinkByIssuerAnyParams struct {
+	Issuer  string
+	Subject string
+}
+
+type ProviderLinkByIssuerAnyRow struct {
+	UserID          string
+	EmailAtProvider *string
+	VerifiedAt      *time.Time
+}
+
+func (q *Queries) ProviderLinkByIssuerAny(ctx context.Context, arg ProviderLinkByIssuerAnyParams) (ProviderLinkByIssuerAnyRow, error) {
+	row := q.db.QueryRow(ctx, providerLinkByIssuerAny, arg.Issuer, arg.Subject)
+	var i ProviderLinkByIssuerAnyRow
+	err := row.Scan(&i.UserID, &i.EmailAtProvider, &i.VerifiedAt)
+	return i, err
+}
+
 const providerLinkBySlug = `-- name: ProviderLinkBySlug :one
-SELECT user_id, email_at_provider FROM profiles.user_providers WHERE provider_slug = $1 AND subject = $2
+SELECT user_id, email_at_provider
+FROM profiles.user_providers
+WHERE provider_slug = $1 AND subject = $2 AND verified_at IS NOT NULL
 `
 
 type ProviderLinkBySlugParams struct {
@@ -63,9 +91,34 @@ func (q *Queries) UserHasPassword(ctx context.Context, userID string) (bool, err
 	return exists, err
 }
 
+const userProviderByIssuerAny = `-- name: UserProviderByIssuerAny :one
+SELECT subject, verified_at
+FROM profiles.user_providers
+WHERE user_id = $1 AND issuer = $2
+`
+
+type UserProviderByIssuerAnyParams struct {
+	UserID string
+	Issuer string
+}
+
+type UserProviderByIssuerAnyRow struct {
+	Subject    string
+	VerifiedAt *time.Time
+}
+
+func (q *Queries) UserProviderByIssuerAny(ctx context.Context, arg UserProviderByIssuerAnyParams) (UserProviderByIssuerAnyRow, error) {
+	row := q.db.QueryRow(ctx, userProviderByIssuerAny, arg.UserID, arg.Issuer)
+	var i UserProviderByIssuerAnyRow
+	err := row.Scan(&i.Subject, &i.VerifiedAt)
+	return i, err
+}
+
 const userProviderCountForUpdate = `-- name: UserProviderCountForUpdate :one
 SELECT count(*)::int AS n FROM (
-  SELECT 1 FROM profiles.user_providers WHERE user_id = $1::uuid FOR UPDATE
+  SELECT 1 FROM profiles.user_providers
+  WHERE user_id = $1::uuid AND verified_at IS NOT NULL
+  FOR UPDATE
 ) locked
 `
 
@@ -108,6 +161,45 @@ func (q *Queries) UserProviderDeleteOtherSubjects(ctx context.Context, arg UserP
 	return err
 }
 
+const userProviderImportUnverified = `-- name: UserProviderImportUnverified :one
+INSERT INTO profiles.user_providers (
+  id, user_id, issuer, provider_slug, subject, profile, created_at, verified_at
+)
+VALUES ($1, $2, $3, $4, $5, $7::jsonb, $6, NULL)
+ON CONFLICT DO NOTHING
+RETURNING id, user_id
+`
+
+type UserProviderImportUnverifiedParams struct {
+	ID           string
+	UserID       string
+	Issuer       string
+	ProviderSlug *string
+	Subject      string
+	CreatedAt    time.Time
+	Profile      []byte
+}
+
+type UserProviderImportUnverifiedRow struct {
+	ID     string
+	UserID string
+}
+
+func (q *Queries) UserProviderImportUnverified(ctx context.Context, arg UserProviderImportUnverifiedParams) (UserProviderImportUnverifiedRow, error) {
+	row := q.db.QueryRow(ctx, userProviderImportUnverified,
+		arg.ID,
+		arg.UserID,
+		arg.Issuer,
+		arg.ProviderSlug,
+		arg.Subject,
+		arg.CreatedAt,
+		arg.Profile,
+	)
+	var i UserProviderImportUnverifiedRow
+	err := row.Scan(&i.ID, &i.UserID)
+	return i, err
+}
+
 const userProviderInsertSimple = `-- name: UserProviderInsertSimple :exec
 INSERT INTO profiles.user_providers (id, user_id, issuer, subject, email_at_provider)
 VALUES ($1, $2, $3, $4, $5)
@@ -141,6 +233,7 @@ SELECT EXISTS (
   WHERE user_id = $1::uuid
     AND issuer = $2
     AND provider_slug = $3
+    AND verified_at IS NOT NULL
 )
 `
 
@@ -161,7 +254,7 @@ func (q *Queries) UserProviderLinkExists(ctx context.Context, arg UserProviderLi
 const userProviderMergeProfile = `-- name: UserProviderMergeProfile :exec
 UPDATE profiles.user_providers
 SET profile = COALESCE(profile, '{}'::jsonb) || $4::jsonb
-WHERE user_id = $1 AND issuer = $2 AND subject = $3
+WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL
 `
 
 type UserProviderMergeProfileParams struct {
@@ -183,7 +276,7 @@ func (q *Queries) UserProviderMergeProfile(ctx context.Context, arg UserProvider
 
 const userProviderSetUsername = `-- name: UserProviderSetUsername :exec
 UPDATE profiles.user_providers SET profile = jsonb_build_object('username', $4::text)
-WHERE user_id = $1 AND issuer = $2 AND subject = $3
+WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL
 `
 
 type UserProviderSetUsernameParams struct {
@@ -206,7 +299,7 @@ func (q *Queries) UserProviderSetUsername(ctx context.Context, arg UserProviderS
 const userProviderSlugs = `-- name: UserProviderSlugs :many
 SELECT provider_slug::text AS provider_slug
 FROM profiles.user_providers
-WHERE user_id = $1 AND provider_slug IS NOT NULL
+WHERE user_id = $1 AND provider_slug IS NOT NULL AND verified_at IS NOT NULL
 `
 
 func (q *Queries) UserProviderSlugs(ctx context.Context, userID string) ([]string, error) {
@@ -234,6 +327,7 @@ SELECT DISTINCT provider_slug::text AS provider_slug
 FROM profiles.user_providers
 WHERE user_id = $1::uuid
   AND provider_slug IS NOT NULL
+  AND verified_at IS NOT NULL
 ORDER BY provider_slug
 `
 
@@ -258,7 +352,7 @@ func (q *Queries) UserProviderSlugsDistinct(ctx context.Context, userID string) 
 }
 
 const userProviderSubjectProfileByIssuer = `-- name: UserProviderSubjectProfileByIssuer :one
-SELECT subject, created_at, COALESCE(profile, '{}'::jsonb)::text AS profile
+SELECT subject, created_at, verified_at, COALESCE(profile, '{}'::jsonb)::text AS profile
 FROM profiles.user_providers
 WHERE user_id = $1 AND issuer = $2
 `
@@ -269,16 +363,41 @@ type UserProviderSubjectProfileByIssuerParams struct {
 }
 
 type UserProviderSubjectProfileByIssuerRow struct {
-	Subject   string
-	CreatedAt time.Time
-	Profile   string
+	Subject    string
+	CreatedAt  time.Time
+	VerifiedAt *time.Time
+	Profile    string
 }
 
 func (q *Queries) UserProviderSubjectProfileByIssuer(ctx context.Context, arg UserProviderSubjectProfileByIssuerParams) (UserProviderSubjectProfileByIssuerRow, error) {
 	row := q.db.QueryRow(ctx, userProviderSubjectProfileByIssuer, arg.UserID, arg.Issuer)
 	var i UserProviderSubjectProfileByIssuerRow
-	err := row.Scan(&i.Subject, &i.CreatedAt, &i.Profile)
+	err := row.Scan(
+		&i.Subject,
+		&i.CreatedAt,
+		&i.VerifiedAt,
+		&i.Profile,
+	)
 	return i, err
+}
+
+const userProviderUnverifiedForUpdate = `-- name: UserProviderUnverifiedForUpdate :one
+SELECT id
+FROM profiles.user_providers
+WHERE user_id = $1 AND provider_slug = $2 AND verified_at IS NULL
+FOR UPDATE
+`
+
+type UserProviderUnverifiedForUpdateParams struct {
+	UserID       string
+	ProviderSlug *string
+}
+
+func (q *Queries) UserProviderUnverifiedForUpdate(ctx context.Context, arg UserProviderUnverifiedForUpdateParams) (string, error) {
+	row := q.db.QueryRow(ctx, userProviderUnverifiedForUpdate, arg.UserID, arg.ProviderSlug)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const userProviderUpsertByIssuer = `-- name: UserProviderUpsertByIssuer :one
@@ -288,7 +407,7 @@ ON CONFLICT (issuer, subject) DO UPDATE
 SET email_at_provider = EXCLUDED.email_at_provider,
     provider_slug = COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
 WHERE profiles.user_providers.user_id = EXCLUDED.user_id
-RETURNING id, user_id
+RETURNING id, user_id, verified_at
 `
 
 type UserProviderUpsertByIssuerParams struct {
@@ -301,8 +420,9 @@ type UserProviderUpsertByIssuerParams struct {
 }
 
 type UserProviderUpsertByIssuerRow struct {
-	ID     string
-	UserID string
+	ID         string
+	UserID     string
+	VerifiedAt *time.Time
 }
 
 func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProviderUpsertByIssuerParams) (UserProviderUpsertByIssuerRow, error) {
@@ -315,14 +435,14 @@ func (q *Queries) UserProviderUpsertByIssuer(ctx context.Context, arg UserProvid
 		arg.EmailAtProvider,
 	)
 	var i UserProviderUpsertByIssuerRow
-	err := row.Scan(&i.ID, &i.UserID)
+	err := row.Scan(&i.ID, &i.UserID, &i.VerifiedAt)
 	return i, err
 }
 
 const userProviderUsername = `-- name: UserProviderUsername :one
 SELECT profile->>'username' AS username
 FROM profiles.user_providers
-WHERE user_id = $1 AND provider_slug = $2
+WHERE user_id = $1 AND provider_slug = $2 AND verified_at IS NOT NULL
 ORDER BY created_at DESC LIMIT 1
 `
 
@@ -338,9 +458,31 @@ func (q *Queries) UserProviderUsername(ctx context.Context, arg UserProviderUser
 	return username, err
 }
 
+const userProviderVerifyImported = `-- name: UserProviderVerifyImported :one
+UPDATE profiles.user_providers
+SET verified_at = now(),
+    profile = COALESCE(profile, '{}'::jsonb)
+      || jsonb_build_object('verification_required', false)
+WHERE user_id = $1 AND issuer = $2 AND subject = $3
+RETURNING verified_at
+`
+
+type UserProviderVerifyImportedParams struct {
+	UserID  string
+	Issuer  string
+	Subject string
+}
+
+func (q *Queries) UserProviderVerifyImported(ctx context.Context, arg UserProviderVerifyImportedParams) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, userProviderVerifyImported, arg.UserID, arg.Issuer, arg.Subject)
+	var verified_at *time.Time
+	err := row.Scan(&verified_at)
+	return verified_at, err
+}
+
 const userProvidersCount = `-- name: UserProvidersCount :one
 
-SELECT count(*) FROM profiles.user_providers WHERE user_id = $1
+SELECT count(*) FROM profiles.user_providers WHERE user_id = $1 AND verified_at IS NOT NULL
 `
 
 // Provider-link queries (core/service.go).

@@ -284,6 +284,38 @@ type ImportUsersResult struct {
 	Rejected int
 }
 
+// ImportUnverifiedSolanaLinkStatus is the per-row outcome of a legacy Solana
+// identity import.
+type ImportUnverifiedSolanaLinkStatus string
+
+// ImportUnverifiedSolanaLinkInput is a migration-only Solana identity claim.
+// Importing reserves the address but does not make it a login method; the user
+// must prove ownership through the normal SIWS flow before AuthKit trusts it.
+type ImportUnverifiedSolanaLinkInput struct {
+	UserID          string
+	Address         string
+	Source          string
+	SourceID        string
+	SourceCreatedAt *time.Time
+}
+
+// ImportUnverifiedSolanaLinkResult is the outcome for one input row.
+type ImportUnverifiedSolanaLinkResult struct {
+	Index   int
+	UserID  string
+	Address string
+	Status  ImportUnverifiedSolanaLinkStatus
+	Reason  string
+}
+
+// ImportUnverifiedSolanaLinksResult aggregates per-row wallet import outcomes.
+type ImportUnverifiedSolanaLinksResult struct {
+	Results  []ImportUnverifiedSolanaLinkResult
+	Inserted int
+	Skipped  int
+	Rejected int
+}
+
 type MFAStatus struct {
 	Enabled        bool
 	Satisfied      bool
@@ -477,15 +509,18 @@ type ServiceJWTMintOptions struct {
 }
 
 const (
-	ImportStatusInserted   ImportUserStatus = "inserted"
-	ImportStatusSkipped    ImportUserStatus = "skipped"
-	ImportStatusRejected   ImportUserStatus = "rejected"
-	AdminUserStatusActive  AdminUserStatus  = "active"     // not deleted, not banned
-	AdminUserStatusBanned  AdminUserStatus  = "banned"     // not deleted, currently banned
-	AdminUserStatusDeleted AdminUserStatus  = "deleted"    // soft-deleted
-	AdminUserStatusAny     AdminUserStatus  = "any"        // no deleted/banned predicate
-	AdminUserSortCreatedAt AdminUserSort    = "created_at" // default
-	AdminUserSortLastLogin AdminUserSort    = "last_login"
-	AdminUserSortUsername  AdminUserSort    = "username"
-	AdminUserSortEmail     AdminUserSort    = "email"
+	ImportStatusInserted               ImportUserStatus                 = "inserted"
+	ImportStatusSkipped                ImportUserStatus                 = "skipped"
+	ImportStatusRejected               ImportUserStatus                 = "rejected"
+	ImportUnverifiedSolanaLinkInserted ImportUnverifiedSolanaLinkStatus = "inserted"
+	ImportUnverifiedSolanaLinkSkipped  ImportUnverifiedSolanaLinkStatus = "skipped"
+	ImportUnverifiedSolanaLinkRejected ImportUnverifiedSolanaLinkStatus = "rejected"
+	AdminUserStatusActive              AdminUserStatus                  = "active"     // not deleted, not banned
+	AdminUserStatusBanned              AdminUserStatus                  = "banned"     // not deleted, currently banned
+	AdminUserStatusDeleted             AdminUserStatus                  = "deleted"    // soft-deleted
+	AdminUserStatusAny                 AdminUserStatus                  = "any"        // no deleted/banned predicate
+	AdminUserSortCreatedAt             AdminUserSort                    = "created_at" // default
+	AdminUserSortLastLogin             AdminUserSort                    = "last_login"
+	AdminUserSortUsername              AdminUserSort                    = "username"
+	AdminUserSortEmail                 AdminUserSort                    = "email"
 )

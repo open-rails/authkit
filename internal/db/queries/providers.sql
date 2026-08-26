@@ -1,14 +1,16 @@
 -- Provider-link queries (core/service.go).
 
 -- name: UserProvidersCount :one
-SELECT count(*) FROM profiles.user_providers WHERE user_id = $1;
+SELECT count(*) FROM profiles.user_providers WHERE user_id = $1 AND verified_at IS NOT NULL;
 
 -- name: UserProviderCountForUpdate :one
 -- Locks the user's provider rows (FOR UPDATE in the inner query) and returns the
 -- count, so a concurrent unlink for the same user serializes behind this lock —
 -- closing the last-credential TOCTOU. Must run inside a transaction.
 SELECT count(*)::int AS n FROM (
-  SELECT 1 FROM profiles.user_providers WHERE user_id = sqlc.arg(user_id)::uuid FOR UPDATE
+  SELECT 1 FROM profiles.user_providers
+  WHERE user_id = sqlc.arg(user_id)::uuid AND verified_at IS NOT NULL
+  FOR UPDATE
 ) locked;
 
 -- name: UserHasPassword :one
@@ -20,6 +22,12 @@ DELETE FROM profiles.user_providers WHERE user_id = $1 AND provider_slug = $2;
 -- name: UserProviderDeleteOtherSubjects :exec
 DELETE FROM profiles.user_providers WHERE user_id = $1 AND issuer = $2 AND subject != $3;
 
+-- name: UserProviderUnverifiedForUpdate :one
+SELECT id
+FROM profiles.user_providers
+WHERE user_id = $1 AND provider_slug = $2 AND verified_at IS NULL
+FOR UPDATE;
+
 -- name: UserProviderUpsertByIssuer :one
 INSERT INTO profiles.user_providers (id, user_id, issuer, provider_slug, subject, email_at_provider)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -27,13 +35,43 @@ ON CONFLICT (issuer, subject) DO UPDATE
 SET email_at_provider = EXCLUDED.email_at_provider,
     provider_slug = COALESCE(EXCLUDED.provider_slug, profiles.user_providers.provider_slug)
 WHERE profiles.user_providers.user_id = EXCLUDED.user_id
-RETURNING id, user_id;
+RETURNING id, user_id, verified_at;
 
 -- name: ProviderLinkByIssuer :one
-SELECT user_id, email_at_provider FROM profiles.user_providers WHERE issuer = $1 AND subject = $2;
+SELECT user_id, email_at_provider
+FROM profiles.user_providers
+WHERE issuer = $1 AND subject = $2 AND verified_at IS NOT NULL;
+
+-- name: ProviderLinkByIssuerAny :one
+SELECT user_id, email_at_provider, verified_at
+FROM profiles.user_providers
+WHERE issuer = $1 AND subject = $2;
+
+-- name: UserProviderByIssuerAny :one
+SELECT subject, verified_at
+FROM profiles.user_providers
+WHERE user_id = $1 AND issuer = $2;
 
 -- name: ProviderLinkBySlug :one
-SELECT user_id, email_at_provider FROM profiles.user_providers WHERE provider_slug = $1 AND subject = $2;
+SELECT user_id, email_at_provider
+FROM profiles.user_providers
+WHERE provider_slug = $1 AND subject = $2 AND verified_at IS NOT NULL;
+
+-- name: UserProviderImportUnverified :one
+INSERT INTO profiles.user_providers (
+  id, user_id, issuer, provider_slug, subject, profile, created_at, verified_at
+)
+VALUES ($1, $2, $3, $4, $5, sqlc.arg(profile)::jsonb, $6, NULL)
+ON CONFLICT DO NOTHING
+RETURNING id, user_id;
+
+-- name: UserProviderVerifyImported :one
+UPDATE profiles.user_providers
+SET verified_at = now(),
+    profile = COALESCE(profile, '{}'::jsonb)
+      || jsonb_build_object('verification_required', false)
+WHERE user_id = $1 AND issuer = $2 AND subject = $3
+RETURNING verified_at;
 
 -- name: UserProviderInsertSimple :exec
 INSERT INTO profiles.user_providers (id, user_id, issuer, subject, email_at_provider)
@@ -42,21 +80,21 @@ ON CONFLICT (issuer, subject) DO UPDATE SET email_at_provider = EXCLUDED.email_a
 
 -- name: UserProviderSetUsername :exec
 UPDATE profiles.user_providers SET profile = jsonb_build_object('username', sqlc.arg(username)::text)
-WHERE user_id = $1 AND issuer = $2 AND subject = $3;
+WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL;
 
 -- name: UserProviderUsername :one
 SELECT profile->>'username' AS username
 FROM profiles.user_providers
-WHERE user_id = $1 AND provider_slug = $2
+WHERE user_id = $1 AND provider_slug = $2 AND verified_at IS NOT NULL
 ORDER BY created_at DESC LIMIT 1;
 
 -- name: UserProviderMergeProfile :exec
 UPDATE profiles.user_providers
 SET profile = COALESCE(profile, '{}'::jsonb) || sqlc.arg(patch)::jsonb
-WHERE user_id = $1 AND issuer = $2 AND subject = $3;
+WHERE user_id = $1 AND issuer = $2 AND subject = $3 AND verified_at IS NOT NULL;
 
 -- name: UserProviderSubjectProfileByIssuer :one
-SELECT subject, created_at, COALESCE(profile, '{}'::jsonb)::text AS profile
+SELECT subject, created_at, verified_at, COALESCE(profile, '{}'::jsonb)::text AS profile
 FROM profiles.user_providers
 WHERE user_id = $1 AND issuer = $2;
 
@@ -69,6 +107,7 @@ SELECT EXISTS (
   WHERE user_id = sqlc.arg(user_id)::uuid
     AND issuer = $2
     AND provider_slug = $3
+    AND verified_at IS NOT NULL
 );
 
 -- name: UserProviderSlugsDistinct :many
@@ -76,9 +115,10 @@ SELECT DISTINCT provider_slug::text AS provider_slug
 FROM profiles.user_providers
 WHERE user_id = sqlc.arg(user_id)::uuid
   AND provider_slug IS NOT NULL
+  AND verified_at IS NOT NULL
 ORDER BY provider_slug;
 
 -- name: UserProviderSlugs :many
 SELECT provider_slug::text AS provider_slug
 FROM profiles.user_providers
-WHERE user_id = $1 AND provider_slug IS NOT NULL;
+WHERE user_id = $1 AND provider_slug IS NOT NULL AND verified_at IS NOT NULL;

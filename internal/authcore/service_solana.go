@@ -135,12 +135,20 @@ func (s *Service) VerifySIWSAndLogin(ctx context.Context, cache siws.ChallengeCa
 		return "", time.Time{}, "", "", false, err
 	}
 
-	// Check if wallet is already linked to a user
-	existingUserID, _, err := s.GetProviderLinkByIssuer(ctx, s.solanaIssuer(), output.Account.Address)
-	if err == nil && existingUserID != "" {
-		// Existing user - login
+	// A valid proof may promote an imported claim, but an imported row is never
+	// trusted before this point and is excluded from every credential lookup.
+	existingUserID, verified, found, err := s.getSolanaProviderLinkAny(ctx, output.Account.Address)
+	if err != nil {
+		return "", time.Time{}, "", "", false, fmt.Errorf("look up Solana link: %w", err)
+	}
+	if found {
 		userID = existingUserID
 		created = false
+		if !verified {
+			if err := s.verifyImportedSolanaLink(ctx, userID, output.Account.Address); err != nil {
+				return "", time.Time{}, "", "", false, fmt.Errorf("verify imported Solana link: %w", err)
+			}
+		}
 	} else {
 		// New user - create account. Blocked when public registration is
 		// disabled: an existing wallet still logs in via the branch above, but
@@ -228,12 +236,19 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 		return err
 	}
 
-	// Check if wallet is already linked to another user
-	existingUserID, _, err := s.GetProviderLinkByIssuer(ctx, s.solanaIssuer(), output.Account.Address)
-	if err == nil && existingUserID != "" {
+	// Check both verified and imported claims after proof. An imported address
+	// can only be promoted for the user it was mapped to; ownership is never
+	// transferred implicitly.
+	existingUserID, verified, found, err := s.getSolanaProviderLinkAny(ctx, output.Account.Address)
+	if err != nil {
+		return fmt.Errorf("look up Solana link: %w", err)
+	}
+	if found {
 		if existingUserID == userID {
-			// Already linked to this user - success (no-op)
-			return nil
+			if verified {
+				return nil
+			}
+			return s.verifyImportedSolanaLink(ctx, userID, output.Account.Address)
 		}
 		return fmt.Errorf("%w", ErrWalletAlreadyLinked)
 	}
@@ -268,6 +283,9 @@ func (s *Service) GetSolanaAddress(ctx context.Context, userID string) (string, 
 	row, err := s.q.UserProviderSubjectProfileByIssuer(ctx, db.UserProviderSubjectProfileByIssuerParams{UserID: userID, Issuer: s.solanaIssuer()})
 	if err != nil {
 		return "", nil // No wallet linked
+	}
+	if row.VerifiedAt == nil {
+		return "", nil
 	}
 	return row.Subject, nil
 }
