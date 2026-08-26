@@ -116,7 +116,6 @@ func (s *Service) adminUserDirectoryQuery(ctx context.Context, o AdminUserListOp
 		}
 		where = append(where, "u.id::text = ANY($"+fmt.Sprint(argIdx)+"::text[])")
 		args = append(args, subjects)
-		argIdx++
 	}
 
 	if len(where) == 0 {

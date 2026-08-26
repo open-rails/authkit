@@ -111,13 +111,17 @@ func JWKToPublicKey(j JWK) (crypto.PublicKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		pub := &ecdsa.PublicKey{
-			Curve: curve,
-			X:     new(big.Int).SetBytes(xBytes),
-			Y:     new(big.Int).SetBytes(yBytes),
+		size := (curve.Params().BitSize + 7) / 8
+		if len(xBytes) > size || len(yBytes) > size {
+			return nil, errors.New("invalid_ec_point")
 		}
-		if err := validateECPublicKey(pub); err != nil {
-			return nil, err
+		point := make([]byte, 1+2*size)
+		point[0] = 0x04
+		copy(point[1+size-len(xBytes):1+size], xBytes)
+		copy(point[1+2*size-len(yBytes):], yBytes)
+		pub, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+		if err != nil {
+			return nil, fmt.Errorf("ec_point_not_on_curve: %w", err)
 		}
 		return pub, nil
 	case "OKP":
@@ -194,20 +198,6 @@ func validateRSAPublicKey(pub *rsa.PublicKey) error {
 	// exponent; both make "verification" meaningless rather than merely weak.
 	if pub.E < 3 || pub.E%2 == 0 {
 		return fmt.Errorf("invalid_rsa_exponent: %d", pub.E)
-	}
-	return nil
-}
-
-// validateECPublicKey confirms the (X, Y) the JWKS supplied is a real point on
-// the named curve. An off-curve or identity point is the invalid-curve attack
-// vector; ecdsa.PublicKey.ECDH does the on-curve check and the coordinate-range
-// check for us, and is already the idiom this file uses in PublicToJWK.
-func validateECPublicKey(pub *ecdsa.PublicKey) error {
-	if pub == nil || pub.Curve == nil {
-		return errors.New("invalid_ec_point")
-	}
-	if _, err := pub.ECDH(); err != nil {
-		return fmt.Errorf("ec_point_not_on_curve: %w", err)
 	}
 	return nil
 }
