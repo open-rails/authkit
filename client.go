@@ -188,6 +188,10 @@ type Sessions interface {
 
 // Providers links and unlinks external identity providers on an account.
 type Providers interface {
+	// ImportUnverifiedSolanaLinks imports legacy wallet claims without trusting
+	// them as login credentials. Only a later successful SIWS proof promotes an
+	// imported claim to verified state.
+	ImportUnverifiedSolanaLinks(ctx context.Context, inputs []ImportUnverifiedSolanaLinkInput) (ImportUnverifiedSolanaLinksResult, error)
 	LinkProvider(ctx context.Context, userID, provider, subject string, email *string) error
 	LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error
 	UnlinkProvider(ctx context.Context, userID, provider string) error

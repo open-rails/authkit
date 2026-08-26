@@ -299,6 +299,16 @@ var generatedMethods = map[string]MethodFunc{
 	"HasSMSSender": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		return c.HasSMSSender(), nil
 	},
+	"ImportUnverifiedSolanaLinks": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 []authkit.ImportUnverifiedSolanaLinkInput `json:"inputs"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.ImportUnverifiedSolanaLinks(ctx, a.A0)
+		return r0, err
+	},
 	"ImportUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 []authkit.ImportUserInput `json:"inputs"`

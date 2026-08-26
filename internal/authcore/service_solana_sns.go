@@ -224,7 +224,18 @@ func (s *Service) GetSolanaLinkedAccount(ctx context.Context, userID string) (*S
 		_ = json.Unmarshal([]byte(row.Profile), &profile)
 	}
 
-	verifiedAt := row.CreatedAt.UTC()
+	if row.VerifiedAt == nil {
+		return &SolanaLinkedAccount{
+			Provider:            SolanaProviderSlug,
+			Issuer:              s.solanaIssuer(),
+			Address:             address,
+			Verified:            false,
+			VerifiedAt:          nil,
+			SNSResolutionStatus: SolanaSNSStatusPending,
+		}, nil
+	}
+
+	verifiedAt := row.VerifiedAt.UTC()
 	status := strings.TrimSpace(profile.ResolutionStatus)
 	if status == "" {
 		status = SolanaSNSStatusPending

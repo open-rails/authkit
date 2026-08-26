@@ -211,6 +211,13 @@ func (c *Client) HasSMSSender() bool {
 	return out
 }
 
+func (c *Client) ImportUnverifiedSolanaLinks(ctx context.Context, inputs []authkit.ImportUnverifiedSolanaLinkInput) (authkit.ImportUnverifiedSolanaLinksResult, error) {
+	args := map[string]any{"inputs": inputs}
+	var out authkit.ImportUnverifiedSolanaLinksResult
+	err := c.call(ctx, "ImportUnverifiedSolanaLinks", args, &out)
+	return out, err
+}
+
 func (c *Client) ImportUsers(ctx context.Context, inputs []authkit.ImportUserInput) (authkit.ImportUsersResult, error) {
 	args := map[string]any{"inputs": inputs}
 	var out authkit.ImportUsersResult
