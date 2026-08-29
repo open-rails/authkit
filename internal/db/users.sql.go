@@ -94,7 +94,7 @@ func (q *Queries) UserBan(ctx context.Context, arg UserBanParams) error {
 
 const userByEmail = `-- name: UserByEmail :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
-FROM profiles.users WHERE email = lower($1::text)::citext
+FROM profiles.users WHERE email = lower($1::text)::public.citext
 `
 
 type UserByEmailRow struct {
@@ -306,8 +306,8 @@ func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
-  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text)::citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::citext)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text)::public.citext)::boolean AS email_taken,
+  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::public.citext)::boolean AS username_taken
 `
 
 type UserEmailOrUsernameTakenParams struct {
@@ -537,7 +537,7 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::citext)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::public.citext)::boolean AS username_taken
 `
 
 type UserPhoneOrUsernameTakenParams struct {

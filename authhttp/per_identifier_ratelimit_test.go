@@ -91,3 +91,27 @@ func TestPerIdentifierRateLimit_PhoneVerifyConfirm(t *testing.T) {
 	h.ServeHTTP(w, r)
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
 }
+
+func TestPerIdentifierRateLimit_DeviceKeyEnrollmentCode(t *testing.T) {
+	svc := newPerIdentifierTestService(t)
+	h := svc.APIHandler()
+	enrollmentID := strings.Repeat("A", 43)
+	body := `{"enrollment_id":"` + enrollmentID + `","code":"123456","signature":"` + strings.Repeat("A", 86) + `"}`
+	limit := DefaultRateLimits()[RLDeviceKeyEnrollFinish].Limit
+
+	for i := 0; i < limit; i++ {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/device-keys/enroll/finish", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.RemoteAddr = fmt.Sprintf("203.0.113.%d:1234", i+1)
+		h.ServeHTTP(w, r)
+		require.NotEqual(t, http.StatusTooManyRequests, w.Code)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/device-keys/enroll/finish", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.RemoteAddr = "198.51.100.7:1234"
+	h.ServeHTTP(w, r)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+}

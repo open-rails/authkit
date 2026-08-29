@@ -63,6 +63,7 @@ var failClosedBuckets = map[string]struct{}{
 	RL2FAVerify:              {},
 	RLPasswordLogin:          {},
 	RLPasswordResetConfirm:   {},
+	RLDeviceKeyEnrollFinish:  {},
 	RLEmailVerifyConfirm:     {},
 	RLPhoneVerifyConfirm:     {},
 	RLUserEmailChangeConfirm: {},

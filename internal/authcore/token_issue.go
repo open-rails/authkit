@@ -100,6 +100,16 @@ func (s *Service) mintAccessToken(ctx context.Context, userID string, extra map[
 // (matches the swallow-on-error / absent-when-not-satisfied behavior of the ID-only
 // path). u must be non-nil.
 func (s *Service) mintAccessTokenForUser(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration) (token string, expiresAt time.Time, err error) {
+	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, extra, ttl, nil)
+}
+
+type accessTokenAssurance struct {
+	AuthTime int64
+	AMR      []string
+	ACR      string
+}
+
+func (s *Service) mintAccessTokenForUserWithAssurance(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
 	userID := u.ID
 	base := jwtkit.BaseRegisteredClaims(userID, s.cfg.Token.IssuedAudiences, ttl)
 	expiresAt = base.ExpiresAt.Time
@@ -130,7 +140,11 @@ func (s *Service) mintAccessTokenForUser(ctx context.Context, u *User, mfa *MFAS
 		"exp":          base.ExpiresAt.Time.Unix(),
 		"entitlements": ents,
 	}
-	if sid, ok := extra["sid"].(string); ok && strings.TrimSpace(sid) != "" && s.pg != nil {
+	if assurance != nil {
+		claims["auth_time"] = assurance.AuthTime
+		claims["amr"] = append([]string(nil), assurance.AMR...)
+		claims["acr"] = assurance.ACR
+	} else if sid, ok := extra["sid"].(string); ok && strings.TrimSpace(sid) != "" && s.pg != nil {
 		if freshness, freshErr := s.SessionFreshness(ctx, userID, sid, time.Now()); freshErr == nil {
 			authTime, amr, acr := freshness.AssuranceClaims()
 			claims["auth_time"] = authTime
@@ -172,4 +186,27 @@ func (s *Service) mintAccessTokenForUser(ctx context.Context, u *User, mfa *MFAS
 	}
 	tok, err := jwtkit.SignWithType(ctx, signer, claims, jwtkit.AccessTokenType, true)
 	return tok, expiresAt, err
+}
+
+// mintDeviceKeyAccessToken is AuthKit's refreshless native-client issuer. The
+// assurance claims are server-owned, not passed through MintAccessToken's host
+// extras, so callers cannot forge an authentication method.
+func (s *Service) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string) (string, time.Time, error) {
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		return "", time.Time{}, err
+	}
+	var mfa *MFAStatus
+	if status, mfaErr := s.MFAStatus(ctx, userID); mfaErr == nil {
+		mfa = &status
+	}
+	now := time.Now().UTC()
+	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, map[string]any{"device_key_id": deviceKeyID}, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
+		AuthTime: now.Unix(),
+		AMR:      []string{"device_key"},
+		ACR:      AssuranceLevelPassword,
+	})
 }
