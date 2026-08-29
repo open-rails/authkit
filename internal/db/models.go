@@ -256,6 +256,17 @@ type ProfilesUser struct {
 	AvatarUrl *string
 }
 
+// Ed25519 public keys for native clients. Revoked rows remain tombstones and cannot be re-enrolled.
+type ProfilesUserDeviceKey struct {
+	ID         string
+	UserID     string
+	PublicKey  []byte
+	Label      *string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+}
+
 type ProfilesUserPasskey struct {
 	ID                      string
 	UserID                  string

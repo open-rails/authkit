@@ -7,10 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/authkitmigrate"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
@@ -292,4 +294,32 @@ func TestDeviceKeyEnrollmentConcurrentFinishAcceptsOnce(t *testing.T) {
 	var keys int
 	require.NoError(t, srv.svc.Postgres().QueryRow(context.Background(), `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1`, user.ID).Scan(&keys))
 	require.Equal(t, 1, keys)
+}
+
+func TestDeviceKeyEnrollmentWithHostSearchPathExcludingPublic(t *testing.T) {
+	ctx := context.Background()
+	basePool := newServerTestPool(t)
+	_, err := authkitmigrate.New(basePool, nil).Migrate(ctx)
+	require.NoError(t, err)
+
+	config, err := pgxpool.ParseConfig(os.Getenv("AUTHKIT_TEST_DATABASE_URL"))
+	require.NoError(t, err)
+	config.ConnConfig.RuntimeParams["search_path"] = "hub_v2"
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	var searchPath string
+	require.NoError(t, pool.QueryRow(ctx, `SHOW search_path`).Scan(&searchPath))
+	require.Equal(t, "hub_v2", searchPath)
+
+	sender := &captureEmailSender{}
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(sender)), WithoutRateLimiter())
+	require.NoError(t, err)
+	email := uniqueEmail("device-key-search-path")
+	publicKey, privateKey := newDeviceKey(t)
+	result := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, publicKey), privateKey)
+	require.NotEmpty(t, result.AccessToken)
+	user, err := srv.svc.GetUserByEmail(ctx, email)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = basePool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
 }
