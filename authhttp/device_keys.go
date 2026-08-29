@@ -9,14 +9,23 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
-	"github.com/open-rails/authkit/internal/authcore"
 )
 
+type deviceKeyResponse struct {
+	ID        string    `json:"id"`
+	Label     string    `json:"label,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type deviceKeyTokenResponse struct {
-	AccessToken string             `json:"access_token"`
-	TokenType   string             `json:"token_type"`
-	ExpiresAt   time.Time          `json:"expires_at"`
-	DeviceKey   authcore.DeviceKey `json:"device_key"`
+	AccessToken string            `json:"access_token"`
+	TokenType   string            `json:"token_type"`
+	ExpiresAt   time.Time         `json:"expires_at"`
+	DeviceKey   deviceKeyResponse `json:"device_key"`
+}
+
+func deviceKeyHTTPResponse(id, label string, createdAt time.Time) deviceKeyResponse {
+	return deviceKeyResponse{ID: id, Label: label, CreatedAt: createdAt}
 }
 
 func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +110,7 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		AccessToken: result.AccessToken,
 		TokenType:   "Bearer",
 		ExpiresAt:   result.ExpiresAt,
-		DeviceKey:   result.DeviceKey,
+		DeviceKey:   deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
 	})
 }
 
@@ -171,6 +180,6 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		AccessToken: result.AccessToken,
 		TokenType:   "Bearer",
 		ExpiresAt:   result.ExpiresAt,
-		DeviceKey:   result.DeviceKey,
+		DeviceKey:   deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
 	})
 }

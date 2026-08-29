@@ -96,12 +96,31 @@ func finishDeviceEnrollment(t *testing.T, srv *Service, sender *captureEmailSend
 		"signature":     signDeviceChallenge(t, privateKey, testDeviceEnrollmentDomain, challenge.Challenge),
 	})
 	require.Equal(t, http.StatusOK, status, string(raw))
+	requireDeviceKeyTokenShape(t, raw)
 	var token deviceKeyTokenBody
 	require.NoError(t, json.Unmarshal(raw, &token))
 	require.NotEmpty(t, token.AccessToken)
 	require.Equal(t, "Bearer", token.TokenType)
 	require.NotEmpty(t, token.DeviceKey.ID)
 	return token
+}
+
+func requireDeviceKeyTokenShape(t *testing.T, raw []byte) {
+	t.Helper()
+	var body map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &body))
+	require.ElementsMatch(t, []string{"access_token", "token_type", "expires_at", "device_key"}, mapKeys(body))
+	var device map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body["device_key"], &device))
+	require.ElementsMatch(t, []string{"id", "label", "created_at"}, mapKeys(device))
+}
+
+func mapKeys[V any](values map[string]V) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func TestDeviceKeyEmailEnrollmentAndRefreshlessLogin(t *testing.T) {
@@ -166,6 +185,7 @@ func TestDeviceKeyEmailEnrollmentAndRefreshlessLogin(t *testing.T) {
 		"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, login.Challenge),
 	})
 	require.Equal(t, http.StatusOK, status, string(raw))
+	requireDeviceKeyTokenShape(t, raw)
 	var loggedIn deviceKeyTokenBody
 	require.NoError(t, json.Unmarshal(raw, &loggedIn))
 	require.Equal(t, enrolled.DeviceKey.ID, loggedIn.DeviceKey.ID)
