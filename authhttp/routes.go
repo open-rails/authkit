@@ -14,7 +14,10 @@ import (
 type RouteGroup string
 
 const (
-	RouteAuth             RouteGroup = "auth"
+	RouteAuth RouteGroup = "auth"
+	// RouteDeviceKeys is the refreshless native-client login surface: email
+	// enrollment plus Ed25519 challenge authentication.
+	RouteDeviceKeys       RouteGroup = "device_keys"
 	RouteRegistration     RouteGroup = "registration"
 	RouteAccount          RouteGroup = "account"
 	RouteAdmin            RouteGroup = "admin"
@@ -129,6 +132,11 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPost, Path: "/passwordless/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasswordlessConfirmPOST)},
 		{Method: http.MethodPost, Path: "/passkeys/login/begin", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasskeyLoginBeginPOST)},
 		{Method: http.MethodPost, Path: "/passkeys/login/finish", Group: RouteAuth, Handler: http.HandlerFunc(s.handlePasskeyLoginFinishPOST)},
+
+		{Method: http.MethodPost, Path: "/device-keys/enroll/begin", Group: RouteDeviceKeys, Handler: http.HandlerFunc(s.handleDeviceKeyEnrollBeginPOST)},
+		{Method: http.MethodPost, Path: "/device-keys/enroll/finish", Group: RouteDeviceKeys, Handler: http.HandlerFunc(s.handleDeviceKeyEnrollFinishPOST)},
+		{Method: http.MethodPost, Path: "/device-keys/login/begin", Group: RouteDeviceKeys, Handler: http.HandlerFunc(s.handleDeviceKeyLoginBeginPOST)},
+		{Method: http.MethodPost, Path: "/device-keys/login/finish", Group: RouteDeviceKeys, Handler: http.HandlerFunc(s.handleDeviceKeyLoginFinishPOST)},
 		{Method: http.MethodPost, Path: "/email/password/reset/request", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetRequestPOST)},
 		{Method: http.MethodGet, Path: "/email/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmGET)},
 		{Method: http.MethodPost, Path: "/email/password/reset/confirm", Group: RouteAuth, Handler: http.HandlerFunc(s.handleEmailPasswordResetConfirmPOST)},
