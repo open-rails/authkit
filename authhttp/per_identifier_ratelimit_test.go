@@ -95,8 +95,8 @@ func TestPerIdentifierRateLimit_PhoneVerifyConfirm(t *testing.T) {
 func TestPerIdentifierRateLimit_DeviceKeyEnrollmentCode(t *testing.T) {
 	svc := newPerIdentifierTestService(t)
 	h := svc.APIHandler()
-	const enrollmentID = "same-enrollment"
-	body := `{"enrollment_id":"` + enrollmentID + `","code":"123456","signature":"invalid"}`
+	enrollmentID := strings.Repeat("A", 43)
+	body := `{"enrollment_id":"` + enrollmentID + `","code":"123456","signature":"` + strings.Repeat("A", 86) + `"}`
 	limit := DefaultRateLimits()[RLDeviceKeyEnrollFinish].Limit
 
 	for i := 0; i < limit; i++ {

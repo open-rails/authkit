@@ -208,6 +208,28 @@ func TestDeviceKeyLoginBeginDoesNotRevealKnownKey(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, status)
 }
 
+func TestDeviceKeyEmailEnrollmentAddsIndependentMachineToExistingAccount(t *testing.T) {
+	ctx := context.Background()
+	srv, sender := deviceKeyTestServer(t)
+	email := uniqueEmail("device-key-second")
+	firstPublic, firstPrivate := newDeviceKey(t)
+	first := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, firstPublic), firstPrivate)
+	secondPublic, secondPrivate := newDeviceKey(t)
+	second := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, secondPublic), secondPrivate)
+
+	firstClaims := unverifiedAccessClaims(t, first.AccessToken)
+	secondClaims := unverifiedAccessClaims(t, second.AccessToken)
+	require.Equal(t, firstClaims["sub"], secondClaims["sub"])
+	require.NotEqual(t, first.DeviceKey.ID, second.DeviceKey.ID)
+
+	user, err := srv.svc.GetUserByEmail(ctx, email)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
+	var keys int
+	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&keys))
+	require.Equal(t, 2, keys)
+}
+
 func TestDeviceKeyEnrollmentAttemptCapInvalidatesCeremony(t *testing.T) {
 	srv, sender := deviceKeyTestServer(t)
 	email := uniqueEmail("device-key-attempts")

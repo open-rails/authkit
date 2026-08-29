@@ -33,6 +33,10 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	email := embedded.NormalizeEmail(req.Email)
+	if len(email) > 320 || embedded.ValidateEmail(email) != nil || len(strings.TrimSpace(req.PublicKey)) != 43 || len(strings.TrimSpace(req.Label)) > 128 {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollBegin, email) ||
 		s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollBegin, strings.TrimSpace(req.PublicKey)) {
 		return
@@ -67,6 +71,10 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		Signature    string `json:"signature"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if len(strings.TrimSpace(req.EnrollmentID)) != 43 || len(strings.TrimSpace(req.Code)) != 6 || len(strings.TrimSpace(req.Signature)) != 86 {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -108,6 +116,10 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
+	if len(strings.TrimSpace(req.DeviceKeyID)) != 36 {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyLoginBegin, req.DeviceKeyID) {
 		return
 	}
@@ -137,6 +149,10 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		Signature   string `json:"signature"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if len(strings.TrimSpace(req.ChallengeID)) != 43 || len(strings.TrimSpace(req.Signature)) != 86 {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
