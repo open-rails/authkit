@@ -687,8 +687,6 @@ const (
 	// ErrUsernameInvalidCharacters is the username_invalid_characters AuthKit HTTP wire error code.
 	ErrUsernameInvalidCharacters ErrorCode = embedded.ErrCodeUsernameInvalidCharacters
 
-	// ErrUsernameMissing is the username_missing AuthKit HTTP wire error code.
-	ErrUsernameMissing ErrorCode = "username_missing"
 
 	// ErrUsernameMustStartWithLetter is the username_must_start_with_letter AuthKit HTTP wire error code.
 	ErrUsernameMustStartWithLetter ErrorCode = embedded.ErrCodeUsernameMustStartWithLetter
