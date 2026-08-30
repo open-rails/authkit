@@ -5,19 +5,19 @@
 -- caller breaks) so callers that already load the user row — e.g. GET /me — read
 -- the language off this row instead of issuing a separate UserPreferredLanguage
 -- query (#228).
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language, avatar_url
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, avatar_url
 FROM profiles.users WHERE id = $1;
 
 -- name: UserByEmail :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
 
 -- name: UserByUsername :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE username = $1;
 
 -- name: UserByPhone :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE phone_number = $1;
 
 -- name: UserSetPhoneVerifiedByID :exec
@@ -132,9 +132,6 @@ UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified =
 
 -- name: UserSetEmailAndVerified :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = true, updated_at = NOW() WHERE id = $1;
-
--- name: UserSetBiography :exec
-UPDATE profiles.users SET biography = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: UserSetAvatarURL :execrows
 UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1;

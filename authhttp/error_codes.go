@@ -252,9 +252,6 @@ const (
 	// ErrFailedToUnlink is the failed_to_unlink AuthKit HTTP wire error code.
 	ErrFailedToUnlink ErrorCode = "failed_to_unlink"
 
-	// ErrFailedToUpdateBiography is the failed_to_update_biography AuthKit HTTP wire error code.
-	ErrFailedToUpdateBiography ErrorCode = "failed_to_update_biography"
-
 	// ErrFailedToUpdateEmail is the failed_to_update_email AuthKit HTTP wire error code.
 	ErrFailedToUpdateEmail ErrorCode = "failed_to_update_email"
 
@@ -686,7 +683,6 @@ const (
 
 	// ErrUsernameInvalidCharacters is the username_invalid_characters AuthKit HTTP wire error code.
 	ErrUsernameInvalidCharacters ErrorCode = embedded.ErrCodeUsernameInvalidCharacters
-
 
 	// ErrUsernameMustStartWithLetter is the username_must_start_with_letter AuthKit HTTP wire error code.
 	ErrUsernameMustStartWithLetter ErrorCode = embedded.ErrCodeUsernameMustStartWithLetter

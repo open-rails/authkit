@@ -487,7 +487,6 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | DELETE | `/user/sessions` | user | required |
 | PATCH | `/user/username` | user | required |
 | PATCH | `/user/preferred-language` | user | required |
-| PATCH | `/user/biography` | user | required |
 | DELETE | `/user` | user | required |
 | DELETE | `/user/providers/{provider}` | user | required |
 | POST | `/passkeys/register/begin` | passkeys | required |

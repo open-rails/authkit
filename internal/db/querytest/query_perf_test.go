@@ -70,7 +70,7 @@ func TestQueryPerformance(t *testing.T) {
 		},
 		{
 			// #268 public display projection — same id-array access path, wider
-			// projection (avatar/biography). Gated so the extra columns can never
+			// projection (avatar/join date). Gated so the extra columns can never
 			// turn the batch author read into a heap-heavy scan.
 			Name: "public_users_by_id_array", MaxExecutionMS: 100, MaxSharedReadBlocks: 64,
 			SQL:           db.QueryText["IdentityPublicUsersByIDs"],

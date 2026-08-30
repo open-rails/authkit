@@ -244,7 +244,6 @@ type ProfilesUser struct {
 	// User ID of admin who imposed ban
 	BannedBy  *string
 	DeletedAt *time.Time
-	Biography *string
 	// Arbitrary user metadata (internal/admin flags such as reserved)
 	Metadata  []byte
 	CreatedAt time.Time

@@ -19,7 +19,6 @@ type User struct {
 	BanReason       *string
 	BannedBy        *string
 	DeletedAt       *time.Time
-	Biography       *string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastLogin       *time.Time
@@ -53,8 +52,8 @@ type UserRef struct {
 // field — the type, not an `omitempty` tag or a caller's discipline, is what
 // makes it safe to nest inside a response body.
 //
-// Every field here is public by nature: a username, an avatar, a biography and
-// a join date are what a profile page shows. Derived assets (thumbnail sizes,
+// Every field here is public by nature: a username, an avatar and a join date.
+// Derived assets (thumbnail sizes,
 // CDN rewrites) stay host-owned — authkit stores one avatar string (#262) and
 // does not know a host's image pipeline.
 type PublicUserRef struct {
@@ -63,7 +62,6 @@ type PublicUserRef struct {
 	// Prefer DisplayName over reading this directly.
 	Username  string
 	AvatarURL string // "" if unset or tombstoned
-	Biography string // "" if unset or tombstoned
 	CreatedAt time.Time
 	// Deleted marks a TOMBSTONE: the id resolved to a soft-deleted account, so
 	// the reference is not dangling — but every other field is zero, including

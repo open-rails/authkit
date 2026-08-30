@@ -87,9 +87,6 @@ func (s *Service) PublicUsersByIDs(ctx context.Context, ids []string) (map[strin
 		if r.AvatarUrl != nil {
 			ref.AvatarURL = *r.AvatarUrl
 		}
-		if r.Biography != nil {
-			ref.Biography = *r.Biography
-		}
 		out[r.ID] = ref
 	}
 	return out, nil

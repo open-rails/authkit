@@ -815,16 +815,6 @@ var generatedMethods = map[string]MethodFunc{
 		}
 		return nil, c.UpdateAvatarURL(ctx, a.A0, a.A1)
 	},
-	"UpdateBiography": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 string  `json:"id"`
-			A1 *string `json:"bio"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		return nil, c.UpdateBiography(ctx, a.A0, a.A1)
-	},
 	"UpdateEmail": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"id"`

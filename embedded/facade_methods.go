@@ -407,10 +407,6 @@ func (s *Client) UnlinkProvider(ctx context.Context, userID, provider string) er
 	return s.impl.UnlinkProvider(ctx, userID, provider)
 }
 
-func (s *Client) UpdateBiography(ctx context.Context, id string, bio *string) error {
-	return s.impl.UpdateBiography(ctx, id, bio)
-}
-
 func (s *Client) UpdateEmail(ctx context.Context, id, email string) error {
 	return s.impl.UpdateEmail(ctx, id, email)
 }

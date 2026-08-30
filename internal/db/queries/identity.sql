@@ -10,7 +10,7 @@ WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 -- caller cannot leak one by forgetting a tag. Soft-deleted rows ARE returned —
 -- the Go layer tombstones them — so a reference to a deleted author resolves to
 -- a stable placeholder instead of silently vanishing.
-SELECT id, username, avatar_url, biography, created_at, deleted_at
+SELECT id, username, avatar_url, created_at, deleted_at
 FROM profiles.users
 WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 
