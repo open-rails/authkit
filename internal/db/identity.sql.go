@@ -11,7 +11,7 @@ import (
 )
 
 const identityPublicUsersByIDs = `-- name: IdentityPublicUsersByIDs :many
-SELECT id, username, avatar_url, biography, created_at, deleted_at
+SELECT id, username, avatar_url, created_at, deleted_at
 FROM profiles.users
 WHERE id = ANY($1::uuid[])
 `
@@ -20,7 +20,6 @@ type IdentityPublicUsersByIDsRow struct {
 	ID        string
 	Username  *string
 	AvatarUrl *string
-	Biography *string
 	CreatedAt time.Time
 	DeletedAt *time.Time
 }
@@ -42,7 +41,6 @@ func (q *Queries) IdentityPublicUsersByIDs(ctx context.Context, ids []string) ([
 			&i.ID,
 			&i.Username,
 			&i.AvatarUrl,
-			&i.Biography,
 			&i.CreatedAt,
 			&i.DeletedAt,
 		); err != nil {

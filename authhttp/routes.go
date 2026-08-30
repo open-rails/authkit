@@ -175,7 +175,6 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodPatch, Path: "/user/metadata", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserMetadataPATCH))},
 		{Method: http.MethodPatch, Path: "/user/username", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUsernamePATCH))},
 		{Method: http.MethodPatch, Path: "/user/preferred-language", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserPreferredLanguagePATCH))},
-		{Method: http.MethodPatch, Path: "/user/biography", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserBiographyPATCH))},
 		{Method: http.MethodDelete, Path: "/user", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserDeleteDELETE))},
 		{Method: http.MethodDelete, Path: "/user/providers/{provider}", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handleUserUnlinkProviderDELETE))},
 		{Method: http.MethodPost, Path: "/passkeys/register/begin", Group: RouteAccount, Handler: required(http.HandlerFunc(s.handlePasskeyRegisterBeginPOST))},

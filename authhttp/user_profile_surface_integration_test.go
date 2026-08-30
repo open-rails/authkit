@@ -76,7 +76,7 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.Zero(t, avail.RetryAfterSeconds)
 
 	// --- metadata: PATCH a host-namespaced key, read it back -----------------
-	w = serveAuthJSON(srv, http.MethodPatch, "/user/metadata", `{"cozy_avatar":{"object_key":"avatars/u/x.webp"}}`, token)
+	w = serveAuthJSON(srv, http.MethodPatch, "/user/metadata", `{"cozy_avatar":{"object_key":"avatars/u/x.webp"},"biography":"app-owned bio"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var patched struct {
 		OK       bool           `json:"ok"`
@@ -85,6 +85,7 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &patched))
 	require.True(t, patched.OK)
 	require.Contains(t, patched.Metadata, "cozy_avatar")
+	require.Equal(t, "app-owned bio", patched.Metadata["biography"])
 
 	w = serveAuthJSON(srv, http.MethodGet, "/user/metadata", `{}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -93,6 +94,14 @@ func TestUserProfileSurface_MetadataAvatarAndAvailability(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	require.Contains(t, got.Metadata, "cozy_avatar")
+	require.Equal(t, "app-owned bio", got.Metadata["biography"])
+
+	// Biography is ordinary application metadata, not an AuthKit /me field.
+	w = serveAuthJSON(srv, http.MethodGet, "/me", `{}`, token)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var meFields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &meFields))
+	require.NotContains(t, meFields, "biography")
 
 	// --- metadata: authkit-internal keys are write-rejected and read-hidden --
 	w = serveAuthJSON(srv, http.MethodPatch, "/user/metadata", `{"reserved":true}`, token)

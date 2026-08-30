@@ -97,9 +97,6 @@ func TestPublicUsersByIDs_DB(t *testing.T) {
 
 	avatar := "avatars/" + live + ".webp"
 	require.NoError(t, client.UpdateAvatarURL(ctx, live, &avatar))
-	bio := "writes things"
-	require.NoError(t, client.UpdateBiography(ctx, live, &bio))
-
 	reason := "spam"
 	require.NoError(t, client.BanUser(ctx, banned, &reason, nil, live))
 	res, err := client.SoftDeleteUsers(ctx, []string{deleted})
@@ -117,7 +114,6 @@ func TestPublicUsersByIDs_DB(t *testing.T) {
 			l := refs[live]
 			require.Equal(t, "publive"+suffix, l.Username)
 			require.Equal(t, avatar, l.AvatarURL)
-			require.Equal(t, bio, l.Biography)
 			require.False(t, l.Deleted)
 			require.False(t, l.CreatedAt.IsZero(), "join date is part of the public profile shape")
 			require.Equal(t, "publive"+suffix, l.DisplayName())
@@ -132,7 +128,6 @@ func TestPublicUsersByIDs_DB(t *testing.T) {
 			require.True(t, d.Deleted)
 			require.Empty(t, d.Username, "a tombstone must not publish the deleted account's name")
 			require.Empty(t, d.AvatarURL)
-			require.Empty(t, d.Biography)
 			require.True(t, d.CreatedAt.IsZero(), "a tombstone publishes no attribute of the deleted account, not even its join date")
 			require.Equal(t, "user-"+deleted[:8], d.DisplayName())
 

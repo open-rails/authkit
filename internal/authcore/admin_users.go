@@ -196,7 +196,7 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 	// Written against the default "profiles." qualifier and rewritten to the
 	// configured schema, same mechanism as the sqlc path (issue 69).
 	argIdx := len(args) + 1
-	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.email_verified, u.phone_verified, u.banned_at, u.banned_until, u.ban_reason, u.banned_by, u.deleted_at, u.biography, u.created_at, u.updated_at, u.last_login"
+	selectCols := "u.id::text, u.email, u.phone_number, u.username, u.email_verified, u.phone_verified, u.banned_at, u.banned_until, u.ban_reason, u.banned_by, u.deleted_at, u.created_at, u.updated_at, u.last_login"
 	query := "SELECT " + selectCols + " FROM " + from + " WHERE " + strings.Join(where, " AND ") + " ORDER BY " + adminUserOrderBy(opts) + " OFFSET $" + fmt.Sprint(argIdx) + " LIMIT $" + fmt.Sprint(argIdx+1)
 	args = append(args, offset, opts.PageSize)
 
@@ -208,7 +208,7 @@ func (s *Service) AdminListUsers(ctx context.Context, opts AdminUserListOptions)
 	var out []AdminUser
 	for rows.Next() {
 		var a AdminUser
-		if err := rows.Scan(&a.ID, &a.Email, &a.PhoneNumber, &a.Username, &a.EmailVerified, &a.PhoneVerified, &a.BannedAt, &a.BannedUntil, &a.BanReason, &a.BannedBy, &a.DeletedAt, &a.Biography, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
+		if err := rows.Scan(&a.ID, &a.Email, &a.PhoneNumber, &a.Username, &a.EmailVerified, &a.PhoneVerified, &a.BannedAt, &a.BannedUntil, &a.BanReason, &a.BannedBy, &a.DeletedAt, &a.CreatedAt, &a.UpdatedAt, &a.LastLogin); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -267,7 +267,7 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 		ID: u.ID, Email: u.Email, PhoneNumber: u.PhoneNumber, Username: u.Username, DiscordUsername: u.DiscordUsername,
 		EmailVerified: u.EmailVerified, PhoneVerified: u.PhoneVerified,
 		BannedAt: u.BannedAt, BannedUntil: u.BannedUntil, BanReason: u.BanReason, BannedBy: u.BannedBy, DeletedAt: u.DeletedAt,
-		Biography: u.Biography, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLogin: u.LastLogin,
+		CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLogin: u.LastLogin,
 		PreferredLanguage: u.PreferredLanguage, AvatarURL: u.AvatarURL,
 	}
 	a.Roles, a.RemovedRoles = s.rootRoleSlugsByUser(ctx, id)

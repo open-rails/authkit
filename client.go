@@ -37,7 +37,6 @@ type Users interface {
 	SoftDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	RestoreUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	SetEmailVerified(ctx context.Context, id string, v bool) error
-	UpdateBiography(ctx context.Context, id string, bio *string) error
 	// UpdateAvatarURL sets (or clears, with nil) the user's avatar URL/key
 	// string (#262). Blob storage/validation is the host's job — authkit stores
 	// the string and serves it on GET /me.

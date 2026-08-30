@@ -93,7 +93,7 @@ func (q *Queries) UserBan(ctx context.Context, arg UserBanParams) error {
 }
 
 const userByEmail = `-- name: UserByEmail :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE email = lower($1::text)::public.citext
 `
 
@@ -109,7 +109,6 @@ type UserByEmailRow struct {
 	BanReason     *string
 	BannedBy      *string
 	DeletedAt     *time.Time
-	Biography     *string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	LastLogin     *time.Time
@@ -130,7 +129,6 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Biography,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
@@ -140,7 +138,7 @@ func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow
 
 const userByID = `-- name: UserByID :one
 
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login, preferred_language, avatar_url
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login, preferred_language, avatar_url
 FROM profiles.users WHERE id = $1
 `
 
@@ -156,7 +154,6 @@ type UserByIDRow struct {
 	BanReason         *string
 	BannedBy          *string
 	DeletedAt         *time.Time
-	Biography         *string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	LastLogin         *time.Time
@@ -184,7 +181,6 @@ func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) 
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Biography,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
@@ -195,7 +191,7 @@ func (q *Queries) UserByID(ctx context.Context, id string) (UserByIDRow, error) 
 }
 
 const userByPhone = `-- name: UserByPhone :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE phone_number = $1
 `
 
@@ -211,7 +207,6 @@ type UserByPhoneRow struct {
 	BanReason     *string
 	BannedBy      *string
 	DeletedAt     *time.Time
-	Biography     *string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	LastLogin     *time.Time
@@ -232,7 +227,6 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByP
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Biography,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
@@ -241,7 +235,7 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByP
 }
 
 const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, biography, created_at, updated_at, last_login
+SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE username = $1
 `
 
@@ -257,7 +251,6 @@ type UserByUsernameRow struct {
 	BanReason     *string
 	BannedBy      *string
 	DeletedAt     *time.Time
-	Biography     *string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	LastLogin     *time.Time
@@ -278,7 +271,6 @@ func (q *Queries) UserByUsername(ctx context.Context, username *string) (UserByU
 		&i.BanReason,
 		&i.BannedBy,
 		&i.DeletedAt,
-		&i.Biography,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLogin,
@@ -609,20 +601,6 @@ func (q *Queries) UserSetAvatarURL(ctx context.Context, arg UserSetAvatarURLPara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const userSetBiography = `-- name: UserSetBiography :exec
-UPDATE profiles.users SET biography = $2, updated_at = NOW() WHERE id = $1
-`
-
-type UserSetBiographyParams struct {
-	ID        string
-	Biography *string
-}
-
-func (q *Queries) UserSetBiography(ctx context.Context, arg UserSetBiographyParams) error {
-	_, err := q.db.Exec(ctx, userSetBiography, arg.ID, arg.Biography)
-	return err
 }
 
 const userSetEmailAndUnverify = `-- name: UserSetEmailAndUnverify :exec

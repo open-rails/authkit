@@ -760,7 +760,7 @@ Two batch projections, one query each, differing only in who may see the result:
 | method | type | use |
 |---|---|---|
 | `UsersByIDs` | `UserRef{ID, Username, Email}` | PRIVILEGED — admin surfaces, the account's own views |
-| `PublicUsersByIDs` | `PublicUserRef{ID, Username, AvatarURL, Biography, CreatedAt, Deleted}` | rendering users to other users |
+| `PublicUsersByIDs` | `PublicUserRef{ID, Username, AvatarURL, CreatedAt, Deleted}` | rendering users to other users |
 
 `PublicUserRef` has no email field at all, so a resolved author nests straight
 into a response body. Soft-deleted users come back as TOMBSTONES (`Deleted` set,

@@ -111,34 +111,6 @@ func (s *Service) supportsLanguage(language string) bool {
 	return ok
 }
 
-func (s *Service) handleUserBiographyPATCH(w http.ResponseWriter, r *http.Request) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == "" {
-		unauthorized(w, ErrUnauthorized)
-		return
-	}
-
-	var body struct {
-		Biography *string `json:"biography"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if body.Biography != nil {
-		s := strings.TrimSpace(*body.Biography)
-		if len(s) > 2000 {
-			s = s[:2000]
-		}
-		body.Biography = &s
-	}
-	if err := s.svc.UpdateBiography(r.Context(), claims.UserID, body.Biography); err != nil {
-		badRequest(w, ErrFailedToUpdateBiography)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 func (s *Service) handleUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RLUserDelete) {
 		return

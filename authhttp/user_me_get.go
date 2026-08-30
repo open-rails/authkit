@@ -24,7 +24,6 @@ type userMeResponse struct {
 	HasPassword                       bool                            `json:"has_password"`
 	Roles                             *[]string                       `json:"roles,omitempty"`
 	Entitlements                      []string                        `json:"entitlements"`
-	Biography                         *string                         `json:"biography,omitempty"`
 	AvatarURL                         *string                         `json:"avatar_url,omitempty"`
 	UserAliases                       []string                        `json:"user_aliases,omitempty"`
 	PreferredLanguage                 *string                         `json:"preferred_language,omitempty"`
@@ -179,7 +178,6 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		HasPassword:                       hasPassword,
 		Roles:                             rolesPtr,
 		Entitlements:                      adminUser.Entitlements,
-		Biography:                         adminUser.Biography,
 		AvatarURL:                         adminUser.AvatarURL,
 		UserAliases:                       userAliases,
 		PreferredLanguage:                 preferredLanguage,

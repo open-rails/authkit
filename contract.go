@@ -461,7 +461,6 @@ type AdminUser struct {
 	BanReason       *string    `json:"ban_reason,omitempty"`
 	BannedBy        *string    `json:"banned_by,omitempty"`
 	DeletedAt       *time.Time `json:"deleted_at"`
-	Biography       *string    `json:"biography"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	LastLogin       *time.Time `json:"last_login"`
