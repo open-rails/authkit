@@ -156,6 +156,15 @@ func TestDeviceKeyEmailEnrollmentAndRefreshlessLogin(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, user.EmailVerified)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
+	meResponse := serveAuthJSON(srv, http.MethodGet, "/me", "", enrolled.AccessToken)
+	require.Equal(t, http.StatusOK, meResponse.Code, meResponse.Body.String())
+	var me struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	}
+	require.NoError(t, json.Unmarshal(meResponse.Body.Bytes(), &me))
+	require.Equal(t, user.ID, me.ID)
+	require.Empty(t, me.Username)
 	var refreshSessions int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_sessions WHERE user_id=$1`, user.ID).Scan(&refreshSessions))
 	require.Zero(t, refreshSessions)

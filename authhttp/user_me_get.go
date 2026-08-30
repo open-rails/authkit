@@ -66,10 +66,6 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 	if username == "" {
 		username = strings.TrimSpace(claims.Username)
 	}
-	if username == "" {
-		serverErr(w, ErrUsernameMissing)
-		return
-	}
 	// Preferred language is read off the user row AdminGetUser already loaded
 	// (UserByID now projects preferred_language, #228) — no separate query.
 	var preferredLanguage *string
