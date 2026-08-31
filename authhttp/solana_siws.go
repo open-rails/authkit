@@ -188,6 +188,8 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 			unauthorized(w, ErrAuthenticationFailed)
 		case errors.Is(err, authkit.ErrWalletAlreadyLinked):
 			sendErr(w, http.StatusConflict, ErrWalletAlreadyLinked)
+		case errors.Is(err, authkit.ErrWalletChangeRequiresUnlink):
+			sendErr(w, http.StatusConflict, ErrWalletChangeRequiresUnlink)
 		default:
 			serverErr(w, ErrLinkFailed)
 		}

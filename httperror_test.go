@@ -27,6 +27,9 @@ func TestErrorMessageCuratedAndFallback(t *testing.T) {
 	if got := ErrorMessage("rate_limited"); got != "Too many requests. Please try again later." {
 		t.Errorf("curated message = %q", got)
 	}
+	if got := ErrorMessage("wallet_change_requires_unlink"); got != "Unlink your current wallet before connecting another." {
+		t.Errorf("wallet-change message = %q", got)
+	}
 	// Humanized fallback for an uncurated code, with acronym uppercasing.
 	if got := ErrorMessage("2fa_send_failed"); got != "2FA send failed." {
 		t.Errorf("humanized = %q, want %q", got, "2FA send failed.")

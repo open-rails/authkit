@@ -85,6 +85,7 @@ func TestHTTPStatus(t *testing.T) {
 		{ErrRegistrationDisabled, http.StatusForbidden, "registration_disabled"},
 		{ErrUserNotFound, http.StatusNotFound, "user_not_found"},
 		{ErrEmailAlreadyVerified, http.StatusConflict, "email_already_verified"},
+		{ErrWalletChangeRequiresUnlink, http.StatusConflict, "wallet_change_requires_unlink"},
 		{ErrVerificationLinkExpired, http.StatusGone, "verification_link_expired"},
 		{ErrRenameRateLimited, http.StatusTooManyRequests, "rename_rate_limited"},
 		{ErrEmailInUse, http.StatusBadRequest, "email_in_use"},

@@ -704,4 +704,7 @@ const (
 
 	// ErrWalletAlreadyLinked is the wallet_already_linked AuthKit HTTP wire error code.
 	ErrWalletAlreadyLinked ErrorCode = "wallet_already_linked"
+
+	// ErrWalletChangeRequiresUnlink requires removing the current wallet before linking another.
+	ErrWalletChangeRequiresUnlink ErrorCode = "wallet_change_requires_unlink"
 )

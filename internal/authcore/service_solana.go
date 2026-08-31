@@ -3,10 +3,12 @@ package authcore
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/siws"
@@ -15,14 +17,15 @@ import (
 // SIWS sentinel aliases (root authkit sentinels) so the SIWS verification path
 // returns typed errors the HTTP layer maps with errors.Is — see http/solana_siws.go.
 var (
-	ErrSIWSChallengeNotFound = authkit.ErrSIWSChallengeNotFound
-	ErrSIWSChallengeExpired  = authkit.ErrSIWSChallengeExpired
-	ErrSIWSChallengeMismatch = authkit.ErrSIWSChallengeMismatch
-	ErrSIWSAddressMismatch   = authkit.ErrSIWSAddressMismatch
-	ErrSIWSDomainInvalid     = authkit.ErrSIWSDomainInvalid
-	ErrSIWSTimestampInvalid  = authkit.ErrSIWSTimestampInvalid
-	ErrSIWSSignatureInvalid  = authkit.ErrSIWSSignatureInvalid
-	ErrWalletAlreadyLinked   = authkit.ErrWalletAlreadyLinked
+	ErrSIWSChallengeNotFound      = authkit.ErrSIWSChallengeNotFound
+	ErrSIWSChallengeExpired       = authkit.ErrSIWSChallengeExpired
+	ErrSIWSChallengeMismatch      = authkit.ErrSIWSChallengeMismatch
+	ErrSIWSAddressMismatch        = authkit.ErrSIWSAddressMismatch
+	ErrSIWSDomainInvalid          = authkit.ErrSIWSDomainInvalid
+	ErrSIWSTimestampInvalid       = authkit.ErrSIWSTimestampInvalid
+	ErrSIWSSignatureInvalid       = authkit.ErrSIWSSignatureInvalid
+	ErrWalletAlreadyLinked        = authkit.ErrWalletAlreadyLinked
+	ErrWalletChangeRequiresUnlink = authkit.ErrWalletChangeRequiresUnlink
 )
 
 // SolanaProviderSlug is the provider slug used for Solana wallets.
@@ -253,8 +256,42 @@ func (s *Service) LinkSolanaWallet(ctx context.Context, cache siws.ChallengeCach
 		return fmt.Errorf("%w", ErrWalletAlreadyLinked)
 	}
 
-	// Link wallet to user
-	return s.LinkProviderByIssuer(ctx, userID, s.solanaIssuer(), SolanaProviderSlug, output.Account.Address, nil)
+	return s.linkVerifiedSolanaWallet(ctx, userID, output.Account.Address)
+}
+
+// linkVerifiedSolanaWallet creates the user's first Solana link without
+// replacing an address already linked for the same issuer. The database's
+// unique (user_id, issuer) constraint makes the rule atomic across concurrent
+// requests; changing wallets requires an explicit unlink first.
+func (s *Service) linkVerifiedSolanaWallet(ctx context.Context, userID, address string) error {
+	providerID, err := newUUIDV7String()
+	if err != nil {
+		return err
+	}
+	providerSlug := SolanaProviderSlug
+
+	linked, err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+		ID:           providerID,
+		UserID:       userID,
+		Issuer:       s.solanaIssuer(),
+		ProviderSlug: &providerSlug,
+		Subject:      address,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return ErrWalletAlreadyLinked
+		case isUniqueViolation(err, "user_providers_user_id_issuer_key"):
+			return ErrWalletChangeRequiresUnlink
+		default:
+			return err
+		}
+	}
+
+	if linked.VerifiedAt != nil {
+		s.maybeResolveSolanaSNSAfterLink(ctx, userID, address)
+	}
+	return nil
 }
 
 // GetUserBySolanaAddress looks up a user by their Solana wallet address.
