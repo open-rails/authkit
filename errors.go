@@ -98,6 +98,7 @@ var (
 	ErrSIWSSignatureInvalid              = errors.New("siws_signature_invalid")
 	ErrSIWSTimestampInvalid              = errors.New("siws_timestamp_invalid")
 	ErrWalletAlreadyLinked               = errors.New("wallet_already_linked")
+	ErrWalletChangeRequiresUnlink        = errors.New("wallet_change_requires_unlink")
 	ErrProviderAlreadyLinked             = errors.New("provider_already_linked")
 )
 
@@ -172,6 +173,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrPhoneAlreadyVerified:        http.StatusConflict,
 	ErrCannotRemoveLastAdminRole:   http.StatusConflict,
 	ErrWalletAlreadyLinked:         http.StatusConflict,
+	ErrWalletChangeRequiresUnlink:  http.StatusConflict,
 	ErrProviderAlreadyLinked:       http.StatusConflict,
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
@@ -294,7 +296,7 @@ var errorSentinels = []error{
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
 	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
-	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked,
+	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,
 	ErrProviderAlreadyLinked,
 	// #247: permission-group hardening — role-assignability + custom-role +
 	// invite/api-key input errors, promoted from ad hoc strings so authhttp maps

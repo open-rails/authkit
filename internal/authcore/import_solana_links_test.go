@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"crypto"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -100,6 +101,63 @@ func TestImportedSolanaLinkRequiresSIWSVerification(t *testing.T) {
 	}
 	if verificationRequired || migrationSource != "legacy_wallets" {
 		t.Fatalf("promotion must preserve provenance and clear requirement: required=%v source=%q", verificationRequired, migrationSource)
+	}
+}
+
+func TestLinkSolanaWalletRequiresUnlinkBeforeAddressChange(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+
+	for _, verified := range []bool{false, true} {
+		name := "imported"
+		if verified {
+			name = "verified"
+		}
+		t.Run(name, func(t *testing.T) {
+			userID := mkBareUser(t, ctx, svc, "change-requires-unlink-"+name)
+			_, _, currentWallet := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
+			currentAddress := currentWallet.Account.Address
+
+			if verified {
+				if _, err := pool.Exec(ctx, `
+					INSERT INTO profiles.user_providers (user_id, issuer, provider_slug, subject, verified_at)
+					VALUES ($1::uuid, $2, $3, $4, now())
+				`, userID, svc.solanaIssuer(), SolanaProviderSlug, currentAddress); err != nil {
+					t.Fatalf("insert verified wallet: %v", err)
+				}
+			} else {
+				result, err := svc.importUnverifiedSolanaLink(ctx, ImportUnverifiedSolanaLinkInput{
+					UserID: userID, Address: currentAddress, Source: "legacy_wallets", SourceID: name,
+				})
+				if err != nil || result.Status != ImportUnverifiedSolanaLinkInserted {
+					t.Fatalf("import current wallet = %#v, %v", result, err)
+				}
+			}
+
+			challenge, parsed, replacementWallet := signedChallenge(t, "example.com", time.Now().UTC().Add(15*time.Minute))
+			cache := memorystore.NewSIWSCache(15 * time.Minute)
+			t.Cleanup(func() { _ = cache.Close() })
+			if err := cache.Put(ctx, parsed.Nonce, challenge); err != nil {
+				t.Fatalf("store replacement challenge: %v", err)
+			}
+
+			err := svc.LinkSolanaWallet(ctx, cache, userID, replacementWallet)
+			if !errors.Is(err, ErrWalletChangeRequiresUnlink) {
+				t.Fatalf("LinkSolanaWallet error = %v, want ErrWalletChangeRequiresUnlink", err)
+			}
+
+			account, err := svc.GetSolanaLinkedAccount(ctx, userID)
+			if err != nil {
+				t.Fatalf("GetSolanaLinkedAccount: %v", err)
+			}
+			if account == nil || account.Address != currentAddress || account.Verified != verified {
+				t.Fatalf("current wallet changed after rejected replacement: %#v", account)
+			}
+			if _, _, found, err := svc.getSolanaProviderLinkAny(ctx, replacementWallet.Account.Address); err != nil || found {
+				t.Fatalf("replacement wallet persisted: found=%v err=%v", found, err)
+			}
+		})
 	}
 }
 
