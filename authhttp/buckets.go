@@ -26,6 +26,7 @@ const (
 	RLDeviceKeyEnrollFinish    = "auth_device_key_enroll_finish"
 	RLDeviceKeyLoginBegin      = "auth_device_key_login_begin"
 	RLDeviceKeyLoginFinish     = "auth_device_key_login_finish"
+	RLDeviceKeysManage         = "auth_device_keys_manage"
 	RLAuthLogout               = "auth_logout"
 	RLAuthSessionsCurrent      = "auth_sessions_current"
 	RLAuthSessionsList         = "auth_sessions_list"

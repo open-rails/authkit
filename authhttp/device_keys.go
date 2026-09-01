@@ -1,6 +1,7 @@
 package authhttp
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -9,12 +10,22 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/verify"
 )
 
 type deviceKeyResponse struct {
 	ID        string    `json:"id"`
 	Label     string    `json:"label,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type deviceKeyListResponse struct {
+	ID         string     `json:"id"`
+	Label      string     `json:"label,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	Current    bool       `json:"current"`
 }
 
 type deviceKeyTokenResponse struct {
@@ -182,4 +193,84 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 		ExpiresAt:   result.ExpiresAt,
 		DeviceKey:   deviceKeyHTTPResponse(result.DeviceKey.ID, result.DeviceKey.Label, result.DeviceKey.CreatedAt),
 	})
+}
+
+func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
+	claims, ok := verify.ClaimsFromContext(r.Context())
+	return claims, ok && claims.UserID != "" && claims.DeviceKeyID != "" && claims.HasAMR("device_key")
+}
+
+func (s *Service) handleDeviceKeysGET(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RLDeviceKeysManage) {
+		return
+	}
+	claims, ok := deviceKeyCaller(r)
+	if !ok {
+		unauthorized(w, ErrUnauthorized)
+		return
+	}
+	keys, err := s.svc.ListDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID)
+	if err != nil {
+		unauthorized(w, ErrUnauthorized)
+		return
+	}
+	answer := make([]deviceKeyListResponse, 0, len(keys))
+	for _, key := range keys {
+		answer = append(answer, deviceKeyListResponse{
+			ID: key.ID, Label: key.Label, CreatedAt: key.CreatedAt,
+			LastUsedAt: key.LastUsedAt, RevokedAt: key.RevokedAt,
+			Current: key.ID == claims.DeviceKeyID,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"device_keys": answer})
+}
+
+func (s *Service) handleDeviceKeyDELETE(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RLDeviceKeysManage) {
+		return
+	}
+	claims, ok := deviceKeyCaller(r)
+	if !ok {
+		unauthorized(w, ErrUnauthorized)
+		return
+	}
+	target := strings.TrimSpace(r.PathValue("id"))
+	if len(target) != 36 {
+		badRequest(w, ErrInvalidRequest)
+		return
+	}
+	if err := s.svc.RevokeDeviceKey(r.Context(), claims.UserID, claims.DeviceKeyID, target); err != nil {
+		unauthorized(w, ErrUnauthorized)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Service) handleDeviceKeysRevokeOthersPOST(w http.ResponseWriter, r *http.Request) {
+	if s.rateLimited(w, r, RLDeviceKeysManage) {
+		return
+	}
+	claims, ok := deviceKeyCaller(r)
+	if !ok {
+		unauthorized(w, ErrUnauthorized)
+		return
+	}
+	// The enrollment finish token is the bounded recovery-root proof: it
+	// carries both the device-key and verified-email authentication methods.
+	if !claims.HasAMR("email") {
+		forbidden(w, ErrForbidden)
+		return
+	}
+	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
+		var empty map[string]json.RawMessage
+		if err := decodeJSON(r, &empty); err != nil || len(empty) != 0 {
+			badRequest(w, ErrInvalidRequest)
+			return
+		}
+	}
+	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
+		unauthorized(w, ErrUnauthorized)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

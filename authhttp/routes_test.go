@@ -29,6 +29,9 @@ func TestAPIRoutesGroupContract(t *testing.T) {
 	requireRoute(t, deviceKeys, http.MethodPost, "/device-keys/enroll/finish")
 	requireRoute(t, deviceKeys, http.MethodPost, "/device-keys/login/begin")
 	requireRoute(t, deviceKeys, http.MethodPost, "/device-keys/login/finish")
+	requireRoute(t, deviceKeys, http.MethodGet, "/device-keys")
+	requireRoute(t, deviceKeys, http.MethodDelete, "/device-keys/{id}")
+	requireRoute(t, deviceKeys, http.MethodPost, "/device-keys/revoke-others")
 	requireNoRoute(t, deviceKeys, http.MethodPost, "/password/login")
 
 	sessionUser := s.APIRoutes(RouteAuth, RouteAccount)

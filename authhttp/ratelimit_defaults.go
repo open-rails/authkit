@@ -31,6 +31,7 @@ func DefaultRateLimits() map[string]ratelimit.Limit {
 		RLDeviceKeyEnrollFinish:    {Limit: 10, Window: 10 * time.Minute},
 		RLDeviceKeyLoginBegin:      {Limit: 30, Window: 10 * time.Minute},
 		RLDeviceKeyLoginFinish:     {Limit: 30, Window: 10 * time.Minute},
+		RLDeviceKeysManage:         {Limit: 30, Window: 10 * time.Minute},
 
 		// Logout + sessions
 		RLAuthLogout:          {Limit: 60, Window: 10 * time.Minute},
