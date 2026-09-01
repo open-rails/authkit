@@ -311,8 +311,14 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 	refused := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, loggedIn.AccessToken)
 	require.Equal(t, http.StatusForbidden, refused.Code, refused.Body.String())
 
-	// The enrollment token proves the same key plus current email control.
-	revoked := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, second.AccessToken)
+	// Re-enrolling the exact active key is an email proof, not a new machine.
+	proof := finishDeviceEnrollment(t, srv, sender,
+		beginDeviceEnrollment(t, srv, email, secondPublic), secondPrivate)
+	require.Equal(t, second.DeviceKey.ID, proof.DeviceKey.ID)
+	var total int
+	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1`, user.ID).Scan(&total))
+	require.Equal(t, 2, total)
+	revoked := serveAuthJSON(srv, http.MethodPost, "/device-keys/revoke-others", `{}`, proof.AccessToken)
 	require.Equal(t, http.StatusOK, revoked.Code, revoked.Body.String())
 	var live int
 	require.NoError(t, srv.svc.Postgres().QueryRow(ctx, `SELECT count(*) FROM profiles.user_device_keys WHERE user_id=$1 AND revoked_at IS NULL`, user.ID).Scan(&live))
@@ -339,6 +345,15 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 	require.Equal(t, http.StatusOK, retry.Code, retry.Body.String())
 	attack := serveAuthJSON(srv, http.MethodDelete, "/device-keys/"+first.DeviceKey.ID, "", kept.AccessToken)
 	require.Equal(t, http.StatusUnauthorized, attack.Code, attack.Body.String())
+
+	// Tombstoned key bytes cannot be reactivated through email recovery.
+	reenroll := beginDeviceEnrollment(t, srv, email, secondPublic)
+	status, _ = postDeviceJSON(t, srv, "/device-keys/enroll/finish", map[string]any{
+		"enrollment_id": reenroll.EnrollmentID,
+		"code":          sender.verificationCode(t),
+		"signature":     signDeviceChallenge(t, secondPrivate, testDeviceEnrollmentDomain, reenroll.Challenge),
+	})
+	require.Equal(t, http.StatusBadRequest, status)
 }
 
 func TestDeviceKeyLoginConcurrentFinishAcceptsOnce(t *testing.T) {
@@ -378,6 +393,43 @@ func TestDeviceKeyLoginConcurrentFinishAcceptsOnce(t *testing.T) {
 	}
 	require.Equal(t, 1, counts[http.StatusOK])
 	require.Equal(t, 1, counts[http.StatusUnauthorized])
+}
+
+func TestDeviceKeyLoginRefusesBannedAndDeletedUsers(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(context.Context, *Service, string) error
+	}{
+		{name: "banned", mutate: func(ctx context.Context, srv *Service, userID string) error {
+			return srv.svc.BanUser(ctx, userID, nil, nil, userID)
+		}},
+		{name: "deleted", mutate: func(ctx context.Context, srv *Service, userID string) error {
+			return srv.svc.SoftDeleteUser(ctx, userID)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			srv, sender := deviceKeyTestServer(t)
+			email := uniqueEmail("device-key-" + test.name)
+			publicKey, privateKey := newDeviceKey(t)
+			enrolled := finishDeviceEnrollment(t, srv, sender,
+				beginDeviceEnrollment(t, srv, email, publicKey), privateKey)
+			user, err := srv.svc.GetUserByEmail(ctx, email)
+			require.NoError(t, err)
+			t.Cleanup(func() { _, _ = srv.svc.Postgres().Exec(ctx, `DELETE FROM profiles.users WHERE id=$1`, user.ID) })
+
+			status, raw := postDeviceJSON(t, srv, "/device-keys/login/begin", map[string]any{"device_key_id": enrolled.DeviceKey.ID})
+			require.Equal(t, http.StatusAccepted, status, string(raw))
+			var challenge deviceKeyChallengeBody
+			require.NoError(t, json.Unmarshal(raw, &challenge))
+			require.NoError(t, test.mutate(ctx, srv, user.ID))
+			status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
+				"challenge_id": challenge.ChallengeID,
+				"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, challenge.Challenge),
+			})
+			require.Equal(t, http.StatusUnauthorized, status)
+		})
+	}
 }
 
 func TestDeviceKeyEnrollmentAttemptCapInvalidatesCeremony(t *testing.T) {
