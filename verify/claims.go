@@ -19,6 +19,9 @@ type Claims struct {
 	Username        string
 	DiscordUsername string
 	SessionID       string
+	// DeviceKeyID is the AuthKit-issued machine credential that minted this
+	// access token. It is present only on device-key tokens.
+	DeviceKeyID     string
 	Roles           []string
 	Entitlements    []string
 	AMR             []string

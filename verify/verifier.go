@@ -1056,6 +1056,7 @@ func (v *Verifier) extractClaims(mc jwt.MapClaims) Claims {
 	cl.Username = strClaim(mc, "username")
 	cl.DiscordUsername = strClaim(mc, "discord_username")
 	cl.SessionID = strClaim(mc, "sid")
+	cl.DeviceKeyID = strClaim(mc, "device_key_id")
 	cl.JTI = strClaim(mc, "jti")
 	cl.AMR = strSliceClaim(mc, "amr")
 	cl.ACR = strClaim(mc, "acr")

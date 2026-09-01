@@ -59,6 +59,7 @@ var reservedAccessTokenClaims = map[string]struct{}{
 	"auth_time":        {},
 	"jti":              {},
 	"mfa_enrolled":     {},
+	"device_key_id":    {},
 }
 
 // mintAccessToken is the ID-only entry point: it loads + gates the live-user row
@@ -104,9 +105,10 @@ func (s *Service) mintAccessTokenForUser(ctx context.Context, u *User, mfa *MFAS
 }
 
 type accessTokenAssurance struct {
-	AuthTime int64
-	AMR      []string
-	ACR      string
+	AuthTime    int64
+	AMR         []string
+	ACR         string
+	DeviceKeyID string
 }
 
 func (s *Service) mintAccessTokenForUserWithAssurance(ctx context.Context, u *User, mfa *MFAStatus, extra map[string]any, ttl time.Duration, assurance *accessTokenAssurance) (token string, expiresAt time.Time, err error) {
@@ -144,6 +146,9 @@ func (s *Service) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Us
 		claims["auth_time"] = assurance.AuthTime
 		claims["amr"] = append([]string(nil), assurance.AMR...)
 		claims["acr"] = assurance.ACR
+		if assurance.DeviceKeyID != "" {
+			claims["device_key_id"] = assurance.DeviceKeyID
+		}
 	} else if sid, ok := extra["sid"].(string); ok && strings.TrimSpace(sid) != "" && s.pg != nil {
 		if freshness, freshErr := s.SessionFreshness(ctx, userID, sid, time.Now()); freshErr == nil {
 			authTime, amr, acr := freshness.AssuranceClaims()
@@ -191,7 +196,7 @@ func (s *Service) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Us
 // mintDeviceKeyAccessToken is AuthKit's refreshless native-client issuer. The
 // assurance claims are server-owned, not passed through MintAccessToken's host
 // extras, so callers cannot forge an authentication method.
-func (s *Service) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string) (string, time.Time, error) {
+func (s *Service) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string, emailProof bool) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return "", time.Time{}, err
@@ -204,9 +209,14 @@ func (s *Service) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKe
 		mfa = &status
 	}
 	now := time.Now().UTC()
-	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, map[string]any{"device_key_id": deviceKeyID}, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
-		AuthTime: now.Unix(),
-		AMR:      []string{"device_key"},
-		ACR:      AssuranceLevelPassword,
+	amr := []string{"device_key"}
+	if emailProof {
+		amr = append(amr, "email")
+	}
+	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, nil, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
+		AuthTime:    now.Unix(),
+		AMR:         amr,
+		ACR:         AssuranceLevelPassword,
+		DeviceKeyID: deviceKeyID,
 	})
 }

@@ -36,6 +36,7 @@ type DeviceKey struct {
 	Label      string     `json:"label,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
 type DeviceKeyChallenge struct {
@@ -179,7 +180,7 @@ func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, c
 	if err != nil {
 		return DeviceKeyAuthResult{}, err
 	}
-	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, userID, deviceKey.ID)
+	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, userID, deviceKey.ID, true)
 	if err != nil {
 		return DeviceKeyAuthResult{}, err
 	}
@@ -351,9 +352,96 @@ RETURNING id, COALESCE(label, ''), created_at, last_used_at`, record.DeviceKeyID
 	if err != nil {
 		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID)
+	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, false)
 	if err != nil {
 		return DeviceKeyAuthResult{}, err
 	}
 	return DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
+}
+
+// ListDeviceKeys returns the user's machine credentials after proving that the
+// device which minted the caller's token is still active.
+func (s *Service) ListDeviceKeys(ctx context.Context, userID, currentID string) ([]DeviceKey, error) {
+	q := db.ForSchema(s.pg, s.dbSchema())
+	var active bool
+	if err := q.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM profiles.user_device_keys
+		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
+	)`, currentID, userID).Scan(&active); err != nil || !active {
+		return nil, errDeviceKeyInvalid
+	}
+	rows, err := q.Query(ctx, `SELECT id, COALESCE(label, ''), created_at, last_used_at, revoked_at
+		FROM profiles.user_device_keys WHERE user_id=$1 ORDER BY created_at, id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	keys := make([]DeviceKey, 0)
+	for rows.Next() {
+		var key DeviceKey
+		if err := rows.Scan(&key.ID, &key.Label, &key.CreatedAt, &key.LastUsedAt, &key.RevokedAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+// RevokeDeviceKey idempotently revokes one key owned by the caller. The
+// token's own key is checked live in the same transaction first, so a revoked
+// machine cannot use the remainder of its access-token lifetime to revoke a
+// replacement machine.
+func (s *Service) RevokeDeviceKey(ctx context.Context, userID, currentID, targetID string) error {
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.ForSchema(tx, s.dbSchema())
+	if targetID == currentID {
+		result, err := q.Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=COALESCE(revoked_at, now())
+			WHERE id=$1 AND user_id=$2`, currentID, userID)
+		if err != nil {
+			return err
+		}
+		if result.RowsAffected() != 1 {
+			return errDeviceKeyInvalid
+		}
+		return tx.Commit(ctx)
+	}
+	var active bool
+	if err := q.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM profiles.user_device_keys
+		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE
+	)`, currentID, userID).Scan(&active); err != nil || !active {
+		return errDeviceKeyInvalid
+	}
+	if _, err := q.Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=COALESCE(revoked_at, now())
+		WHERE id=$1 AND user_id=$2`, targetID, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RevokeOtherDeviceKeys atomically revokes every key except the live key that
+// minted the caller's email-proven token.
+func (s *Service) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID string) error {
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.ForSchema(tx, s.dbSchema())
+	var active bool
+	if err := q.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM profiles.user_device_keys
+		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL FOR UPDATE
+	)`, currentID, userID).Scan(&active); err != nil || !active {
+		return errDeviceKeyInvalid
+	}
+	if _, err := q.Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=now()
+		WHERE user_id=$1 AND id<>$2 AND revoked_at IS NULL`, userID, currentID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
