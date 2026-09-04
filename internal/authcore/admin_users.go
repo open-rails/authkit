@@ -2,19 +2,17 @@ package authcore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	stdlog "log"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
-// Admin user directory: the dashboard list/count/get, account recovery, and hard
-// delete. The list and count share one runtime-assembled, fully-parameterized
-// query (adminUserDirectoryQuery); ordering is a closed enum.
+// Admin user directory: the dashboard list/count/get and hard delete. The list
+// and count share one runtime-assembled, fully-parameterized query
+// (adminUserDirectoryQuery); ordering is a closed enum.
 
 type AdminUser = authkit.AdminUser
 
@@ -273,105 +271,6 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 	a.Roles, a.RemovedRoles = s.rootRoleSlugsByUser(ctx, id)
 	a.Entitlements = s.ListEntitlements(ctx, id)
 	return a, nil
-}
-
-type AdminRecoverUserInput struct {
-	Email       string
-	PhoneNumber string
-}
-
-// AdminRecoverUser locks down a compromised account and replaces its primary
-// recovery identifier before sending a password-reset link/code to that new
-// identifier.
-func (s *Service) AdminRecoverUser(ctx context.Context, userID string, input AdminRecoverUserInput) error {
-	if s.pg == nil {
-		return nil
-	}
-	userID = strings.TrimSpace(userID)
-	email := NormalizeEmail(input.Email)
-	phone := NormalizePhone(input.PhoneNumber)
-	if userID == "" || (email == "") == (phone == "") {
-		return fmt.Errorf("invalid_request")
-	}
-	if email != "" {
-		if err := ValidateEmail(email); err != nil {
-			return err
-		}
-		if !s.HasEmailSender() {
-			return ErrEmailSenderUnavailable
-		}
-		existing, err := s.getUserByEmail(ctx, email)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if existing != nil && strings.TrimSpace(existing.ID) != userID {
-			return ErrEmailInUse
-		}
-	} else {
-		if err := ValidatePhone(phone); err != nil {
-			return err
-		}
-		if !s.HasSMSSender() {
-			return ErrSMSSenderUnavailable
-		}
-		existing, err := s.GetUserByPhone(ctx, phone)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if existing != nil && strings.TrimSpace(existing.ID) != userID {
-			return ErrPhoneInUse
-		}
-	}
-
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.qtx(tx)
-	if _, err := qtx.UserByID(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
-		return ErrUserNotFound
-	} else if err != nil {
-		return err
-	}
-
-	sessionIDs, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
-	if err != nil {
-		return err
-	}
-	if err := qtx.UserPasswordDelete(ctx, userID); err != nil {
-		return err
-	}
-	if err := qtx.UserProvidersDeleteByUser(ctx, userID); err != nil {
-		return err
-	}
-	if err := qtx.MFADelete(ctx, userID); err != nil {
-		return err
-	}
-	if err := qtx.UserClearLoginIdentifiers(ctx, userID); err != nil {
-		return err
-	}
-	if email != "" {
-		if err := qtx.UserSetEmailAndVerified(ctx, db.UserSetEmailAndVerifiedParams{ID: userID, Email: email}); err != nil {
-			return err
-		}
-	} else {
-		verified := true
-		if err := qtx.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: userID, PhoneNumber: &phone, PhoneVerified: verified}); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	reason := string(SessionRevokeReasonAdminRevokeAll)
-	for _, sessionID := range sessionIDs {
-		s.logSessionRevoked(ctx, userID, sessionID, &reason)
-	}
-	if email != "" {
-		return s.RequestPasswordReset(ctx, email, 0, nil, nil)
-	}
-	return s.RequestPhonePasswordReset(ctx, phone, 0, nil, nil)
 }
 
 func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {

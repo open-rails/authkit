@@ -193,7 +193,7 @@ passwordless routes, and refresh-token exchange (`ExchangeRefreshToken`) via the
    it only if a server calls it in-process; a browser/end-user request flow (passkeys, passwordless,
    refresh exchange) belongs on the HTTP layer only.
 2. **Completeness/symmetry.** Keep lifecycle-completing methods even if currently unused (`MintAPIKey`
-   ⇒ `RevokeAPIKey`; `SoftDeleteUsers` ⇒ `RestoreUsers`/`HardDeleteUsers`) — removing one arm is a footgun.
+   ⇒ `RevokeAPIKey`) — removing one arm is a footgun.
 3. **Commitment.** Only a WHOLE speculative feature is a YAGNI cut; a route-wired committed feature
    (invite links, api-key / remote-app management) is kept even at low adoption.
 Adoption count alone is NOT a criterion for adding or removing a method.
@@ -234,7 +234,7 @@ exposes) are **not**. (Method names above are illustrative; `client.go` is autho
 **Domain & result types** (covered): `User`, `UserRef`, `PublicUserRef` (#268 — a widening of
 this type is BREAKING in spirit as well as version: it is the public-safe projection, and it
 may never acquire an email-shaped field), `UserLiveness` (#267), `AdminUser`, `AdminUserStatus`,
-`AdminUserSort`, `AdminListUsersResult`, `AdminUserListOptions`, `AdminRecoverUserInput`,
+`AdminUserSort`, `AdminListUsersResult`, `AdminUserListOptions`,
 `ImportUserInput`, `Session`, `SessionFreshness`, `SessionRevokeReason`,
 `SessionEventType`, `AuthSessionEvent`, `PendingRegistration`, `PendingChangeKind`,
 `PreferredLanguage`, `Passkey`, `PasskeyLoginResult`, `PasswordlessStartRequest`,
@@ -508,10 +508,8 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | GET | `/admin/users/{user_id}/signins` | admin | `root:resources:read` |
 | POST | `/admin/users/{user_id}/ban` | admin | `root:users:ban` |
 | POST | `/admin/users/{user_id}/unban` | admin | `root:users:ban` |
-| POST | `/admin/users/{user_id}/recover` | admin | `root:users:recover` |
 | POST | `/admin/users/{user_id}/sessions/revoke` | admin | `root:users:recover` |
 | DELETE | `/admin/users/{user_id}` | admin | `root:users:delete` |
-| POST | `/admin/users/{user_id}/restore` | admin | `root:users:delete` |
 | POST | `/admin/applications/{slug}/tier` | admin | `root:credentials:manage` (#264 — tier `registered`\|`approved`) |
 | POST | `/applications/register` | applications | none (#264 — the server-side domain fetch is the proof; the slug is a separately claimed handle; mounted only with `Applications.SelfRegistration`) |
 | POST | `/applications/{slug}/rotate` | applications | per-message JWS (#264) |

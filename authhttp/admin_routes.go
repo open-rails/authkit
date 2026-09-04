@@ -86,6 +86,19 @@ func (s *Service) requirePermission(persona, instanceSlug, perm string, next htt
 	})
 }
 
+// actorUserID is the signed-in user behind an account-authority route (ban,
+// delete, sessions-revoke). These routes are user-only: the #286 no-escalation
+// guard compares the actor's root grants with the target's, which a machine
+// principal does not have.
+func actorUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	claims, ok := verify.ClaimsFromContext(r.Context())
+	if !ok || strings.TrimSpace(claims.UserID) == "" {
+		unauthorized(w, ErrUnauthorized)
+		return "", false
+	}
+	return claims.UserID, true
+}
+
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
 	if s.rateLimited(w, r, RLAdminUserSessionsList) {
 		return
@@ -134,9 +147,8 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" {
-		unauthorized(w, ErrUnauthorized)
+	actor, ok := actorUserID(w, r)
+	if !ok {
 		return
 	}
 	var untilPtr *time.Time
@@ -162,12 +174,15 @@ func (s *Service) handleAdminUsersBanPOST(w http.ResponseWriter, r *http.Request
 		}
 		untilPtr = &parsed
 	}
-	if err := s.svc.BanUser(r.Context(), userID, req.Reason, untilPtr, claims.UserID); err != nil {
-		if errors.Is(err, authkit.ErrInvalidUntil) {
+	if err := s.svc.BanUser(r.Context(), userID, req.Reason, untilPtr, actor); err != nil {
+		switch {
+		case errors.Is(err, authkit.ErrInvalidUntil):
 			badRequest(w, ErrInvalidUntil)
-			return
+		case errors.Is(err, authkit.ErrAccountAuthorityEscalation):
+			forbidden(w, ErrAccountAuthorityEscalation)
+		default:
+			serverErr(w, ErrFailedToBan)
 		}
-		serverErr(w, ErrFailedToBan)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
@@ -198,68 +213,19 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
-	if err := s.svc.SoftDeleteUser(r.Context(), id); err != nil {
+	actor, ok := actorUserID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.svc.SoftDeleteUserAs(r.Context(), actor, id); err != nil {
+		if errors.Is(err, authkit.ErrAccountAuthorityEscalation) {
+			forbidden(w, ErrAccountAuthorityEscalation)
+			return
+		}
 		serverErr(w, ErrFailedToDelete)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Request) {
-	userID := strings.TrimSpace(r.PathValue("user_id"))
-	if userID == "" {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
-		return
-	}
-	if err := s.svc.RestoreUser(r.Context(), userID); err != nil {
-		if errors.Is(err, authkit.ErrUserNotFound) {
-			notFound(w, ErrNotFound)
-			return
-		}
-		serverErr(w, ErrFailedToRestoreUser)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
-}
-
-func (s *Service) handleAdminUserRecoverPOST(w http.ResponseWriter, r *http.Request) {
-	userID := strings.TrimSpace(r.PathValue("user_id"))
-	var req struct {
-		Email       string `json:"email"`
-		PhoneNumber string `json:"phone_number"`
-	}
-	if err := decodeJSON(r, &req); err != nil || userID == "" || (strings.TrimSpace(req.Email) == "") == (strings.TrimSpace(req.PhoneNumber) == "") {
-		badRequest(w, ErrInvalidRequest)
-		return
-	}
-	if s.rateLimited(w, r, RLAdminPasswordReset) {
-		return
-	}
-	err := s.svc.AdminRecoverUser(r.Context(), userID, embedded.AdminRecoverUserInput{Email: req.Email, PhoneNumber: req.PhoneNumber})
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": userID})
-	case errors.Is(err, authkit.ErrUserNotFound):
-		notFound(w, ErrNotFound)
-	case errors.Is(err, authkit.ErrEmailSenderUnavailable):
-		sendErr(w, http.StatusServiceUnavailable, ErrEmailSenderUnavailable)
-	case errors.Is(err, authkit.ErrSMSSenderUnavailable):
-		sendErr(w, http.StatusServiceUnavailable, ErrSMSUnavailable)
-	case errors.Is(err, authkit.ErrEmailInUse):
-		badRequest(w, ErrEmailInUse)
-	case errors.Is(err, authkit.ErrPhoneInUse):
-		badRequest(w, ErrPhoneInUse)
-	case embedded.ValidationErrorCode(err) != "":
-		badRequest(w, ErrorCode(embedded.ValidationErrorCode(err)))
-	case deliveryErrCode(err) != "":
-		deliveryErr(w, deliveryErrCode(err))
-	default:
-		s.logInternalError(r, "admin_user_recover", "recover_user", "user_recover_failed", err)
-		serverErr(w, ErrUserRecoverFailed)
-	}
 }
 
 func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *http.Request) {
@@ -271,10 +237,18 @@ func (s *Service) handleAdminUserSessionsRevokePOST(w http.ResponseWriter, r *ht
 	if s.rateLimited(w, r, RLAdminUserSessionsRevokeAll) {
 		return
 	}
-	if err := s.svc.AdminRevokeUserSessions(
+	actor, ok := actorUserID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.svc.AdminRevokeUserSessionsAs(
 		embedded.WithSessionRevokeReason(r.Context(), embedded.SessionRevokeReasonAdminRevokeAll),
-		userID,
+		actor, userID,
 	); err != nil {
+		if errors.Is(err, authkit.ErrAccountAuthorityEscalation) {
+			forbidden(w, ErrAccountAuthorityEscalation)
+			return
+		}
 		serverErr(w, ErrFailedToRevokeSessions)
 		return
 	}
