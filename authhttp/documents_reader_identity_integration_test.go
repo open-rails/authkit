@@ -86,7 +86,7 @@ func TestDocumentsRoute_ReadersKeyedByIdentityNotSlug(t *testing.T) {
 		client := newServerClient(t, cfg, pool)
 		docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
 			Type: documentsTestType, Payload: json.RawMessage(payload), Issuer: cfg.Token.Issuer,
-			Audiences: []string{"tensorhub.net"}, Signer: client, Postgres: pool, Schema: client.Schema(),
+			Audiences: []string{"tensorhub.net"}, Signer: client, Store: client.DocumentStore(),
 		})
 		require.NoError(t, err)
 		t.Cleanup(func() {
