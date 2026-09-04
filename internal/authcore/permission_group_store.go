@@ -139,13 +139,12 @@ func (st *PermissionGroupStore) DeleteGroup(ctx context.Context, groupID string,
 	if err != nil {
 		return err
 	}
-	if releaseSlug {
-		if _, err := st.q.Exec(ctx,
-			`DELETE FROM profiles.permission_group_slug_tombstones WHERE permission_group_id = $1::uuid`,
-			groupID); err != nil {
-			return err
-		}
-	} else if slug != nil && *slug != "" {
+	if persona == RootPersona {
+		return fmt.Errorf("the root group cannot be deleted: %w", authkit.ErrUnknownGroupPersona)
+	}
+	// Earlier rename reservations survive deletion. They stop forwarding once
+	// their owner is gone, but deletion cannot shorten their promised retention.
+	if !releaseSlug && slug != nil && *slug != "" {
 		if _, err := st.q.Exec(ctx,
 			`INSERT INTO profiles.permission_group_slug_tombstones (persona, slug, permission_group_id)
 			 VALUES ($1, $2, $3::uuid)

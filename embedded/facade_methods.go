@@ -509,3 +509,18 @@ func (s *Client) DeletePermissionGroup(ctx context.Context, persona, instanceSlu
 func (s *Client) SetApplicationEnabled(ctx context.Context, slug string, enabled bool) (*authkit.RemoteApplication, error) {
 	return s.impl.SetApplicationEnabled(ctx, slug, enabled)
 }
+
+// CanOnGroup checks live authority on an already resolved immutable group.
+func (s *Client) CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error) {
+	return s.impl.CanOnGroup(ctx, subjectID, subjectKind, groupID, perm)
+}
+
+func (s *Client) GroupInstanceByID(ctx context.Context, groupID string) (authkit.GroupInstance, error) {
+	return s.impl.GroupInstanceByID(ctx, groupID)
+}
+
+// DeleteGroupInstanceByID is a trusted host lifecycle operation, addressed by
+// captured UUID so retries cannot delete a new owner of a reused name.
+func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts authkit.DeletePermissionGroupOptions) error {
+	return s.impl.DeleteGroupInstanceByID(ctx, groupID, opts)
+}
