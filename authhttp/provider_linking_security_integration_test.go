@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"net/http/httptest"
 	"net/url"

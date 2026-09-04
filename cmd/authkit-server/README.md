@@ -54,6 +54,7 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `AUTHKIT_MIGRATE_ON_START` | no | `false` | Apply the schema before serving. Prefer the one-shot `migrate` command in prod. |
 | `AUTHKIT_API_KEY_PREFIX` | no | — | Branded prefix for issued API keys |
 | `AUTHKIT_TRUSTED_PROXIES` | no | — | Comma-separated CIDRs of your reverse proxies / load balancers. Client IP (rate limiting, auditing) is derived from `X-Forwarded-For` **only** when the peer is inside one of these; otherwise `RemoteAddr` is used. Required for correct per-IP rate limiting behind any proxy. |
+| `AUTHKIT_DIRECT_PEER_IP` | no | `false` | Assert that no proxy sits in front (`RemoteAddr` is the end client). Production-like environments refuse to start without an IP posture: this, `AUTHKIT_TRUSTED_PROXIES`, or `AUTHKIT_CLOUDFLARE_PROXIES`. |
 | `AUTHKIT_CLOUDFLARE_PROXIES` | no | — | Cloudflare's published egress CIDRs. A peer inside these also gets `CF-Connecting-IP` honoured when `X-Forwarded-For` is absent. Set it **only** where Cloudflare fronts the origin, and lock the origin to Cloudflare ingress. |
 | `AUTHKIT_ACCESS_TOKEN_TTL` | no | `15m` | Access-token lifetime (Go duration) |
 | `AUTHKIT_REFRESH_TOKEN_TTL` | no | — | Refresh-token lifetime (Go duration). Unset ⇒ indefinite sessions |
