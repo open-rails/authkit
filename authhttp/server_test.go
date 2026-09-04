@@ -21,6 +21,7 @@ func newServerTestConfig() embedded.Config {
 			ExpectedAudiences: []string{"test-app"},
 		},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
 		// Environment empty => dev => signing keys are auto-generated.
 	}
 }

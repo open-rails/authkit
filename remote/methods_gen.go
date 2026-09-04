@@ -79,6 +79,13 @@ func (c *Client) Can(ctx context.Context, subjectID string, subjectKind string, 
 	return out, err
 }
 
+func (c *Client) CanOnGroup(ctx context.Context, subjectID string, subjectKind string, groupID string, perm string) (bool, error) {
+	args := map[string]any{"subjectID": subjectID, "subjectKind": subjectKind, "groupID": groupID, "perm": perm}
+	var out bool
+	err := c.call(ctx, "CanOnGroup", args, &out)
+	return out, err
+}
+
 func (c *Client) ChangePassword(ctx context.Context, userID string, current string, new string, keepSessionID *string) error {
 	args := map[string]any{"userID": userID, "current": current, "new": new, "keepSessionID": keepSessionID}
 	return c.call(ctx, "ChangePassword", args, nil)
@@ -178,6 +185,13 @@ func (c *Client) GetUserMetadata(ctx context.Context, userID string) (map[string
 	args := map[string]any{"userID": userID}
 	var out map[string]any
 	err := c.call(ctx, "GetUserMetadata", args, &out)
+	return out, err
+}
+
+func (c *Client) GroupInstanceByID(ctx context.Context, groupID string) (authkit.GroupInstance, error) {
+	args := map[string]any{"groupID": groupID}
+	var out authkit.GroupInstance
+	err := c.call(ctx, "GroupInstanceByID", args, &out)
 	return out, err
 }
 

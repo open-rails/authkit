@@ -10,7 +10,7 @@ import (
 
 func (s *Service) siwsCache() siws.ChallengeCache {
 	if s.rd != nil {
-		return redisstore.NewSIWSCache(s.rd, "auth:siws:nonce:", 15*time.Minute)
+		return redisstore.NewSIWSCache(s.rd, s.svc.RedisKeyPrefix()+"siws:nonce:", 15*time.Minute)
 	}
 	// Memoize the in-memory cache so the challenge Put and the later Consume hit
 	// the SAME instance. A fresh cache per call would lose every pending

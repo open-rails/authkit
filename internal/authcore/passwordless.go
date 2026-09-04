@@ -23,9 +23,9 @@ const (
 
 	defaultPasswordlessTTL = 10 * time.Minute
 
-	keyPasswordless         = "auth:passwordless:rec:"  // +<channel>:<identifier>
-	keyPasswordlessLink     = "auth:passwordless:link:" // +<linkHash> -> record key
-	keyPasswordlessAttempts = "auth:passwordless:attempts:"
+	keyPasswordless         = "passwordless:rec:"  // +<channel>:<identifier>
+	keyPasswordlessLink     = "passwordless:link:" // +<linkHash> -> record key
+	keyPasswordlessAttempts = "passwordless:attempts:"
 )
 
 type PasswordlessStartRequest = authkit.PasswordlessStartRequest
@@ -35,14 +35,14 @@ type PasswordlessStartResult = authkit.PasswordlessStartResult
 type PasswordlessConfirmResult = authkit.PasswordlessConfirmResult
 
 type passwordlessChallenge struct {
-	Channel           string   `json:"channel"`
-	Identifier        string   `json:"identifier"`
-	UserID            string   `json:"user_id,omitempty"`
-	GeneratedUsername string   `json:"generated_username,omitempty"`
-	PreferredLanguage string   `json:"preferred_language,omitempty"`
-	ReturnTo          string   `json:"return_to,omitempty"`
-	CodeHash          string   `json:"code_hash,omitempty"`
-	LinkHash          string   `json:"link_hash,omitempty"`
+	Channel           string `json:"channel"`
+	Identifier        string `json:"identifier"`
+	UserID            string `json:"user_id,omitempty"`
+	GeneratedUsername string `json:"generated_username,omitempty"`
+	PreferredLanguage string `json:"preferred_language,omitempty"`
+	ReturnTo          string `json:"return_to,omitempty"`
+	CodeHash          string `json:"code_hash,omitempty"`
+	LinkHash          string `json:"link_hash,omitempty"`
 	// AccountInviteToken carries the unbound single-use account-registration code
 	// from start to confirm (#147): the code is the credential, so it must be
 	// present at consume time, which happens at confirm (when the user id exists).

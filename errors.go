@@ -69,6 +69,7 @@ var (
 	ErrPasskeyNotFound                   = errors.New("passkey_not_found")
 	ErrPasskeyUserVerificationRequired   = errors.New("passkey_user_verification_required")
 	ErrPasswordlessDisabled              = errors.New("passwordless_disabled")
+	ErrDeviceKeysDisabled                = errors.New("device_keys_disabled")
 	ErrPasswordResetRequired             = errors.New("password_reset_required")
 	ErrPendingRegistrationNotFound       = errors.New("pending_registration_not_found")
 	ErrPhoneAlreadyVerified              = errors.New("phone_already_verified")
@@ -155,6 +156,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrApplicationRegistrationDisabled: http.StatusForbidden,
 	ErrRegistrationDisabled:            http.StatusForbidden,
 	ErrPasswordlessDisabled:            http.StatusForbidden,
+	ErrDeviceKeysDisabled:              http.StatusForbidden,
 	ErrTwoFAEnrollmentRequired:         http.StatusForbidden,
 	ErrTwoFAFactorExists:               http.StatusConflict,
 	ErrStepUpRequired:                  http.StatusForbidden,
@@ -304,7 +306,7 @@ var errorSentinels = []error{
 	ErrInvalidAttributeDef, ErrInvalidBootstrapManifest, ErrInvalidUntil,
 	ErrInviteLinkExpired, ErrInviteLinkNotFound, ErrInviteLinkRevoked,
 	ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
-	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled,
+	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled, ErrDeviceKeysDisabled,
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
 	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited, ErrRenamesDisabled, ErrNameAdmissionRefused,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,

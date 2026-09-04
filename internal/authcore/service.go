@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
+	"github.com/redis/go-redis/v9"
 )
 
 // Keyset is a fixed active signer + public-key set for the low-level
@@ -93,6 +94,7 @@ var (
 	ErrEmailSenderUnavailable  = authkit.ErrEmailSenderUnavailable
 	ErrSMSSenderUnavailable    = authkit.ErrSMSSenderUnavailable
 	ErrPasswordlessDisabled    = authkit.ErrPasswordlessDisabled
+	ErrDeviceKeysDisabled      = authkit.ErrDeviceKeysDisabled
 )
 
 // (storage layer collapsed into direct Postgres/Redis helpers)
@@ -118,6 +120,7 @@ type Service struct {
 	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
 	snsCacheTTLOverride time.Duration
 	ephemeralStore      EphemeralStore
+	redisClient         *redis.Client // WithRedis; resolved into ephemeralStore by newService (#307)
 	// cfg is THE configuration (#237): the host Config, normalized exactly once
 	// at construction (normalizeConfig). The engine and the HTTP transport both
 	// read it — there is no parallel flat options struct.

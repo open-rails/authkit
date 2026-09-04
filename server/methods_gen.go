@@ -137,6 +137,19 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.Can(ctx, a.A0, a.A1, a.A2, a.A3, a.A4)
 		return r0, err
 	},
+	"CanOnGroup": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 string `json:"subjectID"`
+			A1 string `json:"subjectKind"`
+			A2 string `json:"groupID"`
+			A3 string `json:"perm"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.CanOnGroup(ctx, a.A0, a.A1, a.A2, a.A3)
+		return r0, err
+	},
 	"ChangePassword": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string  `json:"userID"`
@@ -270,6 +283,16 @@ var generatedMethods = map[string]MethodFunc{
 			return nil, err
 		}
 		r0, err := c.GetUserMetadata(ctx, a.A0)
+		return r0, err
+	},
+	"GroupInstanceByID": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
+		var a struct {
+			A0 string `json:"groupID"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, err
+		}
+		r0, err := c.GroupInstanceByID(ctx, a.A0)
 		return r0, err
 	},
 	"GroupInstanceForSlug": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {

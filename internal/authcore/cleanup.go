@@ -12,6 +12,26 @@ import (
 // (#235). Pending, unexpired rows are never touched.
 const inviteRetention = 90 * 24 * time.Hour
 
+// sessionsGCBatchSize bounds one dead-session DELETE (#325): never an
+// unbounded statement, same rule as session_events (#245).
+const sessionsGCBatchSize int64 = 5000
+
+// gcDeadSessions removes revoked/expired refresh sessions (history cascades)
+// in bounded batches until a short batch; it reports the batches issued.
+func (s *Service) gcDeadSessions(ctx context.Context, batchSize int64) (int, error) {
+	batches := 0
+	for {
+		n, err := s.q.SessionsDeleteRevokedOrExpiredBatch(ctx, batchSize)
+		if err != nil {
+			return batches, err
+		}
+		batches++
+		if n < batchSize {
+			return batches, nil
+		}
+	}
+}
+
 // CleanupExpiredAuthState removes expired transient AuthKit state that lives in
 // postgres. Short-lived verification state — pending registrations, pending
 // email/phone changes, email/phone verifications, and password resets — now
@@ -26,7 +46,7 @@ func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
 		return err
 	}
 
-	if err := s.q.SessionsDeleteRevokedOrExpired(ctx); err != nil {
+	if _, err := s.gcDeadSessions(ctx, sessionsGCBatchSize); err != nil {
 		return err
 	}
 

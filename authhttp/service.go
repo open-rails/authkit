@@ -114,7 +114,7 @@ func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	// Build and check the per-identifier key (separate from the IP key).
-	idKey := "auth:" + bucket + ":id:" + strings.ToLower(strings.TrimSpace(identifier))
+	idKey := bucket + ":id:" + strings.ToLower(strings.TrimSpace(identifier))
 	result := s.allowResultForKey(bucket, idKey)
 	if result.Allowed {
 		return false
@@ -161,7 +161,7 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 		return RateLimitResult{Allowed: true}
 	}
 	s.undeclaredProxyTripwire(r, ip)
-	return s.allowResultForKey(bucket, "auth:"+bucket+":ip:"+ip)
+	return s.allowResultForKey(bucket, bucket+":ip:"+ip)
 }
 
 // undeclaredProxyTripwire logs once per process when the rate-limit key is a
@@ -214,7 +214,7 @@ func (s *Service) publicRegistrationDisabled() bool {
 
 func (s *Service) stateCache() oidckit.StateCache {
 	if s.rd != nil {
-		return redisstore.NewStateCache(s.rd, "auth:oidc:state:", 0)
+		return redisstore.NewStateCache(s.rd, s.svc.RedisKeyPrefix()+"oidc:state:", 0)
 	}
 	if s.memStateCache == nil {
 		s.memStateCache = memorystore.NewStateCache(15 * time.Minute)

@@ -35,7 +35,7 @@ func TestRateLimiter_FailsClosedOnBackendError(t *testing.T) {
 			t.Errorf("bucket %q: limiter error must FAIL CLOSED (deny), got Allowed=true", b)
 		}
 		// per-identifier path (used by 2FA-verify / password-login).
-		if s.allowResultForKey(b, "auth:"+b+":id:victim").Allowed {
+		if s.allowResultForKey(b, b+":id:victim").Allowed {
 			t.Errorf("bucket %q (per-identifier): limiter error must FAIL CLOSED, got Allowed=true", b)
 		}
 	}
@@ -45,7 +45,7 @@ func TestRateLimiter_FailsClosedOnBackendError(t *testing.T) {
 		if !s.allowResult(req, b).Allowed {
 			t.Errorf("bucket %q: limiter error must fail OPEN (allow), got Allowed=false", b)
 		}
-		if !s.allowResultForKey(b, "auth:"+b+":id:x").Allowed {
+		if !s.allowResultForKey(b, b+":id:x").Allowed {
 			t.Errorf("bucket %q (per-identifier): limiter error must fail OPEN, got Allowed=false", b)
 		}
 	}
@@ -59,16 +59,16 @@ func TestRateLimiter_FailsClosedOnRedisOutage(t *testing.T) {
 	o := *live.Options()
 	closed := redis.NewClient(&o)
 	require.NoError(t, closed.Close())
-	s := &Service{rl: redislimiter.New(closed, DefaultRateLimits()), clientIP: func(*http.Request) string { return "203.0.113.7" }}
+	s := &Service{rl: redislimiter.New(closed, DefaultRateLimits(), "authkit:profiles:ratelimit:"), clientIP: func(*http.Request) string { return "203.0.113.7" }}
 	req, _ := http.NewRequest(http.MethodPost, "/x", nil)
 
 	for b := range failClosedBuckets {
 		require.Falsef(t, s.allowResult(req, b).Allowed, "bucket %q: Redis outage must fail closed", b)
-		require.Falsef(t, s.allowResultForKey(b, "auth:"+b+":id:victim").Allowed, "bucket %q (per-identifier): Redis outage must fail closed", b)
+		require.Falsef(t, s.allowResultForKey(b, b+":id:victim").Allowed, "bucket %q (per-identifier): Redis outage must fail closed", b)
 	}
 	for _, b := range []string{RLUserMe, RLAuthSessionsList, RLAuthLogout, "default"} {
 		require.Truef(t, s.allowResult(req, b).Allowed, "bucket %q: Redis outage must fail open", b)
-		require.Truef(t, s.allowResultForKey(b, "auth:"+b+":id:x").Allowed, "bucket %q (per-identifier): Redis outage must fail open", b)
+		require.Truef(t, s.allowResultForKey(b, b+":id:x").Allowed, "bucket %q (per-identifier): Redis outage must fail open", b)
 	}
 }
 
@@ -82,7 +82,7 @@ func TestRateLimiter_NilLimiterFailsOpen(t *testing.T) {
 	if !s.allowResult(req, RL2FAVerify).Allowed {
 		t.Fatal("nil limiter (deliberate opt-out) must fail open, got deny")
 	}
-	if !s.allowResultForKey(RL2FAVerify, "auth:2fa:id:x").Allowed {
+	if !s.allowResultForKey(RL2FAVerify, "2fa:id:x").Allowed {
 		t.Fatal("nil limiter (per-identifier) must fail open, got deny")
 	}
 }

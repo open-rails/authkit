@@ -38,6 +38,11 @@ type Config struct {
 	TwoFactor TwoFactorConfig
 	// Passkeys configures WebAuthn/FIDO2 passkey ceremonies.
 	Passkeys PasskeyConfig
+	// DeviceKeys enables the refreshless native-client device-key surface
+	// (#278). Off by default: enrollment is an email-code login, so hosts opt
+	// in explicitly before RouteDeviceKeys is mounted or the engine issues
+	// enrollment/login challenges (#293).
+	DeviceKeys DeviceKeysConfig
 	// RBAC declares the app's permission-group personas (#111): containment
 	// schema plus per-persona role catalogs. Empty yields root-only.
 	RBAC []PersonaDef
@@ -211,6 +216,13 @@ type FrontendConfig struct {
 	InvitePath string
 }
 
+// DeviceKeysConfig controls the native-client device-key surface (#278).
+type DeviceKeysConfig struct {
+	// Enabled mounts RouteDeviceKeys and lets the engine run enrollment and
+	// login ceremonies.
+	Enabled bool
+}
+
 // RegistrationConfig controls verification policy and public self-registration.
 type RegistrationConfig struct {
 	// Verification controls registration verification: "none"|"optional"|
@@ -248,6 +260,12 @@ type EphemeralConfig struct {
 	// AllowMemory permits the in-memory ephemeral store and rate limiter
 	// outside a dev-like Environment (single-instance deployments only).
 	AllowMemory bool
+	// KeyPrefix namespaces every Redis key this deployment writes (ephemeral
+	// store, OIDC/SIWS caches, rate-limit counters) so several AuthKit
+	// deployments can share one Redis database (#307). Empty derives
+	// "authkit:<schema>:"; a trailing ':' is added when missing. Must match
+	// ^[a-z0-9_.:-]{1,64}$.
+	KeyPrefix string
 }
 
 type KeysConfig struct {

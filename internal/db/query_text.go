@@ -24,9 +24,7 @@ var QueryText = map[string]string{
 	"ProviderLinkBySlug":           providerLinkBySlug, // gated since migration 003 added user_providers_slug_subject_idx
 	"UsersPurgeCandidates":         usersPurgeCandidates,
 	"SessionsRevokeFamily":         sessionsRevokeFamily, // gated since migration 002 added refresh_sessions_family_active
-
-	// Catalogued finding — CONFIRMED to sequential-scan refresh_sessions at scale
-	// (see querytest/README.md "Findings"). It is a periodic GC sweep, so a full
-	// scan is acceptable; not gated.
-	"SessionsDeleteRevokedOrExpired": sessionsDeleteRevokedOrExpired,
+	// Batched GC sweep; gated since migration 013 added the dead/expires partial
+	// indexes (#325).
+	"SessionsDeleteRevokedOrExpiredBatch": sessionsDeleteRevokedOrExpiredBatch,
 }

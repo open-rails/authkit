@@ -160,6 +160,7 @@ func newRouteFeatureTestService(t *testing.T, configure func(*authcore.Config)) 
 			ExpectedAudiences: []string{"test-app"},
 		},
 		Registration: authcore.RegistrationConfig{Verification: authcore.RegistrationVerificationNone},
+		DeviceKeys:   authcore.DeviceKeysConfig{Enabled: true},
 	}
 	if configure != nil {
 		configure(&cfg)

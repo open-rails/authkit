@@ -4,6 +4,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/jwtkit"
 )
+
+// redisKeyPrefixRE bounds Ephemeral.KeyPrefix (#307): it is spliced into
+// every Redis key.
+var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
 
 // Construction and Config validation. There is ONE config type (Config, #237)
 // and ONE normalization pass (normalizeConfig): the Service reads the
@@ -36,6 +41,23 @@ func normalizeConfig(cfg Config) (Config, error) {
 	cfg.Token.Issuer = strings.TrimSpace(cfg.Token.Issuer)
 	cfg.Environment = strings.TrimSpace(cfg.Environment)
 	cfg.SolanaNetwork = strings.TrimSpace(cfg.SolanaNetwork)
+
+	// #307: one Redis namespace per deployment, derived from the schema unless
+	// the host names one. Validated like Schema — it is spliced into keys.
+	cfg.Ephemeral.KeyPrefix = strings.TrimSpace(cfg.Ephemeral.KeyPrefix)
+	if cfg.Ephemeral.KeyPrefix == "" {
+		schema := strings.TrimSpace(cfg.Schema)
+		if schema == "" {
+			schema = db.DefaultSchema
+		}
+		cfg.Ephemeral.KeyPrefix = "authkit:" + schema + ":"
+	}
+	if !strings.HasSuffix(cfg.Ephemeral.KeyPrefix, ":") {
+		cfg.Ephemeral.KeyPrefix += ":"
+	}
+	if !redisKeyPrefixRE.MatchString(cfg.Ephemeral.KeyPrefix) {
+		return Config{}, fmt.Errorf("authkit: invalid Ephemeral.KeyPrefix %q (want ^[a-z0-9_.:-]{1,64}$)", cfg.Ephemeral.KeyPrefix)
+	}
 
 	// BaseURL defaults from a well-formed Issuer URL.
 	cfg.Frontend.BaseURL = strings.TrimSpace(cfg.Frontend.BaseURL)
@@ -177,6 +199,7 @@ func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, coreOpts ..
 			o(s)
 		}
 	}
+	s.resolveEphemeralStore()
 	return s
 }
 

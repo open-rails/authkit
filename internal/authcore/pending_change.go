@@ -29,9 +29,9 @@ const (
 // addressed, so two strangers drawing the same code never share storage. Only the
 // 256-bit link token gets a global pointer.
 const (
-	keyPendingChange     = "auth:pending_change:rec:"  // +<kind>:<target|userID> -> pendingChange JSON
-	keyPendingChangeLink = "auth:pending_change:link:" // +<kind>:<linkHash> -> record key
-	keyPendingChangeUser = "auth:pending_change:user:" // +<kind>:<username> -> record key (register kinds)
+	keyPendingChange     = "pending_change:rec:"  // +<kind>:<target|userID> -> pendingChange JSON
+	keyPendingChangeLink = "pending_change:link:" // +<kind>:<linkHash> -> record key
+	keyPendingChangeUser = "pending_change:user:" // +<kind>:<username> -> record key (register kinds)
 )
 
 // pendingChange is the unified record backing all four flows. Register kinds

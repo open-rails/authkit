@@ -129,6 +129,7 @@ type Groups interface {
 	SeedPermissionGroupContainment(ctx context.Context) error
 	ResolveGroupIDForSlug(ctx context.Context, persona, instanceSlug string) (string, error)
 	GroupInstanceForSlug(ctx context.Context, persona, instanceSlug string) (GroupInstance, error)
+	GroupInstanceByID(ctx context.Context, groupID string) (GroupInstance, error)
 	CreateAccountRegistrationInvite(ctx context.Context, req CreateAccountRegistrationInviteRequest) (AccountRegistrationInviteCreated, error)
 	RevokeAccountRegistrationInvite(ctx context.Context, inviteID, actorUserID string) error
 	AssignGroupRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind, role string) error
@@ -138,6 +139,7 @@ type Groups interface {
 	ListGroupMembers(ctx context.Context, persona, instanceSlug string) ([]GroupMember, error)
 	ListSubjectGroups(ctx context.Context, subjectID, subjectKind string) ([]SubjectGroupMembership, error)
 	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)
+	CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error)
 	ListEffectivePermissions(ctx context.Context, subjectID, subjectKind, persona, instanceSlug string) ([]string, error)
 	CreateGroupInviteLink(ctx context.Context, req CreateGroupInviteLinkRequest) (GroupInviteLinkCreated, error)
 	ListGroupInviteLinks(ctx context.Context, persona, instanceSlug string) ([]GroupInviteLink, error)

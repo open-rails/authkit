@@ -15,7 +15,6 @@ import (
 
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
-	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -53,7 +52,7 @@ func New(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Client, error) {
 // import the internal redis store directly. The HTTP transport's OIDC/SIWS state
 // caches take the same *redis.Client via authhttp.WithRedis (separate layer).
 func WithRedis(rd *redis.Client) Option {
-	return authcore.WithEphemeralStore(redisstore.NewKV(rd))
+	return authcore.WithRedis(rd)
 }
 
 // Unwrap returns the internal engine a Client wraps, for the authkit/http

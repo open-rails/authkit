@@ -399,6 +399,8 @@ const (
 
 	// ErrPasswordlessDisabled is the passwordless_disabled AuthKit HTTP wire error code.
 	ErrPasswordlessDisabled ErrorCode = "passwordless_disabled"
+	// ErrDeviceKeysDisabled is the device_keys_disabled AuthKit HTTP wire error code.
+	ErrDeviceKeysDisabled ErrorCode = "device_keys_disabled"
 
 	// ErrPKCEGenerationFailed is the pkce_generation_failed AuthKit HTTP wire error code.
 	ErrPKCEGenerationFailed ErrorCode = "pkce_generation_failed"

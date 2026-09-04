@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
@@ -32,6 +33,12 @@ func WithPostgres(pool *pgxpool.Pool) Option {
 // type assertion (EphemeralRedisClient), not a mode string (#236).
 func WithEphemeralStore(store EphemeralStore) Option {
 	return func(s *Service) { s.ephemeralStore = store }
+}
+
+// WithRedis makes the ephemeral store Redis-backed, namespaced by the
+// deployment's Ephemeral.KeyPrefix (#307). Wins over WithEphemeralStore.
+func WithRedis(rd *redis.Client) Option {
+	return func(s *Service) { s.redisClient = rd }
 }
 
 // WithApplicationsHTTPClient overrides the outbound HTTP client used by

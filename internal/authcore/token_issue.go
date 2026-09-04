@@ -196,7 +196,7 @@ func (s *Service) mintAccessTokenForUserWithAssurance(ctx context.Context, u *Us
 // mintDeviceKeyAccessToken is AuthKit's refreshless native-client issuer. The
 // assurance claims are server-owned, not passed through MintAccessToken's host
 // extras, so callers cannot forge an authentication method.
-func (s *Service) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string, emailProof bool) (string, time.Time, error) {
+func (s *Service) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKeyID string, emailProof, mfaProof bool) (string, time.Time, error) {
 	u, err := s.getUserByID(ctx, userID)
 	if err != nil {
 		return "", time.Time{}, err
@@ -210,13 +210,18 @@ func (s *Service) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKe
 	}
 	now := time.Now().UTC()
 	amr := []string{"device_key"}
+	acr := AssuranceLevelPassword
 	if emailProof {
 		amr = append(amr, "email")
+	}
+	if mfaProof {
+		amr = append(amr, "otp", "mfa")
+		acr = AssuranceLevelMFA
 	}
 	return s.mintAccessTokenForUserWithAssurance(ctx, u, mfa, nil, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
 		AuthTime:    now.Unix(),
 		AMR:         amr,
-		ACR:         AssuranceLevelPassword,
+		ACR:         acr,
 		DeviceKeyID: deviceKeyID,
 	})
 }

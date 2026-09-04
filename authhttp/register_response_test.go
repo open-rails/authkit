@@ -34,6 +34,9 @@ func (testEmailSender) SendAccountRegistrationInvite(context.Context, string, st
 func (testEmailSender) SendLoginCode(context.Context, string, string, string) error {
 	return nil
 }
+func (testEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, embedded.DeviceKeyNotice) error {
+	return nil
+}
 func (testEmailSender) SendContactChanged(context.Context, string, string, embedded.ContactChange) error {
 	return nil
 }
