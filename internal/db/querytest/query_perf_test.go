@@ -118,6 +118,14 @@ func TestQueryPerformance(t *testing.T) {
 			ForbidSeqScan: []string{"refresh_sessions"},
 		},
 		{
+			// #325: one bounded GC batch over the dead/expires partial indexes
+			// (migration 013), deleted by tuple id. Was one unbounded seq-scan
+			// DELETE. Budget covers 5000 heap fetches + cascading history deletes.
+			Name: "sessions_gc_batch", MaxExecutionMS: 250, MaxSharedReadBlocks: 2048,
+			SQL: db.QueryText["SessionsDeleteRevokedOrExpiredBatch"], Args: []any{int64(5000)},
+			ForbidSeqScan: []string{"refresh_sessions", "refresh_token_history"},
+		},
+		{
 			Name: "provider_by_issuer_subject", MaxExecutionMS: 50, MaxSharedReadBlocks: 16,
 			SQL: db.QueryText["ProviderLinkByIssuer"], Args: []any{perfIdpIssuer(hot), perfSubject(hot)},
 			ForbidSeqScan: []string{"user_providers"},
@@ -290,6 +298,33 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "refresh_sessions"},
 		[]string{"id", "family_id", "user_id", "issuer", "current_token_hash", "expires_at", "last_used_at", "auth_methods"}, copyFat); err != nil || int(n) != perfFat {
 		t.Fatalf("copy fat sessions n=%d err=%v", n, err)
+	}
+
+	// Dead sessions for the GC sweep (#325): a revoked and an expired row for a
+	// fifth of the users, so the batch subquery's plan is judged against a real
+	// dead set.
+	dead := 2 * (scale / 5)
+	copyDead := pgx.CopyFromSlice(dead, func(k int) ([]any, error) {
+		i, expired := k/2, k%2 == 1
+		var revokedAt *time.Time
+		expiresAt := now.Add(24 * time.Hour)
+		if expired {
+			expiresAt = now.Add(-time.Hour)
+		} else {
+			r := now.Add(-time.Hour)
+			revokedAt = &r
+		}
+		return []any{
+			fmt.Sprintf("41000000-0000-4000-8000-%012x", k),
+			fmt.Sprintf("51000000-0000-4000-8000-%012x", k),
+			perfUserID(i), perfIssuer,
+			[]byte(fmt.Sprintf("deadtoken-%012x", k)),
+			expiresAt, revokedAt, []string{"pwd"},
+		}, nil
+	})
+	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "refresh_sessions"},
+		[]string{"id", "family_id", "user_id", "issuer", "current_token_hash", "expires_at", "revoked_at", "auth_methods"}, copyDead); err != nil || int(n) != dead {
+		t.Fatalf("copy dead sessions n=%d err=%v", n, err)
 	}
 
 	copyMemberships := pgx.CopyFromSlice(scale, func(i int) ([]any, error) {

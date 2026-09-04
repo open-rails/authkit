@@ -322,15 +322,28 @@ func (q *Queries) SessionsCountActive(ctx context.Context, arg SessionsCountActi
 	return count, err
 }
 
-const sessionsDeleteRevokedOrExpired = `-- name: SessionsDeleteRevokedOrExpired :exec
+const sessionsDeleteRevokedOrExpiredBatch = `-- name: SessionsDeleteRevokedOrExpiredBatch :execrows
 DELETE FROM profiles.refresh_sessions
-WHERE revoked_at IS NOT NULL
-   OR (expires_at IS NOT NULL AND expires_at <= NOW())
+WHERE ctid = ANY(ARRAY(
+    SELECT ctid FROM profiles.refresh_sessions
+    WHERE revoked_at IS NOT NULL
+    UNION ALL
+    SELECT ctid FROM profiles.refresh_sessions
+    WHERE revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at <= NOW()
+    LIMIT $1::bigint
+))
 `
 
-func (q *Queries) SessionsDeleteRevokedOrExpired(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, sessionsDeleteRevokedOrExpired)
-	return err
+// One bounded GC batch (#325): collect up to batch_size dead sessions through
+// the two partial indexes (revoked / expired), then delete them by tuple id so
+// the outer step is a Tid Scan, never a table scan. Callers loop until a short
+// batch. History rows cascade.
+func (q *Queries) SessionsDeleteRevokedOrExpiredBatch(ctx context.Context, batchSize int64) (int64, error) {
+	result, err := q.db.Exec(ctx, sessionsDeleteRevokedOrExpiredBatch, batchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const sessionsEvictOldest = `-- name: SessionsEvictOldest :many
