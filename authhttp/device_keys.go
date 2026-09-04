@@ -10,6 +10,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -64,6 +65,8 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 	result, err := s.svc.BeginDeviceKeyEnrollment(r.Context(), email, req.PublicKey, req.Label)
 	if err != nil {
 		switch {
+		case errors.Is(err, authkit.ErrDeviceKeysDisabled):
+			forbidden(w, ErrDeviceKeysDisabled)
 		case errors.Is(err, authkit.ErrEmailSenderUnavailable), errors.Is(err, authkit.ErrEmailDeliveryFailed):
 			serverErr(w, ErrEmailVerificationUnavailable)
 		case embedded.ValidationErrorCode(err) != "", errors.Is(err, jwt.ErrTokenUnverifiable):
@@ -89,24 +92,32 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		EnrollmentID string `json:"enrollment_id"`
 		Code         string `json:"code"`
 		Signature    string `json:"signature"`
+		SecondFactor string `json:"code_2fa"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	if len(strings.TrimSpace(req.EnrollmentID)) != 43 || len(strings.TrimSpace(req.Code)) != 6 || len(strings.TrimSpace(req.Signature)) != 86 {
+	if len(strings.TrimSpace(req.EnrollmentID)) != 43 || len(strings.TrimSpace(req.Code)) != 6 || len(strings.TrimSpace(req.Signature)) != 86 || len(strings.TrimSpace(req.SecondFactor)) > 32 {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollFinish, req.EnrollmentID) {
 		return
 	}
-	result, err := s.svc.FinishDeviceKeyEnrollment(r.Context(), req.EnrollmentID, req.Code, req.Signature)
+	result, err := s.svc.FinishDeviceKeyEnrollment(r.Context(), req.EnrollmentID, req.Code, req.Signature, req.SecondFactor)
 	if err != nil {
+		var secondFactor *authcore.DeviceKeySecondFactorRequired
 		switch {
+		case errors.As(err, &secondFactor):
+			// Email code and key proof are valid; the ceremony stays live for a
+			// retry that carries the second factor in code_2fa.
+			sendErrData(w, http.StatusForbidden, ErrStepUpRequired, map[string]any{"method": secondFactor.Method, "param": "code_2fa"})
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			s.svc.RecordFailedDeviceKeyEnrollment(r.Context(), req.EnrollmentID)
 			badRequest(w, ErrInvalidOrExpiredCode)
+		case errors.Is(err, authkit.ErrDeviceKeysDisabled):
+			forbidden(w, ErrDeviceKeysDisabled)
 		case errors.Is(err, authkit.ErrRegistrationDisabled):
 			registrationDisabled(w)
 		case errors.Is(err, authkit.ErrUserBanned):
@@ -145,6 +156,10 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 	}
 	result, err := s.svc.BeginDeviceKeyLogin(r.Context(), req.DeviceKeyID)
 	if err != nil {
+		if errors.Is(err, authkit.ErrDeviceKeysDisabled) {
+			forbidden(w, ErrDeviceKeysDisabled)
+			return
+		}
 		if errors.Is(err, jwt.ErrTokenUnverifiable) {
 			badRequest(w, ErrInvalidRequest)
 			return
@@ -181,6 +196,10 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 	}
 	result, err := s.svc.FinishDeviceKeyLogin(r.Context(), req.ChallengeID, req.Signature)
 	if err != nil {
+		if errors.Is(err, authkit.ErrDeviceKeysDisabled) {
+			forbidden(w, ErrDeviceKeysDisabled)
+			return
+		}
 		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, authkit.ErrUserBanned) {
 			s.logInternalError(r, "device_key_login_finish", "finish", "device_key_login_finish_failed", err)
 		}

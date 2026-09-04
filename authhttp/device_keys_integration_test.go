@@ -41,12 +41,17 @@ type deviceKeyTokenBody struct {
 
 func deviceKeyTestServer(t *testing.T, engineOpts ...embedded.Option) (*Service, *captureEmailSender) {
 	t.Helper()
+	return deviceKeyTestServerWithConfig(t, newServerTestConfig(), engineOpts...)
+}
+
+func deviceKeyTestServerWithConfig(t *testing.T, cfg embedded.Config, engineOpts ...embedded.Option) (*Service, *captureEmailSender) {
+	t.Helper()
 	pool := newServerTestPool(t)
 	_, err := authkitmigrate.New(pool, nil).Migrate(context.Background())
 	require.NoError(t, err)
 	sender := &captureEmailSender{}
 	opts := append([]embedded.Option{embedded.WithEmailSender(sender)}, engineOpts...)
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv, sender
 }

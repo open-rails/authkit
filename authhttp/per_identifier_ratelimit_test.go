@@ -23,6 +23,7 @@ func newPerIdentifierTestService(t *testing.T) *Service {
 		},
 		Frontend:     embedded.FrontendConfig{BaseURL: "https://example.com"},
 		Registration: embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationNone},
+		DeviceKeys:   embedded.DeviceKeysConfig{Enabled: true},
 	}
 	svc, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)))
 	require.NoError(t, err)
