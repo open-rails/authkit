@@ -294,7 +294,7 @@ func (v *Verifier) remoteApplication(ctx context.Context, issuer string) (*authk
 	}
 
 	ra, err := src.GetRemoteApplication(ctx, issuer)
-	if err != nil || ra == nil {
+	if err != nil || ra == nil || !ra.Enabled {
 		return nil, errors.New("bad_issuer")
 	}
 	return ra, nil

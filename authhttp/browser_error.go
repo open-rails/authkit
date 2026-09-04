@@ -182,7 +182,7 @@ func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, p
 	if strings.TrimSpace(state) == "" || !stateCookieMatches(r, state) {
 		return nil
 	}
-	clearStateCookie(w)
+	clearStateCookie(w, state)
 	sd, ok, err := consumeState(r.Context(), s.stateCache(), state)
 	if err != nil || !ok || sd.Provider != provider {
 		return nil

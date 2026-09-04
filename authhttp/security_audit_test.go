@@ -61,7 +61,7 @@ func TestBuildRedirectURI_DevFallbackIgnoresForwardedHost(t *testing.T) {
 func TestStateCookieMatches(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	require.False(t, stateCookieMatches(r, "abc"), "no cookie present")
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "abc"})
+	r.AddCookie(&http.Cookie{Name: stateCookieName("abc"), Value: "abc"})
 	require.True(t, stateCookieMatches(r, "abc"))
 	require.False(t, stateCookieMatches(r, "xyz"), "value mismatch must fail")
 	require.False(t, stateCookieMatches(r, ""), "empty state never matches")
@@ -87,7 +87,7 @@ func TestOIDCCallback_StateCookiePassesCookieGate(t *testing.T) {
 	h := s.OIDCHandler()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback?state=good-state&code=xyz", nil)
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "good-state"})
+	r.AddCookie(&http.Cookie{Name: stateCookieName("good-state"), Value: "good-state"})
 	h.ServeHTTP(w, r)
 	// With a matching cookie the request passes the F3 gate and fails later (no real
 	// IdP configured), so it must NOT be the invalid_state cookie rejection.
