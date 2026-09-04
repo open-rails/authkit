@@ -33,7 +33,7 @@ func TestMFARequiredRoleLoginGate_DB(t *testing.T) {
 	// Bootstrap era: 2FA fully disabled. The assignment gate is inert, so the
 	// MFA-required "member" role can be handed to a user who has never
 	// enrolled — exactly the genesis/short-circuit this edge protects.
-	disabled := NewService(Config{
+	disabled := mustNewService(t, Config{
 		Token:     TokenConfig{Issuer: "https://test"},
 		TwoFactor: TwoFactorConfig{Mode: TwoFactorDisabled},
 	}, Keyset{}, WithPostgres(pool))
@@ -82,7 +82,7 @@ func TestMFARequiredRoleLoginGate_DB(t *testing.T) {
 	// The host re-enables 2FA (Mode: Optional). Mode is read fresh on every
 	// call, so a second Service sharing the same DB state models exactly a
 	// config-only redeploy — nothing above was mutated by the flip.
-	optional := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	optional := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	optional.groupSchema = gs
 
 	// 1. LOGIN: the unenrolled MFA-required-role holder is now challenged to

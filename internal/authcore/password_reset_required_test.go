@@ -24,7 +24,7 @@ func TestLegacyResetRequiredPasswordPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("signer: %v", err)
 	}
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}, AccessTokenDuration: time.Hour}}, Keyset{
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test", IssuedAudiences: []string{"app"}, ExpectedAudiences: []string{"app"}, AccessTokenDuration: time.Hour}}, Keyset{
 		Active:     signer,
 		PublicKeys: map[string]crypto.PublicKey{"reset-required-test": signer.PublicKey()},
 	}, WithPostgres(pool))

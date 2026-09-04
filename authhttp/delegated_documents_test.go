@@ -20,7 +20,7 @@ import (
 func TestDelegatedDocumentsFederatedContract(t *testing.T) {
 	signer, _ := jwtkit.NewRSASigner(2048, "issuer-kid")
 	issuer := "https://site-a.example"
-	service := authcore.NewService(embedded.Config{Token: embedded.TokenConfig{Issuer: issuer}}, authcore.Keyset{
+	service := newCore(t, embedded.Config{Token: embedded.TokenConfig{Issuer: issuer}}, authcore.Keyset{
 		Active: signer, PublicKeys: map[string]crypto.PublicKey{signer.KID(): signer.PublicKey()},
 	})
 	references := map[string]string{

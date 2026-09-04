@@ -102,7 +102,7 @@ func Required(v *Verifier) func(http.Handler) http.Handler {
 				}
 				return
 			}
-			r = r.WithContext(applyRequestContext(SetClaims(r.Context(), cl)))
+			r = r.WithContext(SetClaims(r.Context(), cl))
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -191,7 +191,7 @@ func OptionalUser(v *Verifier) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			r = r.WithContext(applyRequestContext(SetClaims(r.Context(), cl)))
+			r = r.WithContext(SetClaims(r.Context(), cl))
 			next.ServeHTTP(w, r)
 		})
 	}

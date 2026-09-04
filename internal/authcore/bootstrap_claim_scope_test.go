@@ -46,7 +46,7 @@ func rootRolesOf(t *testing.T, ctx context.Context, svc *Service, userID string)
 func TestBootstrapClaimSecondNameOnClaimedDatabaseIsAlreadyApplied(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 	if names := bootstrapClaimNames(t, ctx, pg); len(names) != 0 {
 		t.Fatalf("fresh database must carry no backfill row, got %v", names)
 	}
@@ -101,7 +101,7 @@ func TestBootstrapClaimSecondNameOnClaimedDatabaseIsAlreadyApplied(t *testing.T)
 func TestBootstrapClaimGraphWithoutAnyClaimRefuses(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 
 	if _, err := svc.CreateUser(ctx, "existing@example.com", "existing"); err != nil {
 		t.Fatalf("seed unrecorded user: %v", err)
@@ -176,7 +176,7 @@ func TestBootstrapClaimBackfillMigrationUnlocksPreClaimDatabase(t *testing.T) {
 		t.Fatalf("claims after backfill=%v", names)
 	}
 
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
 		Username: "legacy", Email: "legacy@example.com", EmailVerified: true,
 		Password: &BootstrapUserPassword{Plaintext: "bootstrap-password-1"}, RootRole: OwnerRoleName,

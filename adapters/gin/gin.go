@@ -45,12 +45,25 @@ func Optional(v *verify.Verifier) gin.HandlerFunc { return Use(verify.Optional(v
 // RequiredLive is the gin-native form of verify.RequiredLive (#267): Required
 // plus a per-request account-liveness gate, so a banned or deleted user is
 // rejected on their next request and the handler reads fresh identity claims.
-// Panics at mount when the verifier has no LivenessSource wired.
-func RequiredLive(v *verify.Verifier) gin.HandlerFunc { return Use(verify.RequiredLive(v)) }
+// Returns verify.ErrLivenessUnconfigured when the verifier has no
+// LivenessSource wired.
+func RequiredLive(v *verify.Verifier) (gin.HandlerFunc, error) {
+	mw, err := verify.RequiredLive(v)
+	if err != nil {
+		return nil, err
+	}
+	return Use(mw), nil
+}
 
 // RequiredLiveUser is the gin-native form of verify.RequiredLiveUser (#267):
 // RequiredLive restricted to native human users.
-func RequiredLiveUser(v *verify.Verifier) gin.HandlerFunc { return Use(verify.RequiredLiveUser(v)) }
+func RequiredLiveUser(v *verify.Verifier) (gin.HandlerFunc, error) {
+	mw, err := verify.RequiredLiveUser(v)
+	if err != nil {
+		return nil, err
+	}
+	return Use(mw), nil
+}
 
 func Use(mw ...func(http.Handler) http.Handler) gin.HandlerFunc {
 	return func(c *gin.Context) {

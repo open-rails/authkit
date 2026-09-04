@@ -39,7 +39,9 @@ func testBanRevokesHeldCredentials(t *testing.T, store ephemeralStore) {
 	require.NotEmpty(t, tokens.RefreshToken)
 
 	srv.verifier.WithLiveness(srv.svc)
-	live := verify.RequiredLive(srv.verifier)(echoClaimsHandler())
+	requiredLive, err := verify.RequiredLive(srv.verifier)
+	require.NoError(t, err)
+	live := requiredLive(echoClaimsHandler())
 	probe := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/live", nil)

@@ -21,8 +21,8 @@ type LivenessSource interface {
 // LivenessSource is wired. It is NOT an authError: a missing source is a host
 // wiring mistake, not a bad credential, and conflating the two would let a
 // deployment that cannot check liveness look like one where every user is
-// banned. RequiredLive refuses at mount so this can only be reached by an
-// out-of-band caller.
+// banned. RequiredLive refuses at construction so this can only be reached by
+// an out-of-band caller.
 var ErrLivenessUnconfigured = errors.New("verify: liveness gate used without a LivenessSource (call Verifier.WithLiveness)")
 
 // WithLiveness wires the account-liveness backend used by VerifyRequestLive and
@@ -168,13 +168,13 @@ func (v *Verifier) AllowLive(ctx context.Context, checker PermissionChecker, cl 
 // or deleted user is rejected on their NEXT request instead of at token expiry,
 // and the downstream handler reads fresh identity claims.
 //
-// It PANICS at mount time when no LivenessSource is wired. Mounting a gate that
-// cannot perform its check is a boot-time configuration error, and authkit
-// refuses those loudly rather than degrading to a weaker gate that looks like
-// the stronger one in the route table.
-func RequiredLive(v *Verifier) func(http.Handler) http.Handler {
+// It returns ErrLivenessUnconfigured when no LivenessSource is wired. A gate
+// that cannot perform its check is a boot-time configuration error, refused
+// before it reaches the route table rather than degraded to a weaker gate that
+// looks like the stronger one.
+func RequiredLive(v *Verifier) (func(http.Handler) http.Handler, error) {
 	if v == nil || !v.HasLiveness() {
-		panic(ErrLivenessUnconfigured)
+		return nil, ErrLivenessUnconfigured
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -188,17 +188,20 @@ func RequiredLive(v *Verifier) func(http.Handler) http.Handler {
 				}
 				return
 			}
-			r = r.WithContext(applyRequestContext(SetClaims(r.Context(), cl)))
+			r = r.WithContext(SetClaims(r.Context(), cl))
 			next.ServeHTTP(w, r)
 		})
-	}
+	}, nil
 }
 
 // RequiredLiveUser is RequiredLive restricted to native human users: machine and
 // delegated principals are rejected rather than passed through unchecked. Use it
 // on a route whose whole premise is "a live human did this".
-func RequiredLiveUser(v *Verifier) func(http.Handler) http.Handler {
-	req := RequiredLive(v)
+func RequiredLiveUser(v *Verifier) (func(http.Handler) http.Handler, error) {
+	req, err := RequiredLive(v)
+	if err != nil {
+		return nil, err
+	}
 	return func(next http.Handler) http.Handler {
 		return req(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cl, err := GetClaims(r.Context())
@@ -208,5 +211,5 @@ func RequiredLiveUser(v *Verifier) func(http.Handler) http.Handler {
 			}
 			next.ServeHTTP(w, r)
 		}))
-	}
+	}, nil
 }

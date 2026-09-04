@@ -54,7 +54,7 @@ func createTestGroup(t *testing.T, ctx context.Context, svc *Service, pool *pgxp
 
 func TestRemoteApplicationRoundTrip(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	iss := "https://cozy.example/roundtrip"
@@ -132,7 +132,7 @@ func TestRemoteApplicationRoundTrip(t *testing.T) {
 
 func TestRemoteApplicationOwnerUserColumnRemoved(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 
 	var removedColumnCount int
@@ -227,7 +227,7 @@ func TestNormalizeRemoteAppTrustSource(t *testing.T) {
 // atomically clear the other trust source (#74).
 func TestRemoteApplicationStaticRoundTrip(t *testing.T) {
 	pool := testPG(t)
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 	ctx := context.Background()
 	pemKey := testPublicKeyPEM(t)
 

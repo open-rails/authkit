@@ -22,9 +22,9 @@ WORKDIR /
 COPY --from=build /out/authkit-server /authkit-server
 COPY --from=build --chown=65532:65532 /out/runtime /.runtime
 
-# Key persistence (dev): mount a volume at `/.runtime/authkit` inside the container.
-# Run as a non-root UID/GID (65532, the conventional "nonroot" id) — in dev the
-# server auto-generates signing keys under /.runtime/authkit, owned by this UID above.
+# Key persistence (dev): set AUTHKIT_KEYS_PATH=/.runtime/authkit and mount a volume
+# there. Run as a non-root UID/GID (65532, the conventional "nonroot" id) — in dev
+# the server writes its generated keys.json there, owned by this UID above.
 USER 65532:65532
 ENV AUTHKIT_LISTEN_ADDR=:8080
 EXPOSE 8080

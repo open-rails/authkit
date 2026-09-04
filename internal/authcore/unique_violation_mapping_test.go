@@ -13,7 +13,7 @@ import (
 func TestUserIdentifierWritesMapUniqueViolations(t *testing.T) {
 	pg := testdb.ScratchPostgres(t)
 	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
+	svc := mustNewService(t, Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pg.Pool))
 
 	first, err := svc.CreateUser(ctx, "first@example.com", "dupname")
 	if err != nil {

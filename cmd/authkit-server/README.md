@@ -62,7 +62,8 @@ The AuthKit **library reads no environment variables** — this binary is the on
 place env is read, once, in `loadConfig`. It maps `AUTHKIT_ENV` through the
 single classifier (`embedded.IsDevEnvironment`) and, in a dev env, sets
 `Keys.AllowEphemeralDevKeys` so `go run ./cmd/authkit-server` still boots with
-auto-generated dev signing keys (persisted under `.runtime/authkit/`). In any
+auto-generated dev signing keys (in memory; set `AUTHKIT_KEYS_PATH` to persist
+them as `keys.json` across restarts). In any
 non-dev env with no keys configured, the server **refuses to boot**.
 
 JWT key material maps env → the explicit key-source config (#231): when
