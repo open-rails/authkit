@@ -32,6 +32,13 @@ const (
 
 var defaultSolanaSNSProxyURL = "https://sdk-proxy.sns.id"
 
+// SolanaSNSResolver resolves a wallet's primary SNS name after a verified link.
+// The default talks to the public sdk-proxy; hosts and tests inject their own
+// via WithSolanaSNSResolver.
+type SolanaSNSResolver interface {
+	ResolvePrimaryName(ctx context.Context, address string) (string, error)
+}
+
 type defaultSolanaSNSResolver struct {
 	client  *http.Client
 	baseURL string

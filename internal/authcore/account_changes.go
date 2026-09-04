@@ -172,7 +172,8 @@ func (s *Service) CancelPhoneChange(ctx context.Context, userID, phone string) e
 
 // RequestEmailChange initiates an email change by sending a verification code to the new email.
 // The current email is NOT changed until the user confirms via ConfirmEmailChange.
-// Also sends a notification to the old email for security.
+// The old address is not notified by AuthKit (only a security log line); a host
+// that wants that notification sends it itself.
 func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")

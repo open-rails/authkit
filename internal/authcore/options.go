@@ -78,5 +78,15 @@ func WithDelegatedAuthorization(a DelegationAuthorizer) Option {
 // WithEmailSender sets the email provider.
 func WithEmailSender(sender EmailSender) Option { return func(s *Service) { s.email = sender } }
 
+// WithSolanaSNSResolver replaces the SNS primary-name resolver used after a
+// verified Solana link.
+func WithSolanaSNSResolver(r SolanaSNSResolver) Option {
+	return func(s *Service) {
+		if r != nil {
+			s.solanaSNSResolver = r
+		}
+	}
+}
+
 // WithSMSSender sets the SMS provider.
 func WithSMSSender(sender SMSSender) Option { return func(s *Service) { s.sms = sender } }

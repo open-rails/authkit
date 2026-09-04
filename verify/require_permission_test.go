@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -199,5 +200,29 @@ func TestAllow(t *testing.T) {
 	}
 	if ok, _ := Allow(ctx, &fakeChecker{allow: true}, Claims{}, "p", PermissionScope{}); ok {
 		t.Fatal("empty principal (no token perm, no UserID) must deny")
+	}
+}
+
+// erroringChecker is a checker whose backend is down. It answers ok=true so the
+// test proves the error wins over the verdict.
+type erroringChecker struct{ called bool }
+
+func (e *erroringChecker) Can(context.Context, string, string, string, string, string) (bool, error) {
+	e.called = true
+	return true, errors.New("pg: connection reset by peer")
+}
+
+func TestRequirePermission_CheckerError_DeniesAndSkipsNext(t *testing.T) {
+	chk := &erroringChecker{}
+	code, next := serveGate(RequirePermission(chk, "root:galleries:update", rootScope), reqWithClaims(Claims{UserID: "u1"}))
+	if next || code != http.StatusForbidden {
+		t.Fatalf("checker error: code=%d next=%v, want 403 and next not called", code, next)
+	}
+	if !chk.called {
+		t.Fatal("checker was never consulted")
+	}
+	// Allow passes the checker's error through; callers must treat it as deny.
+	if _, err := Allow(context.Background(), chk, Claims{UserID: "u1"}, "root:galleries:update", PermissionScope{Persona: "root"}); err == nil {
+		t.Fatal("Allow must surface the checker error")
 	}
 }
