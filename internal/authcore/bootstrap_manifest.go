@@ -334,7 +334,7 @@ func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app Boots
 	if role == "" {
 		return nil
 	}
-	return s.AddRemoteApplicationMember(ctx, ra.ID, role)
+	return s.AssignRemoteApplicationRole(ctx, ra.ID, role)
 }
 
 func validateBootstrapUserPassword(p BootstrapUserPassword) error {

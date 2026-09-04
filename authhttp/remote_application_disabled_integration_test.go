@@ -38,7 +38,7 @@ func TestDisabledRemoteApplicationTokenRejectedImmediately(t *testing.T) {
 	ra, err := coreSvc.UpsertRemoteApplication(ctx, app)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = coreSvc.DeleteRemoteApplication(context.Background(), issuer) })
-	require.NoError(t, coreSvc.AddRemoteApplicationMember(ctx, ra.ID, "deployer"))
+	require.NoError(t, coreSvc.AssignRemoteApplicationRole(ctx, ra.ID, "deployer"))
 
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second)).WithService(coreSvc)
 	require.NoError(t, ver.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{

@@ -363,7 +363,10 @@ type CreatePermissionGroupRequest struct {
 // (fail-safe — published references can never be re-claimed by someone else).
 // ReleaseSlug frees the name (and drops the group's own tombstones) instead;
 // that is safe ONLY for names nothing ever referenced, and the judgment is
-// the host's. authkit never deletes a group on its own.
+// the host's: a released name re-created by a different owner is live and
+// "live slugs win" in slug resolution, so any dangling published reference
+// to the old group now resolves to the new owner (#308). authkit never
+// deletes a group on its own.
 type DeletePermissionGroupOptions struct {
 	ReleaseSlug bool
 }

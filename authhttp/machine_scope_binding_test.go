@@ -153,7 +153,7 @@ func TestRemoteAppTokenGroupBinding_EndToEnd(t *testing.T) {
 	t.Cleanup(func() {
 		_ = coreSvc.DeleteRemoteApplication(context.Background(), issuer)
 	})
-	require.NoError(t, coreSvc.AddRemoteApplicationMember(ctx, ra.ID, "deployer"))
+	require.NoError(t, coreSvc.AssignRemoteApplicationRole(ctx, ra.ID, "deployer"))
 
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second)).WithService(coreSvc)
 	require.NoError(t, ver.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{
@@ -212,7 +212,7 @@ func TestDelegatedTokenContractUnchanged_EndToEnd(t *testing.T) {
 	t.Cleanup(func() {
 		_ = coreSvc.DeleteRemoteApplication(context.Background(), issuer)
 	})
-	require.NoError(t, coreSvc.AddRemoteApplicationMember(ctx, ra.ID, "deployer"))
+	require.NoError(t, coreSvc.AssignRemoteApplicationRole(ctx, ra.ID, "deployer"))
 
 	ver := verify.NewVerifier(verify.WithSkew(5 * time.Second)).WithService(coreSvc)
 	require.NoError(t, ver.AddIssuer(issuer, []string{"test-app"}, verify.IssuerOptions{

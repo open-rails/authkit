@@ -63,3 +63,11 @@ func (g GenesisClient) AssignGroupRole(ctx context.Context, persona, instanceSlu
 func (g GenesisClient) RemoveGroupSubject(ctx context.Context, persona, instanceSlug, subjectID, subjectKind string) error {
 	return g.impl.RemoveGroupSubject(ctx, persona, instanceSlug, subjectID, subjectKind)
 }
+
+// AssignRemoteApplicationRole grants a remote application (by id) a role in
+// its controlling group with NO actor check and NO no-escalation enforcement
+// (#308). Bootstrap/migration only — see GenesisClient. Runtime callers use
+// AssignRemoteApplicationRoleAs.
+func (g GenesisClient) AssignRemoteApplicationRole(ctx context.Context, appID, role string) error {
+	return g.impl.AssignRemoteApplicationRole(ctx, appID, role)
+}

@@ -68,6 +68,15 @@ func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona,
 	return s.impl.RemoveGroupSubjectAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind)
 }
 
+// AssignRemoteApplicationRoleAs grants a remote application (by slug, scoped
+// to the addressed group) a role on behalf of actorUserID: the actor must hold
+// <persona>:credentials:manage plus every permission the role confers
+// (no-escalation, #136/#308). The unchecked equivalent is
+// Client.Genesis().AssignRemoteApplicationRole.
+func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, appSlug, role string) error {
+	return s.impl.AssignRemoteApplicationRoleAs(ctx, actorUserID, persona, instanceSlug, appSlug, role)
+}
+
 func (s *Client) LeaveGroup(ctx context.Context, userID, persona, instanceSlug string) error {
 	return s.impl.LeaveGroup(ctx, userID, persona, instanceSlug)
 }
