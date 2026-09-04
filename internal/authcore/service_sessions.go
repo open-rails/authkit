@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	stdlog "log"
 	"net"
 	"strings"
@@ -162,10 +163,13 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 
 	// Try current hash
 	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		// No longer current: either a concurrent refresh demoted it a moment ago
 		// (grace re-delivery) or it is genuine reuse (family revoke).
-		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h)
+		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h, ua, ip)
+	}
+	if err != nil {
+		return "", time.Time{}, "", fmt.Errorf("find current refresh session: %w", err)
 	}
 	sid, uid := cur.ID, cur.UserID
 
@@ -184,7 +188,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", err
 	}
 
-	// Rotate: set previous = current, current = new — as an atomic compare-and-swap
+	// Rotate and archive the consumed hash as an atomic compare-and-swap
 	// conditioned on the current hash we just read (h). If 0 rows change, another
 	// concurrent refresh already rotated this session (benign double-submit) or it
 	// was revoked; the already-minted token is discarded and the caller is answered
@@ -208,7 +212,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", err
 	}
 	if rotated == 0 {
-		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h)
+		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h, ua, ip)
 	}
 
 	return accessToken, exp, newTok, nil
@@ -228,14 +232,18 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 //     stolen token replayed after the window is still caught, so the window is a
 //     bounded delay in detection, never an exemption from it.
 //
-// Minting a FRESH successor for the loser instead would look equally friendly for
-// two racers and fail for three: `previous` holds one token, so the second grace
-// hit would push the first racer's own token out of both slots and strand it. The
-// idempotent shape is the one that scales past two.
-func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte) (string, time.Time, string, error) {
-	prev, err := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.cfg.Token.Issuer})
-	if err != nil {
+// Re-delivery never rotates again: every holder of one predecessor converges on
+// the same successor. Older consumed hashes identify the family but cannot open
+// the seal for the current successor, so advancing twice does not hide reuse.
+func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, time.Time, string, error) {
+	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: h, Issuer: s.cfg.Token.Issuer})
+	if errors.Is(err, pgx.ErrNoRows) {
+		reason := "refresh_token_unknown"
+		s.LogSessionFailed(ctx, "", "", &reason, ipText(ip), nullable(ua))
 		return "", time.Time{}, "", errors.New("invalid refresh token")
+	}
+	if err != nil {
+		return "", time.Time{}, "", fmt.Errorf("find historical refresh session: %w", err)
 	}
 	successor, ok := s.graceSuccessorFor(refreshToken, prev)
 	if !ok {
@@ -256,7 +264,7 @@ func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken 
 // check — the unsealed value hashes to the row's CURRENT token hash. That last one
 // makes the whole thing self-verifying: a seal that does not open to the live
 // successor is not accepted on the strength of the timestamp alone.
-func (s *Service) graceSuccessorFor(presented string, prev db.SessionByPreviousTokenHashRow) (string, bool) {
+func (s *Service) graceSuccessorFor(presented string, prev db.SessionByHistoricalTokenHashRow) (string, bool) {
 	window := s.cfg.Token.RefreshRotationGrace
 	if window <= 0 || len(prev.PreviousSuccessorSealed) == 0 || prev.PreviousRotatedAt == nil {
 		return "", false

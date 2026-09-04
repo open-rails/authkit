@@ -413,6 +413,26 @@ delivered to the SPA, never left as a raw response body on the backend URL:
   (`[authkit/oidc]`, quoted and truncated) for diagnostics; only the sanitized
   code is ever reflected to the client.
 
+### Refresh rotation and replay history
+
+Each refresh session has one current token. Rotation atomically records the
+consumed token's hash, so replay remains attributable after any number of later
+rotations. The immediate predecessor can re-deliver its existing successor within
+`Token.RefreshRotationGrace`; older consumed tokens revoke the session family.
+Unknown tokens produce a `session_failed` event with reason
+`refresh_token_unknown`, without inventing a user or session identity.
+
+`Token.RefreshTokenDuration` sets an absolute session expiry at login; rotation
+does not extend it. `CleanupExpiredAuthState` deletes revoked or expired sessions
+and their consumed-token history. With the default indefinite lifetime, history
+grows by one hash per rotation until that session is revoked or deleted; pruning
+it earlier would disable replay detection for still-valid credentials.
+
+Migration `0012_refresh_token_history` requires users to authenticate again: it
+revokes pre-change refresh sessions because previously discarded hashes cannot be
+recovered. It removes the one-generation hash column rather than keeping a
+second lookup format.
+
 ### Refresh token in an HttpOnly cookie (ak#271)
 
 `MountOptions{RefreshCookie: true}` moves the rotating refresh token out of

@@ -41,19 +41,20 @@ func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCu
 	return i, err
 }
 
-const sessionByPreviousTokenHash = `-- name: SessionByPreviousTokenHash :one
-SELECT id::text, user_id, family_id::text, auth_methods, expires_at,
-       current_token_hash, previous_successor_sealed, previous_rotated_at
-FROM profiles.refresh_sessions
-WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
+const sessionByHistoricalTokenHash = `-- name: SessionByHistoricalTokenHash :one
+SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
+       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
+FROM profiles.refresh_token_history h
+JOIN profiles.refresh_sessions s ON s.id = h.session_id
+WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
 `
 
-type SessionByPreviousTokenHashParams struct {
-	PreviousTokenHash []byte
-	Issuer            string
+type SessionByHistoricalTokenHashParams struct {
+	TokenHash []byte
+	Issuer    string
 }
 
-type SessionByPreviousTokenHashRow struct {
+type SessionByHistoricalTokenHashRow struct {
 	ID                      string
 	UserID                  string
 	FamilyID                string
@@ -64,12 +65,12 @@ type SessionByPreviousTokenHashRow struct {
 	PreviousRotatedAt       *time.Time
 }
 
-// Also feeds the ak#274 grace path, which needs the sealed successor, the hash it
-// must verify against, when it was sealed, and the session's auth methods + expiry
-// so a grace re-delivery runs exactly the gates a normal exchange runs.
-func (q *Queries) SessionByPreviousTokenHash(ctx context.Context, arg SessionByPreviousTokenHashParams) (SessionByPreviousTokenHashRow, error) {
-	row := q.db.QueryRow(ctx, sessionByPreviousTokenHash, arg.PreviousTokenHash, arg.Issuer)
-	var i SessionByPreviousTokenHashRow
+// Every consumed token stays attributable for the session lifetime. Only the
+// immediate predecessor can open the current grace seal; older hashes still
+// identify the family for reuse detection.
+func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionByHistoricalTokenHashParams) (SessionByHistoricalTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, sessionByHistoricalTokenHash, arg.TokenHash, arg.Issuer)
+	var i SessionByHistoricalTokenHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -262,35 +263,40 @@ func (q *Queries) SessionRevokeByIDForUser(ctx context.Context, arg SessionRevok
 }
 
 const sessionRotate = `-- name: SessionRotate :execrows
-UPDATE profiles.refresh_sessions
-SET previous_token_hash = current_token_hash, current_token_hash = $1, last_used_at = now(), user_agent = $2, ip_addr = $3,
-    previous_successor_sealed = $4, previous_rotated_at = now()
-WHERE id = $5 AND current_token_hash = $6 AND revoked_at IS NULL
+WITH rotated AS (
+  UPDATE profiles.refresh_sessions
+  SET current_token_hash = $2, last_used_at = now(),
+      user_agent = $3, ip_addr = $4,
+      previous_successor_sealed = $5, previous_rotated_at = now()
+  WHERE id = $6 AND current_token_hash = $1
+    AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+  RETURNING id
+)
+INSERT INTO profiles.refresh_token_history (session_id, token_hash)
+SELECT id, $1 FROM rotated
 `
 
 type SessionRotateParams struct {
+	ExpectedCurrentTokenHash []byte
 	NewTokenHash             []byte
 	UserAgent                *string
 	IpAddr                   *string
 	PreviousSuccessorSealed  []byte
 	ID                       string
-	ExpectedCurrentTokenHash []byte
 }
 
-// Conditional compare-and-swap: rotate only if the current hash still matches the
-// one the caller read. 0 rows affected means another concurrent refresh already
-// rotated this session (or it was revoked) — the caller must treat that as a lost
-// race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
-// previous_successor_sealed/previous_rotated_at record what the token being demoted
-// to `previous` rotated INTO, so the ak#274 grace window can re-deliver it.
+// Record the consumed hash and rotate in one statement. The CAS admits one
+// writer; an insertion failure rolls back the rotation, and a lost CAS inserts
+// no history. The row's latest seal still re-delivers the same successor to
+// concurrent holders of the immediate predecessor.
 func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) (int64, error) {
 	result, err := q.db.Exec(ctx, sessionRotate,
+		arg.ExpectedCurrentTokenHash,
 		arg.NewTokenHash,
 		arg.UserAgent,
 		arg.IpAddr,
 		arg.PreviousSuccessorSealed,
 		arg.ID,
-		arg.ExpectedCurrentTokenHash,
 	)
 	if err != nil {
 		return 0, err
