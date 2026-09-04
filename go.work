@@ -1,0 +1,7 @@
+go 1.26.6
+
+use (
+	.
+	./adapters/gin
+	./adapters/riverjobs
+)

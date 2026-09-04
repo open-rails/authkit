@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/fxamacker/cbor/v2"
+	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/stretchr/testify/require"
 )
@@ -253,7 +253,7 @@ func (a *softwarePasskeyAuthenticator) attestation(t *testing.T, opts passkeyCre
 	authData.Write(a.credentialID)
 	authData.Write(cosePublicKey(t, a.key))
 
-	attObj, err := cbor.Marshal(map[string]any{
+	attObj, err := webauthncbor.Marshal(map[string]any{
 		"fmt":      "none",
 		"attStmt":  map[string]any{},
 		"authData": authData.Bytes(),
@@ -321,7 +321,7 @@ func cosePublicKey(t *testing.T, key *ecdsa.PrivateKey) []byte {
 	require.NoError(t, err)
 	x := pub[1:33]
 	y := pub[33:65]
-	out, err := cbor.Marshal(map[int]any{
+	out, err := webauthncbor.Marshal(map[int]any{
 		1:  2,  // kty: EC2
 		3:  -7, // alg: ES256
 		-1: 1,  // crv: P-256
