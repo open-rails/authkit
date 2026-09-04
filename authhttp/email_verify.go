@@ -1,8 +1,6 @@
 package authhttp
 
 import (
-	"errors"
-	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
@@ -129,41 +127,39 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	// Try pending registration first (new flow), then existing-user verification.
-	if userID, err := s.svc.ConfirmPendingRegistration(r.Context(), email, code); err == nil && userID != "" {
+	// A backend failure on any path is a 500 and is never counted as a guess.
+	userID, err := s.svc.ConfirmPendingRegistration(r.Context(), email, code)
+	if err == nil && userID != "" {
 		s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
-		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
-			if errors.Is(err, authkit.ErrUserBanned) {
-				unauthorized(w, ErrUserBanned)
-				return
-			}
-			serverErr(w, ErrTokenIssueFailed)
-			return
-		}
+		s.issueVerificationTokens(w, r, userID, "email_verification")
 		return
 	}
-
-	if userID, err := s.svc.ConfirmEmailVerification(r.Context(), email, code); err == nil && userID != "" {
-		s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
-		if err := s.issueTokensForUser(w, r, userID, "email_verification"); err != nil {
-			if errors.Is(err, authkit.ErrUserBanned) {
-				unauthorized(w, ErrUserBanned)
-				return
-			}
-			serverErr(w, ErrTokenIssueFailed)
-			return
-		}
+	if s.confirmBackendFailed(w, r, "email_verify_confirm", "confirm_pending_registration", err) {
 		return
 	}
-
+	userID, err = s.svc.ConfirmEmailVerification(r.Context(), email, code)
+	if err == nil && userID != "" {
+		s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
+		s.issueVerificationTokens(w, r, userID, "email_verification")
+		return
+	}
+	if s.confirmBackendFailed(w, r, "email_verify_confirm", "confirm_email_verification", err) {
+		return
+	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
-		if err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, email, code, keepSession(claims)); err == nil {
+		err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, email, code, keepSession(claims))
+		if err == nil {
 			s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Email changed successfully"})
 			return
 		}
+		if s.confirmBackendFailed(w, r, "email_verify_confirm", "confirm_email_change", err) {
+			return
+		}
 	}
 
-	// Both failed: count the bad guess and (after the cap) invalidate the code.
+	// Every path failed on the code itself: count the bad guess and (after the
+	// cap) invalidate the code.
 	s.svc.RecordFailedEmailVerifyCode(r.Context(), email)
 	badRequest(w, ErrInvalidOrExpiredCode)
 }

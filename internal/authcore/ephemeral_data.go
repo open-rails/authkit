@@ -137,7 +137,10 @@ func (s *Service) consumePhoneVerification(ctx context.Context, purpose, phone, 
 	key := phoneVerificationKey(purpose, phone)
 	var data phoneVerificationData
 	ok, err := s.ephemGetJSON(ctx, key, &data)
-	if err != nil || !ok || !secretHashEqual(data.CodeHash, codeHash) {
+	if err != nil {
+		return "", err
+	}
+	if !ok || !secretHashEqual(data.CodeHash, codeHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	s.deletePhoneVerification(ctx, key)
@@ -154,7 +157,10 @@ func (s *Service) consumePhoneVerificationByLink(ctx context.Context, purpose, l
 	}
 	var data phoneVerificationData
 	ok, err := s.ephemGetJSON(ctx, key, &data)
-	if err != nil || !ok || data.Purpose != normalizePhoneVerificationPurpose(purpose) || !secretHashEqual(data.LinkHash, linkHash) {
+	if err != nil {
+		return "", "", err
+	}
+	if !ok || data.Purpose != normalizePhoneVerificationPurpose(purpose) || !secretHashEqual(data.LinkHash, linkHash) {
 		return "", "", jwt.ErrTokenUnverifiable
 	}
 	_ = s.ephemDel(ctx, key)
@@ -191,7 +197,10 @@ func (s *Service) deleteEmailVerification(ctx context.Context, userID string) {
 func (s *Service) consumeEmailVerificationCode(ctx context.Context, userID, email, codeHash string) error {
 	var data emailVerifyData
 	ok, err := s.ephemGetJSON(ctx, keyEmailVerify+userID, &data)
-	if err != nil || !ok || !secretHashEqual(data.CodeHash, codeHash) {
+	if err != nil {
+		return err
+	}
+	if !ok || !secretHashEqual(data.CodeHash, codeHash) {
 		return jwt.ErrTokenUnverifiable
 	}
 	if data.Email == nil || !strings.EqualFold(NormalizeEmail(*data.Email), email) {
@@ -210,7 +219,10 @@ func (s *Service) consumeEmailVerificationByLink(ctx context.Context, linkHash s
 	}
 	var data emailVerifyData
 	ok, err := s.ephemGetJSON(ctx, key, &data)
-	if err != nil || !ok || !secretHashEqual(data.LinkHash, linkHash) {
+	if err != nil {
+		return nil, err
+	}
+	if !ok || !secretHashEqual(data.LinkHash, linkHash) {
 		return nil, jwt.ErrTokenUnverifiable
 	}
 	_ = s.ephemDel(ctx, key)
@@ -328,7 +340,10 @@ func (s *Service) consumePasswordReset(ctx context.Context, tokenHash string) (s
 	// atomically (same class as AK2-PK-001) so a reset token can't be redeemed
 	// twice by concurrent requests racing a Get+Del.
 	ok, err := s.ephemConsumeJSON(ctx, keyPasswordReset+tokenHash, &data)
-	if err != nil || !ok {
+	if err != nil {
+		return "", err
+	}
+	if !ok {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	return data.UserID, nil

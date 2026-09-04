@@ -47,14 +47,17 @@ func (s *Service) confirmContactChangeCode(ctx context.Context, kind PendingChan
 	if s.pg == nil {
 		return jwt.ErrTokenUnverifiable
 	}
-	rec, ok := s.findPendingChangeByUser(ctx, kind, userID)
+	rec, ok, err := s.pendingChangeByUser(ctx, kind, userID)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return jwt.ErrTokenUnverifiable
 	}
 	if strings.TrimSpace(target) != "" && !strings.EqualFold(normalizePendingTarget(kind, target), rec.Target) {
 		return jwt.ErrTokenUnverifiable
 	}
-	_, err := s.consumePendingChangeCode(ctx, rec, code, keepSessionID)
+	_, err = s.consumePendingChangeCode(ctx, rec, code, keepSessionID)
 	return err
 }
 

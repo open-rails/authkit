@@ -85,6 +85,9 @@ func (s *Service) confirmPasswordReset(w http.ResponseWriter, r *http.Request, t
 			badRequest(w, code)
 			return "", false
 		}
+		if s.confirmBackendFailed(w, r, "password_reset_confirm", "confirm_password_reset", err) {
+			return "", false
+		}
 		badRequest(w, ErrInvalidOrExpiredToken)
 		return "", false
 	}

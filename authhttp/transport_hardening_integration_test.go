@@ -13,6 +13,7 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -80,5 +81,31 @@ func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
 		require.Equal(t, want, w.Header().Get("Location"), path)
 		require.NotContains(t, w.Header().Get("Location"), "?token=", path)
 		require.Equal(t, "no-store", w.Header().Get("Cache-Control"), path)
+	}
+}
+
+// TestConfirmBackendFailureIs500NotAGuess pins ak#324 item 3: with the store
+// down, every verify/reset confirm path is a 500 backend failure and never a
+// counted bad guess; with the store up, a wrong code is still a 400 guess.
+func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
+	pool := newServerTestPool(t)
+	rdb := testdb.ScratchRedis(t)
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithRedis(rdb)), WithoutRateLimiter())
+	require.NoError(t, err)
+
+	w := serveJSON(srv, http.MethodPost, "/email/verify/confirm", `{"email":"nobody@example.com","code":"000000"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "invalid_or_expired_code")
+
+	require.NoError(t, rdb.Close())
+	for path, body := range map[string]string{
+		"/email/verify/confirm":         `{"email":"nobody@example.com","code":"000000"}`,
+		"/phone/verify/confirm":         `{"phone_number":"+15555550100","code":"000000"}`,
+		"/email/password/reset/confirm": `{"token":"nope","new_password":"Correct-password-12345"}`,
+		"/phone/password/reset/confirm": `{"token":"nope","new_password":"Correct-password-12345"}`,
+	} {
+		w := serveJSON(srv, http.MethodPost, path, body)
+		require.Equal(t, http.StatusInternalServerError, w.Code, path+": "+w.Body.String())
+		require.Contains(t, w.Body.String(), "database_error", path)
 	}
 }
