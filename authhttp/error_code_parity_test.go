@@ -1,8 +1,16 @@
 package authhttp
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	authkit "github.com/open-rails/authkit"
@@ -116,6 +124,7 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		documents.ErrInvalidSignature, documents.ErrDigestMismatch, documents.ErrIssuerMismatch,
 		documents.ErrAudienceMismatch, documents.ErrTypeMismatch, documents.ErrUntrustedIssuer,
 		documents.ErrUnauthorized, documents.ErrNotFound, documents.ErrFetch, documents.ErrRedirect,
+		documents.ErrDigestCollision,
 	} {
 		managementOnly[sentinel.Error()] = true
 	}
@@ -125,5 +134,146 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 			continue
 		}
 		t.Errorf("registry code %q is unaccounted for: add a matching authhttp.ErrorCode const, or classify it in managementOnly with a reason", code)
+	}
+}
+
+// #290 stage 1 — the reverse guard. TestSentinelCodesAccountedFor proves every
+// registry code has a const; it can never notice a const nobody emits (64 such
+// remnants of removed surfaces were deleted in #290). This walks the module for
+// non-test references to each ErrorCode const: every const must be referenced
+// outside error_codes.go, mirror a registry sentinel (parity, above), or sit
+// on the explicit exemption list with a reason.
+func TestErrorCodeConstsAreEmitted(t *testing.T) {
+	const authhttpPath = "github.com/open-rails/authkit/authhttp"
+	// Emitted by VALUE: handlers write ErrorCode(embedded.ValidationErrorCode(err)),
+	// so the const exists for consumers to compare against, not for handlers.
+	exempt := map[string]string{
+		"ErrInvalidEmail":                "value-indirect validation code",
+		"ErrInvalidPhoneNumber":          "value-indirect validation code",
+		"ErrOwnerSlugTaken":              "value-indirect validation code",
+		"ErrPasswordTooShort":            "value-indirect validation code",
+		"ErrRenameRateLimited":           "value-indirect validation code",
+		"ErrUsernameCannotContainAt":     "value-indirect validation code",
+		"ErrUsernameCannotStartWithPlus": "value-indirect validation code",
+		"ErrUsernameInvalidCharacters":   "value-indirect validation code",
+		"ErrUsernameMustStartWithLetter": "value-indirect validation code",
+		"ErrUsernameNotAllowed":          "value-indirect validation code",
+		"ErrUsernameTooLong":             "value-indirect validation code",
+		"ErrUsernameTooShort":            "value-indirect validation code",
+	}
+	registry := map[string]bool{}
+	for _, code := range authkit.ErrorCodes() {
+		registry[code] = true
+	}
+
+	fset := token.NewFileSet()
+	decl, err := parser.ParseFile(fset, "error_codes.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse error_codes.go: %v", err)
+	}
+	values := map[string]string{} // const name -> literal wire value ("" when indirect)
+	for _, d := range decl.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs := spec.(*ast.ValueSpec)
+			if ident, ok := vs.Type.(*ast.Ident); !ok || ident.Name != "ErrorCode" {
+				continue
+			}
+			for i, name := range vs.Names {
+				value := ""
+				if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					value, _ = strconv.Unquote(lit.Value)
+				}
+				values[name.Name] = value
+			}
+		}
+	}
+	if len(values) < 100 {
+		t.Fatalf("suspiciously few ErrorCode consts parsed (%d)", len(values))
+	}
+
+	referenced := map[string]bool{}
+	err = filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != ".." && (strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel := filepath.ToSlash(path)
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") || rel == "../authhttp/error_codes.go" {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return perr
+		}
+		samePackage := f.Name.Name == "authhttp" && filepath.ToSlash(filepath.Dir(path)) == "../authhttp"
+		qualifier := ""
+		for _, imp := range f.Imports {
+			if p, _ := strconv.Unquote(imp.Path.Value); p == authhttpPath {
+				qualifier = "authhttp"
+				if imp.Name != nil {
+					qualifier = imp.Name.Name
+				}
+			}
+		}
+		if !samePackage && qualifier == "" {
+			return nil
+		}
+		mark := func(name string) {
+			if _, known := values[name]; known {
+				referenced[name] = true
+			}
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.SelectorExpr:
+				if x, ok := node.X.(*ast.Ident); ok && qualifier != "" && x.Name == qualifier {
+					mark(node.Sel.Name)
+					return false
+				}
+				if samePackage {
+					ast.Inspect(node.X, func(n ast.Node) bool {
+						if id, ok := n.(*ast.Ident); ok {
+							mark(id.Name)
+						}
+						return true
+					})
+				}
+				return false
+			case *ast.Ident:
+				if samePackage {
+					mark(node.Name)
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+
+	var dead []string
+	for name, value := range values {
+		if referenced[name] || registry[value] {
+			continue
+		}
+		if _, ok := exempt[name]; ok {
+			continue
+		}
+		dead = append(dead, name)
+	}
+	sort.Strings(dead)
+	if len(dead) > 0 {
+		t.Fatalf("%d authhttp.ErrorCode consts are never emitted (#290) — delete them, or exempt with a reason:\n  %s",
+			len(dead), strings.Join(dead, "\n  "))
 	}
 }
