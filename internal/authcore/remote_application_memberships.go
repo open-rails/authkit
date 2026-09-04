@@ -39,9 +39,11 @@ func (s *Service) remoteApplicationGroupID(ctx context.Context, appID string) (s
 	return gid, nil
 }
 
-// AddRemoteApplicationMember grants a remote_application a role in its own
-// controlling permission-group.
-func (s *Service) AddRemoteApplicationMember(ctx context.Context, appID, role string) error {
+// AssignRemoteApplicationRole grants a remote_application a role in its own
+// controlling permission-group with NO actor check (#308): reachable only via
+// bootstrap and embedded.Client.Genesis(). Runtime callers use
+// AssignRemoteApplicationRoleAs.
+func (s *Service) AssignRemoteApplicationRole(ctx context.Context, appID, role string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}

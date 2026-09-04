@@ -36,7 +36,7 @@ func TestRemoteApplicationOwnerMembershipGrantsWildcard(t *testing.T) {
 	})
 
 	// The load-bearing assertion: owner is assignable to a remote_application.
-	if err := svc.AddRemoteApplicationMember(ctx, ra.ID, OwnerRoleName); err != nil {
+	if err := svc.AssignRemoteApplicationRole(ctx, ra.ID, OwnerRoleName); err != nil {
 		t.Fatalf("add owner member to remote_application: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestRemoteApplicationMembershipRejectsUnknownRole(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.remote_applications WHERE id=$1::uuid`, ra.ID)
 	})
 
-	if err := svc.AddRemoteApplicationMember(ctx, ra.ID, "not-a-role"); err == nil {
+	if err := svc.AssignRemoteApplicationRole(ctx, ra.ID, "not-a-role"); err == nil {
 		t.Fatal("expected unknown role to be rejected")
 	}
 }
