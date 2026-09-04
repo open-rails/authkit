@@ -50,6 +50,9 @@ func TestNamingHTTPPolicyAndCompositeSettings(t *testing.T) {
 		Naming authkit.NamingState `json:"naming"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Naming.Aliases, 1)
+	require.Equal(t, "original", body.Naming.Aliases[0].Name)
+	require.NotNil(t, body.Naming.Aliases[0].ExpiresAt)
 	require.False(t, body.Naming.Allowed)
 	require.Equal(t, int64(72*60*60), body.Naming.RetryAfterSeconds)
 	w = serveAuthJSON(srv, http.MethodPatch, "/org/original", `{"slug":"blocked","display_name":"Must roll back"}`, token)
@@ -151,5 +154,5 @@ func TestNamingHTTPRequestsKeepAuthorizedGroupAfterReuse(t *testing.T) {
 	// A deleted captured identity refuses rather than falling back to the claimant.
 	require.NoError(t, client.DeletePermissionGroup(context.Background(), "org", "moved", authkit.DeletePermissionGroupOptions{ReleaseSlug: true}))
 	w = request(http.MethodGet, "/org/reusable/members", "")
-	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 }

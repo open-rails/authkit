@@ -81,7 +81,7 @@ func (c NamingConfig) Normalize() (NamingPolicy, error) {
 
 // CheckRename is shared by user/group mutations under their owner lock. Callers
 // authorize and detect a same-canonical-name no-op before checking this policy.
-// Administrative overrides skip this check, never namespace ownership checks.
+// Trusted import updates skip this check, never namespace ownership checks.
 func (p NamingPolicy) CheckRename(lastRenamedAt *time.Time, now time.Time) error {
 	if !p.Enabled {
 		return ErrRenamesDisabled
@@ -130,7 +130,13 @@ type GroupInstanceUpdate struct {
 	DisplayName *string `json:"display_name,omitempty"`
 }
 
+type NameAlias struct {
+	Name      string     `json:"name"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
 type NamingState struct {
+	Aliases           []NameAlias  `json:"aliases,omitempty"`
 	Policy            NamingPolicy `json:"policy"`
 	Allowed           bool         `json:"allowed"`
 	NextRenameAt      *time.Time   `json:"next_rename_at,omitempty"`

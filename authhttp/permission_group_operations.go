@@ -668,8 +668,11 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 // that matches none of them is a genuine unclassified failure (500).
 func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, authkit.ErrRenamesDisabled), errors.Is(err, authkit.ErrNameAdmissionRefused):
-		sendErr(w, http.StatusForbidden, ErrorCode(authkit.CodeForError(err)))
+	case errors.Is(err, authkit.ErrRenamesDisabled):
+		forbidden(w, ErrRenamesDisabled)
+		return
+	case errors.Is(err, authkit.ErrNameAdmissionRefused):
+		forbidden(w, ErrNameAdmissionRefused)
 		return
 	case errors.Is(err, authkit.ErrRenameRateLimited):
 		var cooldown *authkit.RenameCooldownError
@@ -815,7 +818,13 @@ func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request
 		s.writeGroupOpError(w, err)
 		return
 	}
+	state, err := s.svc.GroupNamingState(r.Context(), inst.ID)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"naming":        state,
 		"ok":            true,
 		"group_id":      inst.ID,
 		"persona":       inst.Persona,
@@ -826,9 +835,8 @@ func (s *Service) groupInstanceDescriptor(w http.ResponseWriter, r *http.Request
 
 // groupUpdate is the #264 group-settings surface (PATCH /<persona>/{instance_slug}):
 // display-name changes and slug renames, gated by <persona>:settings:manage
-// (the owner holds it via the wildcard). A rename tombstones the old slug —
-// permanently reserved to this group, forwarding through slug resolution — so
-// published references keep resolving and nobody can ever re-claim it.
+// (the owner holds it via the wildcard). The captured UUID is retained through
+// authorization, slug rename and display-name mutation in one transaction.
 func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, persona, instanceSlug string) {
 	var req struct {
 		Slug        *string `json:"slug"`

@@ -527,3 +527,12 @@ func (s *Client) GroupInstanceByID(ctx context.Context, groupID string) (authkit
 func (s *Client) DeleteGroupInstanceByID(ctx context.Context, groupID string, opts authkit.DeletePermissionGroupOptions) error {
 	return s.impl.DeleteGroupInstanceByID(ctx, groupID, opts)
 }
+
+// GroupNamingState describes effective policy and still-reserved former names.
+// The host authorizes access to the captured UUID before calling this read.
+func (s *Client) GroupNamingState(ctx context.Context, groupID string) (authkit.NamingState, error) {
+	return s.impl.GroupNamingState(ctx, groupID)
+}
+func (s *Client) UserNamingState(ctx context.Context, userID string) (authkit.NamingState, error) {
+	return s.impl.UserNamingState(ctx, userID)
+}

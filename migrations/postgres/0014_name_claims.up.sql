@@ -24,17 +24,25 @@ INSERT INTO profiles.name_claims(owner_kind, persona, name, owner_id, canonical)
  SELECT 'group', persona, lower(instance_slug), id, true FROM profiles.permission_groups WHERE COALESCE(instance_slug, '') <> '';
 DROP TABLE profiles.permission_group_slug_tombstones;
 
--- All namespace writers take this same transaction lock. Hash collisions only
--- serialize unrelated names; they never weaken unique ownership.
-CREATE FUNCTION profiles.lock_name_claim(kind text, scope text, handle text) RETURNS void LANGUAGE sql AS $$
- SELECT pg_advisory_xact_lock(hashtextextended(kind || ':' || scope || ':' || lower(handle), 631335));
+-- All namespace writers share 256 lock stripes. The bound permits bulk import
+-- without one shared-memory advisory lock per account. Collisions serialize
+-- unrelated claims only. Multi-name operations acquire stripe IDs in order.
+CREATE FUNCTION profiles.lock_name_claims(kind text, scope text, handles text[]) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE stripe integer;
+BEGIN
+ FOR stripe IN SELECT DISTINCT (hashtextextended(kind || ':' || scope || ':' || lower(handle),631335) & 255)::integer
+  FROM unnest(handles) AS handle WHERE COALESCE(handle,'')<>'' ORDER BY 1
+ LOOP
+  PERFORM pg_advisory_xact_lock(631335,stripe);
+ END LOOP;
+END;
 $$;
 
 CREATE FUNCTION profiles.claim_canonical_name(kind text, scope text, handle text, owner uuid, at_time timestamptz)
 RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
  IF COALESCE(handle, '') = '' THEN RETURN; END IF;
- PERFORM profiles.lock_name_claim(kind, scope, handle);
+ PERFORM profiles.lock_name_claims(kind, scope, ARRAY[handle]);
  INSERT INTO profiles.name_claims(owner_kind, persona, name, owner_id, canonical)
  VALUES (kind, scope, lower(handle), owner, true)
  ON CONFLICT (owner_kind, persona, name) DO UPDATE

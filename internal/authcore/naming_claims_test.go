@@ -235,7 +235,7 @@ func TestNamingGroupConcurrentRenamesAndRelease(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNamingDisabledNoOpAndSupportOverride(t *testing.T) {
+func TestNamingDisabledNoOpAndTrustedImportUpdate(t *testing.T) {
 	disabled := false
 	svc, _ := namingTestService(t, authkit.NamingConfig{Enabled: &disabled})
 	ctx := context.Background()
@@ -243,10 +243,12 @@ func TestNamingDisabledNoOpAndSupportOverride(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.UpdateUsername(ctx, user.ID, "disabled_user"))
 	require.ErrorIs(t, svc.UpdateUsername(ctx, user.ID, "new_user"), authkit.ErrRenamesDisabled)
-	require.NoError(t, svc.UpdateUsernameForce(ctx, user.ID, "new_user"))
+	_, err = svc.UpdateImportedUser(ctx, user.ID, ImportUserInput{Username: "new_user"})
+	require.NoError(t, err)
 	owner, err := svc.CreateUser(ctx, "other@example.test", "other_user")
 	require.NoError(t, err)
-	require.ErrorIs(t, svc.UpdateUsernameForce(ctx, owner.ID, "disabled_user"), authkit.ErrOwnerSlugTaken)
+	_, err = svc.UpdateImportedUser(ctx, owner.ID, ImportUserInput{Username: "disabled_user"})
+	require.ErrorIs(t, err, authkit.ErrOwnerSlugTaken)
 	gid, err := svc.CreatePermissionGroup(ctx, CreatePermissionGroupRequest{Persona: "merchant", InstanceSlug: "disabled", OwnerSubjectID: user.ID})
 	require.NoError(t, err)
 	same, next := "disabled", "changed"

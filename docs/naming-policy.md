@@ -52,9 +52,11 @@ nanoseconds, following Go's `time.Duration` representation.
 
 The first rename has no delay. A successful rename at T permits another at
 T+interval. Failed attempts and authorized no-ops do not advance the timestamp.
-The cooldown belongs to the identity, not its current owner or session. Support
-force operations can bypass enabled/cooldown checks with existing administrative
-authority and audit, never namespace ownership or another identity's reservation.
+The cooldown belongs to the identity, not its current owner or session. There is
+no exposed administrative force-rename bypass. The unused core force method was
+removed. Trusted import updates remain explicit provisioning operations: they can
+change imported names while renames are disabled, but preserve UUID ownership,
+reservation exclusivity, host name admission, and rename history.
 Root and domain-managed groups retain their independent rename restrictions.
 
 Aliases point directly to UUIDs and report the owner's current canonical name.
@@ -77,3 +79,42 @@ claim storage (#336), mutation authorization (#337), UUID permission scopes (#33
 and coordinated first-party adoption (#339; OpenRails #947–#949) must land before
 finite or immediate name reuse is enabled. This foundation alone does not claim
 that existing rename/lookup paths already enforce the new contract.
+
+## Storage and request ownership
+
+`profiles.name_claims` owns each normalized `(owner_kind, persona, name)` key.
+A row carries owner UUID, canonical/alias state, and its persisted alias deadline.
+A partial unique index permits one canonical name per owner. Creation claims and
+inserts the identity in one statement; database triggers cover raw provisioning
+and refuse direct name/UUID changes outside an atomic transition. User/group
+renames lock the owner, re-read its actual name, then change claims and identity
+inside the same transaction. Namespace locks use 256 consistently ordered stripes
+to bound shared-memory locks even during large imports; collisions only serialize
+unrelated claims. Bulk import retains insert-or-skip semantics for reserved names.
+
+The migration preserves current development identities by their existing UUIDs.
+It replaces permanent group tombstones and does not reinterpret user rename
+history as live aliases. There is no dual registry, historical-alias backfill or
+background expiry authority. Resolver reads are uncached and check deadlines on
+every call, so restarts cannot extend an alias promise.
+
+Generated group routes capture an immutable target before permission checks. A
+request-local binding matches only that original persona/reference; subsequent
+operation lookups recheck the captured group's liveness and never fall back to a
+new owner of its name. Other targets and parent-group lookups remain independent.
+`GroupByLiveInstanceSlug` is deliberately limited to the old trusted slug-delete
+entry point; captured lifecycle retries use `DeleteGroupInstanceByID`.
+
+`UpdateGroupInstanceAs(ctx, actorID, groupID, authkit.GroupInstanceUpdate)` replaces
+the old rename-only facade. Slug and display-name changes commit together against
+the captured UUID. Generated responses report `group_id`, current `instance_slug`,
+and naming eligibility; group route headers report `X-AuthKit-Group-ID` and
+`X-AuthKit-Canonical-Instance`. `ResolveUsername` exposes current name, owner UUID,
+alias status and expiry. GET /me and username PATCH expose normalized `naming`
+state; existing availability fields reflect the current deployment policy.
+
+`WithNameAdmission` is a side-effect-free namespace predicate with operation,
+owner UUID, actor and outgoing/requested names. It runs for generated creation
+and ordinary rename. `WithInstanceAdmission` remains the separate creation-only
+cost/enrollment hook and is never rerun by a rename. Trusted imports retain their
+existing provisioning authority, but cannot bypass claim ownership.

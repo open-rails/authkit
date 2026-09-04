@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -21,20 +20,8 @@ func (s *Service) namingNow() time.Time {
 }
 
 func lockNameClaims(ctx context.Context, q db.DBTX, kind, persona string, names ...string) error {
-	names = append([]string(nil), names...)
-	for i := range names {
-		names[i] = strings.ToLower(names[i])
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		if name == "" {
-			continue
-		}
-		if _, err := q.Exec(ctx, `SELECT profiles.lock_name_claim($1, $2, $3)`, kind, persona, name); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := q.Exec(ctx, `SELECT profiles.lock_name_claims($1,$2,$3::text[])`, kind, persona, names)
+	return err
 }
 
 func claimCanonicalName(ctx context.Context, q db.DBTX, kind, persona, name, id string, now time.Time) error {
@@ -54,7 +41,7 @@ func nameClaimError(err error, kind string) error {
 }
 
 // renameNameClaim requires the owner row locked by its caller. Name locks are
-// sorted before either claim changes, so opposite renames cannot deadlock.
+// sorted by stripe before either claim changes, so opposite renames do not deadlock.
 func renameNameClaim(ctx context.Context, q db.DBTX, kind, persona, id, oldName, newName string, now time.Time, policy authkit.NamingPolicy) error {
 	if err := lockNameClaims(ctx, q, kind, persona, oldName, newName); err != nil {
 		return err
@@ -91,10 +78,34 @@ func (s *Service) admitName(ctx context.Context, request authkit.NameAdmissionRe
 func (s *Service) UserNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
 	var last *time.Time
 	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT last_renamed_at FROM profiles.users WHERE id=$1::uuid AND deleted_at IS NULL`, id).Scan(&last)
-	return s.NamingPolicy().State(last, s.namingNow()), err
+	if err != nil {
+		return authkit.NamingState{}, err
+	}
+	return s.namingStateWithAliases(ctx, "user", id, last)
 }
 func (s *Service) GroupNamingState(ctx context.Context, id string) (authkit.NamingState, error) {
 	var last *time.Time
 	err := db.ForSchema(s.pg, s.dbSchema()).QueryRow(ctx, `SELECT last_renamed_at FROM profiles.permission_groups WHERE id=$1::uuid`, id).Scan(&last)
-	return s.NamingPolicy().State(last, s.namingNow()), err
+	if err != nil {
+		return authkit.NamingState{}, err
+	}
+	return s.namingStateWithAliases(ctx, "group", id, last)
+}
+
+func (s *Service) namingStateWithAliases(ctx context.Context, kind, id string, last *time.Time) (authkit.NamingState, error) {
+	now := s.namingNow()
+	state := s.NamingPolicy().State(last, now)
+	rows, err := db.ForSchema(s.pg, s.dbSchema()).Query(ctx, `SELECT name,expires_at FROM profiles.name_claims WHERE owner_kind=$1 AND owner_id=$2::uuid AND NOT canonical AND (expires_at IS NULL OR expires_at>$3) ORDER BY name`, kind, id, now)
+	if err != nil {
+		return state, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var alias authkit.NameAlias
+		if err := rows.Scan(&alias.Name, &alias.ExpiresAt); err != nil {
+			return state, err
+		}
+		state.Aliases = append(state.Aliases, alias)
+	}
+	return state, rows.Err()
 }

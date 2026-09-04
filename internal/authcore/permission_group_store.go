@@ -41,7 +41,7 @@ func groupRoleTable(subjectKind string) (table, subjectColumn string, err error)
 var ErrGroupNotFound = authkit.ErrGroupNotFound
 
 // ErrGroupSlugTaken: the requested instance slug is held live by another group
-// or tombstoned to one (#264 — renamed-away slugs are never reclaimable).
+// or reserved to one until the deadline recorded when its owner renamed.
 var ErrGroupSlugTaken = authkit.ErrGroupSlugTaken
 
 // ErrGroupSlugApplicationManaged: the group's slug mirrors a domain-rooted
@@ -103,7 +103,7 @@ func (st *PermissionGroupStore) CreateGroup(ctx context.Context, persona, parent
 func (st *PermissionGroupStore) CreateGroupNamed(ctx context.Context, persona, parentID, instanceSlug, displayName string) (string, error) {
 	var id string
 	err := st.q.QueryRow(ctx,
-		`WITH identity AS MATERIALIZED (SELECT gen_random_uuid() AS id),
+		`WITH identity AS MATERIALIZED (SELECT uuidv7() AS id),
          claim AS MATERIALIZED (SELECT id, profiles.claim_canonical_name('group',$1,$3,id,$5) FROM identity)
          INSERT INTO profiles.permission_groups (id,persona,parent_id,instance_slug,display_name)
          SELECT id,$1,NULLIF($2,'')::uuid,NULLIF($3,''),$4 FROM claim RETURNING id::text`,

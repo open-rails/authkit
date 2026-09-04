@@ -266,7 +266,7 @@ func (s *Service) UpdateImportedUser(ctx context.Context, userID string, input I
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.renameUsernameTx(ctx, tx, userID, username, supportRename); err != nil {
+	if err := s.renameUsernameTx(ctx, tx, userID, username, importRename); err != nil {
 		return nil, err
 	}
 	updatedID, err := s.qtx(tx).UserImportUpdate(ctx, db.UserImportUpdateParams{
@@ -436,27 +436,16 @@ func (s *Service) HostDeleteUser(ctx context.Context, id string, soft bool) erro
 }
 
 // RenameAuthority is internal: ordinary account changes obey the site policy;
-// trusted support/import paths can bypass only the enabled/cooldown checks.
+// trusted import updates can bypass only the enabled/cooldown checks.
 type renameAuthority uint8
 
 const (
 	normalRename renameAuthority = iota
-	supportRename
+	importRename
 )
 
-func (s *Service) updateUsername(ctx context.Context, id, username string) error {
-	return s.updateUsernameImpl(ctx, id, username, normalRename)
-}
+// UpdateUsername applies the deployment policy to an account rename.
 func (s *Service) UpdateUsername(ctx context.Context, id, username string) error {
-	return s.updateUsername(ctx, id, username)
-}
-
-// UpdateUsernameForce is for already-authorized administrative support only.
-// It cannot claim another identity's canonical or reserved name.
-func (s *Service) UpdateUsernameForce(ctx context.Context, id, username string) error {
-	return s.updateUsernameImpl(ctx, id, username, supportRename)
-}
-func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, authority renameAuthority) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -469,7 +458,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, a
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.renameUsernameTx(ctx, tx, id, username, authority); err != nil {
+	if err := s.renameUsernameTx(ctx, tx, id, username, normalRename); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

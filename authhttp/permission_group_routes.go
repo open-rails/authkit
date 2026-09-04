@@ -14,6 +14,8 @@ package authhttp
 // instance_slug inside the Service, then authorizes via svc.Can before acting.
 
 import (
+	"errors"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/verify"
 	"net/http"
@@ -190,6 +192,10 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 		}
 
 		instance, err := s.svc.GroupInstanceForSlug(r.Context(), gr.Persona, instanceSlug)
+		if errors.Is(err, authkit.ErrGroupNotFound) {
+			forbidden(w, ErrForbidden)
+			return
+		}
 		if err != nil {
 			s.writeGroupOpError(w, err)
 			return
