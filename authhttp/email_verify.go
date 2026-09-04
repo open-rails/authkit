@@ -49,8 +49,11 @@ func (s *Service) handleEmailVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+		if s.rateLimited(w, r, RLUserEmailChangeRequest) {
+			return
+		}
 		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
-		if s.rateLimited(w, r, RLUserEmailChangeRequest) || !ok {
+		if !ok {
 			return
 		}
 		if err := s.svc.RequestEmailChange(r.Context(), claims.UserID, email); err != nil {

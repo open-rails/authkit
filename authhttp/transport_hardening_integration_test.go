@@ -15,6 +15,8 @@ import (
 	authcore "github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
+	"github.com/open-rails/authkit/password"
+	"github.com/open-rails/authkit/ratelimit"
 )
 
 // TestLazyLoadedIssuerEnforcesExpectedAudience pins ak#324 item 1: on the
@@ -107,5 +109,44 @@ func TestConfirmBackendFailureIs500NotAGuess(t *testing.T) {
 		w := serveJSON(srv, http.MethodPost, path, body)
 		require.Equal(t, http.StatusInternalServerError, w.Code, path+": "+w.Body.String())
 		require.Contains(t, w.Body.String(), "database_error", path)
+	}
+}
+
+// TestContactChangeRateLimitPrecedesPasswordCheck pins ak#324 item 4: the
+// authenticated email/phone change request consumes its own rate-limit bucket
+// BEFORE the password / fresh-auth check, so a wrong password cannot be retried
+// past the bucket and a limited request gets one 429, not a 401 with a
+// superfluous second WriteHeader.
+func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
+	pool := newServerTestPool(t)
+	ctx := context.Background()
+	srv, err := NewServer(
+		newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(&captureEmailSender{}), embedded.WithSMSSender(&captureSMSSender{})),
+		WithRateLimitOverrides(map[string]ratelimit.Limit{
+			RLEmailVerifyRequest: {Limit: 100, Window: time.Hour},
+			RLPhoneVerifyRequest: {Limit: 100, Window: time.Hour},
+		}),
+	)
+	require.NoError(t, err)
+	user, err := srv.svc.CreateUser(ctx, uniqueEmail("rl-order"), "rlorder"+uniqueSuffix()[8:])
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	hash, err := password.HashArgon2id("Correct-password-12345")
+	require.NoError(t, err)
+	require.NoError(t, srv.svc.UpsertPasswordHash(ctx, user.ID, hash, "argon2id", nil))
+	sid, _, _, err := srv.svc.IssueRefreshSession(ctx, user.ID, "test", nil)
+	require.NoError(t, err)
+	token, _, err := srv.svc.MintAccessToken(ctx, user.ID, map[string]any{"sid": sid})
+	require.NoError(t, err)
+
+	for path, body := range map[string]func() string{
+		"/email/verify/request": func() string { return `{"email":"` + uniqueEmail("rl-new") + `","password":"wrong-password-12345"}` },
+		"/phone/verify/request": func() string { return `{"phone_number":"` + uniquePhone() + `","password":"wrong-password-12345"}` },
+	} {
+		first := serveAuthJSONFrom(srv, http.MethodPost, path, body(), token, "203.0.113.40:1234")
+		require.GreaterOrEqual(t, first.Code, 400, path)
+		require.NotEqual(t, http.StatusTooManyRequests, first.Code, path)
+		second := serveAuthJSONFrom(srv, http.MethodPost, path, body(), token, "203.0.113.40:1234")
+		require.Equal(t, http.StatusTooManyRequests, second.Code, path+": the change bucket must trip before the password check: "+second.Body.String())
 	}
 }

@@ -40,8 +40,11 @@ func (s *Service) handlePhoneVerifyRequestPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
+		if s.rateLimited(w, r, RLUserPhoneChangeRequest) {
+			return
+		}
 		ok, authMeta := s.requireFreshAuthOrPassword(w, r, claims, req.Password)
-		if s.rateLimited(w, r, RLUserPhoneChangeRequest) || !ok {
+		if !ok {
 			return
 		}
 		if err := s.svc.RequestPhoneChange(r.Context(), claims.UserID, phone); err != nil {
