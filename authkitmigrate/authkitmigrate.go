@@ -112,7 +112,11 @@ func (m *Migrator) Validate(ctx context.Context) error {
 	return p.ValidateAllApplied(ctx, ms)
 }
 
-// open builds the migratekit migrator over a database/sql view of the pool.
+// open builds the migratekit migrator over dedicated sessions opened from the
+// host pool's connection config (its connect hooks included) and closed by the
+// caller: migration session state (a plain SET, a leaked lock_timeout) must
+// never be released back into the host's pool (#302). migratekit pins one
+// session for the advisory lock and applies on another, so two are needed.
 // The default schema deliberately uses NO WithSchema so tracking rows keep the
 // historical schema-less stamp existing deployments already have.
 func (m *Migrator) open() (*migratekit.Postgres, []migratekit.Migration, *sql.DB, error) {
@@ -126,7 +130,16 @@ func (m *Migrator) open() (*migratekit.Postgres, []migratekit.Migration, *sql.DB
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("authkitmigrate: load embedded migrations: %w", err)
 	}
-	db := stdlib.OpenDBFromPool(m.pool)
+	cfg := m.pool.Config()
+	var opts []stdlib.OptionOpenDB
+	if cfg.BeforeConnect != nil {
+		opts = append(opts, stdlib.OptionBeforeConnect(cfg.BeforeConnect))
+	}
+	if cfg.AfterConnect != nil {
+		opts = append(opts, stdlib.OptionAfterConnect(cfg.AfterConnect))
+	}
+	db := stdlib.OpenDB(*cfg.ConnConfig.Copy(), opts...)
+	db.SetMaxOpenConns(2)
 	p := migratekit.NewPostgres(db, trackingApp)
 	if m.schema != "" && m.schema != defaultSchema {
 		p = p.WithSchema(m.schema, defaultSchema)
