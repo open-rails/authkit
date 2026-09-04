@@ -25,6 +25,7 @@ const (
 	SessionRevokeReasonAdminRevokeAll       SessionRevokeReason = "admin_revoke_all"
 	SessionRevokeReasonPasswordChange       SessionRevokeReason = "password_change"
 	SessionRevokeReasonAdminSetPassword     SessionRevokeReason = "admin_set_password"
+	SessionRevokeReasonContactChange        SessionRevokeReason = "contact_change"
 	SessionRevokeReasonUserDisabled         SessionRevokeReason = "user_disabled"
 	SessionRevokeReasonBanned               SessionRevokeReason = "banned"
 	SessionRevokeReasonSoftDeleted          SessionRevokeReason = "soft_deleted"

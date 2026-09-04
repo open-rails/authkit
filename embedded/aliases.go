@@ -56,6 +56,7 @@ type TwoFactorFactor = authcore.TwoFactorFactor
 type TwoFactorSettings = authcore.TwoFactorSettings
 type ValidationError = authcore.ValidationError
 type VerificationMessage = authcore.VerificationMessage
+type ContactChange = authcore.ContactChange
 
 // Re-exported constants.
 const ApplicationTierRegistered = authcore.ApplicationTierRegistered
@@ -120,6 +121,7 @@ const SessionRevokeReasonAdminRevoke = authcore.SessionRevokeReasonAdminRevoke
 const SessionRevokeReasonAdminRevokeAll = authcore.SessionRevokeReasonAdminRevokeAll
 const SessionRevokeReasonAdminSetPassword = authcore.SessionRevokeReasonAdminSetPassword
 const SessionRevokeReasonBanned = authcore.SessionRevokeReasonBanned
+const SessionRevokeReasonContactChange = authcore.SessionRevokeReasonContactChange
 const SessionRevokeReasonEvicted = authcore.SessionRevokeReasonEvicted
 const SessionRevokeReasonHardDeleted = authcore.SessionRevokeReasonHardDeleted
 const SessionRevokeReasonLogout = authcore.SessionRevokeReasonLogout
