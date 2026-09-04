@@ -15,10 +15,9 @@ type StateCache struct {
 	ttl   time.Duration
 }
 
+// NewStateCache stores OIDC state under keyPrefix (the deployment namespace
+// plus "oidc:state:", #307).
 func NewStateCache(rdb *redis.Client, keyPrefix string, ttl time.Duration) *StateCache {
-	if keyPrefix == "" {
-		keyPrefix = "auth:oidc:state:"
-	}
 	if ttl <= 0 {
 		ttl = 15 * time.Minute
 	}

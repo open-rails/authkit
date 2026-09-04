@@ -14,7 +14,7 @@ import (
 func TestAllowNamedResultDeniesAtLimit(t *testing.T) {
 	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"login": {Limit: 3, Window: time.Minute},
-	})
+	}, "t:")
 
 	for i := 1; i <= 3; i++ {
 		r, err := l.AllowNamedResult("login", "ip1")
@@ -48,7 +48,7 @@ func TestAllowNamedResultDeniesAtLimit(t *testing.T) {
 func TestAllowNamedResultWindowResets(t *testing.T) {
 	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"probe": {Limit: 2, Window: 200 * time.Millisecond},
-	})
+	}, "t:")
 	for i := 0; i < 2; i++ {
 		if r, err := l.AllowNamedResult("probe", "k"); err != nil || !r.Allowed {
 			t.Fatalf("request %d: %+v err=%v", i, r, err)
@@ -67,7 +67,7 @@ func TestAllowNamedResultWindowResets(t *testing.T) {
 func TestAllowNamedResultCooldown(t *testing.T) {
 	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"request_code": {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
-	})
+	}, "t:")
 	if r, err := l.AllowNamedResult("request_code", "user"); err != nil || !r.Allowed || r.RetryAfter != 0 {
 		t.Fatalf("first request: %+v err=%v", r, err)
 	}
@@ -89,7 +89,7 @@ func TestAllowNamedAdmitsExactlyLimitUnderConcurrency(t *testing.T) {
 	const limit, racers = 10, 64
 	l := New(testdb.ScratchRedis(t), map[string]ratelimit.Limit{
 		"race": {Limit: limit, Window: time.Minute},
-	})
+	}, "t:")
 
 	var allowed, errs int64
 	var wg sync.WaitGroup
@@ -124,7 +124,7 @@ func TestAllowNamedResultBackendErrorSurfaces(t *testing.T) {
 	if err := closed.Close(); err != nil {
 		t.Fatal(err)
 	}
-	l := New(closed, map[string]ratelimit.Limit{"login": {Limit: 3, Window: time.Minute}})
+	l := New(closed, map[string]ratelimit.Limit{"login": {Limit: 3, Window: time.Minute}}, "t:")
 
 	if r, err := l.AllowNamedResult("login", "ip"); err == nil || r.Allowed {
 		t.Fatalf("closed client: got (%+v, %v), want an error and Allowed=false", r, err)

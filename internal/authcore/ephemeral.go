@@ -49,6 +49,23 @@ func (s *Service) EphemeralRedisClient() *redis.Client {
 	return nil
 }
 
+// resolveEphemeralStore turns a WithRedis client into the namespaced Redis
+// store once the (normalized) config is known (#307). A memory store the
+// facade installed by default is closed when Redis displaces it.
+func (s *Service) resolveEphemeralStore() {
+	if s.redisClient == nil {
+		return
+	}
+	if mk, ok := s.ephemeralStore.(*memorystore.KV); ok {
+		mk.Close()
+	}
+	s.ephemeralStore = redisstore.NewKV(s.redisClient, s.cfg.Ephemeral.KeyPrefix)
+}
+
+// RedisKeyPrefix is the namespace every Redis key of this deployment is written
+// under (ephemeral store, OIDC/SIWS caches, rate-limit counters).
+func (s *Service) RedisKeyPrefix() string { return s.cfg.Ephemeral.KeyPrefix }
+
 // EphemeralBackend names the live ephemeral store: "redis", "memory", "custom"
 // (a host-supplied EphemeralStore) or "none".
 func (s *Service) EphemeralBackend() string {

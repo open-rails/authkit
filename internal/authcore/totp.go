@@ -23,7 +23,7 @@ const (
 	totpPeriod      = 30
 	totpEnrollTTL   = 10 * time.Minute
 
-	keyTOTPEnrollment = "auth:2fa:totp:enroll:"
+	keyTOTPEnrollment = "2fa:totp:enroll:"
 )
 
 // The pending secret is sealed with the same key as the committed one, so a

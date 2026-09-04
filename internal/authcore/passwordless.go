@@ -23,9 +23,9 @@ const (
 
 	defaultPasswordlessTTL = 10 * time.Minute
 
-	keyPasswordless         = "auth:passwordless:rec:"  // +<channel>:<identifier>
-	keyPasswordlessLink     = "auth:passwordless:link:" // +<linkHash> -> record key
-	keyPasswordlessAttempts = "auth:passwordless:attempts:"
+	keyPasswordless         = "passwordless:rec:"  // +<channel>:<identifier>
+	keyPasswordlessLink     = "passwordless:link:" // +<linkHash> -> record key
+	keyPasswordlessAttempts = "passwordless:attempts:"
 )
 
 type PasswordlessStartRequest = authkit.PasswordlessStartRequest

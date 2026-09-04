@@ -15,13 +15,16 @@ type Limiter struct {
 	rdb    *redis.Client
 	ctx    context.Context
 	limits map[string]ratelimit.Limit
+	prefix string
 }
 
-func New(rdb *redis.Client, limits map[string]ratelimit.Limit) *Limiter {
+// New builds a Redis sliding-window limiter whose keys live under prefix (the
+// deployment namespace, #307): <prefix><key>:<bucket>.
+func New(rdb *redis.Client, limits map[string]ratelimit.Limit, prefix string) *Limiter {
 	if limits == nil {
 		limits = map[string]ratelimit.Limit{}
 	}
-	return &Limiter{rdb: rdb, ctx: context.Background(), limits: limits}
+	return &Limiter{rdb: rdb, ctx: context.Background(), limits: limits, prefix: prefix}
 }
 
 // allowScript performs the entire sliding-window decision in a single atomic
@@ -109,7 +112,7 @@ func (l *Limiter) AllowNamedResult(bucket, key string) (ratelimit.Result, error)
 	lim, _ := ratelimit.LookupLimit(l.limits, bucket)
 	now := time.Now().UnixNano() / 1e6 // ms
 	start := now - lim.Window.Milliseconds()
-	limitKey := fmt.Sprintf("%s:%s", key, bucket)
+	limitKey := l.prefix + key + ":" + bucket
 	member := fmt.Sprintf("%d:%d", now, time.Now().UnixNano())
 	expireSec := int64((lim.Window + time.Second) / time.Second)
 
