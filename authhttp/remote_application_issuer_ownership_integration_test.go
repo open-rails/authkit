@@ -48,7 +48,9 @@ func TestGroupRemoteAppIssuerOwnership_HTTP(t *testing.T) {
 	// The owning group can still rename the application and rotate its keys.
 	code, body = register(groups[0], "issuer-rotated", issuer+"/rotated.json", false)
 	require.Equal(t, http.StatusCreated, code, body)
-	rotated, err := s.svc.GetRemoteApplication(ctx, issuer)
+	_, err = s.svc.GetRemoteApplication(ctx, issuer)
+	require.ErrorIs(t, err, authkit.ErrRemoteApplicationNotFound, "disabled issuer is unavailable for verification")
+	rotated, err := s.svc.GetRemoteApplicationBySlug(ctx, "issuer-rotated")
 	require.NoError(t, err)
 	require.Equal(t, original.ID, rotated.ID)
 	require.Equal(t, original.PermissionGroupID, rotated.PermissionGroupID)
