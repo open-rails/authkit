@@ -9,26 +9,13 @@ import (
 	"context"
 )
 
-const userClearLoginIdentifiers = `-- name: UserClearLoginIdentifiers :exec
-UPDATE profiles.users
-SET email = NULL,
-    email_verified = false,
-    phone_number = NULL,
-    phone_verified = false,
-    updated_at = now()
-WHERE id = $1::uuid
-`
-
-func (q *Queries) UserClearLoginIdentifiers(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, userClearLoginIdentifiers, id)
-	return err
-}
-
 const userMetadata = `-- name: UserMetadata :one
+
 SELECT COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata
 FROM profiles.users WHERE id = $1::uuid
 `
 
+// Reserved-account + metadata queries (core/service_reserved_accounts.go).
 func (q *Queries) UserMetadata(ctx context.Context, id string) ([]byte, error) {
 	row := q.db.QueryRow(ctx, userMetadata, id)
 	var metadata []byte
@@ -54,24 +41,4 @@ func (q *Queries) UserMetadataPatch(ctx context.Context, arg UserMetadataPatchPa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const userPasswordDelete = `-- name: UserPasswordDelete :exec
-
-DELETE FROM profiles.user_passwords WHERE user_id = $1::uuid
-`
-
-// Reserved-account + metadata queries (core/service_reserved_accounts.go).
-func (q *Queries) UserPasswordDelete(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, userPasswordDelete, userID)
-	return err
-}
-
-const userProvidersDeleteByUser = `-- name: UserProvidersDeleteByUser :exec
-DELETE FROM profiles.user_providers WHERE user_id = $1::uuid
-`
-
-func (q *Queries) UserProvidersDeleteByUser(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, userProvidersDeleteByUser, userID)
-	return err
 }

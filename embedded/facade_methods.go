@@ -359,10 +359,6 @@ func (s *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	return s.impl.ResolveRemoteApplicationAuthority(ctx, appID)
 }
 
-func (s *Client) RestoreUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
-	return s.impl.RestoreUsers(ctx, userIDs)
-}
-
 func (s *Client) RevokeAPIKey(ctx context.Context, persona, instanceSlug, tokenID string) (bool, error) {
 	return s.impl.RevokeAPIKey(ctx, persona, instanceSlug, tokenID)
 }

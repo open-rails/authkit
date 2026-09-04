@@ -37,6 +37,9 @@ var (
 	// does not itself hold — assigning (or revoking) it would be privilege
 	// escalation.
 	ErrRoleAssignmentEscalation = authkit.ErrRoleAssignmentEscalation
+	// ErrAccountAuthorityEscalation: the target account holds a root grant the
+	// actor does not — banning, deleting or revoking it would be escalation (#286).
+	ErrAccountAuthorityEscalation = authkit.ErrAccountAuthorityEscalation
 	// ErrRoleNotAssignable: the named role is not valid for the group's persona
 	// (neither a catalog role nor, for custom-role personas, a defined custom role).
 	ErrRoleNotAssignable = authkit.ErrRoleNotAssignable

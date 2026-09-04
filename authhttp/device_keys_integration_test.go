@@ -423,6 +423,11 @@ func TestDeviceKeyLoginRefusesBannedAndDeletedUsers(t *testing.T) {
 			var challenge deviceKeyChallengeBody
 			require.NoError(t, json.Unmarshal(raw, &challenge))
 			require.NoError(t, test.mutate(ctx, srv, user.ID))
+			// #286: ban / soft delete revoke the key itself, so the device list agrees.
+			var revoked bool
+			require.NoError(t, srv.svc.Postgres().QueryRow(ctx,
+				`SELECT revoked_at IS NOT NULL FROM profiles.user_device_keys WHERE id=$1`, enrolled.DeviceKey.ID).Scan(&revoked))
+			require.True(t, revoked, "device key must be revoked by %s", test.name)
 			status, _ = postDeviceJSON(t, srv, "/device-keys/login/finish", map[string]any{
 				"challenge_id": challenge.ChallengeID,
 				"signature":    signDeviceChallenge(t, privateKey, testDeviceLoginDomain, challenge.Challenge),

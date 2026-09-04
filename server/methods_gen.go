@@ -662,16 +662,6 @@ var generatedMethods = map[string]MethodFunc{
 		r0, err := c.ResolveRemoteApplicationAuthority(ctx, a.A0)
 		return r0, err
 	},
-	"RestoreUsers": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
-		var a struct {
-			A0 []string `json:"userIDs"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		r0, err := c.RestoreUsers(ctx, a.A0)
-		return r0, err
-	},
 	"RevokeAPIKey": func(ctx context.Context, c authkit.Client, raw json.RawMessage) (any, error) {
 		var a struct {
 			A0 string `json:"persona"`

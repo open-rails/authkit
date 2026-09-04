@@ -20,8 +20,8 @@ const (
 
 	// Identity / account directory.
 	PermRootUsersBan     = "root:users:ban"     // ban / unban an account
-	PermRootUsersRecover = "root:users:recover" // recover a compromised account
-	PermRootUsersDelete  = "root:users:delete"  // soft-delete / restore an account
+	PermRootUsersRecover = "root:users:recover" // revoke every session of an account
+	PermRootUsersDelete  = "root:users:delete"  // soft-delete an account
 	// PermRootUsersInvite authorizes minting a STANDALONE account-registration
 	// invite (#147): inviting someone to create an account, independent of any
 	// permission-group invite. owner holds it via root:*; hosts may grant it to a

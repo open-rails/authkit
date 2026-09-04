@@ -9,8 +9,8 @@ import (
 // Batch-native admin bulk mutations (#219/#222): per-item BEST-EFFORT loops over
 // the corresponding single-subject operations, returning one OpResult per
 // requested ID so partial failure is expressible. The single-subject methods
-// remain on the internal Service for the HTTP handlers (self-delete, admin
-// delete/restore routes act on exactly one subject).
+// remain on the internal Service for the HTTP handlers (self-delete and the
+// admin delete route act on exactly one subject).
 
 func (s *Service) HardDeleteUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
 	out := make([]authkit.OpResult, 0, len(userIDs))
@@ -24,14 +24,6 @@ func (s *Service) SoftDeleteUsers(ctx context.Context, userIDs []string) ([]auth
 	out := make([]authkit.OpResult, 0, len(userIDs))
 	for _, id := range userIDs {
 		out = append(out, authkit.OpResult{ID: id, Err: s.SoftDeleteUser(ctx, id)})
-	}
-	return out, nil
-}
-
-func (s *Service) RestoreUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
-	out := make([]authkit.OpResult, 0, len(userIDs))
-	for _, id := range userIDs {
-		out = append(out, authkit.OpResult{ID: id, Err: s.RestoreUser(ctx, id)})
 	}
 	return out, nil
 }

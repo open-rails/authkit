@@ -503,18 +503,3 @@ func TestAPIHandler_AdminUsersToggleActiveRoute_Removed(t *testing.T) {
 
 	requireNoRoute(t, s.APIRoutes(RouteAdmin), http.MethodPost, "/admin/users/toggle-active")
 }
-
-func TestAdminUserRecoverPOSTRejectsInvalidBody(t *testing.T) {
-	s := newTestService(t)
-
-	for _, body := range []string{`{}`, `{"email":"a@example.com","phone_number":"+15551234567"}`} {
-		t.Run(body, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/admin/users/user-id/recover", strings.NewReader(body))
-			r.SetPathValue("user_id", "user-id")
-			r.Header.Set("Content-Type", "application/json")
-			s.handleAdminUserRecoverPOST(w, r)
-			require.Equal(t, http.StatusBadRequest, w.Code)
-		})
-	}
-}
