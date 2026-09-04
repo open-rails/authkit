@@ -13,6 +13,9 @@ vars:
   SQLC_DATABASE_URL: '{{.SQLC_DATABASE_URL | default "postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable"}}'
   # The compose Redis; Redis-backed stores and the limiter are tested against it.
   TEST_REDIS_URL: '{{.TEST_REDIS_URL | default "redis://127.0.0.1:36379/0"}}'
+  # Every go.work module (root + adapters/gin + adapters/riverjobs). `./...`
+  # stops at each nested go.mod; the import-path pattern spans the workspace.
+  PKGS: github.com/open-rails/authkit/...
 
 # Exported to every task's commands (Makefile: `export SQLC_DATABASE_URL`).
 env:
@@ -55,7 +58,7 @@ tasks:
       AUTHKIT_TEST_REDIS_URL: '{{.TEST_REDIS_URL}}'
       AUTHKIT_TEST_REQUIRE_DB: '1'
     cmds:
-      - go test -race -p 1 ./...
+      - go test -race -p 1 {{.PKGS}}
 
   test-ci:
     desc: '`task test` with a JSON report (.reports/go-test.json), then fail if any test skipped'
@@ -68,7 +71,7 @@ tasks:
       # Readable log: drop the per-test RUN/PASS chatter that -json (implies -v) adds.
       - |
         set -o pipefail
-        go test -race -p 1 -json ./... | tee .reports/go-test.json \
+        go test -race -p 1 -json {{.PKGS}} | tee .reports/go-test.json \
           | jq -Rrj 'fromjson? | select(.Action == "output" or .Action == "build-output") | .Output | select(test("^(=== (RUN|PAUSE|CONT|NAME)|\\s*--- PASS)") | not)'
       - task: test-skip-gate
 
@@ -88,7 +91,7 @@ tasks:
     env:
       AUTHKIT_TEST_DATABASE_URL: ''
     cmds:
-      - go test -race ./...
+      - go test -race {{.PKGS}}
 
   test-query-contracts:
     desc: Run semantic query-contract tests against a migrated scratch Postgres

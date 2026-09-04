@@ -3,6 +3,9 @@
 FROM golang:1.26.6 AS build
 
 WORKDIR /src
+# The server is a root-module artifact; ignore the go.work that wires the
+# adapters/* modules in for local dev and CI.
+ENV GOWORK=off
 COPY go.mod go.sum ./
 RUN go mod download
 

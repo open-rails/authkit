@@ -18,6 +18,10 @@ res, err := migrator.Migrate(ctx)         // idempotent; res.Applied lists what 
 
 ## Construction
 
+`adapters/gin` and `adapters/riverjobs` are separate Go modules (gin, river and cron
+never enter the root `go.mod`): `go get github.com/open-rails/authkit/adapters/gin`
+and/or `go get github.com/open-rails/authkit/adapters/riverjobs` alongside the root.
+
 (Basic embedded setup)
 
 ```go
