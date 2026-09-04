@@ -169,14 +169,17 @@ func (s *Service) SetPermissionGroupDisplayName(ctx context.Context, persona, in
 	return st.SetGroupDisplayName(ctx, gid, truncateDisplayName(displayName))
 }
 
-// RenamePermissionGroupSlug renames a group's instance slug (#264). The old
-// slug is tombstoned — permanently reserved to this group and FORWARDING to it
-// through slug resolution — so published references keep working and the slug
-// can never be re-claimed by someone else (repojacking prevention). A group
-// whose slug mirrors a domain-rooted application's proven domain renames only
-// via the application repoint flow. Authorization (owner-controlled,
-// tier-gated) is the caller's job.
-func (s *Service) RenamePermissionGroupSlug(ctx context.Context, persona, instanceSlug, newSlug string) error {
+// RenamePermissionGroupSlugAs renames a group's instance slug (#264) on behalf
+// of actorUserID. The old slug is tombstoned — permanently reserved to this
+// group and FORWARDING to it through slug resolution — so published references
+// keep working and the slug can never be re-claimed by someone else
+// (repojacking prevention). A group whose slug mirrors a domain-rooted
+// application's proven domain renames only via the application repoint flow.
+// The new slug is a CLAIM and passes the same gate as creation (#292): the
+// persona's SlugPattern, and reserved slugs only for a holder of the
+// escalation role. Group-level authorization (settings:manage) is the
+// caller's job.
+func (s *Service) RenamePermissionGroupSlugAs(ctx context.Context, actorUserID, persona, instanceSlug, newSlug string) error {
 	if err := s.requirePG(); err != nil {
 		return err
 	}
@@ -186,11 +189,11 @@ func (s *Service) RenamePermissionGroupSlug(ctx context.Context, persona, instan
 	if persona == RootPersona {
 		return fmt.Errorf("the root group has no slug: %w", authkit.ErrUnknownGroupPersona)
 	}
-	if err := validateGroupInstanceSlug(persona, newSlug); err != nil {
-		return err
-	}
 	if newSlug == instanceSlug {
 		return nil
+	}
+	if err := s.authorizeSlugClaim(ctx, s.groupSchemaOrDefault(), persona, newSlug, actorUserID); err != nil {
+		return err
 	}
 
 	tx, err := s.pg.Begin(ctx)
