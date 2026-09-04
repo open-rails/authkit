@@ -509,3 +509,6 @@ func (s *Client) DeletePermissionGroup(ctx context.Context, persona, instanceSlu
 func (s *Client) SetApplicationEnabled(ctx context.Context, slug string, enabled bool) (*authkit.RemoteApplication, error) {
 	return s.impl.SetApplicationEnabled(ctx, slug, enabled)
 }
+
+// NamingPolicy returns the normalized deployment-wide user/group naming policy.
+func (s *Client) NamingPolicy() authkit.NamingPolicy { return s.impl.NamingPolicy() }

@@ -76,6 +76,7 @@ var (
 	ErrRegistrationDisabled              = errors.New("registration_disabled")
 	ErrRemoteApplicationNotFound         = errors.New("remote_application_not_found")
 	ErrRenameRateLimited                 = errors.New("rename_rate_limited")
+	ErrRenamesDisabled                   = errors.New("renames_disabled")
 	ErrReservedIssuer                    = errors.New("reserved_issuer")
 	ErrRoleAssignmentEscalation          = errors.New("role_assignment_escalation")
 	ErrAccountAuthorityEscalation        = errors.New("account_authority_escalation")
@@ -188,6 +189,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrVerificationLinkExpired: http.StatusGone,
 	// 429 — rate limits.
 	ErrRenameRateLimited: http.StatusTooManyRequests,
+	ErrRenamesDisabled:   http.StatusForbidden,
 	// 400 — malformed / invalid input.
 	ErrApplicationDocumentInvalid:     http.StatusBadRequest,
 	ErrApplicationDomainInvalid:       http.StatusBadRequest,
@@ -300,7 +302,7 @@ var errorSentinels = []error{
 	ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
 	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled,
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
-	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
+	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited, ErrRenamesDisabled,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
 	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,

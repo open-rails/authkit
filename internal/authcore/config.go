@@ -3,6 +3,8 @@ package authcore
 import (
 	"time"
 
+	authkit "github.com/open-rails/authkit"
+
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/jwtkit"
 )
@@ -12,6 +14,10 @@ import (
 // runtime dependencies (Postgres, Redis, senders, loggers) are injected via the
 // constructor's functional options, not here.
 type Config struct {
+	// Naming is the shared user/group rename policy, normalized at construction.
+	Naming       authkit.NamingConfig
+	namingPolicy authkit.NamingPolicy
+
 	// Token is the JWT issuing/verification contract and session limits.
 	Token TokenConfig
 	// Frontend describes host-owned frontend routes used for absolute-URL and

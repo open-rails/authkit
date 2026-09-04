@@ -10,3 +10,9 @@ Implement one configurable naming policy for immutable user/group identities: de
 The parent agent owns #338 exact-UUID authorization/read/delete APIs in `fix/ak338-uuid-scopes`; this branch will integrate that prerequisite without duplicating those methods. No active naming implementation was present among fetched branches/open PRs at the initial census. Existing #292 actor-aware group rename validation is already on master and will be reused.
 
 Validation will cover omission-aware configuration, exact clock boundaries, real PostgreSQL claim/rename/reclaim races, user and generated group HTTP behavior, and embedded consumers. No live provider/user operations are part of this work. Root owns merge and tracker closure.
+
+Foundation: omission-aware public config, one pure normalization/evaluation contract,
+standalone environment mapping, normalized embedded policy accessor and stable
+renames-disabled/cooldown errors. Root and standalone/embedded construction tests
+pass under `go test -race . ./cmd/authkit-server -run 'TestNaming|Test.*Error'`.
+Runtime enforcement and atomic claims remain in progress; no reuse safety claim yet.
