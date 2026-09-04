@@ -101,6 +101,17 @@ func (s *Service) ephemConsumeJSON(ctx context.Context, key string, out any) (bo
 	return true, json.Unmarshal(b, out)
 }
 
+func (s *Service) ephemConsumeString(ctx context.Context, key string) (string, bool, error) {
+	if !s.useEphemeralStore() {
+		return "", false, fmt.Errorf("ephemeral store unavailable")
+	}
+	b, ok, err := s.ephemeralStore.Consume(ctx, key)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	return string(b), true, nil
+}
+
 func (s *Service) ephemDel(ctx context.Context, key string) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store unavailable")

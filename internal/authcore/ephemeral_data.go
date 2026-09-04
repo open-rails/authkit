@@ -2,7 +2,6 @@ package authcore
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -14,22 +13,20 @@ const (
 	defaultEmailVerificationTTL = time.Hour
 	defaultPhoneVerificationTTL = 15 * time.Minute
 
-	// maxEmailVerifyCodeAttempts bounds wrong typed-code guesses per email before
-	// the outstanding code(s) for that address are invalidated, so a 6-digit code
-	// cannot be brute-forced within its TTL (AK security audit F1).
+	// Wrong typed-code guesses allowed per address before the outstanding code is
+	// invalidated, so a 6-digit code cannot be brute-forced within its TTL.
 	maxEmailVerifyCodeAttempts = 5
 	keyEmailVerifyCodeAttempts = "auth:email_verify:attempts:"
-
-	// maxPhoneVerifyCodeAttempts mirrors the email cap for SMS codes: per-phone
-	// wrong-guess bound, after which the outstanding code(s) for that number are
-	// invalidated so the 6-digit code cannot be brute-forced within its TTL.
 	maxPhoneVerifyCodeAttempts = 5
 	keyPhoneVerifyCodeAttempts = "auth:phone_verify:attempts:"
 
-	keyPhoneVerifyToken   = "auth:phone_verify:token:"
-	keyPhoneVerifyIndex   = "auth:phone_verify:index:"
-	keyEmailVerifyToken   = "auth:email_verify:token:"
-	keyEmailVerifyUser    = "auth:email_verify:user:"
+	// A short code is never part of a key (#301): a verification record lives
+	// under the identity it was issued for and carries its code hash inside. Only
+	// 256-bit link tokens get a global pointer (link hash -> record key).
+	keyPhoneVerify        = "auth:phone_verify:rec:"  // +<purpose>:<phone>
+	keyPhoneVerifyLink    = "auth:phone_verify:link:" // +<linkHash> -> record key
+	keyEmailVerify        = "auth:email_verify:user:" // +<userID>
+	keyEmailVerifyLink    = "auth:email_verify:link:" // +<linkHash> -> record key
 	keyPasswordReset      = "auth:password_reset:token:"
 	keyTwoFactor          = "auth:2fa:code:"
 	keyTwoFactorStepUp    = "auth:2fa:step-up:"
@@ -38,16 +35,18 @@ const (
 )
 
 type phoneVerificationData struct {
-	UserID      string   `json:"user_id"`
-	Phone       string   `json:"phone"`
-	Purpose     string   `json:"purpose"`
-	TokenHashes []string `json:"token_hashes,omitempty"`
+	UserID   string `json:"user_id"`
+	Phone    string `json:"phone"`
+	Purpose  string `json:"purpose"`
+	CodeHash string `json:"code_hash"`
+	LinkHash string `json:"link_hash,omitempty"`
 }
 
 type emailVerifyData struct {
-	UserID      string   `json:"user_id"`
-	Email       *string  `json:"email,omitempty"`
-	TokenHashes []string `json:"token_hashes,omitempty"`
+	UserID   string  `json:"user_id"`
+	Email    *string `json:"email,omitempty"`
+	CodeHash string  `json:"code_hash"`
+	LinkHash string  `json:"link_hash,omitempty"`
 }
 
 type passwordResetData struct {
@@ -65,62 +64,15 @@ type passkeyCeremonyData struct {
 	Session []byte `json:"session"`
 }
 
-func normalizeTokenTTLs(tokenTTLs map[string]time.Duration, defaultTTL time.Duration) (map[string]time.Duration, string, time.Duration, error) {
-	if defaultTTL <= 0 {
-		defaultTTL = 15 * time.Minute
-	}
-
-	normalized := make(map[string]time.Duration, len(tokenTTLs))
-	canonical := ""
-	maxTTL := time.Duration(0)
-
-	for tokenHash, ttl := range tokenTTLs {
-		tokenHash = strings.TrimSpace(tokenHash)
-		if tokenHash == "" {
-			continue
-		}
-		if ttl <= 0 {
-			ttl = defaultTTL
-		}
-		normalized[tokenHash] = ttl
-		if canonical == "" || ttl > maxTTL {
-			canonical = tokenHash
-			maxTTL = ttl
-		}
-	}
-
-	if canonical == "" {
-		return nil, "", 0, fmt.Errorf("missing token hash")
-	}
-	return normalized, canonical, maxTTL, nil
+// consumeLink atomically resolves and burns a link-token pointer, returning the
+// record key it pointed at.
+func (s *Service) consumeLink(ctx context.Context, linkKey string) (string, bool) {
+	key, ok, err := s.ephemConsumeString(ctx, linkKey)
+	return key, err == nil && ok && key != ""
 }
 
-func uniqueTokenHashes(primary string, hashes []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(hashes)+1)
-
-	appendToken := func(v string) {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			return
-		}
-		if _, ok := seen[v]; ok {
-			return
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-
-	appendToken(primary)
-	for _, h := range hashes {
-		appendToken(h)
-	}
-	return out
-}
-
-// DeletePendingRegistrationByEmail removes a pending email registration (and all
-// its verification tokens) for the given email, if one exists. Used to abandon a
-// pending registration the user explicitly cancelled. No-op when none exists.
+// DeletePendingRegistrationByEmail removes a pending email registration for the
+// given email, if one exists. No-op when none exists.
 func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email string) error {
 	if !s.useEphemeralStore() {
 		return nil
@@ -129,9 +81,8 @@ func (s *Service) DeletePendingRegistrationByEmail(ctx context.Context, email st
 	return nil
 }
 
-// DeletePendingPhoneRegistrationByPhone removes a pending phone registration (and
-// all its verification tokens) for the given phone, if one exists. No-op when
-// none exists.
+// DeletePendingPhoneRegistrationByPhone removes a pending phone registration for
+// the given phone, if one exists. No-op when none exists.
 func (s *Service) DeletePendingPhoneRegistrationByPhone(ctx context.Context, phone string) error {
 	if !s.useEphemeralStore() {
 		return nil
@@ -148,174 +99,123 @@ func normalizePhoneVerificationPurpose(purpose string) string {
 	return purpose
 }
 
-func (s *Service) phoneVerificationIndexKey(purpose, phone string) string {
-	purpose = normalizePhoneVerificationPurpose(purpose)
-	return keyPhoneVerifyIndex + purpose + ":" + phone
+func phoneVerificationKey(purpose, phone string) string {
+	return keyPhoneVerify + normalizePhoneVerificationPurpose(purpose) + ":" + NormalizePhone(phone)
 }
 
-func (s *Service) phoneVerificationTokenKey(purpose, tokenHash string) string {
+// storePhoneVerification issues one verification record per (purpose, phone),
+// superseding any outstanding one. linkHash may be empty for code-only purposes.
+func (s *Service) storePhoneVerification(ctx context.Context, purpose, phone, userID, codeHash, linkHash string, ttl time.Duration) error {
+	if ttl <= 0 {
+		ttl = defaultPhoneVerificationTTL
+	}
 	purpose = normalizePhoneVerificationPurpose(purpose)
-	return keyPhoneVerifyToken + purpose + ":" + tokenHash
-}
-
-func (s *Service) storePhoneVerification(ctx context.Context, purpose, phone, userID, tokenHash string, ttl time.Duration) error {
-	return s.storePhoneVerificationTokens(ctx, purpose, phone, userID, map[string]time.Duration{tokenHash: ttl})
-}
-
-func (s *Service) storePhoneVerificationTokens(ctx context.Context, purpose, phone, userID string, tokenTTLs map[string]time.Duration) error {
-	purpose = normalizePhoneVerificationPurpose(purpose)
-	indexKey := s.phoneVerificationIndexKey(purpose, phone)
-
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultPhoneVerificationTTL)
-	if err != nil {
+	phone = NormalizePhone(phone)
+	key := phoneVerificationKey(purpose, phone)
+	s.deletePhoneVerification(ctx, key)
+	data := phoneVerificationData{UserID: userID, Phone: phone, Purpose: purpose, CodeHash: codeHash, LinkHash: linkHash}
+	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
-
-	if old, ok, _ := s.ephemGetString(ctx, indexKey); ok && old != "" {
-		s.deletePhoneVerificationByToken(ctx, purpose, old)
+	if linkHash != "" {
+		return s.ephemSetString(ctx, keyPhoneVerifyLink+linkHash, key, ttl)
 	}
-
-	data := phoneVerificationData{
-		UserID:      userID,
-		Phone:       phone,
-		Purpose:     purpose,
-		TokenHashes: uniqueTokenHashes(canonicalHash, nil),
-	}
-	for tokenHash := range normalizedTTLs {
-		data.TokenHashes = uniqueTokenHashes(tokenHash, data.TokenHashes)
-	}
-
-	for tokenHash, ttl := range normalizedTTLs {
-		if err := s.ephemSetJSON(ctx, s.phoneVerificationTokenKey(purpose, tokenHash), data, ttl); err != nil {
-			return err
-		}
-	}
-	_ = s.ephemSetString(ctx, indexKey, canonicalHash, maxTTL)
 	return nil
 }
 
-func (s *Service) deletePhoneVerificationByToken(ctx context.Context, purpose, tokenHash string) {
-	purpose = normalizePhoneVerificationPurpose(purpose)
+func (s *Service) deletePhoneVerification(ctx context.Context, key string) {
 	var data phoneVerificationData
-	if ok, _ := s.ephemGetJSON(ctx, s.phoneVerificationTokenKey(purpose, tokenHash), &data); ok {
-		for _, h := range uniqueTokenHashes(tokenHash, data.TokenHashes) {
-			_ = s.ephemDel(ctx, s.phoneVerificationTokenKey(purpose, h))
-		}
-		if data.Phone != "" {
-			idx := s.phoneVerificationIndexKey(purpose, data.Phone)
-			if v, ok, _ := s.ephemGetString(ctx, idx); ok && v != "" {
-				for _, h := range uniqueTokenHashes(tokenHash, data.TokenHashes) {
-					if v == h {
-						_ = s.ephemDel(ctx, idx)
-						break
-					}
-				}
-			}
-		}
-		return
+	if ok, _ := s.ephemGetJSON(ctx, key, &data); ok && data.LinkHash != "" {
+		_ = s.ephemDel(ctx, keyPhoneVerifyLink+data.LinkHash)
 	}
-	_ = s.ephemDel(ctx, s.phoneVerificationTokenKey(purpose, tokenHash))
+	_ = s.ephemDel(ctx, key)
 }
 
-func (s *Service) consumePhoneVerification(ctx context.Context, purpose, phone, tokenHash string) (string, error) {
-	purpose = normalizePhoneVerificationPurpose(purpose)
+// consumePhoneVerification checks a typed code against the record issued for
+// (purpose, phone). A wrong code leaves the record intact; the per-phone attempt
+// cap bounds guessing.
+func (s *Service) consumePhoneVerification(ctx context.Context, purpose, phone, codeHash string) (string, error) {
+	key := phoneVerificationKey(purpose, phone)
 	var data phoneVerificationData
-	ok, err := s.ephemGetJSON(ctx, s.phoneVerificationTokenKey(purpose, tokenHash), &data)
-	if err != nil || !ok {
+	ok, err := s.ephemGetJSON(ctx, key, &data)
+	if err != nil || !ok || !secretHashEqual(data.CodeHash, codeHash) {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	if data.Phone != "" && data.Phone != phone {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	userID := data.UserID
-	s.deletePhoneVerificationByToken(ctx, purpose, tokenHash)
-	return userID, nil
+	s.deletePhoneVerification(ctx, key)
+	return data.UserID, nil
 }
 
-func (s *Service) consumePhoneVerificationByToken(ctx context.Context, purpose, tokenHash string) (string, string, error) {
-	purpose = normalizePhoneVerificationPurpose(purpose)
+// consumePhoneVerificationByLink redeems the 256-bit link token: the pointer is
+// consumed atomically (single-use), then the record it names must still carry
+// that link hash. Returns (userID, phone).
+func (s *Service) consumePhoneVerificationByLink(ctx context.Context, purpose, linkHash string) (string, string, error) {
+	key, ok := s.consumeLink(ctx, keyPhoneVerifyLink+linkHash)
+	if !ok {
+		return "", "", jwt.ErrTokenUnverifiable
+	}
 	var data phoneVerificationData
-	ok, err := s.ephemGetJSON(ctx, s.phoneVerificationTokenKey(purpose, tokenHash), &data)
-	if err != nil || !ok {
+	ok, err := s.ephemGetJSON(ctx, key, &data)
+	if err != nil || !ok || data.Purpose != normalizePhoneVerificationPurpose(purpose) || !secretHashEqual(data.LinkHash, linkHash) {
 		return "", "", jwt.ErrTokenUnverifiable
 	}
-	if data.Purpose != "" && data.Purpose != purpose {
-		return "", "", jwt.ErrTokenUnverifiable
-	}
-	userID := data.UserID
-	phone := data.Phone
-	s.deletePhoneVerificationByToken(ctx, purpose, tokenHash)
-	return userID, phone, nil
+	_ = s.ephemDel(ctx, key)
+	return data.UserID, data.Phone, nil
 }
 
-func (s *Service) storeEmailVerificationTokens(ctx context.Context, userID string, email *string, tokenTTLs map[string]time.Duration) error {
-	userKey := keyEmailVerifyUser + userID
-
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultEmailVerificationTTL)
-	if err != nil {
+// storeEmailVerification issues one verification record per user, superseding
+// any outstanding one.
+func (s *Service) storeEmailVerification(ctx context.Context, userID string, email *string, codeHash, linkHash string, ttl time.Duration) error {
+	if ttl <= 0 {
+		ttl = defaultEmailVerificationTTL
+	}
+	key := keyEmailVerify + userID
+	s.deleteEmailVerification(ctx, userID)
+	data := emailVerifyData{UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
+	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
 		return err
 	}
+	return s.ephemSetString(ctx, keyEmailVerifyLink+linkHash, key, ttl)
+}
 
-	if old, ok, _ := s.ephemGetString(ctx, userKey); ok && old != "" {
-		s.deleteEmailVerificationByToken(ctx, old)
+func (s *Service) deleteEmailVerification(ctx context.Context, userID string) {
+	key := keyEmailVerify + userID
+	var data emailVerifyData
+	if ok, _ := s.ephemGetJSON(ctx, key, &data); ok && data.LinkHash != "" {
+		_ = s.ephemDel(ctx, keyEmailVerifyLink+data.LinkHash)
 	}
+	_ = s.ephemDel(ctx, key)
+}
 
-	data := emailVerifyData{UserID: userID, Email: email, TokenHashes: uniqueTokenHashes(canonicalHash, nil)}
-	for tokenHash := range normalizedTTLs {
-		data.TokenHashes = uniqueTokenHashes(tokenHash, data.TokenHashes)
+// consumeEmailVerificationCode checks a typed code against the user's outstanding
+// record; the record must have been issued for the supplied address. A wrong
+// code leaves the record intact; the per-email attempt cap bounds guessing.
+func (s *Service) consumeEmailVerificationCode(ctx context.Context, userID, email, codeHash string) error {
+	var data emailVerifyData
+	ok, err := s.ephemGetJSON(ctx, keyEmailVerify+userID, &data)
+	if err != nil || !ok || !secretHashEqual(data.CodeHash, codeHash) {
+		return jwt.ErrTokenUnverifiable
 	}
-
-	for tokenHash, ttl := range normalizedTTLs {
-		if err := s.ephemSetJSON(ctx, keyEmailVerifyToken+tokenHash, data, ttl); err != nil {
-			return err
-		}
+	if data.Email == nil || !strings.EqualFold(NormalizeEmail(*data.Email), email) {
+		return jwt.ErrTokenInvalidClaims
 	}
-	_ = s.ephemSetString(ctx, userKey, canonicalHash, maxTTL)
+	s.deleteEmailVerification(ctx, userID)
 	return nil
 }
 
-func (s *Service) deleteEmailVerificationByToken(ctx context.Context, tokenHash string) {
-	var data emailVerifyData
-	if ok, _ := s.ephemGetJSON(ctx, keyEmailVerifyToken+tokenHash, &data); ok {
-		for _, h := range uniqueTokenHashes(tokenHash, data.TokenHashes) {
-			_ = s.ephemDel(ctx, keyEmailVerifyToken+h)
-		}
-		if data.UserID != "" {
-			userKey := keyEmailVerifyUser + data.UserID
-			if v, ok, _ := s.ephemGetString(ctx, userKey); ok && v != "" {
-				for _, h := range uniqueTokenHashes(tokenHash, data.TokenHashes) {
-					if v == h {
-						_ = s.ephemDel(ctx, userKey)
-						break
-					}
-				}
-			}
-		}
-		return
-	}
-	_ = s.ephemDel(ctx, keyEmailVerifyToken+tokenHash)
-}
-
-func (s *Service) consumeEmailVerification(ctx context.Context, tokenHash string) (*emailVerifyToken, error) {
-	var data emailVerifyData
-	ok, err := s.ephemGetJSON(ctx, keyEmailVerifyToken+tokenHash, &data)
-	if err != nil || !ok {
+// consumeEmailVerificationByLink redeems the 256-bit link token (single-use
+// pointer consume, then the record must still carry that link hash).
+func (s *Service) consumeEmailVerificationByLink(ctx context.Context, linkHash string) (*emailVerifyToken, error) {
+	key, ok := s.consumeLink(ctx, keyEmailVerifyLink+linkHash)
+	if !ok {
 		return nil, jwt.ErrTokenUnverifiable
 	}
-	s.deleteEmailVerificationByToken(ctx, tokenHash)
-	return &emailVerifyToken{UserID: data.UserID, Email: data.Email}, nil
-}
-
-// peekEmailVerification loads an email-verification record by token hash WITHOUT
-// consuming it, so an email-scoped code check can reject a mismatch without
-// destroying the legitimate owner's still-valid code (AK security audit F1).
-func (s *Service) peekEmailVerification(ctx context.Context, tokenHash string) (*emailVerifyToken, bool) {
 	var data emailVerifyData
-	ok, err := s.ephemGetJSON(ctx, keyEmailVerifyToken+tokenHash, &data)
-	if err != nil || !ok {
-		return nil, false
+	ok, err := s.ephemGetJSON(ctx, key, &data)
+	if err != nil || !ok || !secretHashEqual(data.LinkHash, linkHash) {
+		return nil, jwt.ErrTokenUnverifiable
 	}
-	return &emailVerifyToken{UserID: data.UserID, Email: data.Email}, true
+	_ = s.ephemDel(ctx, key)
+	return &emailVerifyToken{UserID: data.UserID, Email: data.Email}, nil
 }
 
 // RecordFailedEmailVerifyCode increments the per-email failed-attempt counter for
@@ -358,32 +258,24 @@ func (s *Service) ClearEmailVerifyCodeAttempts(ctx context.Context, email string
 	_ = s.ephemDel(ctx, keyEmailVerifyCodeAttempts+email)
 }
 
-// invalidateEmailVerifyCodes deletes every outstanding email-verification code and
-// pending email registration for the address. Called when the per-email attempt
-// cap is hit so brute-force guessing can't continue against a live code.
+// invalidateEmailVerifyCodes deletes the outstanding pending registration and
+// existing-user verification record for the address once the attempt cap is hit.
 func (s *Service) invalidateEmailVerifyCodes(ctx context.Context, email string) {
 	email = NormalizeEmail(strings.TrimSpace(email))
 	if email == "" {
 		return
 	}
-	// Pending email registration (new-signup flow).
 	s.deletePendingChangeByTarget(ctx, KindRegisterEmail, email)
-	// Existing-user email-verification tokens, via the per-user index.
 	if s.pg != nil {
 		if u, err := s.getUserByEmail(ctx, email); err == nil && u != nil {
-			if tok, ok, _ := s.ephemGetString(ctx, keyEmailVerifyUser+u.ID); ok && tok != "" {
-				s.deleteEmailVerificationByToken(ctx, tok)
-			}
+			s.deleteEmailVerification(ctx, u.ID)
 		}
 	}
 }
 
-// RecordFailedPhoneVerifyCode increments the per-phone failed-attempt counter for
-// the typed SMS verification code (the phone twin of RecordFailedEmailVerifyCode).
-// After maxPhoneVerifyCodeAttempts failures it invalidates the outstanding code(s)
-// for that number so the 6-digit code cannot be brute-forced within its TTL — the
-// HTTP per-identifier rate limit alone is per-IP and bypassable. No-op without an
-// ephemeral store.
+// RecordFailedPhoneVerifyCode is the phone twin of RecordFailedEmailVerifyCode:
+// after maxPhoneVerifyCodeAttempts wrong guesses the outstanding code(s) for the
+// number are invalidated. No-op without an ephemeral store.
 func (s *Service) RecordFailedPhoneVerifyCode(ctx context.Context, phone string) {
 	if !s.useEphemeralStore() {
 		return
@@ -419,23 +311,16 @@ func (s *Service) ClearPhoneVerifyCodeAttempts(ctx context.Context, phone string
 	_ = s.ephemDel(ctx, keyPhoneVerifyCodeAttempts+phone)
 }
 
-// invalidatePhoneVerifyCodes deletes the outstanding phone codes for a number when
-// the attempt cap is hit, covering the two public (unauthenticated) confirm paths:
-// the pending phone registration and the existing-user phone-verification code
-// (purpose "verify_phone"). Mirrors invalidateEmailVerifyCodes; the auth-gated
-// phone-change flow is out of scope, same as the email cap.
+// invalidatePhoneVerifyCodes deletes the outstanding codes for a number when the
+// attempt cap is hit: the pending phone registration and the existing-user
+// "verify_phone" record (the two unauthenticated confirm paths).
 func (s *Service) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
 	phone = NormalizePhone(strings.TrimSpace(phone))
 	if phone == "" {
 		return
 	}
-	// Pending phone registration (new-signup flow).
 	s.deletePendingChangeByTarget(ctx, KindRegisterPhone, phone)
-	// Existing-user phone-verification code, via the purpose-scoped index.
-	idx := s.phoneVerificationIndexKey("verify_phone", phone)
-	if h, ok, _ := s.ephemGetString(ctx, idx); ok && h != "" {
-		s.deletePhoneVerificationByToken(ctx, "verify_phone", h)
-	}
+	s.deletePhoneVerification(ctx, phoneVerificationKey("verify_phone", phone))
 }
 
 func (s *Service) storePasswordReset(ctx context.Context, tokenHash, userID string, ttl time.Duration) error {

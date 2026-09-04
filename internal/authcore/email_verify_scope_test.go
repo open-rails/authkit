@@ -8,10 +8,10 @@ import (
 )
 
 // AK security audit F1: the typed 6-digit email-verification / pending-registration
-// code is looked up globally by hash. It MUST be scoped to a specific email so a
-// guessed code can't confirm (and take over) whichever account happens to hold it,
-// and a per-email attempt counter must invalidate the code after a few wrong
-// guesses so it can't be brute-forced within its TTL.
+// code MUST be scoped to a specific email so a guessed code can't confirm (and take
+// over) whichever account happens to hold it, and a per-email attempt counter must
+// invalidate the code after a few wrong guesses so it can't be brute-forced within
+// its TTL.
 
 func newEmailVerifyTestService() *Service {
 	return NewService(
@@ -19,6 +19,11 @@ func newEmailVerifyTestService() *Service {
 		Keyset{},
 		WithEphemeralStore(memorystore.NewKV()),
 	)
+}
+
+func pendingEmailRegistrationExists(svc *Service, email string) bool {
+	_, ok := svc.findPendingChangeByTarget(context.Background(), KindRegisterEmail, email)
+	return ok
 }
 
 func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
@@ -38,7 +43,7 @@ func TestConfirmPendingRegistration_IsEmailScoped(t *testing.T) {
 		t.Fatal("a code confirmed against a different email must be rejected (global-collision takeover)")
 	}
 	// ...and must NOT consume the legitimate owner's still-valid code.
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); !ok {
+	if !pendingEmailRegistrationExists(svc, "victim@example.com") {
 		t.Fatal("a mismatched-email guess must not consume the legitimate code")
 	}
 
@@ -57,11 +62,10 @@ func TestRecordFailedEmailVerifyCode_InvalidatesAfterCap(t *testing.T) {
 	svc := newEmailVerifyTestService()
 	ctx := context.Background()
 
-	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, "")
-	if err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); !ok {
+	if !pendingEmailRegistrationExists(svc, "user@example.com") {
 		t.Fatal("pending code should exist after creation")
 	}
 
@@ -69,13 +73,13 @@ func TestRecordFailedEmailVerifyCode_InvalidatesAfterCap(t *testing.T) {
 	for i := 0; i < maxEmailVerifyCodeAttempts-1; i++ {
 		svc.RecordFailedEmailVerifyCode(ctx, "user@example.com")
 	}
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); !ok {
+	if !pendingEmailRegistrationExists(svc, "user@example.com") {
 		t.Fatal("code must survive below the attempt cap")
 	}
 
 	// Reaching the cap invalidates the outstanding code so guessing can't continue.
 	svc.RecordFailedEmailVerifyCode(ctx, "user@example.com")
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); ok {
+	if pendingEmailRegistrationExists(svc, "user@example.com") {
 		t.Fatal("code must be invalidated once the attempt cap is reached")
 	}
 }
@@ -84,8 +88,7 @@ func TestClearEmailVerifyCodeAttempts_ResetsCounter(t *testing.T) {
 	svc := newEmailVerifyTestService()
 	ctx := context.Background()
 
-	code, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, "")
-	if err != nil {
+	if _, err := svc.CreatePendingRegistrationWithLanguage(ctx, "user@example.com", "user", "argon2id$hash", 0, ""); err != nil {
 		t.Fatalf("CreatePendingRegistration: %v", err)
 	}
 
@@ -99,7 +102,7 @@ func TestClearEmailVerifyCodeAttempts_ResetsCounter(t *testing.T) {
 	for i := 0; i < maxEmailVerifyCodeAttempts-1; i++ {
 		svc.RecordFailedEmailVerifyCode(ctx, "user@example.com")
 	}
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); !ok {
+	if !pendingEmailRegistrationExists(svc, "user@example.com") {
 		t.Fatal("counter reset should prevent invalidation below a fresh cap")
 	}
 }

@@ -23,8 +23,8 @@ const (
 
 	defaultPasswordlessTTL = 10 * time.Minute
 
-	keyPasswordlessToken    = "auth:passwordless:token:"
-	keyPasswordlessTarget   = "auth:passwordless:target:"
+	keyPasswordless         = "auth:passwordless:rec:"  // +<channel>:<identifier>
+	keyPasswordlessLink     = "auth:passwordless:link:" // +<linkHash> -> record key
 	keyPasswordlessAttempts = "auth:passwordless:attempts:"
 )
 
@@ -41,7 +41,8 @@ type passwordlessChallenge struct {
 	GeneratedUsername string   `json:"generated_username,omitempty"`
 	PreferredLanguage string   `json:"preferred_language,omitempty"`
 	ReturnTo          string   `json:"return_to,omitempty"`
-	TokenHashes       []string `json:"token_hashes,omitempty"`
+	CodeHash          string   `json:"code_hash,omitempty"`
+	LinkHash          string   `json:"link_hash,omitempty"`
 	// AccountInviteToken carries the unbound single-use account-registration code
 	// from start to confirm (#147): the code is the credential, so it must be
 	// present at consume time, which happens at confirm (when the user id exists).
@@ -107,19 +108,15 @@ func (s *Service) StartPasswordless(ctx context.Context, req PasswordlessStartRe
 
 	code := ""
 	linkToken := ""
-	tokenTTLs := map[string]time.Duration{}
 	if mode == PasswordlessModeCode || mode == PasswordlessModeBoth {
 		code = randAlphanumeric(6)
-		tokenTTLs[sha256Hex(code)] = defaultPasswordlessTTL
+		rec.CodeHash = sha256Hex(code)
 	}
 	if mode == PasswordlessModeLink || mode == PasswordlessModeBoth {
 		linkToken = randB64(32)
-		tokenTTLs[sha256Hex(linkToken)] = defaultPasswordlessTTL
+		rec.LinkHash = sha256Hex(linkToken)
 	}
-	if len(tokenTTLs) == 0 {
-		return PasswordlessStartResult{}, jwt.ErrTokenInvalidClaims
-	}
-	if err := s.storePasswordlessChallenge(ctx, rec, tokenTTLs); err != nil {
+	if err := s.storePasswordlessChallenge(ctx, rec); err != nil {
 		return PasswordlessStartResult{}, err
 	}
 
@@ -138,15 +135,11 @@ func (s *Service) ConfirmPasswordlessCode(ctx context.Context, identifier, code 
 	if err != nil {
 		return PasswordlessConfirmResult{}, err
 	}
-	tokenHash := sha256Hex(code)
-	rec, ok, err := s.loadPasswordlessChallenge(ctx, tokenHash)
-	if err != nil || !ok {
+	rec, ok, err := s.loadPasswordlessChallenge(ctx, passwordlessKey(channel, normalized))
+	if err != nil || !ok || !secretHashEqual(rec.CodeHash, sha256Hex(code)) {
 		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
 	}
-	if rec.Channel != channel || !strings.EqualFold(rec.Identifier, normalized) {
-		return PasswordlessConfirmResult{}, jwt.ErrTokenInvalidClaims
-	}
-	result, err := s.consumePasswordlessChallenge(ctx, tokenHash, rec)
+	result, err := s.consumePasswordlessChallenge(ctx, rec)
 	if err == nil {
 		s.ClearPasswordlessCodeAttempts(ctx, identifier)
 	}
@@ -154,55 +147,49 @@ func (s *Service) ConfirmPasswordlessCode(ctx context.Context, identifier, code 
 }
 
 func (s *Service) ConfirmPasswordlessToken(ctx context.Context, token string) (PasswordlessConfirmResult, error) {
-	tokenHash := sha256Hex(token)
-	rec, ok, err := s.loadPasswordlessChallenge(ctx, tokenHash)
-	if err != nil || !ok {
+	linkHash := sha256Hex(token)
+	key, ok := s.consumeLink(ctx, keyPasswordlessLink+linkHash)
+	if !ok {
 		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
 	}
-	return s.consumePasswordlessChallenge(ctx, tokenHash, rec)
+	rec, ok, err := s.loadPasswordlessChallenge(ctx, key)
+	if err != nil || !ok || !secretHashEqual(rec.LinkHash, linkHash) {
+		return PasswordlessConfirmResult{}, jwt.ErrTokenUnverifiable
+	}
+	return s.consumePasswordlessChallenge(ctx, rec)
 }
 
-func (s *Service) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, tokenTTLs map[string]time.Duration) error {
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultPasswordlessTTL)
-	if err != nil {
+// storePasswordlessChallenge issues one challenge per (channel, identifier),
+// superseding any outstanding one. The code hash stays inside the record; only
+// the 256-bit link token gets a global pointer (#301).
+func (s *Service) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
+	key := passwordlessKey(rec.Channel, rec.Identifier)
+	s.deletePasswordlessChallenge(ctx, key)
+	if err := s.ephemSetJSON(ctx, key, rec, defaultPasswordlessTTL); err != nil {
 		return err
 	}
-	s.deletePasswordlessByTarget(ctx, rec.Channel, rec.Identifier)
-	rec.TokenHashes = uniqueTokenHashes(canonicalHash, nil)
-	for tokenHash := range normalizedTTLs {
-		rec.TokenHashes = uniqueTokenHashes(tokenHash, rec.TokenHashes)
+	if rec.LinkHash != "" {
+		return s.ephemSetString(ctx, keyPasswordlessLink+rec.LinkHash, key, defaultPasswordlessTTL)
 	}
-	for tokenHash, ttl := range normalizedTTLs {
-		if err := s.ephemSetJSON(ctx, keyPasswordlessToken+tokenHash, rec, ttl); err != nil {
-			return err
-		}
-	}
-	_ = s.ephemSetString(ctx, passwordlessTargetKey(rec.Channel, rec.Identifier), canonicalHash, maxTTL)
 	return nil
 }
 
-func (s *Service) loadPasswordlessChallenge(ctx context.Context, tokenHash string) (passwordlessChallenge, bool, error) {
+func (s *Service) loadPasswordlessChallenge(ctx context.Context, key string) (passwordlessChallenge, bool, error) {
 	var rec passwordlessChallenge
-	ok, err := s.ephemGetJSON(ctx, keyPasswordlessToken+tokenHash, &rec)
+	ok, err := s.ephemGetJSON(ctx, key, &rec)
 	return rec, ok, err
 }
 
-func (s *Service) deletePasswordlessByToken(ctx context.Context, tokenHash string) {
-	rec, ok, _ := s.loadPasswordlessChallenge(ctx, tokenHash)
-	if !ok {
-		_ = s.ephemDel(ctx, keyPasswordlessToken+tokenHash)
-		return
+func (s *Service) deletePasswordlessChallenge(ctx context.Context, key string) {
+	var rec passwordlessChallenge
+	if ok, _ := s.ephemGetJSON(ctx, key, &rec); ok && rec.LinkHash != "" {
+		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
 	}
-	for _, h := range uniqueTokenHashes(tokenHash, rec.TokenHashes) {
-		_ = s.ephemDel(ctx, keyPasswordlessToken+h)
-	}
-	_ = s.ephemDel(ctx, passwordlessTargetKey(rec.Channel, rec.Identifier))
+	_ = s.ephemDel(ctx, key)
 }
 
 func (s *Service) deletePasswordlessByTarget(ctx context.Context, channel, identifier string) {
-	if token, ok, _ := s.ephemGetString(ctx, passwordlessTargetKey(channel, identifier)); ok && token != "" {
-		s.deletePasswordlessByToken(ctx, token)
-	}
+	s.deletePasswordlessChallenge(ctx, passwordlessKey(channel, identifier))
 }
 
 func (s *Service) RecordFailedPasswordlessCode(ctx context.Context, identifier string) {
@@ -238,7 +225,7 @@ func (s *Service) ClearPasswordlessCodeAttempts(ctx context.Context, identifier 
 	_ = s.ephemDel(ctx, keyPasswordlessAttempts+channel+":"+normalized)
 }
 
-func (s *Service) consumePasswordlessChallenge(ctx context.Context, tokenHash string, rec passwordlessChallenge) (PasswordlessConfirmResult, error) {
+func (s *Service) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) (PasswordlessConfirmResult, error) {
 	userID := strings.TrimSpace(rec.UserID)
 	if userID != "" {
 		if err := s.verifyPasswordlessExistingUser(ctx, rec); err != nil {
@@ -254,7 +241,7 @@ func (s *Service) consumePasswordlessChallenge(ctx context.Context, tokenHash st
 			return PasswordlessConfirmResult{}, err
 		}
 	}
-	s.deletePasswordlessByToken(ctx, tokenHash)
+	s.deletePasswordlessByTarget(ctx, rec.Channel, rec.Identifier)
 	return PasswordlessConfirmResult{
 		UserID:   userID,
 		Method:   passwordlessSessionMethod(rec.Channel),
@@ -423,8 +410,8 @@ func normalizePasswordlessMode(mode string) string {
 	}
 }
 
-func passwordlessTargetKey(channel, identifier string) string {
-	return keyPasswordlessTarget + channel + ":" + identifier
+func passwordlessKey(channel, identifier string) string {
+	return keyPasswordless + channel + ":" + identifier
 }
 
 func passwordlessSessionMethod(channel string) string {

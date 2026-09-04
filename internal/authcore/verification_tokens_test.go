@@ -67,29 +67,18 @@ func TestPendingRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 		t.Fatalf("expected 6-digit code, got %q", code)
 	}
 
-	data, ok, err := svc.loadPendingChangeByToken(ctx, sha256Hex(code))
-	if err != nil || !ok {
-		t.Fatalf("pending registration not stored by code hash: ok=%v err=%v", ok, err)
+	data, ok := svc.findPendingChangeByTarget(ctx, KindRegisterEmail, "test@example.com")
+	if !ok {
+		t.Fatal("pending registration not stored by target")
 	}
-	if data.Kind != KindRegisterEmail {
-		t.Fatalf("expected kind register_email, got %q", data.Kind)
+	if data.CodeHash != sha256Hex(code) {
+		t.Fatal("record must carry the code hash")
 	}
-	if len(data.TokenHashes) < 2 {
-		t.Fatalf("expected both code+link token hashes, got %d", len(data.TokenHashes))
+	if data.LinkHash == "" {
+		t.Fatal("record must carry a link hash")
 	}
-
-	foundLink := false
-	for _, h := range data.TokenHashes {
-		if h == sha256Hex(code) {
-			continue
-		}
-		if _, ok, err := svc.loadPendingChangeByToken(ctx, h); err == nil && ok {
-			foundLink = true
-			break
-		}
-	}
-	if !foundLink {
-		t.Fatal("expected a second pending-registration token hash for link verification")
+	if key, ok := svc.consumeLink(ctx, pendingChangeLinkKey(KindRegisterEmail, data.LinkHash)); !ok || key != data.key() {
+		t.Fatal("link pointer must resolve to the pending registration")
 	}
 }
 
@@ -105,15 +94,12 @@ func TestPendingPhoneRegistrationStoresCodeAndLinkTokens(t *testing.T) {
 		t.Fatalf("expected 6-digit code, got %q", code)
 	}
 
-	data, ok, err := svc.loadPendingChangeByToken(ctx, sha256Hex(code))
-	if err != nil || !ok {
-		t.Fatalf("pending phone registration not stored by code hash: ok=%v err=%v", ok, err)
+	data, ok := svc.findPendingChangeByTarget(ctx, KindRegisterPhone, "+15551234567")
+	if !ok {
+		t.Fatal("pending phone registration not stored by target")
 	}
-	if data.Kind != KindRegisterPhone {
-		t.Fatalf("expected kind register_phone, got %q", data.Kind)
-	}
-	if len(data.TokenHashes) < 2 {
-		t.Fatalf("expected both code+link token hashes, got %d", len(data.TokenHashes))
+	if data.CodeHash != sha256Hex(code) || data.LinkHash == "" {
+		t.Fatal("record must carry both the code hash and a link hash")
 	}
 }
 

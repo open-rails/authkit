@@ -41,13 +41,6 @@ type emailVerifyToken struct {
 	Email  *string
 }
 
-func (s *Service) useEmailVerifyToken(ctx context.Context, tokenHash string) (*emailVerifyToken, error) {
-	if s.useEphemeralStore() {
-		return s.consumeEmailVerification(ctx, tokenHash)
-	}
-	return nil, jwt.ErrTokenUnverifiable
-}
-
 func (s *Service) useResetToken(ctx context.Context, tokenHash string) (struct{ UserID string }, error) {
 	if s.useEphemeralStore() {
 		userID, err := s.consumePasswordReset(ctx, tokenHash)

@@ -23,20 +23,21 @@ const (
 	KindChangePhone   PendingChangeKind = "change_phone"
 )
 
-// Single ephemeral key namespace for every pending change. Pending state is
-// disposable and TTL-expiring, so it lives only in the ephemeral store (Redis
-// when multi-instance, in-memory otherwise) — never in postgres.
+// One record per identity (#301): register kinds are keyed by the target (the
+// user does not exist yet), change kinds by the user. The 6-digit code hash lives
+// inside the record and is only ever compared against the record the caller
+// addressed, so two strangers drawing the same code never share storage. Only the
+// 256-bit link token gets a global pointer.
 const (
-	keyPendingChangeToken  = "auth:pending_change:token:"  // +<tokenHash> -> pendingChange JSON
-	keyPendingChangeTarget = "auth:pending_change:target:" // +<kind>:<target> -> canonical tokenHash
-	keyPendingChangeUser   = "auth:pending_change:user:"   // +<kind>:<username> -> canonical tokenHash (register kinds)
-	keyPendingChangeUID    = "auth:pending_change:uid:"    // +<kind>:<userID> -> canonical tokenHash (change kinds)
+	keyPendingChange     = "auth:pending_change:rec:"  // +<kind>:<target|userID> -> pendingChange JSON
+	keyPendingChangeLink = "auth:pending_change:link:" // +<kind>:<linkHash> -> record key
+	keyPendingChangeUser = "auth:pending_change:user:" // +<kind>:<username> -> record key (register kinds)
 )
 
 // pendingChange is the unified record backing all four flows. Register kinds
-// leave UserID empty (the user does not exist yet) and carry the signup payload
-// (Username/PasswordHash/PreferredLanguage); change kinds set UserID and leave the
-// signup payload empty. Target is the email or phone being registered/changed-to.
+// leave UserID empty and carry the signup payload; change kinds set UserID and
+// leave the signup payload empty. Target is the email or phone being
+// registered/changed-to.
 type pendingChange struct {
 	Kind              PendingChangeKind `json:"kind"`
 	Target            string            `json:"target"`
@@ -44,7 +45,8 @@ type pendingChange struct {
 	Username          string            `json:"username,omitempty"`
 	PasswordHash      string            `json:"password_hash,omitempty"`
 	PreferredLanguage string            `json:"preferred_language,omitempty"`
-	TokenHashes       []string          `json:"token_hashes,omitempty"`
+	CodeHash          string            `json:"code_hash"`
+	LinkHash          string            `json:"link_hash,omitempty"`
 }
 
 func (k PendingChangeKind) isRegister() bool {
@@ -53,6 +55,13 @@ func (k PendingChangeKind) isRegister() bool {
 
 func (k PendingChangeKind) isEmail() bool {
 	return k == KindRegisterEmail || k == KindChangeEmail
+}
+
+func (k PendingChangeKind) defaultTTL() time.Duration {
+	if k.isEmail() {
+		return defaultEmailVerificationTTL
+	}
+	return defaultPhoneVerificationTTL
 }
 
 // normalizePendingTarget canonicalizes the target the same way the rest of the
@@ -64,94 +73,90 @@ func normalizePendingTarget(kind PendingChangeKind, target string) string {
 	return NormalizePhone(target)
 }
 
-func pendingChangeTargetKey(kind PendingChangeKind, target string) string {
-	return keyPendingChangeTarget + string(kind) + ":" + normalizePendingTarget(kind, target)
+func pendingChangeKey(kind PendingChangeKind, id string) string {
+	return keyPendingChange + string(kind) + ":" + id
 }
 
 func pendingChangeUserKey(kind PendingChangeKind, username string) string {
 	return keyPendingChangeUser + string(kind) + ":" + strings.TrimSpace(username)
 }
 
-func pendingChangeUIDKey(kind PendingChangeKind, userID string) string {
-	return keyPendingChangeUID + string(kind) + ":" + userID
+// Link pointers are namespaced per kind: the HTTP confirm handlers try each
+// kind in turn with the same token, and a miss for one kind must never consume
+// another kind's single-use pointer.
+func pendingChangeLinkKey(kind PendingChangeKind, linkHash string) string {
+	return keyPendingChangeLink + string(kind) + ":" + linkHash
 }
 
-// storePendingChange writes a pending change under all of its token hashes plus
-// the relevant lookup indexes (target always; username for register kinds; uid
-// for change kinds). Any prior pending change occupying the same indexes is
-// cleared first so a re-request supersedes the old one.
-func (s *Service) storePendingChange(ctx context.Context, rec pendingChange, tokenTTLs map[string]time.Duration) error {
+func (rec pendingChange) key() string {
+	if rec.Kind.isRegister() {
+		return pendingChangeKey(rec.Kind, rec.Target)
+	}
+	return pendingChangeKey(rec.Kind, rec.UserID)
+}
+
+// storePendingChange writes a pending change under its identity key plus the
+// link pointer and (register kinds) the username index. Any prior record on the
+// same identity or username is cleared first so a re-request supersedes it.
+func (s *Service) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
 	if !s.useEphemeralStore() {
 		return fmt.Errorf("ephemeral store not configured")
 	}
-	rec.Target = normalizePendingTarget(rec.Kind, rec.Target)
-
-	defaultTTL := defaultEmailVerificationTTL
-	if !rec.Kind.isEmail() {
-		defaultTTL = defaultPhoneVerificationTTL
+	if rec.CodeHash == "" && rec.LinkHash == "" {
+		return fmt.Errorf("pending change without verification secret")
 	}
-	normalizedTTLs, canonicalHash, maxTTL, err := normalizeTokenTTLs(tokenTTLs, defaultTTL)
-	if err != nil {
+	rec.Target = normalizePendingTarget(rec.Kind, rec.Target)
+	if ttl <= 0 {
+		ttl = rec.Kind.defaultTTL()
+	}
+	key := rec.key()
+
+	s.deletePendingChange(ctx, key)
+	if rec.Kind.isRegister() && rec.Username != "" {
+		if old, ok, _ := s.ephemGetString(ctx, pendingChangeUserKey(rec.Kind, rec.Username)); ok && old != "" && old != key {
+			s.deletePendingChange(ctx, old)
+		}
+	}
+
+	if err := s.ephemSetJSON(ctx, key, rec, ttl); err != nil {
 		return err
 	}
-
-	// Supersede any existing pending change on the same indexes.
-	s.deletePendingChangeByTarget(ctx, rec.Kind, rec.Target)
-	if rec.Kind.isRegister() && rec.Username != "" {
-		if old, ok, _ := s.ephemGetString(ctx, pendingChangeUserKey(rec.Kind, rec.Username)); ok && old != "" {
-			s.deletePendingChangeByToken(ctx, old)
-		}
-	}
-	if !rec.Kind.isRegister() && rec.UserID != "" {
-		if old, ok, _ := s.ephemGetString(ctx, pendingChangeUIDKey(rec.Kind, rec.UserID)); ok && old != "" {
-			s.deletePendingChangeByToken(ctx, old)
-		}
-	}
-
-	rec.TokenHashes = uniqueTokenHashes(canonicalHash, nil)
-	for tokenHash := range normalizedTTLs {
-		rec.TokenHashes = uniqueTokenHashes(tokenHash, rec.TokenHashes)
-	}
-
-	for tokenHash, ttl := range normalizedTTLs {
-		if err := s.ephemSetJSON(ctx, keyPendingChangeToken+tokenHash, rec, ttl); err != nil {
+	if rec.LinkHash != "" {
+		if err := s.ephemSetString(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash), key, ttl); err != nil {
 			return err
 		}
 	}
-	_ = s.ephemSetString(ctx, pendingChangeTargetKey(rec.Kind, rec.Target), canonicalHash, maxTTL)
 	if rec.Kind.isRegister() && rec.Username != "" {
-		_ = s.ephemSetString(ctx, pendingChangeUserKey(rec.Kind, rec.Username), canonicalHash, maxTTL)
-	}
-	if !rec.Kind.isRegister() && rec.UserID != "" {
-		_ = s.ephemSetString(ctx, pendingChangeUIDKey(rec.Kind, rec.UserID), canonicalHash, maxTTL)
+		_ = s.ephemSetString(ctx, pendingChangeUserKey(rec.Kind, rec.Username), key, ttl)
 	}
 	return nil
 }
 
-func (s *Service) loadPendingChangeByToken(ctx context.Context, tokenHash string) (pendingChange, bool, error) {
+func (s *Service) loadPendingChange(ctx context.Context, key string) (pendingChange, bool, error) {
 	var rec pendingChange
-	ok, err := s.ephemGetJSON(ctx, keyPendingChangeToken+tokenHash, &rec)
+	ok, err := s.ephemGetJSON(ctx, key, &rec)
 	return rec, ok, err
 }
 
+// findPendingChangeByTarget loads a register-kind record and asserts it really
+// is the one issued for this target.
 func (s *Service) findPendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) (pendingChange, bool) {
-	token, ok, err := s.ephemGetString(ctx, pendingChangeTargetKey(kind, target))
-	if err != nil || !ok || token == "" {
+	target = normalizePendingTarget(kind, target)
+	if !kind.isRegister() || target == "" {
 		return pendingChange{}, false
 	}
-	rec, ok, err := s.loadPendingChangeByToken(ctx, token)
-	if err != nil || !ok || rec.Kind != kind {
+	rec, ok, err := s.loadPendingChange(ctx, pendingChangeKey(kind, target))
+	if err != nil || !ok || rec.Kind != kind || rec.Target != target {
 		return pendingChange{}, false
 	}
 	return rec, true
 }
 
 func (s *Service) findPendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) (pendingChange, bool) {
-	token, ok, err := s.ephemGetString(ctx, pendingChangeUIDKey(kind, userID))
-	if err != nil || !ok || token == "" {
+	if kind.isRegister() || userID == "" {
 		return pendingChange{}, false
 	}
-	rec, ok, err := s.loadPendingChangeByToken(ctx, token)
+	rec, ok, err := s.loadPendingChange(ctx, pendingChangeKey(kind, userID))
 	if err != nil || !ok || rec.Kind != kind || rec.UserID != userID {
 		return pendingChange{}, false
 	}
@@ -175,83 +180,85 @@ func (s *Service) pendingChangeUsernameTaken(ctx context.Context, username strin
 // pendingChangeTargetTaken reports whether a register-kind pending change is
 // holding the given email/phone target.
 func (s *Service) pendingChangeTargetTaken(ctx context.Context, kind PendingChangeKind, target string) bool {
-	if !s.useEphemeralStore() {
-		return false
-	}
-	v, ok, _ := s.ephemGetString(ctx, pendingChangeTargetKey(kind, target))
-	return ok && v != ""
+	_, ok := s.findPendingChangeByTarget(ctx, kind, target)
+	return ok
 }
 
-func (s *Service) deletePendingChangeByToken(ctx context.Context, tokenHash string) {
-	rec, ok, _ := s.loadPendingChangeByToken(ctx, tokenHash)
-	if !ok {
-		_ = s.ephemDel(ctx, keyPendingChangeToken+tokenHash)
-		return
+func (s *Service) deletePendingChange(ctx context.Context, key string) {
+	if rec, ok, _ := s.loadPendingChange(ctx, key); ok {
+		if rec.LinkHash != "" {
+			_ = s.ephemDel(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash))
+		}
+		if rec.Kind.isRegister() && rec.Username != "" {
+			_ = s.ephemDel(ctx, pendingChangeUserKey(rec.Kind, rec.Username))
+		}
 	}
-	for _, h := range uniqueTokenHashes(tokenHash, rec.TokenHashes) {
-		_ = s.ephemDel(ctx, keyPendingChangeToken+h)
-	}
-	_ = s.ephemDel(ctx, pendingChangeTargetKey(rec.Kind, rec.Target))
-	if rec.Kind.isRegister() && rec.Username != "" {
-		_ = s.ephemDel(ctx, pendingChangeUserKey(rec.Kind, rec.Username))
-	}
-	if !rec.Kind.isRegister() && rec.UserID != "" {
-		_ = s.ephemDel(ctx, pendingChangeUIDKey(rec.Kind, rec.UserID))
-	}
+	_ = s.ephemDel(ctx, key)
 }
 
 func (s *Service) deletePendingChangeByTarget(ctx context.Context, kind PendingChangeKind, target string) {
-	if !s.useEphemeralStore() {
+	if !s.useEphemeralStore() || !kind.isRegister() {
 		return
 	}
-	if token, ok, _ := s.ephemGetString(ctx, pendingChangeTargetKey(kind, target)); ok && token != "" {
-		s.deletePendingChangeByToken(ctx, token)
-	}
+	s.deletePendingChange(ctx, pendingChangeKey(kind, normalizePendingTarget(kind, target)))
 }
 
 func (s *Service) deletePendingChangeByUser(ctx context.Context, kind PendingChangeKind, userID string) {
-	if !s.useEphemeralStore() {
+	if !s.useEphemeralStore() || kind.isRegister() {
 		return
 	}
-	if token, ok, _ := s.ephemGetString(ctx, pendingChangeUIDKey(kind, userID)); ok && token != "" {
-		s.deletePendingChangeByToken(ctx, token)
-	}
+	s.deletePendingChange(ctx, pendingChangeKey(kind, userID))
 }
 
 // finalizePendingChange dispatches to the per-kind finalizer that completes the
-// deferred change and returns the affected user's ID. This is the single
-// "registry" of finalizers (register_email/register_phone create the user;
-// change_email/change_phone apply the new value to an existing user).
-func (s *Service) finalizePendingChange(ctx context.Context, rec pendingChange) (string, error) {
+// deferred change and returns the affected user's ID.
+func (s *Service) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	switch rec.Kind {
 	case KindRegisterEmail:
 		return s.finalizeRegisterEmail(ctx, rec)
 	case KindRegisterPhone:
 		return s.finalizeRegisterPhone(ctx, rec)
 	case KindChangeEmail:
-		return s.finalizeChangeEmail(ctx, rec, nil)
+		return s.finalizeChangeEmail(ctx, rec, keepSessionID)
 	case KindChangePhone:
-		return s.finalizeChangePhone(ctx, rec, nil)
+		return s.finalizeChangePhone(ctx, rec, keepSessionID)
 	default:
 		return "", fmt.Errorf("unknown pending change kind: %s", rec.Kind)
 	}
 }
 
-// consumePendingChangeByToken loads a pending change by token hash, runs its
-// finalizer, and (on success) deletes the record. Used by link-token and
-// code confirmation paths that don't need to pre-validate the caller.
-func (s *Service) consumePendingChangeByToken(ctx context.Context, tokenHash string, expectKind PendingChangeKind) (string, error) {
-	rec, ok, err := s.loadPendingChangeByToken(ctx, tokenHash)
-	if err != nil || !ok {
+// consumePendingChangeCode finalizes the record the caller addressed when the
+// typed code matches. A wrong code leaves the record intact; the per-identifier
+// attempt caps bound guessing. keepSessionID is the confirming session a
+// contact change must not revoke (nil for registrations and link confirms).
+func (s *Service) consumePendingChangeCode(ctx context.Context, rec pendingChange, code string, keepSessionID *string) (string, error) {
+	if !secretHashEqual(rec.CodeHash, sha256Hex(code)) {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	if expectKind != "" && rec.Kind != expectKind {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	uid, err := s.finalizePendingChange(ctx, rec)
+	uid, err := s.finalizePendingChange(ctx, rec, keepSessionID)
 	if err != nil {
 		return "", err
 	}
-	s.deletePendingChangeByToken(ctx, tokenHash)
+	s.deletePendingChange(ctx, rec.key())
+	return uid, nil
+}
+
+// consumePendingChangeByLink redeems the 256-bit link token: the pointer is
+// consumed atomically (single-use), then the record it names must be of the
+// expected kind and still carry that link hash.
+func (s *Service) consumePendingChangeByLink(ctx context.Context, linkHash string, expectKind PendingChangeKind) (string, error) {
+	key, ok := s.consumeLink(ctx, pendingChangeLinkKey(expectKind, linkHash))
+	if !ok {
+		return "", jwt.ErrTokenUnverifiable
+	}
+	rec, ok, err := s.loadPendingChange(ctx, key)
+	if err != nil || !ok || rec.Kind != expectKind || !secretHashEqual(rec.LinkHash, linkHash) {
+		return "", jwt.ErrTokenUnverifiable
+	}
+	uid, err := s.finalizePendingChange(ctx, rec, nil)
+	if err != nil {
+		return "", err
+	}
+	s.deletePendingChange(ctx, key)
 	return uid, nil
 }

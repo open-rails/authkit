@@ -84,10 +84,7 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
 		normEmail := NormalizeEmail(email)
-		if err := s.storeEmailVerificationTokens(ctx, userID, &normEmail, map[string]time.Duration{
-			codeHash: ttl,
-			linkHash: defaultEmailVerificationTTL,
-		}); err != nil {
+		if err := s.storeEmailVerification(ctx, userID, &normEmail, codeHash, linkHash, ttl); err != nil {
 			return "", err
 		}
 		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "signup"}
@@ -108,21 +105,16 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
 
-		if s.useEphemeralStore() {
-			if err := s.storePendingChange(ctx, pendingChange{
-				Kind:              KindRegisterEmail,
-				Target:            email,
-				Username:          username,
-				PasswordHash:      passwordHash,
-				PreferredLanguage: language,
-			}, map[string]time.Duration{
-				codeHash: ttl,
-				linkHash: defaultEmailVerificationTTL,
-			}); err != nil {
-				return "", err
-			}
-		} else {
-			return "", fmt.Errorf("ephemeral store not configured")
+		if err := s.storePendingChange(ctx, pendingChange{
+			Kind:              KindRegisterEmail,
+			Target:            email,
+			Username:          username,
+			PasswordHash:      passwordHash,
+			PreferredLanguage: language,
+			CodeHash:          codeHash,
+			LinkHash:          linkHash,
+		}, ttl); err != nil {
+			return "", err
 		}
 
 		msg := VerificationMessage{Code: code, LinkURL: s.emailVerificationURL(linkToken), Purpose: "signup"}
@@ -140,54 +132,37 @@ func (s *Service) CreatePendingRegistrationWithLanguage(ctx context.Context, ema
 	}
 }
 
-// ConfirmPendingRegistration finalizes a pending email registration from a short
-// typed code scoped to a SPECIFIC email. Like ConfirmEmailVerification, the 6-digit
-// code is brute-force resistant only because it is bound to the target address (a
-// guessed code matching another pending signup is rejected without being consumed)
-// and the HTTP layer caps attempts per-identifier (AK security audit F1). For the
-// 256-bit emailed link token use ConfirmPendingRegistrationByToken instead.
+// ConfirmPendingRegistration finalizes a pending email registration from the
+// short typed code. The code is only honored against the record issued for this
+// exact address (the record is keyed by it), so a guessed code can never confirm
+// another signup; the HTTP layer caps attempts per-identifier. For the 256-bit
+// emailed link token use ConfirmPendingRegistrationByToken instead.
 func (s *Service) ConfirmPendingRegistration(ctx context.Context, email, code string) (userID string, err error) {
-	if !s.PublicNativeUserRegistrationEnabled() {
-		return "", ErrRegistrationDisabled
-	}
-	if !s.useEphemeralStore() {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	email = NormalizeEmail(strings.TrimSpace(email))
-	if email == "" {
-		return "", jwt.ErrTokenInvalidClaims
-	}
-	tokenHash := sha256Hex(code)
-	rec, ok, err := s.loadPendingChangeByToken(ctx, tokenHash)
-	if err != nil || !ok || rec.Kind != KindRegisterEmail {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	// Email-scope the short code: only honor it for the address it was issued to.
-	// Do NOT consume on mismatch — leave the legitimate signup's code intact.
-	if !strings.EqualFold(normalizePendingTarget(KindRegisterEmail, rec.Target), email) {
-		return "", jwt.ErrTokenInvalidClaims
-	}
-	// The register_email finalizer enforces "first to verify wins", creates the
-	// verified user, and applies language.
-	uid, err := s.finalizePendingChange(ctx, rec)
-	if err != nil {
-		return "", err
-	}
-	s.deletePendingChangeByToken(ctx, tokenHash)
-	return uid, nil
+	return s.confirmPendingRegistrationCode(ctx, KindRegisterEmail, email, code)
 }
 
 // ConfirmPendingRegistrationByToken finalizes a pending email registration from
-// the 256-bit emailed link token. The token's entropy is the security boundary,
-// so this path is global-lookup and needs no email scoping.
+// the 256-bit emailed link token, whose entropy is the security boundary.
 func (s *Service) ConfirmPendingRegistrationByToken(ctx context.Context, token string) (userID string, err error) {
+	return s.confirmPendingRegistrationLink(ctx, KindRegisterEmail, token)
+}
+
+func (s *Service) confirmPendingRegistrationCode(ctx context.Context, kind PendingChangeKind, target, code string) (string, error) {
 	if !s.PublicNativeUserRegistrationEnabled() {
 		return "", ErrRegistrationDisabled
 	}
-	if !s.useEphemeralStore() {
+	rec, ok := s.findPendingChangeByTarget(ctx, kind, strings.TrimSpace(target))
+	if !ok {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindRegisterEmail)
+	return s.consumePendingChangeCode(ctx, rec, code, nil)
+}
+
+func (s *Service) confirmPendingRegistrationLink(ctx context.Context, kind PendingChangeKind, token string) (string, error) {
+	if !s.PublicNativeUserRegistrationEnabled() {
+		return "", ErrRegistrationDisabled
+	}
+	return s.consumePendingChangeByLink(ctx, sha256Hex(token), kind)
 }
 
 // CheckPendingRegistrationConflict checks if email or username exists in users or pending registration cache.
@@ -260,10 +235,7 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 		codeHash := sha256Hex(code)
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
-		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
-			codeHash: defaultPhoneVerificationTTL,
-			linkHash: defaultPhoneVerificationTTL,
-		}); err != nil {
+		if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, codeHash, linkHash, defaultPhoneVerificationTTL); err != nil {
 			return "", err
 		}
 		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "signup"}
@@ -278,21 +250,16 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 		codeHash := sha256Hex(code)
 		linkToken := randB64(32)
 		linkHash := sha256Hex(linkToken)
-		if s.useEphemeralStore() {
-			if err := s.storePendingChange(ctx, pendingChange{
-				Kind:              KindRegisterPhone,
-				Target:            phone,
-				Username:          username,
-				PasswordHash:      passwordHash,
-				PreferredLanguage: language,
-			}, map[string]time.Duration{
-				codeHash: defaultPhoneVerificationTTL,
-				linkHash: defaultPhoneVerificationTTL,
-			}); err != nil {
-				return "", err
-			}
-		} else {
-			return "", fmt.Errorf("ephemeral store not configured")
+		if err := s.storePendingChange(ctx, pendingChange{
+			Kind:              KindRegisterPhone,
+			Target:            phone,
+			Username:          username,
+			PasswordHash:      passwordHash,
+			PreferredLanguage: language,
+			CodeHash:          codeHash,
+			LinkHash:          linkHash,
+		}, defaultPhoneVerificationTTL); err != nil {
+			return "", err
 		}
 
 		msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "signup"}
@@ -312,38 +279,16 @@ func (s *Service) CreatePendingPhoneRegistrationWithLanguage(ctx context.Context
 	}
 }
 
-// ConfirmPendingPhoneRegistration verifies code and creates the actual user account.
-// Implements "first to verify wins" - whoever verifies first gets the username/phone.
+// ConfirmPendingPhoneRegistration finalizes a pending phone registration from the
+// short typed code, honored only against the record issued for this phone.
 func (s *Service) ConfirmPendingPhoneRegistration(ctx context.Context, phone, code string) (userID string, err error) {
-	if !s.PublicNativeUserRegistrationEnabled() {
-		return "", ErrRegistrationDisabled
-	}
-	if !s.useEphemeralStore() {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	hash := sha256Hex(code)
-
-	// If a phone was supplied (manual-code path), ensure it matches the pending
-	// target before finalizing. The link-token path passes an empty phone.
-	if strings.TrimSpace(phone) != "" {
-		rec, ok, err := s.loadPendingChangeByToken(ctx, hash)
-		if err != nil || !ok || rec.Kind != KindRegisterPhone {
-			return "", jwt.ErrTokenUnverifiable
-		}
-		if !strings.EqualFold(NormalizePhone(strings.TrimSpace(phone)), rec.Target) {
-			return "", jwt.ErrTokenUnverifiable
-		}
-	}
-
-	// The register_phone finalizer enforces "first to verify wins", creates the
-	// verified user, and applies language; consume deletes on success.
-	return s.consumePendingChangeByToken(ctx, hash, KindRegisterPhone)
+	return s.confirmPendingRegistrationCode(ctx, KindRegisterPhone, phone, code)
 }
 
-// ConfirmPendingPhoneRegistrationByToken verifies a pending phone registration
-// using either a manual code or a high-entropy link token.
+// ConfirmPendingPhoneRegistrationByToken finalizes a pending phone registration
+// from the 256-bit link token.
 func (s *Service) ConfirmPendingPhoneRegistrationByToken(ctx context.Context, token string) (string, error) {
-	return s.ConfirmPendingPhoneRegistration(ctx, "", token)
+	return s.confirmPendingRegistrationLink(ctx, KindRegisterPhone, token)
 }
 
 // CheckPhoneRegistrationConflict checks if phone or username exists in users OR pending tables.
