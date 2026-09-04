@@ -3,6 +3,8 @@ package authhttp
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -51,4 +53,32 @@ func TestLazyLoadedIssuerEnforcesExpectedAudience(t *testing.T) {
 	require.Error(t, err, "wrong audience must be rejected by a lazily-loaded issuer")
 	_, err = srv.Verifier().Verify(mint("test-app"))
 	require.NoError(t, err)
+}
+
+// TestLinkLandingUsesFragmentAndNoStore pins ak#324 item 2: the reset/verify
+// link token rides the URL fragment of the SPA redirect, never the query, and
+// the redirect is uncacheable.
+func TestLinkLandingUsesFragmentAndNoStore(t *testing.T) {
+	cfg := newServerTestConfig()
+	cfg.Frontend.BaseURL = "https://app.example/"
+	cfg.Frontend.VerifyPath = "/verify"
+	cfg.Frontend.PasswordResetPath = "/reset"
+	srv, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithoutRateLimiter())
+	require.NoError(t, err)
+	h := srv.APIHandler()
+
+	for path, want := range map[string]string{
+		"/email/verify/confirm?token=sekrit&return_to=/next": "https://app.example/verify#channel=email&return_to=%2Fnext&status=ready&token=sekrit",
+		"/phone/verify/confirm?token=sekrit":                 "https://app.example/verify#channel=phone&status=ready&token=sekrit",
+		"/email/password/reset/confirm?token=sekrit":         "https://app.example/reset#channel=email&status=ready&token=sekrit",
+		"/phone/password/reset/confirm?token=sekrit":         "https://app.example/reset#channel=phone&status=ready&token=sekrit",
+		"/email/password/reset/confirm":                      "https://app.example/reset#channel=email&status=invalid_request",
+	} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusFound, w.Code, path)
+		require.Equal(t, want, w.Header().Get("Location"), path)
+		require.NotContains(t, w.Header().Get("Location"), "?token=", path)
+		require.Equal(t, "no-store", w.Header().Get("Cache-Control"), path)
+	}
 }

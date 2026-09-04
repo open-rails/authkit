@@ -22,6 +22,11 @@ func (s *Service) handlePhonePasswordResetConfirmGET(w http.ResponseWriter, r *h
 	s.redirectLinkLanding(w, r, s.svc.Config().Frontend.PasswordResetPath, "phone")
 }
 
+// redirectLinkLanding hands the emailed/texted link token to the host SPA in
+// the URL FRAGMENT (never the query: fragments are not sent to the server, do
+// not land in access logs or Referer) with Cache-Control: no-store — the same
+// shape browser_error.go uses for its token-bearing redirects (ak#324).
+// Frontends read location.hash on VerifyPath / PasswordResetPath.
 func (s *Service) redirectLinkLanding(w http.ResponseWriter, r *http.Request, frontendPath, channel string) {
 	q := url.Values{}
 	q.Set("status", "ready")
@@ -34,20 +39,10 @@ func (s *Service) redirectLinkLanding(w http.ResponseWriter, r *http.Request, fr
 	if rt := sanitizeReturnTo(r.URL.Query().Get("return_to")); rt != "/" {
 		q.Set("return_to", rt)
 	}
-	http.Redirect(w, r, buildFrontendURL(s.svc.Config().Frontend.BaseURL, frontendPath, q), http.StatusFound)
-}
-
-func buildFrontendURL(baseURL, frontendPath string, q url.Values) string {
 	if strings.TrimSpace(frontendPath) == "" {
 		frontendPath = "/"
 	}
-	target := strings.TrimRight(strings.TrimSpace(baseURL), "/") + frontendPath
-	if encoded := q.Encode(); encoded != "" {
-		if strings.Contains(frontendPath, "?") {
-			target += "&" + encoded
-		} else {
-			target += "?" + encoded
-		}
-	}
-	return target
+	target := strings.TrimRight(strings.TrimSpace(s.svc.Config().Frontend.BaseURL), "/") + frontendPath + "#" + q.Encode()
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, target, http.StatusFound)
 }
