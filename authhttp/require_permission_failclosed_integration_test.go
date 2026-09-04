@@ -27,8 +27,10 @@ func TestRequirePermission_FailsClosedWhenDatabaseIsDown(t *testing.T) {
 	require.NotEmpty(t, perms, "fixture must grant a permission so the deny is not trivial")
 	perm := perms[0]
 
+	group, err := svc.GroupInstanceForSlug(ctx, "root", "")
+	require.NoError(t, err)
 	gate := verify.RequirePermission(svc, perm, func(*http.Request) verify.PermissionScope {
-		return verify.PermissionScope{Persona: "root"}
+		return verify.PermissionScope{GroupID: group.ID, AuthorityIssuer: svc.Config().Token.Issuer, Persona: "root"}
 	})
 	serve := func() (int, bool) {
 		called := false
