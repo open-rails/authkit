@@ -1,23 +1,34 @@
 package authhttp
 
-// ak#261: the delegated-token mint route. All mechanics are AuthKit-owned and
-// config-declared (Config.Delegated): audience-subset clamp, TTL clamp into
-// the validated floor/default/ceiling, document-digest stamping from the wired
-// DocumentProviders, and post-mint signing-KID reconciliation. The host
-// contributes ONLY the injected attribute provider (WithDelegatedAttributes)
-// — AuthKit never learns what the attributes mean.
+// ak#261/#277: the delegated-token mint route. AuthKit owns every mechanic —
+// audience-subset clamp, TTL clamp, delegate-certificate validation and RFC
+// 8705 `cnf.x5t#S256` binding, document stamping from the wired
+// DocumentProviders, and post-mint signing-KID reconciliation. The host owns
+// exactly one decision: the DelegationAuthorizer's grant, which is the
+// complete authority signed. Client input never becomes authority directly.
 
 import (
+	"bytes"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
+)
+
+// Route bounds (#277). Named constants, not deployment knobs.
+const (
+	maxDelegateCertificateDER = 8 << 10
+	maxRequestedGrantBytes    = 16 << 10
+	maxDelegatedTokenBytes    = 16 << 10
 )
 
 type delegatedTokenRequest struct {
@@ -27,16 +38,17 @@ type delegatedTokenRequest struct {
 	// Audiences is an optional narrowing; every requested audience must be in
 	// the configured allowlist. Absent mints the full configured list.
 	Audiences []string `json:"audiences,omitempty"`
+	// DelegateCertificateDERB64URL is the delegate's public X.509 leaf as
+	// unpadded base64url DER. The token is bound to exactly this certificate.
+	DelegateCertificateDERB64URL string `json:"delegate_certificate_der_b64url"`
+	// RequestedGrant is one host-schema JSON object passed to the authorizer
+	// verbatim and never copied into the token.
+	RequestedGrant json.RawMessage `json:"requested_grant"`
 }
 
 type delegatedTokenResponse struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
-	// Attributes echoes what the host's attribute provider stamped, so clients
-	// need not decode the token to see their own attributes.
-	Attributes map[string]any `json:"attributes,omitempty"`
-	// Documents echoes the stamped document references (type -> digest).
-	Documents map[string]string `json:"documents,omitempty"`
 }
 
 func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Request) {
@@ -48,9 +60,14 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
+	authorize := s.svc.DelegationAuthorizer()
+	if authorize == nil {
+		sendErr(w, http.StatusServiceUnavailable, ErrDelegationAuthorizerUnavailable)
+		return
+	}
 
 	var req delegatedTokenRequest
-	if err := decodeOptionalJSON(r, &req); err != nil {
+	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
@@ -62,19 +79,44 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ttl := clampDelegatedTTL(cfg, req.TTLSeconds)
+	now := time.Now().UTC()
+	expiresAt := now.Add(ttl)
 
-	var attributes map[string]any
-	references := map[string]string{}
-	if provider := s.svc.DelegatedAttributesProvider(); provider != nil {
-		hostAttributes, hostDocuments, err := provider(r.Context(), claims.UserID)
-		if err != nil {
-			sendErr(w, http.StatusServiceUnavailable, ErrDelegatedAttributesUnavailable)
-			return
-		}
-		attributes = hostAttributes
-		for documentType, digest := range hostDocuments {
-			references[documentType] = digest
-		}
+	certificate, err := parseDelegateCertificate(req.DelegateCertificateDERB64URL, now)
+	if err != nil {
+		badRequestParam(w, ErrInvalidDelegateCertificate, "delegate_certificate_der_b64url")
+		return
+	}
+	if expiresAt.After(certificate.NotAfter) {
+		badRequestParam(w, ErrTTLExceedsDelegateCertificate, "ttl_seconds")
+		return
+	}
+	if !validRequestedGrant(req.RequestedGrant) {
+		badRequestParam(w, ErrInvalidRequestedGrant, "requested_grant")
+		return
+	}
+	thumbprint := jwtkit.CertificateSHA256(certificate.Raw)
+
+	grant, err := authorize(r.Context(), authkit.DelegationRequest{
+		UserID:                        claims.UserID,
+		Audiences:                     audiences,
+		TTL:                           ttl,
+		ConfirmationCertificateSHA256: thumbprint,
+		DelegateCertificate:           certificate,
+		RequestedGrant:                req.RequestedGrant,
+	})
+	switch {
+	case errors.Is(err, authkit.ErrDelegationRefused):
+		forbidden(w, ErrDelegationRefused)
+		return
+	case err != nil:
+		sendErr(w, http.StatusServiceUnavailable, ErrDelegationAuthorizerUnavailable)
+		return
+	}
+
+	references := make(map[string]string, len(grant.Documents)+len(s.documentProviders))
+	for documentType, digest := range grant.Documents {
+		references[documentType] = digest
 	}
 	// Registered providers are authoritative for their document types; a host
 	// document colliding with a provider's type on a different digest is a
@@ -88,16 +130,21 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		references[ref.Type] = ref.Digest
 	}
 
-	expiresAt := time.Now().UTC().Add(ttl)
 	token, err := s.svc.MintDelegatedAccessToken(r.Context(), authkit.DelegatedAccessParams{
-		Audiences:        audiences,
-		DelegatedSubject: claims.UserID,
-		Documents:        references,
-		Attributes:       attributes,
-		TTL:              ttl,
+		Audiences:                     audiences,
+		DelegatedSubject:              claims.UserID,
+		Permissions:                   grant.Permissions,
+		Documents:                     references,
+		Attributes:                    grant.Attributes,
+		TTL:                           ttl,
+		ConfirmationCertificateSHA256: &thumbprint,
 	})
 	if err != nil {
 		serverErr(w, ErrDelegatedMintFailed)
+		return
+	}
+	if len(token) > maxDelegatedTokenBytes {
+		serverErr(w, ErrDelegatedTokenTooLarge)
 		return
 	}
 
@@ -124,15 +171,40 @@ func (s *Service) handleDelegatedTokenPOST(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	if len(references) == 0 {
-		references = nil
+	writeJSON(w, http.StatusOK, delegatedTokenResponse{Token: token, ExpiresAt: expiresAt})
+}
+
+// parseDelegateCertificate accepts exactly one currently valid, non-CA X.509
+// certificate with an explicit clientAuth extended key usage, as unpadded
+// base64url DER of at most maxDelegateCertificateDER bytes.
+func parseDelegateCertificate(encoded string, now time.Time) (*x509.Certificate, error) {
+	if encoded == "" || len(encoded) > base64.RawURLEncoding.EncodedLen(maxDelegateCertificateDER) {
+		return nil, errors.New("invalid delegate certificate")
 	}
-	writeJSON(w, http.StatusOK, delegatedTokenResponse{
-		Token:      token,
-		ExpiresAt:  expiresAt,
-		Attributes: attributes,
-		Documents:  references,
-	})
+	der, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || len(der) == 0 || len(der) > maxDelegateCertificateDER {
+		return nil, errors.New("invalid delegate certificate")
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, errors.New("invalid delegate certificate")
+	}
+	switch {
+	case certificate.IsCA,
+		now.Before(certificate.NotBefore),
+		now.After(certificate.NotAfter),
+		!slices.Contains(certificate.ExtKeyUsage, x509.ExtKeyUsageClientAuth):
+		return nil, errors.New("invalid delegate certificate")
+	}
+	return certificate, nil
+}
+
+// validRequestedGrant requires one JSON object of at most maxRequestedGrantBytes.
+func validRequestedGrant(raw json.RawMessage) bool {
+	if len(raw) == 0 || len(raw) > maxRequestedGrantBytes || !json.Valid(raw) {
+		return false
+	}
+	return bytes.HasPrefix(bytes.TrimLeft(raw, " \t\r\n"), []byte("{"))
 }
 
 // resolveDelegatedAudiences applies the audience-subset clamp: an empty

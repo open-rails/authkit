@@ -103,12 +103,12 @@ type ApplicationsConfig struct {
 	OrgPersona string
 }
 
-// DelegatedConfig configures the delegated-token mint route (#261,
+// DelegatedConfig configures the delegated-token mint route (#261/#277,
 // POST /delegated/token under the API prefix). All four knobs are DATA: the
-// mint mechanics (audience-subset clamp, TTL clamp, document stamping, KID
-// reconciliation) live in AuthKit; the host contributes only an attribute
-// provider (WithDelegatedAttributes) and optional document providers
-// (authhttp.WithDocuments).
+// mint mechanics (audience-subset clamp, TTL clamp, certificate binding,
+// document stamping, KID reconciliation) live in AuthKit; the host contributes
+// the required delegation authorizer (WithDelegatedAuthorization) and optional
+// document providers (authhttp.WithDocuments).
 type DelegatedConfig struct {
 	// Audiences is the allowlist. Requested audiences must be a subset; an
 	// empty request receives the full list. Empty = the route is disabled.

@@ -68,12 +68,11 @@ func WithInstanceAdmission(pred func(ctx context.Context, persona, instanceSlug,
 // WithEntitlements sets the entitlements provider.
 func WithEntitlements(p EntitlementsProvider) Option { return func(s *Service) { s.entitlements = p } }
 
-// WithDelegatedAttributes injects the host's attribute provider for the
-// delegated-token mint route (#261). AuthKit calls it with the authenticated
-// user and stamps whatever attributes/documents it returns — it never
-// interprets them (same idiom as WithEntitlements).
-func WithDelegatedAttributes(p DelegatedAttributeProvider) Option {
-	return func(s *Service) { s.delegatedAttributes = p }
+// WithDelegatedAuthorization injects the host's delegation authorizer for the
+// delegated-token mint route (#261/#277). Its grant is the complete authority
+// AuthKit signs; AuthKit never interprets it (same idiom as WithEntitlements).
+func WithDelegatedAuthorization(a DelegationAuthorizer) Option {
+	return func(s *Service) { s.delegationAuthorizer = a }
 }
 
 // WithEmailSender sets the email provider.

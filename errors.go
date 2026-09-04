@@ -287,7 +287,7 @@ var errorSentinels = []error{
 	ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
 	ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
 	ErrAccountRegistrationInviteRevoked, ErrCustomClaimsReserved,
-	ErrCustomJWTReservedType, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
+	ErrCustomJWTReservedType, ErrDelegationRefused, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
 	ErrEmailSenderUnavailable, ErrEmptyCustomClaims, ErrEntitlementFilterUnavailable,
 	ErrExternalInvitesDisabled, ErrGroupNotFound, ErrInsufficientRoleAuthority,
 	ErrInvalidAttributeDef, ErrInvalidBootstrapManifest, ErrInvalidUntil,

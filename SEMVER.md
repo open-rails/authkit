@@ -515,7 +515,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/applications/register` | applications | none (#264 — the server-side domain fetch is the proof; the slug is a separately claimed handle; mounted only with `Applications.SelfRegistration`) |
 | POST | `/applications/{slug}/rotate` | applications | per-message JWS (#264) |
 | POST | `/applications/{slug}/repoint` | applications | per-message JWS + new-domain proof (#264) |
-| POST | `/delegated/token` | delegated | required user (#261 — mounted only when `Delegated.Audiences` is set) |
+| POST | `/delegated/token` | delegated | required user (#261/#277 — certificate-bound `cnf.x5t#S256`; mounted only when `Delegated.Audiences` is set and `WithDelegatedAuthorization` is wired) |
 | GET\|HEAD | `/.well-known/authkit/documents/{digest}` | documents | remote application pinned by `Documents.Readers` (#260 — root-anchored like JWKS; mounted only with `WithDocuments` providers) |
 
 ### 5.4 Generated permission-group routes (covered, schema-derived)
@@ -637,7 +637,7 @@ differ only in claims/`typ`. The **`typ` header values and claim semantics are f
 | Credential | `typ` / marker | Authority source |
 |---|---|---|
 | User access token | `access+jwt` | local user identity + `sid` + short-lived `entitlements` |
-| Delegated access token | `delegated-access+jwt` + `delegated_sub` | `permissions`, validated vs issuer's stored authority |
+| Delegated access token | `delegated-access+jwt` + `delegated_sub` (+ `cnf.x5t#S256` when certificate-bound, #277) | `permissions`, validated vs issuer's stored authority; a bound token requires the exact TLS peer leaf |
 | Remote application access token | `remote-application-access+jwt` (no `sub`/`delegated_sub`) | stored authority resolved from validated `iss` |
 | Service JWT | `service+jwt` + `token_use=service` | receiver intersects requested perms with server grants |
 | API key | opaque `<prefix>_st_<key_id>_<secret>` | DB perms/resources resolved by hashing secret |
@@ -649,7 +649,8 @@ resolved server-side via `/me` and route state. This compact shape is a covered 
 The Go view is `verify.Claims` (covered struct). Removing/retyping a field is MAJOR;
 adding a field is MINOR. Key fields: `UserID`, `SessionID`, `Entitlements`, `AMR`, `ACR`,
 `AuthTime`, `TwoFAEnrollment`, `Issuer`, `JTI`, `TokenTyp`, `TokenType`, `Permissions`,
-`Resources`, `DelegatedSubject`, `DelegatedRoles`, `Attributes`, `Documents`, `UserTier`,
+`Resources`, `DelegatedSubject`, `DelegatedRoles`, `Attributes`, `Documents`,
+`ConfirmationCertificateSHA256`, `UserTier`,
 `RemoteApplicationID`/`Slug`. `Attributes` (the `attributes` claim) is the namespaced,
 opaque escape hatch AuthKit transports but never interprets. Delegated-token
 `Documents` is the validated top-level `documents` map (versioned type -> exact
