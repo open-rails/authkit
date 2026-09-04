@@ -1,10 +1,11 @@
 package authcore
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	authkit "github.com/open-rails/authkit"
 )
 
 // Delegated mint defaults (#261). Applied to unset DelegatedConfig fields
@@ -15,13 +16,15 @@ const (
 	DefaultDelegatedTTLCeiling = time.Hour
 )
 
-// DelegatedAttributeProvider is the HOST-INJECTED seam of the delegated-token
-// mint route (#261): given the authenticated user, it returns the attributes
-// and per-user document references to stamp into the minted token. AuthKit
-// never learns what the attributes mean (billing tiers, entitlements, …) —
-// same dependency idiom as WithEntitlements. A nil attributes/documents map is
-// fine; an error refuses the mint.
-type DelegatedAttributeProvider func(ctx context.Context, userID string) (attributes map[string]any, documents map[string]string, err error)
+// DelegationAuthorizer is the HOST-INJECTED seam of the delegated-token mint
+// route (#261/#277): AuthKit validates the request's cryptographic facts, the
+// host decides the exact permissions/attributes/documents to sign. Required
+// whenever the route is mounted; an error refuses the mint.
+type (
+	DelegationAuthorizer = authkit.DelegationAuthorizer
+	DelegationRequest    = authkit.DelegationRequest
+	DelegationGrant      = authkit.DelegationGrant
+)
 
 // normalizeDelegatedConfig applies defaults and refuses an impossible TTL
 // triple at construction (#231 house style: boot refusal, never a silent

@@ -85,10 +85,10 @@ func (s *Service) EntitlementsProvider() EntitlementsProvider {
 	return s.entitlements
 }
 
-// DelegatedAttributesProvider returns the host-injected delegated-token
-// attribute provider (#261), nil when none was wired.
-func (s *Service) DelegatedAttributesProvider() DelegatedAttributeProvider {
-	return s.delegatedAttributes
+// DelegationAuthorizer returns the host-injected delegated-token authorizer
+// (#277), nil when none was wired.
+func (s *Service) DelegationAuthorizer() DelegationAuthorizer {
+	return s.delegationAuthorizer
 }
 
 // --- Refresh tokens are implemented via server-side sessions in service_sessions.go ---

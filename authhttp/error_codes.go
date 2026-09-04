@@ -144,14 +144,20 @@ const (
 	// ErrDeleteRoleFailed is the delete_role_failed AuthKit HTTP wire error code.
 	ErrDeleteRoleFailed ErrorCode = "delete_role_failed"
 
-	// ErrDelegatedAttributesUnavailable is the delegated_attributes_unavailable AuthKit HTTP wire error code.
-	ErrDelegatedAttributesUnavailable ErrorCode = "delegated_attributes_unavailable"
-
 	// ErrDelegatedDocumentUnavailable is the delegated_document_unavailable AuthKit HTTP wire error code.
 	ErrDelegatedDocumentUnavailable ErrorCode = "delegated_document_unavailable"
 
 	// ErrDelegatedMintFailed is the delegated_mint_failed AuthKit HTTP wire error code.
 	ErrDelegatedMintFailed ErrorCode = "delegated_mint_failed"
+
+	// ErrDelegatedTokenTooLarge is the delegated_token_too_large AuthKit HTTP wire error code.
+	ErrDelegatedTokenTooLarge ErrorCode = "delegated_token_too_large"
+
+	// ErrDelegationAuthorizerUnavailable is the delegation_authorizer_unavailable AuthKit HTTP wire error code.
+	ErrDelegationAuthorizerUnavailable ErrorCode = "delegation_authorizer_unavailable"
+
+	// ErrDelegationRefused is the delegation_refused AuthKit HTTP wire error code.
+	ErrDelegationRefused ErrorCode = "delegation_refused"
 
 	// ErrDocumentDigestCollision is the document_digest_collision AuthKit HTTP wire error code.
 	ErrDocumentDigestCollision ErrorCode = "document_digest_collision"
@@ -289,6 +295,15 @@ const (
 
 	// ErrInvalidAudiences is the invalid_audiences AuthKit HTTP wire error code.
 	ErrInvalidAudiences ErrorCode = "invalid_audiences"
+
+	// ErrInvalidDelegateCertificate is the invalid_delegate_certificate AuthKit HTTP wire error code.
+	ErrInvalidDelegateCertificate ErrorCode = "invalid_delegate_certificate"
+
+	// ErrInvalidRequestedGrant is the invalid_requested_grant AuthKit HTTP wire error code.
+	ErrInvalidRequestedGrant ErrorCode = "invalid_requested_grant"
+
+	// ErrTTLExceedsDelegateCertificate is the ttl_exceeds_delegate_certificate AuthKit HTTP wire error code.
+	ErrTTLExceedsDelegateCertificate ErrorCode = "ttl_exceeds_delegate_certificate"
 
 	// ErrInvalidChallenge is the invalid_challenge AuthKit HTTP wire error code.
 	ErrInvalidChallenge ErrorCode = "invalid_challenge"

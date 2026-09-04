@@ -192,6 +192,14 @@ func (s *Service) validate(cfg embedded.Config) error {
 	if len(s.documentProviders) == 0 && len(cfg.Documents.Readers) > 0 {
 		return fmt.Errorf("authkit: Config.Documents.Readers is set but no document providers are wired — pass authhttp.WithDocuments(...) or drop the dead config")
 	}
+	// #277: the delegated mint route never runs without its host authorizer,
+	// and an authorizer with no route is dead wiring. Both refuse at construction.
+	if len(cfg.Delegated.Audiences) > 0 && s.svc.DelegationAuthorizer() == nil {
+		return fmt.Errorf("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — pass embedded.WithDelegatedAuthorization(...)")
+	}
+	if len(cfg.Delegated.Audiences) == 0 && s.svc.DelegationAuthorizer() != nil {
+		return fmt.Errorf("authkit: embedded.WithDelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")
+	}
 	seenDocumentTypes := make(map[string]bool, len(s.documentProviders))
 	for _, p := range s.documentProviders {
 		if p == nil {

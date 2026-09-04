@@ -48,7 +48,7 @@ func (v *Verifier) VerifyRequest(r *http.Request) (Claims, error) {
 		return scl, nil
 	}
 
-	cl, err := v.Verify(tokenStr)
+	cl, err := v.verify(tokenStr, peerCertificateSHA256(r))
 	if err != nil {
 		return Claims{}, &authError{http.StatusUnauthorized, err.Error()}
 	}

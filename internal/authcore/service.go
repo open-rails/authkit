@@ -110,10 +110,10 @@ type Service struct {
 	schema       string       // validated Postgres schema name; db.DefaultSchema when unset
 	groupSchema  *GroupSchema // #111 permission-group persona schema (nil ⇒ root-only default)
 	entitlements EntitlementsProvider
-	// delegatedAttributes is the host-injected attribute provider for the
-	// delegated-token mint route (#261). Nil = mint without host attributes.
-	delegatedAttributes DelegatedAttributeProvider
-	solanaSNSResolver   defaultSolanaSNSResolver
+	// delegationAuthorizer is the host-injected authorizer for the
+	// delegated-token mint route (#277); required when the route is mounted.
+	delegationAuthorizer DelegationAuthorizer
+	solanaSNSResolver    defaultSolanaSNSResolver
 	// snsCacheTTLOverride is a test-only seam for forcing SNS cache staleness; 0 in
 	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
 	snsCacheTTLOverride time.Duration

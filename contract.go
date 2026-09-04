@@ -189,6 +189,10 @@ type DelegatedAccessParams struct {
 	JTI string
 	// NotBefore, when set, becomes the `nbf` claim. Optional.
 	NotBefore time.Time
+	// ConfirmationCertificateSHA256, when set, binds the token to the delegate's
+	// X.509 certificate as RFC 8705 `cnf.x5t#S256`; verification then requires
+	// that exact leaf as the TLS peer. Nil mints an unbound bearer token.
+	ConfirmationCertificateSHA256 *[32]byte
 }
 
 type GroupInviteLink struct {
