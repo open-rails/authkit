@@ -27,35 +27,8 @@ const (
 	// ErrAccessTokenCreateFailed is the access_token_create_failed AuthKit HTTP wire error code.
 	ErrAccessTokenCreateFailed ErrorCode = "access_token_create_failed"
 
-	// ErrAccessTokenListFailed is the access_token_list_failed AuthKit HTTP wire error code.
-	ErrAccessTokenListFailed ErrorCode = "access_token_list_failed"
-
-	// ErrAccessTokenNotFound is the access_token_not_found AuthKit HTTP wire error code.
-	ErrAccessTokenNotFound ErrorCode = "access_token_not_found"
-
-	// ErrAccessTokenRevokeFailed is the access_token_revoke_failed AuthKit HTTP wire error code.
-	ErrAccessTokenRevokeFailed ErrorCode = "access_token_revoke_failed"
-
-	// ErrAccountAlreadyClaimed is the account_already_claimed AuthKit HTTP wire error code.
-	ErrAccountAlreadyClaimed ErrorCode = "account_already_claimed"
-
-	// ErrAccountClaimUserFailed is the account_claim_user_failed AuthKit HTTP wire error code.
-	ErrAccountClaimUserFailed ErrorCode = "account_claim_user_failed"
-
 	// ErrAccountExistsLinkRequired is the account_exists_link_required AuthKit HTTP wire error code.
 	ErrAccountExistsLinkRequired ErrorCode = "account_exists_link_required"
-
-	// ErrAccountParkFailed is the account_park_failed AuthKit HTTP wire error code.
-	ErrAccountParkFailed ErrorCode = "account_park_failed"
-
-	// ErrAccountRestrictFailed is the account_restrict_failed AuthKit HTTP wire error code.
-	ErrAccountRestrictFailed ErrorCode = "account_restrict_failed"
-
-	// ErrAccountUnrestrictFailed is the account_unrestrict_failed AuthKit HTTP wire error code.
-	ErrAccountUnrestrictFailed ErrorCode = "account_unrestrict_failed"
-
-	// ErrAddMemberFailed is the add_member_failed AuthKit HTTP wire error code.
-	ErrAddMemberFailed ErrorCode = "add_member_failed"
 
 	// ErrAddressMismatch is the address_mismatch AuthKit HTTP wire error code.
 	ErrAddressMismatch ErrorCode = "address_mismatch"
@@ -96,18 +69,6 @@ const (
 	// ErrApplicationTierInvalid is the application_tier_invalid AuthKit HTTP wire error code.
 	ErrApplicationTierInvalid ErrorCode = "application_tier_invalid"
 
-	// ErrAssignRoleFailed is the assign_role_failed AuthKit HTTP wire error code.
-	ErrAssignRoleFailed ErrorCode = "assign_role_failed"
-
-	// ErrAttributeDefNotFound is the attribute_def_not_found AuthKit HTTP wire error code.
-	ErrAttributeDefNotFound ErrorCode = "attribute_def_not_found"
-
-	// ErrAttributeDefRegisterFailed is the attribute_def_register_failed AuthKit HTTP wire error code.
-	ErrAttributeDefRegisterFailed ErrorCode = "attribute_def_register_failed"
-
-	// ErrAttributeDefResolveFailed is the attribute_def_resolve_failed AuthKit HTTP wire error code.
-	ErrAttributeDefResolveFailed ErrorCode = "attribute_def_resolve_failed"
-
 	// ErrAuthRequiredForLink is the auth_required_for_link AuthKit HTTP wire error code.
 	ErrAuthRequiredForLink ErrorCode = "auth_required_for_link"
 
@@ -119,9 +80,6 @@ const (
 
 	// ErrAuthkitNotInitialized is the authkit_not_initialized AuthKit HTTP wire error code.
 	ErrAuthkitNotInitialized ErrorCode = "authkit_not_initialized"
-
-	// ErrCancelFailed is the cancel_failed AuthKit HTTP wire error code.
-	ErrCancelFailed ErrorCode = "cancel_failed"
 
 	// ErrCannotRemoveLastOwner is the cannot_remove_last_owner AuthKit HTTP wire error code.
 	ErrCannotRemoveLastOwner ErrorCode = "cannot_remove_last_owner"
@@ -141,12 +99,6 @@ const (
 	// ErrDatabaseError is the database_error AuthKit HTTP wire error code.
 	ErrDatabaseError ErrorCode = "database_error"
 
-	// ErrDefineRoleFailed is the define_role_failed AuthKit HTTP wire error code.
-	ErrDefineRoleFailed ErrorCode = "define_role_failed"
-
-	// ErrDeleteRoleFailed is the delete_role_failed AuthKit HTTP wire error code.
-	ErrDeleteRoleFailed ErrorCode = "delete_role_failed"
-
 	// ErrDelegatedDocumentUnavailable is the delegated_document_unavailable AuthKit HTTP wire error code.
 	ErrDelegatedDocumentUnavailable ErrorCode = "delegated_document_unavailable"
 
@@ -162,14 +114,8 @@ const (
 	// ErrDelegationRefused is the delegation_refused AuthKit HTTP wire error code.
 	ErrDelegationRefused ErrorCode = "delegation_refused"
 
-	// ErrDocumentDigestCollision is the document_digest_collision AuthKit HTTP wire error code.
-	ErrDocumentDigestCollision ErrorCode = "document_digest_collision"
-
 	// ErrDisableTwoFAFailed is the disable_2fa_failed AuthKit HTTP wire error code.
 	ErrDisableTwoFAFailed ErrorCode = "disable_2fa_failed"
-
-	// ErrDuplicateResource is the duplicate_resource AuthKit HTTP wire error code.
-	ErrDuplicateResource ErrorCode = "duplicate_resource"
 
 	// ErrEmailAlreadyVerified is the email_already_verified AuthKit HTTP wire error code.
 	ErrEmailAlreadyVerified ErrorCode = "email_already_verified"
@@ -222,9 +168,6 @@ const (
 	// ErrFailedToList is the failed_to_list AuthKit HTTP wire error code.
 	ErrFailedToList ErrorCode = "failed_to_list"
 
-	// ErrFailedToListDeletedUsers is the failed_to_list_deleted_users AuthKit HTTP wire error code.
-	ErrFailedToListDeletedUsers ErrorCode = "failed_to_list_deleted_users"
-
 	// ErrFailedToListSignins is the failed_to_list_signins AuthKit HTTP wire error code.
 	ErrFailedToListSignins ErrorCode = "failed_to_list_signins"
 
@@ -249,17 +192,11 @@ const (
 	// ErrFailedToRevokeSessions is the failed_to_revoke_sessions AuthKit HTTP wire error code.
 	ErrFailedToRevokeSessions ErrorCode = "failed_to_revoke_sessions"
 
-	// ErrFailedToSetPassword is the failed_to_set_password AuthKit HTTP wire error code.
-	ErrFailedToSetPassword ErrorCode = "failed_to_set_password"
-
 	// ErrFailedToUnban is the failed_to_unban AuthKit HTTP wire error code.
 	ErrFailedToUnban ErrorCode = "failed_to_unban"
 
 	// ErrFailedToUnlink is the failed_to_unlink AuthKit HTTP wire error code.
 	ErrFailedToUnlink ErrorCode = "failed_to_unlink"
-
-	// ErrFailedToUpdateEmail is the failed_to_update_email AuthKit HTTP wire error code.
-	ErrFailedToUpdateEmail ErrorCode = "failed_to_update_email"
 
 	// ErrFailedToUpdatePreferredLanguage is the failed_to_update_preferred_language AuthKit HTTP wire error code.
 	ErrFailedToUpdatePreferredLanguage ErrorCode = "failed_to_update_preferred_language"
@@ -317,23 +254,11 @@ const (
 	// ErrInvalidCredentials is the invalid_credentials AuthKit HTTP wire error code.
 	ErrInvalidCredentials ErrorCode = "invalid_credentials"
 
-	// ErrInvalidDefinition is the invalid_definition AuthKit HTTP wire error code.
-	ErrInvalidDefinition ErrorCode = "invalid_definition"
-
 	// ErrInvalidEmail is the invalid_email AuthKit HTTP wire error code.
 	ErrInvalidEmail ErrorCode = embedded.ErrCodeInvalidEmail
 
-	// ErrInvalidExpiresAt is the invalid_expires_at AuthKit HTTP wire error code.
-	ErrInvalidExpiresAt ErrorCode = "invalid_expires_at"
-
 	// ErrInvalidExpiry is the invalid_expiry AuthKit HTTP wire error code.
 	ErrInvalidExpiry ErrorCode = "invalid_expiry"
-
-	// ErrInvalidFederationIssuer is the invalid_federation_issuer AuthKit HTTP wire error code.
-	ErrInvalidFederationIssuer ErrorCode = "invalid_federation_issuer"
-
-	// ErrInvalidFederationTrustSource is the invalid_federation_trust_source AuthKit HTTP wire error code.
-	ErrInvalidFederationTrustSource ErrorCode = "invalid_federation_trust_source"
 
 	// ErrInvalidIdentifier is the invalid_identifier AuthKit HTTP wire error code.
 	ErrInvalidIdentifier ErrorCode = "invalid_identifier"
@@ -347,14 +272,8 @@ const (
 	// ErrInvalidOrExpiredCode is the invalid_or_expired_code AuthKit HTTP wire error code.
 	ErrInvalidOrExpiredCode ErrorCode = "invalid_or_expired_code"
 
-	// ErrInvalidOrExpiredResetSession is the invalid_or_expired_reset_session AuthKit HTTP wire error code.
-	ErrInvalidOrExpiredResetSession ErrorCode = "invalid_or_expired_reset_session"
-
 	// ErrInvalidOrExpiredToken is the invalid_or_expired_token AuthKit HTTP wire error code.
 	ErrInvalidOrExpiredToken ErrorCode = "invalid_or_expired_token"
-
-	// ErrInvalidOwnerNamespaceTransition is the invalid_owner_namespace_transition AuthKit HTTP wire error code.
-	ErrInvalidOwnerNamespaceTransition ErrorCode = "invalid_owner_namespace_transition"
 
 	// ErrInvalidPassword is the invalid_password AuthKit HTTP wire error code.
 	ErrInvalidPassword ErrorCode = "invalid_password"
@@ -374,9 +293,6 @@ const (
 	// ErrInvalidRequest is the invalid_request AuthKit HTTP wire error code.
 	ErrInvalidRequest ErrorCode = "invalid_request"
 
-	// ErrInvalidResource is the invalid_resource AuthKit HTTP wire error code.
-	ErrInvalidResource ErrorCode = "invalid_resource"
-
 	// ErrInvalidRole is the invalid_role AuthKit HTTP wire error code.
 	ErrInvalidRole ErrorCode = "invalid_role"
 
@@ -386,17 +302,8 @@ const (
 	// ErrInvalidSignatureEncoding is the invalid_signature_encoding AuthKit HTTP wire error code.
 	ErrInvalidSignatureEncoding ErrorCode = "invalid_signature_encoding"
 
-	// ErrInvalidSlug is the invalid_slug AuthKit HTTP wire error code.
-	ErrInvalidSlug ErrorCode = "invalid_slug"
-
 	// ErrInvalidState is the invalid_state AuthKit HTTP wire error code.
 	ErrInvalidState ErrorCode = "invalid_state"
-
-	// ErrInvalidToken is the invalid_token AuthKit HTTP wire error code.
-	ErrInvalidToken ErrorCode = "invalid_token"
-
-	// ErrInvalidTrustSource is the invalid_trust_source AuthKit HTTP wire error code.
-	ErrInvalidTrustSource ErrorCode = "invalid_trust_source"
 
 	// ErrInvalidUI is the invalid_ui AuthKit HTTP wire error code.
 	ErrInvalidUI ErrorCode = "invalid_ui"
@@ -404,23 +311,8 @@ const (
 	// ErrInvalidUntil is the invalid_until AuthKit HTTP wire error code.
 	ErrInvalidUntil ErrorCode = "invalid_until"
 
-	// ErrInvalidVersion is the invalid_version AuthKit HTTP wire error code.
-	ErrInvalidVersion ErrorCode = "invalid_version"
-
-	// ErrInviteNotFound is the invite_not_found AuthKit HTTP wire error code.
-	ErrInviteNotFound ErrorCode = "invite_not_found"
-
-	// ErrIssuerReserved is the issuer_reserved AuthKit HTTP wire error code.
-	ErrIssuerReserved ErrorCode = "issuer_reserved"
-
 	// ErrLinkFailed is the link_failed AuthKit HTTP wire error code.
 	ErrLinkFailed ErrorCode = "link_failed"
-
-	// ErrMemberPermissionsLookupFailed is the member_permissions_lookup_failed AuthKit HTTP wire error code.
-	ErrMemberPermissionsLookupFailed ErrorCode = "member_permissions_lookup_failed"
-
-	// ErrMemberRolesLookupFailed is the member_roles_lookup_failed AuthKit HTTP wire error code.
-	ErrMemberRolesLookupFailed ErrorCode = "member_roles_lookup_failed"
 
 	// ErrMetadataKeyReserved is the metadata_key_reserved AuthKit HTTP wire error code.
 	ErrMetadataKeyReserved ErrorCode = "metadata_key_reserved"
@@ -431,23 +323,11 @@ const (
 	// ErrMissingName is the missing_name AuthKit HTTP wire error code.
 	ErrMissingName ErrorCode = "missing_name"
 
-	// ErrMissingRole is the missing_role AuthKit HTTP wire error code.
-	ErrMissingRole ErrorCode = "missing_role"
-
 	// ErrMissingSessionID is the missing_session_id AuthKit HTTP wire error code.
 	ErrMissingSessionID ErrorCode = "missing_session_id"
 
 	// ErrMissingSidClaim is the missing_sid_claim AuthKit HTTP wire error code.
 	ErrMissingSidClaim ErrorCode = "missing_sid_claim"
-
-	// ErrNoEmail is the no_email AuthKit HTTP wire error code.
-	ErrNoEmail ErrorCode = "no_email"
-
-	// ErrNoPendingEmailChange is the no_pending_email_change AuthKit HTTP wire error code.
-	ErrNoPendingEmailChange ErrorCode = "no_pending_email_change"
-
-	// ErrNoPendingPhoneChange is the no_pending_phone_change AuthKit HTTP wire error code.
-	ErrNoPendingPhoneChange ErrorCode = "no_pending_phone_change"
 
 	// ErrNotAuthenticated is the not_authenticated AuthKit HTTP wire error code.
 	ErrNotAuthenticated ErrorCode = "not_authenticated"
@@ -461,17 +341,8 @@ const (
 	// ErrOIDCExchangeFailed is the oidc_exchange_failed AuthKit HTTP wire error code.
 	ErrOIDCExchangeFailed ErrorCode = "oidc_exchange_failed"
 
-	// ErrOwnerMembershipRequired is the owner_membership_required AuthKit HTTP wire error code.
-	ErrOwnerMembershipRequired ErrorCode = "owner_membership_required"
-
-	// ErrOwnerNamespaceInfoFailed is the owner_namespace_info_failed AuthKit HTTP wire error code.
-	ErrOwnerNamespaceInfoFailed ErrorCode = "owner_namespace_info_failed"
-
 	// ErrOwnerSlugTaken is the owner_slug_taken AuthKit HTTP wire error code.
 	ErrOwnerSlugTaken ErrorCode = embedded.ErrCodeOwnerSlugTaken
-
-	// ErrOwnerUserNotFound is the owner_user_not_found AuthKit HTTP wire error code.
-	ErrOwnerUserNotFound ErrorCode = "owner_user_not_found"
 
 	// ErrPasswordChangeFailed is the password_change_failed AuthKit HTTP wire error code.
 	ErrPasswordChangeFailed ErrorCode = "password_change_failed"
@@ -491,18 +362,6 @@ const (
 	// ErrPendingRegistrationNotFound is the pending_registration_not_found AuthKit HTTP wire error code.
 	ErrPendingRegistrationNotFound ErrorCode = "pending_registration_not_found"
 
-	// ErrPermissionCheckFailed is the permission_check_failed AuthKit HTTP wire error code.
-	ErrPermissionCheckFailed ErrorCode = "permission_check_failed"
-
-	// ErrPermissionGrantDenied is the permission_grant_denied AuthKit HTTP wire error code.
-	ErrPermissionGrantDenied ErrorCode = "permission_grant_denied"
-
-	// ErrPermissionValidateFailed is the permission_validate_failed AuthKit HTTP wire error code.
-	ErrPermissionValidateFailed ErrorCode = "permission_validate_failed"
-
-	// ErrPermissionsLookupFailed is the permissions_lookup_failed AuthKit HTTP wire error code.
-	ErrPermissionsLookupFailed ErrorCode = "permissions_lookup_failed"
-
 	// ErrPhoneTwoFAUnavailable is the phone_2fa_unavailable AuthKit HTTP wire error code.
 	ErrPhoneTwoFAUnavailable ErrorCode = "phone_2fa_unavailable"
 
@@ -511,9 +370,6 @@ const (
 
 	// ErrPhoneAndCodeRequired is the phone_and_code_required AuthKit HTTP wire error code.
 	ErrPhoneAndCodeRequired ErrorCode = "phone_and_code_required"
-
-	// ErrPhoneChangeUnavailable is the phone_change_unavailable AuthKit HTTP wire error code.
-	ErrPhoneChangeUnavailable ErrorCode = "phone_change_unavailable"
 
 	// ErrPhoneInUse is the phone_in_use AuthKit HTTP wire error code.
 	ErrPhoneInUse ErrorCode = "phone_in_use"
@@ -547,9 +403,6 @@ const (
 
 	// ErrPreferredLanguageLookupFailed is the preferred_language_lookup_failed AuthKit HTTP wire error code.
 	ErrPreferredLanguageLookupFailed ErrorCode = "preferred_language_lookup_failed"
-
-	// ErrProtectedRole is the protected_role AuthKit HTTP wire error code.
-	ErrProtectedRole ErrorCode = "protected_role"
 
 	// ErrProviderAlreadyLinked is the provider_already_linked AuthKit HTTP wire error code.
 	ErrProviderAlreadyLinked ErrorCode = "provider_already_linked"
@@ -586,53 +439,17 @@ const (
 	// ErrRegistrationFailed is the registration_failed AuthKit HTTP wire error code.
 	ErrRegistrationFailed ErrorCode = "registration_failed"
 
-	// ErrRemoteApplicationDeleteFailed is the remote_application_delete_failed AuthKit HTTP wire error code.
-	ErrRemoteApplicationDeleteFailed ErrorCode = "remote_application_delete_failed"
-
-	// ErrRemoteApplicationLookupFailed is the remote_application_lookup_failed AuthKit HTTP wire error code.
-	ErrRemoteApplicationLookupFailed ErrorCode = "remote_application_lookup_failed"
-
-	// ErrRemoteApplicationMembershipFailed is the remote_application_membership_failed AuthKit HTTP wire error code.
-	ErrRemoteApplicationMembershipFailed ErrorCode = "remote_application_membership_failed"
-
 	// ErrRemoteApplicationIssuerConflict indicates an issuer controlled by another group.
 	ErrRemoteApplicationIssuerConflict ErrorCode = "remote_application_issuer_conflict"
 
 	// ErrRemoteApplicationNotFound is the remote_application_not_found AuthKit HTTP wire error code.
 	ErrRemoteApplicationNotFound ErrorCode = "remote_application_not_found"
 
-	// ErrRemoteApplicationOwnerLookupFailed is the remote_application_owner_lookup_failed AuthKit HTTP wire error code.
-	ErrRemoteApplicationOwnerLookupFailed ErrorCode = "remote_application_owner_lookup_failed"
-
-	// ErrRemoteApplicationRegisterFailed is the remote_application_register_failed AuthKit HTTP wire error code.
-	ErrRemoteApplicationRegisterFailed ErrorCode = "remote_application_register_failed"
-
-	// ErrRemoveMemberFailed is the remove_member_failed AuthKit HTTP wire error code.
-	ErrRemoveMemberFailed ErrorCode = "remove_member_failed"
-
 	// ErrRenameRateLimited is the rename_rate_limited AuthKit HTTP wire error code.
 	ErrRenameRateLimited ErrorCode = embedded.ErrCodeRenameRateLimited
 
 	// ErrResendFailed is the resend_failed AuthKit HTTP wire error code.
 	ErrResendFailed ErrorCode = "resend_failed"
-
-	// ErrReservedAccountNotFound is the reserved_account_not_found AuthKit HTTP wire error code.
-	ErrReservedAccountNotFound ErrorCode = "reserved_account_not_found"
-
-	// ErrRoleExceedsGrantor is the role_exceeds_grantor AuthKit HTTP wire error code.
-	ErrRoleExceedsGrantor ErrorCode = "role_exceeds_grantor"
-
-	// ErrRoleNotFound is the role_not_found AuthKit HTTP wire error code.
-	ErrRoleNotFound ErrorCode = "role_not_found"
-
-	// ErrRoleNotGrantableToAPIKey is the role_not_grantable_to_api_key AuthKit HTTP wire error code.
-	ErrRoleNotGrantableToAPIKey ErrorCode = "role_not_grantable_to_api_key"
-
-	// ErrRolePermissionsLookupFailed is the role_permissions_lookup_failed AuthKit HTTP wire error code.
-	ErrRolePermissionsLookupFailed ErrorCode = "role_permissions_lookup_failed"
-
-	// ErrRolePermissionsUpdateFailed is the role_permissions_update_failed AuthKit HTTP wire error code.
-	ErrRolePermissionsUpdateFailed ErrorCode = "role_permissions_update_failed"
 
 	// ErrSendCodeFailed is the send_code_failed AuthKit HTTP wire error code.
 	ErrSendCodeFailed ErrorCode = "send_code_failed"
@@ -652,20 +469,11 @@ const (
 	// ErrStateStoreFailed is the state_store_failed AuthKit HTTP wire error code.
 	ErrStateStoreFailed ErrorCode = "state_store_failed"
 
-	// ErrTokenCreationFailed is the token_creation_failed AuthKit HTTP wire error code.
-	ErrTokenCreationFailed ErrorCode = "token_creation_failed"
-
 	// ErrTokenIssueFailed is the token_issue_failed AuthKit HTTP wire error code.
 	ErrTokenIssueFailed ErrorCode = "token_issue_failed"
 
-	// ErrUnassignRoleFailed is the unassign_role_failed AuthKit HTTP wire error code.
-	ErrUnassignRoleFailed ErrorCode = "unassign_role_failed"
-
 	// ErrUnauthorized is the unauthorized AuthKit HTTP wire error code.
 	ErrUnauthorized ErrorCode = "unauthorized"
-
-	// ErrUnknownPermission is the unknown_permission AuthKit HTTP wire error code.
-	ErrUnknownPermission ErrorCode = "unknown_permission"
 
 	// ErrUnknownProvider is the unknown_provider AuthKit HTTP wire error code.
 	ErrUnknownProvider ErrorCode = "unknown_provider"
@@ -678,9 +486,6 @@ const (
 
 	// ErrUserCreationFailed is the user_creation_failed AuthKit HTTP wire error code.
 	ErrUserCreationFailed ErrorCode = "user_creation_failed"
-
-	// ErrUserInvitesLookupFailed is the user_invites_lookup_failed AuthKit HTTP wire error code.
-	ErrUserInvitesLookupFailed ErrorCode = "user_invites_lookup_failed"
 
 	// ErrUserLookupFailed is the user_lookup_failed AuthKit HTTP wire error code.
 	ErrUserLookupFailed ErrorCode = "user_lookup_failed"
