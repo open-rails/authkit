@@ -400,7 +400,7 @@ One-step construction (#211): New(cfg, pg, opts...) (*Service, *embedded.Client,
    as the authkit.Client surface — there is no svc.Core() accessor; the former
    `Server = Service` alias was removed pre-1.0, #206)
 Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
-  WithCloudflareProxies, WithClientIPFunc, WithLanguageConfig
+  WithCloudflareProxies, WithDirectPeerIP, WithClientIPFunc, WithLanguageConfig
 Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
   svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)

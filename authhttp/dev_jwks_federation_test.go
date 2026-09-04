@@ -88,7 +88,7 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"}) // lazy; never contacted
 	t.Cleanup(func() { _ = rdb.Close() })
 	client := newServerClient(t, cfg, pool)
-	s, err := NewServer(client, WithRedis(rdb))
+	s, err := NewServer(client, WithRedis(rdb), WithDirectPeerIP())
 	require.NoError(t, err)
 
 	core := embedded.Unwrap(client)
