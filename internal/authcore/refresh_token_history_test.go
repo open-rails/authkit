@@ -118,7 +118,7 @@ func TestRefreshTokenHistory_CutoverRevokesExistingSessions(t *testing.T) {
 	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO profiles.users DEFAULT VALUES RETURNING id::text`).Scan(&uid))
 	require.NoError(t, pg.Pool.QueryRow(ctx, `INSERT INTO profiles.refresh_sessions(id,family_id,user_id,issuer,current_token_hash,previous_token_hash)
  VALUES(uuidv7(),uuidv7(),$1::uuid,'https://migration.example',$2,$3) RETURNING id::text`, uid, []byte("current"), []byte("previous")).Scan(&sid))
-	migration, err := pgmigrations.FS.ReadFile("0011_refresh_token_history.up.sql")
+	migration, err := pgmigrations.FS.ReadFile("0012_refresh_token_history.up.sql")
 	require.NoError(t, err)
 	_, err = pg.Pool.Exec(ctx, string(migration))
 	require.NoError(t, err)

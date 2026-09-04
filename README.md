@@ -406,7 +406,7 @@ and their consumed-token history. With the default indefinite lifetime, history
 grows by one hash per rotation until that session is revoked or deleted; pruning
 it earlier would disable replay detection for still-valid credentials.
 
-Migration `0011_refresh_token_history` requires users to authenticate again: it
+Migration `0012_refresh_token_history` requires users to authenticate again: it
 revokes pre-change refresh sessions because previously discarded hashes cannot be
 recovered. It removes the one-generation hash column rather than keeping a
 second lookup format.
