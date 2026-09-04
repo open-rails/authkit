@@ -570,6 +570,9 @@ const (
 	// ErrRemoteApplicationDeleteFailed is the remote_application_delete_failed AuthKit HTTP wire error code.
 	ErrRemoteApplicationDeleteFailed ErrorCode = "remote_application_delete_failed"
 
+	// ErrRemoteApplicationIssuerConflict is the remote_application_issuer_conflict AuthKit HTTP wire error code.
+	ErrRemoteApplicationIssuerConflict ErrorCode = "remote_application_issuer_conflict"
+
 	// ErrRemoteApplicationLookupFailed is the remote_application_lookup_failed AuthKit HTTP wire error code.
 	ErrRemoteApplicationLookupFailed ErrorCode = "remote_application_lookup_failed"
 

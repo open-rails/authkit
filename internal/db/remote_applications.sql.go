@@ -819,12 +819,14 @@ INSERT INTO profiles.remote_applications (slug, permission_group_id, issuer, jwk
 VALUES ($1, $2::uuid, $3, $4, $5, $6, $7)
 ON CONFLICT (issuer) DO UPDATE
   SET slug          = EXCLUDED.slug,
-      permission_group_id = EXCLUDED.permission_group_id,
       jwks_uri      = EXCLUDED.jwks_uri,
       mode          = EXCLUDED.mode,
       public_keys   = EXCLUDED.public_keys,
       enabled       = EXCLUDED.enabled,
       updated_at    = now()
+  -- #282: an issuer never moves between groups; a cross-group conflict updates
+  -- nothing and returns no row.
+  WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
 RETURNING id::text, slug, COALESCE(permission_group_id::text, '')::text AS permission_group_id, issuer, jwks_uri, mode, public_keys, enabled, display_name, tier, trust_root, domain, document_endpoint, root_verified_at, created_at, updated_at
 `
 

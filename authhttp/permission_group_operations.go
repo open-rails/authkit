@@ -695,6 +695,9 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	case errors.Is(err, authkit.ErrGroupSlugApplicationManaged):
 		sendErr(w, http.StatusConflict, ErrGroupSlugApplicationManaged)
 		return
+	case errors.Is(err, authkit.ErrRemoteApplicationIssuerConflict):
+		sendErr(w, http.StatusConflict, ErrRemoteApplicationIssuerConflict)
+		return
 	case errors.Is(err, authkit.ErrExternalInvitesDisabled),
 		errors.Is(err, authkit.ErrInsufficientRoleAuthority),
 		errors.Is(err, authkit.ErrRoleAssignmentEscalation):

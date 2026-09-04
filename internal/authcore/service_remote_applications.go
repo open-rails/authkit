@@ -42,6 +42,10 @@ var (
 	// claim it would overwrite the trusted local issuer entry (key-swap / auth
 	// DoS — see AK-AUTH-01).
 	ErrReservedIssuer = authkit.ErrReservedIssuer
+	// ErrRemoteApplicationIssuerConflict indicates the issuer is already
+	// registered under a different permission group (#282): issuer ownership
+	// never moves across groups, so only the owning group may re-register it.
+	ErrRemoteApplicationIssuerConflict = authkit.ErrRemoteApplicationIssuerConflict
 )
 
 // Remote-application trust modes (#74). A remote_application is a federation
@@ -318,6 +322,11 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 		return nil, fmt.Errorf("%w: permission_group_id is required (remote-applications are group-nested)", ErrInvalidRemoteApplication)
 	}
 	groupID := &t
+	if existing, err := s.q.RemoteApplicationByIssuer(ctx, issuer); err == nil && existing.PermissionGroupID != t {
+		return nil, ErrRemoteApplicationIssuerConflict
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 
 	row, err := s.q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
 		Slug:              slug,
@@ -328,6 +337,10 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 		PublicKeys:        keysJSON,
 		Enabled:           in.Enabled,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The store refused a cross-group move that raced past the lookup above.
+		return nil, ErrRemoteApplicationIssuerConflict
+	}
 	if err != nil {
 		return nil, err
 	}
