@@ -88,7 +88,7 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	// The explicit single-instance opt-in permits memory at both layers.
 	memCfg := prodCfg
 	memCfg.Ephemeral = embedded.EphemeralConfig{AllowMemory: true}
-	memSrv, err := NewServer(newServerClient(t, memCfg, pool))
+	memSrv, err := NewServer(newServerClient(t, memCfg, pool), WithDirectPeerIP())
 	require.NoError(t, err, "Ephemeral.AllowMemory must permit the memory backends outside dev")
 	memSrv.Close()
 

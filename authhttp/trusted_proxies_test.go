@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+
+	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 // TestWithTrustedProxies pins #143 and ak#298: X-Forwarded-For is honoured ONLY
@@ -117,12 +119,12 @@ func TestClientIPTrustScope_LimiterKey(t *testing.T) {
 // TestNewServer_RequiresClientIPPosture pins ak#299: a production-like
 // environment must declare how the client IP is derived, or construction fails.
 func TestNewServer_RequiresClientIPPosture(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
-	t.Cleanup(func() { _ = rdb.Close() })
+	rdb := testdb.ScratchRedis(t)
 	prod := newServerTestConfig()
 	prod.Environment = "production"
+	prodClient := func() *embedded.Client { return newServerClient(t, prod, newNoDBPool(t), embedded.WithRedis(rdb)) }
 
-	_, err := NewServer(newServerClient(t, prod, newNoDBPool(t)), WithRedis(rdb))
+	_, err := NewServer(prodClient(), WithRedis(rdb))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "client-IP posture")
 
@@ -132,7 +134,7 @@ func TestNewServer_RequiresClientIPPosture(t *testing.T) {
 		"cloudflare":        WithCloudflareProxies("103.21.244.0/22"),
 		"explicit strategy": WithClientIPFunc(DefaultClientIP()),
 	} {
-		_, err := NewServer(newServerClient(t, prod, newNoDBPool(t)), WithRedis(rdb), opt)
+		_, err := NewServer(prodClient(), WithRedis(rdb), opt)
 		require.NoError(t, err, name)
 	}
 
