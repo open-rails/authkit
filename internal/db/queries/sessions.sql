@@ -19,26 +19,33 @@ FROM profiles.refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 
--- name: SessionByPreviousTokenHash :one
--- Also feeds the ak#274 grace path, which needs the sealed successor, the hash it
--- must verify against, when it was sealed, and the session's auth methods + expiry
--- so a grace re-delivery runs exactly the gates a normal exchange runs.
-SELECT id::text, user_id, family_id::text, auth_methods, expires_at,
-       current_token_hash, previous_successor_sealed, previous_rotated_at
-FROM profiles.refresh_sessions
-WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL;
+-- name: SessionByHistoricalTokenHash :one
+-- A hash that was once current for a still-live family (ak#285). Feeds both
+-- halves of the demoted-token decision: the ak#274 grace path (sealed successor,
+-- the current hash it must open to, when it was sealed) and reuse detection (the
+-- family to revoke).
+SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
+       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
+FROM profiles.refresh_token_history h
+JOIN profiles.refresh_sessions s ON s.family_id = h.family_id
+WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL;
 
 -- name: SessionRotate :execrows
--- Conditional compare-and-swap: rotate only if the current hash still matches the
--- one the caller read. 0 rows affected means another concurrent refresh already
--- rotated this session (or it was revoked) — the caller must treat that as a lost
--- race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
--- previous_successor_sealed/previous_rotated_at record what the token being demoted
--- to `previous` rotated INTO, so the ak#274 grace window can re-deliver it.
-UPDATE profiles.refresh_sessions
-SET previous_token_hash = current_token_hash, current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(), user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr),
-    previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now()
-WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash) AND revoked_at IS NULL;
+-- Compare-and-swap rotation conditioned on the hash the caller read. 0 rows means
+-- a concurrent refresh already rotated this session (a lost race, NOT reuse) or it
+-- was revoked. The demoted hash is recorded in refresh_token_history in the same
+-- statement so it is never briefly unknown (ak#285); previous_successor_sealed /
+-- previous_rotated_at let the ak#274 grace window re-deliver the successor.
+WITH rotated AS (
+  UPDATE profiles.refresh_sessions
+  SET current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(),
+      user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr),
+      previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now()
+  WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash) AND revoked_at IS NULL
+  RETURNING family_id
+)
+INSERT INTO profiles.refresh_token_history (token_hash, family_id)
+SELECT sqlc.arg(expected_current_token_hash)::bytea, family_id FROM rotated;
 
 -- name: SessionsListByUser :many
 -- last_authenticated_at and revoked_at are intentionally NOT selected: the
@@ -127,3 +134,12 @@ RETURNING id::text, user_id::text;
 DELETE FROM profiles.refresh_sessions
 WHERE revoked_at IS NOT NULL
    OR (expires_at IS NOT NULL AND expires_at <= NOW());
+
+-- name: RefreshTokenHistoryDeleteOrphaned :exec
+-- History lives exactly as long as a live family could still present it (ak#285).
+DELETE FROM profiles.refresh_token_history h
+WHERE NOT EXISTS (
+  SELECT 1 FROM profiles.refresh_sessions s
+  WHERE s.family_id = h.family_id AND s.revoked_at IS NULL
+    AND (s.expires_at IS NULL OR s.expires_at > now())
+);

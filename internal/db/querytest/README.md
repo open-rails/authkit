@@ -29,7 +29,7 @@ Coverage is deliberately selective: only queries whose plan can degrade at scale
 are gated (non-unique filters, `ORDER BY`+`LIMIT`, array membership, joins, and
 sweeps over growable tables). PK / unique point lookups are O(1) and not gated.
 Current cases: user-by-email, user-by-username, users-by-id-array, session by
-current/previous hash, sessions list/evict by user, session revoke-by-family,
+current/historical hash, sessions list/evict by user, session revoke-by-family,
 provider link by issuer+subject, provider slugs by user, identity
 forward-username (rename join), users purge sweep, and the raw authcore
 group-roles page query. A case may also assert `ForbidSort` (no `Sort` node) for

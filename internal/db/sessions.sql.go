@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+const refreshTokenHistoryDeleteOrphaned = `-- name: RefreshTokenHistoryDeleteOrphaned :exec
+DELETE FROM profiles.refresh_token_history h
+WHERE NOT EXISTS (
+  SELECT 1 FROM profiles.refresh_sessions s
+  WHERE s.family_id = h.family_id AND s.revoked_at IS NULL
+    AND (s.expires_at IS NULL OR s.expires_at > now())
+)
+`
+
+// History lives exactly as long as a live family could still present it (ak#285).
+func (q *Queries) RefreshTokenHistoryDeleteOrphaned(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, refreshTokenHistoryDeleteOrphaned)
+	return err
+}
+
 const sessionByCurrentTokenHash = `-- name: SessionByCurrentTokenHash :one
 SELECT id::text, user_id, family_id::text, auth_methods
 FROM profiles.refresh_sessions
@@ -41,19 +56,20 @@ func (q *Queries) SessionByCurrentTokenHash(ctx context.Context, arg SessionByCu
 	return i, err
 }
 
-const sessionByPreviousTokenHash = `-- name: SessionByPreviousTokenHash :one
-SELECT id::text, user_id, family_id::text, auth_methods, expires_at,
-       current_token_hash, previous_successor_sealed, previous_rotated_at
-FROM profiles.refresh_sessions
-WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
+const sessionByHistoricalTokenHash = `-- name: SessionByHistoricalTokenHash :one
+SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
+       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
+FROM profiles.refresh_token_history h
+JOIN profiles.refresh_sessions s ON s.family_id = h.family_id
+WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
 `
 
-type SessionByPreviousTokenHashParams struct {
-	PreviousTokenHash []byte
-	Issuer            string
+type SessionByHistoricalTokenHashParams struct {
+	TokenHash []byte
+	Issuer    string
 }
 
-type SessionByPreviousTokenHashRow struct {
+type SessionByHistoricalTokenHashRow struct {
 	ID                      string
 	UserID                  string
 	FamilyID                string
@@ -64,12 +80,13 @@ type SessionByPreviousTokenHashRow struct {
 	PreviousRotatedAt       *time.Time
 }
 
-// Also feeds the ak#274 grace path, which needs the sealed successor, the hash it
-// must verify against, when it was sealed, and the session's auth methods + expiry
-// so a grace re-delivery runs exactly the gates a normal exchange runs.
-func (q *Queries) SessionByPreviousTokenHash(ctx context.Context, arg SessionByPreviousTokenHashParams) (SessionByPreviousTokenHashRow, error) {
-	row := q.db.QueryRow(ctx, sessionByPreviousTokenHash, arg.PreviousTokenHash, arg.Issuer)
-	var i SessionByPreviousTokenHashRow
+// A hash that was once current for a still-live family (ak#285). Feeds both
+// halves of the demoted-token decision: the ak#274 grace path (sealed successor,
+// the current hash it must open to, when it was sealed) and reuse detection (the
+// family to revoke).
+func (q *Queries) SessionByHistoricalTokenHash(ctx context.Context, arg SessionByHistoricalTokenHashParams) (SessionByHistoricalTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, sessionByHistoricalTokenHash, arg.TokenHash, arg.Issuer)
+	var i SessionByHistoricalTokenHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -262,35 +279,40 @@ func (q *Queries) SessionRevokeByIDForUser(ctx context.Context, arg SessionRevok
 }
 
 const sessionRotate = `-- name: SessionRotate :execrows
-UPDATE profiles.refresh_sessions
-SET previous_token_hash = current_token_hash, current_token_hash = $1, last_used_at = now(), user_agent = $2, ip_addr = $3,
-    previous_successor_sealed = $4, previous_rotated_at = now()
-WHERE id = $5 AND current_token_hash = $6 AND revoked_at IS NULL
+WITH rotated AS (
+  UPDATE profiles.refresh_sessions
+  SET current_token_hash = $2, last_used_at = now(),
+      user_agent = $3, ip_addr = $4,
+      previous_successor_sealed = $5, previous_rotated_at = now()
+  WHERE id = $6 AND current_token_hash = $1 AND revoked_at IS NULL
+  RETURNING family_id
+)
+INSERT INTO profiles.refresh_token_history (token_hash, family_id)
+SELECT $1::bytea, family_id FROM rotated
 `
 
 type SessionRotateParams struct {
+	ExpectedCurrentTokenHash []byte
 	NewTokenHash             []byte
 	UserAgent                *string
 	IpAddr                   *string
 	PreviousSuccessorSealed  []byte
 	ID                       string
-	ExpectedCurrentTokenHash []byte
 }
 
-// Conditional compare-and-swap: rotate only if the current hash still matches the
-// one the caller read. 0 rows affected means another concurrent refresh already
-// rotated this session (or it was revoked) — the caller must treat that as a lost
-// race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
-// previous_successor_sealed/previous_rotated_at record what the token being demoted
-// to `previous` rotated INTO, so the ak#274 grace window can re-deliver it.
+// Compare-and-swap rotation conditioned on the hash the caller read. 0 rows means
+// a concurrent refresh already rotated this session (a lost race, NOT reuse) or it
+// was revoked. The demoted hash is recorded in refresh_token_history in the same
+// statement so it is never briefly unknown (ak#285); previous_successor_sealed /
+// previous_rotated_at let the ak#274 grace window re-deliver the successor.
 func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) (int64, error) {
 	result, err := q.db.Exec(ctx, sessionRotate,
+		arg.ExpectedCurrentTokenHash,
 		arg.NewTokenHash,
 		arg.UserAgent,
 		arg.IpAddr,
 		arg.PreviousSuccessorSealed,
 		arg.ID,
-		arg.ExpectedCurrentTokenHash,
 	)
 	if err != nil {
 		return 0, err

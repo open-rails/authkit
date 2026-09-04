@@ -120,3 +120,70 @@ func TestExchangeRefreshToken_ConcurrentSingleWinner(t *testing.T) {
 		t.Fatalf("concurrent exchange of one token: want exactly 1 success, got %d", successes)
 	}
 }
+
+// TestCleanupExpiredAuthState_PrunesTokenHistoryWithFamily (ak#285): every demoted
+// hash is kept while its family is live and dropped by the sweep once the family
+// is revoked; a live family's history survives the same sweep.
+func TestCleanupExpiredAuthState_PrunesTokenHistoryWithFamily(t *testing.T) {
+	svc := keyedServiceWithPG(t)
+	ctx := context.Background()
+	uid := mkRefreshTestUser(t, ctx, svc, "history")
+
+	rotate := func(rt string, n int) {
+		t.Helper()
+		for range n {
+			_, _, next, err := svc.ExchangeRefreshToken(ctx, rt, "ua", nil)
+			if err != nil {
+				t.Fatalf("exchange: %v", err)
+			}
+			rt = next
+		}
+	}
+	familyOf := func(sid string) string {
+		t.Helper()
+		var fam string
+		if err := svc.pg.QueryRow(ctx, `SELECT family_id::text FROM profiles.refresh_sessions WHERE id = $1::uuid`, sid).Scan(&fam); err != nil {
+			t.Fatalf("family: %v", err)
+		}
+		return fam
+	}
+	historyRows := func(fam string) int {
+		t.Helper()
+		var n int
+		if err := svc.pg.QueryRow(ctx, `SELECT count(*) FROM profiles.refresh_token_history WHERE family_id = $1::uuid`, fam).Scan(&n); err != nil {
+			t.Fatalf("history: %v", err)
+		}
+		return n
+	}
+
+	sidDead, rtDead, _, err := svc.IssueRefreshSession(ctx, uid, "ua", nil)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	sidLive, rtLive, _, err := svc.IssueRefreshSession(ctx, uid, "ua", nil)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	rotate(rtDead, 2)
+	rotate(rtLive, 1)
+	dead, live := familyOf(sidDead), familyOf(sidLive)
+	if got := historyRows(dead); got != 2 {
+		t.Fatalf("dead family history = %d, want 2", got)
+	}
+	if got := historyRows(live); got != 1 {
+		t.Fatalf("live family history = %d, want 1", got)
+	}
+
+	if err := svc.revokeFamily(ctx, dead); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if err := svc.CleanupExpiredAuthState(ctx); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if got := historyRows(dead); got != 0 {
+		t.Fatalf("revoked family history = %d, want 0", got)
+	}
+	if got := historyRows(live); got != 1 {
+		t.Fatalf("live family history = %d after sweep, want 1", got)
+	}
+}

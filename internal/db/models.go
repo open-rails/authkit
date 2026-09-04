@@ -153,7 +153,6 @@ type ProfilesRefreshSession struct {
 	Issuer              string
 	FamilyID            string
 	CurrentTokenHash    []byte
-	PreviousTokenHash   []byte
 	CreatedAt           time.Time
 	LastAuthenticatedAt *time.Time
 	LastUsedAt          time.Time
@@ -164,8 +163,14 @@ type ProfilesRefreshSession struct {
 	AuthMethods         []string
 	// Successor refresh token, XOR-sealed under SHA-256(predecessor || domain separator). Readable only by a caller holding the predecessor token; the database alone cannot unseal it (ak#274).
 	PreviousSuccessorSealed []byte
-	// When previous_token_hash last became previous. Bounds the rotation grace window (ak#274).
+	// When the last rotation demoted its predecessor. Bounds the rotation grace window (ak#274).
 	PreviousRotatedAt *time.Time
+}
+
+type ProfilesRefreshTokenHistory struct {
+	TokenHash []byte
+	FamilyID  string
+	DemotedAt time.Time
 }
 
 // Federation principals: external systems that authenticate by signing JWTs verified against configured keys.

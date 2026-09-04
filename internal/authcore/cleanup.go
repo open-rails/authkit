@@ -28,6 +28,9 @@ func (s *Service) CleanupExpiredAuthState(ctx context.Context) error {
 	if err := s.q.SessionsDeleteRevokedOrExpired(ctx); err != nil {
 		return err
 	}
+	if err := s.q.RefreshTokenHistoryDeleteOrphaned(ctx); err != nil {
+		return err
+	}
 
 	cutoff := time.Now().UTC().Add(-inviteRetention)
 	q := db.ForSchema(s.pg, s.dbSchema())

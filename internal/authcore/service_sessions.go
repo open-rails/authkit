@@ -166,7 +166,7 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 	if err != nil {
 		// No longer current: either a concurrent refresh demoted it a moment ago
 		// (grace re-delivery) or it is genuine reuse (family revoke).
-		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h)
+		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h, ua, ip)
 	}
 	sid, uid := cur.ID, cur.UserID
 
@@ -185,16 +185,16 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", err
 	}
 
-	// Rotate: set previous = current, current = new — as an atomic compare-and-swap
-	// conditioned on the current hash we just read (h). If 0 rows change, another
-	// concurrent refresh already rotated this session (benign double-submit) or it
-	// was revoked; the already-minted token is discarded and the caller is answered
-	// from the grace path below — never from family revoke (losing the race is not
-	// token reuse).
+	// Rotate as an atomic compare-and-swap conditioned on the hash we just read
+	// (h). The same statement records h in refresh_token_history (ak#285), so from
+	// this instant a replay of it is a known-demoted hash, never an unknown one. If
+	// 0 rows change, another concurrent refresh already rotated this session (a
+	// benign double-submit) or it was revoked; the minted token is discarded and
+	// the caller is answered from the demoted path — losing the race is not reuse.
 	//
 	// The rotation also seals the successor under the token it replaces (ak#274), so
-	// that a racer who presents the same predecessor an instant from now is handed
-	// THIS successor rather than a second chain of its own.
+	// a racer presenting the same predecessor an instant from now is handed THIS
+	// successor rather than a second chain of its own.
 	newTok := randB64(32)
 	newHash := s.hashRefresh(newTok)
 	rotated, err := s.q.SessionRotate(ctx, db.SessionRotateParams{
@@ -209,41 +209,43 @@ func (s *Service) ExchangeRefreshToken(ctx context.Context, refreshToken string,
 		return "", time.Time{}, "", err
 	}
 	if rotated == 0 {
-		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h)
+		return s.exchangeDemotedRefreshToken(ctx, refreshToken, h, ua, ip)
 	}
 
 	return accessToken, exp, newTok, nil
 }
 
-// exchangeDemotedRefreshToken answers a token that is no longer `current`. Two
-// causes reach here and they are NOT the same event:
+// exchangeDemotedRefreshToken answers a token that is no longer `current`. The
+// presented hash is looked up in the family's history (every hash the family
+// ever demoted, ak#285). Unknown means exactly that: not this deployment's
+// token, or a family already revoked or expired. Known means one of two things,
+// and the sealed successor tells them apart:
 //
 //   - A concurrent refresh of the SAME token demoted it a moment ago — a shared
 //     credential file, a retried request, a response lost in flight. Inside the
-//     grace window the sealed successor opens and hashes to the row's current
-//     hash, which proves this exact token rotated into it. Handing that successor
-//     back is re-delivery of ONE credential, not a fork: every racer converges on
-//     the same token, which is why a five-way race no longer leaves four dead
-//     credentials and a revoked family behind it.
-//   - Anything else is reuse, and the family is revoked exactly as before. A
-//     stolen token replayed after the window is still caught, so the window is a
-//     bounded delay in detection, never an exemption from it.
-//
-// Minting a FRESH successor for the loser instead would look equally friendly for
-// two racers and fail for three: `previous` holds one token, so the second grace
-// hit would push the first racer's own token out of both slots and strand it. The
-// idempotent shape is the one that scales past two.
-func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte) (string, time.Time, string, error) {
-	prev, err := s.q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: h, Issuer: s.cfg.Token.Issuer})
-	if err != nil {
+//     grace window the seal opens under the presented token and hashes to the
+//     row's current hash, which proves this exact token rotated into it, and the
+//     successor is re-delivered so every racer converges on one credential
+//     (ak#274).
+//   - Anything else — a token two or more generations old, or the predecessor
+//     past the window — is reuse: the family is revoked and the presenter's
+//     IP/UA are recorded as a session_failed event before the reject.
+func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, time.Time, string, error) {
+	row, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: h, Issuer: s.cfg.Token.Issuer})
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", time.Time{}, "", errors.New("invalid refresh token")
 	}
-	successor, ok := s.graceSuccessorFor(refreshToken, prev)
+	if err != nil {
+		return "", time.Time{}, "", err
+	}
+	successor, ok := s.graceSuccessorFor(refreshToken, row)
 	if !ok {
-		s.revokeFamilyEnsured(ctx, prev.FamilyID, prev.UserID)
+		reason := string(SessionRevokeReasonRefreshReuseDetected)
+		s.LogSessionFailed(ctx, row.UserID, row.ID, &reason, ipText(ip), nullable(ua))
+		s.revokeFamilyEnsured(ctx, row.FamilyID, row.UserID)
 		return "", time.Time{}, "", errors.New("refresh token reuse detected")
 	}
-	accessToken, exp, err := s.issueSessionAccessToken(ctx, prev.UserID, prev.ID, prev.AuthMethods)
+	accessToken, exp, err := s.issueSessionAccessToken(ctx, row.UserID, row.ID, row.AuthMethods)
 	if err != nil {
 		return "", time.Time{}, "", err
 	}
@@ -257,7 +259,7 @@ func (s *Service) exchangeDemotedRefreshToken(ctx context.Context, refreshToken 
 // check — the unsealed value hashes to the row's CURRENT token hash. That last one
 // makes the whole thing self-verifying: a seal that does not open to the live
 // successor is not accepted on the strength of the timestamp alone.
-func (s *Service) graceSuccessorFor(presented string, prev db.SessionByPreviousTokenHashRow) (string, bool) {
+func (s *Service) graceSuccessorFor(presented string, prev db.SessionByHistoricalTokenHashRow) (string, bool) {
 	window := s.cfg.Token.RefreshRotationGrace
 	if window <= 0 || len(prev.PreviousSuccessorSealed) == 0 || prev.PreviousRotatedAt == nil {
 		return "", false
