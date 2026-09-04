@@ -134,9 +134,10 @@ func TestMountExcludeDoesNotAlterExemptDerivation(t *testing.T) {
 	// The excluded route itself is gone from the mount (405: its POST/DELETE
 	// siblings still occupy the path — spec-correct ServeMux behavior).
 	require.Equal(t, http.StatusMethodNotAllowed, mountProbe(t, h, http.MethodGet, "/authx/api/v1/user/2fa", auth).Code)
-	// Its sibling exempt route (same path, different method) still passes the gate.
+	// Its sibling exempt route (same path, different method) still passes the
+	// gate; the handler's own fresh-auth check (#281) answers, not the gate.
 	rec := mountProbe(t, h, http.MethodPost, "/authx/api/v1/user/2fa", auth)
-	require.NotEqual(t, http.StatusForbidden, rec.Code)
+	require.NotContains(t, rec.Body.String(), "2fa_enrollment_required")
 	require.NotEqual(t, http.StatusNotFound, rec.Code)
 	// And non-exempt routes are still gated.
 	require.Equal(t, http.StatusForbidden, mountProbe(t, h, http.MethodGet, "/authx/api/v1/me", auth).Code)

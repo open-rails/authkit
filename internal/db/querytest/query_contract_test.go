@@ -149,13 +149,13 @@ func TestQueryContracts(t *testing.T) {
 		}
 
 		step := int64(100)
-		factor, err := q.MFAUpsertFactor(ctx, db.MFAUpsertFactorParams{
+		factor, err := q.MFAInsertFactor(ctx, db.MFAInsertFactorParams{
 			UserID: userID, Method: "totp", TotpSecret: []byte("encrypted-secret"),
 			LastTotpStep: &step, IsDefault: true,
 		})
 		requireNoError(t, err)
 		if factor.Method != "totp" || !factor.IsDefault {
-			t.Fatalf("MFAUpsertFactor = %+v", factor)
+			t.Fatalf("MFAInsertFactor = %+v", factor)
 		}
 
 		nextStep := int64(101)

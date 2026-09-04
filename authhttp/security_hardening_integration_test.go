@@ -25,6 +25,15 @@ func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "step_up_required")
 
+	// #281: 2FA enrollment is a credential-adding action; a stale session may
+	// not start, confirm, or reshape factors, and a password in the body is no
+	// shortcut.
+	for _, body := range []string{`{"method":"totp"}`, `{"method":"totp","code":"123456"}`, `{"factor_id":"x","default":true}`, `{"method":"totp","password":"` + pass + `"}`} {
+		w = serveAuthJSON(srv, http.MethodPost, "/user/2fa", body, token)
+		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), "step_up_required")
+	}
+
 	w = serveAuthJSON(srv, http.MethodDelete, "/user", `{"password":"`+pass+`"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 

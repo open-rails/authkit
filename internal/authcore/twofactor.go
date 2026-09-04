@@ -8,6 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -40,6 +41,22 @@ type TwoFactorFactor struct {
 	Enabled      bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+var ErrTwoFAFactorExists = authkit.ErrTwoFAFactorExists
+
+// TwoFactorMethodEnrolled reports whether the user already has a factor of method.
+func (s *Service) TwoFactorMethodEnrolled(ctx context.Context, userID, method string) (bool, error) {
+	factors, err := s.List2FAFactors(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, f := range factors {
+		if strings.EqualFold(f.Method, method) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Enable2FA enables two-factor authentication for a user and generates backup codes.
@@ -84,6 +101,13 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 	if err != nil {
 		return nil, err
 	}
+	// #281: a live factor is never overwritten. Replacing one is a fresh-auth
+	// gated delete followed by a new enrollment.
+	for _, f := range factors {
+		if f.Method == method {
+			return nil, ErrTwoFAFactorExists
+		}
+	}
 	firstFactor := len(factors) == 0
 	makeDefault = makeDefault || firstFactor
 
@@ -97,7 +121,7 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 			return nil, err
 		}
 	}
-	factor, err := qtx.MFAUpsertFactor(ctx, db.MFAUpsertFactorParams{
+	factor, err := qtx.MFAInsertFactor(ctx, db.MFAInsertFactorParams{
 		UserID:       userID,
 		Method:       method,
 		PhoneNumber:  phoneNumber,
@@ -105,6 +129,9 @@ func (s *Service) enable2FA(ctx context.Context, userID, method string, phoneNum
 		LastTotpStep: lastTOTPStep,
 		IsDefault:    makeDefault,
 	})
+	if isUniqueViolation(err, "uniq_mfa_factors_user_method") {
+		return nil, ErrTwoFAFactorExists
+	}
 	if err != nil {
 		return nil, err
 	}

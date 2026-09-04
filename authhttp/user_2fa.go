@@ -70,6 +70,9 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
+	if !s.allowTwoFactorEnrollment(w, r, claims) {
+		return
+	}
 
 	var req struct {
 		Method      string  `json:"method"`
@@ -137,6 +140,10 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			}
 			secret, uri, err := s.svc.StartTOTPEnrollment(r.Context(), claims.UserID)
 			if err != nil {
+				if errors.Is(err, authkit.ErrTwoFAFactorExists) {
+					sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
+					return
+				}
 				serverErr(w, ErrEnableTwoFAFailed)
 				return
 			}
@@ -150,13 +157,12 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 
 		backupCodes, err := s.svc.EnableTOTP2FA(r.Context(), claims.UserID, req.Code, req.Default)
 		if err != nil {
+			if errors.Is(err, authkit.ErrTwoFAFactorExists) {
+				sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
+				return
+			}
 			badRequest(w, ErrInvalidCode)
 			return
-		}
-		// Enrolling proved a live TOTP code — count it as the session's MFA proof so
-		// the user clears an MFA-required step-up gate without a redundant /step-up/2fa.
-		if claims.SessionID != "" {
-			_ = s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"})
 		}
 		resp := map[string]any{
 			"enabled":      true,
@@ -178,14 +184,12 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		backupCodes, err = s.svc.Enable2FA(r.Context(), claims.UserID, method, req.PhoneNumber)
 	}
 	if err != nil {
+		if errors.Is(err, authkit.ErrTwoFAFactorExists) {
+			sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
+			return
+		}
 		serverErr(w, ErrEnableTwoFAFailed)
 		return
-	}
-
-	// SMS enrollment verified a live code above; count it as the session's MFA
-	// proof. Email enrollment proves no code here, so it does not freshen.
-	if method == "sms" && claims.SessionID != "" {
-		_ = s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"})
 	}
 
 	resp := map[string]any{
@@ -199,6 +203,27 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// allowTwoFactorEnrollment gates POST /user/2fa (#281). A session token must be
+// fresh (MFA-if-enrolled, like every other credential mutation). An enrollment-only
+// token — no session, minted right after a password proof — may only add the
+// user's first factor.
+func (s *Service) allowTwoFactorEnrollment(w http.ResponseWriter, r *http.Request, claims verify.Claims) bool {
+	if !claims.TwoFAEnrollment {
+		ok, _ := s.requireFreshAuthOrPassword(w, r, claims, "")
+		return ok
+	}
+	factors, err := s.svc.List2FAFactors(r.Context(), claims.UserID)
+	if err != nil {
+		serverErr(w, ErrEnableTwoFAFailed)
+		return false
+	}
+	if len(factors) > 0 {
+		forbidden(w, ErrForbidden)
+		return false
+	}
+	return true
+}
+
 func (s *Service) startPhone2FASetup(w http.ResponseWriter, r *http.Request, userID, phone string) {
 	if s.rateLimited(w, r, RL2FAStartPhone) {
 		return
@@ -208,6 +233,13 @@ func (s *Service) startPhone2FASetup(w http.ResponseWriter, r *http.Request, use
 	// of stranding the user waiting for a code that will never arrive.
 	if !s.svc.SMSAvailable() {
 		serverErr(w, ErrPhoneTwoFAUnavailable)
+		return
+	}
+	if enrolled, err := s.svc.TwoFactorMethodEnrolled(r.Context(), userID, "sms"); err != nil {
+		serverErr(w, ErrEnableTwoFAFailed)
+		return
+	} else if enrolled {
+		sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
 		return
 	}
 

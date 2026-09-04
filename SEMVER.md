@@ -628,7 +628,10 @@ The 2FA-gated login variant instead returns:
   "challenge": "...", "default_factor": {...}, "available_factors": [...] }
 ```
 A mandatory-2FA-but-unenrolled login returns `2fa_enrollment_required` with an
-enrollment-only bearer token scoped to `GET/POST /user/2fa`.
+enrollment-only bearer token scoped to `GET/POST /user/2fa` (first factor only).
+With a session token, `POST /user/2fa` requires fresh auth (`step_up_required`
+otherwise) and never replaces a live factor of the same method
+(`2fa_factor_exists`, 409): delete it first, then enroll.
 
 ### 6.4 JWT token taxonomy & claims (covered)
 

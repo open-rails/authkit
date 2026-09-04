@@ -84,6 +84,7 @@ var (
 	ErrStepUpRequired                    = errors.New("step_up_required")
 	ErrTooManyCustomClaims               = errors.New("custom_jwt_too_many_claims")
 	ErrTwoFAEnrollmentRequired           = errors.New("2fa_enrollment_required")
+	ErrTwoFAFactorExists                 = errors.New("2fa_factor_exists")
 	ErrUnknownGroupPersona               = errors.New("unknown_group_persona")
 	ErrUnknownRole                       = errors.New("unknown_role")
 	ErrUserBanned                        = errors.New("user_banned")
@@ -174,6 +175,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrCannotRemoveLastAdminRole:   http.StatusConflict,
 	ErrWalletAlreadyLinked:         http.StatusConflict,
 	ErrWalletChangeRequiresUnlink:  http.StatusConflict,
+	ErrTwoFAFactorExists:           http.StatusConflict,
 	ErrProviderAlreadyLinked:       http.StatusConflict,
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
@@ -293,7 +295,7 @@ var errorSentinels = []error{
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
 	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
-	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
+	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
 	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,

@@ -41,6 +41,11 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 	if !s.useEphemeralStore() {
 		return "", "", fmt.Errorf("ephemeral store not configured")
 	}
+	if enrolled, err := s.TwoFactorMethodEnrolled(ctx, userID, string(TwoFactorTOTP)); err != nil {
+		return "", "", err
+	} else if enrolled {
+		return "", "", ErrTwoFAFactorExists
+	}
 	user, err := s.AdminGetUser(ctx, userID)
 	if err != nil {
 		return "", "", err

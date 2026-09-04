@@ -18,6 +18,9 @@ const (
 	// ErrTwoFAEnrollmentRequired is the 2fa_enrollment_required AuthKit HTTP wire error code.
 	ErrTwoFAEnrollmentRequired ErrorCode = "2fa_enrollment_required"
 
+	// ErrTwoFAFactorExists is the 2fa_factor_exists AuthKit HTTP wire error code.
+	ErrTwoFAFactorExists ErrorCode = "2fa_factor_exists"
+
 	// ErrAbandonFailed is the abandon_failed AuthKit HTTP wire error code.
 	ErrAbandonFailed ErrorCode = "abandon_failed"
 

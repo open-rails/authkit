@@ -53,15 +53,11 @@ UPDATE profiles.mfa_factors
 SET is_default = false, updated_at = NOW()
 WHERE user_id = $1;
 
--- name: MFAUpsertFactor :one
+-- name: MFAInsertFactor :one
+-- Plain insert: a live factor is never overwritten (#281). Replacing one is
+-- MFADeleteFactor (fresh-auth gated) then a new enrollment.
 INSERT INTO profiles.mfa_factors (user_id, method, phone_number, totp_secret, last_totp_step, is_default, updated_at)
 VALUES (sqlc.arg(user_id), sqlc.arg(method), sqlc.narg(phone_number), sqlc.narg(totp_secret), sqlc.narg(last_totp_step), sqlc.arg(is_default), NOW())
-ON CONFLICT (user_id, method) DO UPDATE SET
-  phone_number = EXCLUDED.phone_number,
-  totp_secret = EXCLUDED.totp_secret,
-  last_totp_step = EXCLUDED.last_totp_step,
-  is_default = profiles.mfa_factors.is_default OR EXCLUDED.is_default,
-  updated_at = NOW()
 RETURNING id, user_id, method, phone_number, totp_secret, last_totp_step, is_default, created_at, updated_at;
 
 -- name: MFASetDefaultFactor :execrows
