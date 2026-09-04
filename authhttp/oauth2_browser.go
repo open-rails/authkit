@@ -251,7 +251,11 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 		s.failBrowserFlow(w, r, &sd, cfg.Name, http.StatusInternalServerError, ErrUserCreationFailed)
 		return
 	}
-	s.finishBrowserLogin(w, r, userID, info.Email, cfg.Name, "oauth_login:"+cfg.Name, created, sd)
+	email := info.Email
+	if created && !info.EmailVerified {
+		email = ""
+	}
+	s.finishBrowserLogin(w, r, userID, email, cfg.Name, "oauth_login:"+cfg.Name, created, sd)
 }
 
 func (s *Service) exchangeOAuthCode(r *http.Request, cfg authprovider.Provider, clientID, clientSecret, code, redirectURI, verifier string) (oauth2TokenResp, error) {
@@ -345,11 +349,9 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 	}
 	// No existing account for this provider identity or email. Auto-creating a
 	// new account is a public registration path. InviteOnly requires an unbound
-	// account invite token carried from flow start.
+	// account invite token carried from flow start (the code is the credential;
+	// the IdP address is irrelevant).
 	if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeInviteOnly {
-		if strings.TrimSpace(info.Email) == "" {
-			return "", false, authkit.ErrRegistrationDisabled
-		}
 		allowed, err := s.svc.RegistrationAllowedForEmailWithInvite(r.Context(), info.Email, sd.AccountInviteToken)
 		if err != nil {
 			return "", false, err
@@ -361,7 +363,10 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 		return "", false, authkit.ErrRegistrationDisabled
 	}
 	username := s.svc.DeriveUsernameForOAuth(r.Context(), cfg.Name, info.Preferred, info.Email, info.Display)
-	u, err := s.svc.CreateUser(r.Context(), info.Email, username)
+	// #284: the IdP address becomes the account email only when the IdP asserted
+	// it verified; otherwise the account has no email and the address lives only
+	// in the provider link's email_at_provider.
+	u, err := s.svc.CreateFederatedUser(r.Context(), info.Email, username, info.EmailVerified)
 	if err != nil || u == nil {
 		return "", false, errors.New("user_creation_failed")
 	}
@@ -373,11 +378,6 @@ func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, s
 	if err := s.svc.LinkProviderByIssuer(r.Context(), u.ID, cfg.Issuer, cfg.Name, info.Subject, emailPtr); err != nil {
 		stdlog.Printf("[authkit/security] CRITICAL: provider link write failed after user creation (orphan user=%s issuer=%s subject=%s); failing OIDC callback — manual cleanup may be required: %v", u.ID, cfg.Issuer, info.Subject, err)
 		return "", false, fmt.Errorf("%w: %v", errProviderLinkFailed, err)
-	}
-	if info.EmailVerified && strings.TrimSpace(info.Email) != "" {
-		if err := s.svc.SetEmailVerified(r.Context(), u.ID, true); err != nil {
-			stdlog.Printf("[authkit/security] warning: SetEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
-		}
 	}
 	if err := s.svc.ConsumeAccountRegistrationInvite(r.Context(), info.Email, u.ID, sd.AccountInviteToken); err != nil {
 		return "", false, err

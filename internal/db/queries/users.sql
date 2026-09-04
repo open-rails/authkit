@@ -50,8 +50,8 @@ FROM profiles.users
 WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserInsert :one
-INSERT INTO profiles.users (id, email, username)
-VALUES (sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username))
+INSERT INTO profiles.users (id, email, username, email_verified)
+VALUES (sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username), sqlc.arg(email_verified)::boolean)
 RETURNING id, email, username, email_verified, banned_at, deleted_at;
 
 -- name: UserImportInsert :exec

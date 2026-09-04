@@ -200,12 +200,9 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 		// Brand-new identity with no existing local account: this is a public
 		// registration path. InviteOnly requires an unbound account invite token
-		// carried from flow start; Open keeps the historical behavior.
+		// carried from flow start (the code is the credential; the IdP address is
+		// irrelevant); Open keeps the historical behavior.
 		if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeInviteOnly {
-			if strings.TrimSpace(email) == "" {
-				s.failBrowserFlow(w, r, &sd, provider, http.StatusForbidden, ErrRegistrationDisabled)
-				return
-			}
 			allowed, err := s.svc.RegistrationAllowedForEmailWithInvite(r.Context(), email, sd.AccountInviteToken)
 			if err != nil {
 				s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrDatabaseError)
@@ -224,18 +221,18 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 			displayName = *claims.Name
 		}
 		username := s.svc.DeriveUsernameForOAuth(r.Context(), provider, provUsername, email, displayName)
-		u, err := s.svc.CreateUser(r.Context(), email, username)
+		// #284: the IdP address becomes the account email only when the IdP
+		// asserted email_verified=true (absent counts as false); otherwise the
+		// account has no email and the address lives only in the provider link.
+		emailVerified := claims.EmailVerified != nil && *claims.EmailVerified
+		u, err := s.svc.CreateFederatedUser(r.Context(), email, username, emailVerified)
 		if err != nil || u == nil {
 			s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrUserCreationFailed)
 			return
 		}
 		userID = u.ID
-		// Trust the IdP's email_verified ONLY when it is explicitly true; an
-		// absent claim is treated as false (defense in depth).
-		if claims.EmailVerified != nil && *claims.EmailVerified && provider != "discord" {
-			if err := s.svc.SetEmailVerified(r.Context(), u.ID, true); err != nil {
-				stdlog.Printf("[authkit/security] warning: SetEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
-			}
+		if !emailVerified {
+			email = ""
 		}
 		if err := s.svc.ConsumeAccountRegistrationInvite(r.Context(), email, u.ID, sd.AccountInviteToken); err != nil {
 			s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrUserCreationFailed)

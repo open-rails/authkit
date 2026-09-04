@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -138,9 +139,9 @@ func TestResolveOAuthUser_LinkFlow_StillLinksExistingEmail(t *testing.T) {
 	require.Equal(t, owner.ID, linkedUID)
 }
 
-// A brand-new identity with a never-seen email creates a fresh account, and an
-// unverified (or absent) email_verified claim must NOT mark the new account's
-// email verified.
+// A brand-new identity with a never-seen email creates a fresh account, but an
+// unverified (or absent) email_verified claim must NOT bind the address to it
+// (#284): the account has no email and the address lives only on the link.
 func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	pool := newAccountLinkPG(t)
 	ctx := context.Background()
@@ -151,20 +152,23 @@ func TestResolveOAuthUser_NewEmail_UnverifiedClaimNotTrusted(t *testing.T) {
 	)
 	s := &Service{svc: coreSvc}
 
-	const email = "c2-fresh@example.com"
-	_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email)
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE email=$1`, email) })
-
+	email := uniqueEmail("c2-fresh")
 	cfg := authprovider.Provider{Name: "github", Kind: authprovider.KindOAuth2, Issuer: "https://github.com/login/oauth"}
-	info := oauth2UserInfo{Subject: "fresh-subject", Email: email, EmailVerified: false}
+	info := oauth2UserInfo{Subject: "fresh-subject-" + uniqueSuffix(), Email: email, EmailVerified: false}
 
 	uid, created, err := s.resolveOAuthUser(httptest.NewRequest(http.MethodGet, "/", nil), cfg, oidckit.StateData{}, info)
 	require.NoError(t, err)
 	require.NotEmpty(t, uid)
 	require.True(t, created)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, uid) })
 
-	u, err := coreSvc.GetUserByEmail(ctx, email)
-	require.NoError(t, err)
-	require.NotNil(t, u)
-	require.False(t, u.EmailVerified, "absent/false email_verified claim must not mark the new account verified")
+	_, err = coreSvc.GetUserByEmail(ctx, email)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "unverified IdP email must not be bound to (or reserved by) the new account")
+	var accountEmail, emailAtProvider *string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT u.email, p.email_at_provider FROM profiles.users u JOIN profiles.user_providers p ON p.user_id = u.id WHERE u.id = $1::uuid`, uid).
+		Scan(&accountEmail, &emailAtProvider))
+	require.Nil(t, accountEmail)
+	require.NotNil(t, emailAtProvider)
+	require.Equal(t, email, *emailAtProvider)
 }

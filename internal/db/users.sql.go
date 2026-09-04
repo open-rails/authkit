@@ -421,15 +421,16 @@ func (q *Queries) UserImportUpdate(ctx context.Context, arg UserImportUpdatePara
 }
 
 const userInsert = `-- name: UserInsert :one
-INSERT INTO profiles.users (id, email, username)
-VALUES ($1::uuid, NULLIF(lower($2::text), ''), $3)
+INSERT INTO profiles.users (id, email, username, email_verified)
+VALUES ($1::uuid, NULLIF(lower($2::text), ''), $3, $4::boolean)
 RETURNING id, email, username, email_verified, banned_at, deleted_at
 `
 
 type UserInsertParams struct {
-	ID       string
-	Email    string
-	Username *string
+	ID            string
+	Email         string
+	Username      *string
+	EmailVerified bool
 }
 
 type UserInsertRow struct {
@@ -442,7 +443,12 @@ type UserInsertRow struct {
 }
 
 func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserInsertRow, error) {
-	row := q.db.QueryRow(ctx, userInsert, arg.ID, arg.Email, arg.Username)
+	row := q.db.QueryRow(ctx, userInsert,
+		arg.ID,
+		arg.Email,
+		arg.Username,
+		arg.EmailVerified,
+	)
 	var i UserInsertRow
 	err := row.Scan(
 		&i.ID,

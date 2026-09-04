@@ -153,6 +153,22 @@ func isUserBanned(u *User) bool {
 }
 
 func (s *Service) createUser(ctx context.Context, email, username string) (*User, error) {
+	return s.insertUser(ctx, email, username, false)
+}
+
+// CreateFederatedUser registers a user resolved from an IdP callback. The IdP
+// address becomes the account email only when the IdP asserted it verified;
+// otherwise the row has no email (the address lives solely in the provider
+// link's email_at_provider), so an unverified assertion can never reserve or
+// pre-hijack an address (#284).
+func (s *Service) CreateFederatedUser(ctx context.Context, email, username string, emailVerified bool) (*User, error) {
+	if !emailVerified {
+		email = ""
+	}
+	return s.insertUser(ctx, email, username, emailVerified)
+}
+
+func (s *Service) insertUser(ctx context.Context, email, username string, emailVerified bool) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
 	}
@@ -160,7 +176,7 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if err != nil {
 		return nil, err
 	}
-	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username})
+	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, EmailVerified: emailVerified})
 	if err != nil {
 		return nil, err
 	}
