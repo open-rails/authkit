@@ -113,15 +113,12 @@ type Claims struct {
 	RemoteApplicationTier      string
 	RemoteApplicationTrustRoot string
 
-	// PermissionGroupPersona / PermissionGroupInstance bind a machine principal's
-	// token-carried Permissions to the permission-group INSTANCE it was minted on
-	// (#248). Populated server-side for API-key and remote-application principals;
-	// empty for user and delegated tokens (delegated authorization is issuer-trust
-	// + permissions by contract — the receiving service's model). Instance is ""
-	// for singleton personas (root). v1 is EXACT-match binding only:
-	// descendant/walk-down authority is deliberately deferred.
-	PermissionGroupPersona  string
-	PermissionGroupInstance string
+	// Machine authority is resolved live from the receiving AuthKit deployment.
+	// Names are presentation only; UUID and authority issuer fence ownership.
+	PermissionGroupID              string
+	PermissionGroupAuthorityIssuer string
+	PermissionGroupPersona         string
+	PermissionGroupInstance        string
 }
 
 // APIKeyPrincipalType is the TokenType value carried by an opaque API key: a
@@ -315,19 +312,19 @@ func (c Claims) AttributeIsReference(key string) bool {
 // remote-application access tokens) whose authority was resolved server-side
 // from a specific group instance; false for user and delegated tokens.
 func (c Claims) BoundToPermissionGroup() bool {
-	return strings.TrimSpace(c.PermissionGroupPersona) != ""
+	return c.TokenType == APIKeyPrincipalType || c.TokenType == RemoteApplicationTokenType ||
+		c.PermissionGroupID != "" || c.PermissionGroupAuthorityIssuer != "" || c.PermissionGroupPersona != "" || c.PermissionGroupInstance != ""
 }
 
-// PermissionGroupAllows reports whether token-carried permissions may be
-// exercised in the (persona, instance) scope (#248): unbound claims are
-// unrestricted (issuer-trust + permissions is the delegated model); bound
-// claims require an EXACT instance match — descendant/walk-down authority is
-// deliberately deferred.
-func (c Claims) PermissionGroupAllows(persona, instance string) bool {
+// PermissionGroupAllows compares immutable ownership. Missing binding fields
+// on a machine principal deny; an old spelling cannot transfer authority.
+func (c Claims) PermissionGroupAllows(scope PermissionScope) bool {
 	if !c.BoundToPermissionGroup() {
 		return true
 	}
-	return c.PermissionGroupPersona == persona && c.PermissionGroupInstance == instance
+	return c.PermissionGroupID != "" && scope.GroupID != "" && c.PermissionGroupID == scope.GroupID &&
+		c.PermissionGroupAuthorityIssuer != "" && c.PermissionGroupAuthorityIssuer == scope.AuthorityIssuer &&
+		c.PermissionGroupPersona != "" && c.PermissionGroupPersona == scope.Persona
 }
 
 // HasPermission reports whether the claims carry a permission token covering

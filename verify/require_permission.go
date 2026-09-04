@@ -11,14 +11,16 @@ import (
 // `Can`) satisfy this directly; verify declares the port so it never imports the
 // engine (verify is jwt-only).
 type PermissionChecker interface {
-	Can(ctx context.Context, subjectID, subjectKind, persona, instanceSlug, perm string) (bool, error)
+	CanOnGroup(ctx context.Context, subjectID, subjectKind, groupID, perm string) (bool, error)
 }
 
 // PermissionScope is the permission-group instance a request's authority is
 // evaluated against. For a singleton persona (e.g. `root`) Instance is "".
 type PermissionScope struct {
-	Persona  string
-	Instance string
+	GroupID         string
+	AuthorityIssuer string
+	Persona         string
+	Instance        string
 }
 
 // subjectKindUser is the subject-kind discriminator for an authenticated human
@@ -43,13 +45,13 @@ const subjectKindUser = "user"
 // scope, a nil checker, or an empty UserID yields false; a Can error is
 // returned (the caller must deny on a non-nil error).
 func Allow(ctx context.Context, checker PermissionChecker, cl Claims, perm string, scope PermissionScope) (bool, error) {
-	if cl.HasPermission(perm) && cl.PermissionGroupAllows(scope.Persona, scope.Instance) {
+	if cl.HasPermission(perm) && cl.PermissionGroupAllows(scope) {
 		return true, nil
 	}
-	if checker == nil || cl.UserID == "" {
+	if checker == nil || cl.UserID == "" || scope.GroupID == "" {
 		return false, nil
 	}
-	return checker.Can(ctx, cl.UserID, subjectKindUser, scope.Persona, scope.Instance, perm)
+	return checker.CanOnGroup(ctx, cl.UserID, subjectKindUser, scope.GroupID, perm)
 }
 
 // RequirePermission gates a handler on `perm`, evaluated server-side via the
@@ -82,12 +84,22 @@ func RequirePermission(checker PermissionChecker, perm string, resolve func(*htt
 				forbidden(w, "forbidden")
 				return
 			}
-			ok, err := Allow(r.Context(), checker, cl, perm, resolve(r))
+			scope := resolve(r)
+			ok, err := Allow(r.Context(), checker, cl, perm, scope)
 			if err != nil || !ok {
 				forbidden(w, "forbidden")
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), permissionScopeKey{}, scope)))
 		})
 	}
 }
+
+// PermissionScopeFromContext returns the exact group authorized by middleware,
+// so a domain handler does not resolve the mutable path a second time.
+func PermissionScopeFromContext(ctx context.Context) (PermissionScope, bool) {
+	scope, ok := ctx.Value(permissionScopeKey{}).(PermissionScope)
+	return scope, ok
+}
+
+type permissionScopeKey struct{}
