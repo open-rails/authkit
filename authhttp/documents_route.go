@@ -2,15 +2,17 @@ package authhttp
 
 // ak#260: the mounted published-document surface. AuthKit owns the store, the
 // publish lifecycle (documents.Service), and this route; reader authorization
-// is CONFIG (Config.Documents.ReaderSlugs) — never a host-written callback.
+// is CONFIG (Config.Documents.Readers) — never a host-written callback.
 
 import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/documents"
+	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -33,7 +35,7 @@ type DocumentProvider interface {
 // values) into the HTTP layer: MountHandler serves their documents at
 // GET|HEAD /.well-known/authkit/documents/{digest} (RouteDocuments), and the
 // delegated-token mint route stamps and KID-reconciles their digests (#261).
-// Requires Config.Documents.ReaderSlugs — NewServer refuses providers with no
+// Requires Config.Documents.Readers — NewServer refuses providers with no
 // authorized readers (publication is never public) and reader slugs with no
 // providers (dead config).
 func WithDocuments(providers ...DocumentProvider) Option {
@@ -41,9 +43,11 @@ func WithDocuments(providers ...DocumentProvider) Option {
 }
 
 // documentsHandler builds the publication handler over every wired provider.
-// Authorization: the request must verify as a remote application whose slug is
-// in Config.Documents.ReaderSlugs. The verifier middleware authenticates; the
-// publisher's authorize callback checks the resulting claims.
+// Authorization: the request must verify as a remote application pinned by
+// Config.Documents.Readers (id, proven domain, or root-registered issuer —
+// never the slug, #296) at the approved tier unless AllowRegisteredTier. The
+// verifier middleware authenticates; the publisher's authorize callback checks
+// the resulting claims.
 func (s *Service) documentsHandler() http.Handler {
 	providers := s.documentProviders
 	lookup := func(ctx context.Context, digest string) (documents.SignedDocument, error) {
@@ -58,14 +62,33 @@ func (s *Service) documentsHandler() http.Handler {
 		}
 		return documents.SignedDocument{}, documents.ErrNotFound
 	}
-	readers := make(map[string]bool, len(s.svc.Config().Documents.ReaderSlugs))
-	for _, slug := range s.svc.Config().Documents.ReaderSlugs {
-		readers[slug] = true
+	cfg := s.svc.Config().Documents
+	byID, byDomain, byIssuer := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, reader := range cfg.Readers {
+		switch {
+		case reader.ID != "":
+			byID[reader.ID] = true
+		case reader.Domain != "":
+			byDomain[reader.Domain] = true
+		case reader.Issuer != "":
+			byIssuer[reader.Issuer] = true
+		}
 	}
 	authorize := func(r *http.Request) error {
 		claims, ok := verify.ClaimsFromContext(r.Context())
-		if !ok || claims.PrincipalKind() != authkit.PrincipalKindRemoteApplication ||
-			!readers[claims.RemoteApplicationSlug] {
+		if !ok || claims.PrincipalKind() != authkit.PrincipalKindRemoteApplication {
+			return documents.ErrUnauthorized
+		}
+		if claims.RemoteApplicationTier != authkit.ApplicationTierApproved && !cfg.AllowRegisteredTier {
+			return documents.ErrUnauthorized
+		}
+		switch {
+		case byID[claims.RemoteApplicationID]:
+		case claims.RemoteApplicationTrustRoot == authkit.ApplicationTrustRootDomain &&
+			byDomain[strings.ToLower(claims.RemoteApplicationDomain)]:
+		case claims.RemoteApplicationTrustRoot == authkit.ApplicationTrustRootManual &&
+			claims.PermissionGroupPersona == embedded.RootPersona && byIssuer[claims.Issuer]:
+		default:
 			return documents.ErrUnauthorized
 		}
 		return nil

@@ -3,7 +3,7 @@ package authhttp
 // ak#260 end-to-end over a real Postgres through the mounted handler: the
 // authkit-owned store + publish lifecycle (documents.Service), the
 // RouteDocuments mount at /.well-known/authkit/documents/{digest}, reader
-// authorization from Config.Documents.ReaderSlugs, digest immutability at the
+// authorization from Config.Documents.Readers, digest immutability at the
 // table, and the construction refusals. Skips without AUTHKIT_TEST_DATABASE_URL.
 
 import (
@@ -105,7 +105,7 @@ func TestDocumentsRoute_EndToEnd(t *testing.T) {
 	otherSlug := "othersvc-" + suffix
 
 	cfg := newServerTestConfig()
-	cfg.Documents = embedded.DocumentsConfig{ReaderSlugs: []string{readerSlug}}
+	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://" + readerSlug + ".example"}}}
 	client, docSvc, srv, h := newDocumentsTestStack(t, cfg, `{"entitlements":{"free":{}}}`)
 	digest := docSvc.Reference().Digest
 
@@ -115,7 +115,7 @@ func TestDocumentsRoute_EndToEnd(t *testing.T) {
 	// Unauthenticated and non-reader principals are denied; nothing is public.
 	require.Equal(t, http.StatusUnauthorized, getDocument(h, http.MethodGet, digest, "", nil).Code)
 	require.Equal(t, http.StatusUnauthorized, getDocument(h, http.MethodGet, digest, strangerToken, nil).Code,
-		"an authenticated remote application NOT in ReaderSlugs must be denied")
+		"an authenticated remote application NOT in Readers must be denied")
 	user, err := srv.svc.CreateUser(context.Background(), "docs-user-"+suffix+"@test.example", "docsuser"+suffix)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = client.Postgres().Exec(context.Background(), `DELETE FROM profiles.users WHERE id = $1::uuid`, user.ID) })
@@ -219,17 +219,17 @@ func TestNewServerRefusesDocumentsConfigMismatch(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.signed_documents WHERE digest = $1`, docSvc.Reference().Digest)
 	})
 	_, err = NewServer(client, WithDocuments(docSvc))
-	require.ErrorContains(t, err, "ReaderSlugs")
+	require.ErrorContains(t, err, "Readers")
 
 	// Readers without providers: dead config, refuse.
 	cfgReaders := newServerTestConfig()
-	cfgReaders.Documents = embedded.DocumentsConfig{ReaderSlugs: []string{"tensorhub"}}
+	cfgReaders.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub.example"}}}
 	_, err = NewServer(newServerClient(t, cfgReaders, pool))
 	require.ErrorContains(t, err, "no document providers")
 
 	// Two providers for one document type: ambiguous stamping, refuse.
 	cfgDup := newServerTestConfig()
-	cfgDup.Documents = embedded.DocumentsConfig{ReaderSlugs: []string{"tensorhub"}}
+	cfgDup.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub.example"}}}
 	_, err = NewServer(newServerClient(t, cfgDup, pool), WithDocuments(docSvc, docSvc))
 	require.ErrorContains(t, err, "two providers")
 }

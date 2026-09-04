@@ -515,7 +515,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/applications/{slug}/rotate` | applications | per-message JWS (#264) |
 | POST | `/applications/{slug}/repoint` | applications | per-message JWS + new-domain proof (#264) |
 | POST | `/delegated/token` | delegated | required user (#261 — mounted only when `Delegated.Audiences` is set) |
-| GET\|HEAD | `/.well-known/authkit/documents/{digest}` | documents | remote application in `Documents.ReaderSlugs` (#260 — root-anchored like JWKS; mounted only with `WithDocuments` providers) |
+| GET\|HEAD | `/.well-known/authkit/documents/{digest}` | documents | remote application pinned by `Documents.Readers` (#260 — root-anchored like JWKS; mounted only with `WithDocuments` providers) |
 
 ### 5.4 Generated permission-group routes (covered, schema-derived)
 

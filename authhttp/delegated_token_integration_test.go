@@ -96,7 +96,7 @@ func TestDelegatedTokenRoute_EndToEnd(t *testing.T) {
 
 	cfg := newServerTestConfig()
 	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net", "other.example"}}
-	cfg.Documents = embedded.DocumentsConfig{ReaderSlugs: []string{"tensorhub-" + suffix}}
+	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
 
 	// The host-injected attribute provider (Paul's DI ruling): AuthKit calls
 	// it with the authenticated user and stamps whatever comes back — in
@@ -227,7 +227,7 @@ func TestDelegatedTokenRoute_KIDRotationReconciliation(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Keys = embedded.KeysConfig{Source: keySource}
 	cfg.Delegated = embedded.DelegatedConfig{Audiences: []string{"tensorhub.net"}}
-	cfg.Documents = embedded.DocumentsConfig{ReaderSlugs: []string{"tensorhub-" + suffix}}
+	cfg.Documents = embedded.DocumentsConfig{Readers: []embedded.DocumentReader{{Issuer: "https://tensorhub-" + suffix + ".example"}}}
 	client := newServerClient(t, cfg, pool)
 
 	docSvc, err := documents.NewService(ctx, documents.ServiceConfig{

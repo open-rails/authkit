@@ -123,13 +123,29 @@ type DelegatedConfig struct {
 }
 
 // DocumentsConfig configures reader authorization for the published
-// signed-document surface (#260).
+// signed-document surface (#260, #296).
 type DocumentsConfig struct {
-	// ReaderSlugs are the remote-application slugs allowed to fetch published
-	// documents. Authorization is config, not a host callback: a request must
-	// authenticate as one of these remote applications. Empty + a mounted
-	// documents surface is a construction error, never a public route.
-	ReaderSlugs []string
+	// Readers are the remote applications allowed to fetch published
+	// documents. Authorization is config, not a host callback, and it keys on
+	// an identity nobody else can claim — never on the slug, which is a
+	// claimable handle. Empty + a mounted documents surface is a construction
+	// error, never a public route.
+	Readers []DocumentReader
+	// AllowRegisteredTier admits readers still at the registered tier
+	// (self-registered, not yet approved by an admin). Default: approved only.
+	AllowRegisteredTier bool
+}
+
+// DocumentReader pins one reader by exactly one identity:
+//   - ID: the application's uuid.
+//   - Domain: the proven domain of a domain-rooted (self-registered) application.
+//   - Issuer: the issuer of a manually registered application the platform
+//     itself holds under the root group (bootstrap manifest / root credentials
+//     manager). A tenant-registered application never matches by issuer.
+type DocumentReader struct {
+	ID     string
+	Domain string
+	Issuer string
 }
 
 // NOTE (#264 ruling 5, simplified): re-verification cadence and dormancy
