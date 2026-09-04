@@ -439,6 +439,9 @@ const (
 	// ErrRegistrationFailed is the registration_failed AuthKit HTTP wire error code.
 	ErrRegistrationFailed ErrorCode = "registration_failed"
 
+	// ErrRemoteApplicationIssuerConflict indicates an issuer controlled by another group.
+	ErrRemoteApplicationIssuerConflict ErrorCode = "remote_application_issuer_conflict"
+
 	// ErrRemoteApplicationNotFound is the remote_application_not_found AuthKit HTTP wire error code.
 	ErrRemoteApplicationNotFound ErrorCode = "remote_application_not_found"
 

@@ -32,6 +32,8 @@ func validateRemoteAppSlug(slug string) error {
 }
 
 var (
+	// ErrRemoteApplicationIssuerConflict indicates the issuer belongs to another group.
+	ErrRemoteApplicationIssuerConflict = authkit.ErrRemoteApplicationIssuerConflict
 	// ErrRemoteApplicationNotFound indicates no remote_application matched.
 	ErrRemoteApplicationNotFound = authkit.ErrRemoteApplicationNotFound
 	// ErrInvalidRemoteApplication is defined in authkit and re-exported here.
@@ -277,7 +279,7 @@ func remoteAppFromRow(row remoteAppRow) *RemoteApplication {
 }
 
 // UpsertRemoteApplication registers or updates a remote_application keyed by its
-// issuer.
+// issuer. An existing issuer can only be updated by its controlling group.
 func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplication) (*RemoteApplication, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
@@ -318,6 +320,13 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 		return nil, fmt.Errorf("%w: permission_group_id is required (remote-applications are group-nested)", ErrInvalidRemoteApplication)
 	}
 	groupID := &t
+	existing, err := s.q.RemoteApplicationByIssuer(ctx, issuer)
+	if err == nil && existing.PermissionGroupID != t {
+		return nil, ErrRemoteApplicationIssuerConflict
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("look up remote application issuer: %w", err)
+	}
 
 	row, err := s.q.RemoteApplicationUpsert(ctx, db.RemoteApplicationUpsertParams{
 		Slug:              slug,
@@ -328,6 +337,10 @@ func (s *Service) UpsertRemoteApplication(ctx context.Context, in RemoteApplicat
 		PublicKeys:        keysJSON,
 		Enabled:           in.Enabled,
 	})
+	// The atomic upsert guard also covers an issuer claimed after our lookup.
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrRemoteApplicationIssuerConflict
+	}
 	if err != nil {
 		return nil, err
 	}
