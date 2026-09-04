@@ -115,6 +115,10 @@ func (s *Service) applicationsHTTPClient() *http.Client {
 	return c
 }
 
+// lookupIPAddr is the resolver behind guardedDialContext; tests pin it to a
+// fixed answer to drive the private-IP rejection without real DNS.
+var lookupIPAddr = net.DefaultResolver.LookupIPAddr
+
 // guardedDialContext resolves the target host, rejects any private/reserved
 // IP, then dials the first public IP directly (no second DNS lookup — closes
 // the DNS-rebinding window). Mirrors the verify package's JWKS SSRF guard.
@@ -123,7 +127,7 @@ func guardedDialContext(ctx context.Context, network, addr string) (net.Conn, er
 	if err != nil {
 		return nil, fmt.Errorf("application fetch: bad address %q: %v", addr, err)
 	}
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	ips, err := lookupIPAddr(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("application fetch: resolve %q: %v", host, err)
 	}

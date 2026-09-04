@@ -71,6 +71,7 @@ type config struct {
 	// no env mapping, so a bare binary deployment could not set them.
 	trustedProxies    []string      // CIDRs whose X-Forwarded-For is trusted (reverse proxy / LB)
 	cloudflareProxies []string      // Cloudflare egress CIDRs; + CF-Connecting-IP fallback (ak#298)
+	directPeerIP      bool          // assert no proxy in front; required posture in prod without proxy CIDRs (ak#299)
 	accessTokenTTL    time.Duration // 0 => library default (15m)
 	refreshTokenTTL   time.Duration // 0 => indefinite sessions
 	sessionMaxPerUser int           // 0 => default 3; -1 => unlimited
@@ -128,6 +129,7 @@ func loadConfig() (*config, error) {
 		devMintSecret:       strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
 		trustedProxies:      splitCSV(os.Getenv("AUTHKIT_TRUSTED_PROXIES")),
 		cloudflareProxies:   splitCSV(os.Getenv("AUTHKIT_CLOUDFLARE_PROXIES")),
+		directPeerIP:        envBool("AUTHKIT_DIRECT_PEER_IP", false),
 		twoFAMode:           strings.ToLower(strings.TrimSpace(os.Getenv("AUTHKIT_2FA_MODE"))),
 		twoFAMethods:        splitCSV(strings.ToLower(os.Getenv("AUTHKIT_2FA_METHODS"))),
 		passkeyRPID:         strings.TrimSpace(os.Getenv("AUTHKIT_PASSKEY_RPID")),
@@ -370,6 +372,9 @@ func run() error {
 	}
 	if len(cfg.cloudflareProxies) > 0 {
 		httpOpts = append(httpOpts, authhttp.WithCloudflareProxies(cfg.cloudflareProxies...))
+	}
+	if cfg.directPeerIP {
+		httpOpts = append(httpOpts, authhttp.WithDirectPeerIP())
 	}
 	if len(cfg.languages) > 0 || cfg.defaultLanguage != "" {
 		httpOpts = append(httpOpts, authhttp.WithLanguageConfig(authhttp.LanguageConfig{

@@ -55,3 +55,18 @@ func (k *KV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
 	}
 	return b, true, nil
 }
+
+// incrScript increments and, only on creation, sets the expiry — one atomic
+// server-side step, so concurrent callers observe distinct consecutive values
+// and repeated increments never extend the counter's life.
+var incrScript = redis.NewScript(`
+local n = redis.call('INCR', KEYS[1])
+if n == 1 and tonumber(ARGV[1]) > 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return n
+`)
+
+func (k *KV) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	return incrScript.Run(ctx, k.rdb, []string{key}, ttl.Milliseconds()).Int64()
+}

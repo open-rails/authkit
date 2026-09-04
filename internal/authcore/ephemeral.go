@@ -26,6 +26,11 @@ type EphemeralStore interface {
 	// two concurrent requests both observe the value before either deletes it,
 	// defeating the single-use guarantee (replay). Missing key => (nil, false, nil).
 	Consume(ctx context.Context, key string) ([]byte, bool, error)
+	// Incr atomically increments the integer at key and returns the new value,
+	// creating it as 1 with ttl when absent (the TTL is set once, not on every
+	// increment). Attempt caps MUST use it: a Get+Set counter lets K concurrent
+	// wrong guesses all read the same n and the cap never fires (#306).
+	Incr(ctx context.Context, key string, ttl time.Duration) (int64, error)
 }
 
 // EphemeralRedisClient returns the *redis.Client backing the engine's ephemeral
@@ -138,6 +143,13 @@ func (s *Service) ephemConsumeString(ctx context.Context, key string) (string, b
 		return "", ok, err
 	}
 	return string(b), true, nil
+}
+
+func (s *Service) ephemIncr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	if !s.useEphemeralStore() {
+		return 0, fmt.Errorf("ephemeral store unavailable")
+	}
+	return s.ephemeralStore.Incr(ctx, key, ttl)
 }
 
 func (s *Service) ephemDel(ctx context.Context, key string) error {

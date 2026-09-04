@@ -2,7 +2,6 @@ package authcore
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 
@@ -231,18 +230,22 @@ func (s *Service) RecordFailedEmailVerifyCode(ctx context.Context, email string)
 	if email == "" {
 		return
 	}
-	key := keyEmailVerifyCodeAttempts + email
-	n := 0
-	if v, ok, _ := s.ephemGetString(ctx, key); ok {
-		n, _ = strconv.Atoi(v)
-	}
-	n++
-	if n >= maxEmailVerifyCodeAttempts {
+	if s.recordFailedAttempt(ctx, keyEmailVerifyCodeAttempts+email, defaultEmailVerificationTTL, maxEmailVerifyCodeAttempts) {
 		s.invalidateEmailVerifyCodes(ctx, email)
-		_ = s.ephemDel(ctx, key)
-		return
 	}
-	_ = s.ephemSetString(ctx, key, strconv.Itoa(n), defaultEmailVerificationTTL)
+}
+
+// recordFailedAttempt bumps a per-identifier wrong-guess counter atomically and
+// reports whether the cap is reached, clearing the counter so a re-issued code
+// starts fresh. A store error counts as reached (fail closed): a guess that
+// cannot be counted must not keep the code alive.
+func (s *Service) recordFailedAttempt(ctx context.Context, key string, ttl time.Duration, max int64) bool {
+	n, err := s.ephemIncr(ctx, key, ttl)
+	if err != nil || n >= max {
+		_ = s.ephemDel(ctx, key)
+		return true
+	}
+	return false
 }
 
 // ClearEmailVerifyCodeAttempts resets the per-email failed-attempt counter after a
@@ -284,18 +287,9 @@ func (s *Service) RecordFailedPhoneVerifyCode(ctx context.Context, phone string)
 	if phone == "" {
 		return
 	}
-	key := keyPhoneVerifyCodeAttempts + phone
-	n := 0
-	if v, ok, _ := s.ephemGetString(ctx, key); ok {
-		n, _ = strconv.Atoi(v)
-	}
-	n++
-	if n >= maxPhoneVerifyCodeAttempts {
+	if s.recordFailedAttempt(ctx, keyPhoneVerifyCodeAttempts+phone, defaultPhoneVerificationTTL, maxPhoneVerifyCodeAttempts) {
 		s.invalidatePhoneVerifyCodes(ctx, phone)
-		_ = s.ephemDel(ctx, key)
-		return
 	}
-	_ = s.ephemSetString(ctx, key, strconv.Itoa(n), defaultPhoneVerificationTTL)
 }
 
 // ClearPhoneVerifyCodeAttempts resets the per-phone failed-attempt counter after a

@@ -86,7 +86,8 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	// completes via the user handle (verified by the finish below).
 	require.Empty(t, assertion.PublicKey.AllowCredentials)
 
-	w = serveJSON(srv, http.MethodPost, "/passkeys/login/finish", string(authn.assertion(t, assertion, 1)))
+	firstAssertion := string(authn.assertion(t, assertion, 1))
+	w = serveJSON(srv, http.MethodPost, "/passkeys/login/finish", firstAssertion)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var tokens struct {
 		AccessToken  string `json:"access_token"`
@@ -98,6 +99,11 @@ func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	require.Equal(t, embedded.AssuranceLevelMFA, claims["acr"])
 	require.ElementsMatch(t, []any{"swk", "mfa"}, claims["amr"])
 	require.NotZero(t, claims["auth_time"])
+
+	// #288/9: the identical assertion replayed — the ceremony was consumed on
+	// the first finish, so the replay must be rejected.
+	replay := serveJSON(srv, http.MethodPost, "/passkeys/login/finish", firstAssertion)
+	require.Equal(t, http.StatusUnauthorized, replay.Code, replay.Body.String())
 
 	w = serveJSON(srv, http.MethodPost, "/passkeys/login/begin", `{}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

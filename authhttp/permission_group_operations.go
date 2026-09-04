@@ -692,6 +692,9 @@ func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 		// authority, the operation is just unsafe, so 409 not 403.
 		sendErr(w, http.StatusConflict, ErrCannotRemoveLastOwner)
 		return
+	case errors.Is(err, authkit.ErrRemoteApplicationIssuerConflict):
+		sendErr(w, http.StatusConflict, ErrRemoteApplicationIssuerConflict)
+		return
 	case errors.Is(err, authkit.ErrGroupSlugTaken):
 		sendErr(w, http.StatusConflict, ErrGroupSlugTaken)
 		return
