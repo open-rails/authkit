@@ -17,10 +17,9 @@ type SIWSCache struct {
 }
 
 // NewSIWSCache creates a new Redis-backed SIWS challenge cache.
+// NewSIWSCache stores SIWS challenges under keyPrefix (the deployment
+// namespace plus "siws:nonce:", #307).
 func NewSIWSCache(rdb *redis.Client, keyPrefix string, ttl time.Duration) *SIWSCache {
-	if keyPrefix == "" {
-		keyPrefix = "auth:siws:nonce:"
-	}
 	if ttl <= 0 {
 		ttl = 15 * time.Minute
 	}

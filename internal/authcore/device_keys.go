@@ -22,9 +22,9 @@ const (
 	deviceKeyLabelMaxLength   = 128
 	deviceKeyMaxCodeAttempts  = 5
 
-	keyDeviceKeyEnrollment        = "auth:device-key:enrollment:"
-	keyDeviceKeyEnrollmentAttempt = "auth:device-key:enrollment-attempt:"
-	keyDeviceKeyLogin             = "auth:device-key:login:"
+	keyDeviceKeyEnrollment        = "device-key:enrollment:"
+	keyDeviceKeyEnrollmentAttempt = "device-key:enrollment-attempt:"
+	keyDeviceKeyLogin             = "device-key:login:"
 )
 
 var errDeviceKeyInvalid = jwt.ErrTokenUnverifiable

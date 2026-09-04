@@ -14,7 +14,7 @@ import (
 // (#306): INCR+PEXPIRE run as one server-side script, so no two guesses can
 // observe the same count.
 func TestKVIncrDistinctUnderConcurrency(t *testing.T) {
-	kv := NewKV(testdb.ScratchRedis(t))
+	kv := NewKV(testdb.ScratchRedis(t), "t:")
 	ctx := context.Background()
 	const racers = 64
 
@@ -48,7 +48,7 @@ func TestKVIncrDistinctUnderConcurrency(t *testing.T) {
 // push it out.
 func TestKVIncrTTLSetOnce(t *testing.T) {
 	rdb := testdb.ScratchRedis(t)
-	kv := NewKV(rdb)
+	kv := NewKV(rdb, "t:")
 	ctx := context.Background()
 
 	if n, err := kv.Incr(ctx, "k", 10*time.Second); err != nil || n != 1 {
@@ -58,7 +58,7 @@ func TestKVIncrTTLSetOnce(t *testing.T) {
 	if n, err := kv.Incr(ctx, "k", 10*time.Second); err != nil || n != 2 {
 		t.Fatalf("second incr: (%d, %v)", n, err)
 	}
-	ttl, err := rdb.PTTL(ctx, "k").Result()
+	ttl, err := rdb.PTTL(ctx, "t:k").Result()
 	if err != nil {
 		t.Fatalf("pttl: %v", err)
 	}

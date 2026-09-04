@@ -14,7 +14,7 @@ import (
 // Consume must deliver a value to exactly ONE of many racing callers: the
 // GETDEL primitive is what makes passkey challenges and reset tokens single-use.
 func TestKVConsumeSingleWinnerUnderConcurrency(t *testing.T) {
-	kv := NewKV(testdb.ScratchRedis(t))
+	kv := NewKV(testdb.ScratchRedis(t), "t:")
 	ctx := context.Background()
 	const iterations, racers = 20, 64
 
@@ -49,7 +49,7 @@ func TestKVConsumeSingleWinnerUnderConcurrency(t *testing.T) {
 }
 
 func TestKVConsumeSemantics(t *testing.T) {
-	kv := NewKV(testdb.ScratchRedis(t))
+	kv := NewKV(testdb.ScratchRedis(t), "t:")
 	ctx := context.Background()
 
 	if err := kv.Set(ctx, "k", []byte("v"), time.Minute); err != nil {
@@ -71,7 +71,7 @@ func TestKVConsumeSemantics(t *testing.T) {
 }
 
 func TestKVSetHonoursTTL(t *testing.T) {
-	kv := NewKV(testdb.ScratchRedis(t))
+	kv := NewKV(testdb.ScratchRedis(t), "t:")
 	ctx := context.Background()
 
 	if err := kv.Set(ctx, "k", []byte("v"), 50*time.Millisecond); err != nil {
@@ -90,7 +90,7 @@ func TestKVSetHonoursTTL(t *testing.T) {
 }
 
 func TestKVDel(t *testing.T) {
-	kv := NewKV(testdb.ScratchRedis(t))
+	kv := NewKV(testdb.ScratchRedis(t), "t:")
 	ctx := context.Background()
 	if err := kv.Set(ctx, "k", []byte("v"), time.Minute); err != nil {
 		t.Fatalf("set: %v", err)

@@ -32,7 +32,7 @@ func TestRateLimiter_AutoWiring(t *testing.T) {
 		allowed, err := srv.rl.AllowNamed(RLPasswordLogin, "probe")
 		require.NoError(t, err, "limiter must talk to the live Redis")
 		require.True(t, allowed)
-		require.EqualValues(t, 1, rdb.Exists(t.Context(), "probe:"+RLPasswordLogin).Val(), "limiter must record its bucket in Redis")
+		require.EqualValues(t, 1, rdb.Exists(t.Context(), "authkit:profiles:ratelimit:probe:"+RLPasswordLogin).Val(), "limiter must record its bucket under the deployment namespace (#307)")
 	})
 
 	t.Run("WithoutRateLimiter -> disabled", func(t *testing.T) {

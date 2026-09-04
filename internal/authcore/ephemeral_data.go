@@ -15,22 +15,22 @@ const (
 	// Wrong typed-code guesses allowed per address before the outstanding code is
 	// invalidated, so a 6-digit code cannot be brute-forced within its TTL.
 	maxEmailVerifyCodeAttempts = 5
-	keyEmailVerifyCodeAttempts = "auth:email_verify:attempts:"
+	keyEmailVerifyCodeAttempts = "email_verify:attempts:"
 	maxPhoneVerifyCodeAttempts = 5
-	keyPhoneVerifyCodeAttempts = "auth:phone_verify:attempts:"
+	keyPhoneVerifyCodeAttempts = "phone_verify:attempts:"
 
 	// A short code is never part of a key (#301): a verification record lives
 	// under the identity it was issued for and carries its code hash inside. Only
 	// 256-bit link tokens get a global pointer (link hash -> record key).
-	keyPhoneVerify        = "auth:phone_verify:rec:"  // +<purpose>:<phone>
-	keyPhoneVerifyLink    = "auth:phone_verify:link:" // +<linkHash> -> record key
-	keyEmailVerify        = "auth:email_verify:user:" // +<userID>
-	keyEmailVerifyLink    = "auth:email_verify:link:" // +<linkHash> -> record key
-	keyPasswordReset      = "auth:password_reset:token:"
-	keyTwoFactor          = "auth:2fa:code:"
-	keyTwoFactorStepUp    = "auth:2fa:step-up:"
-	keyTwoFactorChallenge = "auth:2fa:challenge:"
-	keyPasskeyCeremony    = "auth:passkey:"
+	keyPhoneVerify        = "phone_verify:rec:"  // +<purpose>:<phone>
+	keyPhoneVerifyLink    = "phone_verify:link:" // +<linkHash> -> record key
+	keyEmailVerify        = "email_verify:user:" // +<userID>
+	keyEmailVerifyLink    = "email_verify:link:" // +<linkHash> -> record key
+	keyPasswordReset      = "password_reset:token:"
+	keyTwoFactor          = "2fa:code:"
+	keyTwoFactorStepUp    = "2fa:step-up:"
+	keyTwoFactorChallenge = "2fa:challenge:"
+	keyPasskeyCeremony    = "passkey:"
 )
 
 type phoneVerificationData struct {

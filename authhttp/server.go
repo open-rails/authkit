@@ -114,7 +114,7 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 			limits[bucket] = lim
 		}
 		if s.rd != nil {
-			s.rl = redislimiter.New(s.rd, limits)
+			s.rl = redislimiter.New(s.rd, limits, coreSvc.RedisKeyPrefix()+"ratelimit:")
 			slog.Info("authkit: rate limiter", "backend", "redis")
 		} else {
 			ml := memorylimiter.New(limits)
