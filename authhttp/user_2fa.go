@@ -221,7 +221,7 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) startPhone2FASetup(w http.ResponseWriter, r *http.Request, userID, phone string) {
-	if s.rateLimited(w, r, RL2FAStartPhone) {
+	if s.rateLimited(w, r, RL2FAStartPhone) || s.rateLimitedByIdentifier(w, r, RL2FAStartPhone, embedded.NormalizePhone(phone)) {
 		return
 	}
 	// Gate on real SMS deliverability up front (parity with signup / phone

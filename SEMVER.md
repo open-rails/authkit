@@ -400,7 +400,7 @@ One-step construction (#211): New(cfg, pg, opts...) (*Service, *embedded.Client,
    as the authkit.Client surface — there is no svc.Core() accessor; the former
    `Server = Service` alias was removed pre-1.0, #206)
 Option: WithRedis, WithRateLimiter, WithoutRateLimiter, WithTrustedProxies,
-  WithClientIPFunc, WithLanguageConfig
+  WithCloudflareProxies, WithClientIPFunc, WithLanguageConfig
 Handlers / mounts: MountHandler + MountOptions + RouteRef (#250, the one-call surface),
   svc.APIHandler(), svc.JWKSHandler(), svc.OIDCHandler(),
   svc.Routes() (DefaultAPI/Groups/OIDCBrowser/PermissionGroups)
@@ -411,7 +411,8 @@ Verification surface: NOT re-exported (#206 — the former verify_aliases re-exp
    bespoke RequireAdmin gate; the /admin/* routes gate on root:* perms — see §5.3)
 Rate limiting: RateLimiter, RateLimiterWithResult, RateLimitResult,
   DefaultRateLimits() (returns map[string]ratelimit.Limit), RL* consts
-Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders, PublicRemoteAddrClientIP
+Client IP: ClientIPFunc, DefaultClientIP, ClientIPFromForwardedHeaders(trusted, cloudflare),
+  PublicRemoteAddrClientIP
 Language: LanguageConfig, LanguageMiddleware
 Routing: RouteGroup (+consts), RouteSpec, Routes
 Errors: ErrorCode (+the full constant set, §6.2)
@@ -497,7 +498,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/step-up/password` | user | required |
 | POST | `/step-up/2fa` | user | required |
 | POST | `/oidc/{provider}/link/start` | user | required |
-| POST | `/oidc/{provider}/step-up/start` | user | required |
+| POST | `/oidc/{provider}/step-up/start` (`KindOIDC` providers only; OAuth2 kinds answer `invalid_method`) | user | required |
 | GET | `/user/2fa` | user | required |
 | POST | `/user/2fa` | user | required |
 | DELETE | `/user/2fa` | user | required |
@@ -515,7 +516,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/applications/{slug}/rotate` | applications | per-message JWS (#264) |
 | POST | `/applications/{slug}/repoint` | applications | per-message JWS + new-domain proof (#264) |
 | POST | `/delegated/token` | delegated | required user (#261 — mounted only when `Delegated.Audiences` is set) |
-| GET\|HEAD | `/.well-known/authkit/documents/{digest}` | documents | remote application in `Documents.ReaderSlugs` (#260 — root-anchored like JWKS; mounted only with `WithDocuments` providers) |
+| GET\|HEAD | `/.well-known/authkit/documents/{digest}` | documents | remote application pinned by `Documents.Readers` (#260 — root-anchored like JWKS; mounted only with `WithDocuments` providers) |
 
 ### 5.4 Generated permission-group routes (covered, schema-derived)
 

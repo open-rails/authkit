@@ -100,6 +100,13 @@ type Claims struct {
 	// carry its STORED, assigned authority.
 	RemoteApplicationID   string
 	RemoteApplicationSlug string
+	// RemoteApplicationDomain / Tier / TrustRoot are the application's stored
+	// identity facts (#296), resolved server-side like ID: hosts authorize on
+	// an unclaimable identity (id, proven domain, root-registered issuer),
+	// never on the slug.
+	RemoteApplicationDomain    string
+	RemoteApplicationTier      string
+	RemoteApplicationTrustRoot string
 
 	// PermissionGroupPersona / PermissionGroupInstance bind a machine principal's
 	// token-carried Permissions to the permission-group INSTANCE it was minted on

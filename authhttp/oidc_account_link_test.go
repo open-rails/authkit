@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/authprovider"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/oidckit"
 )
 
@@ -59,10 +59,7 @@ func TestOIDCLegacyBrowserLinkRejects2FAEnrollmentToken(t *testing.T) {
 
 func newAccountLinkPG(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)

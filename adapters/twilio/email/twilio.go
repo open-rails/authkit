@@ -231,6 +231,14 @@ func (s *Sender) SendWelcome(ctx context.Context, email, username string) error 
 	return s.sendEmail(ctx, email, Message{Subject: copy.welcomeSubject, TextBody: copy.welcomeBody, HTMLBody: html, Categories: []string{"auth", "welcome"}})
 }
 
+func (s *Sender) SendContactChanged(ctx context.Context, email, username string, change embedded.ContactChange) error {
+	app := s.appLabel()
+	subject := fmt.Sprintf("Your %s %s was changed", app, change.Field)
+	intro := fmt.Sprintf("The %s on your %s account was changed to %s. If this was not you, secure your account now.", change.Field, app, change.NewValue)
+	html := fmt.Sprintf("<p>%s</p>", escapeHTML(intro))
+	return s.sendEmail(ctx, email, Message{Subject: subject, TextBody: intro, HTMLBody: html, Categories: []string{"auth", "contact-changed"}})
+}
+
 func (s *Sender) appLabel() string {
 	return twiliocommon.AppLabel(s.AppName)
 }

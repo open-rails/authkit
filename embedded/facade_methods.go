@@ -11,6 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/documents"
 	"github.com/open-rails/authkit/jwtkit"
 )
 
@@ -65,6 +66,15 @@ func (s *Client) UnassignGroupRoleAs(ctx context.Context, actorUserID, persona, 
 // .RemoveGroupSubject (#241).
 func (s *Client) RemoveGroupSubjectAs(ctx context.Context, actorUserID, persona, instanceSlug, subjectID, subjectKind string) error {
 	return s.impl.RemoveGroupSubjectAs(ctx, actorUserID, persona, instanceSlug, subjectID, subjectKind)
+}
+
+// AssignRemoteApplicationRoleAs grants a remote application (by slug, scoped
+// to the addressed group) a role on behalf of actorUserID: the actor must hold
+// <persona>:credentials:manage plus every permission the role confers
+// (no-escalation, #136/#308). The unchecked equivalent is
+// Client.Genesis().AssignRemoteApplicationRole.
+func (s *Client) AssignRemoteApplicationRoleAs(ctx context.Context, actorUserID, persona, instanceSlug, appSlug, role string) error {
+	return s.impl.AssignRemoteApplicationRoleAs(ctx, actorUserID, persona, instanceSlug, appSlug, role)
 }
 
 func (s *Client) LeaveGroup(ctx context.Context, userID, persona, instanceSlug string) error {
@@ -312,6 +322,12 @@ func (s *Client) MintServiceJWT(ctx context.Context, opts authkit.ServiceJWTMint
 
 func (s *Client) SignDocument(ctx context.Context, envelope authkit.DocumentEnvelope) (authkit.SignedDocument, error) {
 	return s.impl.SignDocument(ctx, envelope)
+}
+
+// DocumentStore returns the engine-owned signed-document store for
+// documents.ServiceConfig.Store.
+func (s *Client) DocumentStore() documents.Store {
+	return s.impl.DocumentStore()
 }
 
 // Config returns the normalized host Config the engine was built from (#237).

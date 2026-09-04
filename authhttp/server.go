@@ -69,6 +69,9 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		}
 	}
 	s.svc = coreSvc
+	if !s.clientIPExplicit && (len(s.trustedProxies) > 0 || len(s.cloudflareProxies) > 0) {
+		s.clientIP = ClientIPFromForwardedHeaders(s.trustedProxies, s.cloudflareProxies)
+	}
 	if len(s.engineOpts) > 0 && !s.engineOptsAllowed {
 		return nil, errors.New("authkit: authhttp.WithEngine is only valid with authhttp.New (one-step); with NewServer the engine is already built — pass engine options to embedded.New instead")
 	}
@@ -184,13 +187,13 @@ func (s *Service) validate(cfg embedded.Config) error {
 	}
 	// #260: the published-document surface is never public and never dead
 	// config. Providers with no authorized readers would mount a route that
-	// 401s everyone; reader slugs with no providers declare a surface that
-	// does not exist. Both refuse at construction.
-	if len(s.documentProviders) > 0 && len(cfg.Documents.ReaderSlugs) == 0 {
-		return fmt.Errorf("authkit: WithDocuments providers are wired but Config.Documents.ReaderSlugs is empty — publication is never public; declare which remote-application slugs may read")
+	// 401s everyone; readers with no providers declare a surface that does
+	// not exist. Both refuse at construction.
+	if len(s.documentProviders) > 0 && len(cfg.Documents.Readers) == 0 {
+		return fmt.Errorf("authkit: WithDocuments providers are wired but Config.Documents.Readers is empty — publication is never public; declare which remote applications may read")
 	}
-	if len(s.documentProviders) == 0 && len(cfg.Documents.ReaderSlugs) > 0 {
-		return fmt.Errorf("authkit: Config.Documents.ReaderSlugs is set but no document providers are wired — pass authhttp.WithDocuments(...) or drop the dead config")
+	if len(s.documentProviders) == 0 && len(cfg.Documents.Readers) > 0 {
+		return fmt.Errorf("authkit: Config.Documents.Readers is set but no document providers are wired — pass authhttp.WithDocuments(...) or drop the dead config")
 	}
 	seenDocumentTypes := make(map[string]bool, len(s.documentProviders))
 	for _, p := range s.documentProviders {
@@ -295,24 +298,51 @@ func WithoutRateLimiter() Option {
 }
 
 // WithTrustedProxies is the normal knob for deployments behind a reverse proxy or
-// CDN: AuthKit derives the client IP (for rate limiting + auditing) from forwarded
-// headers (CF-Connecting-IP / X-Forwarded-For) ONLY when the immediate peer is in
-// one of the given trusted-proxy CIDRs; otherwise it uses the direct peer
-// (RemoteAddr). With no trusted proxies the safe RemoteAddr default applies. An
-// invalid CIDR fails NewServer rather than silently mis-trusting a proxy.
+// load balancer: AuthKit derives the client IP (rate limiting + auditing) from
+// X-Forwarded-For ONLY when the immediate peer is in one of the given CIDRs,
+// walking the chain right-to-left past our own hops; otherwise it uses the direct
+// peer (RemoteAddr). CF-Connecting-IP is NOT honoured from these peers — a generic
+// proxy forwards it verbatim, so it is client-controlled there; see
+// WithCloudflareProxies. An invalid CIDR fails NewServer.
 func WithTrustedProxies(cidrs ...string) Option {
 	return func(s *Service) {
-		prefixes := make([]netip.Prefix, 0, len(cidrs))
-		for _, c := range cidrs {
-			p, err := netip.ParsePrefix(strings.TrimSpace(c))
-			if err != nil {
-				s.trustedProxyErr = fmt.Errorf("authkit: invalid trusted proxy CIDR %q: %w", c, err)
-				return
-			}
-			prefixes = append(prefixes, p)
+		prefixes, err := parseProxyCIDRs("trusted proxy", cidrs)
+		if err != nil {
+			s.trustedProxyErr = err
+			return
 		}
-		s.clientIP = ClientIPFromForwardedHeaders(prefixes)
+		s.trustedProxies = append(s.trustedProxies, prefixes...)
 	}
+}
+
+// WithCloudflareProxies declares Cloudflare's published egress ranges. A peer in
+// this set enables the X-Forwarded-For walk like a trusted proxy and, when that
+// header is absent, is additionally trusted for CF-Connecting-IP (a single value
+// Cloudflare overwrites on every request). Pass it ONLY where Cloudflare actually
+// fronts the origin, and lock the origin down to Cloudflare ingress: a client that
+// reaches the origin around Cloudflare is its own peer and neither header is used.
+// An invalid CIDR fails NewServer.
+func WithCloudflareProxies(cidrs ...string) Option {
+	return func(s *Service) {
+		prefixes, err := parseProxyCIDRs("Cloudflare proxy", cidrs)
+		if err != nil {
+			s.trustedProxyErr = err
+			return
+		}
+		s.cloudflareProxies = append(s.cloudflareProxies, prefixes...)
+	}
+}
+
+func parseProxyCIDRs(kind string, cidrs []string) ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(cidrs))
+	for _, c := range cidrs {
+		p, err := netip.ParsePrefix(strings.TrimSpace(c))
+		if err != nil {
+			return nil, fmt.Errorf("authkit: invalid %s CIDR %q: %w", kind, c, err)
+		}
+		prefixes = append(prefixes, p)
+	}
+	return prefixes, nil
 }
 
 // WithClientIPFunc sets the client-IP extraction strategy. ADVANCED/TEST ONLY:
@@ -324,6 +354,7 @@ func WithClientIPFunc(fn ClientIPFunc) Option {
 			fn = DefaultClientIP()
 		}
 		s.clientIP = fn
+		s.clientIPExplicit = true
 	}
 }
 

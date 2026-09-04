@@ -158,7 +158,9 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	// Engine dependencies (Redis, senders, entitlements, …) ride in via WithEngine.
 	srv, client, err := authhttp.New(cfg, pg,
 		authhttp.WithEngine(embedded.WithRedis(rdb), embedded.WithEmailSender(mailer)),
-		// Trust only infrastructure that overwrites/appends forwarded headers.
+		// Trust X-Forwarded-For only from infrastructure that appends it. Add
+		// WithCloudflareProxies(<Cloudflare egress CIDRs>) ONLY where Cloudflare
+		// fronts the origin; CF-Connecting-IP is never trusted from other proxies.
 		authhttp.WithTrustedProxies("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"),
 		authhttp.WithLanguageConfig(authhttp.LanguageConfig{
 			Supported: []string{"en", "es"},
@@ -631,15 +633,18 @@ host supplies only its compiled payload:
 docSvc, err := documents.NewService(ctx, documents.ServiceConfig{
     Type: "example.entitlements/v1", Payload: payload,
     Issuer: cfg.Token.Issuer, Audiences: cfg.Delegated.Audiences,
-    Signer: client, Postgres: pool, Schema: client.Schema(),
+    Signer: client, Store: client.DocumentStore(),
 })
 srv, err := authhttp.NewServer(client, authhttp.WithDocuments(docSvc))
 ```
 
 `MountHandler` then serves `GET|HEAD /.well-known/authkit/documents/{digest}`
 (root-anchored, `RouteDocuments`). Reader authorization is config —
-`Config.Documents.ReaderSlugs` names the remote applications allowed to fetch;
-publication is never public and a providers/readers mismatch refuses at boot.
+`Config.Documents.Readers` pins the remote applications allowed to fetch by an
+identity nobody else can claim (application id, proven domain, or the issuer of
+a root-registered application — never the slug), at the approved tier unless
+`AllowRegisteredTier` is set; publication is never public and a
+providers/readers mismatch refuses at boot.
 
 `POST /delegated/token` (`RouteDelegated`, mounted when
 `Config.Delegated.Audiences` is set) mints delegated tokens for the

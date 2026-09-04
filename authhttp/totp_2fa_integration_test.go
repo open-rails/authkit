@@ -80,6 +80,10 @@ func TestTOTPEnrollmentAndLoginHTTPIntegration(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.AccessToken)
 	require.NotEmpty(t, tokens.RefreshToken)
+	var loginIP *string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT host(ip_addr) FROM profiles.refresh_sessions WHERE user_id = $1::uuid AND id <> $2::uuid`, user.ID, sid).Scan(&loginIP))
+	require.NotNil(t, loginIP, "an MFA login must record the client IP like a password login")
+	require.Equal(t, "192.0.2.1", *loginIP)
 
 	claims := unverifiedAccessClaims(t, tokens.AccessToken)
 	require.NotEmpty(t, claims["auth_time"])

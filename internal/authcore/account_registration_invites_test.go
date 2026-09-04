@@ -33,6 +33,9 @@ func (s *inviteCaptureEmailSender) SendLoginCode(context.Context, string, string
 	return nil
 }
 func (s *inviteCaptureEmailSender) SendWelcome(context.Context, string, string) error { return nil }
+func (s *inviteCaptureEmailSender) SendContactChanged(context.Context, string, string, ContactChange) error {
+	return nil
+}
 
 // #223: the configured host EmailSender must RECEIVE the invite send — and a
 // failing provider must not panic or propagate (the inviter still holds the URL).

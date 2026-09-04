@@ -165,17 +165,12 @@ func (s *Service) SendWelcome(ctx context.Context, userID string) {
 	_ = s.email.SendWelcome(sendCtx, *u.Email, username)
 }
 
-func (s *Service) hasPassword(ctx context.Context, userID string) bool {
-	if s.pg == nil {
-		return false
-	}
-	exists, _ := s.q.UserHasPassword(ctx, userID)
-	return exists
-}
-
 // HasPassword reports whether the user has a local password set.
-func (s *Service) HasPassword(ctx context.Context, userID string) bool {
-	return s.hasPassword(ctx, userID)
+func (s *Service) HasPassword(ctx context.Context, userID string) (bool, error) {
+	if s.pg == nil {
+		return false, fmt.Errorf("postgres not configured")
+	}
+	return s.q.UserHasPassword(ctx, userID)
 }
 
 // ListEntitlements returns current entitlement names for a user (fresh from

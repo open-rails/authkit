@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/riverqueue/river"
 )
 
@@ -20,10 +20,7 @@ import (
 // migrations/postgres/0001_auth_schema.up.sql must already be applied.
 func testPG(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)

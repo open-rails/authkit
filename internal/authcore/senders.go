@@ -33,20 +33,34 @@ var (
 	ErrSMSDeliveryFailed   = authkit.ErrSMSDeliveryFailed
 )
 
-// EmailSender sends verification/login/reset emails.
+// ContactChange is delivered to the PREVIOUS address after a recovery
+// identifier (email or phone) was replaced, so a hijacked change is visible to
+// the account's real owner.
+type ContactChange struct {
+	// Field is "email" or "phone".
+	Field string
+	// NewValue is the replacement address as stored.
+	NewValue string
+}
+
+// EmailSender sends verification/login/reset/notice emails.
 type EmailSender interface {
 	SendVerification(ctx context.Context, email, username string, msg VerificationMessage) error
 	SendPasswordResetLink(ctx context.Context, email, username, resetURL string) error
 	SendAccountRegistrationInvite(ctx context.Context, email, inviteURL string) error
 	SendLoginCode(ctx context.Context, email, username, code string) error
 	SendWelcome(ctx context.Context, email, username string) error
+	// SendContactChanged goes to the address that was just REPLACED.
+	SendContactChanged(ctx context.Context, email, username string, change ContactChange) error
 }
 
-// SMSSender sends verification/login/reset SMS messages.
+// SMSSender sends verification/login/reset/notice SMS messages.
 type SMSSender interface {
 	SendVerification(ctx context.Context, phone string, msg VerificationMessage) error
 	SendPasswordResetLink(ctx context.Context, phone, resetURL string) error
 	SendLoginCode(ctx context.Context, phone, code string) error
+	// SendContactChanged goes to the number that was just REPLACED.
+	SendContactChanged(ctx context.Context, phone string, change ContactChange) error
 }
 
 // SMSHealthChecker is an optional capability for SMS senders that can verify,
