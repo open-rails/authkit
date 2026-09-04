@@ -3,6 +3,7 @@ package memorystore
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -129,6 +130,44 @@ func (k *KV) Consume(ctx context.Context, key string) ([]byte, bool, error) {
 		return nil, false, nil
 	}
 	return it.value, true, nil
+}
+
+// Incr is the in-memory analogue of the Redis INCR+PEXPIRE script: read,
+// increment and write happen under one lock hold, so concurrent callers see
+// distinct consecutive values. The TTL is set only when the key is created,
+// and creation is bounded by the entry cap exactly like Set.
+func (k *KV) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	_ = ctx
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	now := time.Now()
+	it, ok := k.items[key]
+	if ok && !it.expires.IsZero() && now.After(it.expires) {
+		delete(k.items, key)
+		ok = false
+	}
+	n := int64(1)
+	if ok {
+		v, err := strconv.ParseInt(string(it.value), 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		n = v + 1
+	} else {
+		if k.maxEntries > 0 && len(k.items) >= k.maxEntries {
+			k.sweepLocked(now)
+			if len(k.items) >= k.maxEntries {
+				return 0, ErrKVFull
+			}
+		}
+		it = kvItem{}
+		if ttl > 0 {
+			it.expires = now.Add(ttl)
+		}
+	}
+	it.value = []byte(strconv.FormatInt(n, 10))
+	k.items[key] = it
+	return n, nil
 }
 
 func (k *KV) sweepLoop(interval time.Duration) {

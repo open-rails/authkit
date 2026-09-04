@@ -25,6 +25,9 @@ func (f *failingEphemeralStore) Del(ctx context.Context, key string) error {
 func (f *failingEphemeralStore) Consume(ctx context.Context, key string) ([]byte, bool, error) {
 	return nil, false, nil
 }
+func (f *failingEphemeralStore) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	return 0, errors.New("ephemeral store unavailable: simulated write failure")
+}
 
 func TestVerificationMessageValidate(t *testing.T) {
 	if err := (VerificationMessage{}).Validate(); err == nil {
