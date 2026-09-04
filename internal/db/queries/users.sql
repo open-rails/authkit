@@ -107,9 +107,6 @@ WHERE id = sqlc.arg(id);
 -- name: UserSoftDelete :exec
 UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1;
 
--- name: UserRestore :exec
-UPDATE profiles.users SET deleted_at = NULL, updated_at = now() WHERE id = $1;
-
 -- name: UserUsernameByID :one
 SELECT username::text FROM profiles.users WHERE id = sqlc.arg(id)::uuid;
 
@@ -129,9 +126,6 @@ VALUES (sqlc.arg(user_id)::uuid, $2);
 
 -- name: UserSetEmailAndUnverify :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = false, updated_at = NOW() WHERE id = $1;
-
--- name: UserSetEmailAndVerified :exec
-UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = true, updated_at = NOW() WHERE id = $1;
 
 -- name: UserSetAvatarURL :execrows
 UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1;

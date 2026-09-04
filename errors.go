@@ -78,6 +78,7 @@ var (
 	ErrRenameRateLimited                 = errors.New("rename_rate_limited")
 	ErrReservedIssuer                    = errors.New("reserved_issuer")
 	ErrRoleAssignmentEscalation          = errors.New("role_assignment_escalation")
+	ErrAccountAuthorityEscalation        = errors.New("account_authority_escalation")
 	ErrRoleNotAssignable                 = errors.New("role_not_assignable")
 	ErrSMSDeliveryFailed                 = errors.New("sms_delivery_failed")
 	ErrSMSSenderUnavailable              = errors.New("sms_unavailable")
@@ -154,6 +155,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrExternalInvitesDisabled:         http.StatusForbidden,
 	ErrInsufficientRoleAuthority:       http.StatusForbidden,
 	ErrRoleAssignmentEscalation:        http.StatusForbidden,
+	ErrAccountAuthorityEscalation:      http.StatusForbidden,
 	ErrGroupSlugReserved:               http.StatusForbidden,
 	ErrGroupCreationRefused:            http.StatusForbidden,
 	// 404 — subject not found.
@@ -294,7 +296,7 @@ var errorSentinels = []error{
 	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled,
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
 	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
-	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
+	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
 	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,

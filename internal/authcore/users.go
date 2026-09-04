@@ -314,7 +314,10 @@ func (s *Service) clearUserBan(ctx context.Context, userID string) error {
 	return s.q.UserClearBan(ctx, userID)
 }
 
-// BanUser disables a user account and stores ban metadata.
+// BanUser disables a user account and stores ban metadata. bannedBy is the
+// acting user and must hold every root grant the target holds (#286), so a
+// bounded operator can never lock out a more privileged account. The ban,
+// session revoke and device-key revoke commit together.
 func (s *Service) BanUser(ctx context.Context, userID string, reason *string, until *time.Time, bannedBy string) error {
 	if s.pg == nil {
 		return fmt.Errorf("postgres not configured")
@@ -326,6 +329,9 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 	if until != nil && !until.UTC().After(now) {
 		return ErrInvalidUntil
 	}
+	if err := s.authorizeAccountAuthority(ctx, bannedBy, userID); err != nil {
+		return err
+	}
 	var reasonPtr *string
 	if reason != nil {
 		trimmed := strings.TrimSpace(*reason)
@@ -333,19 +339,28 @@ func (s *Service) BanUser(ctx context.Context, userID string, reason *string, un
 			reasonPtr = &trimmed
 		}
 	}
-	var bannedByPtr *string
-	if trimmed := strings.TrimSpace(bannedBy); trimmed != "" {
-		bannedByPtr = &trimmed
-	}
+	bannedBy = strings.TrimSpace(bannedBy)
 	var untilPtr *time.Time
 	if until != nil {
 		t := until.UTC()
 		untilPtr = &t
 	}
-	if err := s.q.UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: bannedByPtr}); err != nil {
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonBanned), userID, nil)
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.qtx(tx).UserBan(ctx, db.UserBanParams{ID: userID, BannedAt: &now, BannedUntil: untilPtr, BanReason: reasonPtr, BannedBy: &bannedBy}); err != nil {
+		return err
+	}
+	sessionIDs, err := s.revokeCredentialsTx(ctx, tx, userID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.logSessionsRevoked(ctx, userID, sessionIDs, SessionRevokeReasonBanned)
 	return nil
 }
 
@@ -354,24 +369,49 @@ func (s *Service) UnbanUser(ctx context.Context, userID string) error {
 	return s.clearUserBan(ctx, userID)
 }
 
-// SoftDeleteUser marks the user deleted and sets deleted_at without dropping rows.
-// Also revokes all refresh sessions for this issuer.
+// SoftDeleteUser marks the user deleted without dropping rows. Sessions and
+// device keys are revoked in the same transaction.
 func (s *Service) SoftDeleteUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
 	}
-	// Revoke sessions first
-	_ = s.RevokeAllSessions(WithSessionRevokeReason(ctx, SessionRevokeReasonSoftDeleted), id, nil)
-	// Soft-delete user
-	return s.q.UserSoftDelete(ctx, id)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	sessionIDs, err := s.revokeCredentialsTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.qtx(tx).UserSoftDelete(ctx, id); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.logSessionsRevoked(ctx, id, sessionIDs, SessionRevokeReasonSoftDeleted)
+	return nil
 }
 
-// RestoreUser clears deleted_at and re-enables the account.
-func (s *Service) RestoreUser(ctx context.Context, id string) error {
-	if s.pg == nil {
-		return nil
+// revokeCredentialsTx revokes every refresh session and device key of userID
+// inside tx, returning the revoked session ids for post-commit audit logging.
+func (s *Service) revokeCredentialsTx(ctx context.Context, tx pgx.Tx, userID string) ([]string, error) {
+	ids, err := s.qtx(tx).SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+	if err != nil {
+		return nil, err
 	}
-	return s.q.UserRestore(ctx, id)
+	if err := s.revokeAllDeviceKeys(ctx, tx, userID); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (s *Service) logSessionsRevoked(ctx context.Context, userID string, sessionIDs []string, reason SessionRevokeReason) {
+	r := string(reason)
+	for _, sid := range sessionIDs {
+		s.logSessionRevoked(ctx, userID, sid, &r)
+	}
 }
 
 // HostDeleteUser performs deletion on behalf of the host application.

@@ -12,7 +12,6 @@ import authcore "github.com/open-rails/authkit/internal/authcore"
 
 type APIKeysConfig = authcore.APIKeysConfig
 type ApplicationsConfig = authcore.ApplicationsConfig
-type AdminRecoverUserInput = authcore.AdminRecoverUserInput
 type AuthSessionEvent = authcore.AuthSessionEvent
 type Config = authcore.Config
 type CustomRoleResolver = authcore.CustomRoleResolver

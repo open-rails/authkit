@@ -107,7 +107,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 	state := randB64(32)
 	// AK F3: bind state to this browser so a third party can't drive a victim
 	// through the callback with an attacker-issued state+code (login CSRF).
-	s.setStateCookie(w, r, state)
+	s.setStateCookie(w, r, cfg.Name, state)
 	verifier := ""
 	challenge := ""
 	if cfg.PKCE {
@@ -181,14 +181,15 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	// The IdP echoes state on error redirects too; recover the flow context
 	// when this browser really started the flow, so the error lands where the
 	// flow expects it (popup message / step-up return / frontend fragment).
-	if qErr := r.URL.Query().Get("error"); qErr != "" {
+	params := callbackParams(r)
+	if qErr := params.Get("error"); qErr != "" {
 		logIdPCallbackError(cfg.Name, r)
 		errSD := s.recoverCallbackState(w, r, cfg.Name)
 		s.failBrowserFlow(w, r, errSD, cfg.Name, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
 		return
 	}
-	state := r.URL.Query().Get("state")
-	code := r.URL.Query().Get("code")
+	state := params.Get("state")
+	code := params.Get("code")
 	if state == "" || code == "" {
 		s.failBrowserFlow(w, r, nil, cfg.Name, http.StatusBadRequest, ErrInvalidRequest)
 		return
