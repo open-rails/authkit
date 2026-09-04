@@ -44,7 +44,7 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 	redirectURI := s.buildRedirectURI(r, provider)
 	// AK F3: bind state to this browser (login CSRF defense).
-	s.setStateCookie(w, r, state)
+	s.setStateCookie(w, r, provider, state)
 	authURL, err := manager.Begin(r.Context(), provider, state, nonce, challenge, redirectURI)
 	if err != nil {
 		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrOIDCBeginFailed)
@@ -75,7 +75,12 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
+// handleOIDCCallbackGET completes the browser flow for the IdP's GET redirect
+// and, for response_mode=form_post providers, the equivalent POST (#295).
 func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) {
+	// Every callback response carries the flow result (tokens, error, popup
+	// document); none may be cached.
+	w.Header().Set("Cache-Control", "no-store")
 	provider := r.PathValue("provider")
 	if cfg, ok := s.oauth2Provider(provider); ok {
 		s.handleOAuthCallbackGET(w, r, cfg.Name)
@@ -88,15 +93,16 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	// The IdP echoes state on error redirects too; recover the flow context
 	// when this browser really started the flow, so the error lands where the
 	// flow expects it (popup message / step-up return / frontend fragment).
-	if qErr := r.URL.Query().Get("error"); qErr != "" {
+	params := callbackParams(r)
+	if qErr := params.Get("error"); qErr != "" {
 		logIdPCallbackError(provider, r)
 		errSD := s.recoverCallbackState(w, r, provider)
 		s.failBrowserFlow(w, r, errSD, provider, http.StatusBadRequest, sanitizeProviderErrorCode(qErr))
 		return
 	}
 
-	state := r.URL.Query().Get("state")
-	code := r.URL.Query().Get("code")
+	state := params.Get("state")
+	code := params.Get("code")
 	if state == "" || code == "" {
 		s.failBrowserFlow(w, r, nil, provider, http.StatusBadRequest, ErrInvalidRequest)
 		return
@@ -339,7 +345,7 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 	if base == "" {
 		base = "/"
 	}
-	state := r.URL.Query().Get("state")
+	state := callbackParams(r).Get("state")
 	fragmentRT := s.deliverRefreshToken(w, r, newAuthTokens(token, rt, exp)).RefreshToken
 	frag := buildAuthResultFragment(token, fragmentRT, int64(time.Until(exp).Seconds()), providerName, state, sd.ReturnTo)
 	target := buildFrontendCallbackURL(base, s.svc.Config().Frontend.OIDCReturnPath, frag)
