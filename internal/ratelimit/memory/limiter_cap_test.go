@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/ratelimit"
 )
 
@@ -11,7 +12,8 @@ import (
 // sweep of aged-out buckets frees room; known keys keep working.
 func TestMaxBucketsDeniesNewKeysWhenFull(t *testing.T) {
 	limits := map[string]ratelimit.Limit{"login": {Limit: 5, Window: 50 * time.Millisecond}}
-	l := New(limits, WithMaxBuckets(2))
+	clk := testclock.New()
+	l := New(limits, WithMaxBuckets(2), WithClock(clk.Now))
 
 	for _, ip := range []string{"10.0.0.1", "10.0.0.2"} {
 		if ok, err := l.AllowNamed("login", ip); err != nil || !ok {
@@ -29,7 +31,7 @@ func TestMaxBucketsDeniesNewKeysWhenFull(t *testing.T) {
 		t.Fatalf("len=%d, want 2", l.Len())
 	}
 
-	time.Sleep(60 * time.Millisecond)
+	clk.Advance(60 * time.Millisecond)
 	if ok, err := l.AllowNamed("login", "10.0.0.3"); err != nil || !ok {
 		t.Fatalf("after the window the inline sweep must admit the new key: ok=%v err=%v", ok, err)
 	}

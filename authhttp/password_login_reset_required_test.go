@@ -29,7 +29,7 @@ func TestPasswordLogin_LegacyResetRequired(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	cfg := embedded.Config{
-		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
+		Keys: testKeys(),
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},

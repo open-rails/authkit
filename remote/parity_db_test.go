@@ -2,6 +2,7 @@ package remote_test
 
 import (
 	"context"
+	"crypto"
 	"fmt"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,17 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/jwtkit"
 )
+
+// testKeys builds explicit signing keys (no dev-key generation, nothing
+// persisted under the package directory).
+func testKeys(t *testing.T) embedded.KeysConfig {
+	t.Helper()
+	s, err := jwtkit.NewRSASigner(2048, "test-kid")
+	require.NoError(t, err)
+	return embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}}
+}
 
 // TestRemoteEmbeddedParity_DB proves the #142 thesis end-to-end: a remote.Client
 // driving the REAL embedded engine over the management API behaves like the
@@ -33,8 +44,7 @@ func TestRemoteEmbeddedParity_DB(t *testing.T) {
 			IssuedAudiences:   []string{"authkit"},
 			ExpectedAudiences: []string{"authkit"},
 		},
-		// #231: dev signing keys are an explicit opt-in now (no env reads).
-		Keys: embedded.KeysConfig{Path: t.TempDir(), AllowEphemeralDevKeys: true},
+		Keys: testKeys(t),
 	}, pool)
 	require.NoError(t, err)
 

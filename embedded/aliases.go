@@ -189,6 +189,7 @@ var WithInstanceAdmission = authcore.WithInstanceAdmission
 var WithApplicationsHTTPClient = authcore.WithApplicationsHTTPClient
 var WithDelegatedAuthorization = authcore.WithDelegatedAuthorization
 var WithEmailSender = authcore.WithEmailSender
+var WithClock = authcore.WithClock
 var WithSolanaSNSResolver = authcore.WithSolanaSNSResolver
 var WithEntitlements = authcore.WithEntitlements
 var WithPostgres = authcore.WithPostgres

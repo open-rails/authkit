@@ -1,3 +1,5 @@
+//go:build queryperf
+
 package querytest
 
 import (

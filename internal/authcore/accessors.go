@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
@@ -102,6 +103,14 @@ func (s *Service) Config() Config { return s.cfg }
 // fresh from the KeySource on every call (#238).
 func (s *Service) PublicKeysByKID() map[string]crypto.PublicKey {
 	return s.keys.PublicKeys()
+}
+
+// nowTime is the engine clock (time.Now unless WithClock replaced it).
+func (s *Service) nowTime() time.Time {
+	if s == nil || s.now == nil {
+		return time.Now()
+	}
+	return s.now()
 }
 
 func (s *Service) isDevEnvironment() bool {

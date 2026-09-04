@@ -168,6 +168,7 @@ func newService(norm Config, keys jwtkit.KeySource, gs *GroupSchema, coreOpts ..
 		schema:            norm.Schema,
 		groupSchema:       gs,
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
+		now:               time.Now,
 	}
 	for _, o := range coreOpts {
 		if o != nil {

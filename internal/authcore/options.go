@@ -3,6 +3,7 @@ package authcore
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -77,6 +78,15 @@ func WithDelegatedAuthorization(a DelegationAuthorizer) Option {
 
 // WithEmailSender sets the email provider.
 func WithEmailSender(sender EmailSender) Option { return func(s *Service) { s.email = sender } }
+
+// WithClock replaces the engine clock used for TTL and grace-window decisions.
+func WithClock(now func() time.Time) Option {
+	return func(s *Service) {
+		if now != nil {
+			s.now = now
+		}
+	}
+}
 
 // WithSolanaSNSResolver replaces the SNS primary-name resolver used after a
 // verified Solana link.

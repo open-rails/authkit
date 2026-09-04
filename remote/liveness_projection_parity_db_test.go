@@ -37,7 +37,7 @@ func newParityPair(t *testing.T, issuer string) (*embedded.Client, *remote.Clien
 			IssuedAudiences:   []string{"authkit"},
 			ExpectedAudiences: []string{"authkit"},
 		},
-		Keys: embedded.KeysConfig{Path: t.TempDir(), AllowEphemeralDevKeys: true},
+		Keys: testKeys(t),
 	}, pool)
 	require.NoError(t, err)
 

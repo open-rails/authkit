@@ -124,19 +124,19 @@ func TestNewServerRefusesFormPostWithoutHTTPS(t *testing.T) {
 	// Explicit http BaseURL.
 	cfg := base()
 	cfg.Frontend.BaseURL = "http://auth.example"
-	_, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)))
+	_, err := NewServer(newServerClient(t, cfg, newTestPool(t)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "form_post")
 
 	// BaseURL defaulted from an http issuer.
 	cfg = base()
 	cfg.Token.Issuer = "http://auth.example"
-	_, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)))
+	_, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "form_post")
 
 	cfg = base()
 	cfg.Frontend.BaseURL = "https://auth.example"
-	_, err = NewServer(newServerClient(t, cfg, newNoDBPool(t)))
+	_, err = NewServer(newServerClient(t, cfg, newTestPool(t)))
 	require.NoError(t, err)
 }
