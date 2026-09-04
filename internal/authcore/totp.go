@@ -214,7 +214,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 	hash := sha256Hex(code)
 	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
 	if s.useEphemeralStore() {
-		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, 10*time.Minute); err != nil {
+		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, "", 10*time.Minute); err != nil {
 			return err
 		}
 	} else {

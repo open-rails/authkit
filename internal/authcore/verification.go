@@ -75,10 +75,7 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 	codeHash := sha256Hex(code)
 	linkToken := randB64(32)
 	linkTokenHash := sha256Hex(linkToken)
-	if err := s.storeEmailVerificationTokens(ctx, u.ID, u.Email, map[string]time.Duration{
-		codeHash:      ttl,
-		linkTokenHash: defaultEmailVerificationTTL,
-	}); err != nil {
+	if err := s.storeEmailVerification(ctx, u.ID, u.Email, codeHash, linkTokenHash, ttl); err != nil {
 		return err
 	}
 	username := ""
@@ -101,56 +98,41 @@ func (s *Service) sendEmailVerificationToUser(ctx context.Context, u *User, ttl 
 }
 
 // ConfirmEmailVerification verifies a short typed code for a SPECIFIC email and
-// marks email_verified = true. The code is only 6 digits, so it is brute-force
-// resistant ONLY because it is scoped to the address it was issued to (a guessed
-// code that happens to match another account's record is rejected here without
-// being consumed) and the HTTP layer caps attempts per-identifier (AK security
-// audit F1). For the unguessable 256-bit emailed link token use
-// ConfirmEmailVerificationByToken instead.
+// marks email_verified = true. The record is keyed by the account that owns the
+// address, so the code is only ever compared against that account's own record;
+// the HTTP layer caps attempts per-identifier. For the unguessable 256-bit
+// emailed link token use ConfirmEmailVerificationByToken instead.
 func (s *Service) ConfirmEmailVerification(ctx context.Context, email, code string) (userID string, err error) {
 	if s.pg == nil {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	if !s.useEphemeralStore() {
 		return "", jwt.ErrTokenUnverifiable
 	}
 	email = NormalizeEmail(strings.TrimSpace(email))
 	if email == "" {
 		return "", jwt.ErrTokenInvalidClaims
 	}
-	tokenHash := sha256Hex(code)
-	data, ok := s.peekEmailVerification(ctx, tokenHash)
-	if !ok {
-		return "", jwt.ErrTokenUnverifiable
-	}
-	// Email-scope: the short code is honored only for the address it was issued
-	// to. Do NOT consume on mismatch — leave the legitimate owner's code intact.
-	if data.Email == nil || !strings.EqualFold(NormalizeEmail(*data.Email), email) {
-		return "", jwt.ErrTokenInvalidClaims
-	}
-	u, err := s.getUserByID(ctx, data.UserID)
-	if err != nil || u == nil {
-		return "", errOrUnauthorized(err)
-	}
-	// The supplied address must still be the account's current email.
-	if u.Email == nil || !strings.EqualFold(*u.Email, email) {
-		return "", jwt.ErrTokenInvalidClaims
-	}
-	if err := s.setEmailVerified(ctx, data.UserID, true); err != nil {
+	u, err := s.getUserByEmail(ctx, email)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
-	s.deleteEmailVerificationByToken(ctx, tokenHash)
-	return data.UserID, nil
+	if u == nil {
+		return "", jwt.ErrTokenUnverifiable
+	}
+	if err := s.consumeEmailVerificationCode(ctx, u.ID, email, sha256Hex(code)); err != nil {
+		return "", err
+	}
+	if err := s.setEmailVerified(ctx, u.ID, true); err != nil {
+		return "", err
+	}
+	return u.ID, nil
 }
 
 // ConfirmEmailVerificationByToken verifies the 256-bit emailed link token and
-// marks email_verified = true. The token's own entropy is the security boundary
-// (it is unguessable), so this path is global-lookup and needs no email scoping.
+// marks email_verified = true. The token's own entropy is the security boundary.
 func (s *Service) ConfirmEmailVerificationByToken(ctx context.Context, token string) (userID string, err error) {
 	if s.pg == nil {
 		return "", jwt.ErrTokenUnverifiable
 	}
-	rec, err := s.useEmailVerifyToken(ctx, sha256Hex(token))
+	rec, err := s.consumeEmailVerificationByLink(ctx, sha256Hex(token))
 	if err != nil {
 		return "", err
 	}
@@ -232,15 +214,8 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 	codeHash := sha256Hex(code)
 	linkToken := randB64(32)
 	linkHash := sha256Hex(linkToken)
-	if s.useEphemeralStore() {
-		if err := s.storePhoneVerificationTokens(ctx, "verify_phone", phone, userID, map[string]time.Duration{
-			codeHash: ttl,
-			linkHash: defaultPhoneVerificationTTL,
-		}); err != nil {
-			return err
-		}
-	} else {
-		return nil
+	if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, codeHash, linkHash, ttl); err != nil {
+		return err
 	}
 
 	msg := VerificationMessage{Code: code, LinkURL: s.phoneVerificationURL(linkToken), Purpose: "contact_verify"}
@@ -266,20 +241,10 @@ func (s *Service) SendPhoneVerificationToUser(ctx context.Context, phone, userID
 
 // ConfirmPhoneVerificationUserID verifies a token, marks phone_verified = true, and returns the user ID.
 func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, code string) (string, error) {
-	hash := sha256Hex(code)
-
-	var userID string
-	if s.useEphemeralStore() {
-		uid, err := s.consumePhoneVerification(ctx, "verify_phone", phone, hash)
-		if err != nil {
-			return "", err
-		}
-		userID = uid
-	} else {
-		return "", jwt.ErrTokenUnverifiable
+	userID, err := s.consumePhoneVerification(ctx, "verify_phone", phone, sha256Hex(code))
+	if err != nil {
+		return "", err
 	}
-
-	// Mark phone as verified
 	if err := s.q.UserSetPhoneVerifiedByIDAndPhone(ctx, db.UserSetPhoneVerifiedByIDAndPhoneParams{ID: userID, PhoneNumber: &phone}); err != nil {
 		return "", err
 	}
@@ -288,8 +253,7 @@ func (s *Service) ConfirmPhoneVerificationUserID(ctx context.Context, phone, cod
 
 // ConfirmPhoneVerificationByTokenUserID verifies phone ownership using a one-click token and returns the user ID.
 func (s *Service) ConfirmPhoneVerificationByTokenUserID(ctx context.Context, token string) (string, error) {
-	hash := sha256Hex(token)
-	userID, phone, err := s.consumePhoneVerificationByToken(ctx, "verify_phone", hash)
+	userID, phone, err := s.consumePhoneVerificationByLink(ctx, "verify_phone", sha256Hex(token))
 	if err != nil {
 		return "", err
 	}

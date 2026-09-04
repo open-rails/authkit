@@ -3,7 +3,6 @@ package authcore
 import (
 	"context"
 	"testing"
-	"time"
 
 	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 )
@@ -63,12 +62,11 @@ func TestCancelPhoneChangeClearsPendingRecord(t *testing.T) {
 	userID := "user-123"
 	phone := "+14155551234"
 	if err := svc.storePendingChange(ctx, pendingChange{
-		Kind:   KindChangePhone,
-		Target: phone,
-		UserID: userID,
-	}, map[string]time.Duration{
-		sha256Hex("ABC123"): defaultPhoneVerificationTTL,
-	}); err != nil {
+		Kind:     KindChangePhone,
+		Target:   phone,
+		UserID:   userID,
+		CodeHash: sha256Hex("ABC123"),
+	}, 0); err != nil {
 		t.Fatalf("seed storePendingChange failed: %v", err)
 	}
 	if _, ok := svc.findPendingChangeByUser(ctx, KindChangePhone, userID); !ok {
@@ -90,12 +88,11 @@ func TestCancelPhoneChangeClearsPendingRecord(t *testing.T) {
 	// A cancel by one user must NOT delete another user's pending change.
 	otherUser := "user-999"
 	if err := svc.storePendingChange(ctx, pendingChange{
-		Kind:   KindChangePhone,
-		Target: "+14155559999",
-		UserID: otherUser,
-	}, map[string]time.Duration{
-		sha256Hex("ZZZ999"): defaultPhoneVerificationTTL,
-	}); err != nil {
+		Kind:     KindChangePhone,
+		Target:   "+14155559999",
+		UserID:   otherUser,
+		CodeHash: sha256Hex("ZZZ999"),
+	}, 0); err != nil {
 		t.Fatalf("seed other pending change failed: %v", err)
 	}
 	if err := svc.CancelPhoneChange(ctx, userID, phone); err != nil {

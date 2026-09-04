@@ -107,11 +107,9 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Typed 6-digit code path: the code is short, so it MUST be scoped to a
-	// specific email and attempt-capped to be brute-force resistant. The code is
-	// looked up globally by hash; without binding it to the supplied address a
-	// guessed code would match (and take over) whichever account happens to hold
-	// it, and a per-IP-only limit is trivially defeated by IP rotation (AK F1).
+	// Typed 6-digit code path: the code is short, so it is only ever checked
+	// against the record issued for the supplied email and attempt-capped per
+	// identifier (a per-IP-only limit is trivially defeated by IP rotation).
 	code := strings.ToUpper(strings.TrimSpace(req.Code))
 	email := firstTrimmedNonEmpty(req.Email, req.Identifier)
 	if code == "" || email == "" {
