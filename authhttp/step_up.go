@@ -134,10 +134,6 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 
 func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Request) {
 	provider := strings.TrimSpace(r.PathValue("provider"))
-	if cfg, ok := s.oauth2Provider(provider); ok {
-		s.handleOAuthStepUpStartPOST(w, r, cfg.Name)
-		return
-	}
 	if s.rateLimited(w, r, RLOIDCStart) {
 		return
 	}
@@ -152,6 +148,17 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	}
 	_ = decodeJSON(r, &body)
 
+	// #294: only an OIDC provider proves a fresh interactive login (max_age=0
+	// checked against auth_time). OAuth2 IdPs silently re-authorize an approved
+	// app, so completing them proves nothing.
+	if _, ok := s.oidcProvider(provider); !ok {
+		if _, known := s.authProvider(provider); known {
+			badRequest(w, ErrInvalidMethod)
+		} else {
+			badRequest(w, ErrUnknownProvider)
+		}
+		return
+	}
 	manager := s.oidcManager()
 	issuer, ok := manager.IssuerFor(provider)
 	if !ok || strings.TrimSpace(issuer) == "" {
@@ -353,7 +360,7 @@ func (s *Service) stepUpMethodsWith(hasPassword bool, settings *authcore.TwoFact
 	}
 	sort.Strings(distinct)
 	for _, provider := range distinct {
-		if _, ok := s.oidcManager().IssuerFor(provider); ok {
+		if _, ok := s.oidcProvider(provider); ok {
 			methods = append(methods, provider)
 		}
 	}
