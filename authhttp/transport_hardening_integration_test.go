@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/password"
 	"github.com/open-rails/authkit/ratelimit"
+	"github.com/open-rails/authkit/verify"
 )
 
 // TestLazyLoadedIssuerEnforcesExpectedAudience pins ak#324 item 1: on the
@@ -149,4 +150,33 @@ func TestContactChangeRateLimitPrecedesPasswordCheck(t *testing.T) {
 		second := serveAuthJSONFrom(srv, http.MethodPost, path, body(), token, "203.0.113.40:1234")
 		require.Equal(t, http.StatusTooManyRequests, second.Code, path+": the change bucket must trip before the password check: "+second.Body.String())
 	}
+}
+
+// TestMountAnchorsMFAEnrollmentExemptRoutes pins ak#324 item 5: after
+// MountHandler, the enrollment-only token reaches the mounted 2FA surface and
+// nothing else — not even a host route that happens to end in "/user/2fa".
+func TestMountAnchorsMFAEnrollmentExemptRoutes(t *testing.T) {
+	pool := newServerTestPool(t)
+	ctx := context.Background()
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithoutRateLimiter())
+	require.NoError(t, err)
+	mounted, err := MountHandler(srv, MountOptions{APIPrefix: "/api/v1"})
+	require.NoError(t, err)
+	user, err := srv.svc.CreateUser(ctx, uniqueEmail("mfa-anchor"), "mfaanchor"+uniqueSuffix()[8:])
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
+	token, _, err := srv.svc.Mint2FAEnrollmentToken(ctx, user.ID)
+	require.NoError(t, err)
+	get := func(h http.Handler, path string) int {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	require.Equal(t, http.StatusOK, get(mounted, "/api/v1/user/2fa"), "the mounted enrollment surface stays reachable")
+	require.Equal(t, http.StatusForbidden, get(mounted, "/api/v1/me"), "everything else stays gated")
+	host := verify.Required(srv.Verifier())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	require.Equal(t, http.StatusForbidden, get(host, "/host/user/2fa"), "a host route that merely ends in /user/2fa is not exempt")
 }

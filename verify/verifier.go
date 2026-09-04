@@ -61,6 +61,10 @@ type Verifier struct {
 	// see SetMFAEnrollmentExemptPaths (#243). Nil/empty exempts nothing
 	// (fail-closed default for a verify-only Verifier that never calls it).
 	mfaEnrollmentExemptPaths map[string]bool
+	// mfaEnrollmentExemptRoutes are the ANCHORED exempt paths (mount prefix +
+	// route path) MountHandler registers; once present they are matched exactly
+	// and the suffix set above is not consulted (ak#324).
+	mfaEnrollmentExemptRoutes map[string]bool
 
 	// Remote-application lazy-load coherence state. fedSource is the store the
 	// lazy-load-on-miss path consults; it defaults to enrich (*authkit.Service) but
