@@ -21,6 +21,9 @@ type Config struct {
 	Registration RegistrationConfig
 	// Keys controls signing-key resolution (or verify-only mode).
 	Keys KeysConfig
+	// Ephemeral governs the short-lived state backend (2FA codes, pending
+	// registrations, reset tokens, rate-limit counters).
+	Ephemeral EphemeralConfig
 	// Identity declares external OAuth2/OIDC identity providers.
 	Identity IdentityConfig
 	// APIKeys configures opaque permission-group-owned machine credentials.
@@ -103,12 +106,12 @@ type ApplicationsConfig struct {
 	OrgPersona string
 }
 
-// DelegatedConfig configures the delegated-token mint route (#261,
+// DelegatedConfig configures the delegated-token mint route (#261/#277,
 // POST /delegated/token under the API prefix). All four knobs are DATA: the
-// mint mechanics (audience-subset clamp, TTL clamp, document stamping, KID
-// reconciliation) live in AuthKit; the host contributes only an attribute
-// provider (WithDelegatedAttributes) and optional document providers
-// (authhttp.WithDocuments).
+// mint mechanics (audience-subset clamp, TTL clamp, certificate binding,
+// document stamping, KID reconciliation) live in AuthKit; the host contributes
+// the required delegation authorizer (WithDelegatedAuthorization) and optional
+// document providers (authhttp.WithDocuments).
 type DelegatedConfig struct {
 	// Audiences is the allowlist. Requested audiences must be a subset; an
 	// empty request receives the full list. Empty = the route is disabled.
@@ -228,6 +231,19 @@ type RegistrationConfig struct {
 // variables here (#231): key material and the dev opt-in come from the host's
 // explicit configuration; binaries (cmd/authkit-server) read env once at their
 // own boundary and set these fields.
+// EphemeralConfig governs the ephemeral (short-lived state) backend. The
+// in-memory store and rate limiter are per-process: in a multi-replica
+// deployment they give per-replica 2FA codes, pending registrations and
+// N-times rate limits, so outside a dev-like Environment construction FAILS
+// without Redis (embedded.WithRedis) unless AllowMemory is set. Like
+// KeysConfig.AllowEphemeralDevKeys, the opt-in is an explicit field, never
+// derived from the environment.
+type EphemeralConfig struct {
+	// AllowMemory permits the in-memory ephemeral store and rate limiter
+	// outside a dev-like Environment (single-instance deployments only).
+	AllowMemory bool
+}
+
 type KeysConfig struct {
 	// Source can be nil — if nil, authkit resolves keys from the filesystem:
 	// <Path>/keys.json (default /vault/auth), hot-reloaded on rotation. When no

@@ -19,16 +19,20 @@ func newPhoneVerifyTestService() *Service {
 	)
 }
 
+func pendingPhoneRegistrationExists(svc *Service, phone string) bool {
+	_, ok := svc.findPendingChangeByTarget(context.Background(), KindRegisterPhone, phone)
+	return ok
+}
+
 func TestRecordFailedPhoneVerifyCode_InvalidatesAfterCap(t *testing.T) {
 	svc := newPhoneVerifyTestService()
 	ctx := context.Background()
 	const phone = "+14155550123"
 
-	code, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "capuser", "argon2id$hash", "")
-	if err != nil {
+	if _, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "capuser", "argon2id$hash", ""); err != nil {
 		t.Fatalf("CreatePendingPhoneRegistration: %v", err)
 	}
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); !ok {
+	if !pendingPhoneRegistrationExists(svc, phone) {
 		t.Fatal("pending phone code should exist after creation")
 	}
 
@@ -36,13 +40,13 @@ func TestRecordFailedPhoneVerifyCode_InvalidatesAfterCap(t *testing.T) {
 	for i := 0; i < maxPhoneVerifyCodeAttempts-1; i++ {
 		svc.RecordFailedPhoneVerifyCode(ctx, phone)
 	}
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); !ok {
+	if !pendingPhoneRegistrationExists(svc, phone) {
 		t.Fatal("code must survive below the attempt cap")
 	}
 
 	// Reaching the cap invalidates the outstanding code so guessing can't continue.
 	svc.RecordFailedPhoneVerifyCode(ctx, phone)
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); ok {
+	if pendingPhoneRegistrationExists(svc, phone) {
 		t.Fatal("code must be invalidated once the attempt cap is reached")
 	}
 }
@@ -52,8 +56,7 @@ func TestClearPhoneVerifyCodeAttempts_ResetsCounter(t *testing.T) {
 	ctx := context.Background()
 	const phone = "+14155550124"
 
-	code, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "capuser2", "argon2id$hash", "")
-	if err != nil {
+	if _, err := svc.CreatePendingPhoneRegistrationWithLanguage(ctx, phone, "capuser2", "argon2id$hash", ""); err != nil {
 		t.Fatalf("CreatePendingPhoneRegistration: %v", err)
 	}
 
@@ -67,7 +70,7 @@ func TestClearPhoneVerifyCodeAttempts_ResetsCounter(t *testing.T) {
 	for i := 0; i < maxPhoneVerifyCodeAttempts-1; i++ {
 		svc.RecordFailedPhoneVerifyCode(ctx, phone)
 	}
-	if _, ok, _ := svc.loadPendingChangeByToken(ctx, sha256Hex(code)); !ok {
+	if !pendingPhoneRegistrationExists(svc, phone) {
 		t.Fatal("counter reset should prevent invalidation below a fresh cap")
 	}
 }

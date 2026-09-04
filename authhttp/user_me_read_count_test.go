@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"strings"
 	"sync"
@@ -126,7 +127,7 @@ func TestUserMeGET_DeduplicatesProfileAnd2FAReads(t *testing.T) {
 	// An enabled EMAIL second factor exercises the exact branch #228 collapsed:
 	// step-up 2FA options previously re-read Get2FASettings AND re-fetched the user
 	// row just to obfuscate the email destination.
-	_, err = srv.svc.Enable2FA(ctx, user.ID, "email", nil)
+	_, err = srv.svc.Enable2FA(ctx, user.ID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.SetPreferredLanguage(ctx, user.ID, "en"))
 

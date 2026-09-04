@@ -131,17 +131,23 @@ func (s *Service) AcceptGroupMembershipInvite(ctx context.Context, userID, invit
 	if userID == "" || inviteID == "" {
 		return ErrGroupMembershipInviteNotFound
 	}
-	q := db.ForSchema(s.pg, s.dbSchema())
-	// Atomically claim the pending invite (single-use) and read its group + role.
+	// One transaction (#303): lock the pending invite, gate, grant, and only then
+	// consume it — a refused MFA gate or a failed grant leaves the invite pending.
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.ForSchema(tx, s.dbSchema())
 	var gid, role, persona string
-	err := q.QueryRow(ctx,
-		`UPDATE profiles.group_membership_invites i
-		    SET accepted_at = now(), updated_at = now()
-		  FROM profiles.permission_groups g
-		  WHERE i.id = $1::uuid AND i.user_id = $2::uuid AND g.id = i.permission_group_id
+	err = q.QueryRow(ctx,
+		`SELECT i.permission_group_id::text, i.role, g.persona
+		   FROM profiles.group_membership_invites i
+		   JOIN profiles.permission_groups g ON g.id = i.permission_group_id
+		  WHERE i.id = $1::uuid AND i.user_id = $2::uuid
 		    AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.revoked_at IS NULL
 		    AND i.expires_at > now()
-		  RETURNING i.permission_group_id::text, i.role, g.persona`,
+		  FOR UPDATE OF i`,
 		inviteID, userID).Scan(&gid, &role, &persona)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrGroupMembershipInviteNotFound
@@ -154,7 +160,15 @@ func (s *Service) AcceptGroupMembershipInvite(ctx context.Context, userID, invit
 	if err := s.requireMFAForRoleAssignment(ctx, q, gid, persona, userID, SubjectKindUser, role); err != nil {
 		return err
 	}
-	return s.groupStore().AssignRole(ctx, gid, userID, SubjectKindUser, role)
+	if err := NewPermissionGroupStore(q).AssignRole(ctx, gid, userID, SubjectKindUser, role); err != nil {
+		return err
+	}
+	if _, err := q.Exec(ctx,
+		`UPDATE profiles.group_membership_invites SET accepted_at = now(), updated_at = now() WHERE id = $1::uuid`,
+		inviteID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // DeclineGroupMembershipInvite marks the caller's pending invite declined.

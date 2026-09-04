@@ -21,7 +21,7 @@ func TestMFASettingsDeriveFromDefaultFactor(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE id=$1::uuid`, user.ID) })
 
 	phone := "+15551234567"
-	if _, err := svc.Enable2FA(ctx, user.ID, "sms", &phone); err != nil {
+	if _, err := svc.Enable2FA(ctx, user.ID, "sms", &phone, AllowAdditionalFactors); err != nil {
 		t.Fatalf("enable sms 2FA: %v", err)
 	}
 
@@ -68,10 +68,10 @@ func TestMFAFactorHardDelete(t *testing.T) {
 	}
 
 	phone := "+15550000001"
-	if _, err := svc.Enable2FA(ctx, user.ID, "sms", &phone); err != nil {
+	if _, err := svc.Enable2FA(ctx, user.ID, "sms", &phone, AllowAdditionalFactors); err != nil {
 		t.Fatalf("enable sms: %v", err)
 	}
-	if _, err := svc.Enable2FA(ctx, user.ID, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, user.ID, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("enable email: %v", err)
 	}
 	if n := countFactors(); n != 2 {
@@ -106,7 +106,7 @@ func TestMFAFactorHardDelete(t *testing.T) {
 	}
 
 	// Re-enrolling the deleted method inserts a fresh row, not a second copy.
-	if _, err := svc.Enable2FA(ctx, user.ID, "sms", &phone); err != nil {
+	if _, err := svc.Enable2FA(ctx, user.ID, "sms", &phone, AllowAdditionalFactors); err != nil {
 		t.Fatalf("re-enroll sms: %v", err)
 	}
 	if n := countFactors(); n != 2 {

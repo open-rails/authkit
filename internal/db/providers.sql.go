@@ -146,21 +146,6 @@ func (q *Queries) UserProviderDeleteBySlug(ctx context.Context, arg UserProvider
 	return err
 }
 
-const userProviderDeleteOtherSubjects = `-- name: UserProviderDeleteOtherSubjects :exec
-DELETE FROM profiles.user_providers WHERE user_id = $1 AND issuer = $2 AND subject != $3
-`
-
-type UserProviderDeleteOtherSubjectsParams struct {
-	UserID  string
-	Issuer  string
-	Subject string
-}
-
-func (q *Queries) UserProviderDeleteOtherSubjects(ctx context.Context, arg UserProviderDeleteOtherSubjectsParams) error {
-	_, err := q.db.Exec(ctx, userProviderDeleteOtherSubjects, arg.UserID, arg.Issuer, arg.Subject)
-	return err
-}
-
 const userProviderImportUnverified = `-- name: UserProviderImportUnverified :one
 INSERT INTO profiles.user_providers (
   id, user_id, issuer, provider_slug, subject, profile, created_at, verified_at
@@ -198,31 +183,6 @@ func (q *Queries) UserProviderImportUnverified(ctx context.Context, arg UserProv
 	var i UserProviderImportUnverifiedRow
 	err := row.Scan(&i.ID, &i.UserID)
 	return i, err
-}
-
-const userProviderInsertSimple = `-- name: UserProviderInsertSimple :exec
-INSERT INTO profiles.user_providers (id, user_id, issuer, subject, email_at_provider)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (issuer, subject) DO UPDATE SET email_at_provider = EXCLUDED.email_at_provider
-`
-
-type UserProviderInsertSimpleParams struct {
-	ID              string
-	UserID          string
-	Issuer          string
-	Subject         string
-	EmailAtProvider *string
-}
-
-func (q *Queries) UserProviderInsertSimple(ctx context.Context, arg UserProviderInsertSimpleParams) error {
-	_, err := q.db.Exec(ctx, userProviderInsertSimple,
-		arg.ID,
-		arg.UserID,
-		arg.Issuer,
-		arg.Subject,
-		arg.EmailAtProvider,
-	)
-	return err
 }
 
 const userProviderLinkExists = `-- name: UserProviderLinkExists :one

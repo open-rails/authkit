@@ -85,6 +85,7 @@ var (
 	ErrSMSSenderUnavailable              = errors.New("sms_unavailable")
 	ErrStepUpRequired                    = errors.New("step_up_required")
 	ErrTooManyCustomClaims               = errors.New("custom_jwt_too_many_claims")
+	ErrTwoFAFactorExists                 = errors.New("2fa_factor_exists")
 	ErrTwoFAEnrollmentRequired           = errors.New("2fa_enrollment_required")
 	ErrUnknownGroupPersona               = errors.New("unknown_group_persona")
 	ErrUnknownRole                       = errors.New("unknown_role")
@@ -103,6 +104,7 @@ var (
 	ErrWalletAlreadyLinked               = errors.New("wallet_already_linked")
 	ErrWalletChangeRequiresUnlink        = errors.New("wallet_change_requires_unlink")
 	ErrProviderAlreadyLinked             = errors.New("provider_already_linked")
+	ErrProviderChangeRequiresUnlink      = errors.New("provider_change_requires_unlink")
 )
 
 // ErrorForCode maps a wire error code (a sentinel's Error() string) back to the
@@ -152,6 +154,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrRegistrationDisabled:            http.StatusForbidden,
 	ErrPasswordlessDisabled:            http.StatusForbidden,
 	ErrTwoFAEnrollmentRequired:         http.StatusForbidden,
+	ErrTwoFAFactorExists:               http.StatusConflict,
 	ErrStepUpRequired:                  http.StatusForbidden,
 	ErrExternalInvitesDisabled:         http.StatusForbidden,
 	ErrInsufficientRoleAuthority:       http.StatusForbidden,
@@ -181,6 +184,7 @@ var sentinelHTTPStatus = map[error]int{
 	ErrWalletChangeRequiresUnlink:      http.StatusConflict,
 	ErrProviderAlreadyLinked:           http.StatusConflict,
 	ErrUserReferenced:                  http.StatusConflict,
+	ErrProviderChangeRequiresUnlink:    http.StatusConflict,
 
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
@@ -290,7 +294,7 @@ var errorSentinels = []error{
 	ErrBootstrapDatabaseNotEmpty, ErrCannotRemoveLastAdminRole, ErrAccountRegistrationInviteConsumed,
 	ErrAccountRegistrationInviteExpired, ErrAccountRegistrationInviteNotFound,
 	ErrAccountRegistrationInviteRevoked, ErrCustomClaimsReserved,
-	ErrCustomJWTReservedType, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
+	ErrCustomJWTReservedType, ErrDelegationRefused, ErrEmailAlreadyVerified, ErrEmailDeliveryFailed, ErrEmailInUse,
 	ErrEmailSenderUnavailable, ErrEmptyCustomClaims, ErrEntitlementFilterUnavailable,
 	ErrExternalInvitesDisabled, ErrGroupNotFound, ErrInsufficientRoleAuthority,
 	ErrInvalidAttributeDef, ErrInvalidBootstrapManifest, ErrInvalidUntil,
@@ -300,11 +304,12 @@ var errorSentinels = []error{
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
 	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrAccountAuthorityEscalation, ErrSMSDeliveryFailed,
-	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
+	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired, ErrTwoFAFactorExists,
 	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,
+
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,
-	ErrProviderAlreadyLinked,
+	ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,
 	// #247: permission-group hardening — role-assignability + custom-role +
 	// invite/api-key input errors, promoted from ad hoc strings so authhttp maps
 	// them via errors.Is instead of strings.Contains.

@@ -146,8 +146,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 
 	var userID, email string
 	created := false
-	if claims.Email != nil {
-		email = *claims.Email
+	if claims.Email != nil && claims.EmailVerified != nil && *claims.EmailVerified {
+		email = strings.TrimSpace(*claims.Email)
 	}
 	provUsername := ""
 	if claims.PreferredUsername != nil {
@@ -165,6 +165,14 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// account / link-required dead-end). Fail the callback (#176 Part B — this error
 		// was previously swallowed; failing closed matches the OAuth2 path).
 		if err := s.svc.LinkProviderByIssuer(r.Context(), userID, issuer, provider, claims.Subject, claims.Email); err != nil {
+			if errors.Is(err, authkit.ErrProviderAlreadyLinked) {
+				s.failBrowserFlow(w, r, &sd, provider, http.StatusConflict, ErrProviderAlreadyLinked)
+				return
+			}
+			if errors.Is(err, authkit.ErrProviderChangeRequiresUnlink) {
+				s.failBrowserFlow(w, r, &sd, provider, http.StatusConflict, ErrProviderChangeRequiresUnlink)
+				return
+			}
 			stdlog.Printf("[authkit/security] error: provider link write failed (user=%s issuer=%s); failing OIDC callback: %v", userID, issuer, err)
 			s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrProviderLinkFailed)
 			return
@@ -176,11 +184,8 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 				stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); link succeeded, username not updated: %v", userID, issuer, err)
 			}
 		}
-	} else if uid, provEmail, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject); err == nil && uid != "" {
+	} else if uid, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), issuer, claims.Subject); err == nil && uid != "" {
 		userID = uid
-		if email == "" && provEmail != nil {
-			email = *provEmail
-		}
 		if strings.TrimSpace(provUsername) != "" {
 			if err := s.svc.SetProviderUsername(r.Context(), userID, issuer, claims.Subject, provUsername); err != nil {
 				stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); login succeeded, username not updated: %v", userID, issuer, err)
@@ -208,10 +213,6 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		// registration path. InviteOnly requires an unbound account invite token
 		// carried from flow start; Open keeps the historical behavior.
 		if s.svc.Config().Registration.NativeUserMode == embedded.RegistrationModeInviteOnly {
-			if strings.TrimSpace(email) == "" {
-				s.failBrowserFlow(w, r, &sd, provider, http.StatusForbidden, ErrRegistrationDisabled)
-				return
-			}
 			allowed, err := s.svc.RegistrationAllowedForEmailWithInvite(r.Context(), email, sd.AccountInviteToken)
 			if err != nil {
 				s.failBrowserFlow(w, r, &sd, provider, http.StatusInternalServerError, ErrDatabaseError)
@@ -238,7 +239,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		userID = u.ID
 		// Trust the IdP's email_verified ONLY when it is explicitly true; an
 		// absent claim is treated as false (defense in depth).
-		if claims.EmailVerified != nil && *claims.EmailVerified && provider != "discord" {
+		if email != "" {
 			if err := s.svc.SetEmailVerified(r.Context(), u.ID, true); err != nil {
 				stdlog.Printf("[authkit/security] warning: SetEmailVerified failed for new user %s (recoverable; user+link created): %v", u.ID, err)
 			}
@@ -264,7 +265,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 		created = true
 	}
 
-	s.finishBrowserLogin(w, r, userID, email, provider, "oidc_login", created, sd)
+	s.finishBrowserLogin(w, r, userID, provider, "oidc_login", created, sd)
 }
 
 // finishBrowserLogin is the shared post-resolve tail of the OIDC and OAuth2 browser
@@ -272,7 +273,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 // / banned / failure handling), log the session, send a welcome on first creation,
 // and emit the result as a popup postMessage, a JSON body, or a fragment redirect.
 // providerName and sessionEvent are the only per-flow parameters.
-func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, userID, email, providerName, sessionEvent string, created bool, sd oidckit.StateData) {
+func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, userID, providerName, sessionEvent string, created bool, sd oidckit.StateData) {
 	extra := map[string]any{"provider": providerName}
 	sid, rt, _, err := s.svc.IssueRefreshSessionWithAuthMethods(r.Context(), userID, r.UserAgent(), nil, []string{"oauth"})
 	if err != nil {
@@ -335,8 +336,15 @@ func (s *Service) finishBrowserLogin(w http.ResponseWriter, r *http.Request, use
 	}
 
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
+		// Provider email is descriptive metadata; return the account's own
+		// nullable address, including on an explicit provider-link callback.
+		user, err := s.svc.AdminGetUser(r.Context(), userID)
+		if err != nil || user == nil {
+			s.failBrowserFlow(w, r, &sd, providerName, http.StatusInternalServerError, ErrUserLookupFailed)
+			return
+		}
 		s.writeAccessTokenJSON(w, r, http.StatusOK, newAuthTokens(token, rt, exp), map[string]any{
-			"user": map[string]any{"id": userID, "email": email},
+			"user": map[string]any{"id": userID, "email": user.Email},
 		})
 		return
 	}

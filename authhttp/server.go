@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/open-rails/authkit/verify"
+	"log/slog"
 	"net/netip"
 	"strings"
 	"time"
@@ -24,6 +25,24 @@ import (
 // WithX builder methods were removed in #108. (#206 collapsed the former `Server`
 // alias into the single canonical `Service` type; construct with NewServer.)
 type Option func(*Service)
+
+// withMemoryLimiterSweep overrides how often the in-memory rate limiter
+// reclaims idle buckets (#305); tests only, the default is one minute.
+func withMemoryLimiterSweep(d time.Duration) Option {
+	return func(s *Service) { s.memoryLimiterSweep = d }
+}
+
+// Close stops the background work NewServer started (the in-memory limiter's
+// sweep). Idempotent; safe on a nil Service.
+func (s *Service) Close() {
+	if s == nil {
+		return
+	}
+	for _, stop := range s.closers {
+		stop()
+	}
+	s.closers = nil
+}
 
 // NewServer constructs the auth Server over a client the host already built —
 // client-first construction (#142). The host wires the engine and its
@@ -96,8 +115,18 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 		}
 		if s.rd != nil {
 			s.rl = redislimiter.New(s.rd, limits)
+			slog.Info("authkit: rate limiter", "backend", "redis")
 		} else {
-			s.rl = memorylimiter.New(limits)
+			ml := memorylimiter.New(limits)
+			sweep := s.memoryLimiterSweep
+			if sweep <= 0 {
+				sweep = time.Minute
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			ml.StartCleanup(ctx, sweep)
+			s.closers = append(s.closers, cancel)
+			s.rl = ml
+			slog.Info("authkit: rate limiter", "backend", "memory", "environment", cfg.Environment)
 		}
 	}
 
@@ -181,8 +210,8 @@ func (s *Service) validate(cfg embedded.Config) error {
 	// (incl. staging and unknown values) is prod-like and requires the durable
 	// ephemeral store. This was the last inline env comparison in library code.
 	if !embedded.IsDevEnvironment(cfg.Environment) {
-		if s.rd == nil {
-			return fmt.Errorf("authkit: Environment %q is production-like and requires a Redis-compatible ephemeral store — pass authhttp.WithRedis(...); a memory store is dev-only", cfg.Environment)
+		if s.rd == nil && !cfg.Ephemeral.AllowMemory {
+			return fmt.Errorf("authkit: Environment %q is production-like and requires a Redis-compatible ephemeral store — pass authhttp.WithRedis(...) or set Ephemeral.AllowMemory for a single-instance deployment; a memory store is otherwise dev-only", cfg.Environment)
 		}
 	}
 	// #260: the published-document surface is never public and never dead
@@ -194,6 +223,14 @@ func (s *Service) validate(cfg embedded.Config) error {
 	}
 	if len(s.documentProviders) == 0 && len(cfg.Documents.Readers) > 0 {
 		return fmt.Errorf("authkit: Config.Documents.Readers is set but no document providers are wired — pass authhttp.WithDocuments(...) or drop the dead config")
+	}
+	// #277: the delegated mint route never runs without its host authorizer,
+	// and an authorizer with no route is dead wiring. Both refuse at construction.
+	if len(cfg.Delegated.Audiences) > 0 && s.svc.DelegationAuthorizer() == nil {
+		return fmt.Errorf("authkit: Config.Delegated.Audiences is set but no delegation authorizer is wired — pass embedded.WithDelegatedAuthorization(...)")
+	}
+	if len(cfg.Delegated.Audiences) == 0 && s.svc.DelegationAuthorizer() != nil {
+		return fmt.Errorf("authkit: embedded.WithDelegatedAuthorization is wired but Config.Delegated.Audiences is empty — the mint route is disabled; drop the dead wiring or declare audiences")
 	}
 	seenDocumentTypes := make(map[string]bool, len(s.documentProviders))
 	for _, p := range s.documentProviders {

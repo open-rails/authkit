@@ -64,6 +64,7 @@ type config struct {
 	apiPrefix      string
 	regVerify      string // registration verification policy: none|optional|required
 	migrateOnStart bool   // run schema migrations before serving (CI/dev convenience)
+	allowMemory    bool
 	apiKeyPrefix   string // branded API-key prefix (APIKeysConfig.Prefix)
 	// Standalone reachability knobs (#236): previously library-only options with
 	// no env mapping, so a bare binary deployment could not set them.
@@ -113,7 +114,10 @@ func loadConfig() (*config, error) {
 		mgmtToken:      strings.TrimSpace(os.Getenv("AUTHKIT_MGMT_TOKEN")),
 		apiPrefix:      envOr("AUTHKIT_API_PREFIX", "/api/v1"),
 		migrateOnStart: envBool("AUTHKIT_MIGRATE_ON_START", false),
-		apiKeyPrefix:   strings.TrimSpace(os.Getenv("AUTHKIT_API_KEY_PREFIX")),
+		// #305: a non-dev boot without Redis refuses unless this explicit
+		// single-instance opt-in is set.
+		allowMemory:  envBool("AUTHKIT_ALLOW_MEMORY_EPHEMERAL", false),
+		apiKeyPrefix: strings.TrimSpace(os.Getenv("AUTHKIT_API_KEY_PREFIX")),
 		// Default to "none": a bare standalone server has no email/SMS sender, and
 		// "required" verification with no sender is unsatisfiable. Operators set
 		// this once they wire a sender (senders are an embedded.New option).
@@ -323,6 +327,7 @@ func run() error {
 	coreCfg := embedded.Config{
 		Environment: cfg.env,
 		Schema:      cfg.schema,
+		Ephemeral:   embedded.EphemeralConfig{AllowMemory: cfg.allowMemory},
 		Token: embedded.TokenConfig{
 			Issuer:               cfg.issuer,
 			IssuedAudiences:      cfg.audiences,

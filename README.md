@@ -18,6 +18,10 @@ res, err := migrator.Migrate(ctx)         // idempotent; res.Applied lists what 
 
 ## Construction
 
+`adapters/gin` and `adapters/riverjobs` are separate Go modules (gin, river and cron
+never enter the root `go.mod`): `go get github.com/open-rails/authkit/adapters/gin`
+and/or `go get github.com/open-rails/authkit/adapters/riverjobs` alongside the root.
+
 (Basic embedded setup)
 
 ```go
@@ -358,6 +362,24 @@ non-stripping proxies); `Wrap` decorates every mounted route. gin hosts mount
 it once via `router.NoRoute(authkitgin.Fallback(mount))` (or `gin.WrapH` on an
 explicit wildcard); any other router mounts it like any `http.Handler`.
 
+### Provider linking and account email
+
+Adding an OAuth, OIDC, or Solana login method requires fresh sensitive
+authentication. Handle `403 step_up_required` by completing the offered step-up
+flow, then retry link-start with the returned access token. Enrolled MFA must
+participate in that authentication. An existing identity for the same issuer
+cannot be replaced: `409 provider_change_requires_unlink` (or
+`wallet_change_requires_unlink` for Solana) requires explicitly unlinking it
+before linking another. Re-linking the same identity is idempotent.
+
+Federated registration stores an account email only when the provider explicitly
+verifies it. Otherwise the account email is `null`; the asserted address remains
+provider metadata and cannot reserve an address or receive password resets.
+Hosts should offer their normal add-and-verify-email onboarding. The JSON login
+response returns the account's nullable email, including after provider linking.
+Invite-only registration still requires and consumes a valid unbound invite code
+when the new user has no verified email.
+
 ### Browser OIDC result contract
 
 The three routes under `OIDCPath` (`{provider}/login`, `{provider}/callback`,
@@ -647,22 +669,50 @@ a root-registered application — never the slug), at the approved tier unless
 providers/readers mismatch refuses at boot.
 
 `POST /delegated/token` (`RouteDelegated`, mounted when
-`Config.Delegated.Audiences` is set) mints delegated tokens for the
-authenticated user: audience-subset clamp, request TTL clamped into the
-boot-validated `TTLFloor <= TTLDefault <= TTLCeiling` triple (an inconsistent
-triple never boots), document digests stamped from every `WithDocuments`
-provider, and post-mint signing-KID reconciliation so a stamped document always
-verifies against the token's key. Every delegated token carries a fresh uuidv7
-`jti` (ak#270), so a receiving service can revoke one token by id rather than
-the whole session; `DelegatedAccessParams.JTI` still lets a caller pin its own.
-Host semantics enter through ONE seam:
+`Config.Delegated.Audiences` is set; construction refuses the route without
+`embedded.WithDelegatedAuthorization`) mints certificate-bound delegated tokens
+(RFC 8705, ak#277) for the authenticated user:
+
+```json
+{
+  "audiences": ["tensorhub.net"],
+  "ttl_seconds": 300,
+  "delegate_certificate_der_b64url": "<unpadded base64url DER>",
+  "requested_grant": {"type": "example.read/v1", "resources": ["r1"]}
+}
+```
+
+AuthKit applies the audience-subset clamp, clamps the TTL into the
+boot-validated `TTLFloor <= TTLDefault <= TTLCeiling` triple, requires one
+currently valid non-CA leaf with an explicit `clientAuth` EKU (DER <= 8 KiB;
+token expiry may not exceed its `NotAfter`), passes the opaque
+`requested_grant` (one JSON object <= 16 KiB) to the host authorizer, and
+signs ONLY the authorizer's grant plus every `WithDocuments` digest (post-mint
+signing-KID reconciliation as before), bound with
+`cnf: {"x5t#S256": "<base64url sha256 of the DER>"}`. The response is
+`{"token", "expires_at"}`; a compact token over 16 KiB is refused. Every
+delegated token still carries a fresh uuidv7 `jti` (ak#270). Host semantics
+enter through ONE seam:
 
 ```go
-embedded.WithDelegatedAttributes(func(ctx context.Context, userID string) (map[string]any, map[string]string, error) {
-    tier := billing.ResolveEffectiveTier(ctx, userID) // host-owned meaning
-    return map[string]any{"entitlement": tier}, nil, nil
+embedded.WithDelegatedAuthorization(func(ctx context.Context, req authkit.DelegationRequest) (authkit.DelegationGrant, error) {
+    // req: UserID, clamped Audiences/TTL, DelegateCertificate (+ its SHA-256), RequestedGrant.
+    if !policy.MayDelegate(ctx, req.UserID, req.RequestedGrant) {
+        return authkit.DelegationGrant{}, authkit.ErrDelegationRefused // 403 delegation_refused; any other error is 503
+    }
+    return authkit.DelegationGrant{Permissions: []string{"resource:read"}, Attributes: map[string]any{"entitlement": tier}}, nil
 })
 ```
+
+The delegate presents the token as a normal bearer over mTLS. `verify.Required`,
+`VerifyRequest`, and `VerifyDelegatedAccessRequest` accept a `cnf` token only
+when `r.TLS.PeerCertificates[0]` hashes to that exact value; no TLS state, a
+different leaf, a spoofed `X-Client-Cert`-style header, or token-only
+`Verify`/`VerifyDelegatedAccess` fail with `sender_proof_required`. Configure
+the resource listener with `tls.Config{ClientAuth: tls.RequestClientCert}` (or
+stricter); a deployment that terminates TLS elsewhere cannot use bound tokens.
+Tokens minted in-process via `MintDelegatedAccessToken` without
+`ConfirmationCertificateSHA256` remain unbound bearers.
 
 ### Application self-registration (#264)
 

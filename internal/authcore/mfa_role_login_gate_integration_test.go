@@ -57,7 +57,7 @@ func TestMFARequiredRoleLoginGate_DB(t *testing.T) {
 	if err := disabled.AssignGroupRole(ctx, "org", "acme", enrolledHolder, SubjectKindUser, "member"); err != nil {
 		t.Fatalf("assign member (enrolled-to-be) while Mode=Disabled: %v", err)
 	}
-	if _, err := disabled.Enable2FA(ctx, enrolledHolder, "email", nil); err != nil {
+	if _, err := disabled.Enable2FA(ctx, enrolledHolder, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA enrolledHolder: %v", err)
 	}
 

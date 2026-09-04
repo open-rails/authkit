@@ -30,16 +30,32 @@ func (s *Service) newPendingContactChange(ctx context.Context, kind PendingChang
 	code = randAlphanumeric(6)
 	linkToken = randB64(32)
 	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:   kind,
-		Target: target,
-		UserID: userID,
-	}, map[string]time.Duration{
-		sha256Hex(code):      ttl,
-		sha256Hex(linkToken): ttl,
-	}); err != nil {
+		Kind:     kind,
+		Target:   target,
+		UserID:   userID,
+		CodeHash: sha256Hex(code),
+		LinkHash: sha256Hex(linkToken),
+	}, ttl); err != nil {
 		return "", "", err
 	}
 	return code, linkToken, nil
+}
+
+// confirmContactChangeCode finalizes the caller's own pending change when the
+// typed code matches and (if supplied) the target is the one being changed to.
+func (s *Service) confirmContactChangeCode(ctx context.Context, kind PendingChangeKind, userID, target, code string, keepSessionID *string) error {
+	if s.pg == nil {
+		return jwt.ErrTokenUnverifiable
+	}
+	rec, ok := s.findPendingChangeByUser(ctx, kind, userID)
+	if !ok {
+		return jwt.ErrTokenUnverifiable
+	}
+	if strings.TrimSpace(target) != "" && !strings.EqualFold(normalizePendingTarget(kind, target), rec.Target) {
+		return jwt.ErrTokenUnverifiable
+	}
+	_, err := s.consumePendingChangeCode(ctx, rec, code, keepSessionID)
+	return err
 }
 
 // sendContactChangeVerification delivers a contact-change verification message
@@ -102,37 +118,15 @@ func (s *Service) RequestPhoneChange(ctx context.Context, userID, newPhone strin
 		fmt.Errorf("phone change verification unavailable: SMS sender not configured"))
 }
 
-// ConfirmPhoneChange verifies the code and updates the user's phone number.
-// This is called when the user enters the verification code sent to their new phone.
+// ConfirmPhoneChange verifies the code and applies the new phone. Every other
+// session is revoked; keepSessionID (the confirming session) survives.
 func (s *Service) ConfirmPhoneChange(ctx context.Context, userID, phone, code string, keepSessionID *string) error {
-	if s.pg == nil || !s.useEphemeralStore() {
-		return jwt.ErrTokenUnverifiable
-	}
-
-	// Load the pending change by the code's hash; validate kind, owner, and (when
-	// the caller supplied a phone) that it matches the pending target.
-	hash := sha256Hex(code)
-	rec, ok, err := s.loadPendingChangeByToken(ctx, hash)
-	if err != nil || !ok || rec.Kind != KindChangePhone {
-		return jwt.ErrTokenUnverifiable
-	}
-	if rec.UserID != userID {
-		return jwt.ErrTokenInvalidClaims
-	}
-	if strings.TrimSpace(phone) != "" && !strings.EqualFold(NormalizePhone(phone), rec.Target) {
-		return jwt.ErrTokenUnverifiable
-	}
-
-	if _, err := s.finalizeChangePhone(ctx, rec, keepSessionID); err != nil {
-		return err
-	}
-	s.deletePendingChangeByToken(ctx, hash)
-	return nil
+	return s.confirmContactChangeCode(ctx, KindChangePhone, userID, phone, code, keepSessionID)
 }
 
 // ConfirmPhoneChangeByToken applies a pending phone change using its high-entropy link token.
 func (s *Service) ConfirmPhoneChangeByToken(ctx context.Context, token string) (string, error) {
-	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindChangePhone)
+	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangePhone)
 }
 
 // ResendPhoneChangeCode resends the verification code for a pending phone change.
@@ -228,33 +222,12 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID, newEmail strin
 // ConfirmEmailChange verifies the code and applies the new email. Every other
 // session is revoked; keepSessionID (the confirming session) survives.
 func (s *Service) ConfirmEmailChange(ctx context.Context, userID, email, code string, keepSessionID *string) error {
-	if s.pg == nil || !s.useEphemeralStore() {
-		return jwt.ErrTokenUnverifiable
-	}
-
-	// Load the pending change by the code's hash and validate it belongs to this
-	// user, then finalize (apply the new email) and clear the pending record.
-	hash := sha256Hex(code)
-	rec, ok, err := s.loadPendingChangeByToken(ctx, hash)
-	if err != nil || !ok || rec.Kind != KindChangeEmail {
-		return jwt.ErrTokenUnverifiable
-	}
-	if rec.UserID != userID {
-		return jwt.ErrTokenInvalidClaims
-	}
-	if strings.TrimSpace(email) != "" && !strings.EqualFold(NormalizeEmail(email), rec.Target) {
-		return jwt.ErrTokenUnverifiable
-	}
-	if _, err := s.finalizeChangeEmail(ctx, rec, keepSessionID); err != nil {
-		return err
-	}
-	s.deletePendingChangeByToken(ctx, hash)
-	return nil
+	return s.confirmContactChangeCode(ctx, KindChangeEmail, userID, email, code, keepSessionID)
 }
 
 // ConfirmEmailChangeByToken applies a pending email change using its high-entropy link token.
 func (s *Service) ConfirmEmailChangeByToken(ctx context.Context, token string) (string, error) {
-	return s.consumePendingChangeByToken(ctx, sha256Hex(token), KindChangeEmail)
+	return s.consumePendingChangeByLink(ctx, sha256Hex(token), KindChangeEmail)
 }
 
 // ResendEmailChangeCode resends the verification code for a pending email change.

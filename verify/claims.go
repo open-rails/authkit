@@ -76,6 +76,11 @@ type Claims struct {
 	// and authorization remain application-owned.
 	Documents map[string]string
 
+	// ConfirmationCertificateSHA256 is the RFC 8705 `cnf.x5t#S256` binding of a
+	// delegated token, already matched against the TLS peer leaf. Nil for an
+	// unbound token.
+	ConfirmationCertificateSHA256 *[32]byte
+
 	// TokenTyp is the JOSE `typ` header value. "access+jwt" identifies an
 	// AuthKit user access token; "delegated-access+jwt" identifies a delegated
 	// access token; "remote-application-access+jwt" identifies a remote
@@ -193,6 +198,9 @@ type DelegatedPrincipal struct {
 	Attributes map[string]json.RawMessage
 	// Documents are exact typed signed-document references carried by the token.
 	Documents map[string]string
+	// ConfirmationCertificateSHA256 is the verified certificate binding; nil
+	// when the token is an unbound bearer.
+	ConfirmationCertificateSHA256 *[32]byte
 	// JTI is the token identifier (`jti` claim), when present.
 	JTI string
 	// UserTier is the resolved tier, sourced from `attributes.tier`.
@@ -223,14 +231,15 @@ func (c Claims) Delegated() (DelegatedPrincipal, bool) {
 		return DelegatedPrincipal{}, false
 	}
 	return DelegatedPrincipal{
-		Issuer:           c.Issuer,
-		DelegatedSubject: c.DelegatedSubject,
-		Permissions:      c.Permissions,
-		Attributes:       c.Attributes,
-		Documents:        c.Documents,
-		JTI:              c.JTI,
-		UserTier:         c.UserTier,
-		Roles:            c.DelegatedRoles,
+		Issuer:                        c.Issuer,
+		DelegatedSubject:              c.DelegatedSubject,
+		Permissions:                   c.Permissions,
+		Attributes:                    c.Attributes,
+		Documents:                     c.Documents,
+		ConfirmationCertificateSHA256: c.ConfirmationCertificateSHA256,
+		JTI:                           c.JTI,
+		UserTier:                      c.UserTier,
+		Roles:                         c.DelegatedRoles,
 	}, true
 }
 

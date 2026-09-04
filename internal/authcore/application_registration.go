@@ -348,6 +348,11 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	if err != nil {
 		return nil, err
 	}
+	// Outside the tx: a singleton-index race inside it would abort the whole
+	// registration (#258); EnsureRootGroup self-heals on the pool.
+	if _, err := s.EnsureRootGroup(ctx); err != nil {
+		return nil, err
+	}
 
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
@@ -429,9 +434,6 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 		return nil, ErrApplicationSlugConflict
 	}
 	rootGID, err := st.RootGroupID(ctx)
-	if errors.Is(err, ErrGroupNotFound) {
-		rootGID, err = st.CreateGroup(ctx, RootPersona, "", "")
-	}
 	if err != nil {
 		return nil, err
 	}

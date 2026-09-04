@@ -143,6 +143,9 @@ func MintDelegatedAccessToken(ctx context.Context, signer jwtkit.Signer, p Deleg
 	if !p.NotBefore.IsZero() {
 		claims["nbf"] = p.NotBefore.Unix()
 	}
+	if p.ConfirmationCertificateSHA256 != nil {
+		claims[jwtkit.ConfirmationClaim] = jwtkit.ConfirmationClaimValue(*p.ConfirmationCertificateSHA256)
+	}
 	// Invariant: a delegated access token must never carry `sub`.
 	delete(claims, "sub")
 

@@ -776,8 +776,16 @@ func (v *Verifier) VerifyClaims(tokenStr string) (jwt.MapClaims, error) {
 
 // Verify parses + verifies a token and returns typed Claims.
 // It enforces issuer/audience/expiry with the configured skew, plus authkit's
-// user-token invariant, on top of VerifyClaims.
+// user-token invariant, on top of VerifyClaims. It is detached from any
+// request, so a certificate-bound delegated token (cnf) fails with
+// ErrSenderProofRequired here; verify those through VerifyRequest.
 func (v *Verifier) Verify(tokenStr string) (Claims, error) {
+	return v.verify(tokenStr, nil)
+}
+
+// verify is Verify with the TLS-authenticated peer certificate hash (nil when
+// the request carried none) that a `cnf.x5t#S256` claim must match exactly.
+func (v *Verifier) verify(tokenStr string, peer *[32]byte) (Claims, error) {
 	mapClaims, typ, err := v.verifyClaimsWithHeader(tokenStr)
 	if err != nil {
 		return Claims{}, err
@@ -798,6 +806,16 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	}
 	if hasDocumentReferences && !isDelegatedAccessTyp {
 		return Claims{}, documents.ErrWrongTokenType
+	}
+	confirmation, hasConfirmation, err := confirmationClaim(tokenStr)
+	if err != nil {
+		return Claims{}, err
+	}
+	if hasConfirmation && !isDelegatedAccessTyp {
+		return Claims{}, ErrConfirmationWrongTokenType
+	}
+	if hasConfirmation && (peer == nil || *peer != *confirmation) {
+		return Claims{}, ErrSenderProofRequired
 	}
 
 	// Invariant: a token is EITHER a native-user token (`sub`) XOR a delegated
@@ -862,6 +880,7 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 	cl := v.extractClaims(mapClaims)
 	cl.TokenTyp = tokenTyp
 	cl.Documents = documentReferences
+	cl.ConfirmationCertificateSHA256 = confirmation
 
 	// Delegated permission ceiling (#76 target model). A delegated access token's
 	// concrete `permissions` are a DOWN-SCOPING request bounded by the SIGNING
@@ -898,7 +917,18 @@ func (v *Verifier) Verify(tokenStr string) (Claims, error) {
 // the typed Claims and the DelegatedPrincipal. Use it on resource servers that
 // only accept delegated access tokens and want catalog/policy enforcement.
 func (v *Verifier) VerifyDelegatedAccess(tokenStr string) (Claims, DelegatedPrincipal, error) {
-	cl, err := v.Verify(tokenStr)
+	return v.verifyDelegatedAccess(tokenStr, nil)
+}
+
+// VerifyDelegatedAccessRequest is VerifyDelegatedAccess bound to the request's
+// bearer token and TLS peer certificate, the only path that accepts a
+// certificate-bound (cnf) delegated token.
+func (v *Verifier) VerifyDelegatedAccessRequest(r *http.Request) (Claims, DelegatedPrincipal, error) {
+	return v.verifyDelegatedAccess(bearerToken(r.Header.Get("Authorization")), peerCertificateSHA256(r))
+}
+
+func (v *Verifier) verifyDelegatedAccess(tokenStr string, peer *[32]byte) (Claims, DelegatedPrincipal, error) {
+	cl, err := v.verify(tokenStr, peer)
 	if err != nil {
 		return Claims{}, DelegatedPrincipal{}, err
 	}

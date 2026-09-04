@@ -21,7 +21,11 @@ func TestDestructiveUserRoutesRequireFreshAuthOrPassword(t *testing.T) {
 	const pass = "Correct-password-12345"
 	userID, token := stalePasswordUserToken(t, srv, pool, "destructive", pass)
 
-	w := serveAuthJSON(srv, http.MethodDelete, "/user", `{}`, token)
+	w := serveAuthJSON(srv, http.MethodPost, "/user/2fa", `{"method":"totp"}`, token)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "step_up_required")
+
+	w = serveAuthJSON(srv, http.MethodDelete, "/user", `{}`, token)
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "step_up_required")
 

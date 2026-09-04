@@ -54,7 +54,8 @@ func (s *Service) SeedPermissionGroupContainment(ctx context.Context) error {
 }
 
 // EnsureRootGroup creates the singleton root group if absent (idempotent) and
-// returns its internal id.
+// returns its internal id. Concurrent cold boots race the singleton index; the
+// loser adopts the winner's row instead of failing (#258).
 func (s *Service) EnsureRootGroup(ctx context.Context) (string, error) {
 	st := s.groupStore()
 	id, err := st.RootGroupID(ctx)
@@ -64,7 +65,14 @@ func (s *Service) EnsureRootGroup(ctx context.Context) (string, error) {
 	if !errors.Is(err, ErrGroupNotFound) {
 		return "", err
 	}
-	return st.CreateGroup(ctx, RootPersona, "", "")
+	id, createErr := st.CreateGroup(ctx, RootPersona, "", "")
+	if createErr == nil {
+		return id, nil
+	}
+	if id, err := st.RootGroupID(ctx); err == nil {
+		return id, nil
+	}
+	return "", createErr
 }
 
 // CreatePermissionGroupRequest creates a permission group. Parent is addressed by

@@ -91,6 +91,7 @@ var errorMessages = map[string]string{
 	"invalid_token":                 "The authentication token is invalid.",
 	"token_expired":                 "The authentication token has expired.",
 	"forbidden":                     "You do not have permission to perform this action.",
+	"2fa_factor_exists":             "A two-factor authentication method is already enrolled. Remove it before enrolling a replacement.",
 	"step_up_required":              "Additional verification is required to continue.",
 	"rate_limited":                  "Too many requests. Please try again later.",
 	"registration_disabled":         "Registration is currently disabled.",

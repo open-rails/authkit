@@ -54,8 +54,9 @@ jobs:
         run: go mod download
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      # `./...` stops at each nested go.mod; the import-path pattern spans every go.work module.
       - name: Run govulncheck
-        run: govulncheck ./...
+        run: govulncheck github.com/open-rails/authkit/...
 
   # ---------------------------------------------------------------------------
   # Trivy — software-composition analysis + filesystem secret/misconfig scanning.

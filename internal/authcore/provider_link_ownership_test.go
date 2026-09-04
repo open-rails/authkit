@@ -103,9 +103,9 @@ func TestLinkProviderByIssuer_SameUserIdempotent(t *testing.T) {
 	}
 }
 
-// Switching subjects for the same user+issuer removes the old subject and installs
-// the new one in one transaction (exactly one row remains).
-func TestLinkProviderByIssuer_SubjectSwitchAtomic(t *testing.T) {
+// Changing the subject requires an explicit unlink; unique constraints prevent
+// concurrent replacements from deleting an existing login credential.
+func TestLinkProviderByIssuer_SubjectSwitchRequiresUnlink(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
@@ -118,14 +118,48 @@ func TestLinkProviderByIssuer_SubjectSwitchAtomic(t *testing.T) {
 	if err := svc.LinkProviderByIssuer(ctx, a, issuer, "discord", subjOld, nil); err != nil {
 		t.Fatalf("link old subject: %v", err)
 	}
-	if err := svc.LinkProviderByIssuer(ctx, a, issuer, "discord", subjNew, nil); err != nil {
-		t.Fatalf("switch subject: %v", err)
+	if err := svc.LinkProviderByIssuer(ctx, a, issuer, "discord", subjNew, nil); !errors.Is(err, authkit.ErrProviderChangeRequiresUnlink) {
+		t.Fatalf("expected explicit unlink conflict, got %v", err)
 	}
 
 	if got := svc.providerCount(t, ctx, a); got != 1 {
 		t.Fatalf("subject switch must leave exactly one row, got %d", got)
 	}
-	if owner, _, _ := svc.providerOwner(t, ctx, issuer, subjNew); owner != a {
-		t.Fatalf("new subject must belong to A; got %s", owner)
+	if owner, _, _ := svc.providerOwner(t, ctx, issuer, subjOld); owner != a {
+		t.Fatalf("original subject must still belong to A; got %s", owner)
+	}
+}
+
+func TestConcurrentProviderLinksDoNotReplaceEachOther(t *testing.T) {
+	pool := testPG(t)
+	ctx := context.Background()
+	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
+	user := mkBareUser(t, ctx, svc, "concurrent")
+	issuer := "https://issuer.example"
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, subject := range []string{"one", "two"} {
+		go func(subject string) {
+			<-start
+			results <- svc.LinkProviderByIssuer(ctx, user, issuer, "provider", subject, nil)
+		}(subject)
+	}
+	close(start)
+	success, conflict := 0, 0
+	for range 2 {
+		err := <-results
+		if err == nil {
+			success++
+		} else if errors.Is(err, authkit.ErrProviderChangeRequiresUnlink) {
+			conflict++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if success != 1 || conflict != 1 {
+		t.Fatalf("want one successful link and one conflict, got %d/%d", success, conflict)
+	}
+	if got := svc.providerCount(t, ctx, user); got != 1 {
+		t.Fatalf("want one login method, got %d", got)
 	}
 }

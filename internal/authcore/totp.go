@@ -70,7 +70,7 @@ func (s *Service) StartTOTPEnrollment(ctx context.Context, userID string) (secre
 // EnableTOTP2FA verifies the pending secret and enables authenticator-app 2FA for
 // the user, returning fresh backup codes. makeDefault sets it as the user's default
 // second factor.
-func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string, makeDefault bool) ([]string, error) {
+func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string, makeDefault bool, mode FactorEnrollmentMode) ([]string, error) {
 	if !s.TwoFactorMethodAvailable(string(TwoFactorTOTP)) {
 		return nil, Err2FAMethodUnavailable
 	}
@@ -87,7 +87,8 @@ func (s *Service) EnableTOTP2FA(ctx context.Context, userID, code string, makeDe
 	if err != nil || !validStep {
 		return nil, jwt.ErrTokenUnverifiable
 	}
-	codes, err := s.enable2FA(ctx, userID, "totp", nil, pending.SealedSecret, &step, makeDefault)
+	codes, err := s.enable2FA(ctx, userID, "totp", nil, pending.SealedSecret, &step, makeDefault, mode)
+
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +215,7 @@ func (s *Service) SendPhone2FASetupCode(ctx context.Context, userID, phone, code
 	hash := sha256Hex(code)
 	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
 	if s.useEphemeralStore() {
-		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, 10*time.Minute); err != nil {
+		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, "", 10*time.Minute); err != nil {
 			return err
 		}
 	} else {
