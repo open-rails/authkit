@@ -39,13 +39,14 @@ type deviceKeyTokenBody struct {
 	} `json:"device_key"`
 }
 
-func deviceKeyTestServer(t *testing.T) (*Service, *captureEmailSender) {
+func deviceKeyTestServer(t *testing.T, engineOpts ...embedded.Option) (*Service, *captureEmailSender) {
 	t.Helper()
 	pool := newServerTestPool(t)
 	_, err := authkitmigrate.New(pool, nil).Migrate(context.Background())
 	require.NoError(t, err)
 	sender := &captureEmailSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(sender)), WithoutRateLimiter())
+	opts := append([]embedded.Option{embedded.WithEmailSender(sender)}, engineOpts...)
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv, sender
 }
@@ -357,8 +358,12 @@ func TestDeviceKeyManagementRevokesExactlyTheRequestedMachines(t *testing.T) {
 }
 
 func TestDeviceKeyLoginConcurrentFinishAcceptsOnce(t *testing.T) {
+	forEachStore(t, testDeviceKeyLoginConcurrentFinishAcceptsOnce)
+}
+
+func testDeviceKeyLoginConcurrentFinishAcceptsOnce(t *testing.T, store ephemeralStore) {
 	ctx := context.Background()
-	srv, sender := deviceKeyTestServer(t)
+	srv, sender := deviceKeyTestServer(t, store.engineOpts()...)
 	email := uniqueEmail("device-key-login-race")
 	publicKey, privateKey := newDeviceKey(t)
 	enrolled := finishDeviceEnrollment(t, srv, sender, beginDeviceEnrollment(t, srv, email, publicKey), privateKey)

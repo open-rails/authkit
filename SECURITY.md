@@ -20,7 +20,7 @@ scanners also run on a weekly Monday schedule (06:00 / 07:00 / 08:00 UTC).
 
 | workflow | jobs | gates? |
 |---|---|---|
-| `test.yaml` | `go test -race -p 1 ./...` against a real migrated Postgres (compose `issuer`), then a skip gate; `sqlc generate` + `sqlc vet` + drift check on `internal/db` | yes |
+| `test.yaml` | `go test -race -p 1 ./...` against a real migrated Postgres (compose `issuer`) and a real Redis, then a skip gate; `sqlc generate` + `sqlc vet` + drift check on `internal/db` | yes |
 | `go-sast.yaml` | `go vet ./...`, `staticcheck ./...` (pinned version) | yes |
 | `codeql.yaml` | CodeQL for Go with `security-extended` + `security-and-quality` (SARIF to code scanning) | no (findings appear in the Security tab) |
 | `security.yaml` | `govulncheck ./...` (pinned version; call-graph aware), Trivy fs scan (`vuln,secret,misconfig`, HIGH+ fixable) | yes |
@@ -36,8 +36,8 @@ Hardening that applies to every workflow:
 
 ### Tests must run, not skip
 
-DB-backed tests skip when `AUTHKIT_TEST_DATABASE_URL` is unset so a plain
-`go test` works offline. In CI that skip would hide a broken stack, so
+DB-backed tests skip when `AUTHKIT_TEST_DATABASE_URL` / `AUTHKIT_TEST_REDIS_URL`
+are unset so a plain `go test` works offline. In CI that skip would hide a broken stack, so
 `task test` / `task test-ci` export `AUTHKIT_TEST_REQUIRE_DB=1`, which turns the
 skip into a failure (`internal/testdb`), and `task test-ci` fails the job if the
 JSON report records any skipped test at all. Opt-in probes use build tags

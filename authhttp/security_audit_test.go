@@ -81,17 +81,23 @@ func TestOIDCCallback_RejectsWithoutStateCookie(t *testing.T) {
 }
 
 func TestOIDCCallback_StateCookiePassesCookieGate(t *testing.T) {
-	s := newTestService(t)
-	enableTestOIDCProvider(s)
-	require.NoError(t, s.stateCache().Put(context.Background(), "good-state", oidckit.StateData{Provider: "google"}))
-	h := s.OIDCHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback?state=good-state&code=xyz", nil)
-	r.AddCookie(&http.Cookie{Name: stateCookieName("good-state"), Value: "good-state"})
-	h.ServeHTTP(w, r)
-	// With a matching cookie the request passes the F3 gate and fails later (no real
-	// IdP configured), so it must NOT be the invalid_state cookie rejection.
-	require.NotContains(t, w.Body.String(), "invalid_state")
+	forEachStore(t, func(t *testing.T, store ephemeralStore) {
+		s := store.attach(newTestService(t))
+		enableTestOIDCProvider(s)
+		require.NoError(t, s.stateCache().Put(context.Background(), "good-state", oidckit.StateData{Provider: "google"}))
+		h := s.OIDCHandler()
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback?state=good-state&code=xyz", nil)
+		r.AddCookie(&http.Cookie{Name: stateCookieName("good-state"), Value: "good-state"})
+		h.ServeHTTP(w, r)
+		// With a matching cookie the request passes the F3 gate and fails later (no real
+		// IdP configured), so it must NOT be the invalid_state cookie rejection.
+		require.NotContains(t, w.Body.String(), "invalid_state")
+		// The pending state is consumed on first use, so a replayed callback misses.
+		_, ok, err := s.stateCache().Get(context.Background(), "good-state")
+		require.NoError(t, err)
+		require.False(t, ok, "state must be consumed by the first callback")
+	})
 }
 
 // --- F6: X-Forwarded-For right-most untrusted hop ---

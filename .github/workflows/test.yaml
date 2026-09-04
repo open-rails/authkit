@@ -50,8 +50,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Start migrated authkit-server database
-        run: docker compose up -d --no-build issuer
+      - name: Start migrated authkit-server database and Redis
+        run: docker compose up -d --no-build --wait issuer redis
 
       - name: Wait for authkit-server migrations
         run: |

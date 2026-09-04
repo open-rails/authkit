@@ -9,7 +9,6 @@ import (
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,9 +83,8 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	_, err = NewServer(newServerClient(t, prodCfg, pool))
 	require.Error(t, err, "production without a Redis store must fail validation")
 
-	// Production WITH Redis passes (client is lazy; not contacted at construction).
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
-	t.Cleanup(func() { _ = rdb.Close() })
+	// Production WITH Redis passes.
+	rdb := testdb.ScratchRedis(t)
 	_, err = NewServer(newServerClient(t, prodCfg, pool), WithRedis(rdb))
 	require.NoError(t, err, "production with Redis must pass validation")
 }
@@ -120,8 +118,7 @@ func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) 
 // engine's *redis.Client — single source of truth, no split-brain — and the
 // production validation no longer flags a missing HTTP-side Redis.
 func TestNewServer_ReusesEngineRedis(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
-	t.Cleanup(func() { _ = rdb.Close() })
+	rdb := testdb.ScratchRedis(t)
 
 	prodCfg := newServerTestConfig()
 	prodCfg.Environment = "production"
@@ -135,8 +132,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	require.Same(t, rdb, srv.rd, "HTTP layer must reuse the engine's *redis.Client (no split-brain)")
 
 	// A second authhttp.WithRedis stays an explicit OVERRIDE, not a requirement.
-	other := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6380"})
-	t.Cleanup(func() { _ = other.Close() })
+	other := testdb.ScratchRedis(t)
 	override, err := NewServer(
 		newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb)),
 		WithRedis(other),
