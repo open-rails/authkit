@@ -68,7 +68,7 @@ func TestGroupMembershipInvite_MFARefusalKeepsInvitePending(t *testing.T) {
 		t.Fatalf("pending=%+v err=%v, want the refused invite still listed", pending, err)
 	}
 
-	if _, err := svc.Enable2FA(ctx, invitee, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, invitee, "email", nil, FirstFactorOnly); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
 	if err := svc.AcceptGroupMembershipInvite(ctx, invitee, inv.ID); err != nil {
