@@ -21,7 +21,7 @@ func TestQueryContracts(t *testing.T) {
 		userID := fixedUUID(1)
 		username := "contract-user"
 		email := "Contract.User@Example.TEST"
-		inserted, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username})
+		inserted, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: time.Now()})
 		requireNoError(t, err)
 		if inserted.ID != userID || inserted.Email == nil || *inserted.Email != "contract.user@example.test" {
 			t.Fatalf("inserted user = %+v", inserted)
@@ -40,9 +40,9 @@ func TestQueryContracts(t *testing.T) {
 			t.Fatalf("preferred language = %q", language)
 		}
 
-		requireNoError(t, q.UserRenameInsert(ctx, db.UserRenameInsertParams{UserID: userID, FromSlug: username}))
-		requireNoError(t, q.UserSetUsername(ctx, db.UserSetUsernameParams{ID: userID, Username: ptr("contract-user-new")}))
-		aliases, err := q.UserSlugAliases(ctx, userID)
+		svc := authcore.NewService(authcore.Config{}, authcore.Keyset{}, authcore.WithPostgres(pg.Pool))
+		requireNoError(t, svc.UpdateUsername(ctx, userID, "contract-user-new"))
+		aliases, err := q.UserSlugAliases(ctx, db.UserSlugAliasesParams{UserID: userID, AtTime: time.Now()})
 		requireNoError(t, err)
 		if len(aliases) != 1 || aliases[0] != username {
 			t.Fatalf("UserSlugAliases = %v", aliases)
@@ -243,7 +243,7 @@ func TestQueryContracts(t *testing.T) {
 func createUser(t *testing.T, ctx context.Context, q *db.Queries, n int, username string) string {
 	t.Helper()
 	userID := fixedUUID(n)
-	_, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: username + "@example.test", Username: &username})
+	_, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: username + "@example.test", Username: &username, AtTime: time.Now()})
 	requireNoError(t, err)
 	return userID
 }

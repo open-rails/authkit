@@ -121,6 +121,8 @@ type Service struct {
 	// cfg is THE configuration (#237): the host Config, normalized exactly once
 	// at construction (normalizeConfig). The engine and the HTTP transport both
 	// read it — there is no parallel flat options struct.
+	nameAdmission  func(context.Context, authkit.NameAdmissionRequest) error
+	namingClock    func() time.Time
 	cfg            Config
 	verifyWarnOnce sync.Once
 

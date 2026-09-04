@@ -79,6 +79,10 @@ func (s *Service) CreateInstanceForSubject(ctx context.Context, persona, instanc
 		return out, err
 	}
 
+	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "group", Persona: persona, ActorID: ownerUserID, RequestedName: slug, Operation: authkit.NameCreate}); err != nil {
+		return out, err
+	}
+
 	// Host cost gate (anti-squat split: velocity is authkit's, cost is the host's).
 	if err := s.MayCreateInstance(ctx, persona, slug, ownerUserID); err != nil {
 		return out, err

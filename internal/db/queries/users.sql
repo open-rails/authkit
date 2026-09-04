@@ -12,10 +12,6 @@ FROM profiles.users WHERE id = $1;
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::public.citext;
 
--- name: UserByUsername :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE username = $1;
-
 -- name: UserByPhone :one
 SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
 FROM profiles.users WHERE phone_number = $1;
@@ -50,19 +46,25 @@ FROM profiles.users
 WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserInsert :one
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+)
 INSERT INTO profiles.users (id, email, username)
-VALUES (sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username))
+SELECT sqlc.arg(id)::uuid, NULLIF(lower(sqlc.arg(email)::text), ''), sqlc.arg(username) FROM claim
 RETURNING id, email, username, email_verified, banned_at, deleted_at;
 
 -- name: UserImportInsert :exec
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',sqlc.arg(username)::text,sqlc.arg(id)::uuid,sqlc.arg(at_time)::timestamptz)
+)
 INSERT INTO profiles.users (
   id, email, phone_number, username, email_verified, phone_verified,
   banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
 )
-VALUES (
+SELECT
   sqlc.arg(id)::uuid, sqlc.narg(email), sqlc.narg(phone_number), sqlc.arg(username), sqlc.arg(email_verified), sqlc.arg(phone_verified),
   sqlc.narg(banned_at), sqlc.narg(banned_until), sqlc.narg(ban_reason), sqlc.narg(banned_by)::uuid, sqlc.arg(metadata)::jsonb, sqlc.arg(created_at), sqlc.arg(updated_at)
-);
+FROM claim;
 
 -- name: UserImportUpdate :one
 UPDATE profiles.users
@@ -111,11 +113,7 @@ UPDATE profiles.users SET deleted_at = now(), updated_at = now() WHERE id = $1;
 SELECT username::text FROM profiles.users WHERE id = sqlc.arg(id)::uuid;
 
 -- name: UserLastRenamedAt :one
-SELECT renamed_at
-FROM   profiles.user_renames
-WHERE  user_id = sqlc.arg(user_id)::uuid
-ORDER  BY renamed_at DESC
-LIMIT  1;
+SELECT last_renamed_at AS renamed_at FROM profiles.users WHERE id=sqlc.arg(user_id)::uuid AND last_renamed_at IS NOT NULL;
 
 -- name: UserSetUsername :exec
 UPDATE profiles.users SET username = $2, updated_at = NOW() WHERE id = $1;

@@ -123,3 +123,51 @@ type NameResolution struct {
 	IsAlias        bool       `json:"is_alias"`
 	AliasExpiresAt *time.Time `json:"alias_expires_at,omitempty"`
 }
+
+// GroupInstanceUpdate changes group settings atomically against a captured UUID.
+type GroupInstanceUpdate struct {
+	Slug        *string `json:"slug,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
+}
+
+type NamingState struct {
+	Policy            NamingPolicy `json:"policy"`
+	Allowed           bool         `json:"allowed"`
+	NextRenameAt      *time.Time   `json:"next_rename_at,omitempty"`
+	RetryAfterSeconds int64        `json:"retry_after_seconds"`
+}
+
+func (p NamingPolicy) State(last *time.Time, now time.Time) NamingState {
+	out := NamingState{Policy: p, Allowed: p.Enabled}
+	if last != nil {
+		next := last.Add(p.RenameInterval)
+		out.NextRenameAt = &next
+		if next.After(now) {
+			out.Allowed = false
+			remaining := next.Sub(now)
+			out.RetryAfterSeconds = int64(remaining / time.Second)
+			if remaining%time.Second != 0 {
+				out.RetryAfterSeconds++
+			}
+		}
+	}
+	return out
+}
+
+// NameAdmissionRequest is the namespace admission hook's operation context.
+// Group creation cost/enrollment hooks remain creation-only.
+type NameAdmissionRequest struct {
+	OwnerKind     string
+	Persona       string
+	OwnerID       string // Empty only before a new group/account is created.
+	ActorID       string
+	CurrentName   string
+	RequestedName string
+	Operation     NameOperation
+}
+type NameOperation string
+
+const (
+	NameCreate NameOperation = "create"
+	NameRename NameOperation = "rename"
+)

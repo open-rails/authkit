@@ -11,7 +11,7 @@ package db
 var QueryText = map[string]string{
 	// Index-backed access patterns over growable tables (gated: no seq scan).
 	"UserByEmail":                  userByEmail,
-	"UserByUsername":               userByUsername,
+	"ResolveUsername":              resolveUsername,
 	"IdentityUsersByIDs":           identityUsersByIDs,
 	"IdentityPublicUsersByIDs":     identityPublicUsersByIDs,
 	"IdentityUserLivenessByIDs":    identityUserLivenessByIDs,

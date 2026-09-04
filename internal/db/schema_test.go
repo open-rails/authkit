@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -77,7 +78,7 @@ func TestForSchemaRewritesGeneratedQueries(t *testing.T) {
 
 	_, _ = q.UserByEmail(ctx, "user@example.com")
 	_, _ = q.RemoteApplicationBySlug(ctx, "acme")
-	_, _ = q.UserSlugAliases(ctx, "00000000-0000-0000-0000-000000000000")
+	_, _ = q.UserSlugAliases(ctx, UserSlugAliasesParams{UserID: "00000000-0000-0000-0000-000000000000", AtTime: time.Now()})
 	_, _ = q.UserProviderSlugs(ctx, "00000000-0000-0000-0000-000000000000")
 
 	if len(rec.sqls) == 0 {

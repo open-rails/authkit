@@ -93,7 +93,7 @@ func (s *Service) UserProfileLinks(ctx context.Context, userID string) (provider
 	if err != nil {
 		return nil, nil, err
 	}
-	aliases, err = s.q.UserSlugAliases(ctx, userID)
+	aliases, err = s.q.UserSlugAliases(ctx, db.UserSlugAliasesParams{UserID: userID, AtTime: s.namingNow()})
 	if err != nil {
 		return nil, nil, err
 	}

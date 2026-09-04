@@ -668,6 +668,17 @@ func (s *Service) handleInviteRedeemPOST(w http.ResponseWriter, r *http.Request)
 // that matches none of them is a genuine unclassified failure (500).
 func (s *Service) writeGroupOpError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, authkit.ErrRenamesDisabled), errors.Is(err, authkit.ErrNameAdmissionRefused):
+		sendErr(w, http.StatusForbidden, ErrorCode(authkit.CodeForError(err)))
+		return
+	case errors.Is(err, authkit.ErrRenameRateLimited):
+		var cooldown *authkit.RenameCooldownError
+		data := map[string]any{}
+		if errors.As(err, &cooldown) {
+			data["next_rename_at"] = cooldown.NextRenameAt
+		}
+		sendErrData(w, http.StatusTooManyRequests, ErrRenameRateLimited, data)
+		return
 	case errors.Is(err, authkit.ErrTwoFAEnrollmentRequired):
 		s.send2FAEnrollmentRequiredError(w)
 		return
@@ -840,28 +851,20 @@ func (s *Service) groupUpdate(w http.ResponseWriter, r *http.Request, persona, i
 		badRequest(w, ErrInvalidRequest)
 		return
 	}
-	slug := instanceSlug
-	if req.Slug != nil {
-		newSlug := strings.ToLower(strings.TrimSpace(*req.Slug))
-		if newSlug == "" {
-			badRequest(w, ErrInvalidRequest)
-			return
-		}
-		if err := s.svc.RenamePermissionGroupSlugAs(r.Context(), claims.UserID, persona, instanceSlug, newSlug); err != nil {
-			s.writeGroupOpError(w, err)
-			return
-		}
-		slug = newSlug
+	inst, err := s.svc.GroupInstanceForSlug(r.Context(), persona, instanceSlug)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
 	}
-	if req.DisplayName != nil {
-		if err := s.svc.SetPermissionGroupDisplayName(r.Context(), persona, slug, *req.DisplayName); err != nil {
-			s.writeGroupOpError(w, err)
-			return
-		}
+	updated, err := s.svc.UpdateGroupInstanceAs(r.Context(), claims.UserID, inst.ID, authkit.GroupInstanceUpdate{Slug: req.Slug, DisplayName: req.DisplayName})
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
 	}
-	resp := map[string]any{"ok": true, "persona": persona, "instance_slug": slug}
-	if req.DisplayName != nil {
-		resp["display_name"] = strings.TrimSpace(*req.DisplayName)
+	state, err := s.svc.GroupNamingState(r.Context(), updated.ID)
+	if err != nil {
+		s.writeGroupOpError(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "group_id": updated.ID, "persona": updated.Persona, "instance_slug": updated.InstanceSlug, "display_name": updated.DisplayName, "naming": state})
 }

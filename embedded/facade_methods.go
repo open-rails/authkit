@@ -486,13 +486,9 @@ func (s *Client) SetPermissionGroupDisplayName(ctx context.Context, persona, ins
 	return s.impl.SetPermissionGroupDisplayName(ctx, persona, instanceSlug, displayName)
 }
 
-// RenamePermissionGroupSlugAs renames a group's instance slug on behalf of
-// actorUserID, tombstoning the old slug (permanently reserved + forwarding
-// through slug resolution). The new slug passes the persona's creation gate
-// (SlugPattern; reserved slugs need the escalation role, #292). Group-level
-// authorization (settings:manage) is the caller's job.
-func (s *Client) RenamePermissionGroupSlugAs(ctx context.Context, actorUserID, persona, instanceSlug, newSlug string) error {
-	return s.impl.RenamePermissionGroupSlugAs(ctx, actorUserID, persona, instanceSlug, newSlug)
+// UpdateGroupInstanceAs changes settings atomically after authorizing the captured UUID.
+func (s *Client) UpdateGroupInstanceAs(ctx context.Context, actorUserID, groupID string, update authkit.GroupInstanceUpdate) (authkit.GroupInstance, error) {
+	return s.impl.UpdateGroupInstanceAs(ctx, actorUserID, groupID, update)
 }
 
 // DeletePermissionGroup deletes a group instance. By default the slug is
@@ -512,3 +508,7 @@ func (s *Client) SetApplicationEnabled(ctx context.Context, slug string, enabled
 
 // NamingPolicy returns the normalized deployment-wide user/group naming policy.
 func (s *Client) NamingPolicy() authkit.NamingPolicy { return s.impl.NamingPolicy() }
+
+func (s *Client) ResolveUsername(ctx context.Context, name string) (authkit.NameResolution, error) {
+	return s.impl.ResolveUsername(ctx, name)
+}

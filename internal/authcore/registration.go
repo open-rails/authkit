@@ -350,7 +350,7 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 	if err != nil {
 		return "", err
 	}
-	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username}); err != nil {
+	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()}); err != nil {
 		return "", err
 	}
 	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {
@@ -389,7 +389,7 @@ func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, userna
 	if err != nil {
 		return "", err
 	}
-	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: "", Username: &username}); err != nil {
+	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: "", Username: &username, AtTime: s.namingNow()}); err != nil {
 		return "", err
 	}
 	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {

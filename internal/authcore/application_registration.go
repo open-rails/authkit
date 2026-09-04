@@ -361,7 +361,7 @@ func (s *Service) RegisterApplicationFromDomain(ctx context.Context, domain stri
 	defer func() { _ = tx.Rollback(ctx) }()
 	dbtx := db.ForSchema(tx, s.dbSchema())
 	q := db.New(dbtx)
-	st := NewPermissionGroupStore(dbtx)
+	st := s.groupStoreFor(dbtx)
 
 	// Idempotent re-registration is keyed by the DOMAIN (the trust root). The
 	// slug was claimed at first registration and is NOT changed by a refresh —
@@ -733,7 +733,7 @@ func (s *Service) RepointApplicationSigned(ctx context.Context, slug, compactJWS
 	defer func() { _ = tx.Rollback(ctx) }()
 	dbtx := db.ForSchema(tx, s.dbSchema())
 	q := db.New(dbtx)
-	st := NewPermissionGroupStore(dbtx)
+	st := s.groupStoreFor(dbtx)
 
 	row, err := q.RemoteApplicationRepoint(ctx, db.RemoteApplicationRepointParams{
 		NewDomain:        canonical,

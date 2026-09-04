@@ -205,50 +205,6 @@ func (q *Queries) UserByPhone(ctx context.Context, phoneNumber *string) (UserByP
 	return i, err
 }
 
-const userByUsername = `-- name: UserByUsername :one
-SELECT id, email, phone_number, username, email_verified, phone_verified, banned_at, banned_until, ban_reason, banned_by, deleted_at, created_at, updated_at, last_login
-FROM profiles.users WHERE username = $1
-`
-
-type UserByUsernameRow struct {
-	ID            string
-	Email         *string
-	PhoneNumber   *string
-	Username      *string
-	EmailVerified bool
-	PhoneVerified bool
-	BannedAt      *time.Time
-	BannedUntil   *time.Time
-	BanReason     *string
-	BannedBy      *string
-	DeletedAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	LastLogin     *time.Time
-}
-
-func (q *Queries) UserByUsername(ctx context.Context, username *string) (UserByUsernameRow, error) {
-	row := q.db.QueryRow(ctx, userByUsername, username)
-	var i UserByUsernameRow
-	err := row.Scan(
-		&i.ID,
-		&i.Email,
-		&i.PhoneNumber,
-		&i.Username,
-		&i.EmailVerified,
-		&i.PhoneVerified,
-		&i.BannedAt,
-		&i.BannedUntil,
-		&i.BanReason,
-		&i.BannedBy,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.LastLogin,
-	)
-	return i, err
-}
-
 const userClearBan = `-- name: UserClearBan :exec
 UPDATE profiles.users SET banned_at = NULL, banned_until = NULL, ban_reason = NULL, banned_by = NULL, updated_at = NOW() WHERE id = $1
 `
@@ -291,14 +247,17 @@ func (q *Queries) UserEmailOrUsernameTaken(ctx context.Context, arg UserEmailOrU
 }
 
 const userImportInsert = `-- name: UserImportInsert :exec
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',$4::text,$1::uuid,$14::timestamptz)
+)
 INSERT INTO profiles.users (
   id, email, phone_number, username, email_verified, phone_verified,
   banned_at, banned_until, ban_reason, banned_by, metadata, created_at, updated_at
 )
-VALUES (
+SELECT
   $1::uuid, $2, $3, $4, $5, $6,
   $7, $8, $9, $10::uuid, $11::jsonb, $12, $13
-)
+FROM claim
 `
 
 type UserImportInsertParams struct {
@@ -315,6 +274,7 @@ type UserImportInsertParams struct {
 	Metadata      []byte
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	AtTime        time.Time
 }
 
 func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertParams) error {
@@ -332,6 +292,7 @@ func (q *Queries) UserImportInsert(ctx context.Context, arg UserImportInsertPara
 		arg.Metadata,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.AtTime,
 	)
 	return err
 }
@@ -392,8 +353,11 @@ func (q *Queries) UserImportUpdate(ctx context.Context, arg UserImportUpdatePara
 }
 
 const userInsert = `-- name: UserInsert :one
+WITH claim AS MATERIALIZED (
+ SELECT profiles.claim_canonical_name('user','',$3::text,$1::uuid,$4::timestamptz)
+)
 INSERT INTO profiles.users (id, email, username)
-VALUES ($1::uuid, NULLIF(lower($2::text), ''), $3)
+SELECT $1::uuid, NULLIF(lower($2::text), ''), $3 FROM claim
 RETURNING id, email, username, email_verified, banned_at, deleted_at
 `
 
@@ -401,6 +365,7 @@ type UserInsertParams struct {
 	ID       string
 	Email    string
 	Username *string
+	AtTime   time.Time
 }
 
 type UserInsertRow struct {
@@ -413,7 +378,12 @@ type UserInsertRow struct {
 }
 
 func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserInsertRow, error) {
-	row := q.db.QueryRow(ctx, userInsert, arg.ID, arg.Email, arg.Username)
+	row := q.db.QueryRow(ctx, userInsert,
+		arg.ID,
+		arg.Email,
+		arg.Username,
+		arg.AtTime,
+	)
 	var i UserInsertRow
 	err := row.Scan(
 		&i.ID,
@@ -427,16 +397,12 @@ func (q *Queries) UserInsert(ctx context.Context, arg UserInsertParams) (UserIns
 }
 
 const userLastRenamedAt = `-- name: UserLastRenamedAt :one
-SELECT renamed_at
-FROM   profiles.user_renames
-WHERE  user_id = $1::uuid
-ORDER  BY renamed_at DESC
-LIMIT  1
+SELECT last_renamed_at AS renamed_at FROM profiles.users WHERE id=$1::uuid AND last_renamed_at IS NOT NULL
 `
 
-func (q *Queries) UserLastRenamedAt(ctx context.Context, userID string) (time.Time, error) {
+func (q *Queries) UserLastRenamedAt(ctx context.Context, userID string) (*time.Time, error) {
 	row := q.db.QueryRow(ctx, userLastRenamedAt, userID)
-	var renamed_at time.Time
+	var renamed_at *time.Time
 	err := row.Scan(&renamed_at)
 	return renamed_at, err
 }

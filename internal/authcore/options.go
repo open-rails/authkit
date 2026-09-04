@@ -3,9 +3,11 @@ package authcore
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
 
@@ -80,3 +82,12 @@ func WithEmailSender(sender EmailSender) Option { return func(s *Service) { s.em
 
 // WithSMSSender sets the SMS provider.
 func WithSMSSender(sender SMSSender) Option { return func(s *Service) { s.sms = sender } }
+
+// WithNamingClock supplies the clock used by naming claims and resolution.
+// Production defaults to time.Now. Inject a single concurrency-safe clock for tests.
+func WithNamingClock(now func() time.Time) Option { return func(s *Service) { s.namingClock = now } }
+
+// WithNameAdmission supplies a side-effect-free host namespace policy for creation and rename.
+func WithNameAdmission(check func(context.Context, authkit.NameAdmissionRequest) error) Option {
+	return func(s *Service) { s.nameAdmission = check }
+}

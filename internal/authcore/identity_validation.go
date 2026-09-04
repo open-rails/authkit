@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/password"
 )
 
@@ -247,12 +248,15 @@ func (s *Service) TimeUntilUsernameRenameAvailable(ctx context.Context, userID s
 		}
 		return 0, err
 	} else {
-		lastRenamedAt = &v
+		lastRenamedAt = v
 	}
 	if lastRenamedAt == nil || lastRenamedAt.IsZero() {
 		return 0, nil
 	}
-	availableAt := lastRenamedAt.Add(renameCooldown)
+	if !s.NamingPolicy().Enabled {
+		return 0, authkit.ErrRenamesDisabled
+	}
+	availableAt := lastRenamedAt.Add(s.NamingPolicy().RenameInterval)
 	if !availableAt.After(now) {
 		return 0, nil
 	}

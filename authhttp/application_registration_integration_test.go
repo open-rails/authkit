@@ -260,6 +260,8 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	cfg := newServerTestConfig()
+	zero := time.Duration(0)
+	cfg.Naming = authkit.NamingConfig{RenameInterval: &zero}
 	cfg.RBAC = []embedded.PersonaDef{{Name: "org", Parent: "root"}}
 	cfg.Applications = embedded.ApplicationsConfig{SelfRegistration: true, OrgPersona: "org"}
 	client := newServerClient(t, cfg, pool)
@@ -270,28 +272,32 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.permission_groups WHERE instance_slug LIKE '%'||$1`, suffix)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.permission_group_slug_tombstones WHERE slug LIKE '%'||$1`, suffix)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.name_claims WHERE name LIKE '%'||$1`, suffix)
 	})
 
+	owner, err := core.CreateUser(ctx, "rename-owner-"+suffix+"@example.test", "rename_owner_"+suffix)
+	require.NoError(t, err)
 	oldSlug, newSlug := "human-"+suffix, "renamed-"+suffix
 	gid, err := core.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{
-		Persona: "org", InstanceSlug: oldSlug, DisplayName: "Human Org",
+		Persona: "org", InstanceSlug: oldSlug, DisplayName: "Human Org", OwnerSubjectID: owner.ID,
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, core.RenamePermissionGroupSlugAs(ctx, "", "org", oldSlug, newSlug))
+	_, err = core.UpdateGroupInstanceAs(ctx, owner.ID, gid, authkit.GroupInstanceUpdate{Slug: &newSlug})
+	require.NoError(t, err)
 
 	// Forwarding: the old slug resolves to the SAME group.
 	got, err := core.ResolveGroupIDForSlug(ctx, "org", oldSlug)
 	require.NoError(t, err)
 	require.Equal(t, gid, got)
 
-	// The tombstoned slug is never claimable by a NEW group.
+	// The former slug is reserved until its persisted deadline.
 	_, err = core.CreatePermissionGroup(ctx, authkit.CreatePermissionGroupRequest{Persona: "org", InstanceSlug: oldSlug})
 	require.ErrorIs(t, err, authkit.ErrGroupSlugTaken)
 
 	// The owning group may reclaim its own tombstone (rename back).
-	require.NoError(t, core.RenamePermissionGroupSlugAs(ctx, "", "org", newSlug, oldSlug))
+	_, err = core.UpdateGroupInstanceAs(ctx, owner.ID, gid, authkit.GroupInstanceUpdate{Slug: &oldSlug})
+	require.NoError(t, err)
 	got, err = core.ResolveGroupIDForSlug(ctx, "org", oldSlug)
 	require.NoError(t, err)
 	require.Equal(t, gid, got)
@@ -329,6 +335,10 @@ func TestGroupSlugRenameTombstones(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.remote_applications WHERE slug = $1`, appSlug)
 	})
-	err = core.RenamePermissionGroupSlugAs(ctx, "", "org", appSlug, "stolen-"+suffix)
+	group, err := core.GroupInstanceForSlug(ctx, "org", appSlug)
+	require.NoError(t, err)
+	require.NoError(t, client.Genesis().AssignGroupRole(ctx, "org", appSlug, owner.ID, embedded.SubjectKindUser, embedded.OwnerRoleName))
+	stolen := "stolen-" + suffix
+	_, err = core.UpdateGroupInstanceAs(ctx, owner.ID, group.ID, authkit.GroupInstanceUpdate{Slug: &stolen})
 	require.ErrorIs(t, err, authkit.ErrGroupSlugApplicationManaged)
 }

@@ -192,3 +192,7 @@ var WithEntitlements = authcore.WithEntitlements
 var WithPostgres = authcore.WithPostgres
 var WithSMSSender = authcore.WithSMSSender
 var WithSessionRevokeReason = authcore.WithSessionRevokeReason
+
+var WithNamingClock = authcore.WithNamingClock
+
+var WithNameAdmission = authcore.WithNameAdmission
