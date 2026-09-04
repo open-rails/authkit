@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/siws"
+	"github.com/open-rails/authkit/internal/testclock"
 )
 
 // Close stops the cleanup goroutine (#196 secondary defect: it was unstoppable,
@@ -84,12 +85,13 @@ func TestConsumeConcurrentSingleWinner(t *testing.T) {
 // expiry check). The cache expires by its own TTL clock, set at Put time — the
 // challenge's own ExpiresAt is validated separately by the core layer.
 func TestConsumeExpired(t *testing.T) {
-	c := NewSIWSCache(20 * time.Millisecond)
+	clk := testclock.New()
+	c := NewSIWSCache(20*time.Millisecond, WithSIWSCacheClock(clk.Now))
 	ctx := context.Background()
 	if err := c.Put(ctx, "old", siws.ChallengeData{Address: "a"}); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	time.Sleep(40 * time.Millisecond)
+	clk.Advance(40 * time.Millisecond)
 	if _, found, err := c.Consume(ctx, "old"); err != nil || found {
 		t.Fatalf("expired consume: found=%v err=%v (want found=false)", found, err)
 	}

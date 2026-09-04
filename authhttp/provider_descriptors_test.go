@@ -42,7 +42,7 @@ func TestAuthProviderCacheIsolation(t *testing.T) {
 
 func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 	cfg := embedded.Config{
-		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
+		Keys: testKeys(),
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test"},
@@ -69,7 +69,7 @@ func TestNewServicePrebuildsAuthProviders(t *testing.T) {
 			},
 		},
 	}
-	s, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)))
+	s, err := NewServer(newServerClient(t, cfg, newTestPool(t)))
 	require.NoError(t, err)
 
 	github, ok := s.authProvider("github")

@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -116,10 +117,17 @@ func newTestService(t *testing.T) *authhttp.Service {
 			Pubs:   map[string]crypto.PublicKey{"test-kid": signer.PublicKey()},
 		}},
 	}
-	// NewServer requires a non-nil pool (#108). This test only exercises OIDC
-	// route mounting + a missing-state/code callback (no DB access), so a
-	// lazily-connecting pool (MinConns=0 never dials) is sufficient.
-	pool, err := pgxpool.New(context.Background(), "postgres://authkit:authkit@127.0.0.1:5432/authkit_test")
+	// NewServer requires a non-nil pool (#108): the shared integration database,
+	// never a phantom DSN. Mirrors internal/testdb's fence, which this nested
+	// module cannot import.
+	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
+	if dsn == "" {
+		if os.Getenv("AUTHKIT_TEST_REQUIRE_DB") == "1" {
+			t.Fatal("AUTHKIT_TEST_DATABASE_URL not set but AUTHKIT_TEST_REQUIRE_DB=1")
+		}
+		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	client, err := embedded.New(cfg, pool)

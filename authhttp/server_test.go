@@ -2,19 +2,38 @@ package authhttp
 
 import (
 	"context"
+	"crypto"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/ratelimit"
 	"github.com/stretchr/testify/require"
 )
 
+// testSigner is one RSA keypair shared by the package's test engines: explicit
+// keys instead of AllowEphemeralDevKeys, which persists a keypair under the
+// package directory.
+var testSigner = sync.OnceValue(func() *jwtkit.RSASigner {
+	s, err := jwtkit.NewRSASigner(2048, "test-kid")
+	if err != nil {
+		panic(err)
+	}
+	return s
+})
+
+func testKeys() embedded.KeysConfig {
+	s := testSigner()
+	return embedded.KeysConfig{Source: jwtkit.StaticKeySource{Active: s, Pubs: map[string]crypto.PublicKey{s.KID(): s.PublicKey()}}}
+}
+
 func newServerTestConfig() embedded.Config {
 	return embedded.Config{
-		Keys: embedded.KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
+		Keys: testKeys(),
 		Token: embedded.TokenConfig{
 			Issuer:            "https://example.com",
 			IssuedAudiences:   []string{"test-app"},
@@ -107,7 +126,7 @@ func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) 
 	cfg.Registration = embedded.RegistrationConfig{Verification: embedded.RegistrationVerificationRequired}
 
 	// Engine built with NO email/SMS sender.
-	client := newServerClient(t, cfg, newNoDBPool(t))
+	client := newServerClient(t, cfg, newTestPool(t))
 
 	// The call under test must return an error and must NOT panic; if it panicked
 	// the test binary would crash, so reaching require.Error already proves no panic.
@@ -117,7 +136,7 @@ func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) 
 	require.Contains(t, err.Error(), "no email or SMS sender")
 
 	// Wiring a sender on the engine makes the same construction succeed.
-	withSender := newServerClient(t, cfg, newNoDBPool(t), embedded.WithEmailSender(testEmailSender{}))
+	withSender := newServerClient(t, cfg, newTestPool(t), embedded.WithEmailSender(testEmailSender{}))
 	srv, err = NewServer(withSender, WithoutRateLimiter())
 	require.NoError(t, err, "Required verification with a sender must construct cleanly")
 	require.NotNil(t, srv)
@@ -135,7 +154,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 
 	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Production validation
 	// (which previously only checked the HTTP side) must now pass via reuse.
-	client := newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb))
+	client := newServerClient(t, prodCfg, newTestPool(t), embedded.WithRedis(rdb))
 	srv, err := NewServer(client, WithDirectPeerIP())
 	require.NoError(t, err, "engine Redis must satisfy production validation without authhttp.WithRedis")
 	require.NotNil(t, srv)
@@ -144,7 +163,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	// A second authhttp.WithRedis stays an explicit OVERRIDE, not a requirement.
 	other := testdb.ScratchRedis(t)
 	override, err := NewServer(
-		newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb)),
+		newServerClient(t, prodCfg, newTestPool(t), embedded.WithRedis(rdb)),
 		WithRedis(other), WithDirectPeerIP(),
 	)
 	require.NoError(t, err)
@@ -158,7 +177,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 func TestNewServer_RateLimitOverrides(t *testing.T) {
 	override := ratelimit.Limit{Limit: 3, Window: time.Minute}
 	srv, err := NewServer(
-		newServerClient(t, newServerTestConfig(), newNoDBPool(t)),
+		newServerClient(t, newServerTestConfig(), newTestPool(t)),
 		WithRateLimitOverrides(map[string]ratelimit.Limit{RLPasswordLogin: override}),
 	)
 	require.NoError(t, err)

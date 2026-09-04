@@ -13,7 +13,7 @@ import (
 
 func newMountTestService(t *testing.T) *Service {
 	t.Helper()
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), newNoDBPool(t)), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), newTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	return srv
 }
@@ -91,7 +91,7 @@ func TestMountAnchors(t *testing.T) {
 // and keeps its exemptions — when the whole surface lives under MountPrefix.
 func TestMountMFAEnrollmentGateUnderPrefix(t *testing.T) {
 	cfg, signer := mfaGateTestConfig(t, embedded.TwoFactorRequired)
-	svc, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithoutRateLimiter())
+	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	token := mintUnenrolledUserToken(t, signer, cfg)
 	auth := map[string]string{"Authorization": "Bearer " + token}
@@ -120,7 +120,7 @@ func TestMountMFAEnrollmentGateUnderPrefix(t *testing.T) {
 // route registry at NewServer time, not from what a particular mount serves.
 func TestMountExcludeDoesNotAlterExemptDerivation(t *testing.T) {
 	cfg, signer := mfaGateTestConfig(t, embedded.TwoFactorRequired)
-	svc, err := NewServer(newServerClient(t, cfg, newNoDBPool(t)), WithoutRateLimiter())
+	svc, err := NewServer(newServerClient(t, cfg, newTestPool(t)), WithoutRateLimiter())
 	require.NoError(t, err)
 	token := mintUnenrolledUserToken(t, signer, cfg)
 	auth := map[string]string{"Authorization": "Bearer " + token}

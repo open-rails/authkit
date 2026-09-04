@@ -18,7 +18,7 @@ func TestPasskeyLoginRejectsValidNonUVAssertion(t *testing.T) {
 	pool := testPG(t)
 	ctx := context.Background()
 	cfg := Config{
-		Keys: KeysConfig{AllowEphemeralDevKeys: true}, // #231: tests opt in explicitly
+		Keys: staticTestKeys(t),
 		Token: TokenConfig{
 			Issuer:            "https://example.org",
 			IssuedAudiences:   []string{"test-app"},
