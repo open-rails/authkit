@@ -396,6 +396,9 @@ func (s *Service) handlePhoneRegisterResendPOST(w http.ResponseWriter, r *http.R
 		return
 	}
 	phone = embedded.NormalizePhone(phone)
+	if s.rateLimitedByIdentifier(w, r, RLAuthRegisterResendPhone, phone) {
+		return
+	}
 
 	if !s.svc.SMSAvailable() {
 		serverErr(w, ErrPhoneUnavailable)
