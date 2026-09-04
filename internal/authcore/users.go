@@ -103,7 +103,7 @@ func (s *Service) ensureUserAccess(ctx context.Context, u *User) error {
 	}
 	reserved, err := s.IsUserReserved(ctx, strings.TrimSpace(u.ID))
 	if err != nil {
-		reserved = false
+		return err
 	}
 	if reserved {
 		return ErrUserBanned

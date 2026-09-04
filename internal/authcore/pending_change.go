@@ -229,9 +229,9 @@ func (s *Service) finalizePendingChange(ctx context.Context, rec pendingChange) 
 	case KindRegisterPhone:
 		return s.finalizeRegisterPhone(ctx, rec)
 	case KindChangeEmail:
-		return s.finalizeChangeEmail(ctx, rec)
+		return s.finalizeChangeEmail(ctx, rec, nil)
 	case KindChangePhone:
-		return s.finalizeChangePhone(ctx, rec)
+		return s.finalizeChangePhone(ctx, rec, nil)
 	default:
 		return "", fmt.Errorf("unknown pending change kind: %s", rec.Kind)
 	}

@@ -50,6 +50,10 @@ func TestTOTPEnrollmentVerifyAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, secret)
 	require.Contains(t, uri, "otpauth://totp/")
+	pendingRaw, pendingOK, err := svc.ephemGetString(ctx, keyTOTPEnrollment+user.ID)
+	require.NoError(t, err)
+	require.True(t, pendingOK)
+	require.NotContains(t, pendingRaw, secret, "the pending secret must be sealed in the ephemeral store")
 
 	code, err := totpCode(secret, time.Now().Unix()/totpPeriod)
 	require.NoError(t, err)

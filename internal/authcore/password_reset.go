@@ -2,6 +2,7 @@ package authcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,6 +20,9 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, ttl ti
 	u, err := s.getUserByEmail(ctx, email)
 	if err != nil || u == nil {
 		return nil
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		return resetGateError(err)
 	}
 	if ttl <= 0 {
 		ttl = time.Hour
@@ -73,13 +77,30 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 	return rt.UserID, nil
 }
 
+// resetGateError maps the account gate for a reset REQUEST: a banned, deleted
+// or reserved account gets the same silent 202 as an unknown address (no token,
+// no message); only a lookup failure is surfaced.
+func resetGateError(err error) error {
+	if errors.Is(err, ErrUserBanned) {
+		return nil
+	}
+	return err
+}
+
 func (s *Service) finishPasswordReset(ctx context.Context, userID, newPassword string) error {
+	if s.pg == nil {
+		return nil
+	}
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil {
+		return errOrUnauthorized(err)
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		return err
+	}
 	phc, err := password.HashArgon2id(newPassword)
 	if err != nil {
 		return err
-	}
-	if s.pg == nil {
-		return nil
 	}
 	// Atomic rotation (#199): the new password hash and the revocation of every
 	// pre-reset session COMMIT TOGETHER. Done separately, a crash/error between the
@@ -121,6 +142,9 @@ func (s *Service) RequestPhonePasswordReset(ctx context.Context, phone string, t
 	u, err := s.GetUserByPhone(ctx, phone)
 	if err != nil || u == nil {
 		return nil // Don't reveal if phone exists
+	}
+	if err := s.ensureUserAccess(ctx, u); err != nil {
+		return resetGateError(err)
 	}
 
 	if ttl <= 0 {

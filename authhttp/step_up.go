@@ -290,8 +290,13 @@ func (s *Service) requireFreshAuthOrPassword(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, claims verify.Claims) {
+	methods, err := s.stepUpMethods(r, claims.UserID)
+	if err != nil {
+		serverErr(w, ErrDatabaseError)
+		return
+	}
 	metadata := map[string]any{
-		"step_up_methods": s.stepUpMethods(r, claims.UserID),
+		"step_up_methods": methods,
 		"max_age_seconds": int64(embedded.SensitiveActionFreshAuthWindow.Seconds()),
 	}
 	if twoFA := s.stepUpTwoFactorOptions(r, claims.UserID); twoFA != nil {
@@ -317,14 +322,17 @@ func (s *Service) freshAccessTokenResponse(r *http.Request, userID, sessionID st
 	}, nil
 }
 
-func (s *Service) stepUpMethods(r *http.Request, userID string) []string {
-	hasPassword := s.svc.HasPassword(r.Context(), userID)
+func (s *Service) stepUpMethods(r *http.Request, userID string) ([]string, error) {
+	hasPassword, err := s.svc.HasPassword(r.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
 	settings, _ := s.svc.Get2FASettings(r.Context(), userID)
 	var providerSlugs []string
 	if pg := s.svc.Postgres(); pg != nil {
 		providerSlugs, _ = db.New(db.ForSchema(pg, s.svc.Schema())).UserProviderSlugsDistinct(r.Context(), strings.TrimSpace(userID))
 	}
-	return s.stepUpMethodsWith(hasPassword, settings, providerSlugs)
+	return s.stepUpMethodsWith(hasPassword, settings, providerSlugs), nil
 }
 
 // stepUpMethodsWith builds the step-up method list from ALREADY-loaded inputs

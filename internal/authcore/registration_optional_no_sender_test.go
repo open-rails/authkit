@@ -34,6 +34,10 @@ func (s *spyEmailSender) SendWelcome(ctx context.Context, email, username string
 	return nil
 }
 
+func (s *spyEmailSender) SendContactChanged(context.Context, string, string, ContactChange) error {
+	return nil
+}
+
 // Locks in the graceful-degrade contract first-party embedders rely on:
 // under RegistrationVerificationOptional with NO email sender configured,
 // a registration creates the user already-verified and sends nothing.

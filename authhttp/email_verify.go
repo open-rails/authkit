@@ -158,7 +158,7 @@ func (s *Service) handleEmailVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
-		if err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, email, code); err == nil {
+		if err := s.svc.ConfirmEmailChange(r.Context(), claims.UserID, email, code, keepSession(claims)); err == nil {
 			s.svc.ClearEmailVerifyCodeAttempts(r.Context(), email)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Email changed successfully"})
 			return
