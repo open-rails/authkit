@@ -2,12 +2,12 @@ package authhttp
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -28,10 +28,7 @@ func newServerTestConfig() embedded.Config {
 
 func newServerTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -174,4 +171,3 @@ func TestNewServer_RateLimitOverrides(t *testing.T) {
 	require.Equal(t, wantDefault.Limit, untouched.Limit, "untouched bucket must keep its default limit")
 	require.Equal(t, wantDefault.Window, untouched.Window, "untouched bucket must keep its default window")
 }
-

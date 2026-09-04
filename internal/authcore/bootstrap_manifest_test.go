@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-rails/authkit/internal/testdb"
 )
 
 func TestParseBootstrapManifestYAMLRejectsUnknownFields(t *testing.T) {
@@ -186,31 +187,15 @@ func TestApplyBootstrapManifestOnceOnlyRejectsNonEmptyUnmarkedDatabase(t *testin
 	}
 }
 
+// The apply-once startup guard needs an empty users/remote-applications table,
+// so this test runs on its own scratch database rather than the shared pool.
 func TestApplyBootstrapManifestOnceOnlySkipsAfterFirstApply(t *testing.T) {
-	pool := testPG(t)
+	pool := testdb.ScratchPostgres(t).Pool
 	ctx := context.Background()
 	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
 
-	var stateRows int64
-	if err := pool.QueryRow(ctx, `
-		SELECT
-			(SELECT count(*) FROM profiles.users WHERE deleted_at IS NULL)
-			+
-			(SELECT count(*) FROM profiles.remote_applications)
-	`).Scan(&stateRows); err != nil {
-		t.Fatalf("count bootstrap state: %v", err)
-	}
-	if stateRows > 0 {
-		t.Skip("apply-once startup guard requires an empty users/remote-applications database")
-	}
-
-	suffix := time.Now().UnixNano()
-	username := fmt.Sprintf("bootstrap-once-%d", suffix)
-	applyName := fmt.Sprintf("bootstrap-once-%d", suffix)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username=$1`, username)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.bootstrap_applies WHERE name=$1`, applyName)
-	})
+	username := "bootstrap-once"
+	applyName := "bootstrap-once"
 
 	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
 		Email:         username + "@example.com",

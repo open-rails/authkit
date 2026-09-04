@@ -3,21 +3,18 @@ package embedded
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	authkit "github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/stretchr/testify/require"
 )
 
 func newGenesisTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
