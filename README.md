@@ -158,7 +158,9 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 	// Engine dependencies (Redis, senders, entitlements, …) ride in via WithEngine.
 	srv, client, err := authhttp.New(cfg, pg,
 		authhttp.WithEngine(embedded.WithRedis(rdb), embedded.WithEmailSender(mailer)),
-		// Trust only infrastructure that overwrites/appends forwarded headers.
+		// Trust X-Forwarded-For only from infrastructure that appends it. Add
+		// WithCloudflareProxies(<Cloudflare egress CIDRs>) ONLY where Cloudflare
+		// fronts the origin; CF-Connecting-IP is never trusted from other proxies.
 		authhttp.WithTrustedProxies("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"),
 		authhttp.WithLanguageConfig(authhttp.LanguageConfig{
 			Supported: []string{"en", "es"},

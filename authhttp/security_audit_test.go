@@ -98,7 +98,7 @@ func TestOIDCCallback_StateCookiePassesCookieGate(t *testing.T) {
 
 func TestClientIPFromForwardedHeaders_RightmostUntrustedHop(t *testing.T) {
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
-	fn := ClientIPFromForwardedHeaders(trusted)
+	fn := ClientIPFromForwardedHeaders(trusted, nil)
 
 	// Trusted proxy peer; attacker injected 9.9.9.9 as the left-most (client-supplied)
 	// XFF entry, the proxy appended the real client 8.8.8.8 on the right.

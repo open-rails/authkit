@@ -52,7 +52,8 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `AUTHKIT_API_PREFIX` | no | `/api/v1` | Mount prefix for browser routes |
 | `AUTHKIT_MIGRATE_ON_START` | no | `false` | Apply the schema before serving. Prefer the one-shot `migrate` command in prod. |
 | `AUTHKIT_API_KEY_PREFIX` | no | — | Branded prefix for issued API keys |
-| `AUTHKIT_TRUSTED_PROXIES` | no | — | Comma-separated CIDRs of trusted reverse proxies / CDN egress. Client IP (rate limiting, auditing) is derived from `CF-Connecting-IP` / `X-Forwarded-For` **only** when the peer is inside one of these; otherwise `RemoteAddr` is used. Required for correct per-IP rate limiting behind a CDN. |
+| `AUTHKIT_TRUSTED_PROXIES` | no | — | Comma-separated CIDRs of your reverse proxies / load balancers. Client IP (rate limiting, auditing) is derived from `X-Forwarded-For` **only** when the peer is inside one of these; otherwise `RemoteAddr` is used. Required for correct per-IP rate limiting behind any proxy. |
+| `AUTHKIT_CLOUDFLARE_PROXIES` | no | — | Cloudflare's published egress CIDRs. A peer inside these also gets `CF-Connecting-IP` honoured when `X-Forwarded-For` is absent. Set it **only** where Cloudflare fronts the origin, and lock the origin to Cloudflare ingress. |
 | `AUTHKIT_ACCESS_TOKEN_TTL` | no | `15m` | Access-token lifetime (Go duration) |
 | `AUTHKIT_REFRESH_TOKEN_TTL` | no | — | Refresh-token lifetime (Go duration). Unset ⇒ indefinite sessions |
 | `AUTHKIT_SESSION_MAX_PER_USER` | no | `3` | Max concurrent refresh sessions per user (evict-oldest). `-1` ⇒ unlimited |
