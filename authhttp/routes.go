@@ -244,12 +244,16 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 	oidcEnabled := len(s.authProviders()) > 0
 	applicationsEnabled := cfg.Applications.SelfRegistration
 	delegatedEnabled := len(cfg.Delegated.Audiences) > 0
+	deviceKeysEnabled := cfg.DeviceKeys.Enabled
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {
 		if !selected(route.Group) {
 			continue
 		}
 		if route.Group == RouteDelegated && !delegatedEnabled {
+			continue
+		}
+		if route.Group == RouteDeviceKeys && !deviceKeysEnabled {
 			continue
 		}
 		if isPasskeyPath(route.Path) && !passkeysEnabled {

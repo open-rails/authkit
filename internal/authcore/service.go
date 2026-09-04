@@ -93,6 +93,7 @@ var (
 	ErrEmailSenderUnavailable  = authkit.ErrEmailSenderUnavailable
 	ErrSMSSenderUnavailable    = authkit.ErrSMSSenderUnavailable
 	ErrPasswordlessDisabled    = authkit.ErrPasswordlessDisabled
+	ErrDeviceKeysDisabled      = authkit.ErrDeviceKeysDisabled
 )
 
 // (storage layer collapsed into direct Postgres/Redis helpers)

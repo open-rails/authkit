@@ -33,6 +33,9 @@ func (s *inviteCaptureEmailSender) SendLoginCode(context.Context, string, string
 	return nil
 }
 func (s *inviteCaptureEmailSender) SendWelcome(context.Context, string, string) error { return nil }
+func (s *inviteCaptureEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, DeviceKeyNotice) error {
+	return nil
+}
 func (s *inviteCaptureEmailSender) SendContactChanged(context.Context, string, string, ContactChange) error {
 	return nil
 }

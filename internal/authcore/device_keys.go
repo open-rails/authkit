@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	stdlog "log"
 	"strings"
 	"time"
 
@@ -28,6 +29,23 @@ const (
 )
 
 var errDeviceKeyInvalid = jwt.ErrTokenUnverifiable
+
+// DeviceKeySecondFactorRequired is returned by FinishDeviceKeyEnrollment when
+// the email code and key proof are valid but the account has a usable second
+// factor that was not presented (#293). The ceremony stays live for a retry
+// carrying the code; for SMS/email factors the code has just been sent.
+type DeviceKeySecondFactorRequired struct{ Method string }
+
+func (e *DeviceKeySecondFactorRequired) Error() string {
+	return "device key enrollment requires a second factor"
+}
+
+func (s *Service) deviceKeysEnabled() error {
+	if s == nil || !s.cfg.DeviceKeys.Enabled {
+		return ErrDeviceKeysDisabled
+	}
+	return nil
+}
 
 // DeviceKey is the public projection of one native-client credential.
 type DeviceKey struct {
@@ -99,7 +117,10 @@ func deviceKeySigningMessage(domain, encodedChallenge string) ([]byte, error) {
 
 // BeginDeviceKeyEnrollment sends an email proof and records the proposed key.
 func (s *Service) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (DeviceKeyChallenge, error) {
-	if s == nil || s.pg == nil {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return DeviceKeyChallenge{}, err
+	}
+	if s.pg == nil {
 		return DeviceKeyChallenge{}, s.requirePG()
 	}
 	if !s.useEphemeralStore() {
@@ -146,8 +167,14 @@ func (s *Service) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey
 	return result, nil
 }
 
-// FinishDeviceKeyEnrollment consumes both proofs, enrolls the key, and mints no refresh session.
-func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature string) (DeviceKeyAuthResult, error) {
+// FinishDeviceKeyEnrollment consumes both proofs, enrolls the key, and mints no
+// refresh session. An existing account with a usable second factor must also
+// present it (secondFactor: a factor code or backup code) — email possession
+// alone never enrolls a standing credential on an MFA-protected account (#293).
+func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, code, signature, secondFactor string) (DeviceKeyAuthResult, error) {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return DeviceKeyAuthResult{}, err
+	}
 	var record deviceKeyEnrollment
 	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyEnrollment+strings.TrimSpace(enrollmentID), &record)
 	if err != nil || !ok {
@@ -168,6 +195,35 @@ func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, c
 	if err != nil || !ed25519.Verify(publicKey, message, sig) {
 		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
+
+	user, err := s.getUserByEmail(ctx, record.Email)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return DeviceKeyAuthResult{}, err
+	}
+	mfaProof := false
+	if user != nil {
+		if err := s.ensureUserAccess(ctx, user); err != nil {
+			return DeviceKeyAuthResult{}, err
+		}
+		status, err := s.MFAStatus(ctx, user.ID)
+		if err != nil {
+			return DeviceKeyAuthResult{}, err
+		}
+		if s.TwoFactorEnabled() && status.Satisfied {
+			if strings.TrimSpace(secondFactor) == "" {
+				_, method, _, err := s.Require2FAForLoginFactor(ctx, user.ID, "")
+				if err != nil {
+					return DeviceKeyAuthResult{}, err
+				}
+				return DeviceKeyAuthResult{}, &DeviceKeySecondFactorRequired{Method: method}
+			}
+			if !s.verifyDeviceKeySecondFactor(ctx, user.ID, strings.TrimSpace(secondFactor)) {
+				return DeviceKeyAuthResult{}, errDeviceKeyInvalid
+			}
+			mfaProof = true
+		}
+	}
+
 	var consumed deviceKeyEnrollment
 	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyEnrollment+strings.TrimSpace(enrollmentID), &consumed)
 	if err != nil || !ok || consumed.Challenge != record.Challenge || consumed.CodeHash != record.CodeHash || consumed.PublicKey != record.PublicKey {
@@ -175,59 +231,92 @@ func (s *Service) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, c
 	}
 	_ = s.ephemDel(ctx, keyDeviceKeyEnrollmentAttempt+strings.TrimSpace(enrollmentID))
 
-	deviceKey, userID, err := s.enrollDeviceKey(ctx, record, publicKey)
+	deviceKey, userID, created, err := s.enrollDeviceKey(ctx, record, publicKey)
 	if err != nil {
 		return DeviceKeyAuthResult{}, err
 	}
-	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, userID, deviceKey.ID, true)
+	if user != nil && created {
+		s.notifyDeviceKeyEnrolled(ctx, user, deviceKey)
+	}
+	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, userID, deviceKey.ID, true, mfaProof)
 	if err != nil {
 		return DeviceKeyAuthResult{}, err
 	}
 	return DeviceKeyAuthResult{AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil
 }
 
-func (s *Service) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte) (DeviceKey, string, error) {
+// verifyDeviceKeySecondFactor accepts the default factor's code (TOTP, or the
+// SMS/email code sent on the first finish attempt) or a backup code.
+func (s *Service) verifyDeviceKeySecondFactor(ctx context.Context, userID, code string) bool {
+	if ok, err := s.Verify2FACode(ctx, userID, code); err == nil && ok {
+		return true
+	}
+	ok, err := s.VerifyBackupCode(ctx, userID, code)
+	return err == nil && ok
+}
+
+// notifyDeviceKeyEnrolled is best-effort: the key is already enrolled, so a
+// delivery failure is logged rather than reported as a failed enrollment.
+func (s *Service) notifyDeviceKeyEnrolled(ctx context.Context, u *User, key DeviceKey) {
+	if s.email == nil || u.Email == nil {
+		return
+	}
+	username := ""
+	if u.Username != nil {
+		username = *u.Username
+	}
+	sendCtx := s.contextWithUserPreferredLanguage(ctx, u.ID)
+	if err := s.withSendTimeout(sendCtx, func(c context.Context) error {
+		return s.email.SendDeviceKeyEnrolled(c, *u.Email, username, DeviceKeyNotice{Label: key.Label, CreatedAt: key.CreatedAt})
+	}); err != nil {
+		stdlog.Printf("[authkit/security] device-key enrollment notice failed for user %s: %v", u.ID, err)
+	}
+}
+
+// enrollDeviceKey inserts the key (created=true) or returns the identical key
+// already enrolled on the same account (created=false).
+func (s *Service) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment, publicKey []byte) (DeviceKey, string, bool, error) {
 	user, err := s.getUserByEmail(ctx, record.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return DeviceKey{}, "", err
+		return DeviceKey{}, "", false, err
 	}
 	if user != nil {
 		if err := s.ensureUserAccess(ctx, user); err != nil {
-			return DeviceKey{}, "", err
+			return DeviceKey{}, "", false, err
 		}
 	} else {
 		allowed, err := s.registrationAllowedForEmail(ctx, record.Email)
 		if err != nil {
-			return DeviceKey{}, "", err
+			return DeviceKey{}, "", false, err
 		}
 		if !allowed {
-			return DeviceKey{}, "", ErrRegistrationDisabled
+			return DeviceKey{}, "", false, ErrRegistrationDisabled
 		}
 	}
 
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return DeviceKey{}, "", err
+		return DeviceKey{}, "", false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.ForSchema(tx, s.dbSchema())
 	if user == nil {
 		userID, err := newUUIDV7String()
 		if err != nil {
-			return DeviceKey{}, "", err
+			return DeviceKey{}, "", false, err
 		}
 		_, err = q.Exec(ctx, `INSERT INTO profiles.users (id, email, email_verified)
 VALUES ($1, $2, true) ON CONFLICT DO NOTHING`, userID, record.Email)
 		if err != nil {
-			return DeviceKey{}, "", err
+			return DeviceKey{}, "", false, err
 		}
 	}
 	var userID string
 	if err := q.QueryRow(ctx, `SELECT id FROM profiles.users WHERE email=$1`, record.Email).Scan(&userID); err != nil {
-		return DeviceKey{}, "", err
+		return DeviceKey{}, "", false, err
 	}
 	if _, err := q.Exec(ctx, `UPDATE profiles.users SET email_verified=true, updated_at=now() WHERE id=$1`, userID); err != nil {
-		return DeviceKey{}, "", err
+		return DeviceKey{}, "", false, err
 	}
 
 	var existing DeviceKey
@@ -238,15 +327,15 @@ FROM profiles.user_device_keys WHERE public_key=$1`, publicKey).
 		Scan(&existing.ID, &existingUserID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt, &revokedAt)
 	if err == nil {
 		if existingUserID != userID || revokedAt != nil {
-			return DeviceKey{}, "", errDeviceKeyInvalid
+			return DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return DeviceKey{}, "", err
+			return DeviceKey{}, "", false, err
 		}
-		return existing, userID, nil
+		return existing, userID, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return DeviceKey{}, "", err
+		return DeviceKey{}, "", false, err
 	}
 
 	var label *string
@@ -258,14 +347,14 @@ VALUES ($1, $2, $3) RETURNING id, COALESCE(label, ''), created_at, last_used_at`
 		Scan(&existing.ID, &existing.Label, &existing.CreatedAt, &existing.LastUsedAt); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return DeviceKey{}, "", errDeviceKeyInvalid
+			return DeviceKey{}, "", false, errDeviceKeyInvalid
 		}
-		return DeviceKey{}, "", err
+		return DeviceKey{}, "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return DeviceKey{}, "", err
+		return DeviceKey{}, "", false, err
 	}
-	return existing, userID, nil
+	return existing, userID, true, nil
 }
 
 // RecordFailedDeviceKeyEnrollment bounds online guessing without consuming a valid ceremony on one typo.
@@ -281,7 +370,10 @@ func (s *Service) RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmen
 
 // BeginDeviceKeyLogin returns an indistinguishable challenge for active, revoked, and unknown ids.
 func (s *Service) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (DeviceKeyChallenge, error) {
-	if s == nil || s.pg == nil {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return DeviceKeyChallenge{}, err
+	}
+	if s.pg == nil {
 		return DeviceKeyChallenge{}, s.requirePG()
 	}
 	deviceKeyID = strings.TrimSpace(deviceKeyID)
@@ -311,6 +403,9 @@ FROM profiles.user_device_keys WHERE id=$1 AND revoked_at IS NULL`, deviceKeyID)
 
 // FinishDeviceKeyLogin atomically consumes a challenge and issues only a short access token.
 func (s *Service) FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (DeviceKeyAuthResult, error) {
+	if err := s.deviceKeysEnabled(); err != nil {
+		return DeviceKeyAuthResult{}, err
+	}
 	var record deviceKeyLogin
 	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyLogin+strings.TrimSpace(challengeID), &record)
 	if err != nil || !ok || record.UserID == "" || record.PublicKey == "" {
@@ -342,7 +437,7 @@ RETURNING id, COALESCE(label, ''), created_at, last_used_at`, record.DeviceKeyID
 	if err != nil {
 		return DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, false)
+	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, false, false)
 	if err != nil {
 		return DeviceKeyAuthResult{}, err
 	}

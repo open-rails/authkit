@@ -32,6 +32,11 @@ type Config struct {
 	TwoFactor TwoFactorConfig
 	// Passkeys configures WebAuthn/FIDO2 passkey ceremonies.
 	Passkeys PasskeyConfig
+	// DeviceKeys enables the refreshless native-client device-key surface
+	// (#278). Off by default: enrollment is an email-code login, so hosts opt
+	// in explicitly before RouteDeviceKeys is mounted or the engine issues
+	// enrollment/login challenges (#293).
+	DeviceKeys DeviceKeysConfig
 	// RBAC declares the app's permission-group personas (#111): containment
 	// schema plus per-persona role catalogs. Empty yields root-only.
 	RBAC []PersonaDef
@@ -203,6 +208,13 @@ type FrontendConfig struct {
 	// invite links (`?code=…`); the SPA reads the code and POSTs it to the redeem
 	// endpoint. Empty defaults to "/accept-invite". (#134)
 	InvitePath string
+}
+
+// DeviceKeysConfig controls the native-client device-key surface (#278).
+type DeviceKeysConfig struct {
+	// Enabled mounts RouteDeviceKeys and lets the engine run enrollment and
+	// login ceremonies.
+	Enabled bool
 }
 
 // RegistrationConfig controls verification policy and public self-registration.

@@ -39,6 +39,9 @@ func (s *hardeningEmailSender) SendLoginCode(context.Context, string, string, st
 	return nil
 }
 func (s *hardeningEmailSender) SendWelcome(context.Context, string, string) error { return nil }
+func (s *hardeningEmailSender) SendDeviceKeyEnrolled(context.Context, string, string, DeviceKeyNotice) error {
+	return nil
+}
 func (s *hardeningEmailSender) SendContactChanged(_ context.Context, to, _ string, change ContactChange) error {
 	s.contactChanged = append(s.contactChanged, struct {
 		to     string

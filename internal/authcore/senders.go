@@ -43,6 +43,14 @@ type ContactChange struct {
 	NewValue string
 }
 
+// DeviceKeyNotice describes a native-client device key just enrolled on an
+// EXISTING account (#293), so a key added through a compromised mailbox is
+// visible to the account's real owner.
+type DeviceKeyNotice struct {
+	Label     string
+	CreatedAt time.Time
+}
+
 // EmailSender sends verification/login/reset/notice emails.
 type EmailSender interface {
 	SendVerification(ctx context.Context, email, username string, msg VerificationMessage) error
@@ -52,6 +60,9 @@ type EmailSender interface {
 	SendWelcome(ctx context.Context, email, username string) error
 	// SendContactChanged goes to the address that was just REPLACED.
 	SendContactChanged(ctx context.Context, email, username string, change ContactChange) error
+	// SendDeviceKeyEnrolled tells the account's address that a new device key
+	// can now sign in as it.
+	SendDeviceKeyEnrolled(ctx context.Context, email, username string, notice DeviceKeyNotice) error
 }
 
 // SMSSender sends verification/login/reset/notice SMS messages.
