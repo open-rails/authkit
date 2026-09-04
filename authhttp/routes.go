@@ -211,10 +211,8 @@ func (s *Service) APIRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/admin/users/{user_id}/signins", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootResourcesRead, s.handleAdminUserSigninsGET)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/ban", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersBan, s.handleAdminUsersBanPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/unban", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersBan, s.handleAdminUsersUnbanPOST)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/recover", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersRecover, s.handleAdminUserRecoverPOST)},
 		{Method: http.MethodPost, Path: "/admin/users/{user_id}/sessions/revoke", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersRecover, s.handleAdminUserSessionsRevokePOST)},
 		{Method: http.MethodDelete, Path: "/admin/users/{user_id}", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersDelete, s.handleAdminUserDeleteDELETE)},
-		{Method: http.MethodPost, Path: "/admin/users/{user_id}/restore", Group: RouteAdmin, Handler: rootPermission(embedded.PermRootUsersDelete, s.handleAdminUserRestorePOST)},
 
 		// #264 application self-registration: unauthenticated by design — the
 		// domain proof / per-message JWS is the authentication. Mounted only
@@ -334,6 +332,10 @@ func (s *Service) OIDCBrowserRoutes(groups ...RouteGroup) []RouteSpec {
 		{Method: http.MethodGet, Path: "/{provider}/login", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCLoginGET)},
 		{Method: http.MethodGet, Path: "/{provider}/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 		{Method: http.MethodGet, Path: "/{provider}/step-up/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
+		// response_mode=form_post providers (Apple) deliver the same response as a
+		// cross-site POST body (#295).
+		{Method: http.MethodPost, Path: "/{provider}/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
+		{Method: http.MethodPost, Path: "/{provider}/step-up/callback", Group: RouteBrowserOIDC, Handler: http.HandlerFunc(s.handleOIDCCallbackGET)},
 	}
 	out := make([]RouteSpec, 0, len(routes))
 	for _, route := range routes {

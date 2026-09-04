@@ -27,6 +27,13 @@ import (
 // /admin/users `required` gate.
 func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 	t.Helper()
+	return newAdminServiceWithRoles(t, pool, authcore.RoleDef{Name: "no-access"})
+}
+
+// newAdminServiceWithRoles is newAdminDirectoryService with extra root roles
+// (owner is auto-injected).
+func newAdminServiceWithRoles(t *testing.T, pool *pgxpool.Pool, roles ...authcore.RoleDef) *Service {
+	t.Helper()
 	signer, err := jwtkit.NewRSASigner(2048, "admin-dir-kid")
 	require.NoError(t, err)
 	coreSvc, err := authcore.NewFromConfig(authcore.Config{
@@ -42,7 +49,7 @@ func newAdminDirectoryService(t *testing.T, pool *pgxpool.Pool) *Service {
 			Pubs:   map[string]crypto.PublicKey{"admin-dir-kid": signer.PublicKey()},
 		}},
 		RBAC: []authcore.PersonaDef{
-			authcore.IntrinsicRootPersona(authcore.RoleDef{Name: "no-access"}),
+			authcore.IntrinsicRootPersona(roles...),
 		},
 	}, pool)
 	require.NoError(t, err)

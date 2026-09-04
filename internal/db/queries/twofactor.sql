@@ -9,10 +9,6 @@ UPDATE profiles.mfa_settings
 SET enabled = false, updated_at = NOW()
 WHERE user_id = $1;
 
--- name: MFADelete :exec
-DELETE FROM profiles.mfa_settings
-WHERE user_id = $1;
-
 -- name: MFASettingsByUser :one
 SELECT user_id, enabled, backup_codes, created_at, updated_at
 FROM profiles.mfa_settings

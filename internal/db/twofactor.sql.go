@@ -68,16 +68,6 @@ func (q *Queries) MFAConsumeFactorTOTPStep(ctx context.Context, arg MFAConsumeFa
 	return result.RowsAffected(), nil
 }
 
-const mFADelete = `-- name: MFADelete :exec
-DELETE FROM profiles.mfa_settings
-WHERE user_id = $1
-`
-
-func (q *Queries) MFADelete(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, mFADelete, userID)
-	return err
-}
-
 const mFADeleteAllFactors = `-- name: MFADeleteAllFactors :exec
 DELETE FROM profiles.mfa_factors
 WHERE user_id = $1

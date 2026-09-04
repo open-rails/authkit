@@ -423,6 +423,13 @@ func (s *Service) RevokeDeviceKey(ctx context.Context, userID, currentID, target
 	return tx.Commit(ctx)
 }
 
+// revokeAllDeviceKeys revokes every live key of userID on q (ban / soft delete).
+func (s *Service) revokeAllDeviceKeys(ctx context.Context, q db.DBTX, userID string) error {
+	_, err := db.ForSchema(q, s.dbSchema()).Exec(ctx, `UPDATE profiles.user_device_keys SET revoked_at=now()
+		WHERE user_id=$1 AND revoked_at IS NULL`, userID)
+	return err
+}
+
 // RevokeOtherDeviceKeys atomically revokes every key except the live key that
 // minted the caller's email-proven token.
 func (s *Service) RevokeOtherDeviceKeys(ctx context.Context, userID, currentID string) error {

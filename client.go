@@ -27,15 +27,14 @@ type Users interface {
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
 	GetUserMetadata(ctx context.Context, userID string) (map[string]any, error)
 	PatchUserMetadata(ctx context.Context, userID string, patch map[string]any) error
-	// {Hard,Soft}DeleteUsers / RestoreUsers are batch-native admin bulk mutations
-	// (#219/#222): per-item BEST-EFFORT — deleting 99 of 100 succeeds item-by-item
+	// {Hard,Soft}DeleteUsers are batch-native admin bulk mutations (#219/#222):
+	// per-item BEST-EFFORT — deleting 99 of 100 succeeds item-by-item
 	// and the returned OpResults pinpoint the failures. Single-item = one-element
 	// slice. The outer error is a whole-call failure only (e.g. no store).
 	// SetEmailVerified / UpdateEmail / UpdateUsername stay single by decision:
 	// they are per-subject correctness flows, not bulk admin operations.
 	HardDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	SoftDeleteUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
-	RestoreUsers(ctx context.Context, userIDs []string) ([]OpResult, error)
 	SetEmailVerified(ctx context.Context, id string, v bool) error
 	// UpdateAvatarURL sets (or clears, with nil) the user's avatar URL/key
 	// string (#262). Blob storage/validation is the host's job — authkit stores

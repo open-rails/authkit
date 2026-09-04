@@ -75,20 +75,8 @@ func (s *Service) CreateInstanceForSubject(ctx context.Context, persona, instanc
 	if ownerUserID == "" {
 		return out, ErrInsufficientRoleAuthority
 	}
-	if err := validateGroupInstanceSlug(persona, slug); err != nil {
-		return out, fmt.Errorf("%w: %w", authkit.ErrGroupSlugInvalid, err)
-	}
-	if !sch.creationSlugAllowed(persona, slug) {
-		return out, fmt.Errorf("resource slug %q does not match the %q creation slug pattern: %w", slug, persona, authkit.ErrGroupSlugInvalid)
-	}
-
-	// Reserved slugs escalate: only a caller holding the configured root-group
-	// role may claim them; with no role configured they are never claimable here.
-	if slugReserved(def.ReservedSlugs, slug) {
-		role := strings.TrimSpace(def.ReservedEscalationRole)
-		if role == "" || !s.userHoldsRootRole(ctx, ownerUserID, role) {
-			return out, ErrGroupSlugReserved
-		}
+	if err := s.authorizeSlugClaim(ctx, sch, persona, slug, ownerUserID); err != nil {
+		return out, err
 	}
 
 	// Host cost gate (anti-squat split: velocity is authkit's, cost is the host's).
@@ -125,6 +113,28 @@ func (s *Service) CreateInstanceForSubject(ctx context.Context, persona, instanc
 		return out, ErrGroupSlugTaken
 	}
 	return out, err
+}
+
+// authorizeSlugClaim is the single gate for a user claiming an instance slug
+// (creation and rename, #263/#292): the built-in slug rule, the persona's
+// SlugPattern, and reserved slugs, which only a holder of the configured
+// root-group escalation role may take; with no role configured they are never
+// claimable.
+func (s *Service) authorizeSlugClaim(ctx context.Context, sch *GroupSchema, persona, slug, actorUserID string) error {
+	if err := validateGroupInstanceSlug(persona, slug); err != nil {
+		return fmt.Errorf("%w: %w", authkit.ErrGroupSlugInvalid, err)
+	}
+	if !sch.creationSlugAllowed(persona, slug) {
+		return fmt.Errorf("resource slug %q does not match the %q creation slug pattern: %w", slug, persona, authkit.ErrGroupSlugInvalid)
+	}
+	def, _ := sch.CreationDef(persona)
+	if slugReserved(def.ReservedSlugs, slug) {
+		role := strings.TrimSpace(def.ReservedEscalationRole)
+		if role == "" || strings.TrimSpace(actorUserID) == "" || !s.userHoldsRootRole(ctx, actorUserID, role) {
+			return ErrGroupSlugReserved
+		}
+	}
+	return nil
 }
 
 func slugReserved(reserved []string, slug string) bool {
