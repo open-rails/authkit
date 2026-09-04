@@ -28,6 +28,7 @@ const (
 	SessionRevokeReasonUserDisabled         SessionRevokeReason = "user_disabled"
 	SessionRevokeReasonBanned               SessionRevokeReason = "banned"
 	SessionRevokeReasonSoftDeleted          SessionRevokeReason = "soft_deleted"
+	SessionRevokeReasonHardDeleted          SessionRevokeReason = "hard_deleted"
 	SessionRevokeReasonEvicted              SessionRevokeReason = "evicted"
 	SessionRevokeReasonRefreshReuseDetected SessionRevokeReason = "refresh_reuse_detected"
 )

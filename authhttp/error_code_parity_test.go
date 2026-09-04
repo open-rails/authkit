@@ -80,6 +80,7 @@ func TestSentinelCodesAccountedFor(t *testing.T) {
 		"passkey_not_found":                     true, // passkey routes emit not_found
 		"passkey_user_verification_required":    true, // surfaces as invalid_credentials
 		"user_role_not_found":                   true, // role routes emit not_found
+		"user_referenced":                       true, // hard delete is Go-API/management only (#304)
 		"reserved_issuer":                       true, // remote-app routes emit invalid_request
 		"siws_address_mismatch":                 true, // solana routes emit address_mismatch
 		"siws_challenge_expired":                true, // solana routes emit challenge_expired

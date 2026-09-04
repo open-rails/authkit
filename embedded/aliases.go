@@ -120,6 +120,7 @@ const SessionRevokeReasonAdminRevokeAll = authcore.SessionRevokeReasonAdminRevok
 const SessionRevokeReasonAdminSetPassword = authcore.SessionRevokeReasonAdminSetPassword
 const SessionRevokeReasonBanned = authcore.SessionRevokeReasonBanned
 const SessionRevokeReasonEvicted = authcore.SessionRevokeReasonEvicted
+const SessionRevokeReasonHardDeleted = authcore.SessionRevokeReasonHardDeleted
 const SessionRevokeReasonLogout = authcore.SessionRevokeReasonLogout
 const SessionRevokeReasonPasswordChange = authcore.SessionRevokeReasonPasswordChange
 const SessionRevokeReasonRefreshReuseDetected = authcore.SessionRevokeReasonRefreshReuseDetected
