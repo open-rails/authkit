@@ -10,9 +10,9 @@ import (
 // expressible — a bare single error on a bulk write would hide which item
 // failed. Err == nil means the item succeeded.
 //
-// Over the remote transport Err marshals as its sentinel wire code (#197), so
-// errors.Is against authkit sentinels survives the round-trip; a non-sentinel
-// error degrades to an opaque code string.
+// As JSON, Err marshals as its sentinel wire code (#197), so errors.Is against
+// authkit sentinels survives the round-trip; a non-sentinel error degrades to
+// an opaque code string.
 type OpResult struct {
 	ID  string
 	Err error

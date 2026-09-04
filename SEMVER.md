@@ -48,7 +48,7 @@ changed.
 
 ### 1.2 What is explicitly NOT covered
 
-See [§9](#9-explicitly-out-of-contract). In short: `internal/`, the standalone-server binary,
+See [§9](#9-explicitly-out-of-contract). In short: `internal/`, the `cmd/authkit-server` dev harness,
 `*_test.go` helpers (except package `testing`), unexported behavior, log lines, exact
 error *messages* (the `message` field), wall-clock timing, and any symbol/field marked
 *Experimental* or *Deprecated*.
@@ -94,8 +94,6 @@ appears in consumer code. Renaming either is breaking.
 | `github.com/open-rails/authkit` (root) | `authkit` | Stable | The contract: the `Client` interface, domain/result types, config, sentinel errors, mint params, and the permission/API-key primitives |
 | `…/embedded` | `embedded` | Stable | In-process embedding facade — `New(cfg, pg, …) (*Client, …)` plus type/func aliases re-exporting the internal service surface |
 | `…/authhttp` | `authhttp` | Stable | HTTP transport, middleware, routes, error codes |
-| `…/server` | `server` | **Experimental** | Management JSON handler over an `authkit.Client` — NOT covered until the standalone transport is proven (#202) |
-| `…/remote` | `remote` | **Experimental** | Remote `authkit.Client` over HTTP — NOT covered until the standalone transport is proven (#202) |
 | `…/verify` | `verify` | Stable (verify-only) | Token verification, `Claims`, middleware — no pgx/redis |
 | `…/documents` | `documents` | Stable | Generic immutable signed-document envelopes, references, verification, authenticated publication, and resolution |
 | `…/jwtkit` | `jwtkit` | Advanced | Key management, signers, JWKS |
@@ -138,14 +136,11 @@ facade: `embedded.New(cfg, pg, …) (*embedded.Client, error)` returns a `*Clien
 satisfies `authkit.Client`, and `embedded` re-exports (via aliases) the service-side
 constructors, options, and types hosts need. The full service implementation lives in
 **`internal/authcore`** (driven by the `authkit/authhttp` transport) and is **out of contract**
-(§9). The `authkit/remote` (remote SDK) and `authkit/server` (management API) packages are
-**generated method-for-method** from the `Client` interface, so they track it exactly.
-Adding a method to `Client` (or any embedded topic interface) is MAJOR — consumers and the
-generated transports implement it.
+(§9). Adding a method to `Client` (or any embedded topic interface) is MAJOR — consumers
+implement it.
 
 **Recommended held type — the interface, not the concrete.** Hold `authkit.Client` (or the
-narrowest topic slice a call site needs), never `*embedded.Client`, so swapping the
-in-process backend for the Phase-2 remote transport is construction-only (#143):
+narrowest topic slice a call site needs), never `*embedded.Client` (#143):
 `var c authkit.Client = embedded.New(cfg, pg)`. AuthKit's own adapters follow this
 (e.g. `riverjobs.RegisterPurgeDeletedUsersWorker` takes `authkit.Client`). The infra
 accessors (`Postgres`, `Keyfunc`, `JWKS`, raw `Config`/`Schema`) are deliberately OFF the
@@ -753,9 +748,9 @@ When `Config.Keys.Source == nil`, the local resolver precedence is fixed:
    The opt-in is deliberately independent of `Environment`.
 
 Hosts with in-memory key material pass an explicit `Keys.Source`
-(`jwtkit.NewStaticKeySourceFromPEM` / `jwtkit.StaticKeySource`). The standalone
-binary still honors `AUTHKIT_ACTIVE_KEY_ID`/`AUTHKIT_ACTIVE_PRIVATE_KEY_PEM`/`AUTHKIT_PUBLIC_KEYS` and
-`AUTHKIT_KEYS_PATH` — read in `cmd/authkit-server`, not the library.
+(`jwtkit.NewStaticKeySourceFromPEM` / `jwtkit.StaticKeySource`). The `cmd/authkit-server`
+harness still honors `AUTHKIT_ACTIVE_KEY_ID`/`AUTHKIT_ACTIVE_PRIVATE_KEY_PEM`/`AUTHKIT_PUBLIC_KEYS` and
+`AUTHKIT_KEYS_PATH` — read in the binary, not the library.
 
 The default path, the file envelope shape, and the fail-closed no-keys hard error
 are covered. AuthKit reads **no** provider env vars directly — hosts inject senders.
@@ -836,10 +831,8 @@ preserving fixes.
 ## 9. Explicitly out of contract
 
 - `internal/db` and anything under `internal/` (sqlc-generated; may change any release).
-- The standalone server (`cmd/authkit-server/` — its `Dockerfile`/`README.md` — and the
-  root `docker-compose.yaml`), its operational env vars, and its dev-only test endpoints
-  (`{prefix}/dev/mint`, `{prefix}/dev/whoami`, gated on a dev env) — an operational tool,
-  not a library contract.
+- The dev/CI harness (`cmd/authkit-server/` — its `Dockerfile`/`README.md` — and the
+  root `docker-compose.yaml`) and its operational env vars — a tool, not a library contract.
 - `*_test.go` files and test-only helpers (the `authtest` package IS covered).
 - Error `message` strings (the human-readable `error.message`); log lines; metrics names.
 - Exact DB table/column layout beyond the invariants pinned in [§7.1](#71-database-schema--migrations).
@@ -889,7 +882,6 @@ items are advisory — resolve before tagging v1.0.0:
    at leisure.
 6. ~~Curate the facade further (or add facets).~~ **DONE (#143):** the surface is now the
    `authkit.Client` interface, composed of cohesive topic interfaces (`Users`, `Tokens`,
-   `Groups`, …); the remote SDK and management API are generated from it. Trim any topic
-   method that proves unused before tagging v1.0.0.
+   `Groups`, …). Trim any topic method that proves unused before tagging v1.0.0.
 7. **Advanced `jwtkit` surface.** Confirm which signer/key-source types are meant for
    consumers vs. internal-only, and consider moving the latter behind `internal/`.

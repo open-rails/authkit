@@ -7,9 +7,8 @@ import (
 	"github.com/open-rails/authkit/documents"
 )
 
-// Sentinel errors — the wire-contract error identities shared by the embedded
-// engine and (Phase 2) the remote SDK so errors.Is works across transports
-// (#138 contract inversion). internal/authcore aliases these.
+// Sentinel errors — the error identities hosts match with errors.Is (#138
+// contract inversion). internal/authcore aliases these.
 var (
 	ErrApplicationDocumentFetchFailed  = errors.New("application_document_fetch_failed")
 	ErrApplicationDocumentInvalid      = errors.New("application_document_invalid")
@@ -319,8 +318,7 @@ var errorSentinels = []error{
 	ErrInvalidInvite, ErrInvalidExpiry, ErrUnknownGroupPersona,
 	ErrCustomRolesNotSupported, ErrCustomRoleNameInvalid, ErrCustomRoleIsCatalogRole,
 	ErrCustomRoleGrantCrossPersona, ErrCustomRoleGrantOutsideCatalog,
-	// #253-#255: generic immutable signed-document contract. These package-level
-	// sentinels retain errors.Is identity across server/remote transport.
+	// #253-#255: generic immutable signed-document contract.
 	documents.ErrInvalidReference, documents.ErrInvalidType, documents.ErrInvalidDigest,
 	documents.ErrDuplicateReference, documents.ErrTooManyReferences, documents.ErrReferencesTooLarge,
 	documents.ErrWrongTokenType, documents.ErrReservedAttribute, documents.ErrInvalidEnvelope,
