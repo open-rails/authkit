@@ -3,6 +3,8 @@ package authhttp
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -28,9 +30,10 @@ type fakeOIDCIdP struct {
 	key *rsa.PrivateKey
 	kid string
 
-	mu     sync.Mutex
-	nonce  string
-	claims map[string]any
+	mu            sync.Mutex
+	nonce         string
+	codeChallenge string
+	claims        map[string]any
 }
 
 func newFakeOIDCIdP(t *testing.T, clientID string) *fakeOIDCIdP {
@@ -59,6 +62,13 @@ func newFakeOIDCIdP(t *testing.T, clientID string) *fakeOIDCIdP {
 				http.Error(w, "method", http.StatusMethodNotAllowed)
 				return
 			}
+			if want := f.expectedCodeChallenge(); want != "" {
+				sum := sha256.Sum256([]byte(r.FormValue("code_verifier")))
+				if base64.RawURLEncoding.EncodeToString(sum[:]) != want {
+					http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+					return
+				}
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "idp-access-token",
@@ -84,6 +94,20 @@ func (f *fakeOIDCIdP) SetIdentity(subject, email string, emailVerified bool, ext
 }
 
 // SetNonce records the nonce from the authorize URL so the id_token echoes it.
+// ExpectCodeChallenge makes the token endpoint enforce PKCE (S256) against the
+// code_challenge the authorize request carried; "" disables the check.
+func (f *fakeOIDCIdP) ExpectCodeChallenge(challenge string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.codeChallenge = challenge
+}
+
+func (f *fakeOIDCIdP) expectedCodeChallenge() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.codeChallenge
+}
+
 func (f *fakeOIDCIdP) SetNonce(nonce string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

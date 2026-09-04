@@ -113,7 +113,7 @@ type Service struct {
 	// delegationAuthorizer is the host-injected authorizer for the
 	// delegated-token mint route (#277); required when the route is mounted.
 	delegationAuthorizer DelegationAuthorizer
-	solanaSNSResolver    defaultSolanaSNSResolver
+	solanaSNSResolver    SolanaSNSResolver
 	// snsCacheTTLOverride is a test-only seam for forcing SNS cache staleness; 0 in
 	// production, where solanaSNSCacheTTL() falls back to the fixed 24h constant.
 	snsCacheTTLOverride time.Duration
