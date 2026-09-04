@@ -86,7 +86,7 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 	cfg := newServerTestConfig()
 	cfg.Environment = "production"
 	rdb := testdb.ScratchRedis(t)
-	client := newServerClient(t, cfg, pool)
+	client := newServerClient(t, cfg, pool, embedded.WithRedis(rdb))
 	s, err := NewServer(client, WithRedis(rdb))
 	require.NoError(t, err)
 

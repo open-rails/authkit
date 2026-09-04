@@ -266,7 +266,11 @@ func NewFromConfig(cfg Config, pg *pgxpool.Pool, extraOpts ...Option) (*Service,
 	// nil pg simply yields a Service with no querier. The mandatory-Postgres
 	// contract (#106) is enforced at the host-facing authhttp.NewServer, not here.
 	coreOpts := append([]Option{WithPostgres(pg)}, extraOpts...)
-	return newService(norm, keySource, gs, coreOpts...), nil
+	svc := newService(norm, keySource, gs, coreOpts...)
+	if err := svc.checkEphemeralBackend(norm); err != nil {
+		return nil, err
+	}
+	return svc, nil
 }
 
 // normalizeSchemaName trims and validates a Postgres schema name, defaulting to

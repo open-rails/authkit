@@ -77,15 +77,24 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	require.NotNil(t, srv.svc, "core engine wired")
 	require.Nil(t, srv.rl, "WithoutRateLimiter option must be applied at construction")
 
-	// Production without Redis fails conditional validation.
+	// Production without Redis fails at the ENGINE (#305): the memory ephemeral
+	// store is refused before authhttp is ever reached.
 	prodCfg := newServerTestConfig()
 	prodCfg.Environment = "production"
-	_, err = NewServer(newServerClient(t, prodCfg, pool))
-	require.Error(t, err, "production without a Redis store must fail validation")
+	_, err = embedded.New(prodCfg, pool)
+	require.Error(t, err, "production without a Redis store must fail engine construction")
+	require.Contains(t, err.Error(), "Ephemeral.AllowMemory")
+
+	// The explicit single-instance opt-in permits memory at both layers.
+	memCfg := prodCfg
+	memCfg.Ephemeral = embedded.EphemeralConfig{AllowMemory: true}
+	memSrv, err := NewServer(newServerClient(t, memCfg, pool))
+	require.NoError(t, err, "Ephemeral.AllowMemory must permit the memory backends outside dev")
+	memSrv.Close()
 
 	// Production WITH Redis passes.
 	rdb := testdb.ScratchRedis(t)
-	_, err = NewServer(newServerClient(t, prodCfg, pool), WithRedis(rdb))
+	_, err = NewServer(newServerClient(t, prodCfg, pool, embedded.WithRedis(rdb)), WithRedis(rdb))
 	require.NoError(t, err, "production with Redis must pass validation")
 }
 

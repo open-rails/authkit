@@ -27,6 +27,8 @@ type Service struct {
 	rd                  *redis.Client
 	rl                  RateLimiter
 	rlExplicit          bool                       // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
+	closers             []func()                   // background work stopped by Close (#305)
+	memoryLimiterSweep  time.Duration              // withMemoryLimiterSweep (tests); 0 => one minute
 	rlOverrides         map[string]ratelimit.Limit // WithRateLimitOverrides: merged onto DefaultRateLimits (#242)
 	clientIP            ClientIPFunc
 	clientIPExplicit    bool           // WithClientIPFunc: host owns the strategy; proxy sets are not composed
