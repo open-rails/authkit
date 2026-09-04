@@ -74,6 +74,7 @@ var (
 	ErrPhoneAlreadyVerified              = errors.New("phone_already_verified")
 	ErrPhoneInUse                        = errors.New("phone_in_use")
 	ErrRegistrationDisabled              = errors.New("registration_disabled")
+	ErrRemoteApplicationIssuerConflict   = errors.New("remote_application_issuer_conflict")
 	ErrRemoteApplicationNotFound         = errors.New("remote_application_not_found")
 	ErrRenameRateLimited                 = errors.New("rename_rate_limited")
 	ErrReservedIssuer                    = errors.New("reserved_issuer")
@@ -163,18 +164,19 @@ var sentinelHTTPStatus = map[error]int{
 	ErrRemoteApplicationNotFound:   http.StatusNotFound,
 	ErrInviteLinkNotFound:          http.StatusNotFound,
 	// 409 — conflicts with current state.
-	ErrApplicationDomainConflict:   http.StatusConflict,
-	ErrApplicationIssuerConflict:   http.StatusConflict,
-	ErrApplicationNotDomainRooted:  http.StatusConflict,
-	ErrApplicationSlugConflict:     http.StatusConflict,
-	ErrGroupSlugApplicationManaged: http.StatusConflict,
-	ErrGroupSlugTaken:              http.StatusConflict,
-	ErrEmailAlreadyVerified:        http.StatusConflict,
-	ErrPhoneAlreadyVerified:        http.StatusConflict,
-	ErrCannotRemoveLastAdminRole:   http.StatusConflict,
-	ErrWalletAlreadyLinked:         http.StatusConflict,
-	ErrWalletChangeRequiresUnlink:  http.StatusConflict,
-	ErrProviderAlreadyLinked:       http.StatusConflict,
+	ErrApplicationDomainConflict:       http.StatusConflict,
+	ErrApplicationIssuerConflict:       http.StatusConflict,
+	ErrRemoteApplicationIssuerConflict: http.StatusConflict,
+	ErrApplicationNotDomainRooted:      http.StatusConflict,
+	ErrApplicationSlugConflict:         http.StatusConflict,
+	ErrGroupSlugApplicationManaged:     http.StatusConflict,
+	ErrGroupSlugTaken:                  http.StatusConflict,
+	ErrEmailAlreadyVerified:            http.StatusConflict,
+	ErrPhoneAlreadyVerified:            http.StatusConflict,
+	ErrCannotRemoveLastAdminRole:       http.StatusConflict,
+	ErrWalletAlreadyLinked:             http.StatusConflict,
+	ErrWalletChangeRequiresUnlink:      http.StatusConflict,
+	ErrProviderAlreadyLinked:           http.StatusConflict,
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
 	// 429 — rate limits.
@@ -291,7 +293,7 @@ var errorSentinels = []error{
 	ErrMissingSigner, ErrNotGroupMember, ErrOwnerSlugTaken, ErrPasskeyCloneDetected,
 	ErrPasskeyNotFound, ErrPasskeyUserVerificationRequired, ErrPasswordlessDisabled,
 	ErrPasswordResetRequired, ErrPendingRegistrationNotFound, ErrPhoneAlreadyVerified,
-	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRenameRateLimited,
+	ErrPhoneInUse, ErrRegistrationDisabled, ErrRemoteApplicationNotFound, ErrRemoteApplicationIssuerConflict, ErrRenameRateLimited,
 	ErrReservedIssuer, ErrRoleAssignmentEscalation, ErrSMSDeliveryFailed,
 	ErrSMSSenderUnavailable, ErrStepUpRequired, ErrTooManyCustomClaims, ErrTwoFAEnrollmentRequired,
 	ErrUserBanned, ErrUserNotFound, ErrUserRoleNotFound, ErrVerificationLinkExpired,
