@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -255,7 +256,7 @@ func TestProviderLinkRequiresMFAWhenEnrolled(t *testing.T) {
 	require.NoError(t, err)
 	secret, _, err := srv.svc.StartTOTPEnrollment(ctx, userID)
 	require.NoError(t, err)
-	_, err = srv.svc.EnableTOTP2FA(ctx, userID, testTOTPCode(t, secret, time.Now().Unix()/30), true)
+	_, err = srv.svc.EnableTOTP2FA(ctx, userID, testTOTPCode(t, secret, time.Now().Unix()/30), true, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 	token, _, err := srv.svc.MintAccessToken(ctx, userID, map[string]any{"sid": sid})
 	require.NoError(t, err)
