@@ -497,7 +497,7 @@ its method, moving it between groups, or changing its auth requirement** is MAJO
 | POST | `/step-up/password` | user | required |
 | POST | `/step-up/2fa` | user | required |
 | POST | `/oidc/{provider}/link/start` | user | required |
-| POST | `/oidc/{provider}/step-up/start` | user | required |
+| POST | `/oidc/{provider}/step-up/start` (`KindOIDC` providers only; OAuth2 kinds answer `invalid_method`) | user | required |
 | GET | `/user/2fa` | user | required |
 | POST | `/user/2fa` | user | required |
 | DELETE | `/user/2fa` | user | required |

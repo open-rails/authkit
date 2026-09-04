@@ -41,7 +41,7 @@ func (s *Service) handleOAuthLoginGET(w http.ResponseWriter, r *http.Request, pr
 		s.failBrowserFlow(w, r, nil, provider, http.StatusUnauthorized, ErrAuthRequiredForLink)
 		return
 	}
-	s.startOAuthBrowserFlow(w, r, provider, claimsUserID, "", "", sanitizeReturnTo(r.URL.Query().Get("return_to")))
+	s.startOAuthBrowserFlow(w, r, provider, claimsUserID, sanitizeReturnTo(r.URL.Query().Get("return_to")))
 }
 
 func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
@@ -50,37 +50,13 @@ func (s *Service) handleOAuthLinkStartPOST(w http.ResponseWriter, r *http.Reques
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
-	s.startOAuthBrowserFlow(w, r, provider, claims.UserID, "", "", "")
+	s.startOAuthBrowserFlow(w, r, provider, claims.UserID, "")
 }
 
-func (s *Service) handleOAuthStepUpStartPOST(w http.ResponseWriter, r *http.Request, provider string) {
-	claims, ok := verify.ClaimsFromContext(r.Context())
-	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		unauthorized(w, ErrNotAuthenticated)
-		return
-	}
-	var body struct {
-		ReturnTo string `json:"return_to"`
-	}
-	_ = decodeJSON(r, &body)
-
-	cfg, ok := s.oauth2Provider(provider)
-	if !ok {
-		badRequest(w, ErrUnknownProvider)
-		return
-	}
-	if !s.userHasLinkedIssuerProvider(r, claims.UserID, cfg.Issuer, cfg.Name) {
-		badRequest(w, ErrProviderNotLinked)
-		return
-	}
-	s.startOAuthBrowserFlow(w, r, cfg.Name, "", claims.UserID, sanitizeReturnTo(body.ReturnTo), "")
-}
-
-func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, stepUpUserID, stepUpReturnTo, returnTo string) {
-	// Plain GET logins are browser navigations; link/step-up starts (and any
-	// POST) are fetch calls that receive auth_url JSON below, so their errors
-	// stay JSON too.
-	browserNav := strings.TrimSpace(linkUserID) == "" && strings.TrimSpace(stepUpUserID) == "" && r.Method != http.MethodPost
+func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, provider, linkUserID, returnTo string) {
+	// Plain GET logins are browser navigations; link starts (and any POST) are
+	// fetch calls that receive auth_url JSON below, so their errors stay JSON too.
+	browserNav := strings.TrimSpace(linkUserID) == "" && r.Method != http.MethodPost
 	fail := func(status int, code ErrorCode) {
 		if browserNav {
 			s.failBrowserFlow(w, r, nil, provider, status, code)
@@ -123,12 +99,6 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	popupNonce := r.URL.Query().Get("popup_nonce")
-	sessionID := ""
-	if strings.TrimSpace(stepUpUserID) != "" {
-		if claims, ok := verify.ClaimsFromContext(r.Context()); ok {
-			sessionID = claims.SessionID
-		}
-	}
 	if err := s.stateCache().Put(r.Context(), state, oidckit.StateData{
 		Provider:           cfg.Name,
 		Verifier:           verifier,
@@ -136,9 +106,6 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		LinkUserID:         linkUserID,
 		ReturnTo:           returnTo,
 		AccountInviteToken: strings.TrimSpace(r.URL.Query().Get("account_invite_token")),
-		StepUpUserID:       stepUpUserID,
-		StepUpSessionID:    sessionID,
-		StepUpReturnTo:     stepUpReturnTo,
 		UI:                 ui,
 		PopupNonce:         popupNonce,
 	}); err != nil {
@@ -161,7 +128,7 @@ func (s *Service) startOAuthBrowserFlow(w http.ResponseWriter, r *http.Request, 
 		q.Set("code_challenge_method", "S256")
 	}
 	authURL := cfg.AuthorizeURL + "?" + q.Encode()
-	if strings.TrimSpace(linkUserID) != "" || strings.TrimSpace(stepUpUserID) != "" || r.Method == http.MethodPost {
+	if strings.TrimSpace(linkUserID) != "" || r.Method == http.MethodPost {
 		writeJSON(w, http.StatusOK, map[string]any{"auth_url": authURL, "state": state})
 		return
 	}
@@ -227,10 +194,6 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if s.completeOAuthStepUp(w, r, sd, cfg, info.Subject) {
-		return
-	}
-
 	userID, created, err := s.resolveOAuthUser(r, cfg, sd, info)
 	if err != nil {
 		if errors.Is(err, errProviderAlreadyLinked) {
@@ -286,22 +249,6 @@ func (s *Service) exchangeOAuthCode(r *http.Request, cfg authprovider.Provider, 
 		token.TokenType = "Bearer"
 	}
 	return token, nil
-}
-
-func (s *Service) completeOAuthStepUp(w http.ResponseWriter, r *http.Request, sd oidckit.StateData, cfg authprovider.Provider, subject string) bool {
-	if strings.TrimSpace(sd.StepUpUserID) == "" {
-		return false
-	}
-	userID, _, err := s.svc.GetProviderLinkByIssuer(r.Context(), cfg.Issuer, subject)
-	if err != nil || userID != sd.StepUpUserID {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
-		return true
-	}
-	if err := s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), sd.StepUpUserID, sd.StepUpSessionID, []string{"oauth"}); err != nil {
-		redirectStepUpResult(w, r, sd.StepUpReturnTo, "failed")
-		return true
-	}
-	return s.emitStepUpResult(w, r, sd, cfg.Name)
 }
 
 func (s *Service) resolveOAuthUser(r *http.Request, cfg authprovider.Provider, sd oidckit.StateData, info oauth2UserInfo) (string, bool, error) {

@@ -33,6 +33,14 @@ func (s *Service) oauth2Provider(provider string) (authprovider.Provider, bool) 
 	return cfg, true
 }
 
+func (s *Service) oidcProvider(provider string) (authprovider.Provider, bool) {
+	cfg, ok := s.authProvider(provider)
+	if !ok || cfg.Kind != authprovider.KindOIDC {
+		return authprovider.Provider{}, false
+	}
+	return cfg, true
+}
+
 func (s *Service) fetchOAuthUserInfo(r *http.Request, cfg authprovider.Provider, token oauth2TokenResp) (oauth2UserInfo, error) {
 	var root any
 	if err := oauth2GetJSON(r, cfg.UserInfoURL, token, cfg.UserInfoAccept, &root); err != nil {
