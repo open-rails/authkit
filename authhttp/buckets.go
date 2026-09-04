@@ -82,7 +82,6 @@ const (
 	// The admin session route revokes ALL of a user's sessions; there is no
 	// single-session admin revoke, so no RLAdminUserSessionsRevoke bucket.
 	RLAdminUserSessionsRevokeAll = "auth_admin_user_sessions_revoke_all"
-	RLAdminPasswordReset         = "auth_admin_password_reset"
 
 	// Solana SIWS authentication
 	RLSolanaChallenge = "auth_solana_challenge"

@@ -141,8 +141,7 @@ func (s *Service) insertRefreshSession(ctx context.Context, userID, userAgent st
 		return "", "", nil, err
 	}
 
-	// Audit evictions after commit (best-effort; mirrors the post-commit logging in
-	// AdminRecoverUser).
+	// Audit evictions after commit (best-effort).
 	if len(evicted) > 0 {
 		reason := string(SessionRevokeReasonEvicted)
 		for _, esid := range evicted {

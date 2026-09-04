@@ -448,13 +448,6 @@ func (c *Client) ResolveRemoteApplicationAuthority(ctx context.Context, appID st
 	return out, err
 }
 
-func (c *Client) RestoreUsers(ctx context.Context, userIDs []string) ([]authkit.OpResult, error) {
-	args := map[string]any{"userIDs": userIDs}
-	var out []authkit.OpResult
-	err := c.call(ctx, "RestoreUsers", args, &out)
-	return out, err
-}
-
 func (c *Client) RevokeAPIKey(ctx context.Context, persona string, instanceSlug string, tokenID string) (bool, error) {
 	args := map[string]any{"persona": persona, "instanceSlug": instanceSlug, "tokenID": tokenID}
 	var out bool

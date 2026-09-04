@@ -78,11 +78,14 @@ const oauthStateCookie = "authkit_oauth_state"
 
 const oauthStateCookieTTL = 15 * time.Minute
 
-// setStateCookie stores the flow's state in an HttpOnly, SameSite=Lax cookie. Lax
+// setStateCookie stores the flow's state in an HttpOnly cookie. SameSite=Lax
 // (not Strict) is required so the cookie is sent on the cross-site top-level GET
-// navigation back from the IdP to the callback.
-func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, state string) {
-	http.SetCookie(w, &http.Cookie{
+// navigation back from the IdP to the callback. A response_mode=form_post
+// provider (Apple) returns a cross-site POST, which browsers do not attach Lax
+// cookies to, so only those providers get SameSite=None; Secure (#295) —
+// NewServer refuses form_post on non-HTTPS deployments.
+func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, provider, state string) {
+	c := &http.Cookie{
 		Name:     oauthStateCookie,
 		Value:    state,
 		Path:     "/",
@@ -90,7 +93,22 @@ func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, state s
 		HttpOnly: true,
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
-	})
+	}
+	if cfg, ok := s.authProvider(provider); ok && cfg.ResponseModeFormPost() {
+		c.SameSite = http.SameSiteNoneMode
+		c.Secure = true
+	}
+	http.SetCookie(w, c)
+}
+
+// callbackParams returns the IdP's authorization response: the query string of
+// the GET redirect, or the form body of a response_mode=form_post POST.
+func callbackParams(r *http.Request) url.Values {
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		return r.PostForm
+	}
+	return r.URL.Query()
 }
 
 // clearStateCookie expires the state cookie (single-use).

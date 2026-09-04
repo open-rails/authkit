@@ -577,15 +577,6 @@ func (q *Queries) UserRenameInsert(ctx context.Context, arg UserRenameInsertPara
 	return err
 }
 
-const userRestore = `-- name: UserRestore :exec
-UPDATE profiles.users SET deleted_at = NULL, updated_at = now() WHERE id = $1
-`
-
-func (q *Queries) UserRestore(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, userRestore, id)
-	return err
-}
-
 const userSetAvatarURL = `-- name: UserSetAvatarURL :execrows
 UPDATE profiles.users SET avatar_url = $2, updated_at = NOW() WHERE id = $1
 `
@@ -614,20 +605,6 @@ type UserSetEmailAndUnverifyParams struct {
 
 func (q *Queries) UserSetEmailAndUnverify(ctx context.Context, arg UserSetEmailAndUnverifyParams) error {
 	_, err := q.db.Exec(ctx, userSetEmailAndUnverify, arg.ID, arg.Email)
-	return err
-}
-
-const userSetEmailAndVerified = `-- name: UserSetEmailAndVerified :exec
-UPDATE profiles.users SET email = lower($2::text), email_verified = true, updated_at = NOW() WHERE id = $1
-`
-
-type UserSetEmailAndVerifiedParams struct {
-	ID    string
-	Email string
-}
-
-func (q *Queries) UserSetEmailAndVerified(ctx context.Context, arg UserSetEmailAndVerifiedParams) error {
-	_, err := q.db.Exec(ctx, userSetEmailAndVerified, arg.ID, arg.Email)
 	return err
 }
 

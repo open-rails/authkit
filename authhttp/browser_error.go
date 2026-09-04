@@ -157,7 +157,7 @@ func sanitizeProviderErrorCode(raw string) ErrorCode {
 // reflected: the wire code the user sees is sanitizeProviderErrorCode's
 // output.
 func logIdPCallbackError(provider string, r *http.Request) {
-	q := r.URL.Query()
+	q := callbackParams(r)
 	stdlog.Printf("[authkit/oidc] provider callback error (provider=%q): error=%q error_description=%q error_uri=%q",
 		truncateForLog(provider, 64),
 		truncateForLog(q.Get("error"), 200),
@@ -178,7 +178,7 @@ func truncateForLog(s string, max int) string {
 // browser did not start the flow, and no context may be recovered for it.
 // Consuming here also burns the one-time state on the error path.
 func (s *Service) recoverCallbackState(w http.ResponseWriter, r *http.Request, provider string) *oidckit.StateData {
-	state := r.URL.Query().Get("state")
+	state := callbackParams(r).Get("state")
 	if strings.TrimSpace(state) == "" || !stateCookieMatches(r, state) {
 		return nil
 	}
