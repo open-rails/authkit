@@ -10,20 +10,20 @@ package db
 // the perf gate.
 var QueryText = map[string]string{
 	// Index-backed access patterns over growable tables (gated: no seq scan).
-	"UserByEmail":                userByEmail,
-	"UserByUsername":             userByUsername,
-	"IdentityUsersByIDs":         identityUsersByIDs,
-	"IdentityPublicUsersByIDs":   identityPublicUsersByIDs,
-	"IdentityUserLivenessByIDs":  identityUserLivenessByIDs,
-	"SessionByCurrentTokenHash":  sessionByCurrentTokenHash,
-	"SessionByPreviousTokenHash": sessionByPreviousTokenHash,
-	"SessionsListByUser":         sessionsListByUser,
-	"SessionsEvictOldest":        sessionsEvictOldest,
-	"ProviderLinkByIssuer":       providerLinkByIssuer,
-	"UserProviderSlugs":          userProviderSlugs,
-	"ProviderLinkBySlug":         providerLinkBySlug, // gated since migration 003 added user_providers_slug_subject_idx
-	"UsersPurgeCandidates":       usersPurgeCandidates,
-	"SessionsRevokeFamily":       sessionsRevokeFamily, // gated since migration 002 added refresh_sessions_family_active
+	"UserByEmail":                  userByEmail,
+	"UserByUsername":               userByUsername,
+	"IdentityUsersByIDs":           identityUsersByIDs,
+	"IdentityPublicUsersByIDs":     identityPublicUsersByIDs,
+	"IdentityUserLivenessByIDs":    identityUserLivenessByIDs,
+	"SessionByCurrentTokenHash":    sessionByCurrentTokenHash,
+	"SessionByHistoricalTokenHash": sessionByHistoricalTokenHash,
+	"SessionsListByUser":           sessionsListByUser,
+	"SessionsEvictOldest":          sessionsEvictOldest,
+	"ProviderLinkByIssuer":         providerLinkByIssuer,
+	"UserProviderSlugs":            userProviderSlugs,
+	"ProviderLinkBySlug":           providerLinkBySlug, // gated since migration 003 added user_providers_slug_subject_idx
+	"UsersPurgeCandidates":         usersPurgeCandidates,
+	"SessionsRevokeFamily":         sessionsRevokeFamily, // gated since migration 002 added refresh_sessions_family_active
 
 	// Catalogued finding — CONFIRMED to sequential-scan refresh_sessions at scale
 	// (see querytest/README.md "Findings"). It is a periodic GC sweep, so a full

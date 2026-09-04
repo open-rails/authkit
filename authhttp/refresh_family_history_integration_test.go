@@ -47,3 +47,53 @@ func TestRefreshFamilyHistory_OldReplayRevokesHTTP(t *testing.T) {
 	require.NoError(t, g.pool.QueryRow(ctx, `SELECT count(*) FROM profiles.session_events WHERE user_id=$1 AND event='session_revoked' AND reason='refresh_reuse_detected'`, uid).Scan(&events))
 	require.Equal(t, 1, events)
 }
+
+func TestRefreshFamilyHistory_ReplayRacingRotationHTTP(t *testing.T) {
+	g := newGraceHarness(t, 30*time.Second)
+	uid, original := g.login(t, "replayrace")
+	current := original
+	for range 2 {
+		code, body, err := g.refresh(current)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, code, body)
+		current = body["refresh_token"].(string)
+	}
+	type result struct {
+		code int
+		body map[string]any
+		err  error
+	}
+	start := make(chan struct{})
+	replay := make(chan result, 1)
+	rotation := make(chan result, 1)
+	for token, out := range map[string]chan result{original: replay, current: rotation} {
+		go func() { <-start; code, body, err := g.refresh(token); out <- result{code, body, err} }()
+	}
+	close(start)
+	replayed, rotated := <-replay, <-rotation
+	require.NoError(t, replayed.err)
+	require.NoError(t, rotated.err)
+	require.Equal(t, http.StatusUnauthorized, replayed.code, replayed.body)
+	require.Contains(t, []int{http.StatusOK, http.StatusUnauthorized}, rotated.code)
+	live, revoked := g.sessionCounts(t, uid)
+	require.Zero(t, live)
+	require.Equal(t, 1, revoked)
+	if rotated.code == http.StatusOK {
+		code, body, err := g.refresh(rotated.body["refresh_token"].(string))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusUnauthorized, code, body)
+	}
+}
+
+func TestRefreshFamilyHistory_UnknownTokenAuditHTTP(t *testing.T) {
+	g := newGraceHarness(t, 30*time.Second)
+	var before, after int
+	ctx := context.Background()
+	query := `SELECT count(*) FROM profiles.session_events WHERE event='session_failed' AND reason='refresh_token_unknown' AND user_id='' AND session_id=''`
+	require.NoError(t, g.pool.QueryRow(ctx, query).Scan(&before))
+	code, body, err := g.refresh("unknown-refresh-token")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnauthorized, code, body)
+	require.NoError(t, g.pool.QueryRow(ctx, query).Scan(&after))
+	require.Equal(t, before+1, after)
+}

@@ -91,9 +91,9 @@ func TestQueryPerformance(t *testing.T) {
 			ForbidSeqScan: []string{"refresh_sessions"},
 		},
 		{
-			Name: "session_by_previous_hash", MaxExecutionMS: 50, MaxSharedReadBlocks: 16,
-			SQL: db.QueryText["SessionByPreviousTokenHash"], Args: []any{prevHash(hot), perfIssuer},
-			ForbidSeqScan: []string{"refresh_sessions"},
+			Name: "session_by_historical_hash", MaxExecutionMS: 50, MaxSharedReadBlocks: 16,
+			SQL: db.QueryText["SessionByHistoricalTokenHash"], Args: []any{prevHash(hot), perfIssuer},
+			ForbidSeqScan: []string{"refresh_sessions", "refresh_token_history"},
 		},
 		{
 			// Targets the fat user (perfFat sessions) so the access path faces real
@@ -256,17 +256,24 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 		t.Fatalf("copy users n=%d err=%v", n, err)
 	}
 
-	// One active session per user; previous_token_hash populated so the partial
-	// refresh_sessions_prev_hash_active index has rows to probe.
+	// One active session and consumed-token history entry per user.
 	copySessions := pgx.CopyFromSlice(scale, func(i int) ([]any, error) {
 		return []any{
 			perfSessionID(i), perfFamilyID(i), perfUserID(i), perfIssuer,
-			tokenHash(i), prevHash(i), now.Add(24 * time.Hour), []string{"pwd"},
+			tokenHash(i), now.Add(24 * time.Hour), []string{"pwd"},
 		}, nil
 	})
 	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "refresh_sessions"},
-		[]string{"id", "family_id", "user_id", "issuer", "current_token_hash", "previous_token_hash", "expires_at", "auth_methods"}, copySessions); err != nil || int(n) != scale {
+		[]string{"id", "family_id", "user_id", "issuer", "current_token_hash", "expires_at", "auth_methods"}, copySessions); err != nil || int(n) != scale {
 		t.Fatalf("copy sessions n=%d err=%v", n, err)
+	}
+
+	copyHistory := pgx.CopyFromSlice(scale, func(i int) ([]any, error) {
+		return []any{prevHash(i), perfSessionID(i)}, nil
+	})
+	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "refresh_token_history"},
+		[]string{"token_hash", "session_id"}, copyHistory); err != nil || int(n) != scale {
+		t.Fatalf("copy refresh history n=%d err=%v", n, err)
 	}
 
 	// Fat user: many active sessions with distinct last_used_at, so the per-user
@@ -276,12 +283,12 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 			fmt.Sprintf("21000000-0000-4000-8000-%012x", j),
 			fmt.Sprintf("31000000-0000-4000-8000-%012x", j),
 			perfUserID(perfFatUser), perfIssuer,
-			[]byte(fmt.Sprintf("fattoken-%012x", j)), []byte(fmt.Sprintf("fatprev-%012x", j)),
+			[]byte(fmt.Sprintf("fattoken-%012x", j)),
 			now.Add(24 * time.Hour), now.Add(-time.Duration(j) * time.Minute), []string{"pwd"},
 		}, nil
 	})
 	if n, err := pool.CopyFrom(ctx, pgx.Identifier{"profiles", "refresh_sessions"},
-		[]string{"id", "family_id", "user_id", "issuer", "current_token_hash", "previous_token_hash", "expires_at", "last_used_at", "auth_methods"}, copyFat); err != nil || int(n) != perfFat {
+		[]string{"id", "family_id", "user_id", "issuer", "current_token_hash", "expires_at", "last_used_at", "auth_methods"}, copyFat); err != nil || int(n) != perfFat {
 		t.Fatalf("copy fat sessions n=%d err=%v", n, err)
 	}
 
@@ -307,7 +314,7 @@ func seedPerfData(t *testing.T, ctx context.Context, pool copyExecDB, rootID str
 	}
 
 	for _, table := range []string{
-		"profiles.users", "profiles.refresh_sessions", "profiles.group_user_roles",
+		"profiles.users", "profiles.refresh_sessions", "profiles.refresh_token_history", "profiles.group_user_roles",
 		"profiles.user_providers",
 	} {
 		// VACUUM, not just ANALYZE, so the visibility map is set: covering indexes
