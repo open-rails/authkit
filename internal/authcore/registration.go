@@ -333,7 +333,7 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 	if err := ValidateEmail(email); err != nil {
 		return "", err
 	}
-	if _, err := s.ValidateUsernameForRegistration(ctx, username); err != nil {
+	if err := ValidateUsername(username); err != nil { // availability is the insert's verdict (#326)
 		return "", err
 	}
 	email = NormalizeEmail(email)
@@ -351,7 +351,7 @@ func (s *Service) createEmailRegistrationUser(ctx context.Context, email, userna
 		return "", err
 	}
 	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username}); err != nil {
-		return "", err
+		return "", mapUserUniqueViolation(err)
 	}
 	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {
 		return "", err
@@ -372,7 +372,7 @@ func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, userna
 	if err := ValidatePhone(phone); err != nil {
 		return "", err
 	}
-	if _, err := s.ValidateUsernameForRegistration(ctx, username); err != nil {
+	if err := ValidateUsername(username); err != nil { // availability is the insert's verdict (#326)
 		return "", err
 	}
 	phone = NormalizePhone(phone)
@@ -390,13 +390,13 @@ func (s *Service) createPhoneRegistrationUser(ctx context.Context, phone, userna
 		return "", err
 	}
 	if _, err := q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: "", Username: &username}); err != nil {
-		return "", err
+		return "", mapUserUniqueViolation(err)
 	}
 	if err := q.UserPasswordInsert(ctx, db.UserPasswordInsertParams{UserID: userID, PasswordHash: passwordHash}); err != nil {
 		return "", err
 	}
 	if err := q.UserSetPhoneAndVerified(ctx, db.UserSetPhoneAndVerifiedParams{ID: userID, PhoneNumber: &phone, PhoneVerified: phoneVerified}); err != nil {
-		return "", err
+		return "", mapUserUniqueViolation(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err

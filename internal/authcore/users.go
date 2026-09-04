@@ -152,6 +152,24 @@ func isUserBanned(u *User) bool {
 	return u.BannedAt != nil || u.BannedUntil != nil || u.BanReason != nil || u.BannedBy != nil
 }
 
+// mapUserUniqueViolation turns a users-table unique violation into the typed
+// conflict the identifier's flows already speak (#326): the race loser of a
+// check-then-insert gets username_in_use / email_in_use / phone_in_use, never
+// a raw 23505.
+func mapUserUniqueViolation(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case isUniqueViolation(err, "users_username_key"):
+		return ErrUsernameInUse
+	case isUniqueViolation(err, "users_email_uidx"):
+		return ErrEmailInUse
+	case isUniqueViolation(err, "users_phone_number_key"):
+		return ErrPhoneInUse
+	}
+	return err
+}
+
 func (s *Service) createUser(ctx context.Context, email, username string) (*User, error) {
 	if s.pg == nil {
 		return nil, nil
@@ -162,7 +180,7 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	}
 	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username})
 	if err != nil {
-		return nil, err
+		return nil, mapUserUniqueViolation(err)
 	}
 	u := User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 	return &u, nil
@@ -476,7 +494,7 @@ func (s *Service) updateUsernameImpl(ctx context.Context, id, username string, b
 	}
 
 	if err := qtx.UserSetUsername(ctx, db.UserSetUsernameParams{ID: id, Username: &newUsername}); err != nil {
-		return err
+		return mapUserUniqueViolation(err)
 	}
 	// Audit row for the user rename. from_slug is the old username lowercased and
 	// NOT slugified — user_renames_from_slug_format_chk follows the username
@@ -509,7 +527,7 @@ func (s *Service) updateEmail(ctx context.Context, id, email string) error {
 	}
 
 	if err := s.q.UserSetEmailAndUnverify(ctx, db.UserSetEmailAndUnverifyParams{ID: id, Email: trimmed}); err != nil {
-		return err
+		return mapUserUniqueViolation(err)
 	}
 
 	return s.RequestEmailVerification(ctx, trimmed, 0)

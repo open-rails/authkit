@@ -91,6 +91,7 @@ var (
 	ErrVerificationLinkExpired = authkit.ErrVerificationLinkExpired
 	ErrEmailInUse              = authkit.ErrEmailInUse
 	ErrPhoneInUse              = authkit.ErrPhoneInUse
+	ErrUsernameInUse           = authkit.ErrUsernameInUse
 	ErrEmailSenderUnavailable  = authkit.ErrEmailSenderUnavailable
 	ErrSMSSenderUnavailable    = authkit.ErrSMSSenderUnavailable
 	ErrPasswordlessDisabled    = authkit.ErrPasswordlessDisabled
