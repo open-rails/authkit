@@ -43,7 +43,7 @@ func TestMFARequiredRoleAssignmentAndDisableLifecycle(t *testing.T) {
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", userID, SubjectKindUser, "admin"); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
 		t.Fatalf("assign MFA-required role without MFA = %v", err)
 	}
-	if _, err := svc.Enable2FA(ctx, userID, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, userID, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, RootPersona, "", userID, SubjectKindUser, "admin"); err != nil {
@@ -112,7 +112,7 @@ func TestMFARequiredInviteAcceptLifecycle(t *testing.T) {
 	if err := svc.AssignGroupRole(ctx, "org", "acme", invitee, SubjectKindUser, "member"); !errors.Is(err, ErrTwoFAEnrollmentRequired) {
 		t.Fatalf("assign MFA-required role without MFA = %v", err)
 	}
-	if _, err := svc.Enable2FA(ctx, invitee, "email", nil); err != nil {
+	if _, err := svc.Enable2FA(ctx, invitee, "email", nil, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
 	if err := svc.AssignGroupRole(ctx, "org", "acme", invitee, SubjectKindUser, "member"); err != nil {
@@ -158,7 +158,7 @@ func TestRequireMFAEnrollmentForcesEnrollment(t *testing.T) {
 
 	// After enrolling a usable factor and authenticating with 2FA, sessions resume.
 	phone := "+15555550142"
-	if _, err := strict.Enable2FA(ctx, user, "sms", &phone); err != nil {
+	if _, err := strict.Enable2FA(ctx, user, "sms", &phone, AllowAdditionalFactors); err != nil {
 		t.Fatalf("Enable2FA: %v", err)
 	}
 	if _, _, _, err := strict.IssueRefreshSessionWithAuthMethods(ctx, user, "test", nil, []string{"pwd", "otp", "mfa"}); err != nil {

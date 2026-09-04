@@ -9,6 +9,9 @@ type ErrorCode string
 func (c ErrorCode) String() string { return string(c) }
 
 const (
+	// ErrTwoFAFactorExists rejects enrollment when the permitted factor slot is occupied.
+	ErrTwoFAFactorExists ErrorCode = "2fa_factor_exists"
+
 	// ErrTwoFAChallengeFailed is the 2fa_challenge_failed AuthKit HTTP wire error code.
 	ErrTwoFAChallengeFailed ErrorCode = "2fa_challenge_failed"
 

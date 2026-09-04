@@ -12,6 +12,7 @@ import (
 
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 )
 
 type twoFactorStatusResponse struct {
@@ -71,6 +72,26 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	factors, err := s.svc.List2FAFactors(r.Context(), claims.UserID)
+	if err != nil {
+		serverErr(w, ErrEnableTwoFAFailed)
+		return
+	}
+	mode := authcore.AllowAdditionalFactors
+	if claims.TwoFAEnrollment {
+		mode = authcore.FirstFactorOnly
+		if claims.SessionID != "" || len(factors) > 0 {
+			sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
+			return
+		}
+	} else {
+		// A token minted before enrollment must not hide the account's current MFA requirement.
+		claims.MFAEnrolled = len(factors) > 0
+		if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
+			return
+		}
+	}
+
 	var req struct {
 		Method      string  `json:"method"`
 		Code        string  `json:"code,omitempty"`
@@ -84,6 +105,10 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if claims.TwoFAEnrollment && strings.TrimSpace(req.FactorID) != "" {
+		forbidden(w, ErrForbidden)
+		return
+	}
 	method := strings.ToLower(strings.TrimSpace(req.Method))
 	if method == "" && req.Default && strings.TrimSpace(req.FactorID) != "" {
 		if err := s.svc.SetDefault2FAFactor(r.Context(), claims.UserID, strings.TrimSpace(req.FactorID)); err != nil {
@@ -148,15 +173,14 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		backupCodes, err := s.svc.EnableTOTP2FA(r.Context(), claims.UserID, req.Code, req.Default)
+		backupCodes, err := s.svc.EnableTOTP2FA(r.Context(), claims.UserID, req.Code, req.Default, mode)
+		if errors.Is(err, authkit.ErrTwoFAFactorExists) {
+			sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
+			return
+		}
 		if err != nil {
 			badRequest(w, ErrInvalidCode)
 			return
-		}
-		// Enrolling proved a live TOTP code — count it as the session's MFA proof so
-		// the user clears an MFA-required step-up gate without a redundant /step-up/2fa.
-		if claims.SessionID != "" {
-			_ = s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"})
 		}
 		resp := map[string]any{
 			"enabled":      true,
@@ -171,21 +195,18 @@ func (s *Service) handleUser2FAPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var backupCodes []string
-	var err error
 	if req.Default {
-		backupCodes, err = s.svc.Enable2FADefault(r.Context(), claims.UserID, method, req.PhoneNumber)
+		backupCodes, err = s.svc.Enable2FADefault(r.Context(), claims.UserID, method, req.PhoneNumber, mode)
 	} else {
-		backupCodes, err = s.svc.Enable2FA(r.Context(), claims.UserID, method, req.PhoneNumber)
+		backupCodes, err = s.svc.Enable2FA(r.Context(), claims.UserID, method, req.PhoneNumber, mode)
+	}
+	if errors.Is(err, authkit.ErrTwoFAFactorExists) {
+		sendErr(w, http.StatusConflict, ErrTwoFAFactorExists)
+		return
 	}
 	if err != nil {
 		serverErr(w, ErrEnableTwoFAFailed)
 		return
-	}
-
-	// SMS enrollment verified a live code above; count it as the session's MFA
-	// proof. Email enrollment proves no code here, so it does not freshen.
-	if method == "sms" && claims.SessionID != "" {
-		_ = s.svc.MarkSessionAuthenticatedWithMethods(r.Context(), claims.UserID, claims.SessionID, []string{"otp", "mfa"})
 	}
 
 	resp := map[string]any{

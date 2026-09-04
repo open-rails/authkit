@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"encoding/json"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"testing"
 	"time"
@@ -282,7 +283,7 @@ func TestAccessTokenCarriesMFAEnrolledClaim(t *testing.T) {
 
 	// Enroll a usable second factor → claim true on the next token.
 	phone := "+15555550177"
-	_, err = srv.svc.Enable2FA(ctx, user.ID, "sms", &phone)
+	_, err = srv.svc.Enable2FA(ctx, user.ID, "sms", &phone, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 	tok2, _, err := srv.svc.MintAccessToken(ctx, user.ID, nil)
 	require.NoError(t, err)

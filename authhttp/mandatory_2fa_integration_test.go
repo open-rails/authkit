@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	authkit "github.com/open-rails/authkit"
+	authcore "github.com/open-rails/authkit/internal/authcore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	operatorID := mustPasswordUser(t, srv, "mfa-required-operator")
-	_, err = srv.svc.Enable2FA(ctx, operatorID, "email", nil)
+	_, err = srv.svc.Enable2FA(ctx, operatorID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", operatorID, embedded.SubjectKindUser, "admin"))
 
@@ -34,7 +35,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	err = srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", adminID, embedded.SubjectKindUser, "admin")
 	require.True(t, errors.Is(err, authkit.ErrTwoFAEnrollmentRequired), "assign without MFA = %v", err)
 
-	_, err = srv.svc.Enable2FA(ctx, adminID, "email", nil)
+	_, err = srv.svc.Enable2FA(ctx, adminID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 	require.NoError(t, srv.svc.AssignGroupRole(ctx, embedded.RootPersona, "", adminID, embedded.SubjectKindUser, "admin"))
 
@@ -59,7 +60,7 @@ func TestMFARequiredRoleHTTPIntegration(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &tokens))
 	require.NotEmpty(t, tokens.AccessToken)
 	require.NotEmpty(t, tokens.RefreshToken)
-	_, err = srv.svc.Enable2FA(ctx, ordinaryID, "email", nil)
+	_, err = srv.svc.Enable2FA(ctx, ordinaryID, "email", nil, authcore.AllowAdditionalFactors)
 	require.NoError(t, err)
 
 	w = serveJSON(srv, http.MethodPost, "/token", `{"grant_type":"refresh_token","refresh_token":"`+tokens.RefreshToken+`"}`)
