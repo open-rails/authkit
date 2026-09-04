@@ -147,8 +147,15 @@ func TestBootstrapClaimBackfillMigrationUnlocksPreClaimDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load migrations: %v", err)
 	}
-	if last := ms[len(ms)-1].Name; last != "0011_bootstrap_claim_backfill.up.sql" {
-		t.Fatalf("expected the backfill to be the last migration, got %s", last)
+	backfill := -1
+	for i, migration := range ms {
+		if migration.Name == "0011_bootstrap_claim_backfill.up.sql" {
+			backfill = i
+			break
+		}
+	}
+	if backfill < 0 {
+		t.Fatal("bootstrap backfill migration not found")
 	}
 	sqlDB, err := sql.Open("pgx", pg.URL)
 	if err != nil {
@@ -156,7 +163,7 @@ func TestBootstrapClaimBackfillMigrationUnlocksPreClaimDatabase(t *testing.T) {
 	}
 	defer sqlDB.Close()
 	runner := migratekit.NewPostgres(sqlDB, "authkit")
-	if err := runner.ApplyMigrations(ctx, ms[:len(ms)-1]); err != nil {
+	if err := runner.ApplyMigrations(ctx, ms[:backfill]); err != nil {
 		t.Fatalf("apply pre-backfill migrations: %v", err)
 	}
 	if _, err := pg.Pool.Exec(ctx, `INSERT INTO profiles.users (email, username, email_verified) VALUES ('legacy@example.com', 'legacy', true)`); err != nil {

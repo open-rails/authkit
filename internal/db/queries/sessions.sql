@@ -19,26 +19,32 @@ FROM profiles.refresh_sessions
 WHERE current_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now());
 
--- name: SessionByPreviousTokenHash :one
--- Also feeds the ak#274 grace path, which needs the sealed successor, the hash it
--- must verify against, when it was sealed, and the session's auth methods + expiry
--- so a grace re-delivery runs exactly the gates a normal exchange runs.
-SELECT id::text, user_id, family_id::text, auth_methods, expires_at,
-       current_token_hash, previous_successor_sealed, previous_rotated_at
-FROM profiles.refresh_sessions
-WHERE previous_token_hash = $1 AND issuer = $2 AND revoked_at IS NULL;
+-- name: SessionByHistoricalTokenHash :one
+-- Every consumed token stays attributable for the session lifetime. Only the
+-- immediate predecessor can open the current grace seal; older hashes still
+-- identify the family for reuse detection.
+SELECT s.id::text AS id, s.user_id, s.family_id::text AS family_id, s.auth_methods, s.expires_at,
+       s.current_token_hash, s.previous_successor_sealed, s.previous_rotated_at
+FROM profiles.refresh_token_history h
+JOIN profiles.refresh_sessions s ON s.id = h.session_id
+WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL;
 
 -- name: SessionRotate :execrows
--- Conditional compare-and-swap: rotate only if the current hash still matches the
--- one the caller read. 0 rows affected means another concurrent refresh already
--- rotated this session (or it was revoked) — the caller must treat that as a lost
--- race, NOT as token reuse. This keeps reuse detection (previous_token_hash) sound.
--- previous_successor_sealed/previous_rotated_at record what the token being demoted
--- to `previous` rotated INTO, so the ak#274 grace window can re-deliver it.
-UPDATE profiles.refresh_sessions
-SET previous_token_hash = current_token_hash, current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(), user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr),
-    previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now()
-WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash) AND revoked_at IS NULL;
+-- Record the consumed hash and rotate in one statement. The CAS admits one
+-- writer; an insertion failure rolls back the rotation, and a lost CAS inserts
+-- no history. The row's latest seal still re-delivers the same successor to
+-- concurrent holders of the immediate predecessor.
+WITH rotated AS (
+  UPDATE profiles.refresh_sessions
+  SET current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(),
+      user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr),
+      previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now()
+  WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash)
+    AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+  RETURNING id
+)
+INSERT INTO profiles.refresh_token_history (session_id, token_hash)
+SELECT id, sqlc.arg(expected_current_token_hash) FROM rotated;
 
 -- name: SessionsListByUser :many
 -- last_authenticated_at and revoked_at are intentionally NOT selected: the

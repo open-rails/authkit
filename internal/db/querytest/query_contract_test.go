@@ -117,10 +117,10 @@ func TestQueryContracts(t *testing.T) {
 		if rows != 1 {
 			t.Fatalf("rotate rows = %d", rows)
 		}
-		previous, err := q.SessionByPreviousTokenHash(ctx, db.SessionByPreviousTokenHashParams{PreviousTokenHash: []byte("current-token"), Issuer: issuer})
+		previous, err := q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TokenHash: []byte("current-token"), Issuer: issuer})
 		requireNoError(t, err)
 		if previous.ID != session.ID {
-			t.Fatalf("SessionByPreviousTokenHash = %+v", previous)
+			t.Fatalf("SessionByHistoricalTokenHash = %+v", previous)
 		}
 
 		active, err := q.SessionsCountActive(ctx, db.SessionsCountActiveParams{UserID: userID, Issuer: issuer})
