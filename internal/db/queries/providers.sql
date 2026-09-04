@@ -19,9 +19,6 @@ SELECT EXISTS(SELECT 1 FROM profiles.user_passwords WHERE user_id = $1);
 -- name: UserProviderDeleteBySlug :exec
 DELETE FROM profiles.user_providers WHERE user_id = $1 AND provider_slug = $2;
 
--- name: UserProviderDeleteOtherSubjects :exec
-DELETE FROM profiles.user_providers WHERE user_id = $1 AND issuer = $2 AND subject != $3;
-
 -- name: UserProviderUnverifiedForUpdate :one
 SELECT id
 FROM profiles.user_providers
@@ -72,11 +69,6 @@ SET verified_at = now(),
       || jsonb_build_object('verification_required', false)
 WHERE user_id = $1 AND issuer = $2 AND subject = $3
 RETURNING verified_at;
-
--- name: UserProviderInsertSimple :exec
-INSERT INTO profiles.user_providers (id, user_id, issuer, subject, email_at_provider)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (issuer, subject) DO UPDATE SET email_at_provider = EXCLUDED.email_at_provider;
 
 -- name: UserProviderSetUsername :exec
 UPDATE profiles.user_providers SET profile = jsonb_build_object('username', sqlc.arg(username)::text)

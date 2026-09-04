@@ -550,6 +550,8 @@ const (
 
 	// ErrProviderAlreadyLinked is the provider_already_linked AuthKit HTTP wire error code.
 	ErrProviderAlreadyLinked ErrorCode = "provider_already_linked"
+	// ErrProviderChangeRequiresUnlink requires explicit unlink before changing provider identity.
+	ErrProviderChangeRequiresUnlink ErrorCode = "provider_change_requires_unlink"
 
 	// ErrProviderError is the provider_error AuthKit HTTP wire error code: an
 	// IdP reported a callback ?error= value that is not a clean token

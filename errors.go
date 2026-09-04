@@ -102,6 +102,7 @@ var (
 	ErrWalletAlreadyLinked               = errors.New("wallet_already_linked")
 	ErrWalletChangeRequiresUnlink        = errors.New("wallet_change_requires_unlink")
 	ErrProviderAlreadyLinked             = errors.New("provider_already_linked")
+	ErrProviderChangeRequiresUnlink      = errors.New("provider_change_requires_unlink")
 )
 
 // ErrorForCode maps a wire error code (a sentinel's Error() string) back to the
@@ -166,19 +167,21 @@ var sentinelHTTPStatus = map[error]int{
 	ErrRemoteApplicationNotFound:   http.StatusNotFound,
 	ErrInviteLinkNotFound:          http.StatusNotFound,
 	// 409 — conflicts with current state.
-	ErrApplicationDomainConflict:   http.StatusConflict,
-	ErrApplicationIssuerConflict:   http.StatusConflict,
-	ErrApplicationNotDomainRooted:  http.StatusConflict,
-	ErrApplicationSlugConflict:     http.StatusConflict,
-	ErrGroupSlugApplicationManaged: http.StatusConflict,
-	ErrGroupSlugTaken:              http.StatusConflict,
-	ErrEmailAlreadyVerified:        http.StatusConflict,
-	ErrUserReferenced:              http.StatusConflict,
-	ErrPhoneAlreadyVerified:        http.StatusConflict,
-	ErrCannotRemoveLastAdminRole:   http.StatusConflict,
-	ErrWalletAlreadyLinked:         http.StatusConflict,
-	ErrWalletChangeRequiresUnlink:  http.StatusConflict,
-	ErrProviderAlreadyLinked:       http.StatusConflict,
+	ErrApplicationDomainConflict:    http.StatusConflict,
+	ErrApplicationIssuerConflict:    http.StatusConflict,
+	ErrApplicationNotDomainRooted:   http.StatusConflict,
+	ErrApplicationSlugConflict:      http.StatusConflict,
+	ErrGroupSlugApplicationManaged:  http.StatusConflict,
+	ErrGroupSlugTaken:               http.StatusConflict,
+	ErrEmailAlreadyVerified:         http.StatusConflict,
+	ErrPhoneAlreadyVerified:         http.StatusConflict,
+	ErrCannotRemoveLastAdminRole:    http.StatusConflict,
+	ErrWalletAlreadyLinked:          http.StatusConflict,
+	ErrWalletChangeRequiresUnlink:   http.StatusConflict,
+	ErrProviderAlreadyLinked:        http.StatusConflict,
+	ErrProviderChangeRequiresUnlink: http.StatusConflict,
+	ErrUserReferenced:               http.StatusConflict,
+
 	// 410 — expired one-shot links.
 	ErrVerificationLinkExpired: http.StatusGone,
 	// 429 — rate limits.
@@ -301,7 +304,7 @@ var errorSentinels = []error{
 	ErrUserBanned, ErrUserNotFound, ErrUserReferenced, ErrUserRoleNotFound, ErrVerificationLinkExpired,
 	ErrSIWSAddressMismatch, ErrSIWSChallengeExpired, ErrSIWSChallengeMismatch, ErrSIWSChallengeNotFound, ErrSIWSDomainInvalid,
 	ErrSIWSSignatureInvalid, ErrSIWSTimestampInvalid, ErrWalletAlreadyLinked, ErrWalletChangeRequiresUnlink,
-	ErrProviderAlreadyLinked,
+	ErrProviderAlreadyLinked, ErrProviderChangeRequiresUnlink,
 	// #247: permission-group hardening — role-assignability + custom-role +
 	// invite/api-key input errors, promoted from ad hoc strings so authhttp maps
 	// them via errors.Is instead of strings.Contains.
