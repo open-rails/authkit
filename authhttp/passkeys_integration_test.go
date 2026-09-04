@@ -19,6 +19,10 @@ import (
 )
 
 func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
+	forEachStore(t, testPasskeyFullCeremonyAndAssurance)
+}
+
+func testPasskeyFullCeremonyAndAssurance(t *testing.T, store ephemeralStore) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	cfg := newServerTestConfig()
@@ -28,7 +32,7 @@ func TestPasskeyHTTPIntegrationFullCeremonyAndAssurance(t *testing.T) {
 		Origins:          []string{"https://example.com"},
 		UserVerification: "preferred",
 	}
-	srv, err := NewServer(newServerClient(t, cfg, pool), WithoutRateLimiter())
+	srv, err := NewServer(newServerClient(t, cfg, pool, store.engineOpts()...), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	user, err := srv.svc.CreateUser(ctx, uniqueEmail("passkey-full"), "passkeyfull"+uniqueSuffix())

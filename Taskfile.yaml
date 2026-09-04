@@ -11,6 +11,8 @@ vars:
   # Defaults to the compose Postgres. Start `docker compose up -d --build issuer`
   # first when you need migrations applied for DB-backed tests.
   SQLC_DATABASE_URL: '{{.SQLC_DATABASE_URL | default "postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable"}}'
+  # The compose Redis; Redis-backed stores and the limiter are tested against it.
+  TEST_REDIS_URL: '{{.TEST_REDIS_URL | default "redis://127.0.0.1:36379/0"}}'
 
 # Exported to every task's commands (Makefile: `export SQLC_DATABASE_URL`).
 env:
@@ -18,10 +20,10 @@ env:
 
 tasks:
   test-db-up:
-    desc: Start the shared Postgres integration-test dependency
+    desc: Start the shared Postgres + Redis integration-test dependencies
     cmds:
       - |
-        docker compose up -d postgres
+        docker compose up -d --wait postgres redis
         until docker compose exec -T postgres pg_isready -U admin -d authkit_db >/dev/null 2>&1; do
           sleep 1
         done
@@ -47,9 +49,10 @@ tasks:
       - test -z "$(git status --porcelain -- internal/db)"
 
   test:
-    desc: Run the full test suite (race detector) against the compose Postgres (the `issuer` service); DB-backed tests fail rather than skip
+    desc: Run the full test suite (race detector) against the compose Postgres (the `issuer` service) and Redis; DB-backed tests fail rather than skip
     env:
       AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
+      AUTHKIT_TEST_REDIS_URL: '{{.TEST_REDIS_URL}}'
       AUTHKIT_TEST_REQUIRE_DB: '1'
     cmds:
       - go test -race -p 1 ./...
@@ -58,6 +61,7 @@ tasks:
     desc: '`task test` with a JSON report (.reports/go-test.json), then fail if any test skipped'
     env:
       AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
+      AUTHKIT_TEST_REDIS_URL: '{{.TEST_REDIS_URL}}'
       AUTHKIT_TEST_REQUIRE_DB: '1'
     cmds:
       - mkdir -p .reports

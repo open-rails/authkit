@@ -48,6 +48,16 @@ services:
       # Persist the generated dev signing key across restarts.
       - authkit_runtime_keys:/.runtime/authkit
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:36379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
 volumes:
   authkit_postgres_data:
   authkit_runtime_keys:

@@ -161,11 +161,16 @@ func tokenFromURL(raw string) string {
 }
 
 func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
+	forEachStore(t, testPasswordResetConfirmConsumesTokenDirectly)
+}
+
+func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeralStore) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
+	opts := append(store.engineOpts(), embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender))
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	suffix := uniqueSuffix()
