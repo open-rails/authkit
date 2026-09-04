@@ -133,6 +133,7 @@ func NewServer(client *embedded.Client, opts ...Option) (*Service, error) {
 	verOpts := []verify.VerifierOption{
 		verify.WithSkew(5 * time.Second),
 		verify.WithAPIKeyPrefix(cfg.APIKeys.Prefix),
+		verify.WithRemoteApplicationAudiences(cfg.Token.ExpectedAudiences...),
 		// #240: wire the documented per-request forced-2FA-enrollment gate from
 		// the host's TwoFactor policy. Required mode challenges every existing
 		// un-enrolled user on their next request, not just at mint time.

@@ -147,6 +147,15 @@ type VerifierOption func(*Verifier)
 
 // WithSkew sets the clock skew tolerance for exp/nbf/iat checks.
 // Default: 60s.
+// WithRemoteApplicationAudiences sets the audiences a lazily-loaded remote
+// application issuer is registered with on the keyForToken miss path when the
+// host never calls LoadRemoteApplications (which overrides it). NewServer passes
+// Config.Token.ExpectedAudiences so both load paths enforce the same audience
+// (ak#324).
+func WithRemoteApplicationAudiences(audiences ...string) VerifierOption {
+	return func(v *Verifier) { v.fedAudiences = append([]string(nil), audiences...) }
+}
+
 func WithSkew(d time.Duration) VerifierOption {
 	return func(v *Verifier) { v.skew = d }
 }
