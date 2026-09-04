@@ -40,17 +40,44 @@ tasks:
       - '{{.SQLC}} vet'
 
   sqlc-check:
-    desc: 'CI guard: fail if committed generated code drifts from queries'
+    desc: 'CI guard: fail if committed generated code drifts from queries (modified or untracked files)'
     deps: [sqlc]
     cmds:
       - git diff --exit-code -- internal/db
+      - test -z "$(git status --porcelain -- internal/db)"
 
   test:
-    desc: Run the full test suite (race detector) against the compose Postgres (the `issuer` service)
+    desc: Run the full test suite (race detector) against the compose Postgres (the `issuer` service); DB-backed tests fail rather than skip
     env:
       AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
+      AUTHKIT_TEST_REQUIRE_DB: '1'
     cmds:
       - go test -race -p 1 ./...
+
+  test-ci:
+    desc: '`task test` with a JSON report (.reports/go-test.json), then fail if any test skipped'
+    env:
+      AUTHKIT_TEST_DATABASE_URL: '{{.SQLC_DATABASE_URL}}'
+      AUTHKIT_TEST_REQUIRE_DB: '1'
+    cmds:
+      - mkdir -p .reports
+      # Readable log: drop the per-test RUN/PASS chatter that -json (implies -v) adds.
+      - |
+        set -o pipefail
+        go test -race -p 1 -json ./... | tee .reports/go-test.json \
+          | jq -Rrj 'fromjson? | select(.Action == "output" or .Action == "build-output") | .Output | select(test("^(=== (RUN|PAUSE|CONT|NAME)|\\s*--- PASS)") | not)'
+      - task: test-skip-gate
+
+  test-skip-gate:
+    desc: Fail if .reports/go-test.json records a skipped test; CI must execute every test
+    cmds:
+      - |
+        skipped=$(jq -r 'select(.Action == "skip" and .Test != null) | "\(.Package) \(.Test)"' .reports/go-test.json)
+        if [ -n "$skipped" ]; then
+          printf 'skipped tests (every test must run in CI):\n%s\n' "$skipped"
+          exit 1
+        fi
+        echo "skip gate: 0 skipped, $(jq -r 'select(.Action == "pass" and .Test != null) | .Test' .reports/go-test.json | wc -l) passed"
 
   test-fast:
     desc: Fast DB-free smoke (race detector, no Postgres). DB-backed tests skip.
