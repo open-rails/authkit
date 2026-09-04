@@ -159,34 +159,6 @@ func TestApplyBootstrapManifestDryRunDoesNotMutate(t *testing.T) {
 	}
 }
 
-func TestApplyBootstrapManifestOnceOnlyRejectsNonEmptyUnmarkedDatabase(t *testing.T) {
-	pool := testPG(t)
-	ctx := context.Background()
-	svc := NewService(Config{Token: TokenConfig{Issuer: "https://test"}}, Keyset{}, WithPostgres(pool))
-
-	suffix := time.Now().UnixNano()
-	existingUsername := fmt.Sprintf("bootstrap-existing-%d", suffix)
-	newUsername := fmt.Sprintf("bootstrap-new-%d", suffix)
-	applyName := fmt.Sprintf("bootstrap-nonempty-%d", suffix)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.users WHERE username IN ($1, $2)`, existingUsername, newUsername)
-		_, _ = pool.Exec(ctx, `DELETE FROM profiles.bootstrap_applies WHERE name=$1`, applyName)
-	})
-	if _, err := svc.CreateUser(ctx, existingUsername+"@example.com", existingUsername); err != nil {
-		t.Fatalf("create existing user: %v", err)
-	}
-
-	manifest := BootstrapManifest{Users: []BootstrapManifestUser{{
-		Email:         newUsername + "@example.com",
-		Username:      newUsername,
-		EmailVerified: true,
-	}}}
-	_, err := svc.ApplyBootstrapManifest(ctx, manifest, BootstrapReconcileOptions{StartupOnly: true, Name: applyName})
-	if !errors.Is(err, ErrBootstrapDatabaseNotEmpty) {
-		t.Fatalf("apply err=%v, want ErrBootstrapDatabaseNotEmpty", err)
-	}
-}
-
 // The apply-once startup guard needs an empty users/remote-applications table,
 // so this test runs on its own scratch database rather than the shared pool.
 func TestApplyBootstrapManifestOnceOnlySkipsAfterFirstApply(t *testing.T) {

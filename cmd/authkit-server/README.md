@@ -65,7 +65,7 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `AUTHKIT_PASSKEY_ORIGINS` | no | issuer origin | Comma-separated allowed WebAuthn origins (must match RPID or a subdomain) |
 | `AUTHKIT_LANGUAGES` | no | `en` | Comma-separated supported UI languages (`?lang` / `Accept-Language` negotiation) |
 | `AUTHKIT_DEFAULT_LANGUAGE` | no | `en` | Fallback language when the request carries none. Must be in `AUTHKIT_LANGUAGES` — an effective default outside the supported set refuses to boot (#266) |
-| `AUTHKIT_BOOTSTRAP_PATH` | no | — | Path to a bootstrap manifest (YAML; see `bootstrap.example.yaml` at the repo root). Applied **at most once** at startup (DB-marked apply-once); restarts skip it. It is a **genesis seed**: on a non-empty database without the marker (users/remote apps already exist) the server refuses to boot — unset the var for such deployments. |
+| `AUTHKIT_BOOTSTRAP_PATH` | no | — | Path to a bootstrap manifest (YAML; see `bootstrap.example.yaml` at the repo root). Applied **at most once** at startup (DB-marked apply-once); restarts skip it. It is a **genesis seed**: a database that already holds users/remote apps but has NO recorded bootstrap claim at all refuses to boot — unset the var for such deployments. A database another bootstrap name already claimed is treated as already applied. |
 
 ### Dev-only (honored only when `AUTHKIT_ENV` is a dev env)
 
