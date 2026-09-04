@@ -1,10 +1,5 @@
 package authkit
 
-// The remote SDK (authkit/remote) and the management-API registry (authkit/server)
-// are GENERATED from the Client interface below; regenerate after changing it:
-//
-//go:generate go run ./internal/genremote
-
 import (
 	"context"
 	"time"
@@ -99,7 +94,7 @@ type Admin interface {
 // unchecked bootstrap/genesis equivalents (AssignRoleBySlug, RemoveRoleBySlug)
 // are NOT part of this in-process/RPC-swappable interface (#241) — they live on
 // embedded.Client.Genesis(), an explicitly-dangerous seam reached only by the
-// concrete embedded client, never through authkit.Client or the remote transport.
+// concrete embedded client, never through authkit.Client.
 type Roles interface {
 	// Assign/RemoveRolesBySlugAs are batch-native (#219/#222): the actor-checked
 	// no-escalation authority check (#136) runs PER ITEM inside the batch — an
@@ -221,9 +216,8 @@ type RemoteApps interface {
 // Bootstrap applies a parsed bootstrap manifest (operator/deploy seeding).
 type Bootstrap interface {
 	// ApplyBootstrapManifest applies a parsed manifest. There is deliberately no
-	// ApplyBootstrapManifestFile on the contract: a file path is the SERVER's
-	// filesystem, meaningless over a remote transport (#142). Hosts with a file
-	// load it themselves (e.g. embedded.LoadBootstrapManifestFile) then call this.
+	// ApplyBootstrapManifestFile on the contract: hosts with a file load it
+	// themselves (e.g. embedded.LoadBootstrapManifestFile) then call this.
 	ApplyBootstrapManifest(ctx context.Context, manifest BootstrapManifest, opts BootstrapReconcileOptions) (BootstrapManifestResult, error)
 }
 
@@ -249,16 +243,13 @@ type Maintenance interface {
 	ValidateVerificationConfiguration() error
 }
 
-// Client is the portable AuthKit contract: the full set of operations meaningful
-// across both the in-process (embedded) and the Phase-2 remote transports (issue
-// #138), composed from the topic interfaces above. Infra accessors (Postgres,
-// Keyfunc, JWKS, raw Options/Schema) are deliberately OFF this interface; they
-// stay on the concrete *embedded.Client. Code against authkit.Client (or one of
-// the topic interfaces) so swapping backends is construction-only:
+// Client is the contract hosts hold: the in-process operations composed from
+// the topic interfaces above. Infra accessors (Postgres, Keyfunc, JWKS, raw
+// Options/Schema) are deliberately OFF this interface; they stay on the
+// concrete *embedded.Client.
 //
-//	c, err := embedded.New(cfg, pg) // today (in-process)
+//	c, err := embedded.New(cfg, pg)
 //	var _ authkit.Client = c
-//	// c, err := remote.New(url, creds) // Phase 2 (standalone)
 type Client interface {
 	Users
 	Passwords

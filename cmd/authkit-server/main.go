@@ -1,24 +1,12 @@
-// Command authkit-server is the standalone, self-hostable AuthKit server (#142).
-// It runs the engine in-process and exposes, on one listener:
-//
-//   - the browser-facing auth-flow routes (register/login/OIDC/passwordless/…),
-//   - the JWKS endpoint downstream verifiers fetch,
-//   - the authenticated MANAGEMENT API (POST /v1/call/{Method}) that the
-//     authkit/remote Go SDK and non-Go clients drive to provision/manage/mint.
-//
-// In a dev environment it ALSO serves the integration-test affordances that used
-// to live in the now-deleted authkit-devserver (#194): GET {prefix}/dev/whoami
-// (reflect the resolved principal) and, when AUTHKIT_DEV_MINT_SECRET is set,
-// POST {prefix}/dev/mint (mint arbitrary access tokens). Both are mounted ONLY
-// when AUTHKIT_ENV is a dev env — never reachable in production (fail-closed).
+// Command authkit-server is the dev/CI harness for AuthKit: the engine plus
+// authhttp.MountHandler on one listener, with /healthz. AuthKit ships as an
+// embedded library; this binary exists so the compose stack and CI can boot a
+// migrated database and exercise the real HTTP surface.
 //
 // Subcommands: `serve` (default) runs the server; `migrate` applies the Postgres
 // schema and exits (the same runner embedding hosts use). `serve` also migrates
-// first when AUTHKIT_MIGRATE_ON_START=true.
-//
-// A Go app swaps embedded↔remote with one construction line (embedded.New ↔
-// remote.New); both satisfy authkit.Client. main is thin — config comes from env;
-// the library does the work (etcd's embed.Config / etcdmain split).
+// first when AUTHKIT_MIGRATE_ON_START=true. Config comes from env, read once
+// here; the library reads none.
 package main
 
 import (
@@ -44,8 +32,6 @@ import (
 	"github.com/open-rails/authkit/embedded"
 	"github.com/open-rails/authkit/jwtkit"
 	pgmigrations "github.com/open-rails/authkit/migrations/postgres"
-	"github.com/open-rails/authkit/server"
-	"github.com/open-rails/authkit/verify"
 	"github.com/open-rails/migratekit"
 )
 
@@ -60,7 +46,6 @@ type config struct {
 	redisAddr      string
 	redisURL       string
 	redisPassword  string
-	mgmtToken      string // app→server bearer credential for the management API
 	apiPrefix      string
 	regVerify      string // registration verification policy: none|optional|required
 	migrateOnStart bool   // run schema migrations before serving (CI/dev convenience)
@@ -92,8 +77,6 @@ type config struct {
 	activeKeyID         string
 	activePrivateKeyPEM string
 	publicKeysPEM       map[string]string // kid -> public-key PEM (retired keys kept in JWKS)
-	// Dev-only integration-test knob (honored only when env is a dev env, #194).
-	devMintSecret string // enables POST {prefix}/dev/mint when set
 }
 
 func loadConfig() (*config, error) {
@@ -112,7 +95,6 @@ func loadConfig() (*config, error) {
 		redisAddr:      strings.TrimSpace(os.Getenv("AUTHKIT_REDIS_ADDR")),
 		redisURL:       strings.TrimSpace(os.Getenv("AUTHKIT_REDIS_URL")),
 		redisPassword:  os.Getenv("AUTHKIT_REDIS_PASSWORD"),
-		mgmtToken:      strings.TrimSpace(os.Getenv("AUTHKIT_MGMT_TOKEN")),
 		apiPrefix:      envOr("AUTHKIT_API_PREFIX", "/api/v1"),
 		migrateOnStart: envBool("AUTHKIT_MIGRATE_ON_START", false),
 		// #305: a non-dev boot without Redis refuses unless this explicit
@@ -125,7 +107,6 @@ func loadConfig() (*config, error) {
 		regVerify:           strings.ToLower(envOr("AUTHKIT_REGISTRATION_VERIFICATION", "none")),
 		activeKeyID:         strings.TrimSpace(os.Getenv("AUTHKIT_ACTIVE_KEY_ID")),
 		activePrivateKeyPEM: strings.TrimSpace(os.Getenv("AUTHKIT_ACTIVE_PRIVATE_KEY_PEM")),
-		devMintSecret:       strings.TrimSpace(os.Getenv("AUTHKIT_DEV_MINT_SECRET")),
 		trustedProxies:      splitCSV(os.Getenv("AUTHKIT_TRUSTED_PROXIES")),
 		cloudflareProxies:   splitCSV(os.Getenv("AUTHKIT_CLOUDFLARE_PROXIES")),
 		directPeerIP:        envBool("AUTHKIT_DIRECT_PEER_IP", false),
@@ -305,22 +286,6 @@ func run() error {
 		keysCfg = embedded.KeysConfig{Source: ks}
 	}
 
-	// /dev/mint signs arbitrary tokens, so it needs the active signer handle. Build
-	// an explicit key source (same file→generated precedence the engine uses) and
-	// hand it to the engine so JWKS and dev-mint share one active key. Only in
-	// dev with a mint secret; the prod path keeps Keys.Path resolution untouched.
-	var devSigner jwtkit.Signer
-	if devMode && cfg.devMintSecret != "" {
-		if keysCfg.Source == nil {
-			ks, err := jwtkit.ResolveKeySource(cfg.keysPath, true)
-			if err != nil {
-				return fmt.Errorf("load jwt keys for dev mint: %w", err)
-			}
-			keysCfg = embedded.KeysConfig{Source: ks}
-		}
-		devSigner = keysCfg.Source.ActiveSigner()
-	}
-
 	twoFAMethods := make([]authkit.TwoFactorMethod, 0, len(cfg.twoFAMethods))
 	for _, m := range cfg.twoFAMethods {
 		twoFAMethods = append(twoFAMethods, authkit.TwoFactorMethod(m))
@@ -428,34 +393,6 @@ func run() error {
 	}
 	mux.Handle("/", authH)
 
-	// Dev-only integration-test affordances, consolidated from the former
-	// authkit-devserver (#194). Mounted ONLY in a dev env; /dev/mint additionally
-	// requires AUTHKIT_DEV_MINT_SECRET. Fail-closed: prod or no secret ⇒ absent.
-	// Registered as more-specific mux patterns, so they win over the mount.
-	if devMode {
-		mux.Handle("GET "+strings.TrimSuffix(prefix, "/")+"/dev/whoami", devWhoamiHandler(svc))
-		if devSigner != nil {
-			mux.Handle("POST "+strings.TrimSuffix(prefix, "/")+"/dev/mint", devMintHandler(cfg.issuer, devSigner, cfg.devMintSecret))
-			log.Printf("dev endpoints enabled: GET %s/dev/whoami, POST %s/dev/mint (DEV ONLY)", prefix, prefix)
-		} else {
-			log.Printf("dev endpoint enabled: GET %s/dev/whoami (DEV ONLY; set AUTHKIT_DEV_MINT_SECRET to enable /dev/mint)", prefix)
-		}
-	}
-
-	// Management API: provision/manage/mint, driven by the remote SDK or non-Go
-	// clients. Gated by the app→server bearer token. Fail closed: with no token
-	// configured we do NOT expose 93 management methods unauthenticated unless the
-	// operator is explicitly in dev.
-	if cfg.mgmtToken != "" {
-		mux.Handle("/v1/call/", server.NewHandler(client, cfg.mgmtToken))
-		log.Printf("management API enabled at /v1/call/ (bearer-authenticated)")
-	} else if devMode {
-		mux.Handle("/v1/call/", server.NewHandler(client, ""))
-		log.Printf("WARNING: management API enabled UNAUTHENTICATED (dev only; set AUTHKIT_MGMT_TOKEN)")
-	} else {
-		log.Printf("management API DISABLED: set AUTHKIT_MGMT_TOKEN to enable it outside dev")
-	}
-
 	// Daily auth-state sweep (expired sessions/invites + session-event
 	// retention, #245). Embedding hosts schedule Client.CleanupExpiredAuthState
 	// themselves; the standalone binary has no host scheduler, so it owns the tick.
@@ -520,24 +457,6 @@ func runMigrations(ctx context.Context, dbURL string) error {
 	return nil
 }
 
-// --- Dev-only test affordances (consolidated from authkit-devserver, #194) ---
-
-type mintRequest struct {
-	Sub              string   `json:"sub" binding:"required"`
-	Aud              string   `json:"aud" binding:"required"`
-	Email            string   `json:"email"`
-	Roles            []string `json:"roles"`
-	GlobalRoles      []string `json:"global_roles"`
-	Entitlements     []string `json:"entitlements"`
-	ExpiresInSeconds int64    `json:"expires_in_seconds"`
-}
-
-type mintResponse struct {
-	Token     string    `json:"token"`
-	TokenType string    `json:"token_type"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
 type staticDevEntitlements struct {
 	names []string
 }
@@ -548,108 +467,6 @@ func (p staticDevEntitlements) ListEntitlements(_ context.Context, userIDs []str
 		out[id] = append([]string(nil), p.names...)
 	}
 	return out, nil
-}
-
-// devWhoamiHandler reflects the authenticated principal as resolved by the real
-// verifier (JWT user OR branded API key), behind the standard auth middleware.
-// Dev-only; used by the RBAC E2E suite to assert API-key resolution.
-func devWhoamiHandler(svc *authhttp.Service) http.Handler {
-	reflect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cl, ok := verify.ClaimsFromContext(r.Context())
-		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"permissions": cl.Permissions,
-			"is_api_key":  cl.PrincipalKind() == authkit.PrincipalKindAPIKey,
-			"user_id":     cl.UserID,
-		})
-	})
-	return verify.Required(svc.Verifier())(reflect)
-}
-
-// devMintHandler mints arbitrary access tokens for downstream-service E2E tests.
-// Dev-only and shared-secret gated; never mounted outside a dev env.
-func devMintHandler(issuer string, signer jwtkit.Signer, secret string) http.Handler {
-	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !devSecretOK(r.Header.Get("Authorization"), r.Header.Get("X-DEV-SECRET"), secret) {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-			return
-		}
-
-		var req mintRequest
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-			return
-		}
-		req.Sub = strings.TrimSpace(req.Sub)
-		req.Aud = strings.TrimSpace(req.Aud)
-		req.Email = strings.TrimSpace(req.Email)
-		if req.Sub == "" || req.Aud == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "sub and aud are required"})
-			return
-		}
-
-		expiresIn := req.ExpiresInSeconds
-		if expiresIn <= 0 {
-			expiresIn = 3600
-		}
-		now := time.Now()
-		expiresAt := now.Add(time.Duration(expiresIn) * time.Second)
-
-		claims := map[string]any{
-			"iss": issuer,
-			"sub": req.Sub,
-			"aud": []string{req.Aud},
-			"iat": now.Unix(),
-			"exp": expiresAt.Unix(),
-		}
-		if req.Email != "" {
-			claims["email"] = req.Email
-		}
-		if len(req.Roles) > 0 {
-			claims["roles"] = req.Roles
-		}
-		if len(req.GlobalRoles) > 0 {
-			claims["global_roles"] = req.GlobalRoles
-		}
-		if len(req.Entitlements) > 0 {
-			claims["entitlements"] = req.Entitlements
-		}
-
-		token, err := jwtkit.SignWithType(r.Context(), signer, claims, jwtkit.AccessTokenType, true)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to sign token"})
-			return
-		}
-		writeJSON(w, http.StatusOK, mintResponse{
-			Token:     token,
-			TokenType: "Bearer",
-			ExpiresAt: expiresAt,
-		})
-	})
-}
-
-func devSecretOK(authHeader, devHeader, secret string) bool {
-	secret = strings.TrimSpace(secret)
-	if secret == "" {
-		return false
-	}
-
-	if strings.TrimSpace(devHeader) != "" {
-		return strings.TrimSpace(devHeader) == secret
-	}
-
-	authHeader = strings.TrimSpace(authHeader)
-	const prefix = "Bearer "
-	if !strings.HasPrefix(strings.ToLower(authHeader), strings.ToLower(prefix)) {
-		return false
-	}
-	return strings.TrimSpace(authHeader[len(prefix):]) == secret
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
