@@ -350,6 +350,12 @@ func (s *Service) GetRemoteApplication(ctx context.Context, issuer string) (*Rem
 	if err != nil {
 		return nil, err
 	}
+	// Issuer lookups are verification-facing: a disabled application must fail
+	// closed on the next request, not at the next reconcile (#323). Admin reads
+	// use GetRemoteApplicationBySlug / ListRemoteApplications(false).
+	if !row.Enabled {
+		return nil, ErrRemoteApplicationNotFound
+	}
 	return remoteAppFromRow(remoteAppRow(row)), nil
 }
 

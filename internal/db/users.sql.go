@@ -10,35 +10,6 @@ import (
 	"time"
 )
 
-const groupAssignmentsDeleteByUser = `-- name: GroupAssignmentsDeleteByUser :exec
-
-DELETE FROM profiles.group_user_roles
-WHERE user_id = $1::uuid
-`
-
-// #125 D7: pre-delete cleanup for the hard-delete/purge path (invite tables all
-// CASCADE on invited_by; only group role assignments need an explicit sweep).
-func (q *Queries) GroupAssignmentsDeleteByUser(ctx context.Context, userID string) error {
-	_, err := q.db.Exec(ctx, groupAssignmentsDeleteByUser, userID)
-	return err
-}
-
-const sessionsRevokeAllQuiet = `-- name: SessionsRevokeAllQuiet :exec
-UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2
-`
-
-type SessionsRevokeAllQuietParams struct {
-	UserID string
-	Issuer string
-}
-
-// SessionsRevokeAllQuiet is AdminDeleteUser's pre-delete sweep; unlike
-// SessionsRevokeAll it returns nothing (no per-session revoke logging).
-func (q *Queries) SessionsRevokeAllQuiet(ctx context.Context, arg SessionsRevokeAllQuietParams) error {
-	_, err := q.db.Exec(ctx, sessionsRevokeAllQuiet, arg.UserID, arg.Issuer)
-	return err
-}
-
 const userApplyEmailChange = `-- name: UserApplyEmailChange :exec
 UPDATE profiles.users SET email = lower($2::text), email_verified = true, updated_at = NOW() WHERE id = $1
 `

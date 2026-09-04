@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/open-rails/authkit/verify"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,10 @@ type Service struct {
 	rlExplicit          bool                       // host set/disabled the limiter via WithRateLimiter/WithoutRateLimiter
 	rlOverrides         map[string]ratelimit.Limit // WithRateLimitOverrides: merged onto DefaultRateLimits (#242)
 	clientIP            ClientIPFunc
-	trustedProxyErr     error // deferred WithTrustedProxies CIDR parse error, surfaced by NewServer
+	clientIPExplicit    bool           // WithClientIPFunc: host owns the strategy; proxy sets are not composed
+	trustedProxies      []netip.Prefix // WithTrustedProxies: X-Forwarded-For walk
+	cloudflareProxies   []netip.Prefix // WithCloudflareProxies: + CF-Connecting-IP fallback
+	trustedProxyErr     error          // deferred proxy CIDR parse error, surfaced by NewServer
 	authProvidersByName map[string]authprovider.Provider
 	oidcMgr             *oidckit.Manager
 	oidcMgrOnce         sync.Once

@@ -130,7 +130,7 @@ func (s *Service) handlePhoneVerifyConfirmPOST(w http.ResponseWriter, r *http.Re
 	}
 
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok && claims.UserID != "" {
-		if err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code); err == nil {
+		if err := s.svc.ConfirmPhoneChange(r.Context(), claims.UserID, phone, code, keepSession(claims)); err == nil {
 			s.svc.ClearPhoneVerifyCodeAttempts(r.Context(), phone)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Phone number changed successfully"})
 			return

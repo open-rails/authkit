@@ -15,9 +15,9 @@ import (
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/embedded"
 	authcore "github.com/open-rails/authkit/internal/authcore"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/jwtkit"
 	"github.com/open-rails/authkit/verify"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,8 +85,7 @@ func TestProdServer_LoopbackJWKSStillRejected(t *testing.T) {
 
 	cfg := newServerTestConfig()
 	cfg.Environment = "production"
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"}) // lazy; never contacted
-	t.Cleanup(func() { _ = rdb.Close() })
+	rdb := testdb.ScratchRedis(t)
 	client := newServerClient(t, cfg, pool)
 	s, err := NewServer(client, WithRedis(rdb))
 	require.NoError(t, err)

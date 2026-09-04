@@ -61,7 +61,7 @@ func TestBuildRedirectURI_DevFallbackIgnoresForwardedHost(t *testing.T) {
 func TestStateCookieMatches(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	require.False(t, stateCookieMatches(r, "abc"), "no cookie present")
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "abc"})
+	r.AddCookie(&http.Cookie{Name: stateCookieName("abc"), Value: "abc"})
 	require.True(t, stateCookieMatches(r, "abc"))
 	require.False(t, stateCookieMatches(r, "xyz"), "value mismatch must fail")
 	require.False(t, stateCookieMatches(r, ""), "empty state never matches")
@@ -81,24 +81,30 @@ func TestOIDCCallback_RejectsWithoutStateCookie(t *testing.T) {
 }
 
 func TestOIDCCallback_StateCookiePassesCookieGate(t *testing.T) {
-	s := newTestService(t)
-	enableTestOIDCProvider(s)
-	require.NoError(t, s.stateCache().Put(context.Background(), "good-state", oidckit.StateData{Provider: "google"}))
-	h := s.OIDCHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback?state=good-state&code=xyz", nil)
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "good-state"})
-	h.ServeHTTP(w, r)
-	// With a matching cookie the request passes the F3 gate and fails later (no real
-	// IdP configured), so it must NOT be the invalid_state cookie rejection.
-	require.NotContains(t, w.Body.String(), "invalid_state")
+	forEachStore(t, func(t *testing.T, store ephemeralStore) {
+		s := store.attach(newTestService(t))
+		enableTestOIDCProvider(s)
+		require.NoError(t, s.stateCache().Put(context.Background(), "good-state", oidckit.StateData{Provider: "google"}))
+		h := s.OIDCHandler()
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/oidc/google/callback?state=good-state&code=xyz", nil)
+		r.AddCookie(&http.Cookie{Name: stateCookieName("good-state"), Value: "good-state"})
+		h.ServeHTTP(w, r)
+		// With a matching cookie the request passes the F3 gate and fails later (no real
+		// IdP configured), so it must NOT be the invalid_state cookie rejection.
+		require.NotContains(t, w.Body.String(), "invalid_state")
+		// The pending state is consumed on first use, so a replayed callback misses.
+		_, ok, err := s.stateCache().Get(context.Background(), "good-state")
+		require.NoError(t, err)
+		require.False(t, ok, "state must be consumed by the first callback")
+	})
 }
 
 // --- F6: X-Forwarded-For right-most untrusted hop ---
 
 func TestClientIPFromForwardedHeaders_RightmostUntrustedHop(t *testing.T) {
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
-	fn := ClientIPFromForwardedHeaders(trusted)
+	fn := ClientIPFromForwardedHeaders(trusted, nil)
 
 	// Trusted proxy peer; attacker injected 9.9.9.9 as the left-most (client-supplied)
 	// XFF entry, the proxy appended the real client 8.8.8.8 on the right.

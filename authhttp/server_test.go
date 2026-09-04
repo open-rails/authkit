@@ -2,14 +2,13 @@ package authhttp
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/embedded"
+	"github.com/open-rails/authkit/internal/testdb"
 	"github.com/open-rails/authkit/ratelimit"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,10 +27,7 @@ func newServerTestConfig() embedded.Config {
 
 func newServerTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("AUTHKIT_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTHKIT_TEST_DATABASE_URL not set; skipping DB-backed test")
-	}
+	dsn := testdb.URL(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -87,9 +83,8 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 	_, err = NewServer(newServerClient(t, prodCfg, pool))
 	require.Error(t, err, "production without a Redis store must fail validation")
 
-	// Production WITH Redis passes (client is lazy; not contacted at construction).
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
-	t.Cleanup(func() { _ = rdb.Close() })
+	// Production WITH Redis passes.
+	rdb := testdb.ScratchRedis(t)
 	_, err = NewServer(newServerClient(t, prodCfg, pool), WithRedis(rdb))
 	require.NoError(t, err, "production with Redis must pass validation")
 }
@@ -123,8 +118,7 @@ func TestNewServer_RequiredVerificationWithoutSender_ReturnsError(t *testing.T) 
 // engine's *redis.Client — single source of truth, no split-brain — and the
 // production validation no longer flags a missing HTTP-side Redis.
 func TestNewServer_ReusesEngineRedis(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
-	t.Cleanup(func() { _ = rdb.Close() })
+	rdb := testdb.ScratchRedis(t)
 
 	prodCfg := newServerTestConfig()
 	prodCfg.Environment = "production"
@@ -138,8 +132,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	require.Same(t, rdb, srv.rd, "HTTP layer must reuse the engine's *redis.Client (no split-brain)")
 
 	// A second authhttp.WithRedis stays an explicit OVERRIDE, not a requirement.
-	other := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6380"})
-	t.Cleanup(func() { _ = other.Close() })
+	other := testdb.ScratchRedis(t)
 	override, err := NewServer(
 		newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb)),
 		WithRedis(other),
@@ -174,4 +167,3 @@ func TestNewServer_RateLimitOverrides(t *testing.T) {
 	require.Equal(t, wantDefault.Limit, untouched.Limit, "untouched bucket must keep its default limit")
 	require.Equal(t, wantDefault.Window, untouched.Window, "untouched bucket must keep its default window")
 }
-

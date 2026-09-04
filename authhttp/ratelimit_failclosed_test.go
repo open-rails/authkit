@@ -4,6 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+
+	redislimiter "github.com/open-rails/authkit/internal/ratelimit/redis"
+	"github.com/open-rails/authkit/internal/testdb"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 // erroringLimiter simulates a rate-limiter backend outage (e.g. Redis down): every
@@ -43,6 +48,27 @@ func TestRateLimiter_FailsClosedOnBackendError(t *testing.T) {
 		if !s.allowResultForKey(b, "auth:"+b+":id:x").Allowed {
 			t.Errorf("bucket %q (per-identifier): limiter error must fail OPEN, got Allowed=false", b)
 		}
+	}
+}
+
+// TestRateLimiter_FailsClosedOnRedisOutage reaches the same classification
+// through the real Redis limiter with a closed client, so the deny-on-error
+// branch is exercised by a genuine backend error rather than a fake.
+func TestRateLimiter_FailsClosedOnRedisOutage(t *testing.T) {
+	live := testdb.ScratchRedis(t)
+	o := *live.Options()
+	closed := redis.NewClient(&o)
+	require.NoError(t, closed.Close())
+	s := &Service{rl: redislimiter.New(closed, DefaultRateLimits()), clientIP: func(*http.Request) string { return "203.0.113.7" }}
+	req, _ := http.NewRequest(http.MethodPost, "/x", nil)
+
+	for b := range failClosedBuckets {
+		require.Falsef(t, s.allowResult(req, b).Allowed, "bucket %q: Redis outage must fail closed", b)
+		require.Falsef(t, s.allowResultForKey(b, "auth:"+b+":id:victim").Allowed, "bucket %q (per-identifier): Redis outage must fail closed", b)
+	}
+	for _, b := range []string{RLUserMe, RLAuthSessionsList, RLAuthLogout, "default"} {
+		require.Truef(t, s.allowResult(req, b).Allowed, "bucket %q: Redis outage must fail open", b)
+		require.Truef(t, s.allowResultForKey(b, "auth:"+b+":id:x").Allowed, "bucket %q (per-identifier): Redis outage must fail open", b)
 	}
 }
 

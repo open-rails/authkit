@@ -121,6 +121,11 @@ func (s *Sender) SendLoginCode(ctx context.Context, phone, code string) error {
 	return s.sendMessage(ctx, phone, body)
 }
 
+func (s *Sender) SendContactChanged(ctx context.Context, phone string, change embedded.ContactChange) error {
+	body := fmt.Sprintf("%s: the %s on your account was changed to %s. If this was not you, secure your account now.", s.appLabel(), change.Field, change.NewValue)
+	return s.sendMessage(ctx, phone, body)
+}
+
 func (s *Sender) appLabel() string {
 	return twiliocommon.AppLabel(s.AppName)
 }

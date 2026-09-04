@@ -2,10 +2,12 @@ package authcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	stdlog "log"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -50,6 +52,10 @@ type AdminUserListOptions = authkit.AdminUserListOptions
 // when an Entitlement filter is requested but no EntitlementFilterProvider is
 // configured — fail loud rather than silently return everyone.
 var ErrEntitlementFilterUnavailable = authkit.ErrEntitlementFilterUnavailable
+
+// ErrUserReferenced: a host table references the user without ON DELETE
+// CASCADE, so the hard delete was rolled back in full.
+var ErrUserReferenced = authkit.ErrUserReferenced
 
 func normalizeAdminUserListOptions(o AdminUserListOptions) AdminUserListOptions {
 	if o.Page <= 0 {
@@ -273,15 +279,35 @@ func (s *Service) AdminGetUser(ctx context.Context, id string) (*AdminUser, erro
 	return a, nil
 }
 
+// AdminDeleteUser hard-deletes the user in ONE transaction: sessions are revoked
+// first (for the audit trail; every AuthKit dependent table, refresh_sessions
+// and group_user_roles included, cascades on the row delete). A host table that
+// references profiles.users(id) without ON DELETE CASCADE aborts the whole
+// delete with ErrUserReferenced, so a user is never left half-deleted (#304).
 func (s *Service) AdminDeleteUser(ctx context.Context, id string) error {
 	if s.pg == nil {
 		return nil
 	}
-	// Revoke all sessions
-	_ = s.q.SessionsRevokeAllQuiet(ctx, db.SessionsRevokeAllQuietParams{UserID: id, Issuer: s.cfg.Token.Issuer})
-	if err := s.q.GroupAssignmentsDeleteByUser(ctx, id); err != nil {
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	// Delete user
-	return s.q.UserDeleteHard(ctx, id)
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.qtx(tx)
+	sessionIDs, err := qtx.SessionsRevokeAll(ctx, db.SessionsRevokeAllParams{UserID: id, Issuer: s.cfg.Token.Issuer})
+	if err != nil {
+		return err
+	}
+	if err := qtx.UserDeleteHard(ctx, id); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return fmt.Errorf("%w: %s.%s", ErrUserReferenced, pgErr.TableName, pgErr.ConstraintName)
+		}
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.logSessionsRevoked(ctx, id, sessionIDs, SessionRevokeReasonHardDeleted)
+	return nil
 }

@@ -214,33 +214,36 @@ func (s *Service) lockBootstrapApply(ctx context.Context, name string) (func(), 
 	}, nil
 }
 
+// claimBootstrapApply decides whether a StartupOnly apply may run (#259).
+// The refusal protects an authority graph nobody recorded creating, so its
+// scope is the whole claim table, not one name: any recorded claim means the
+// graph is accounted for and a new name records itself as already applied
+// instead of refusing. Only a non-empty graph with an EMPTY claim table is
+// refused.
 func (s *Service) claimBootstrapApply(ctx context.Context, name string) (claimed, already bool, err error) {
 	q := db.ForSchema(s.pg, s.dbSchema())
 	name = s.bootstrapApplyName(name)
-	var exists bool
-	if err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles.bootstrap_applies WHERE name = $1)`, name).Scan(&exists); err != nil {
-		return false, false, err
-	}
-	if exists {
-		return false, true, nil
-	}
-	var stateRows int64
+	var nameClaimed, anyClaimed, graphEmpty bool
 	if err := q.QueryRow(ctx, `
 		SELECT
-			(SELECT count(*) FROM profiles.users WHERE deleted_at IS NULL)
-			+
-			(SELECT count(*) FROM profiles.remote_applications)
-	`).Scan(&stateRows); err != nil {
+			EXISTS (SELECT 1 FROM profiles.bootstrap_applies WHERE name = $1),
+			EXISTS (SELECT 1 FROM profiles.bootstrap_applies),
+			NOT EXISTS (SELECT 1 FROM profiles.users WHERE deleted_at IS NULL)
+			AND NOT EXISTS (SELECT 1 FROM profiles.remote_applications)
+	`, name).Scan(&nameClaimed, &anyClaimed, &graphEmpty); err != nil {
 		return false, false, err
 	}
-	if stateRows > 0 {
+	if nameClaimed {
+		return false, true, nil
+	}
+	if !anyClaimed && !graphEmpty {
 		return false, false, ErrBootstrapDatabaseNotEmpty
 	}
 	tag, err := q.Exec(ctx, `INSERT INTO profiles.bootstrap_applies (name) VALUES ($1) ON CONFLICT DO NOTHING`, name)
 	if err != nil {
 		return false, false, err
 	}
-	if tag.RowsAffected() == 0 {
+	if tag.RowsAffected() == 0 || anyClaimed {
 		return false, true, nil
 	}
 	return true, false, nil
@@ -331,7 +334,7 @@ func (s *Service) applyBootstrapRemoteApplication(ctx context.Context, app Boots
 	if role == "" {
 		return nil
 	}
-	return s.AddRemoteApplicationMember(ctx, ra.ID, role)
+	return s.AssignRemoteApplicationRole(ctx, ra.ID, role)
 }
 
 func validateBootstrapUserPassword(p BootstrapUserPassword) error {

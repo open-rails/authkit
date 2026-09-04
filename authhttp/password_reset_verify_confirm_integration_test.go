@@ -53,6 +53,9 @@ func (s *captureEmailSender) SendAccountRegistrationInvite(context.Context, stri
 
 func (s *captureEmailSender) SendLoginCode(context.Context, string, string, string) error { return nil }
 func (s *captureEmailSender) SendWelcome(context.Context, string, string) error           { return nil }
+func (s *captureEmailSender) SendContactChanged(context.Context, string, string, embedded.ContactChange) error {
+	return nil
+}
 
 func (s *captureEmailSender) passwordResetToken(t *testing.T) string {
 	t.Helper()
@@ -121,6 +124,9 @@ func (s *captureSMSSender) SendPasswordResetLink(_ context.Context, _ string, re
 }
 
 func (s *captureSMSSender) SendLoginCode(context.Context, string, string) error { return nil }
+func (s *captureSMSSender) SendContactChanged(context.Context, string, embedded.ContactChange) error {
+	return nil
+}
 
 func (s *captureSMSSender) passwordResetToken(t *testing.T) string {
 	t.Helper()
@@ -155,11 +161,16 @@ func tokenFromURL(raw string) string {
 }
 
 func TestPasswordResetConfirmConsumesTokenDirectly(t *testing.T) {
+	forEachStore(t, testPasswordResetConfirmConsumesTokenDirectly)
+}
+
+func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeralStore) {
 	pool := newServerTestPool(t)
 	ctx := context.Background()
 	emailSender := &captureEmailSender{}
 	smsSender := &captureSMSSender{}
-	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender)), WithoutRateLimiter())
+	opts := append(store.engineOpts(), embedded.WithEmailSender(emailSender), embedded.WithSMSSender(smsSender))
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool, opts...), WithoutRateLimiter())
 	require.NoError(t, err)
 
 	suffix := uniqueSuffix()

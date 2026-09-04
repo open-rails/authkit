@@ -1,13 +1,10 @@
 name: Security Scan
 
-# Supply-chain / dependency / SCA security scanning, bringing AuthKit to parity
-# with the OpenRails security pipeline. This complements (does not replace) the
-# Go SAST baseline that already lives in:
-#   - go-sast.yaml  — gosec (SARIF) + go vet + staticcheck
-#   - codeql.yaml   — CodeQL dataflow/taint analysis
-# Here we add the scanners those two don't cover: dependency CVEs (govulncheck),
-# software-composition + secret + misconfig scanning (Trivy), and lint quality
-# (golangci-lint, advisory).
+# Supply-chain / dependency / SCA security scanning. This complements the
+# static analysis in go-sast.yaml (go vet + staticcheck) and codeql.yaml
+# (CodeQL dataflow/taint analysis) with the scanners those two don't cover:
+# dependency CVEs (govulncheck) and software-composition + secret + misconfig
+# scanning (Trivy). Both gate.
 
 on:
   push:
@@ -56,7 +53,7 @@ jobs:
       - name: Download modules
         run: go mod download
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
       - name: Run govulncheck
         run: govulncheck ./...
 
@@ -74,11 +71,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      # NOTE: pin this to a commit SHA to match AuthKit's action-hardening policy
-      # once a vetted SHA is chosen (kept on a version tag here for parity with
-      # the OpenRails pipeline it mirrors).
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -89,4 +83,4 @@ jobs:
           # .runtime holds the auto-generated, git-ignored dev signing key (never
           # committed, absent from CI checkouts); skip it so a local scan or a
           # stray dev artifact can't trip the secret scanner.
-          skip-dirs: testing,migrations,agents,**/.runtime
+          skip-dirs: '**/.runtime'

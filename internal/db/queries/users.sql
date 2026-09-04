@@ -142,18 +142,6 @@ ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, hash
 -- name: UserDeleteHard :exec
 DELETE FROM profiles.users WHERE id = $1;
 
--- SessionsRevokeAllQuiet is AdminDeleteUser's pre-delete sweep; unlike
--- SessionsRevokeAll it returns nothing (no per-session revoke logging).
--- name: SessionsRevokeAllQuiet :exec
-UPDATE profiles.refresh_sessions SET revoked_at = now() WHERE user_id = $1 AND issuer = $2;
-
--- #125 D7: pre-delete cleanup for the hard-delete/purge path (invite tables all
--- CASCADE on invited_by; only group role assignments need an explicit sweep).
-
--- name: GroupAssignmentsDeleteByUser :exec
-DELETE FROM profiles.group_user_roles
-WHERE user_id = sqlc.arg(user_id)::uuid;
-
 -- name: UserApplyEmailChange :exec
 UPDATE profiles.users SET email = lower(sqlc.arg(email)::text), email_verified = true, updated_at = NOW() WHERE id = $1;
 

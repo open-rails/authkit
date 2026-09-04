@@ -73,7 +73,11 @@ func (s *Service) handleUserMeGET(w http.ResponseWriter, r *http.Request) {
 		preferredLanguage = &language
 	}
 
-	hasPassword := s.svc.HasPassword(r.Context(), adminUser.ID)
+	hasPassword, err := s.svc.HasPassword(r.Context(), adminUser.ID)
+	if err != nil {
+		serverErr(w, ErrDatabaseError)
+		return
+	}
 	solanaLinkedAccount, slErr := s.svc.GetSolanaLinkedAccount(r.Context(), adminUser.ID)
 	solanaAddress := ""
 	if solanaLinkedAccount != nil {
