@@ -200,18 +200,9 @@ func (s *Service) RecordFailedPasswordlessCode(ctx context.Context, identifier s
 	if err != nil {
 		return
 	}
-	key := keyPasswordlessAttempts + channel + ":" + normalized
-	n := 0
-	if v, ok, _ := s.ephemGetString(ctx, key); ok {
-		_, _ = fmt.Sscanf(v, "%d", &n)
-	}
-	n++
-	if n >= maxEmailVerifyCodeAttempts {
+	if s.recordFailedAttempt(ctx, keyPasswordlessAttempts+channel+":"+normalized, defaultPasswordlessTTL, maxEmailVerifyCodeAttempts) {
 		s.deletePasswordlessByTarget(ctx, channel, normalized)
-		_ = s.ephemDel(ctx, key)
-		return
 	}
-	_ = s.ephemSetString(ctx, key, fmt.Sprintf("%d", n), defaultPasswordlessTTL)
 }
 
 func (s *Service) ClearPasswordlessCodeAttempts(ctx context.Context, identifier string) {

@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -275,18 +274,9 @@ func (s *Service) RecordFailedDeviceKeyEnrollment(ctx context.Context, enrollmen
 	if enrollmentID == "" || !s.useEphemeralStore() {
 		return
 	}
-	key := keyDeviceKeyEnrollmentAttempt + enrollmentID
-	n := 0
-	if value, ok, _ := s.ephemGetString(ctx, key); ok {
-		n, _ = strconv.Atoi(value)
-	}
-	n++
-	if n >= deviceKeyMaxCodeAttempts {
+	if s.recordFailedAttempt(ctx, keyDeviceKeyEnrollmentAttempt+enrollmentID, deviceKeyChallengeTTL, deviceKeyMaxCodeAttempts) {
 		_ = s.ephemDel(ctx, keyDeviceKeyEnrollment+enrollmentID)
-		_ = s.ephemDel(ctx, key)
-		return
 	}
-	_ = s.ephemSetString(ctx, key, strconv.Itoa(n), deviceKeyChallengeTTL)
 }
 
 // BeginDeviceKeyLogin returns an indistinguishable challenge for active, revoked, and unknown ids.
