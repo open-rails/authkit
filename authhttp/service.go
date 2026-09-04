@@ -3,6 +3,7 @@ package authhttp
 import (
 	"context"
 	"github.com/open-rails/authkit/verify"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -30,6 +31,8 @@ type Service struct {
 	rlOverrides         map[string]ratelimit.Limit // WithRateLimitOverrides: merged onto DefaultRateLimits (#242)
 	clientIP            ClientIPFunc
 	clientIPExplicit    bool           // WithClientIPFunc: host owns the strategy; proxy sets are not composed
+	directPeerIP        bool           // WithDirectPeerIP: host asserts no proxy in front (ak#299)
+	undeclaredProxyOnce sync.Once      // one-shot tripwire: private peer carrying forwarded headers
 	trustedProxies      []netip.Prefix // WithTrustedProxies: X-Forwarded-For walk
 	cloudflareProxies   []netip.Prefix // WithCloudflareProxies: + CF-Connecting-IP fallback
 	trustedProxyErr     error          // deferred proxy CIDR parse error, surfaced by NewServer
@@ -155,7 +158,25 @@ func (s *Service) allowResult(r *http.Request, bucket string) RateLimitResult {
 	if strings.TrimSpace(ip) == "" {
 		return RateLimitResult{Allowed: true}
 	}
+	s.undeclaredProxyTripwire(r, ip)
 	return s.allowResultForKey(bucket, "auth:"+bucket+":ip:"+ip)
+}
+
+// undeclaredProxyTripwire logs once per process when the rate-limit key is a
+// private/loopback peer that carries forwarded headers: a proxy the host did not
+// declare is in front, so every client shares that peer's bucket (ak#299).
+func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
+	if r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("CF-Connecting-IP") == "" {
+		return
+	}
+	a, err := netip.ParseAddr(ip)
+	if err != nil || isPublicAddr(a) {
+		return
+	}
+	s.undeclaredProxyOnce.Do(func() {
+		slog.Default().Error("authkit: rate-limit key is a private peer that carries forwarded headers; an undeclared proxy is in front and every client shares one bucket — pass authhttp.WithTrustedProxies/WithCloudflareProxies",
+			slog.String("peer", ip))
+	})
 }
 
 // CheckSMSHealth probes (without sending an SMS) whether the configured sender

@@ -1,12 +1,15 @@
 package authhttp
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,4 +112,67 @@ func TestClientIPTrustScope_LimiterKey(t *testing.T) {
 		require.NotEqual(t, http.StatusTooManyRequests, post(srv, "103.21.244.5:443", "203.0.113.2", 2))
 		require.Equal(t, http.StatusTooManyRequests, post(srv, "103.21.244.5:443", "203.0.113.2", 3), "same client IP is one bucket")
 	})
+}
+
+// TestNewServer_RequiresClientIPPosture pins ak#299: a production-like
+// environment must declare how the client IP is derived, or construction fails.
+func TestNewServer_RequiresClientIPPosture(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
+	t.Cleanup(func() { _ = rdb.Close() })
+	prod := newServerTestConfig()
+	prod.Environment = "production"
+
+	_, err := NewServer(newServerClient(t, prod, newNoDBPool(t)), WithRedis(rdb))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "client-IP posture")
+
+	for name, opt := range map[string]Option{
+		"direct peer":       WithDirectPeerIP(),
+		"trusted proxies":   WithTrustedProxies("10.0.0.0/8"),
+		"cloudflare":        WithCloudflareProxies("103.21.244.0/22"),
+		"explicit strategy": WithClientIPFunc(DefaultClientIP()),
+	} {
+		_, err := NewServer(newServerClient(t, prod, newNoDBPool(t)), WithRedis(rdb), opt)
+		require.NoError(t, err, name)
+	}
+
+	// Dev stays posture-free.
+	_, err = NewServer(newServerClient(t, newServerTestConfig(), newNoDBPool(t)))
+	require.NoError(t, err)
+}
+
+// TestUndeclaredProxyTripwire pins the runtime half of ak#299: when the
+// rate-limit key resolves to a private peer that carries forwarded headers, one
+// ERROR line is logged per process; declaring the proxy silences it.
+func TestUndeclaredProxyTripwire(t *testing.T) {
+	pool := newServerTestPool(t)
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	const marker = "undeclared proxy is in front"
+	post := func(srv *Service, peer string, headers map[string]string) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/email/password/reset/request", strings.NewReader(`{"email":"tripwire@example.com"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.RemoteAddr = peer
+		for k, v := range headers {
+			r.Header.Set(k, v)
+		}
+		srv.APIHandler().ServeHTTP(w, r)
+	}
+
+	srv, err := NewServer(newServerClient(t, newServerTestConfig(), pool))
+	require.NoError(t, err)
+	post(srv, "10.0.0.5:1234", nil)
+	require.Equal(t, 0, strings.Count(buf.String(), marker), "private peer without forwarded headers is not a proxy signal")
+	post(srv, "10.0.0.5:1234", map[string]string{"X-Forwarded-For": "203.0.113.9"})
+	post(srv, "10.0.0.5:1234", map[string]string{"CF-Connecting-IP": "203.0.113.9"})
+	require.Equal(t, 1, strings.Count(buf.String(), marker), "exactly one tripwire line per process")
+
+	buf.Reset()
+	declared, err := NewServer(newServerClient(t, newServerTestConfig(), pool), WithTrustedProxies("10.0.0.0/8"))
+	require.NoError(t, err)
+	post(declared, "10.0.0.5:1234", map[string]string{"X-Forwarded-For": "203.0.113.9"})
+	require.Equal(t, 0, strings.Count(buf.String(), marker), "declared proxy resolves to the public client; no tripwire")
 }

@@ -184,6 +184,9 @@ func (s *Service) validate(cfg embedded.Config) error {
 		if s.rd == nil {
 			return fmt.Errorf("authkit: Environment %q is production-like and requires a Redis-compatible ephemeral store — pass authhttp.WithRedis(...); a memory store is dev-only", cfg.Environment)
 		}
+		if !s.clientIPExplicit && !s.directPeerIP && len(s.trustedProxies) == 0 && len(s.cloudflareProxies) == 0 {
+			return fmt.Errorf("authkit: Environment %q is production-like and requires an explicit client-IP posture — pass authhttp.WithTrustedProxies(...)/WithCloudflareProxies(...) for the proxies in front, or authhttp.WithDirectPeerIP() to assert there are none; behind an undeclared proxy every client shares one rate-limit bucket", cfg.Environment)
+		}
 	}
 	// #260: the published-document surface is never public and never dead
 	// config. Providers with no authorized readers would mount a route that
@@ -351,6 +354,15 @@ func parseProxyCIDRs(kind string, cidrs []string) ([]netip.Prefix, error) {
 		prefixes = append(prefixes, p)
 	}
 	return prefixes, nil
+}
+
+// WithDirectPeerIP asserts that nothing sits in front of AuthKit: RemoteAddr IS
+// the end client. Production-like environments must declare a client-IP posture
+// (this, WithTrustedProxies/WithCloudflareProxies, or WithClientIPFunc) or
+// NewServer refuses — behind an undeclared proxy every user shares the proxy's one
+// per-IP bucket and a handful of anonymous requests locks everyone out (ak#299).
+func WithDirectPeerIP() Option {
+	return func(s *Service) { s.directPeerIP = true }
 }
 
 // WithClientIPFunc sets the client-IP extraction strategy. ADVANCED/TEST ONLY:

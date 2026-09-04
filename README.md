@@ -161,6 +161,9 @@ func setupAuth() (*gin.Engine, *authhttp.Service, authkit.Client, error) {
 		// Trust X-Forwarded-For only from infrastructure that appends it. Add
 		// WithCloudflareProxies(<Cloudflare egress CIDRs>) ONLY where Cloudflare
 		// fronts the origin; CF-Connecting-IP is never trusted from other proxies.
+		// Production-like environments REQUIRE an IP posture: one of these, or
+		// WithDirectPeerIP() when nothing sits in front (otherwise every client
+		// behind an undeclared proxy shares one rate-limit bucket).
 		authhttp.WithTrustedProxies("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"),
 		authhttp.WithLanguageConfig(authhttp.LanguageConfig{
 			Supported: []string{"en", "es"},

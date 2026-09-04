@@ -85,7 +85,7 @@ func TestNewServer_OptionsAndConditionalValidation(t *testing.T) {
 
 	// Production WITH Redis passes.
 	rdb := testdb.ScratchRedis(t)
-	_, err = NewServer(newServerClient(t, prodCfg, pool), WithRedis(rdb))
+	_, err = NewServer(newServerClient(t, prodCfg, pool), WithRedis(rdb), WithDirectPeerIP())
 	require.NoError(t, err, "production with Redis must pass validation")
 }
 
@@ -126,7 +126,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	// Engine has Redis; NewServer gets NO authhttp.WithRedis. Production validation
 	// (which previously only checked the HTTP side) must now pass via reuse.
 	client := newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb))
-	srv, err := NewServer(client)
+	srv, err := NewServer(client, WithDirectPeerIP())
 	require.NoError(t, err, "engine Redis must satisfy production validation without authhttp.WithRedis")
 	require.NotNil(t, srv)
 	require.Same(t, rdb, srv.rd, "HTTP layer must reuse the engine's *redis.Client (no split-brain)")
@@ -135,7 +135,7 @@ func TestNewServer_ReusesEngineRedis(t *testing.T) {
 	other := testdb.ScratchRedis(t)
 	override, err := NewServer(
 		newServerClient(t, prodCfg, newNoDBPool(t), embedded.WithRedis(rdb)),
-		WithRedis(other),
+		WithRedis(other), WithDirectPeerIP(),
 	)
 	require.NoError(t, err)
 	require.Same(t, other, override.rd, "explicit authhttp.WithRedis must override the engine's client")
