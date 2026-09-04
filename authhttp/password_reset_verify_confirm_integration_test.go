@@ -227,7 +227,7 @@ func testPasswordResetConfirmConsumesTokenDirectly(t *testing.T, store ephemeral
 
 	w = serveJSON(srv, http.MethodPost, "/phone/password/reset/confirm", `{"token":"`+phoneToken+`","new_password":"Phone-password-12345"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"user_id":"`+phoneUser.ID+`"`)
+	require.NotContains(t, w.Body.String(), `"user_id"`, "phone reset confirm must not echo the user id (ak#324)")
 
 	for _, path := range []string{
 		"/email/password/reset/confirm-link",
