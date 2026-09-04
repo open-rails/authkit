@@ -1,8 +1,8 @@
 -- AuthKit PostgreSQL schema.
 -- PostgreSQL 18+ is required for native uuidv7() defaults.
 
-SET lock_timeout = '10s';
-SET statement_timeout = '300s';
+SET LOCAL lock_timeout = '10s';
+SET LOCAL statement_timeout = '300s';
 
 CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
