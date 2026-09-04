@@ -72,9 +72,21 @@ type Verifier struct {
 	fedAudiences []string
 	fedKnown     map[string]bool
 
-	// negCache remembers issuers the remote-application source did not return as
-	// enabled, for negCacheTTL, so garbage/unknown `iss` values don't hit the DB
-	// per request. fedFlight single-flights concurrent first-use of the same issuer.
+	// fedSnapshot is the enabled remote-application set from the last
+	// ListRemoteApplications (bulk load or on-miss refresh), keyed by issuer. The
+	// lazy-load-on-miss path answers a token's self-asserted `iss` from it and
+	// refreshes it at most once per fedSnapshotTTL, so attacker-chosen issuers
+	// never reach the store and no map grows with them (ak#297).
+	// fedSnapshotFlight single-flights the refresh.
+	fedSnapshot       map[string]authkit.RemoteApplication
+	fedSnapshotAt     time.Time
+	fedSnapshotTTL    time.Duration
+	fedSnapshotFlight chan struct{}
+
+	// negCache remembers snapshot members whose registration (JWKS fetch)
+	// failed, for negCacheTTL; fedFlight single-flights concurrent first-use of
+	// one issuer. Both are keyed only by snapshot members, so they are bounded
+	// by the registered set, and negCache is swept on every snapshot refresh.
 	negCache    map[string]time.Time
 	negCacheTTL time.Duration
 	fedFlight   map[string]chan struct{}
@@ -391,6 +403,8 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		issuers:          map[string]issuerEntry{},
 		byIss:            map[string]*issuerKeys{},
 		fedKnown:         map[string]bool{},
+		fedSnapshot:      map[string]authkit.RemoteApplication{},
+		fedSnapshotTTL:   5 * time.Second,
 		negCache:         map[string]time.Time{},
 		negCacheTTL:      5 * time.Second,
 		fedFlight:        map[string]chan struct{}{},
@@ -605,7 +619,9 @@ func remoteAppOptions(ra authkit.RemoteApplication) IssuerOptions {
 type RemoteApplicationSource interface {
 	ListRemoteApplications(ctx context.Context, enabledOnly bool) ([]authkit.RemoteApplication, error)
 	// GetRemoteApplication fetches a SINGLE remote_application by its issuer,
-	// used by the lazy-load-on-miss path in keyForToken. *authkit.Service already
+	// used after signature verification to resolve a service principal
+	// (remoteApplication). The lazy-load-on-miss path never calls it: it answers
+	// from the ListRemoteApplications snapshot (ak#297). *authkit.Service already
 	// implements this.
 	GetRemoteApplication(ctx context.Context, issuer string) (*authkit.RemoteApplication, error)
 }
@@ -639,6 +655,9 @@ func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplica
 	if err != nil {
 		return err
 	}
+	v.mu.Lock()
+	v.setSnapshotLocked(issuers)
+	v.mu.Unlock()
 
 	// Build the enabled set, then AddIssuer each (AddIssuer locks v.mu internally,
 	// so it must be called WITHOUT holding v.mu).
@@ -683,17 +702,98 @@ func (v *Verifier) LoadRemoteApplications(ctx context.Context, src RemoteApplica
 	return nil
 }
 
+// setSnapshotLocked replaces the enabled-issuer snapshot and sweeps negCache
+// entries that expired or left the enabled set. Caller holds v.mu.
+func (v *Verifier) setSnapshotLocked(apps []authkit.RemoteApplication) {
+	snap := make(map[string]authkit.RemoteApplication, len(apps))
+	for _, ra := range apps {
+		if id := strings.TrimSpace(ra.Issuer); id != "" && ra.Enabled {
+			snap[id] = ra
+		}
+	}
+	v.fedSnapshot = snap
+	v.fedSnapshotAt = time.Now()
+	for id, t := range v.negCache {
+		if _, ok := snap[id]; !ok || time.Since(t) >= v.negCacheTTL {
+			delete(v.negCache, id)
+		}
+	}
+}
+
+// FederationStats is a point-in-time view of the verifier's remote-application
+// lazy-load state, for diagnostics and tests. Every count is bounded by the
+// number of enabled remote applications, never by request traffic.
+type FederationStats struct {
+	Snapshot   int       // enabled issuers in the last snapshot
+	SnapshotAt time.Time // when it was taken (zero: never)
+	Negative   int       // snapshot members whose registration recently failed
+	InFlight   int       // issuers currently being registered
+}
+
+func (v *Verifier) FederationStats() FederationStats {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return FederationStats{Snapshot: len(v.fedSnapshot), SnapshotAt: v.fedSnapshotAt, Negative: len(v.negCache), InFlight: len(v.fedFlight)}
+}
+
+// snapshotApplication answers whether issuer is an enabled remote application,
+// from the in-memory snapshot when it is fresh, otherwise after ONE
+// single-flighted ListRemoteApplications refresh. A refresh that fails still
+// stamps the snapshot so a failing store is consulted at most once per TTL.
+func (v *Verifier) snapshotApplication(ctx context.Context, src RemoteApplicationSource, issuer string) (authkit.RemoteApplication, bool) {
+	v.mu.Lock()
+	if ra, ok := v.fedSnapshot[issuer]; ok {
+		v.mu.Unlock()
+		return ra, true
+	}
+	if time.Since(v.fedSnapshotAt) < v.fedSnapshotTTL {
+		v.mu.Unlock()
+		return authkit.RemoteApplication{}, false
+	}
+	if wait := v.fedSnapshotFlight; wait != nil {
+		v.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return authkit.RemoteApplication{}, false
+		}
+		v.mu.RLock()
+		ra, ok := v.fedSnapshot[issuer]
+		v.mu.RUnlock()
+		return ra, ok
+	}
+	done := make(chan struct{})
+	v.fedSnapshotFlight = done
+	v.mu.Unlock()
+
+	apps, err := src.ListRemoteApplications(ctx, true)
+	v.mu.Lock()
+	if err == nil {
+		v.setSnapshotLocked(apps)
+	} else {
+		v.fedSnapshotAt = time.Now()
+	}
+	v.fedSnapshotFlight = nil
+	close(done)
+	ra, ok := v.fedSnapshot[issuer]
+	v.mu.Unlock()
+	return ra, ok
+}
+
 // lazyLoadIssuer is the lazy-load-on-miss path: when matchIssuer misses and a
-// remote-application source is configured, fetch that ONE issuer from the store
-// and, if ACTIVE, register it (AddIssuer fetches+caches its JWKS). All DB/JWKS
-// work happens WITHOUT holding v.mu (AddIssuer locks v.mu internally, so calling
-// it under the lock would deadlock). A short negative cache + single-flight stop
-// garbage `iss` values and concurrent first-use from hammering the DB/JWKS.
+// remote-application source is configured, decide from the enabled-issuer
+// snapshot whether `iss` is a registered application and, if so, register it
+// (AddIssuer fetches+caches its JWKS). It runs inside the JWT key callback,
+// before the signature is checked and before any handler rate limit, so nothing
+// here may cost per distinct attacker-chosen `iss`: a value that cannot be a
+// registered issuer is refused by shape, the store is consulted at most once per
+// fedSnapshotTTL, and negCache/fedFlight are keyed only by snapshot members.
+// All DB/JWKS work happens WITHOUT holding v.mu (AddIssuer locks v.mu).
 //
 // Returns true if the issuer is now registered (caller should retry matchIssuer).
 func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 	issuer = strings.TrimSpace(issuer)
-	if issuer == "" {
+	if !authkit.ValidRemoteApplicationIssuer(issuer) {
 		return false
 	}
 
@@ -703,13 +803,18 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 		v.mu.Unlock()
 		return false
 	}
-	// Negative cache: skip recently-failed lookups.
 	if t, ok := v.negCache[issuer]; ok && time.Since(t) < v.negCacheTTL {
 		v.mu.Unlock()
 		return false
 	}
-	// Single-flight: if another goroutine is already loading this issuer, wait
-	// for it, then let the caller re-check the in-memory cache.
+	v.mu.Unlock()
+
+	ra, ok := v.snapshotApplication(ctx, src, issuer)
+	if !ok {
+		return false
+	}
+
+	v.mu.Lock()
 	if done, inflight := v.fedFlight[issuer]; inflight {
 		v.mu.Unlock()
 		select {
@@ -731,15 +836,7 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 		v.mu.Unlock()
 	}()
 
-	fi, err := src.GetRemoteApplication(ctx, issuer)
-	if err != nil || fi == nil || !fi.Enabled {
-		v.mu.Lock()
-		v.negCache[issuer] = time.Now()
-		v.mu.Unlock()
-		return false
-	}
-
-	if err := v.AddIssuer(fi.Issuer, aud, remoteAppOptions(*fi)); err != nil {
+	if err := v.AddIssuer(ra.Issuer, aud, remoteAppOptions(ra)); err != nil {
 		v.mu.Lock()
 		v.negCache[issuer] = time.Now()
 		v.mu.Unlock()
@@ -747,7 +844,7 @@ func (v *Verifier) lazyLoadIssuer(ctx context.Context, issuer string) bool {
 	}
 
 	v.mu.Lock()
-	v.fedKnown[strings.TrimSpace(fi.Issuer)] = true
+	v.fedKnown[strings.TrimSpace(ra.Issuer)] = true
 	delete(v.negCache, issuer)
 	v.mu.Unlock()
 	return true
