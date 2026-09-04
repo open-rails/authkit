@@ -35,6 +35,9 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 		unauthorized(w, ErrUnauthorized)
 		return
 	}
+	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
+		return
+	}
 	state := randB64(32)
 	nonce := randB64(16)
 	verifier := ""

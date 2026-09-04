@@ -171,6 +171,9 @@ func (s *Service) handleSolanaLinkPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if ok, _ := s.requireFreshAuthOrPassword(w, r, claims, ""); !ok {
+		return
+	}
 	output, ok := decodeSIWSOutput(w, r)
 	if !ok {
 		return

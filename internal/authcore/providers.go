@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	authkit "github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/internal/db"
 )
@@ -165,9 +166,8 @@ func (s *Service) GetProviderLinkByIssuer(ctx context.Context, issuer, subject s
 }
 
 func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, providerSlug, subject string, email *string) error {
-	// Store provider slug for UI, enforce uniqueness on (issuer, subject) and (user_id, issuer).
-	// The delete-other-subjects (allows switching e.g. Discord accounts) and the upsert run in
-	// ONE transaction: a failure can't leave the user's old link deleted and the new one missing.
+	// Both unique constraints arbitrate ownership atomically. A new subject
+	// cannot replace the user's existing identity for this issuer.
 	if s.pg == nil {
 		return nil
 	}
@@ -175,26 +175,15 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 	if err != nil {
 		return err
 	}
-
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return err
+	var slug *string
+	if providerSlug != "" {
+		slug = &providerSlug
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.qtx(tx)
-
-	// First delete any old link for this user+issuer with a different subject.
-	if err := qtx.UserProviderDeleteOtherSubjects(ctx, db.UserProviderDeleteOtherSubjectsParams{UserID: userID, Issuer: issuer, Subject: subject}); err != nil {
-		return err
-	}
-	// The upsert's ON CONFLICT (issuer, subject) DO UPDATE is constrained to the same user_id,
-	// so a subject already owned by a DIFFERENT user yields zero affected rows (no cross-user
-	// write) and RETURNING produces pgx.ErrNoRows — surfaced as a 409-class conflict.
-	linked, err := qtx.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
+	linked, err := s.q.UserProviderUpsertByIssuer(ctx, db.UserProviderUpsertByIssuerParams{
 		ID:              providerID,
 		UserID:          userID,
 		Issuer:          issuer,
-		ProviderSlug:    &providerSlug,
+		ProviderSlug:    slug,
 		Subject:         subject,
 		EmailAtProvider: email,
 	})
@@ -202,12 +191,12 @@ func (s *Service) LinkProviderByIssuer(ctx context.Context, userID, issuer, prov
 		if errors.Is(err, pgx.ErrNoRows) {
 			return authkit.ErrProviderAlreadyLinked
 		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "user_providers_user_id_issuer_key" {
+			return authkit.ErrProviderChangeRequiresUnlink
+		}
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-
 	if providerSlug == SolanaProviderSlug && issuer == s.solanaIssuer() && linked.VerifiedAt != nil {
 		s.maybeResolveSolanaSNSAfterLink(ctx, userID, subject)
 	}
@@ -226,14 +215,7 @@ func (s *Service) getProviderLinkByIssuerInternal(ctx context.Context, issuer, s
 }
 
 func (s *Service) linkProvider(ctx context.Context, userID, issuer, subject string, email *string) error {
-	if s.pg == nil {
-		return nil
-	}
-	providerID, err := newUUIDV7String()
-	if err != nil {
-		return err
-	}
-	return s.q.UserProviderInsertSimple(ctx, db.UserProviderInsertSimpleParams{ID: providerID, UserID: userID, Issuer: issuer, Subject: subject, EmailAtProvider: email})
+	return s.LinkProviderByIssuer(ctx, userID, issuer, "", subject, email)
 }
 
 // setProviderUsername stores a provider-specific username into profile jsonb as {"username": <value>}.
