@@ -18,6 +18,7 @@ type CustomRoleResolver = authcore.CustomRoleResolver
 type DelegatedAttributeProvider = authcore.DelegatedAttributeProvider
 type DelegatedConfig = authcore.DelegatedConfig
 type DocumentsConfig = authcore.DocumentsConfig
+type DocumentReader = authcore.DocumentReader
 type EmailSender = authcore.EmailSender
 type EntitlementFilterProvider = authcore.EntitlementFilterProvider
 type EntitlementsProvider = authcore.EntitlementsProvider

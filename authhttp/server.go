@@ -184,13 +184,13 @@ func (s *Service) validate(cfg embedded.Config) error {
 	}
 	// #260: the published-document surface is never public and never dead
 	// config. Providers with no authorized readers would mount a route that
-	// 401s everyone; reader slugs with no providers declare a surface that
-	// does not exist. Both refuse at construction.
-	if len(s.documentProviders) > 0 && len(cfg.Documents.ReaderSlugs) == 0 {
-		return fmt.Errorf("authkit: WithDocuments providers are wired but Config.Documents.ReaderSlugs is empty — publication is never public; declare which remote-application slugs may read")
+	// 401s everyone; readers with no providers declare a surface that does
+	// not exist. Both refuse at construction.
+	if len(s.documentProviders) > 0 && len(cfg.Documents.Readers) == 0 {
+		return fmt.Errorf("authkit: WithDocuments providers are wired but Config.Documents.Readers is empty — publication is never public; declare which remote applications may read")
 	}
-	if len(s.documentProviders) == 0 && len(cfg.Documents.ReaderSlugs) > 0 {
-		return fmt.Errorf("authkit: Config.Documents.ReaderSlugs is set but no document providers are wired — pass authhttp.WithDocuments(...) or drop the dead config")
+	if len(s.documentProviders) == 0 && len(cfg.Documents.Readers) > 0 {
+		return fmt.Errorf("authkit: Config.Documents.Readers is set but no document providers are wired — pass authhttp.WithDocuments(...) or drop the dead config")
 	}
 	seenDocumentTypes := make(map[string]bool, len(s.documentProviders))
 	for _, p := range s.documentProviders {

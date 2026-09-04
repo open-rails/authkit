@@ -366,12 +366,15 @@ func (v *Verifier) resolveRemoteApplicationSelf(ctx context.Context, issuer, tok
 	}
 
 	return Claims{
-		Issuer:                issuer,
-		TokenType:             RemoteApplicationTokenType,
-		TokenTyp:              tokenTyp,
-		Permissions:           perms,
-		RemoteApplicationID:   ra.ID,
-		RemoteApplicationSlug: ra.Slug,
+		Issuer:                     issuer,
+		TokenType:                  RemoteApplicationTokenType,
+		TokenTyp:                   tokenTyp,
+		Permissions:                perms,
+		RemoteApplicationID:        ra.ID,
+		RemoteApplicationSlug:      ra.Slug,
+		RemoteApplicationDomain:    ra.Domain,
+		RemoteApplicationTier:      ra.Tier,
+		RemoteApplicationTrustRoot: ra.TrustRoot,
 		// Bind the stored authority to its owning group instance (#248),
 		// resolved server-side alongside the permission ceiling.
 		PermissionGroupPersona:  authority.Persona,

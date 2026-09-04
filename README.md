@@ -638,8 +638,11 @@ srv, err := authhttp.NewServer(client, authhttp.WithDocuments(docSvc))
 
 `MountHandler` then serves `GET|HEAD /.well-known/authkit/documents/{digest}`
 (root-anchored, `RouteDocuments`). Reader authorization is config —
-`Config.Documents.ReaderSlugs` names the remote applications allowed to fetch;
-publication is never public and a providers/readers mismatch refuses at boot.
+`Config.Documents.Readers` pins the remote applications allowed to fetch by an
+identity nobody else can claim (application id, proven domain, or the issuer of
+a root-registered application — never the slug), at the approved tier unless
+`AllowRegisteredTier` is set; publication is never public and a
+providers/readers mismatch refuses at boot.
 
 `POST /delegated/token` (`RouteDelegated`, mounted when
 `Config.Delegated.Audiences` is set) mints delegated tokens for the
