@@ -34,6 +34,7 @@ type PersonaCapabilities = authcore.PersonaCapabilities
 type InstanceCreationDef = authcore.InstanceCreationDef
 type IdentityConfig = authcore.IdentityConfig
 type KeysConfig = authcore.KeysConfig
+type EphemeralConfig = authcore.EphemeralConfig
 type Option = authcore.Option
 type Passkey = authcore.Passkey
 type PasskeyConfig = authcore.PasskeyConfig

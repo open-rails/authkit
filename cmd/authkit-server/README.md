@@ -48,6 +48,7 @@ The handler and the SDK are **generated** from the `authkit.Client` interface
 | `AUTHKIT_REDIS_ADDR` | no | — | Redis address (ephemeral store + OIDC/SIWS state); pair with `AUTHKIT_REDIS_PASSWORD` when the server requires auth |
 | `AUTHKIT_REDIS_URL` | no | — | Full `redis://`/`rediss://` URL (password, TLS, and db ride in the URL); mutually exclusive with `AUTHKIT_REDIS_ADDR` |
 | `AUTHKIT_REDIS_PASSWORD` | no | — | Password for `AUTHKIT_REDIS_ADDR` deployments (URL form carries its own) |
+| `AUTHKIT_ALLOW_MEMORY_EPHEMERAL` | no | `false` | Non-dev boot without Redis refuses (per-process 2FA codes, pending registrations and rate limits are wrong for replicas); set `true` only for a deliberate single-instance deployment |
 | `AUTHKIT_REGISTRATION_VERIFICATION` | no | `none` | `none`/`optional`/`required` (`required` needs a configured sender) |
 | `AUTHKIT_API_PREFIX` | no | `/api/v1` | Mount prefix for browser routes |
 | `AUTHKIT_MIGRATE_ON_START` | no | `false` | Apply the schema before serving. Prefer the one-shot `migrate` command in prod. |

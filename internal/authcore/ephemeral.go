@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
+	memorystore "github.com/open-rails/authkit/internal/storage/memory"
 	redisstore "github.com/open-rails/authkit/internal/storage/redis"
 	"github.com/redis/go-redis/v9"
 )
@@ -39,6 +41,32 @@ func (s *Service) EphemeralRedisClient() *redis.Client {
 	if kv, ok := s.ephemeralStore.(*redisstore.KV); ok {
 		return kv.Client()
 	}
+	return nil
+}
+
+// EphemeralBackend names the live ephemeral store: "redis", "memory", "custom"
+// (a host-supplied EphemeralStore) or "none".
+func (s *Service) EphemeralBackend() string {
+	switch s.ephemeralStore.(type) {
+	case nil:
+		return "none"
+	case *redisstore.KV:
+		return "redis"
+	case *memorystore.KV:
+		return "memory"
+	}
+	return "custom"
+}
+
+// checkEphemeralBackend refuses the per-process memory store outside a dev-like
+// environment unless Ephemeral.AllowMemory opts in (#305), and logs which
+// backend is live so a mis-wired deployment is visible at startup.
+func (s *Service) checkEphemeralBackend(cfg Config) error {
+	backend := s.EphemeralBackend()
+	if backend == "memory" && !IsDevEnvironment(cfg.Environment) && !cfg.Ephemeral.AllowMemory {
+		return fmt.Errorf("authkit: in-memory ephemeral store outside a dev environment (Environment=%q): pass embedded.WithRedis, or set Ephemeral.AllowMemory for a single-instance deployment", cfg.Environment)
+	}
+	slog.Info("authkit: ephemeral store", "backend", backend, "environment", cfg.Environment)
 	return nil
 }
 

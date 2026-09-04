@@ -21,6 +21,9 @@ type Config struct {
 	Registration RegistrationConfig
 	// Keys controls signing-key resolution (or verify-only mode).
 	Keys KeysConfig
+	// Ephemeral governs the short-lived state backend (2FA codes, pending
+	// registrations, reset tokens, rate-limit counters).
+	Ephemeral EphemeralConfig
 	// Identity declares external OAuth2/OIDC identity providers.
 	Identity IdentityConfig
 	// APIKeys configures opaque permission-group-owned machine credentials.
@@ -228,6 +231,19 @@ type RegistrationConfig struct {
 // variables here (#231): key material and the dev opt-in come from the host's
 // explicit configuration; binaries (cmd/authkit-server) read env once at their
 // own boundary and set these fields.
+// EphemeralConfig governs the ephemeral (short-lived state) backend. The
+// in-memory store and rate limiter are per-process: in a multi-replica
+// deployment they give per-replica 2FA codes, pending registrations and
+// N-times rate limits, so outside a dev-like Environment construction FAILS
+// without Redis (embedded.WithRedis) unless AllowMemory is set. Like
+// KeysConfig.AllowEphemeralDevKeys, the opt-in is an explicit field, never
+// derived from the environment.
+type EphemeralConfig struct {
+	// AllowMemory permits the in-memory ephemeral store and rate limiter
+	// outside a dev-like Environment (single-instance deployments only).
+	AllowMemory bool
+}
+
 type KeysConfig struct {
 	// Source can be nil — if nil, authkit resolves keys from the filesystem:
 	// <Path>/keys.json (default /vault/auth), hot-reloaded on rotation. When no
