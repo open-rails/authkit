@@ -73,7 +73,7 @@ func RequirePermission(checker PermissionChecker, perm string, resolve func(*htt
 				forbidden(w, "forbidden")
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), permissionScopeKey{}, scope)))
+			next.ServeHTTP(w, r.WithContext(WithPermissionScope(r.Context(), scope)))
 		})
 	}
 }
@@ -86,3 +86,10 @@ func PermissionScopeFromContext(ctx context.Context) (PermissionScope, bool) {
 }
 
 type permissionScopeKey struct{}
+
+// WithPermissionScope carries an already authorized scope into a trusted host
+// adapter's handler. Call only after Allow/AllowLive succeeds; this does not
+// authorize anything itself.
+func WithPermissionScope(ctx context.Context, scope PermissionScope) context.Context {
+	return context.WithValue(ctx, permissionScopeKey{}, scope)
+}
