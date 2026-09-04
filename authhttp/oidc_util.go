@@ -2,8 +2,10 @@ package authhttp
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"net/http"
 	"net/url"
 	"strings"
@@ -78,6 +80,13 @@ const oauthStateCookie = "authkit_oauth_state"
 
 const oauthStateCookieTTL = 15 * time.Minute
 
+// stateCookieName keys the cookie by the flow's state so two flows started in
+// one browser never clobber each other's cookie (#323).
+func stateCookieName(state string) string {
+	sum := sha256.Sum256([]byte(state))
+	return oauthStateCookie + "_" + hex.EncodeToString(sum[:4])
+}
+
 // setStateCookie stores the flow's state in an HttpOnly cookie. SameSite=Lax
 // (not Strict) is required so the cookie is sent on the cross-site top-level GET
 // navigation back from the IdP to the callback. A response_mode=form_post
@@ -86,7 +95,7 @@ const oauthStateCookieTTL = 15 * time.Minute
 // NewServer refuses form_post on non-HTTPS deployments.
 func (s *Service) setStateCookie(w http.ResponseWriter, r *http.Request, provider, state string) {
 	c := &http.Cookie{
-		Name:     oauthStateCookie,
+		Name:     stateCookieName(state),
 		Value:    state,
 		Path:     "/",
 		MaxAge:   int(oauthStateCookieTTL.Seconds()),
@@ -111,10 +120,11 @@ func callbackParams(r *http.Request) url.Values {
 	return r.URL.Query()
 }
 
-// clearStateCookie expires the state cookie (single-use).
-func clearStateCookie(w http.ResponseWriter) {
+// clearStateCookie expires this flow's state cookie (single-use); other flows'
+// cookies are untouched.
+func clearStateCookie(w http.ResponseWriter, state string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     oauthStateCookie,
+		Name:     stateCookieName(state),
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
@@ -130,7 +140,7 @@ func stateCookieMatches(r *http.Request, state string) bool {
 	if strings.TrimSpace(state) == "" {
 		return false
 	}
-	c, err := r.Cookie(oauthStateCookie)
+	c, err := r.Cookie(stateCookieName(state))
 	if err != nil || c == nil || c.Value == "" {
 		return false
 	}

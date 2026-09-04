@@ -101,7 +101,7 @@ func TestOAuthBrowserLoginCallbackPreservesReturnToIntegration(t *testing.T) {
 
 	var stateCookie *http.Cookie
 	for _, cookie := range start.Result().Cookies() {
-		if cookie.Name == oauthStateCookie {
+		if cookie.Name == stateCookieName(state) {
 			stateCookie = cookie
 			break
 		}

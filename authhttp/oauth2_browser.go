@@ -165,7 +165,7 @@ func (s *Service) handleOAuthCallbackGET(w http.ResponseWriter, r *http.Request,
 	// at flow start. This blocks login CSRF, where an attacker supplies a valid
 	// state+code captured from their own login.
 	cookieOK := stateCookieMatches(r, state)
-	clearStateCookie(w)
+	clearStateCookie(w, state)
 	if !cookieOK {
 		s.failBrowserFlow(w, r, nil, cfg.Name, http.StatusBadRequest, ErrInvalidState)
 		return
