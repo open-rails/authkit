@@ -156,9 +156,12 @@ func (s *Service) createUser(ctx context.Context, email, username string) (*User
 	if err != nil {
 		return nil, err
 	}
+	if err := s.admitName(ctx, authkit.NameAdmissionRequest{OwnerKind: "user", OwnerID: userID, RequestedName: username, Operation: authkit.NameCreate}); err != nil {
+		return nil, err
+	}
 	ins, err := s.q.UserInsert(ctx, db.UserInsertParams{ID: userID, Email: email, Username: &username, AtTime: s.namingNow()})
 	if err != nil {
-		return nil, err
+		return nil, nameClaimError(err, "user")
 	}
 	u := User{ID: ins.ID, Email: ins.Email, Username: ins.Username, EmailVerified: ins.EmailVerified, BannedAt: ins.BannedAt, DeletedAt: ins.DeletedAt}
 	return &u, nil

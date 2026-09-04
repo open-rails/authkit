@@ -226,12 +226,13 @@ func (q *Queries) UserDeleteHard(ctx context.Context, id string) error {
 const userEmailOrUsernameTaken = `-- name: UserEmailOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE email = lower($1::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::public.citext)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserEmailOrUsernameTakenParams struct {
 	Email    string
 	Username string
+	AtTime   time.Time
 }
 
 type UserEmailOrUsernameTakenRow struct {
@@ -240,7 +241,7 @@ type UserEmailOrUsernameTakenRow struct {
 }
 
 func (q *Queries) UserEmailOrUsernameTaken(ctx context.Context, arg UserEmailOrUsernameTakenParams) (UserEmailOrUsernameTakenRow, error) {
-	row := q.db.QueryRow(ctx, userEmailOrUsernameTaken, arg.Email, arg.Username)
+	row := q.db.QueryRow(ctx, userEmailOrUsernameTaken, arg.Email, arg.Username, arg.AtTime)
 	var i UserEmailOrUsernameTakenRow
 	err := row.Scan(&i.EmailTaken, &i.UsernameTaken)
 	return i, err
@@ -466,12 +467,13 @@ func (q *Queries) UserPasswordUpsert(ctx context.Context, arg UserPasswordUpsert
 const userPhoneOrUsernameTaken = `-- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = $1::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = $2::text::public.citext)::boolean AS username_taken
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($2::text) AND (canonical OR expires_at IS NULL OR expires_at>$3::timestamptz))::boolean AS username_taken
 `
 
 type UserPhoneOrUsernameTakenParams struct {
 	Phone    string
 	Username string
+	AtTime   time.Time
 }
 
 type UserPhoneOrUsernameTakenRow struct {
@@ -480,7 +482,7 @@ type UserPhoneOrUsernameTakenRow struct {
 }
 
 func (q *Queries) UserPhoneOrUsernameTaken(ctx context.Context, arg UserPhoneOrUsernameTakenParams) (UserPhoneOrUsernameTakenRow, error) {
-	row := q.db.QueryRow(ctx, userPhoneOrUsernameTaken, arg.Phone, arg.Username)
+	row := q.db.QueryRow(ctx, userPhoneOrUsernameTaken, arg.Phone, arg.Username, arg.AtTime)
 	var i UserPhoneOrUsernameTakenRow
 	err := row.Scan(&i.PhoneTaken, &i.UsernameTaken)
 	return i, err
@@ -672,11 +674,16 @@ func (q *Queries) UserUsernameByID(ctx context.Context, id string) (string, erro
 }
 
 const userUsernameExists = `-- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM profiles.users WHERE username = $1)
+SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower($1::text) AND (canonical OR expires_at IS NULL OR expires_at>$2::timestamptz))
 `
 
-func (q *Queries) UserUsernameExists(ctx context.Context, username *string) (bool, error) {
-	row := q.db.QueryRow(ctx, userUsernameExists, username)
+type UserUsernameExistsParams struct {
+	Username string
+	AtTime   time.Time
+}
+
+func (q *Queries) UserUsernameExists(ctx context.Context, arg UserUsernameExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userUsernameExists, arg.Username, arg.AtTime)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

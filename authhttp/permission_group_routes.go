@@ -14,6 +14,7 @@ package authhttp
 // instance_slug inside the Service, then authorizes via svc.Can before acting.
 
 import (
+	"github.com/open-rails/authkit/internal/authcore"
 	"github.com/open-rails/authkit/verify"
 	"net/http"
 	"strings"
@@ -188,6 +189,13 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			return
 		}
 
+		instance, err := s.svc.GroupInstanceForSlug(r.Context(), gr.Persona, instanceSlug)
+		if err != nil {
+			s.writeGroupOpError(w, err)
+			return
+		}
+		r = r.WithContext(authcore.WithResolvedGroup(r.Context(), instance, instanceSlug))
+
 		// Authorize: the caller (a user) must hold route.Perm on this group.
 		allowed, err := s.groupCan(r, claims.UserID, gr.Persona, instanceSlug, gr.Perm)
 		if err != nil {
@@ -199,6 +207,8 @@ func (s *Service) generatedGroupHandler(gr embedded.GeneratedRoute) http.Handler
 			return
 		}
 
+		w.Header().Set("X-AuthKit-Group-ID", instance.ID)
+		w.Header().Set("X-AuthKit-Canonical-Instance", instance.InstanceSlug)
 		switch op {
 		case opMembersList:
 			s.groupMembersList(w, r, gr.Persona, instanceSlug)

@@ -41,7 +41,7 @@ func TestQueryContracts(t *testing.T) {
 		}
 
 		svc := authcore.NewService(authcore.Config{}, authcore.Keyset{}, authcore.WithPostgres(pg.Pool))
-		requireNoError(t, svc.UpdateUsername(ctx, userID, "contract-user-new"))
+		requireNoError(t, svc.UpdateUsername(ctx, userID, "contract_user_new"))
 		aliases, err := q.UserSlugAliases(ctx, db.UserSlugAliasesParams{UserID: userID, AtTime: time.Now()})
 		requireNoError(t, err)
 		if len(aliases) != 1 || aliases[0] != username {

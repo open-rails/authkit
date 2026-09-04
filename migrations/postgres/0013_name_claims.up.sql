@@ -53,6 +53,7 @@ $$;
 CREATE FUNCTION profiles.enforce_canonical_name_claim() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE kind text := TG_ARGV[0]; scope text; handle text; previous text;
 BEGIN
+ IF TG_OP='UPDATE' AND NEW.id <> OLD.id THEN RAISE EXCEPTION 'identity UUID is immutable' USING ERRCODE='23514'; END IF;
  IF kind = 'user' THEN
   scope := '';
   IF TG_OP = 'DELETE' THEN handle := OLD.username::text; ELSE handle := NEW.username::text; END IF;
@@ -68,8 +69,13 @@ BEGIN
  IF TG_OP = 'DELETE' THEN
   -- Canonical deletion reserves forever by default. Explicit group release
   -- deletes this one claim after deletion; previous aliases keep their deadlines.
-  UPDATE profiles.name_claims SET canonical = false, expires_at = NULL
-   WHERE owner_kind = kind AND owner_id = OLD.id AND canonical;
+  IF kind='user' THEN
+   -- Existing user hard-delete semantics release the final canonical username.
+   DELETE FROM profiles.name_claims WHERE owner_kind=kind AND owner_id=OLD.id AND canonical;
+  ELSE
+   UPDATE profiles.name_claims SET canonical = false, expires_at = NULL
+    WHERE owner_kind = kind AND owner_id = OLD.id AND canonical;
+  END IF;
   RETURN OLD;
  END IF;
  IF TG_OP = 'INSERT' THEN
@@ -83,7 +89,7 @@ BEGIN
  RETURN NEW;
 END;
 $$;
-CREATE TRIGGER users_name_claim AFTER INSERT OR UPDATE OF username OR DELETE ON profiles.users
+CREATE TRIGGER users_name_claim AFTER INSERT OR UPDATE OF id, username OR DELETE ON profiles.users
  FOR EACH ROW EXECUTE FUNCTION profiles.enforce_canonical_name_claim('user');
-CREATE TRIGGER groups_name_claim AFTER INSERT OR UPDATE OF instance_slug, persona OR DELETE ON profiles.permission_groups
+CREATE TRIGGER groups_name_claim AFTER INSERT OR UPDATE OF id, instance_slug, persona OR DELETE ON profiles.permission_groups
  FOR EACH ROW EXECUTE FUNCTION profiles.enforce_canonical_name_claim('group');

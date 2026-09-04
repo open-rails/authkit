@@ -127,7 +127,7 @@ func TestApplicationSelfRegistration_EndToEnd(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.remote_applications WHERE slug LIKE '%'||$1`, suffix)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.permission_groups WHERE instance_slug LIKE '%'||$1`, suffix)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.permission_group_slug_tombstones WHERE slug LIKE '%'||$1`, suffix)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM profiles.name_claims WHERE owner_kind='group' AND name LIKE '%'||$1`, suffix)
 	})
 
 	// ---- register: the fetch is the domain-control proof ----

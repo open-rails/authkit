@@ -17,7 +17,7 @@ func (s *Service) finalizeRegisterEmail(ctx context.Context, rec pendingChange) 
 	email := rec.Target
 	username := rec.Username
 
-	taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username})
+	taken, err := s.q.UserEmailOrUsernameTaken(ctx, db.UserEmailOrUsernameTakenParams{Email: email, Username: username, AtTime: s.namingNow()})
 	if err != nil {
 		return "", err
 	}
@@ -49,7 +49,7 @@ func (s *Service) finalizeRegisterPhone(ctx context.Context, rec pendingChange) 
 	phone := rec.Target
 	username := rec.Username
 
-	taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{Phone: phone, Username: username})
+	taken, err := s.q.UserPhoneOrUsernameTaken(ctx, db.UserPhoneOrUsernameTakenParams{Phone: phone, Username: username, AtTime: s.namingNow()})
 	if err != nil {
 		return "", err
 	}

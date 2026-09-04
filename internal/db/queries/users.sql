@@ -27,12 +27,12 @@ WHERE id = $1 AND phone_number = $2;
 -- name: UserEmailOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE email = lower(sqlc.arg(email)::text)::public.citext)::boolean AS email_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text::public.citext)::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserPhoneOrUsernameTaken :one
 SELECT
   EXISTS(SELECT 1 FROM profiles.users WHERE phone_number = sqlc.arg(phone)::text)::boolean AS phone_taken,
-  EXISTS(SELECT 1 FROM profiles.users WHERE username = sqlc.arg(username)::text::public.citext)::boolean AS username_taken;
+  EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz))::boolean AS username_taken;
 
 -- name: UserSetPreferredLanguage :exec
 UPDATE profiles.users
@@ -154,4 +154,4 @@ ORDER BY deleted_at ASC
 LIMIT sqlc.arg(max_rows)::bigint;
 
 -- name: UserUsernameExists :one
-SELECT EXISTS(SELECT 1 FROM profiles.users WHERE username = $1);
+SELECT EXISTS(SELECT 1 FROM profiles.name_claims WHERE owner_kind='user' AND persona='' AND name=lower(sqlc.arg(username)::text) AND (canonical OR expires_at IS NULL OR expires_at>sqlc.arg(at_time)::timestamptz));

@@ -191,6 +191,9 @@ func (st *PermissionGroupStore) ResolveGroupSlug(ctx context.Context, persona, s
 }
 
 func (st *PermissionGroupStore) GroupByInstanceSlug(ctx context.Context, persona, slug string) (string, error) {
+	if id, bound, err := st.requestGroupID(ctx, persona, slug); bound {
+		return id, err
+	}
 	out, err := st.ResolveGroupSlug(ctx, persona, slug)
 	return out.ID, err
 }
