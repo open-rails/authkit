@@ -38,4 +38,13 @@ func TestKVPrefixIsolatesKeyspaces(t *testing.T) {
 	if keys, _ := rdb.Keys(ctx, "authkit:tenant_a:*").Result(); len(keys) != 0 {
 		t.Fatalf("tenant_a keys after consume=%v", keys)
 	}
+	if n, err := a.Incr(ctx, "email_verify:attempts:x", time.Minute); err != nil || n != 1 {
+		t.Fatalf("incr n=%d err=%v", n, err)
+	}
+	if n, err := b.Incr(ctx, "email_verify:attempts:x", time.Minute); err != nil || n != 1 {
+		t.Fatalf("b's counter must be independent: n=%d err=%v", n, err)
+	}
+	if keys, _ := rdb.Keys(ctx, "authkit:tenant_a:email_verify:*").Result(); len(keys) != 1 {
+		t.Fatalf("tenant_a counter keys=%v, want the namespaced one", keys)
+	}
 }

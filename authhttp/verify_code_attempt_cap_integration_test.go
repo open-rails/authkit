@@ -62,7 +62,7 @@ func TestEmailVerifyConfirm_AttemptCapHoldsUnderConcurrency(t *testing.T) {
 		email, wrong := newVerification("cap-below")
 		guessConcurrently(email, wrong, 4)
 		if store.rdb != nil {
-			n, err := store.rdb.Get(ctx, "auth:email_verify:attempts:"+email).Int()
+			n, err := store.rdb.Get(ctx, "authkit:profiles:email_verify:attempts:"+email).Int()
 			require.NoError(t, err)
 			require.Equal(t, 4, n, "four concurrent wrong guesses must count as exactly four")
 		}

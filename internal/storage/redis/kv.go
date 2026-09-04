@@ -67,5 +67,5 @@ return n
 `)
 
 func (k *KV) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
-	return incrScript.Run(ctx, k.rdb, []string{key}, ttl.Milliseconds()).Int64()
+	return incrScript.Run(ctx, k.rdb, []string{k.key(key)}, ttl.Milliseconds()).Int64()
 }
